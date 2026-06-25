@@ -31,3 +31,21 @@ Triggers are **not** declared in the manifest. They are declared in code —
 `#[trigger]` (Rust) or `@cloaca.trigger` (Python) — and registered when the
 package is compiled/imported at load time. See
 [Packaged Triggers]({{< ref "/embed/tutorials/14-packaged-triggers" >}}).
+
+## Declared params and per-task docs
+
+The package metadata (the `workflow_packages.metadata` JSON the server reads
+from `package.toml`) now also carries:
+
+- **`declared_params`** — the JSON-Schema input slots derived from
+  `#[workflow(params(...))]` / `@cloaca.workflow_params(...)`. These are the
+  workflow's typed execute-time inputs; the web UI renders a typed Run-workflow
+  form from them, and the execute API validates against them. See
+  [Declared params]({{< ref "/reference/macros" >}}#declared-params).
+- **Per-task `what` / `why` doc fields** — the structured task documentation
+  parsed from `#[task]` doc-comments / `@task` docstrings (the `what:` / `why:`
+  convention). These surface on each `WorkflowTaskNode` as `doc_what` /
+  `doc_why`.
+
+No manifest migration was needed to add these — they are additive fields in the
+existing metadata JSON.

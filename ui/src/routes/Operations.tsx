@@ -14,12 +14,11 @@
  *  limitations under the License.
  */
 
+import { Dot, MONO, pillBg, TOKEN } from "@colliery-io/aurora-dark";
 import { Box, Button, Group, Loader, Modal, SimpleGrid, Table, TextInput } from "@mantine/core";
 import { type CSSProperties, type ReactNode, useState } from "react";
 
 import { useOpsMetrics } from "../api/operations";
-import { Dot, MONO } from "../components/aurora";
-import { TOKEN, pillBg } from "../util/tokens";
 
 function fmtTime(ts: string | null): string {
   if (!ts) return "never";

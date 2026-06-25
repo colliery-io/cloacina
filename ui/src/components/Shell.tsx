@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { TOKEN } from "@colliery-io/aurora-dark";
 import { AppShell, Box, Button } from "@mantine/core";
 import {
   IconActivity,
@@ -21,6 +22,7 @@ import {
   IconHeartbeat,
   IconKey,
   IconSettings,
+  IconUsers,
   type Icon as TablerIcon,
 } from "@tabler/icons-react";
 import { NavLink as RouterNavLink, Outlet, useNavigate } from "react-router-dom";
@@ -32,7 +34,6 @@ import { useWorkflows } from "../api/workflows";
 import { useGraphs } from "../api/health";
 import { useExecutions } from "../api/executions";
 import { useTriggers } from "../api/triggers";
-import { TOKEN } from "../util/tokens";
 
 /**
  * Authenticated shell — the Aurora Dark sidebar (CLOACI-I-0129): a fixed 232px
@@ -223,6 +224,7 @@ export function Shell() {
           <GroupLabel>System</GroupLabel>
           <NavItem def={{ to: "/operations", label: "Operations", icon: IconHeartbeat }} />
           <NavItem def={{ to: "/keys", label: "API Keys", icon: IconKey }} />
+          <NavItem def={{ to: "/accounts", label: "Accounts", icon: IconUsers }} />
           <NavItem def={{ to: "/settings", label: "Settings", icon: IconSettings }} />
         </Box>
 

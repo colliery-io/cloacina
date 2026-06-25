@@ -1,0 +1,40 @@
+# CLOACI-I-0118 / T-0788: Dex — a self-contained OIDC test issuer so the
+# cloacina-server relying party (T-0789/0790) can be exercised end-to-end with
+# no external IdP. NOT for production (in-memory storage, static creds).
+#
+# Issuer note (CLOACI-T-0800): the browser (authorize redirect) AND the
+# in-container cloacina-server (discovery / token exchange) must both reach this
+# issuer at the SAME URL. `host.docker.internal` is the one host that resolves
+# from both on Docker Desktop — the server gets it for free; the browser needs a
+# single /etc/hosts line:  127.0.0.1 host.docker.internal
+# (For a pure host-run demo — server binary on the host — use
+#  CLOACINA_OIDC_ISSUER=http://localhost:5556/dex instead; no hosts edit needed.)
+issuer: http://host.docker.internal:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+# The cloacina-server relying party. `redirectURIs` must match the server's
+# /v1/auth/callback (host-mapped server port).
+staticClients:
+  - id: cloacina
+    name: Cloacina
+    secret: cloacina-dex-secret
+    redirectURIs:
+      - http://localhost:8080/v1/auth/callback
+
+# A test password user. `groups` drives the allowlist mapping policy (T-0791):
+# group `acme-admins` -> tenant acme / role admin.
+enablePasswordDB: true
+staticPasswords:
+  # password: "password" (bcrypt, htpasswd -bnBC 10 "" password)
+  - email: "alice@acme.com"
+    hash: "$2a$10$zEaz7.DwEsJjPejavjSdx.1C0ypz6X8FO9ujZmliC0iIMvL.pEE02"
+    username: "alice"
+    userID: "alice-uid"
+
+oauth2:
+  skipApprovalScreen: true

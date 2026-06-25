@@ -6,14 +6,11 @@
  *  one bar per run over the last N, height = duration, color = status, newest
  *  pulsing while in flight; click a bar → that execution.
  */
+import { Empty, ErrorState, formatAgo, Loading, MONO, statusColor } from "@colliery-io/aurora-dark";
 import { Tooltip } from "@mantine/core";
 import { useNavigate } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
-import { MONO } from "./aurora";
-import { Empty, ErrorState, Loading } from "./states/States";
-import { formatAgo } from "../util/activity";
-import { statusColor } from "../util/tokens";
 
 const isRunning = (s: string) => s.toLowerCase() === "running";
 const isTerminalDone = (s: string) =>

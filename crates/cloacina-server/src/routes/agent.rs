@@ -64,6 +64,31 @@ fn require_protocol_version(version: u32) -> Result<(), ApiError> {
     }
 }
 
+/// CLOACI-T-0785: reject an agent-protocol call whose caller key is not in the
+/// agent's tenant. God-mode (`is_admin`) bypasses. Unknown agents fall through
+/// (the handler's own not-found / orphan handling applies). Dispatch-time
+/// isolation already holds (`fleet_executor` only selects same-tenant agents);
+/// this closes the inbound `heartbeat`/`result` endpoints, which previously
+/// ignored the caller's tenant entirely.
+fn reject_cross_tenant_agent(
+    state: &AppState,
+    auth: &AuthenticatedKey,
+    agent_id: &str,
+) -> Result<(), ApiError> {
+    if auth.is_admin {
+        return Ok(());
+    }
+    if let Some(agent_tenant) = state.agent_registry.agent_tenant(agent_id) {
+        if agent_tenant != auth.tenant_id {
+            return Err(ApiError::forbidden(
+                "tenant_access_denied",
+                "agent belongs to a different tenant",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// `POST /v1/agent/register`
 pub async fn register_agent(
     State(state): State<AppState>,
@@ -110,10 +135,11 @@ pub async fn register_agent(
 /// `POST /v1/agent/heartbeat`
 pub async fn heartbeat_agent(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthenticatedKey>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Json(req): Json<AgentHeartbeatRequest>,
 ) -> Result<Json<AgentHeartbeatResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
+    reject_cross_tenant_agent(&state, &auth, &req.agent_id)?;
 
     if !state
         .agent_registry
@@ -140,10 +166,11 @@ pub async fn heartbeat_agent(
 /// is what keeps the system convergent.
 pub async fn report_result(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthenticatedKey>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Json(req): Json<AgentResultRequest>,
 ) -> Result<Json<AgentResultResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
+    reject_cross_tenant_agent(&state, &auth, &req.agent_id)?;
 
     // CLOACI-T-0780: a refusal is an EXPECTED fail-closed outcome — and now rare,
     // since the fleet only dispatches to agents with a runnable arch. Log it at
@@ -304,14 +331,13 @@ pub async fn list_agents(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
-    if !auth.is_admin {
-        return AuthenticatedKey::admin_required_response().into_response();
-    }
     let now = Instant::now();
     let agents: Vec<cloacina_api_types::AgentInfo> = state
         .agent_registry
         .snapshot()
         .into_iter()
+        // CLOACI-T-0785: tenant-admins see only their own tenant's agents; god sees all.
+        .filter(|r| auth.is_admin || r.tenant_id == auth.tenant_id)
         .map(|r| cloacina_api_types::AgentInfo {
             agent_id: r.agent_id,
             target_triple: r.target_triple,

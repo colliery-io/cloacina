@@ -1,6 +1,6 @@
 {
   "name": "@cloacina/seed-harness",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "Cloacina UI seed/demo workload harness (CLOACI-I-0117 / T-0660). Drives a target cloacina-server — ensures a tenant, uploads fixtures, runs executions — in deterministic seed mode (for UAT) or continuous loop mode (for a live demo).",

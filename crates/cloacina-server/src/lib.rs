@@ -24,6 +24,8 @@ pub mod agent_registry;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
+pub mod identity;
+pub mod oidc;
 pub mod openapi;
 pub mod ops_metrics;
 pub mod routes;
@@ -233,6 +235,17 @@ pub struct AppState {
     /// same value as its tick + dead-after basis. Operator-configurable via
     /// `--agent-heartbeat-interval-s`.
     pub agent_heartbeat_interval_seconds: u32,
+    /// CLOACI-T-0783: declarative `(method, path) -> Access` authorization
+    /// table, consulted by `authz_mw`. Built once at startup; fail-closed —
+    /// a matched route absent from this map is denied.
+    pub authz_table: Arc<crate::routes::authz::AuthzTable>,
+    /// CLOACI-T-0789/0790: the OIDC relying party, if an issuer is configured
+    /// (`CLOACINA_OIDC_*`) and discovery succeeded; `None` → OIDC login is off.
+    pub oidc: Option<Arc<crate::oidc::OidcProvider>>,
+    /// CLOACI-T-0791: the god-owned allowlist mapping OIDC claims → tenant/role.
+    pub oidc_policy: Arc<crate::oidc::MappingPolicy>,
+    /// CLOACI-T-0790: short-lived in-flight OIDC login state (state/nonce/PKCE).
+    pub oidc_login: Arc<crate::oidc::LoginFlowStore>,
 }
 
 /// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
@@ -759,6 +772,29 @@ pub async fn run(
         }
     };
 
+    // CLOACI-T-0789/0790: discover the OIDC issuer at startup if configured.
+    // Discovery failure (e.g. issuer unreachable) disables OIDC login rather
+    // than failing the whole server — API-key + local auth still work.
+    let oidc_provider = match crate::oidc::OidcConfig::from_env() {
+        Some(cfg) => match crate::oidc::OidcProvider::discover(cfg).await {
+            Ok(p) => {
+                info!("OIDC relying party configured and discovered");
+                Some(p)
+            }
+            Err(e) => {
+                warn!("OIDC configured but discovery failed ({e}); OIDC login disabled");
+                None
+            }
+        },
+        None => None,
+    };
+    let oidc_policy = Arc::new(crate::oidc::MappingPolicy::from_env());
+    // CLOACI-T-0801: Postgres-backed login-flow state (multi-replica safe).
+    let oidc_login = Arc::new(crate::oidc::LoginFlowStore::with_db(
+        runner.database().clone(),
+        std::time::Duration::from_secs(600),
+    ));
+
     let state = AppState {
         database: runner.database().clone(),
         runner: Arc::new(runner),
@@ -788,6 +824,10 @@ pub async fn run(
         // Clamp to >=1 so the advertised interval matches the sweeper's
         // clamped cadence (the agent also clamps, but keep server-side parity).
         agent_heartbeat_interval_seconds: agent_heartbeat_interval_s.max(1),
+        authz_table: Arc::new(crate::routes::authz::build_authz_table()),
+        oidc: oidc_provider,
+        oidc_policy,
+        oidc_login,
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -1116,6 +1156,11 @@ fn build_router(state: AppState) -> Router {
             "/auth/ws-ticket",
             post(crate::routes::keys::create_ws_ticket),
         )
+        // CLOACI-T-0794: login-session lifecycle (authenticated — caller's own key).
+        .route("/auth/refresh", post(crate::routes::session::refresh))
+        .route("/auth/logout", post(crate::routes::session::logout))
+        // CLOACI-T-0803: the caller's own role, so the UI can gate write/admin controls.
+        .route("/auth/whoami", get(crate::routes::session::whoami))
         // Execution-agent fleet roster (admin, operator-facing) — CLOACI-I-0124
         .route("/agents", get(crate::routes::agent::list_agents))
         // Compiler / build-pipeline status (admin) — CLOACI-I-0124
@@ -1134,6 +1179,32 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/keys",
             post(crate::routes::keys::create_tenant_key),
+        )
+        // CLOACI-T-0784: tenant-admin key self-service (list + revoke own-tenant).
+        .route(
+            "/tenants/{tenant_id}/keys",
+            get(crate::routes::keys::list_tenant_keys),
+        )
+        .route(
+            "/tenants/{tenant_id}/keys/{key_id}",
+            delete(crate::routes::keys::revoke_tenant_key),
+        )
+        // CLOACI-T-0797: tenant-admin local-account management.
+        .route(
+            "/tenants/{tenant_id}/accounts",
+            post(crate::routes::local_auth::create_account),
+        )
+        .route(
+            "/tenants/{tenant_id}/accounts",
+            get(crate::routes::local_auth::list_accounts),
+        )
+        .route(
+            "/tenants/{tenant_id}/accounts/{account_id}",
+            delete(crate::routes::local_auth::disable_account),
+        )
+        .route(
+            "/tenants/{tenant_id}/accounts/{account_id}/password",
+            post(crate::routes::local_auth::reset_password),
         )
         // Workflow packages (tenant-scoped)
         .route(
@@ -1214,6 +1285,10 @@ fn build_router(state: AppState) -> Router {
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
+            crate::routes::authz::authz_mw,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
             crate::routes::auth::require_auth,
         ));
 
@@ -1272,6 +1347,10 @@ fn build_router(state: AppState) -> Router {
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
+            crate::routes::authz::authz_mw,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
             crate::routes::auth::require_auth,
         ));
 
@@ -1327,6 +1406,10 @@ fn build_router(state: AppState) -> Router {
         // single-use ws-ticket — so auth stays per-sub-router, not nest-wide.
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
+            crate::routes::authz::authz_mw,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
             crate::routes::auth::require_auth,
         ));
 
@@ -1335,7 +1418,24 @@ fn build_router(state: AppState) -> Router {
     let v1 = auth_routes
         .merge(graph_health_routes)
         .merge(ws_routes)
-        .merge(agent_routes);
+        .merge(agent_routes)
+        // Public auth entry points (caller has no bearer key yet — NOT behind
+        // require_auth / authz_mw; they mint the key). CLOACI-T-0796/0790.
+        .merge(
+            Router::new()
+                .route(
+                    "/auth/local/login",
+                    post(crate::routes::local_auth::local_login),
+                )
+                .route(
+                    "/auth/oidc/login",
+                    get(crate::routes::oidc_auth::oidc_login),
+                )
+                .route(
+                    "/auth/callback",
+                    get(crate::routes::oidc_auth::oidc_callback),
+                ),
+        );
 
     // Public routes — no auth
     Router::new()
@@ -1560,15 +1660,28 @@ async fn bootstrap_demo_tenant_keys(state: &AppState) -> Result<()> {
     for entry in spec.split(',').filter(|e| !e.trim().is_empty()) {
         let parts: Vec<&str> = entry.split(':').map(|s| s.trim()).collect();
         if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
-            warn!("CLOACINA_DEMO_TENANT_KEYS: skipping malformed entry '{}'", entry);
+            warn!(
+                "CLOACINA_DEMO_TENANT_KEYS: skipping malformed entry '{}'",
+                entry
+            );
             continue;
         }
         let (tenant, key) = (parts[0], parts[1]);
-        let role = parts.get(2).copied().filter(|r| !r.is_empty()).unwrap_or("admin");
+        let role = parts
+            .get(2)
+            .copied()
+            .filter(|r| !r.is_empty())
+            .unwrap_or("admin");
         let hash = cloacina::security::api_keys::hash_api_key(key);
         match dal
             .api_keys()
-            .create_key(&hash, &format!("demo-{tenant}-scoped"), Some(tenant), false, role)
+            .create_key(
+                &hash,
+                &format!("demo-{tenant}-scoped"),
+                Some(tenant),
+                false,
+                role,
+            )
             .await
         {
             Ok(_) => info!(
@@ -1577,7 +1690,8 @@ async fn bootstrap_demo_tenant_keys(state: &AppState) -> Result<()> {
             ),
             Err(e) => tracing::debug!(
                 "CLOACI-T-0779: demo tenant key for '{}' not created (likely already exists): {}",
-                tenant, e
+                tenant,
+                e
             ),
         }
     }
@@ -1691,6 +1805,12 @@ mod tests {
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+            authz_table: Arc::new(crate::routes::authz::build_authz_table()),
+            oidc: None,
+            oidc_policy: Arc::new(crate::oidc::MappingPolicy::default()),
+            oidc_login: Arc::new(crate::oidc::LoginFlowStore::new(
+                std::time::Duration::from_secs(600),
+            )),
         }
     }
 

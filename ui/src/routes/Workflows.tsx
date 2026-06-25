@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { cardSurface, Empty, ErrorState, formatAgo, Loading, MONO, PageHeader, pillBg, RunCircles, type RunDot, TOKEN } from "@colliery-io/aurora-dark";
 import { Box, Button, Group } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -21,12 +22,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { useExecutions } from "../api/executions";
 import { useWorkflows } from "../api/workflows";
 import { usePauseWorkflow } from "../api/controls";
-import { RunCircles, type RunDot } from "../components/RunCircles";
+import { useCan } from "../auth/AuthContext";
 import { RunWorkflowModal } from "../components/RunWorkflowModal";
-import { MONO, PageHeader, cardSurface } from "../components/aurora";
-import { Empty, ErrorState, Loading } from "../components/states/States";
-import { formatAgo } from "../util/activity";
-import { TOKEN, pillBg } from "../util/tokens";
 
 function useRecentRunsByWorkflow(): Map<string, RunDot[]> {
   const recent = useExecutions({ limit: 200, offset: 0 });
@@ -48,6 +45,7 @@ export function Workflows() {
   const { data, isPending, isError, error, refetch } = useWorkflows();
   const runsByWorkflow = useRecentRunsByWorkflow();
   const pause = usePauseWorkflow();
+  const { canWrite } = useCan();
   const [runTarget, setRunTarget] = useState<{ pkg: string; workflow: string } | null>(null);
 
   const items = (data?.items ?? []).filter((w) => w.tasks.length > 0);
@@ -58,16 +56,18 @@ export function Workflows() {
         title="Workflows"
         sub={`${items.length} packages`}
         right={
-          <Button
-            component={Link}
-            to="/workflows/upload"
-            color="ice"
-            radius={9}
-            size="sm"
-            styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
-          >
-            ↑ Upload package
-          </Button>
+          canWrite && (
+            <Button
+              component={Link}
+              to="/workflows/upload"
+              color="ice"
+              radius={9}
+              size="sm"
+              styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+            >
+              ↑ Upload package
+            </Button>
+          )
         }
       />
 
@@ -112,28 +112,32 @@ export function Workflows() {
                 </Group>
                 <Group gap={10} wrap="nowrap" style={{ flex: "none" }}>
                   <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
-                  <Button
-                    size="xs"
-                    variant="subtle"
-                    styles={{ root: { color: "var(--muted)" } }}
-                    loading={pause.isPending && pause.variables?.name === w.package_name}
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      pause.mutate({ name: w.package_name, paused: !w.paused });
-                    }}
-                  >
-                    {w.paused ? "Resume" : "Pause"}
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="default"
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      setRunTarget({ pkg: w.package_name, workflow: w.workflow_name });
-                    }}
-                  >
-                    ▸ Run
-                  </Button>
+                  {canWrite && (
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      styles={{ root: { color: "var(--muted)" } }}
+                      loading={pause.isPending && pause.variables?.name === w.package_name}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        pause.mutate({ name: w.package_name, paused: !w.paused });
+                      }}
+                    >
+                      {w.paused ? "Resume" : "Pause"}
+                    </Button>
+                  )}
+                  {canWrite && (
+                    <Button
+                      size="xs"
+                      variant="default"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        setRunTarget({ pkg: w.package_name, workflow: w.workflow_name });
+                      }}
+                    >
+                      ▸ Run
+                    </Button>
+                  )}
                 </Group>
               </Group>
             </Box>

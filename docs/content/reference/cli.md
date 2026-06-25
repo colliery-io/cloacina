@@ -367,6 +367,29 @@ node inside the graph.
 | `graph status <NAME>` | `GET /v1/health/graphs/<name>` | Single graph's health + accumulators + reactor pause state. |
 | `graph accumulators` | `GET /v1/health/accumulators` | Lists all accumulators across all graphs. |
 
+## `reactor`
+
+Operator manual-fire actions on reactors loaded in the server's graph
+scheduler (CLOACI-T-0751). Typed JSON inputs are serialized to the
+boundary encoding server-side, so you never hand-craft raw boundary
+bytes.
+
+| Command | HTTP Endpoint | Notes |
+|---|---|---|
+| `reactor force-fire <NAME>` | `POST /v1/health/reactors/<name>/fire` | Fires the reactor with its **current** cache; no input injected (`mode: force_fire`). |
+| `reactor fire <NAME> --input <SOURCE>=<JSON>` | `POST /v1/health/reactors/<name>/fire` | Replaces the reactor's cache with typed inputs, then fires (`mode: fire_with`). `--input` is repeatable and **required**; each is `source=<json>`. The JSON value is parsed as JSON, or treated as a JSON string if it isn't valid JSON (so `--input note=hello` works unquoted). Full-replace only — no partial merge. Example: `reactor fire pricing_reactor --input prices='{"sym":"ABC","px":12.5}'`. |
+
+## `accumulator`
+
+Operator manual-inject action on accumulators loaded in the server's
+graph scheduler (CLOACI-T-0753) — the front-door analogue of `reactor
+fire`. The typed JSON event is serialized to the boundary encoding
+server-side.
+
+| Command | HTTP Endpoint | Notes |
+|---|---|---|
+| `accumulator inject <NAME> --event <JSON>` | `POST /v1/health/accumulators/<name>/inject` | Pushes a single typed event into a running accumulator. `--event` is parsed as JSON, or treated as a JSON string if it isn't valid JSON (so `--event hello` works unquoted). Example: `accumulator inject orderbook --event '{"sym":"ABC","px":12.5}'`. |
+
 ## `tenant` (admin)
 
 Requires an admin-role key.

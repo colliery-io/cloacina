@@ -9,12 +9,11 @@
  *  the clicked node's definition — a compute node's `fn`/`def`, or the
  *  `#[reactor(...)]` block — falling back to the full file at the first mention.
  */
+import { MONO, nodeKindColor, Pill } from "@colliery-io/aurora-dark";
 import { Box, Divider, Group, Modal, Stack, Text } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 
 import { useWorkflowSource, type WorkflowSourceFile } from "../api/controls";
-import { MONO, Pill } from "./aurora";
-import { nodeKindColor } from "../util/tokens";
 
 /** Node passed in from the graph view. `kind` is "Node" | "Reactor" |
  *  "Accumulator"; `name` is the id used to locate the definition in source. */

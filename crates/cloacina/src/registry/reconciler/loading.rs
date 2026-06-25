@@ -2096,6 +2096,7 @@ mod tests {
             paused: false,
             declared_params: vec![],
             declared_surfaces: vec![],
+            workflow_triggers: vec![],
         }
     }
 

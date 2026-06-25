@@ -26,14 +26,14 @@ kafka = ["cloacina/kafka"]
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [dependencies]
-cloacina = { version = "0.8.0", path = "../cloacina", default-features = false }
+cloacina = { version = "0.9.0", path = "../cloacina", default-features = false }
 cloacina-api-types = { workspace = true, features = ["openapi"] }
 utoipa = { version = "5" }
 # Python runtime — server registers the impl at startup so uploaded
 # Python-language packages can be loaded by the reconciler. Compiler
 # service intentionally does not depend on this (T-0529).
-cloacina-python = { version = "0.8.0", path = "../cloacina-python", default-features = false }
-cloacina-workflow-plugin = { version = "0.8.0", path = "../cloacina-workflow-plugin" }
+cloacina-python = { version = "0.9.0", path = "../cloacina-python", default-features = false }
+cloacina-workflow-plugin = { version = "0.9.0", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 anyhow.workspace = true
 dirs = "6"
@@ -55,6 +55,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 base64 = "0.22"
+# CLOACI-T-0789/0790: OIDC relying party. openidconnect handles discovery,
+# JWKS, PKCE, and spec-correct ID-token validation (OQ-6).
+openidconnect = { version = "4", features = ["reqwest"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 bincode = "1.3"
 http-body-util = "0.1"
 tracing-opentelemetry = { version = "0.32", optional = true }
@@ -69,4 +73,4 @@ serial_test = "3"
 tempfile = "3"
 
 [build-dependencies]
-cloacina-build = { version = "0.8.0", path = "../cloacina-build" }
+cloacina-build = { version = "0.9.0", path = "../cloacina-build" }

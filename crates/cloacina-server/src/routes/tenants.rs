@@ -55,13 +55,9 @@ use crate::AppState;
 )]
 pub async fn create_tenant(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Json(body): Json<CreateTenantRequest>,
 ) -> impl IntoResponse {
-    if !auth.is_admin {
-        return AuthenticatedKey::admin_required_response().into_response();
-    }
-
     let admin = DatabaseAdmin::new(state.database.clone());
     let config = TenantConfig {
         // Per CLOACI-T-0594: schema_name == username == public name.
@@ -134,13 +130,9 @@ pub async fn create_tenant(
 )]
 pub async fn remove_tenant(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(schema_name): Path<String>,
 ) -> impl IntoResponse {
-    if !auth.is_admin {
-        return AuthenticatedKey::admin_required_response().into_response();
-    }
-
     let teardown_started = Instant::now();
 
     // Step 1: revoke keys.
@@ -263,11 +255,8 @@ pub async fn remove_tenant(
 )]
 pub async fn list_tenants(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
-    if !auth.is_admin {
-        return AuthenticatedKey::admin_required_response().into_response();
-    }
     let admin = DatabaseAdmin::new(state.database.clone());
 
     match admin.list_tenant_schemas().await {

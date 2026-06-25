@@ -7,11 +7,11 @@
  *  whole-file dump is noise — by default we extract just the clicked task's
  *  definition (its `#[task]`/`@task` function) and offer a "full file" toggle.
  */
+import { MONO } from "@colliery-io/aurora-dark";
 import { Box, Group, Modal } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 
 import { useWorkflowSource, type WorkflowSourceFile } from "../api/controls";
-import { MONO } from "./aurora";
 
 /** Walk back from a `fn`/`def` line over its doc-comment + attribute/decorator
  *  prelude — INCLUDING multi-line attributes whose closing line (e.g. `)]`) does

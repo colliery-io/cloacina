@@ -64,17 +64,10 @@ use crate::AppState;
 )]
 pub async fn execute_workflow(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<ExecuteRequest>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-    if !auth.can_write() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
-
     let mut context = Context::new();
 
     // CLOACI-T-0757: capture the provided context object for declared-param
@@ -255,14 +248,10 @@ const MAX_EXECUTIONS_LIMIT: i64 = 1000;
 )]
 pub async fn list_executions(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     Query(q): Query<ListExecutionsQuery>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let limit = q.limit.unwrap_or(DEFAULT_EXECUTIONS_LIMIT);
     if !(1..=MAX_EXECUTIONS_LIMIT).contains(&limit) {
         return ApiError::bad_request(
@@ -344,13 +333,9 @@ pub async fn list_executions(
 )]
 pub async fn get_execution(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
@@ -407,13 +392,9 @@ pub async fn get_execution(
 )]
 pub async fn get_execution_events(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
@@ -492,13 +473,9 @@ pub async fn get_execution_events(
 )]
 pub async fn get_execution_tasks(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {

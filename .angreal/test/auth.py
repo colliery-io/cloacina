@@ -76,7 +76,13 @@ def api_request(method, url, token=None, data=None):
 
     try:
         with urllib.request.urlopen(req) as resp:
-            return resp.status, json.loads(resp.read())
+            raw = resp.read()
+            try:
+                return resp.status, json.loads(raw)
+            except Exception:
+                # A 2xx with an empty/non-JSON body (e.g. a no-content response)
+                # is valid — don't crash the whole suite on it.
+                return resp.status, {}
     except urllib.error.HTTPError as e:
         try:
             body = json.loads(e.read())
@@ -188,8 +194,9 @@ def auth_integration_test():
         s, body = api_request("GET", f"{base_url}/v1/auth/keys", token=token)
         check("bootstrap lists keys", s == 200, f"got {s}")
 
-        # Bootstrap key response includes is_admin and tenant_id
-        keys = body.get("keys", [])
+        # Bootstrap key response includes is_admin and tenant_id.
+        # The list response uses the standard items envelope (T-0594).
+        keys = body.get("items", body.get("keys", []))
         bootstrap_info = next((k for k in keys if k.get("name") == "bootstrap-admin"), None)
         check("bootstrap key in list", bootstrap_info is not None)
         if bootstrap_info:
@@ -328,8 +335,10 @@ def auth_integration_test():
         revoke_key_token = body.get("key", "")
         revoke_key_id = body.get("id", "")
 
-        # Verify it works before revocation
-        s, _ = api_request("GET", f"{base_url}/v1/auth/keys", token=revoke_key_token)
+        # Verify it works before revocation. Use whoami, not the global
+        # /auth/keys surface — post-leak-fix that surface is god-only, so a
+        # plain key correctly gets 403 there (covered in group 8).
+        s, _ = api_request("GET", f"{base_url}/v1/auth/whoami", token=revoke_key_token)
         check("key works before revoke", s == 200, f"got {s}")
 
         # Revoke it
@@ -359,9 +368,81 @@ def auth_integration_test():
             metrics_text = resp.read().decode()
         check("metrics contains HELP lines", "# HELP" in metrics_text or "# TYPE" in metrics_text,
               f"no HELP/TYPE lines in metrics output (length={len(metrics_text)})")
-        check("metrics contains pipeline counter",
-              "cloacina_pipelines_total" in metrics_text or "cloacina_tasks_total" in metrics_text,
-              "no cloacina counters found in metrics output")
+        # The pipeline/task counters only appear once work has run; this suite
+        # executes no workflows, so assert the server exports its metric
+        # namespace rather than a specific counter.
+        check("metrics export the cloacina_ namespace",
+              "cloacina_" in metrics_text,
+              "no cloacina_* metrics found in output")
+
+        # =================================================================
+        # Test group 8: 0.9.0 auth — whoami, cross-tenant key-management leak
+        #   fix, and self-managed local accounts (CLOACI-I-0118)
+        # =================================================================
+        print_section_header("Test group 8: 0.9.0 auth (whoami, leak fix, local accounts)")
+
+        # -- whoami reflects the calling key's role --
+        s, body = api_request("GET", f"{base_url}/v1/auth/whoami", token=token)
+        check("whoami(bootstrap) role=admin, is_admin=true",
+              s == 200 and body.get("role") == "admin" and body.get("is_admin") is True,
+              f"got {s} {body}")
+        s, body = api_request("GET", f"{base_url}/v1/auth/whoami", token=read_key)
+        check("whoami(read key) role=read",
+              s == 200 and body.get("role") == "read", f"got {s} {body}")
+        s, body = api_request("GET", f"{base_url}/v1/auth/whoami", token=write_key)
+        check("whoami(write key) role=write",
+              s == 200 and body.get("role") == "write", f"got {s} {body}")
+
+        # -- Cross-tenant key-management leak fix (the exact bug 0.9.0 fixed):
+        #    a tenant-scoped key must NOT reach the god-only global /auth/keys.
+        if tenant_key:
+            s, _ = api_request("GET", f"{base_url}/v1/auth/keys", token=tenant_key)
+            check("LEAK FIX: tenant key → global GET /auth/keys → 403", s == 403, f"got {s}")
+            s, _ = api_request("POST", f"{base_url}/v1/auth/keys", token=tenant_key,
+                               data={"name": "leak-attempt"})
+            check("LEAK FIX: tenant key → global POST /auth/keys → 403", s == 403, f"got {s}")
+            # but it CAN manage its own tenant's keys
+            s, _ = api_request("GET", f"{base_url}/v1/tenants/public/keys", token=tenant_key)
+            check("tenant key → own tenant keys → 200", s == 200, f"got {s}")
+
+        # -- Self-managed local accounts: create → login (mint) → whoami →
+        #    refresh (re-mint, revoke old) → logout (revoke) --
+        s, _ = api_request("POST", f"{base_url}/v1/tenants/public/accounts", token=token,
+                           data={"username": "ci-user", "password": "ci-pass-12345", "role": "write"})
+        check("create local account → 201", s == 201, f"got {s}")
+
+        # wrong password is rejected with no account enumeration
+        s, _ = api_request("POST", f"{base_url}/v1/auth/local/login",
+                           data={"username": "ci-user", "password": "WRONG", "tenant": "public"})
+        check("local login wrong password → 401", s == 401, f"got {s}")
+
+        # correct login mints a scoped key
+        s, body = api_request("POST", f"{base_url}/v1/auth/local/login",
+                              data={"username": "ci-user", "password": "ci-pass-12345", "tenant": "public"})
+        check("local login → 200 + minted key", s == 200 and bool(body.get("key")), f"got {s}")
+        minted = body.get("key", "")
+        if minted:
+            s, wb = api_request("GET", f"{base_url}/v1/auth/whoami", token=minted)
+            check("minted key whoami role=write",
+                  s == 200 and wb.get("role") == "write", f"got {s} {wb}")
+            s, _ = api_request("GET", f"{base_url}/v1/tenants/public/workflows", token=minted)
+            check("minted key reads its tenant → 200", s == 200, f"got {s}")
+
+            # refresh re-mints and revokes the old key
+            s, rb = api_request("POST", f"{base_url}/v1/auth/refresh", token=minted)
+            check("refresh → 200 + fresh key", s == 200 and bool(rb.get("key")), f"got {s}")
+            refreshed = rb.get("key", "")
+            time.sleep(1)
+            s, _ = api_request("GET", f"{base_url}/v1/tenants/public/workflows", token=minted)
+            check("old key after refresh → 401", s == 401, f"got {s}")
+
+            # logout revokes the current key
+            if refreshed:
+                s, _ = api_request("POST", f"{base_url}/v1/auth/logout", token=refreshed)
+                check("logout → 200", s == 200, f"got {s}")
+                time.sleep(1)
+                s, _ = api_request("GET", f"{base_url}/v1/tenants/public/workflows", token=refreshed)
+                check("logged-out key → 401", s == 401, f"got {s}")
 
         # =================================================================
         # Results

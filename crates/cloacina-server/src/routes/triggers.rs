@@ -67,14 +67,10 @@ const MAX_TRIGGERS_LIMIT: i64 = 1000;
 )]
 pub async fn list_triggers(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     Query(q): Query<ListTriggersQuery>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     // CLOACI-T-0596 / API-10: client-bounded pagination. Defaults match
     // the historical hardcoded `LIMIT 100`; explicit caps prevent a
     // pathological `?limit=1000000` from pulling the entire table.
@@ -165,13 +161,9 @@ pub async fn list_triggers(
 )]
 pub async fn get_trigger(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let tenant_db = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -265,10 +257,10 @@ pub async fn get_trigger(
 )]
 pub async fn pause_trigger(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    set_trigger_paused(state, auth, tenant_id, name, true).await
+    set_trigger_paused(state, _auth, tenant_id, name, true).await
 }
 
 /// POST /tenants/:tenant_id/triggers/:name/resume — resume a paused schedule
@@ -293,27 +285,20 @@ pub async fn pause_trigger(
 )]
 pub async fn resume_trigger(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    set_trigger_paused(state, auth, tenant_id, name, false).await
+    set_trigger_paused(state, _auth, tenant_id, name, false).await
 }
 
 /// Shared pause/resume implementation for trigger and cron schedules.
 async fn set_trigger_paused(
     state: AppState,
-    auth: AuthenticatedKey,
+    _auth: AuthenticatedKey,
     tenant_id: String,
     name: String,
     pause: bool,
 ) -> axum::response::Response {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-    if !auth.can_write() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
-
     let tenant_db = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -401,17 +386,10 @@ async fn set_trigger_paused(
 )]
 pub async fn fire_trigger(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<FireTriggerRequest>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-    if !auth.can_write() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
-
     let tenant_db = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -419,7 +397,8 @@ pub async fn fire_trigger(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response()
         }
     };
 
@@ -450,8 +429,10 @@ pub async fn fire_trigger(
         if let Some(r) = &registry {
             let slots = trigger_declared_slots(r, &subscribers).await;
             if !slots.is_empty() {
-                let errors =
-                    validate_declared_params(&slots, body.event.as_ref().and_then(|v| v.as_object()));
+                let errors = validate_declared_params(
+                    &slots,
+                    body.event.as_ref().and_then(|v| v.as_object()),
+                );
                 if !errors.is_empty() {
                     return ApiError::bad_request(
                         "trigger_event_invalid",
@@ -576,13 +557,9 @@ async fn trigger_declared_slots(
 )]
 pub async fn get_trigger_interface(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let tenant_db = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -590,7 +567,8 @@ pub async fn get_trigger_interface(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response()
         }
     };
 

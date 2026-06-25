@@ -7,15 +7,13 @@
  *  item (the detail `schedule` doesn't carry next/last); toggle hits the trigger
  *  pause/resume endpoint. Empty state when the workflow has no schedule.
  */
+import { formatAgo, MONO, Panel, Pill, TOKEN } from "@colliery-io/aurora-dark";
 import { Group, Switch } from "@mantine/core";
 import cronstrue from "cronstrue";
 
 import { useTriggers } from "../api/triggers";
 import { useToggleTrigger } from "../api/controls";
-import { MONO, Panel, Pill } from "./aurora";
 import { formatTimestamp } from "../util/format";
-import { formatAgo } from "../util/activity";
-import { TOKEN } from "../util/tokens";
 
 function humanizeCron(expr: string): string {
   try {

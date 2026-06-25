@@ -827,6 +827,44 @@ mod postgres_schema {
             revoked_at -> Nullable<Timestamptz>,
             tenant_id -> Nullable<Text>,
             is_admin -> Bool,
+            expires_at -> Nullable<Timestamptz>,
+            issued_via -> Nullable<Text>,
+        }
+    }
+
+    // CLOACI-T-0793: encrypted refresh-token store (server mode only — Postgres).
+    diesel::table! {
+        oidc_sessions (id) {
+            id -> Uuid,
+            key_id -> Uuid,
+            provider -> Text,
+            refresh_enc -> Bytea,
+            created_at -> Timestamptz,
+            expires_at -> Nullable<Timestamptz>,
+        }
+    }
+
+    // CLOACI-T-0795: local accounts — self-managed login (server mode only — Postgres).
+    diesel::table! {
+        local_accounts (id) {
+            id -> Uuid,
+            username -> Text,
+            password_hash -> Text,
+            tenant_id -> Nullable<Text>,
+            role -> Text,
+            status -> Text,
+            created_at -> Timestamptz,
+        }
+    }
+
+    // CLOACI-T-0801: OIDC in-flight login state (server mode only — Postgres).
+    diesel::table! {
+        oidc_login_flows (state) {
+            state -> Text,
+            nonce -> Text,
+            pkce_verifier -> Text,
+            created_at -> Timestamptz,
+            expires_at -> Timestamptz,
         }
     }
 

@@ -11,6 +11,20 @@ aliases:
 
 This page explains the model behind the **DB-backed reactor → workflow subscription** shipped in CLOACI-I-0100 — what it is, why it's a separate path from the in-process CG firing path, and what guarantees it gives. For the *recipe* to wire a workflow to a reactor, see [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}). For the CEL filter side, see [Filter reactor firings with CEL]({{< ref "filter-reactor-firings-with-cel" >}}).
 
+{{< hint type=warning title="Two unrelated things are both called \"fan-out\"" >}}
+This page is about **reactor → workflow subscription fan-out**: a *reactor* publishes
+firing events, and durable *workflows* subscribe to that reactor's name through a
+DB-backed event log.
+
+It is **not** the same as **trigger-name fan-out** ([CLOACI-T-0777] / [T-0778]),
+where multiple workflows subscribe to one **[Trigger]({{< ref "/engine/scheduling/trigger" >}})**
+*name* and all of them run when that trigger fires. No reactor, no `reactor_firings`
+log, and no watermark are involved in trigger-name fan-out. See
+[Trigger-name fan-out vs reactor subscription fan-out](#trigger-name-fan-out-vs-reactor-subscription-fan-out)
+below for the distinction, and the [Trigger]({{< ref "/engine/scheduling/trigger" >}})
+reference for the mechanism itself.
+{{< /hint >}}
+
 ## The topology, restated
 
 Per CLOACI-S-0011 (post-2026-04-24 topology amendment), a **reactor** is a standalone publisher of firing events. The reactor itself does not know who its subscribers are; subscribers declare the reactor as their upstream by name (the **upstream-declaration pattern**). Two subscriber kinds coexist on every firing:
@@ -119,9 +133,65 @@ If a downstream needs *both* an in-process CG (for fast routing decisions) and a
 | A workflow that fires on a non-reactor source (cron, file watch, HTTP poll) | Implement the [`Trigger` trait]({{< ref "/embed/tutorials/07-event-triggers" >}}) — no reactor involved |
 | Both — a fast in-process CG *and* a durable downstream workflow | Both. They coexist on the same firing. |
 
+## Trigger-name fan-out vs reactor subscription fan-out
+
+Both features let one event start several downstream consumers, and both are
+called "fan-out" in conversation — but they are different primitives with
+different resolution, durability, and failure semantics. Keep them distinct.
+
+| | **Reactor subscription fan-out** (this page) | **Trigger-name fan-out** ([T-0777] / [T-0778]) |
+|---|---|---|
+| Publisher | A **reactor** (firing event) | A **[Trigger]({{< ref "/engine/scheduling/trigger" >}})** (poll function or cron) |
+| Consumer | **Workflows** that declare the reactor as upstream | **Workflows** that name the trigger in `#[workflow(triggers = ["..."])]` |
+| How subscribers are resolved | `reactor_subscriptions` rows (DB) | Registry workflow metadata (`workflow_triggers`) — **not** the schedules table |
+| Transport | DB-backed event log (`reactor_firings` + watermark) | In-process at fire time (auto-poll or manual fire) |
+| Delivery guarantee | At-least-once, durable across restart | Best-effort to secondaries (see below) |
+| Cross-package subscribers | Yes (via subscription rows) | Yes (resolved from registry metadata) |
+
+### Why trigger-name fan-out resolves from registry metadata
+
+A trigger is a *named* fan-out point. Its primary workflow is the one named in
+`on`, but any number of other workflows — including ones in other packages —
+subscribe simply by naming the trigger in
+`#[workflow(triggers = ["my_trigger"])]`. When the trigger fires (whether the
+scheduler's auto-poll fires it, or an operator fires it manually), **every**
+subscribed workflow runs, not just the primary.
+
+The subscriber set is resolved from the **registry's workflow metadata**
+(`workflow_triggers`), *not* from the schedules table. This is the change that
+[T-0777] made: before it, fan-out was driven off schedules, so cross-package
+subscribers — workflows that named the trigger but had no schedule row of their
+own — were silently dropped. Resolving off registry metadata is what makes a
+workflow in package B reliably run when a trigger declared in package A fires.
+
+A plain cron *schedule* (a schedule with no trigger name) is the degenerate case:
+it binds exactly one workflow and fans out to no one.
+
+### Primary vs secondary subscribers
+
+Trigger-name fan-out has an asymmetry the reactor path does not:
+
+- The **primary** workflow (the trigger's `on` target) drives the **audit
+  record, the return value, and error propagation**. If the primary fails, the
+  fire fails.
+- **Secondary** subscribers are **best-effort**: each runs independently, and a
+  secondary failure is **logged but never fails the primary** (or any sibling
+  secondary).
+
+Because `Context` is **not `Clone`**, the scheduler cannot hand the same context
+object to every subscriber. Instead it **snapshots the context to JSON once** at
+fire time and **rebuilds a fresh `Context` per subscriber** from that snapshot —
+so subscribers start from identical input but cannot interfere with each other's
+context state.
+
+For the authoring surface and the manual-fire endpoint, see the
+[Trigger]({{< ref "/engine/scheduling/trigger" >}}) reference; this page does not
+repeat it.
+
 ## References
 
 - **CLOACI-I-0100** — DB-backed reactor → workflow subscription fan-out (initiative).
+- **CLOACI-T-0777 / CLOACI-T-0778** — trigger-name fan-out (subscribers resolved from registry metadata; manual + auto-poll fire all subscribers). See the [Trigger]({{< ref "/engine/scheduling/trigger" >}}) reference.
 - **CLOACI-T-0602** — CEL predicate filtering on subscriptions.
 - **CLOACI-S-0011** — Primitive nomenclature spec; 2026-04-24 topology amendment makes the reactor a standalone publisher.
 - **Code**: `crates/cloacina/src/dal/unified/reactor_subscriptions.rs`, `crates/cloacina/src/runner/default_runner/reactor_subscriptions_api.rs`, `crates/cloacina/src/cron_trigger_scheduler.rs`.

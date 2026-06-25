@@ -60,17 +60,10 @@ use crate::AppState;
 )]
 pub async fn upload_workflow(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-    if !auth.can_write() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
-
     // Extract file from multipart
     let package_data = match extract_file_field(&mut multipart).await {
         Ok(data) => data,
@@ -228,13 +221,9 @@ pub async fn upload_workflow(
 )]
 pub async fn list_workflows(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -296,13 +285,9 @@ pub async fn list_workflows(
 )]
 pub async fn get_workflow(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -447,13 +432,9 @@ pub async fn get_workflow(
 )]
 pub async fn get_workflow_source(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -563,16 +544,9 @@ fn detect_source_language(path: &str) -> Option<String> {
 )]
 pub async fn delete_workflow(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name, version)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-    if !auth.can_write() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -639,10 +613,10 @@ pub async fn delete_workflow(
 )]
 pub async fn pause_workflow(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    set_workflow_paused(state, auth, tenant_id, name, true).await
+    set_workflow_paused(state, _auth, tenant_id, name, true).await
 }
 
 /// POST /tenants/:tenant_id/workflows/:name/resume — resume a paused workflow
@@ -666,27 +640,20 @@ pub async fn pause_workflow(
 )]
 pub async fn resume_workflow(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    set_workflow_paused(state, auth, tenant_id, name, false).await
+    set_workflow_paused(state, _auth, tenant_id, name, false).await
 }
 
 /// Shared pause/resume implementation for workflows (CLOACI-T-0749).
 async fn set_workflow_paused(
     state: AppState,
-    auth: AuthenticatedKey,
+    _auth: AuthenticatedKey,
     tenant_id: String,
     name: String,
     pause: bool,
 ) -> axum::response::Response {
-    if !auth.can_access_tenant(&tenant_id) {
-        return AuthenticatedKey::forbidden_response().into_response();
-    }
-    if !auth.can_write() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)

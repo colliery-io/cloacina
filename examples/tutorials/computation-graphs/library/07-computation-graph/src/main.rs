@@ -155,7 +155,7 @@ async fn main() {
 
     // Inspect the result
     match result {
-        GraphResult::Completed { outputs } => {
+        GraphResult::Completed { outputs, .. } => {
             println!("Graph completed with {} terminal output(s)", outputs.len());
 
             // Downcast the terminal output to our expected type

@@ -14,13 +14,13 @@
  *  limitations under the License.
  */
 
+import { isTerminalStatus } from "@colliery-io/aurora-dark";
 import { followExecutionEvents } from "@cloacina/client";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { ExecutionEvent } from "../components/EventLog";
 import { useAuth, useClient, useTenant } from "../auth/AuthContext";
-import { isTerminalStatus } from "../util/status";
 import { queryKeys } from "./hooks";
 
 /** One per-task row of an execution (CLOACI-I-0124 / WS-1; `/executions/{id}/tasks`). */

@@ -86,6 +86,46 @@ def flaky(context):
 See [Conditional Retries]({{< ref "/embed/how-to/conditional-retries" >}})
 for retry-condition patterns.
 
+## Documenting a task: `what:` / `why:`
+
+A `#[task]` doc-comment (Rust `///`) or `@task` docstring (Python) can carry
+structured documentation that the compiler lifts into the package manifest and
+surfaces on each `WorkflowTaskNode` (as `doc_what` / `doc_why`). The convention
+is line-leading, case-insensitive `what:` and `why:` markers: text following a
+`what:` line routes into the `what` field, text following a `why:` line routes
+into `why`. With **no markers**, the whole comment becomes `what` and `why` is
+left empty.
+
+{{< tabs "task-doc" >}}
+{{< tab "Rust" >}}
+```rust
+#[task(id = "validate")]
+/// what: validates the incoming order
+/// why: downstream pricing assumes a clean order
+async fn validate(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+    Ok(())
+}
+```
+{{< /tab >}}
+{{< tab "Python" >}}
+```python
+@cloaca.task(id="extract")
+def extract(context):
+    """
+    what: pulls rows from the source
+    why: the rest of the graph needs them staged
+    """
+    return context
+```
+{{< /tab >}}
+{{< /tabs >}}
+
+The parsing is best-effort and **degrades gracefully** — it is never required and
+never fails the build. A task with no doc-comment contributes no docs; a source
+file that fails to parse simply contributes nothing rather than erroring. The
+extractor lives in `crates/cloacina-compiler/src/doc_parse.rs` and runs against
+the unpacked package source at build time (CLOACI-I-0126 / T-0752).
+
 ## Key facts
 
 - **`id`** is the task's identity within its workflow. In Python it defaults to

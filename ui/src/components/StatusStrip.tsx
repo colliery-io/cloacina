@@ -6,14 +6,12 @@
  *  last run, success rate, in-flight, runtime p50/p95, next run, failures — all
  *  computed client-side from useExecutions({workflow}) + useTrigger(name).
  */
+import { Dot, formatAgo, MONO, statusColor, TOKEN } from "@colliery-io/aurora-dark";
 import { type ReactNode } from "react";
 
 import { useExecutions } from "../api/executions";
 import { useTriggers } from "../api/triggers";
-import { Dot, MONO } from "./aurora";
 import { durationMs, fmtMs, isRunning, isTerminalDone } from "./RunHeatmap";
-import { formatAgo } from "../util/activity";
-import { TOKEN, statusColor } from "../util/tokens";
 
 function quantile(sorted: number[], q: number): number {
   if (sorted.length === 0) return 0;

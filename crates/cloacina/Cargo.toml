@@ -35,8 +35,8 @@ serde_json.workspace = true
 cloacina-api-types = { workspace = true }
 cloacina-macros = { workspace = true, optional = true }
 cloacina-workflow = { workspace = true }
-cloacina-computation-graph = { version = "0.8.0", path = "../cloacina-computation-graph" }
-cloacina-workflow-plugin = { version = "0.8.0", path = "../cloacina-workflow-plugin" }
+cloacina-computation-graph = { version = "0.9.0", path = "../cloacina-computation-graph" }
+cloacina-workflow-plugin = { version = "0.9.0", path = "../cloacina-workflow-plugin" }
 
 # External dependencies
 chrono = { version = "0.4", features = ["serde"] }
@@ -76,6 +76,7 @@ regex = { version = "1.10" }
 semver = { version = "1.0" }
 sha2 = { version = "0.10" }
 aes-gcm = { version = "0.10" }
+argon2 = { version = "0.5", features = ["std"] }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = { version = "0.4" }
 pem = { version = "3.0" }

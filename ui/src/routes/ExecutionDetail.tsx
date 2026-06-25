@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { cardSurface, ErrorState, isTerminalStatus, Loading, MONO, pillBg, StatusBadge, statusColor, TOKEN } from "@colliery-io/aurora-dark";
 import { Anchor, Box, Button, Group, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -25,19 +26,14 @@ import {
   useLiveExecutionEvents,
 } from "../api/executions";
 import { EventLog } from "../components/EventLog";
-import { StatusBadge } from "../components/StatusBadge";
 import { TaskGantt } from "../components/TaskGantt";
 import { TaskTable } from "../components/TaskTable";
 import { WorkflowGraph } from "../components/WorkflowGraph";
 import { TaskCodeModal } from "../components/TaskCodeModal";
-import { ErrorState, Loading } from "../components/states/States";
 import { useExecuteWorkflow, useWorkflow } from "../api/workflows";
 import { mergeEvents } from "../util/events";
 import { formatDuration, formatTimestamp } from "../util/format";
-import { isTerminalStatus } from "../util/status";
 import { topoRank } from "../util/topo";
-import { MONO, cardSurface } from "../components/aurora";
-import { statusColor, TOKEN, pillBg } from "../util/tokens";
 
 /**
  * Execution detail (T-0653 + T-0656). Non-live half shows the REST event

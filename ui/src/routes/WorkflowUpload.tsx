@@ -14,13 +14,13 @@
  *  limitations under the License.
  */
 
+import { cardSurface, ErrorState, MONO } from "@colliery-io/aurora-dark";
 import { Alert, Anchor, Box, Button, Stack, Text } from "@mantine/core";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useUploadWorkflow } from "../api/workflows";
-import { ErrorState } from "../components/states/States";
-import { MONO, cardSurface } from "../components/aurora";
+import { useCan } from "../auth/AuthContext";
 
 /**
  * Workflow package upload (T-0657 / REQ-003 write half, UC-3). Select a
@@ -35,6 +35,7 @@ export function WorkflowUpload() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const upload = useUploadWorkflow();
+  const { canWrite } = useCan();
 
   return (
     <Stack maw={560}>
@@ -48,6 +49,11 @@ export function WorkflowUpload() {
         </Box>
       </Box>
 
+      {!canWrite ? (
+        <Alert color="gold" title="Write access required">
+          <Text size="sm">You need write access to upload packages.</Text>
+        </Alert>
+      ) : (
       <Box style={{ ...cardSurface, padding: "16px 18px" }}>
         <Stack>
           <input
@@ -104,6 +110,7 @@ export function WorkflowUpload() {
           )}
         </Stack>
       </Box>
+      )}
     </Stack>
   );
 }

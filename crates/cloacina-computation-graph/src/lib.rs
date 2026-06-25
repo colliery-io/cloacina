@@ -23,6 +23,12 @@
 //! The `#[computation_graph]` macro expands into code that references types from
 //! this crate. Embedded-mode users get these types re-exported from `cloacina`.
 
+// Re-export `serde_json` (CLOACI-T-0805) so the macro-generated code can route
+// JSON handling through `cloacina_computation_graph::serde_json` — every CG
+// consumer (lean/packaged and umbrella alike) already depends on this crate, so
+// none of them need to add `serde_json` themselves.
+pub use serde_json;
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::any::Any;

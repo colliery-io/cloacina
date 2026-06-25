@@ -57,6 +57,37 @@ The "restart `cloacina-server` to reclaim the cache after a tenant delete" worka
 
 For the operational mechanics (how to actually decommission a tenant), see [Decommission a Tenant]({{< ref "/service/how-to/decommission-a-tenant" >}}). For the trust-model implications of multi-tenancy and what it does *not* protect against (CPU side-channels, privileged-key compromise, Postgres-level RLS), see [Security Model]({{< ref "security-model" >}}).
 
+### 0.9.0 per-tenant isolation layers (CLOACI-T-0779 / T-0781)
+
+I-0106 isolated tenant **data** (schema, runner, connection pool). 0.9.0 carries
+that isolation through the rest of the tenant lifecycle — build, execution, and
+operational visibility — so a tenant's packages build, run, and report entirely
+within the tenant's own realm.
+
+- **Build isolation (per-tenant compiler).** A `cloacina-compiler` can be scoped
+  to a single tenant via `tenant_schema`: when set, it claims and builds only
+  that tenant's packages, against that tenant's Postgres schema. A tenant's build
+  queue is the tenant's own, not a shared global pipeline.
+
+- **Execution namespacing.** Each per-tenant `DefaultRunner` stamps its
+  `tenant_id` onto the tasks it registers, so they are namespaced
+  `tenant::package::workflow::task` rather than the previously hardcoded
+  `public::package::workflow::task`. The namespace is load-bearing: it is what
+  routes a tenant's tasks to **the tenant's own agents** and makes the agent
+  fetch the cdylib from **the tenant's schema**. Before this, every tenant's
+  tasks were namespaced `public::…` regardless of tenant, so they neither matched
+  the tenant's agents nor could fetch their (tenant-schema) cdylib — tenant runs
+  hung in `Running`. The wiring is `DefaultRunnerConfig.tenant_id →
+  ReconcilerConfig.default_tenant_id` (`"public"` for the admin/global runner; a
+  per-tenant runner sets it to its tenant).
+
+- **Operational metrics are tenant-scoped.** The ops-metrics stream is gathered
+  per **view**: `None` is the admin/global view (sees everything), and a tenant
+  view sees only items it owns — its own build queue, reconciler, fleet, and
+  graph health. It is no longer a single global admin snapshot; each tenant sees
+  its own operational state, never another tenant's. (Public/null-tenant items —
+  `tenant_id = None` — are surfaced under the `"public"` view.)
+
 ## How It Works
 
 ### PostgreSQL Schema Implementation

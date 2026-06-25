@@ -56,13 +56,9 @@ use crate::AppState;
 )]
 pub async fn create_key(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Json(body): Json<CreateKeyRequest>,
 ) -> impl IntoResponse {
-    if !auth.can_admin() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
-
     // Privilege-escalation guard. `body.role` populates the per-key
     // `permissions` string (read/write/admin scoped to a tenant);
     // `is_admin` is the orthogonal god-mode flag that grants
@@ -127,11 +123,8 @@ pub async fn create_key(
 )]
 pub async fn list_keys(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
-    if !auth.can_admin() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal.api_keys().list_keys().await {
         Ok(keys) => {
@@ -175,12 +168,9 @@ pub async fn list_keys(
 )]
 pub async fn revoke_key(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(key_id): Path<String>,
 ) -> impl IntoResponse {
-    if !auth.can_admin() {
-        return AuthenticatedKey::insufficient_role_response().into_response();
-    }
     let id = match uuid::Uuid::parse_str(&key_id) {
         Ok(id) => id,
         Err(_) => {
@@ -227,14 +217,10 @@ pub async fn revoke_key(
 )]
 pub async fn create_tenant_key(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     Json(body): Json<CreateKeyRequest>,
 ) -> impl IntoResponse {
-    if !auth.is_admin {
-        return AuthenticatedKey::admin_required_response().into_response();
-    }
-
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
@@ -275,6 +261,118 @@ pub async fn create_tenant_key(
     }
 }
 
+/// GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).
+/// Tenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the
+/// route-table middleware, so the caller is already confined to `tenant_id`.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/keys",
+    tag = "keys",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    responses(
+        (status = 200, description = "Tenant keys (no hashes or plaintext)", body = ListResponse<KeyInfo>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn list_tenant_keys(
+    State(state): State<AppState>,
+    Path(tenant_id): Path<String>,
+) -> impl IntoResponse {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal.api_keys().list_keys_for_tenant(&tenant_id).await {
+        Ok(keys) => {
+            let items: Vec<KeyInfo> = keys
+                .into_iter()
+                .map(|k| KeyInfo {
+                    id: k.id.to_string(),
+                    name: k.name,
+                    permissions: k.permissions,
+                    tenant_id: k.tenant_id,
+                    is_admin: k.is_admin,
+                    created_at: k.created_at.to_rfc3339(),
+                    revoked: k.revoked,
+                })
+                .collect();
+            Json(ListResponse::new(items)).into_response()
+        }
+        Err(e) => {
+            warn!("Failed to list keys for tenant '{}': {}", tenant_id, e);
+            ApiError::internal("failed to list API keys").into_response()
+        }
+    }
+}
+
+/// DELETE /tenants/:tenant_id/keys/:key_id — revoke a key owned by one tenant
+/// (CLOACI-T-0784). The middleware confines the caller to `tenant_id`; this
+/// handler additionally verifies the target key belongs to that tenant before
+/// revoking. A cross-tenant or unknown id is reported as not-found (never
+/// revoked) so a tenant-admin can't probe or touch another tenant's keys.
+#[utoipa::path(
+    delete,
+    path = "/v1/tenants/{tenant_id}/keys/{key_id}",
+    tag = "keys",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("key_id" = String, Path, description = "Key UUID"),
+    ),
+    responses(
+        (status = 200, description = "Key revoked", body = KeyRevokedResponse),
+        (status = 400, description = "Invalid key ID format", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Key not found in this tenant", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn revoke_tenant_key(
+    State(state): State<AppState>,
+    Path((tenant_id, key_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let id = match uuid::Uuid::parse_str(&key_id) {
+        Ok(id) => id,
+        Err(_) => {
+            return ApiError::bad_request("invalid_key_id", "invalid key ID format").into_response()
+        }
+    };
+
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+
+    // Ownership gate: the target key must belong to this tenant. A mismatch or
+    // missing key reports not-found (never reveal/touch another tenant's keys).
+    match dal.api_keys().get_key(id).await {
+        Ok(Some(info)) if info.tenant_id.as_deref() == Some(tenant_id.as_str()) => {}
+        Ok(_) => {
+            return ApiError::not_found("key_not_found", "key not found in this tenant")
+                .into_response()
+        }
+        Err(e) => {
+            warn!("Failed to look up key '{}': {}", key_id, e);
+            return ApiError::internal("failed to revoke API key").into_response();
+        }
+    }
+
+    match dal.api_keys().revoke_key(id).await {
+        Ok(true) => {
+            state.key_cache.clear().await;
+            Json(KeyRevokedResponse {
+                status: "revoked".to_string(),
+                id: key_id,
+            })
+            .into_response()
+        }
+        Ok(false) => {
+            ApiError::not_found("key_not_found", "key not found or already revoked").into_response()
+        }
+        Err(e) => {
+            warn!("Failed to revoke API key '{}': {}", key_id, e);
+            ApiError::internal("failed to revoke API key").into_response()
+        }
+    }
+}
+
 /// POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
 ///
 /// Returns a short-lived ticket that can be used as a query parameter for
@@ -291,9 +389,9 @@ pub async fn create_tenant_key(
 )]
 pub async fn create_ws_ticket(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
-    let ticket = state.ws_tickets.issue(auth).await;
+    let ticket = state.ws_tickets.issue(_auth).await;
     Json(WsTicketResponse {
         ticket,
         expires_in_seconds: 60,

@@ -14,9 +14,9 @@
  *  limitations under the License.
  */
 
+import { PageHeader } from "@colliery-io/aurora-dark";
 import { Box } from "@mantine/core";
 
-import { PageHeader } from "../components/aurora";
 
 /**
  * Placeholder for routes whose views aren't built yet — keeps the nav +

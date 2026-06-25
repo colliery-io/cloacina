@@ -32,6 +32,7 @@ import { Graphs } from "./routes/Graphs";
 import { GraphDetail } from "./routes/GraphDetail";
 import { Operations } from "./routes/Operations";
 import { Keys } from "./routes/Keys";
+import { Accounts } from "./routes/Accounts";
 import { Settings } from "./routes/Settings";
 
 /**
@@ -60,6 +61,7 @@ export function App() {
           <Route path="graphs/:name" element={<GraphDetail />} />
           <Route path="operations" element={<Operations />} />
           <Route path="keys" element={<Keys />} />
+          <Route path="accounts" element={<Accounts />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Route>

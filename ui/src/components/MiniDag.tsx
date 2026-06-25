@@ -9,9 +9,9 @@
  *  node 9×9 filled square, colGap 54, rowGap 21, pad 6; edges are cubic Béziers
  *  from a node's right-center to the target's left-center.
  */
+import { statusColor, TOKEN } from "@colliery-io/aurora-dark";
 import { useMemo } from "react";
 
-import { statusColor, TOKEN } from "../util/tokens";
 
 export interface MiniNode {
   id: string;

@@ -18,12 +18,16 @@
 
 pub mod agent;
 pub mod auth;
+pub mod authz;
 pub mod compiler;
 pub mod delivery_ws;
 pub mod error;
 pub mod executions;
 pub mod health_graphs;
 pub mod keys;
+pub mod local_auth;
+pub mod oidc_auth;
+pub mod session;
 pub mod tenants;
 pub mod triggers;
 pub mod workflows;

@@ -75,9 +75,8 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
     let database = match &config.tenant_schema {
         Some(schema) => {
             info!(tenant_schema = %schema, "compiler scoped to tenant schema (build isolation)");
-            Database::try_new_with_schema(&config.database_url, "", 5, Some(schema)).map_err(
-                |e| anyhow::anyhow!("failed to open schema for tenant '{schema}': {e}"),
-            )?
+            Database::try_new_with_schema(&config.database_url, "", 5, Some(schema))
+                .map_err(|e| anyhow::anyhow!("failed to open schema for tenant '{schema}': {e}"))?
         }
         None => Database::new(&config.database_url, "", 5),
     };

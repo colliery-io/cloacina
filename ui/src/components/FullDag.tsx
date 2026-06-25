@@ -12,9 +12,9 @@
  *  at 7a alpha; status dot (task DAG) or kind square (CG); running pulse;
  *  pending/skipped dimmed. Canvas is --inset and scrolls-x when overflowing.
  */
+import { nodeKindColor, statusColor, TOKEN } from "@colliery-io/aurora-dark";
 import { useMemo } from "react";
 
-import { statusColor, nodeKindColor, TOKEN } from "../util/tokens";
 
 const MONO = "'IBM Plex Mono', monospace";
 

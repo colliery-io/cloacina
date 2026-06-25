@@ -14,10 +14,10 @@
  *  limitations under the License.
  */
 
+import { classifyError } from "@colliery-io/aurora-dark";
 import { CloacinaClient } from "@cloacina/client";
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { classifyError } from "../api/errors";
 
 /**
  * Connection identity (CLOACI-I-0117 / REQ-001). The credential is a bearer
@@ -34,6 +34,12 @@ export interface Connection {
   serverUrl: string;
   apiKey: string;
   tenant: string;
+  /** The key's role (`read` | `write` | `admin`), resolved via `/auth/whoami`
+   *  so the UI can gate write/admin controls (CLOACI-T-0803). May be undefined
+   *  for a session restored before the role was known — resolved on next load. */
+  role?: string;
+  /** God-mode (cross-tenant platform admin). */
+  isAdmin?: boolean;
 }
 
 const STORE_KEY = "cloacina.connections";
@@ -83,12 +89,20 @@ interface AuthContextValue {
   /** Validate a connection against the server, then save it and make it active.
    *  Upserts by `label` (re-adding a label replaces it). */
   connect: (conn: Connection) => Promise<void>;
+  /** Save several connections at once (an OIDC login granting multiple tenant
+   *  memberships) and enter one. Validates the one being entered; the rest are
+   *  freshly-minted keys, available via the tenant switcher. */
+  enterMemberships: (conns: Connection[], activeLabel: string) => Promise<void>;
   /** Switch the active connection to a previously-saved one (no re-validation). */
   switchTo: (label: string) => void;
   /** Remove a saved connection; if it was active, fall back to another. */
   removeConnection: (label: string) => void;
   /** Clear ALL connections and return to the connect screen. */
   disconnect: () => void;
+  /** The active key can execute / upload / fire (role `write` or `admin`, or god). */
+  canWrite: boolean;
+  /** The active key can manage the tenant's keys + accounts (role `admin`, or god). */
+  canAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -115,6 +129,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [connection],
   );
 
+  // CLOACI-T-0800: silent refresh. A minted (local/OIDC) key has a short TTL;
+  // re-mint it before it lapses so a demo/session survives. A non-refreshable
+  // pasted key returns an error from /auth/refresh — we just stop the loop for
+  // that connection (the key doesn't expire anyway).
+  useEffect(() => {
+    if (!connection || !client) return;
+    let stopped = false;
+    const REFRESH_MS = 10 * 60 * 1000; // minted TTL is ~15m
+    const id = setInterval(() => {
+      void (async () => {
+        if (stopped) return;
+        try {
+          const res = await client.refresh();
+          setConnections((prev) => {
+            const next = prev.map((c) =>
+              c.label === connection.label ? { ...c, apiKey: res.key } : c,
+            );
+            persist(next, connection.label);
+            return next;
+          });
+        } catch {
+          stopped = true;
+          clearInterval(id);
+        }
+      })();
+    }, REFRESH_MS);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection?.label, connection?.apiKey, client]);
+
+  // CLOACI-T-0803: if a restored session lacks a known role, resolve it via
+  // /auth/whoami so gating reflects the real role (rather than failing closed).
+  useEffect(() => {
+    if (!connection || !client || connection.role !== undefined) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const me = await client.whoami();
+        if (cancelled) return;
+        setConnections((prev) => {
+          const next = prev.map((c) =>
+            c.label === connection.label
+              ? { ...c, role: me.role, isAdmin: me.is_admin }
+              : c,
+          );
+          persist(next, connection.label);
+          return next;
+        });
+      } catch {
+        // leave role undefined
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection?.label, connection?.role, client]);
+
   async function connect(conn: Connection): Promise<void> {
     const probe = new CloacinaClient({
       baseUrl: conn.serverUrl,
@@ -131,12 +206,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const c = classifyError(err);
       throw new Error(c.message);
     }
+    // Resolve the key's role so the UI can gate write/admin controls.
+    let saved = conn;
+    try {
+      const me = await probe.whoami();
+      saved = { ...conn, role: me.role, isAdmin: me.is_admin };
+    } catch {
+      // role stays undefined — gating defaults closed until resolved on load
+    }
     setConnections((prev) => {
-      const next = [...prev.filter((c) => c.label !== conn.label), conn];
-      persist(next, conn.label);
+      const next = [...prev.filter((c) => c.label !== saved.label), saved];
+      persist(next, saved.label);
       return next;
     });
-    setActive(conn.label);
+    setActive(saved.label);
+  }
+
+  async function enterMemberships(conns: Connection[], activeLabel: string): Promise<void> {
+    const chosen = conns.find((c) => c.label === activeLabel) ?? conns[0];
+    if (!chosen) throw new Error("no memberships to enter");
+    // Validate the one we're entering; trust the rest (just minted by us).
+    const probe = new CloacinaClient({
+      baseUrl: chosen.serverUrl,
+      apiKey: chosen.apiKey,
+      tenant: chosen.tenant,
+    });
+    try {
+      await probe.health();
+      await probe.listWorkflows();
+    } catch (err) {
+      throw new Error(classifyError(err).message);
+    }
+    let chosenSaved = chosen;
+    try {
+      const me = await probe.whoami();
+      chosenSaved = { ...chosen, role: me.role, isAdmin: me.is_admin };
+    } catch {
+      // role stays undefined for the entered tenant — resolved on load
+    }
+    setConnections((prev) => {
+      const byLabel = new Map(prev.map((c) => [c.label, c]));
+      for (const c of conns)
+        byLabel.set(c.label, c.label === chosenSaved.label ? chosenSaved : c);
+      const next = Array.from(byLabel.values());
+      persist(next, chosenSaved.label);
+      return next;
+    });
+    setActive(chosenSaved.label);
   }
 
   function switchTo(label: string): void {
@@ -167,9 +283,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionStorage.removeItem(LEGACY_KEY);
   }
 
+  // CLOACI-T-0803: role-derived capability flags the UI gates controls on.
+  // Unknown role (undefined) fails closed — controls hidden until resolved.
+  const isAdmin = connection?.isAdmin ?? false;
+  const canWrite = isAdmin || connection?.role === "admin" || connection?.role === "write";
+  const canAdmin = isAdmin || connection?.role === "admin";
+
   const value = useMemo<AuthContextValue>(
-    () => ({ connection, client, connections, connect, switchTo, removeConnection, disconnect }),
-    [connection, client, connections],
+    () => ({
+      connection,
+      client,
+      connections,
+      connect,
+      enterMemberships,
+      switchTo,
+      removeConnection,
+      disconnect,
+      canWrite,
+      canAdmin,
+    }),
+    [connection, client, connections, canWrite, canAdmin],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -197,4 +330,11 @@ export function useTenant(): string {
   const { connection } = useAuth();
   if (!connection) throw new Error("useTenant used while disconnected");
   return connection.tenant;
+}
+
+/** Capability flags for the active key's role (CLOACI-T-0803). Use to gate
+ *  write/admin controls so the UI never offers an action that would 403. */
+export function useCan(): { canWrite: boolean; canAdmin: boolean } {
+  const { canWrite, canAdmin } = useAuth();
+  return { canWrite, canAdmin };
 }

@@ -21,10 +21,10 @@
 
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
-    key_trust_acls, package_signatures, reactor_state, recovery_events, schedule_executions,
-    schedules, signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions,
-    package_artifacts, task_outbox, trusted_keys, workflow_executions, workflow_packages,
-    workflow_registry,
+    key_trust_acls, package_artifacts, package_signatures, reactor_state, recovery_events,
+    schedule_executions, schedules, signing_keys, state_accumulator_buffers,
+    task_execution_metadata, task_executions, task_outbox, trusted_keys, workflow_executions,
+    workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
