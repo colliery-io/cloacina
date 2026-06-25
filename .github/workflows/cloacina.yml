@@ -8,6 +8,13 @@ concurrency:
   group: cloacina-tests-${{ github.ref }}
   cancel-in-progress: true
 
+# Force HTTP/1.1 for crates.io fetches — HTTP/2 multiplexing intermittently
+# fails with "[16] Error in the HTTP2 framing layer" (exit 56) on dependency
+# downloads in the integration/package-build steps. (CLOACI v0.9.0 recovery)
+env:
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_MULTIPLEXING: "false"
+
 jobs:
   # Feature builds - verify compile-time database backend selection works
   feature-builds:
