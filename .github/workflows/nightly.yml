@@ -19,6 +19,10 @@ concurrency:
 env:
   CARGO_NET_RETRY: "10"
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  # Force HTTP/1.1 for crates.io fetches — HTTP/2 multiplexing intermittently
+  # fails with "[16] Error in the HTTP2 framing layer" (exit 56) on dependency
+  # downloads, which CARGO_NET_RETRY does not recover. (CLOACI v0.9.0 recovery)
+  CARGO_HTTP_MULTIPLEXING: "false"
 
 jobs:
   # -----------------------------------------------------------------------

@@ -74,7 +74,10 @@ export function Accounts() {
 
   return (
     <Box style={{ maxWidth: 820 }}>
-      <Box style={{ fontSize: 20, fontWeight: 600, color: "var(--fg)", marginBottom: 4 }}>
+      <Box
+        component="h2"
+        style={{ fontSize: 20, fontWeight: 600, color: "var(--fg)", margin: 0, marginBottom: 4 }}
+      >
         Local accounts
       </Box>
       <Box style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 18 }}>

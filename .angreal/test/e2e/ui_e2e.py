@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -195,6 +196,30 @@ def _run_playwright(summary_file: Path, bad_pkg: Path, smoke: bool):
     _run(cmd, cwd=UI_DIR, env=env)
 
 
+def _create_tenant(name: str):
+    # The acme auth specs (tenant-admin/local-auth) connect into the `acme`
+    # tenant. CLOACINA_DEMO_TENANT_KEYS seeds the scoped key but NOT the tenant
+    # schema — the demo provisions that with a separate `harness-acme` run. The
+    # specs only do key/account management (no workflow content), so creating the
+    # empty tenant with the bootstrap (god) key is enough for connect to reach
+    # Overview. (CLOACI-T-0787)
+    req = urllib.request.Request(
+        f"{SERVER_URL}/v1/tenants",
+        data=json.dumps({"name": name}).encode(),
+        headers={
+            "Authorization": f"Bearer {BOOTSTRAP_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code != 409:  # already-exists is fine (re-run against a live DB)
+            raise
+
+
 def _ui_e2e(smoke: bool) -> int:
     label = "smoke subset" if smoke else "full suite"
     print_section_header(f"UI acceptance e2e ({label})")
@@ -245,6 +270,9 @@ def _ui_e2e(smoke: bool) -> int:
 
         with _process(server_cmd, home / "server.log", env=server_env) as server:
             _wait_http(f"{SERVER_URL}/health", proc=server)
+            # Create the `acme` tenant schema the auth specs connect into (the
+            # scoped key is seeded above, but the tenant itself is not).
+            _create_tenant("acme")
             with _process(compiler_cmd, home / "compiler.log"), \
                  _process(preview_cmd, home / "preview.log", cwd=UI_DIR) as preview:
                 _wait_http(PREVIEW_URL, proc=preview)
