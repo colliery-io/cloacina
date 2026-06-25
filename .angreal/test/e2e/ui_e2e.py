@@ -69,12 +69,25 @@ def _run(cmd, cwd=PROJECT_ROOT, env=None):
 
 
 def _fresh_database():
-    subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), "exec", "-T", "postgres",
-         "psql", "-U", "cloacina", "-d", "postgres",
-         "-c", "DROP DATABASE IF EXISTS cloacina WITH (FORCE);",
-         "-c", "CREATE DATABASE cloacina OWNER cloacina;"],
-        check=True, capture_output=True,
+    # `_start_postgres` waits on `pg_isready`, but Postgres can still bounce
+    # during its init-restart window right after that passes — so a single
+    # DROP/CREATE can race a not-yet-stable server and fail with a transient
+    # connection error (exit 56). Retry a few times rather than killing the
+    # whole UI e2e run on a flake; the SQL is idempotent so re-running is safe.
+    last = None
+    for _ in range(10):
+        last = subprocess.run(
+            ["docker", "compose", "-f", str(COMPOSE_FILE), "exec", "-T", "postgres",
+             "psql", "-U", "cloacina", "-d", "postgres",
+             "-c", "DROP DATABASE IF EXISTS cloacina WITH (FORCE);",
+             "-c", "CREATE DATABASE cloacina OWNER cloacina;"],
+            capture_output=True,
+        )
+        if last.returncode == 0:
+            return
+        time.sleep(2)
+    raise subprocess.CalledProcessError(
+        last.returncode, last.args, output=last.stdout, stderr=last.stderr
     )
 
 
