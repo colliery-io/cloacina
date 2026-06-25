@@ -311,9 +311,134 @@ impl Client {
         .await
     }
 
+    /// List the keys scoped to one tenant — tenant-admin self-service
+    /// (CLOACI-T-0784).
+    pub async fn list_tenant_keys(
+        &self,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<KeyInfo>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/keys")).await
+    }
+
+    /// Revoke a key owned by one tenant — tenant-admin self-service
+    /// (CLOACI-T-0784). A cross-tenant or unknown id is reported as
+    /// not-found.
+    pub async fn revoke_tenant_key(
+        &self,
+        key_id: &str,
+        tenant: Option<&str>,
+    ) -> Result<KeyRevokedResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        let response = self
+            .request(Method::DELETE, &format!("/v1/tenants/{t}/keys/{key_id}"))
+            .send()
+            .await
+            .map_err(ClientError::from_reqwest)?;
+        Self::parse(response).await
+    }
+
     /// Mint a single-use, short-lived WebSocket ticket.
     pub async fn create_ws_ticket(&self) -> Result<WsTicketResponse, ClientError> {
         self.post_json("/v1/auth/ws-ticket", &Value::Null).await
+    }
+
+    // ---- session / local auth (CLOACI-T-0794/0796/0803) ----
+    //
+    // These DTOs live in `cloacina-server` (not the shared `cloacina-api-types`
+    // contract crate), so the client returns the raw JSON `Value` — the same
+    // escape-hatch shape `get_json`/`post_json` already expose for routes whose
+    // typed DTO isn't on the wire-contract crate.
+
+    /// Username/password login — returns a minted bearer key (the JSON body
+    /// carries `key`, `tenant_id`, `role`, `expires_at`).
+    pub async fn local_login(
+        &self,
+        username: &str,
+        password: &str,
+        tenant: Option<&str>,
+    ) -> Result<Value, ClientError> {
+        let body = serde_json::json!({
+            "username": username,
+            "password": password,
+            "tenant": tenant,
+        });
+        self.post_json("/v1/auth/local/login", &body).await
+    }
+
+    /// Silently re-mint the caller's short-TTL key before it expires.
+    pub async fn refresh(&self) -> Result<Value, ClientError> {
+        self.post_json("/v1/auth/refresh", &Value::Null).await
+    }
+
+    /// Revoke the caller's key + forget any refresh session.
+    pub async fn logout(&self) -> Result<Value, ClientError> {
+        self.post_json("/v1/auth/logout", &Value::Null).await
+    }
+
+    /// The caller's own tenant + role + admin flag.
+    pub async fn whoami(&self) -> Result<Value, ClientError> {
+        self.get_json("/v1/auth/whoami").await
+    }
+
+    // ---- local accounts: tenant-admin management (CLOACI-T-0797) ----
+
+    /// List a tenant's local accounts (never the password hash).
+    pub async fn list_accounts(&self, tenant: Option<&str>) -> Result<Value, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/accounts")).await
+    }
+
+    /// Create a local account in a tenant.
+    pub async fn create_account(
+        &self,
+        username: &str,
+        password: &str,
+        role: &str,
+        tenant: Option<&str>,
+    ) -> Result<Value, ClientError> {
+        let t = self.tenant_of(tenant);
+        let body = serde_json::json!({
+            "username": username,
+            "password": password,
+            "role": role,
+        });
+        self.post_json(&format!("/v1/tenants/{t}/accounts"), &body)
+            .await
+    }
+
+    /// Disable (not hard-delete) a local account, preserving history.
+    pub async fn disable_account(
+        &self,
+        account_id: &str,
+        tenant: Option<&str>,
+    ) -> Result<Value, ClientError> {
+        let t = self.tenant_of(tenant);
+        let response = self
+            .request(
+                Method::DELETE,
+                &format!("/v1/tenants/{t}/accounts/{account_id}"),
+            )
+            .send()
+            .await
+            .map_err(ClientError::from_reqwest)?;
+        Self::parse(response).await
+    }
+
+    /// Admin-reset a local account's password.
+    pub async fn reset_password(
+        &self,
+        account_id: &str,
+        password: &str,
+        tenant: Option<&str>,
+    ) -> Result<Value, ClientError> {
+        let t = self.tenant_of(tenant);
+        let body = serde_json::json!({ "password": password });
+        self.post_json(
+            &format!("/v1/tenants/{t}/accounts/{account_id}/password"),
+            &body,
+        )
+        .await
     }
 
     // ---- tenants ----

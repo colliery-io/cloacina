@@ -21,6 +21,16 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from ._generated import AuthenticatedClient
+from ._generated.api.auth import (
+    create_account,
+    disable_account,
+    list_accounts,
+    local_login,
+    logout,
+    refresh,
+    reset_password,
+    whoami,
+)
 from ._generated.api.fleet import list_agents
 from ._generated.api.compiler import compiler_status
 from ._generated.api.executions import (
@@ -47,7 +57,9 @@ from ._generated.api.keys import (
     create_tenant_key,
     create_ws_ticket,
     list_keys,
+    list_tenant_keys,
     revoke_key,
+    revoke_tenant_key,
 )
 from ._generated.api.operational import health, ready
 from ._generated.api.tenants import create_tenant, list_tenants, remove_tenant
@@ -69,12 +81,15 @@ from ._generated.api.workflows import (
     upload_workflow,
 )
 from ._generated.models import (
+    CreateAccountRequest,
     CreateKeyRequest,
     CreateTenantRequest,
     ErrorBody,
     ExecuteRequest,
     KeyRole,
+    LocalLoginRequest,
     PackageUploadForm,
+    ResetPasswordRequest,
 )
 from ._generated.types import UNSET, File, Response, Unset
 
@@ -187,8 +202,77 @@ class Client(_Base):
             )
         )
 
+    def list_tenant_keys(self, tenant: str | None = None):
+        """List the connected tenant's own keys (tenant-admin, CLOACI-T-0784)."""
+        return _unwrap(
+            list_tenant_keys.sync_detailed(self.tenant_segment(tenant), client=self._gen)
+        )
+
+    def revoke_tenant_key(self, key_id: str, tenant: str | None = None):
+        """Revoke one of the connected tenant's own keys (tenant-admin, CLOACI-T-0784)."""
+        return _unwrap(
+            revoke_tenant_key.sync_detailed(
+                self.tenant_segment(tenant), key_id, client=self._gen
+            )
+        )
+
     def create_ws_ticket(self):
         return _unwrap(create_ws_ticket.sync_detailed(client=self._gen))
+
+    # ---- session / local auth (CLOACI-T-0794/0796/0803) ----
+
+    def local_login(self, username: str, password: str, tenant: str | None = None):
+        """Username/password login — returns a minted bearer key."""
+        body = LocalLoginRequest(
+            username=username,
+            password=password,
+            tenant=tenant if tenant is not None else UNSET,
+        )
+        return _unwrap(local_login.sync_detailed(client=self._gen, body=body))
+
+    def refresh(self):
+        """Silently re-mint the current short-TTL key before it expires."""
+        return _unwrap(refresh.sync_detailed(client=self._gen))
+
+    def logout(self):
+        """Revoke the current key + forget any refresh session."""
+        return _unwrap(logout.sync_detailed(client=self._gen))
+
+    def whoami(self):
+        """The current key's tenant + role + admin flag."""
+        return _unwrap(whoami.sync_detailed(client=self._gen))
+
+    # ---- local accounts: tenant-admin management (CLOACI-T-0797) ----
+
+    def list_accounts(self, tenant: str | None = None):
+        return _unwrap(
+            list_accounts.sync_detailed(self.tenant_segment(tenant), client=self._gen)
+        )
+
+    def create_account(
+        self, username: str, password: str, role: str = "read", tenant: str | None = None
+    ):
+        body = CreateAccountRequest(username=username, password=password, role=role)
+        return _unwrap(
+            create_account.sync_detailed(
+                self.tenant_segment(tenant), client=self._gen, body=body
+            )
+        )
+
+    def disable_account(self, account_id: str, tenant: str | None = None):
+        return _unwrap(
+            disable_account.sync_detailed(
+                self.tenant_segment(tenant), account_id, client=self._gen
+            )
+        )
+
+    def reset_password(self, account_id: str, password: str, tenant: str | None = None):
+        body = ResetPasswordRequest(password=password)
+        return _unwrap(
+            reset_password.sync_detailed(
+                self.tenant_segment(tenant), account_id, client=self._gen, body=body
+            )
+        )
 
     # ---- tenants ----
 

@@ -286,7 +286,7 @@ export function Connect() {
             }}
             data={[
               { label: "Username & password", value: "password" },
-              { label: "API key", value: "key" },
+              { label: "Key", value: "key" },
               { label: "SSO", value: "sso" },
             ]}
           />
