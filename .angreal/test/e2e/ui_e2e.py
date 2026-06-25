@@ -230,7 +230,20 @@ def _ui_e2e(smoke: bool) -> int:
         ]
         preview_cmd = ["npx", "vite", "preview", "--port", str(PREVIEW_PORT), "--strictPort"]
 
-        with _process(server_cmd, home / "server.log") as server:
+        # Seed the demo tenants/keys the auth specs connect with — the acme
+        # tenant-admin (clk_demo_acme_key_0002) + public — matching
+        # docker-compose.demo.yml. Without this the acme tenant/key never exist,
+        # so tenant-admin.spec.ts / local-auth.spec.ts can't sign in and connect
+        # never reaches Overview. (CLOACI-T-0787)
+        server_env = {
+            **os.environ,
+            "CLOACINA_DEMO_TENANT_KEYS": (
+                "public:clk_demo_public_key_0003:admin,"
+                "acme:clk_demo_acme_key_0002:admin"
+            ),
+        }
+
+        with _process(server_cmd, home / "server.log", env=server_env) as server:
             _wait_http(f"{SERVER_URL}/health", proc=server)
             with _process(compiler_cmd, home / "compiler.log"), \
                  _process(preview_cmd, home / "preview.log", cwd=UI_DIR) as preview:
