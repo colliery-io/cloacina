@@ -36,7 +36,7 @@ test("self-manage: tenant-admin creates a local account, then that user signs in
   // 2. Create a local account for the tenant.
   await page.goto("/accounts");
   await expect(page.getByRole("heading", { name: "Local accounts" })).toBeVisible();
-  await page.getByLabel("Username").fill(username);
+  await page.getByLabel("Username", { exact: true }).fill(username);
   await page.getByLabel("Initial password").fill(password);
   await page.getByRole("button", { name: "Create" }).click();
   // The new account appears in the list (active).
@@ -47,8 +47,8 @@ test("self-manage: tenant-admin creates a local account, then that user signs in
   await page.goto("/connect");
   await page.getByText("Username & password").click();
   await page.getByLabel("Server URL").fill(SERVER_URL);
-  await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Username", { exact: true }).fill(username);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByLabel("Tenant").fill(ACME_TENANT);
   await page.getByRole("button", { name: "Sign in" }).click();
 
@@ -62,8 +62,8 @@ test("self-manage: wrong password is rejected", async ({ page }) => {
   await page.goto("/connect");
   await page.getByText("Username & password").click();
   await page.getByLabel("Server URL").fill(SERVER_URL);
-  await page.getByLabel("Username").fill("definitely-not-a-user");
-  await page.getByLabel("Password").fill("nope");
+  await page.getByLabel("Username", { exact: true }).fill("definitely-not-a-user");
+  await page.getByLabel("Password", { exact: true }).fill("nope");
   await page.getByLabel("Tenant").fill(ACME_TENANT);
   await page.getByRole("button", { name: "Sign in" }).click();
 
