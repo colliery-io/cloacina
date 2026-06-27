@@ -22,6 +22,7 @@
 
 pub mod actuator;
 pub mod agent_registry;
+pub mod autoscaler;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
@@ -1052,66 +1053,163 @@ pub async fn run(
         });
     }
 
-    // Fleet actuator reconcile loop (CLOACI-T-0810). Spawned ONLY when an
-    // actuator is active (kind != "none"); the NoopActuator path leaves this
-    // off entirely. Every `CLOACINA_RECONCILE_INTERVAL_S` (default 15) it reads
-    // every `agent_desired_counts` row and reconciles each tenant's running
-    // agents toward its desired count.
+    // Fleet control loop (CLOACI-T-0811). ONE leader-gated loop that does both
+    // (a) back-pressure autoscaling — adjust each tenant's `desired_count` from
+    // fleet utilization, clamped to `[floor, effective_limit]` — and (b)
+    // reconciliation — drive actual→desired via the actuator. This SUPERSEDES the
+    // standalone T-0810 reconcile loop (and resolves its leader-election TODO):
+    // both steps now run behind a single Postgres advisory lock so two replicas
+    // never scale/actuate concurrently (NFR-003).
     //
-    // TODO(CLOACI-T-0811): single-writer only; multi-replica needs leader
-    // election (otherwise every replica actuates the same delta and overshoots).
+    // Spawned ONLY when an actuator is active (kind != "none"); the NoopActuator
+    // path leaves it off entirely. Every replica runs the loop, but the whole
+    // body executes only on the leader for each tick (the rest skip). Cadence is
+    // `CLOACINA_AUTOSCALE_INTERVAL_S` (default 30); the old
+    // `CLOACINA_RECONCILE_INTERVAL_S` no longer applies.
+    //
+    // `CLOACINA_AUTOSCALE` (default on when an actuator is active) is a
+    // kill-switch for ONLY the autoscale step — reconciliation keeps running so
+    // operators can drive `desired_count` by hand (provision API) while the
+    // autoscaler is disabled.
     if fleet_actuator.kind() != "none" {
-        let reconcile_actuator = fleet_actuator.clone();
-        let reconcile_dal = unified_dal.clone();
-        let mut reconcile_shutdown = substrate_shutdown_rx.clone();
-        let interval_s = std::env::var("CLOACINA_RECONCILE_INTERVAL_S")
+        let loop_actuator = fleet_actuator.clone();
+        let loop_dal = unified_dal.clone();
+        let loop_db = state.database.clone();
+        let loop_registry = agent_registry.clone();
+        let mut loop_shutdown = substrate_shutdown_rx.clone();
+        let scale_cfg = crate::autoscaler::ScaleConfig::from_env();
+        let autoscale_enabled = std::env::var("CLOACINA_AUTOSCALE")
             .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .filter(|n| *n > 0)
-            .unwrap_or(15);
-        let tick = std::time::Duration::from_secs(interval_s);
+            .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no"))
+            .unwrap_or(true);
+        let default_max = default_max_agents;
+        let tick = scale_cfg.interval;
         info!(
             actuator = %fleet_actuator.kind(),
-            interval_s,
-            "fleet actuator reconcile loop started"
+            interval_s = tick.as_secs(),
+            autoscale_enabled,
+            up_threshold = scale_cfg.up_threshold,
+            down_threshold = scale_cfg.down_threshold,
+            cooldown_s = scale_cfg.cooldown.as_secs(),
+            floor = scale_cfg.floor,
+            "fleet control loop started (leader-gated)"
         );
         tokio::spawn(async move {
+            use crate::autoscaler::{decide, should_act, tenant_utilizations, ScaleAction};
+            // Per-leader in-memory cooldown map: tenant -> last scale-change time.
+            // Reset if leadership moves replicas (a new leader starts with an
+            // empty map and may act immediately — acceptable; cooldown is a thrash
+            // guard, not a hard invariant, and failover is rare).
+            let mut last_change: std::collections::HashMap<String, std::time::Instant> =
+                std::collections::HashMap::new();
             let mut ticker = tokio::time::interval(tick);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = ticker.tick() => {
-                        let desired = match reconcile_dal.agent_desired().list_all().await {
-                            Ok(rows) => rows,
-                            Err(e) => {
-                                warn!(error = %e, "fleet reconcile: failed to read desired counts; skipping tick");
-                                continue;
+                        // Whole body is leader-gated: only the replica holding the
+                        // advisory lock runs it; others skip this tick.
+                        crate::autoscaler::leader::with_fleet_leadership(&loop_db, || async {
+                            // (a) AUTOSCALE — adjust desired_count from utilization.
+                            if autoscale_enabled {
+                                let utils = tenant_utilizations(&loop_registry.snapshot());
+                                // Tenant set = everyone with a desired_count row
+                                // PLUS any tenant with live registered agents.
+                                let desired_rows = match loop_dal.agent_desired().list_all().await {
+                                    Ok(rows) => rows,
+                                    Err(e) => {
+                                        warn!(error = %e, "fleet autoscale: failed to read desired counts; skipping autoscale step");
+                                        Vec::new()
+                                    }
+                                };
+                                let mut tenants: std::collections::HashSet<String> =
+                                    desired_rows.iter().map(|(t, _)| t.clone()).collect();
+                                tenants.extend(utils.keys().cloned());
+                                let desired_map: std::collections::HashMap<String, u32> =
+                                    desired_rows.into_iter().collect();
+
+                                let now = std::time::Instant::now();
+                                for tenant in tenants {
+                                    let util = utils.get(&tenant).copied().unwrap_or(0.0);
+                                    let desired = desired_map.get(&tenant).copied().unwrap_or(0);
+                                    let effective_limit = match loop_dal
+                                        .agent_limits()
+                                        .effective_limit(&tenant, default_max)
+                                        .await
+                                    {
+                                        Ok(l) => l,
+                                        Err(e) => {
+                                            warn!(tenant = %tenant, error = %e, "fleet autoscale: effective_limit read failed; skipping tenant");
+                                            continue;
+                                        }
+                                    };
+                                    let action = decide(util, desired, effective_limit, scale_cfg.floor, &scale_cfg);
+                                    if matches!(action, ScaleAction::Hold) {
+                                        continue;
+                                    }
+                                    if !should_act(last_change.get(&tenant).copied(), now, scale_cfg.cooldown) {
+                                        continue; // within cooldown
+                                    }
+                                    let new_desired = match action {
+                                        ScaleAction::Up => (desired + 1).min(effective_limit),
+                                        ScaleAction::Down => desired.saturating_sub(1).max(scale_cfg.floor),
+                                        ScaleAction::Hold => desired,
+                                    };
+                                    if new_desired == desired {
+                                        continue;
+                                    }
+                                    match loop_dal.agent_desired().set_desired(&tenant, new_desired).await {
+                                        Ok(()) => {
+                                            last_change.insert(tenant.clone(), now);
+                                            info!(
+                                                tenant = %tenant,
+                                                util,
+                                                from = desired,
+                                                to = new_desired,
+                                                effective_limit,
+                                                action = ?action,
+                                                "fleet autoscale: adjusted desired_count"
+                                            );
+                                        }
+                                        Err(e) => warn!(tenant = %tenant, error = %e, "fleet autoscale: set_desired failed"),
+                                    }
+                                }
                             }
-                        };
-                        for (tenant, want) in desired {
-                            match reconcile_actuator.reconcile(&tenant, want).await {
-                                Ok(out) if out.spawned > 0 || out.stopped > 0 => {
-                                    info!(
+
+                            // (b) RECONCILE — drive actual→desired for each tenant.
+                            let desired = match loop_dal.agent_desired().list_all().await {
+                                Ok(rows) => rows,
+                                Err(e) => {
+                                    warn!(error = %e, "fleet reconcile: failed to read desired counts; skipping reconcile step");
+                                    return;
+                                }
+                            };
+                            for (tenant, want) in desired {
+                                match loop_actuator.reconcile(&tenant, want).await {
+                                    Ok(out) if out.spawned > 0 || out.stopped > 0 => {
+                                        info!(
+                                            tenant = %tenant,
+                                            desired = want,
+                                            spawned = out.spawned,
+                                            stopped = out.stopped,
+                                            running = out.running,
+                                            "fleet reconcile: actuated tenant"
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => warn!(
                                         tenant = %tenant,
                                         desired = want,
-                                        spawned = out.spawned,
-                                        stopped = out.stopped,
-                                        running = out.running,
-                                        "fleet reconcile: actuated tenant"
-                                    );
+                                        error = %e,
+                                        "fleet reconcile: tenant reconcile failed"
+                                    ),
                                 }
-                                Ok(_) => {}
-                                Err(e) => warn!(
-                                    tenant = %tenant,
-                                    desired = want,
-                                    error = %e,
-                                    "fleet reconcile: tenant reconcile failed"
-                                ),
                             }
-                        }
+                        })
+                        .await;
                     }
-                    res = reconcile_shutdown.changed() => {
-                        if res.is_err() || *reconcile_shutdown.borrow() {
+                    res = loop_shutdown.changed() => {
+                        if res.is_err() || *loop_shutdown.borrow() {
                             break;
                         }
                     }
@@ -4596,6 +4694,78 @@ mod tests {
             msg.contains("CLOACINA_VERIFICATION_ORG_ID"),
             "error must also name the env var alternative; got: {}",
             msg
+        );
+    }
+
+    /// CLOACI-T-0811: leader election via a Postgres advisory lock.
+    ///
+    /// Placed here (a `#[serial]` server lib test over `test_state()`'s real
+    /// Postgres `Database`) rather than in `crates/cloacina/tests/integration/`
+    /// because the unit under test — `with_fleet_leadership` — lives in
+    /// `cloacina-server` and needs a live `Database` with a multi-connection
+    /// pool. The shared test runner's pool (size 10) gives us the ≥2 distinct
+    /// sessions the test needs: while the "leader" closure holds the lock on one
+    /// pooled connection, a concurrent attempt draws a *different* connection and
+    /// must observe the lock as taken.
+    #[tokio::test]
+    #[serial]
+    async fn fleet_leadership_is_mutually_exclusive() {
+        use crate::autoscaler::leader::with_fleet_leadership;
+
+        let db = test_state().await.database;
+
+        // Defensively release the key in case a prior aborted run left it held on
+        // a pooled session this process might reuse.
+        if let Ok(conn) = db.get_postgres_connection().await {
+            let _ = conn
+                .interact(|conn| {
+                    use diesel::RunQueryDsl;
+                    diesel::sql_query("SELECT pg_advisory_unlock_all()").execute(conn)
+                })
+                .await;
+        }
+
+        // Gate: the leader closure signals once it holds the lock, then blocks
+        // until we release it — keeping leadership open while a second caller
+        // tries to acquire it.
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel::<()>();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let leader_db = db.clone();
+        let leader = tokio::spawn(async move {
+            with_fleet_leadership(&leader_db, || async move {
+                entered_tx.send(()).expect("signal leadership entered");
+                release_rx.await.expect("await release");
+                42u32
+            })
+            .await
+        });
+
+        // Wait until the leader is holding the lock.
+        entered_rx.await.expect("leader should enter");
+
+        // A second attempt, while the leader holds the lock, must NOT acquire it.
+        let blocked = with_fleet_leadership(&db, || async { 99u32 }).await;
+        assert_eq!(
+            blocked, None,
+            "second caller must not win leadership while the lock is held"
+        );
+
+        // Release the leader; it runs `work` and unlocks.
+        release_tx.send(()).expect("release leader");
+        let leader_out = leader.await.expect("leader task joins");
+        assert_eq!(
+            leader_out,
+            Some(42),
+            "leader should have run work and returned its output"
+        );
+
+        // After unlock, leadership is acquirable again.
+        let after = with_fleet_leadership(&db, || async { 7u32 }).await;
+        assert_eq!(
+            after,
+            Some(7),
+            "leadership must be re-acquirable once the lock is released"
         );
     }
 }

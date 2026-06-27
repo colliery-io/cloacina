@@ -20,13 +20,18 @@ path = "src/main.rs"
 
 [features]
 default = ["postgres"]
-postgres = ["cloacina/postgres"]
+postgres = ["cloacina/postgres", "diesel/postgres"]
 sqlite = ["cloacina/sqlite"]
 kafka = ["cloacina/kafka"]
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [dependencies]
 cloacina = { version = "0.9.0", path = "../cloacina", default-features = false }
+# CLOACI-T-0811: the fleet control loop runs raw SQL (Postgres advisory locks for
+# leader election) over a pooled connection — the same `conn.interact` +
+# `diesel::sql_query` idiom the DAL uses. The Postgres backend is enabled via the
+# `postgres` feature so it tracks `cloacina/postgres`.
+diesel = { version = "2.1.0" }
 cloacina-api-types = { workspace = true, features = ["openapi"] }
 utoipa = { version = "5" }
 # Python runtime — server registers the impl at startup so uploaded

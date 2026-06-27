@@ -4,15 +4,15 @@ level: task
 title: "UI — tenant agent management (provision/deprovision + fleet/limit state)"
 short_code: "CLOACI-T-0813"
 created_at: 2026-06-27T14:43:40.667620+00:00
-updated_at: 2026-06-27T14:43:40.667620+00:00
+updated_at: 2026-06-27T17:37:25.897434+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -64,6 +64,10 @@ The UI tenant-agent-management surface (slice 1 #6): provision/deprovision agent
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,24 @@ The UI tenant-agent-management surface (slice 1 #6): provision/deprovision agent
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-27 — Fleet management UI implemented (ui/ only)
+
+Built the tenant agent-fleet page against the shipped T-0808/0809 endpoints. Branch `i0127-agent-control-plane`. No `crates/` touched.
+
+**Files**
+- `ui/src/api/fleet.ts` (new) — `useFleet()`, `useTenantLimit()`, `useProvision()`, `useDeprovision()`. Hand-written fetch (endpoints not in the generated client yet) reusing the SAME auth mechanism as the generated client: the active `connection`'s bearer key (`Authorization: Bearer <apiKey>`) against `connection.serverUrl`, via `useAuth()`. Throws `CloacinaApiError` on non-2xx so `classifyError` + the 409 check work identically to the generated helpers. Mutations invalidate `["fleet", tenant]`.
+- `ui/src/routes/Fleet.tsx` (new) — stat row (Provisioned / Running / Effective limit), admin-only Provision +1 / Deprovision −1 controls, read-only limit-source line (override vs default), loading/error Alerts. Mirrors `Accounts.tsx` styling (var(--fg)/--muted/--sidebar/--border, TOKEN.ice).
+- `ui/src/App.tsx` (mod) — `/fleet` route under `<RequireAuth><Shell>`.
+- `ui/src/components/Shell.tsx` (mod) — "Agent fleet" nav item (IconServer) in the System group.
+- `ui/e2e/fleet.spec.ts` (new) — stack-gated smoke (acme tenant-admin scales up then down); NOT run here (needs live stack).
+
+**Role-gating**: `useCan().canAdmin` gates the controls — read users see the stats but get an "admin access" Alert instead of buttons. Server enforces it regardless (no client-only trust).
+
+**409 / capacity**: `atCapacity = desired_count >= effective_limit` disables Provision and shows an "At capacity (N)" hint; a returned 409 is surfaced as a neutral "Fleet is at capacity…" Alert (detected via `classifyError(err).status === 409`). Deprovision disabled at desired_count ≤ 0 (floor).
+
+**Validation (npm; repo has no pnpm)** — all green:
+- `npm run typecheck` (`tsc -b --noEmit`) → clean.
+- `npm run build` (`tsc -b && vite build`) → built OK.
+- `npm run lint` (`eslint .`) → my 5 files clean (`npx eslint` on them exits 0). Repo-wide lint shows 31 PRE-EXISTING errors in untouched files (ws6/7/8 specs empty catches; `react-hooks/exhaustive-deps` rule-not-found in AuthContext/Connect/ExecutionDetail) — not introduced here.
+
+Not committed/pushed.
