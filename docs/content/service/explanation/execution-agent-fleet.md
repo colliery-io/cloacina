@@ -162,6 +162,84 @@ Two things worth knowing about the recovery characteristics:
   detection) + (re-run). The detection floor is `interval × misses`; lower both
   for more aggressive failover at the cost of more heartbeat traffic.
 
+## Pluggable actuators & substrate guard
+
+Everything above describes agents you start yourself. The
+**control plane** (CLOACI-I-0127) lets the server provision and scale that pool
+*for* a tenant, instead of you running `cloacina-agent` by hand. It is split in
+two so the *decision* and the *mechanism* stay independent:
+
+- The **control plane** decides how many agents each tenant should have — a
+  `desired_count` per tenant, set by tenant self-service provisioning, by an
+  admin, or by the autoscaler.
+- A **`FleetActuator`** is the mechanism that makes reality match that number on
+  a particular substrate. Three implementations ship:
+
+  | Actuator | Substrate | What it reconciles |
+  |---|---|---|
+  | Noop | — (`CLOACINA_FLEET_ACTUATOR=none`, default) | Nothing. Actuation is off; you run agents yourself. |
+  | Docker | local Docker daemon (`docker`) | Spawns/stops labelled `cloacina-agent` containers (`cloacina.tenant=<t>`, `cloacina.managed=true`). **Dev-only.** |
+  | Kubernetes | in-cluster API (`kubernetes`) | Drives the `replicas` of one `cloacina-agent` Deployment in the tenant's **own** namespace (`cloacina-tenant-<t>`). |
+
+The actuator is chosen explicitly at boot by `CLOACINA_FLEET_ACTUATOR` and
+validated **fail-closed** by a *substrate guard*: a misconfigured actuator must
+produce a loud boot error, never silent wrong-scaling. The `docker` actuator
+**refuses to start** when it detects Kubernetes (a service-account token mount or
+`KUBERNETES_SERVICE_HOST`) — so it can never scale throwaway containers on a host
+whose real substrate is a cluster — and refuses when no Docker socket is
+reachable. The `kubernetes` actuator refuses when the server is not running
+in-cluster (it needs in-cluster credentials). Whichever actuator runs, it mints a
+tenant-scoped `read` API key and injects it (with the server URL) so the spawned
+agent self-registers down the same path a hand-run agent uses — the Docker
+actuator mints one key per container, the Kubernetes actuator one shared
+per-tenant key (in a `Secret`, re-minted on scale-up). Every list/spawn/scale is
+scoped to the one tenant (a Docker label filter, or the tenant's Kubernetes
+namespace) so the actuator never touches another tenant's workloads (REQ-008 /
+NFR-004).
+
+## Capacity limits & autoscaling
+
+Two numbers bound a tenant's fleet:
+
+- **Effective limit** — the hard ceiling. It is the platform default
+  (`CLOACINA_DEFAULT_MAX_AGENTS`, default 4) unless a platform admin sets a
+  per-tenant override. A tenant cannot raise its own ceiling; only provision
+  within it.
+- **`desired_count`** — the operational target inside `[floor, effective_limit]`.
+  A tenant self-services it through the
+  [fleet API]({{< ref "/reference/http-api" >}}#tenant-agent-fleet) (provision
+  `+1`, deprovision `−1`), and a new tenant is seeded with
+  `min(CLOACINA_INITIAL_AGENTS, CLOACINA_DEFAULT_MAX_AGENTS)` on create.
+
+A **back-pressure autoscaler** can move `desired_count` on its own. It runs as a
+single control loop that, each tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default
+30s), computes each tenant's **utilization** — Σ `in_flight` / Σ
+`max_concurrency` over that tenant's live agents — and decides:
+
+- **up** (+1) when utilization exceeds the up-threshold (default 0.8) and there
+  is room under the effective limit;
+- **down** (−1) when it drops below the down-threshold (default 0.2) and there is
+  room above the floor;
+- **hold** otherwise (the band between the thresholds is hysteresis that prevents
+  thrash, and a per-tenant cooldown — default 60s — rate-limits changes).
+
+After adjusting `desired_count`, the same loop **reconciles** actual → desired
+through the actuator. The autoscale step is a separate decision from the signal
+plumbing, so `CLOACINA_AUTOSCALE=false` freezes automatic scaling while leaving
+reconciliation running — operators can then drive `desired_count` by hand.
+
+Utilization is the v1 signal deliberately: it is reactive (it only rises once the
+fleet is already saturated). The autoscaler decision lives in Cloacina's control
+plane rather than a Kubernetes HPA precisely because the relevant signal is
+*per-tenant* and a tenant is the isolation boundary — an HPA cannot see it.
+
+Because every replica runs the same loop, the fleet is driven through
+**Postgres-advisory-lock leader election**: each tick, only the replica holding
+the lock executes the loop body; the rest skip it. One replica drives the whole
+fleet, so two replicas never scale or actuate the same tenant concurrently
+(NFR-003). The knobs above are documented in
+[Environment Variables]({{< ref "/reference/environment-variables" >}}#fleet-actuator--autoscaler).
+
 ## When to use the fleet
 
 | Situation | Use |

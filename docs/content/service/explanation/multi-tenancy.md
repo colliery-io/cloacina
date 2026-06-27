@@ -88,6 +88,19 @@ within the tenant's own realm.
   its own operational state, never another tenant's. (Public/null-tenant items —
   `tenant_id = None` — are surfaced under the `"public"` view.)
 
+### Fleet resource limits & per-tenant namespace (CLOACI-I-0127)
+
+The agent self-management control plane adds a **per-tenant agent-capacity
+limit**: a tenant scales its execution-agent fleet only within an *effective
+limit* (a platform default, optionally overridden per tenant by an admin), and a
+tenant cannot raise its own ceiling. This is a fleet-sizing bound on the number
+of `cloacina-agent` workers a tenant runs — not a CPU/memory quota (the
+shared-infrastructure caveats below still apply). When the Kubernetes fleet
+actuator is enabled, each tenant's agents run in the tenant's **own namespace**
+(`cloacina-tenant-<t>`), extending tenant isolation to the agent workloads
+themselves. See
+[Execution-Agent Fleet]({{< ref "execution-agent-fleet" >}}#capacity-limits--autoscaling).
+
 ## How It Works
 
 ### PostgreSQL Schema Implementation

@@ -155,6 +155,71 @@ CLOACINA_AGENT_HEARTBEAT_INTERVAL_S=5 CLOACINA_AGENT_LIVENESS_MISSES=2 cloacina-
   scaling the pool and let it finish in-flight packets; a hard kill is recovered
   by the reclaim path within the detection window.
 
+## Let the server provision the fleet (control plane)
+
+Everything above runs agents by hand. The **control plane** (CLOACI-I-0127) can
+instead provision and scale a per-tenant agent pool *for* you, on a pluggable
+substrate (a *FleetActuator*). It is off by default
+(`CLOACINA_FLEET_ACTUATOR=none`); opt in per substrate.
+
+### Capacity limits & self-service provisioning
+
+Each tenant has an **effective limit** — the platform default
+(`CLOACINA_DEFAULT_MAX_AGENTS`, default 4) unless a platform admin grants a
+per-tenant override — and a **`desired_count`** within `[floor, effective_limit]`
+that a tenant scales for itself via the
+[tenant agent fleet API]({{< ref "/reference/http-api" >}}#tenant-agent-fleet).
+Provisioning only sets the target; an actuator (below) turns it into running
+agents.
+
+```bash
+# Tenant-admin: view, then scale this tenant's fleet (+1 / -1).
+curl -H "Authorization: Bearer $TENANT_ADMIN_KEY" \
+  http://cloacina-server:8080/v1/tenants/tenant_acme/fleet
+curl -X POST -H "Authorization: Bearer $TENANT_ADMIN_KEY" \
+  http://cloacina-server:8080/v1/tenants/tenant_acme/fleet/provision   # → 409 at capacity
+
+# Platform-admin (god key): raise the tenant's ceiling.
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "content-type: application/json" -d '{"max_agents": 8}' \
+  http://cloacina-server:8080/v1/tenants/tenant_acme/limits
+```
+
+A newly created tenant is auto-seeded with
+`min(CLOACINA_INITIAL_AGENTS, CLOACINA_DEFAULT_MAX_AGENTS)` (default 1) on
+`POST /v1/tenants`; set `CLOACINA_INITIAL_AGENTS=0` to disable.
+
+### Docker actuator (local dev)
+
+For a single-host dev loop, the Docker actuator spawns/stops `cloacina-agent`
+**containers** to match each tenant's `desired_count`:
+
+```bash
+CLOACINA_FLEET_ACTUATOR=docker \
+CLOACINA_AGENT_IMAGE=cloacina-agent:latest \
+CLOACINA_AGENT_NETWORK=cloacina_net \
+CLOACINA_AGENT_SERVER_URL=http://server:8080 \
+cloacina-server --default-executor fleet --bind 0.0.0.0:8080
+```
+
+The actuator mints a tenant-scoped key per container and injects it as
+`CLOACINA_API_KEY`, so you don't manage agent keys yourself. The substrate guard
+is **fail-closed**: `docker` refuses to start if it detects Kubernetes or finds
+no Docker socket. It is **dev-only** — for production use the
+[Kubernetes actuator]({{< ref "/service/how-to/deploying-to-kubernetes" >}}#fleet-actuator-kubernetes--rbac),
+which scales a per-tenant agent Deployment with least-privilege RBAC.
+
+### Autoscaler tuning
+
+When an actuator is active, a leader-gated control loop autoscales
+`desired_count` from per-tenant utilization (Σ `in_flight` / Σ `max_concurrency`)
+and reconciles toward it. Tune it with the `CLOACINA_AUTOSCALE_*` knobs — up/down
+thresholds, cooldown, floor, and tick interval — documented in
+[Environment Variables]({{< ref "/reference/environment-variables" >}}#autoscaler).
+Set `CLOACINA_AUTOSCALE=false` to freeze automatic scaling and drive
+`desired_count` by hand through the provision API while reconciliation keeps
+running.
+
 ## See also
 
 - [Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}) — how it works.

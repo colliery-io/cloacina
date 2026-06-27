@@ -32,28 +32,29 @@ metadata:
   labels:
     {{- include "cloacina-server.labels" . | nindent 4 }}
 rules:
-  # Per-tenant namespace provisioning (REQ-007). `create` to make a tenant's
-  # namespace on first provision; `get`/`list` to check whether it already
-  # exists (the actuator is idempotent). Namespaces are cluster-scoped, so this
-  # rule MUST live in a ClusterRole. No `delete` — tenant teardown is a separate
-  # concern and we keep the blast radius minimal.
+  # Per-tenant namespace provisioning (REQ-007). The actuator ensures each
+  # namespace with server-side apply (a single create-or-update call), which the
+  # API server authorizes as `create` + `patch`. Namespaces are cluster-scoped,
+  # so this rule MUST live in a ClusterRole. No `get`/`list` (apply doesn't read
+  # first) and no `delete` (deprovision scales to zero — it never deletes the
+  # namespace), keeping the blast radius minimal.
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["create", "get", "list"]
-  # The per-tenant agent workload. `create` the Deployment on first provision;
-  # `get`/`list` to reconcile current state; `patch` to set the replica count
-  # (scale up/down); `delete` to remove a tenant's agent pool on deprovision.
+    verbs: ["create", "patch"]
+  # The per-tenant agent Deployment. `create` + `patch` for the server-side apply
+  # that ensures it and the merge-patch that sets the replica count (scale
+  # up/down); `get` to read the ready-replica count during reconcile. No `list`
+  # (addressed by name) and no `delete` (scale-to-zero replaces deletion).
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["create", "get", "list", "patch", "delete"]
-  # The per-tenant agent key, delivered to agent pods as CLOACINA_API_KEY.
-  # `create` on first provision; `get` to read it back during reconcile;
-  # `update` to rotate it on scale-up; `delete` to clean up on deprovision.
-  # No `list` — the actuator addresses the Secret by its known name, so it never
-  # needs to enumerate (and thereby read) other Secrets.
+    verbs: ["create", "get", "patch"]
+  # The per-tenant agent key, delivered to agent pods as CLOACINA_API_KEY. Also
+  # ensured via server-side apply → `create` + `patch`. No `get`/`list` (apply
+  # doesn't read; addressed by its known name), no `update` (apply is a patch),
+  # no `delete`.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["create", "get", "update", "delete"]
+    verbs: ["create", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
