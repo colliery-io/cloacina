@@ -86,7 +86,7 @@ spec:
             - name: CLOACINA_AGENT_IMAGE
               value: {{ .Values.fleet.agentImage | quote }}
             - name: CLOACINA_AGENT_SERVER_URL
-              value: {{ .Values.fleet.agentServerUrl | default (printf "http://%s:%v" (include "cloacina-server.fullname" .) .Values.service.port) | quote }}
+              value: {{ .Values.fleet.agentServerUrl | default (printf "http://%s.%s.svc.cluster.local:%v" (include "cloacina-server.fullname" .) .Release.Namespace .Values.service.port) | quote }}
             {{- end }}
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}

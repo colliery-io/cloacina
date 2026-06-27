@@ -138,8 +138,10 @@ fleet:
   agentImage: ghcr.io/colliery-software/cloacina-agent:latest
 
   # Server URL injected into spawned agents as CLOACINA_SERVER
-  # (CLOACINA_AGENT_SERVER_URL). Defaults to this release's in-cluster Service.
-  # Leave empty to use the chart's Service DNS.
+  # (CLOACINA_AGENT_SERVER_URL). Empty → the release's in-cluster Service FQDN
+  # (http://<fullname>.<namespace>.svc.cluster.local:<port>). The FQDN is required
+  # because agents run in per-tenant namespaces (cloacina-tenant-<t>), from which
+  # the short Service name does not resolve.
   agentServerUrl: ""
 
   # ServiceAccount the server runs as when the actuator is enabled. The chart

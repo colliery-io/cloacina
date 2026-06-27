@@ -1,0 +1,27 @@
+# k3s containerd registry mirror (CLOACI-T-0815).
+#
+# Mirrors the in-compose `registry:2` so the cluster can pull the locally-built
+# cloacina-server / cloacina-agent images without a real registry. The harness
+# pushes to the host-published `localhost:5050`; k3s (inside the docker network)
+# resolves the registry by its compose service name `registry:5000`.
+#
+# All three spellings below point at the same backing registry so an image
+# reference written as `registry:5000/...` (what the chart/actuator use) or
+# `localhost:5000` / `localhost:5050` all resolve.
+mirrors:
+  "registry:5000":
+    endpoint:
+      - "http://registry:5000"
+  "localhost:5000":
+    endpoint:
+      - "http://registry:5000"
+  "localhost:5050":
+    endpoint:
+      - "http://registry:5000"
+configs:
+  "registry:5000":
+    tls:
+      insecure_skip_verify: true
+  "localhost:5050":
+    tls:
+      insecure_skip_verify: true
