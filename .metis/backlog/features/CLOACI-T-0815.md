@@ -4,15 +4,15 @@ level: task
 title: "k3s functional-test harness — full e2e for the Kubernetes fleet actuator"
 short_code: "CLOACI-T-0815"
 created_at: 2026-06-27T20:59:15.835327+00:00
-updated_at: 2026-06-27T21:01:33.043784+00:00
-parent: 
+updated_at: 2026-06-27T21:49:55.327486+00:00
+parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ initiative_id: NULL
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -176,4 +178,3 @@ Validated end-to-end against live k3s with the freshly-built server (`cloacina-s
 **Files:** `.angreal/files/docker-compose.k8s.yaml`, `.angreal/files/k3s-registries.yaml`, `.angreal/test/e2e/k8s_fleet.py`, +1 line in `.angreal/test/__init__.py`. No chart/actuator logic changed.
 
 **CI-lane shape (proposed):** a dedicated nightly/manual `k8s-fleet-e2e` job (not the PR fast lane — needs Docker-in-Docker/privileged k3s + a ~25-min cold server build). Steps: checkout → `docker build` server (cache the cargo layer via buildx registry cache to cut the cold build) → `angreal test e2e k8s-fleet` (cleanup on). Gate on assertions 1-3 (RBAC proof) as required; 4-5 as required once the chart FQDN default is fixed. Pre-flight disk guard to avoid the DiskPressure flake.
-
