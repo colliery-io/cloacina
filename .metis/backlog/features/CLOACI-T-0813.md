@@ -4,7 +4,7 @@ level: task
 title: "UI — tenant agent management (provision/deprovision + fleet/limit state)"
 short_code: "CLOACI-T-0813"
 created_at: 2026-06-27T14:43:40.667620+00:00
-updated_at: 2026-06-27T17:37:25.897434+00:00
+updated_at: 2026-06-27T18:04:05.937261+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ The UI tenant-agent-management surface (slice 1 #6): provision/deprovision agent
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

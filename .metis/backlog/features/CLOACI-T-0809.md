@@ -4,7 +4,7 @@ level: task
 title: "Per-tenant desired agent count + provision/deprovision REST API"
 short_code: "CLOACI-T-0809"
 created_at: 2026-06-27T14:43:35.484772+00:00
-updated_at: 2026-06-27T17:02:27.156458+00:00
+updated_at: 2026-06-27T18:04:02.348061+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ Per-tenant desired-agent-count state + the provision/deprovision REST API (slice
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

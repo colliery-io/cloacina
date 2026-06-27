@@ -4,7 +4,7 @@ level: task
 title: "K8s actuator + Helm RBAC + per-tenant namespace (fast-follow)"
 short_code: "CLOACI-T-0814"
 created_at: 2026-06-27T14:43:41.700850+00:00
-updated_at: 2026-06-27T17:49:39.499953+00:00
+updated_at: 2026-06-27T18:04:06.625514+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ Fast-follow production actuator: the Kubernetes `FleetActuator` impl (scale per-
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -4,7 +4,7 @@ level: task
 title: "Back-pressure autoscaler — scale tenant agent pool within limits (leader-elected)"
 short_code: "CLOACI-T-0811"
 created_at: 2026-06-27T14:43:38.320400+00:00
-updated_at: 2026-06-27T17:32:01.704036+00:00
+updated_at: 2026-06-27T18:04:04.083154+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ The back-pressure autoscaler (slice 1 #4): a server control loop that reads per-
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

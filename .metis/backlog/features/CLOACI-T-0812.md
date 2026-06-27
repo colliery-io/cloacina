@@ -4,7 +4,7 @@ level: task
 title: "Auto-provision initial agent(s) on tenant create"
 short_code: "CLOACI-T-0812"
 created_at: 2026-06-27T14:43:39.258788+00:00
-updated_at: 2026-06-27T17:44:34.061405+00:00
+updated_at: 2026-06-27T18:04:05.124920+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ Auto-provision initial agent(s) on tenant create (slice 1 #5): POST /v1/tenants 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

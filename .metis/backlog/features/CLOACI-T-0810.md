@@ -4,7 +4,7 @@ level: task
 title: "Pluggable FleetActuator trait + Docker-container dev actuator (+ substrate guard)"
 short_code: "CLOACI-T-0810"
 created_at: 2026-06-27T14:43:36.899333+00:00
-updated_at: 2026-06-27T17:14:05.488598+00:00
+updated_at: 2026-06-27T18:04:03.120872+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ The pluggable `FleetActuator` trait (reconcile desired->actual) + the Docker-con
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
