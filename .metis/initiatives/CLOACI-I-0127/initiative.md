@@ -72,10 +72,40 @@ with tenant-aware assignment.
 - REQ-005: UI-driven config reconciles with declarative K8s state without drift
   (a clear source-of-truth / reconciliation model).
 
+- REQ-006: The **Helm chart provisions the Kubernetes RBAC** the K8s actuator
+  needs to create/scale/delete agent workloads in tenant namespaces
+  (ServiceAccount + Role/RoleBinding), **least-privilege — no cluster-admin**.
+  (Explicit ask, 2026-06-27.)
+- REQ-007: A tenant's agents/workloads run in the **tenant's own Kubernetes
+  namespace** (operational isolation — network/resource boundaries per tenant).
+  (Explicit ask, 2026-06-27.)
+- REQ-008 (**misconfig guard — fail-closed, 2026-06-27**): the fleet actuator is
+  **explicitly selected** (`CLOACINA_FLEET_ACTUATOR=docker|kubernetes|none`) and
+  **validated against the detected substrate at startup**. The **Docker-container
+  actuator REFUSES to start when Kubernetes is detected** (`KUBERNETES_SERVICE_HOST`
+  / the in-cluster service-account mount) — it must never `docker run` containers
+  inside a cluster, bypassing K8s scheduling/namespacing/RBAC. Symmetrically: the
+  K8s actuator refuses when not in-cluster (no SA / API unreachable), and the
+  Docker actuator refuses with no Docker socket. Any mismatch is a **loud boot-time
+  failure, never a silent wrong-scaling.** The Helm chart sets `=kubernetes`, the
+  compose stack sets `=docker`; the guard catches overrides/mistakes.
+
 ### Non-Functional Requirements
 - NFR-001: Agent identity/auth integrates with the server trust model
   (cf. CLOACI-A-0005 deployment-mode trust model, CLOACI-I-0118 tenant/auth).
 - NFR-002: Fleet operations are observable (health, capacity, assignment state).
+- NFR-003: Tenant-admins self-serve agent provisioning bounded by an
+  admin-set limit; god sets the default limit + per-tenant exceptions.
+- NFR-004 (**security tenet — belt & suspenders, 2026-06-27**): the execution
+  substrate (K8s namespace / NetworkPolicy / RBAC) is **defense-in-depth, NOT the
+  security boundary**. We do **not** trust the substrate to keep a tenant in its
+  lane. The **server independently enforces tenant scope on every control-plane
+  and CRUD operation** — provision/deprovision, limits, desired-count, agent
+  registry, fleet dispatch — via the fail-closed ABAC route table (CLOACI-I-0118).
+  Any attempt to CRUD *across* a caller's tenant scope is **denied server-side
+  regardless of how the substrate is configured.** Belt = per-tenant namespace
+  (REQ-007); suspenders = server-side authZ as the real boundary. Every
+  control-plane task below carries an explicit cross-scope-denial AC.
 
 ## Architecture
 
@@ -117,18 +147,64 @@ approach without a human check-in.
 - **Server-as-sole-authority vs. K8s-operator reconciliation.** Open — to be
   decided in discovery with a human check-in.
 
-## Implementation Plan
+## Design Decision (2026-06-27 — human check-in)
 
-This is an XL initiative and is **not yet decomposed**. Discovery first, then a
-human check-in on architecture (packaging approach, source-of-truth/reconciliation
-model, tenant-isolation enforcement) before decomposing into tasks. Likely task
-seams:
+**Architecture: control-plane / pluggable-actuator split.** The server owns the
+**control plane** (deployment-agnostic): per-tenant *desired agent count*, the
+*limits model* (admin default + per-tenant exceptions), and the *back-pressure
+autoscaler*. A pluggable **actuator** reconciles desired→actual by spawning/killing
+agent runtimes — a **docker/local actuator first** (proves the loop on the compose
+stack), with the **K8s actuator as a fast-follow** (the production scaler).
 
-1. K8s packaging (Helm/operator) for server + agent-runner fleet.
-2. Agent registry + fleet-health API.
-3. Tenant ↔ agent-pool assignment model + dispatch routing (on CLOACI-T-0722).
-4. UI configuration surface (gated on the in-flight design review).
-5. Reconciliation between UI-driven config and declarative K8s state.
+**Why this fits what already exists:** agents are already **tenant-scoped**
+(`fleet/protocol.rs` `tenant_id`; `reject_cross_tenant_agent`; `fleet_executor`
+selects same-tenant agents → isolation enforced), and the **back-pressure signal**
+already exists (`NoCapacity` in the scheduler). So this work is a control plane on
+top of a working tenant-scoped fleet — agents still self-register once spawned;
+the existing dispatch path is untouched. "Provision from the UI" = bump the
+tenant's desired count within its limit → actuator spawns it → it self-registers.
+
+## Implementation Plan — first slice: control plane + dev actuator
+
+Decomposition (proposed; vertical, compose-demoable):
+
+1. **Limits model** — admin default `max_agents` + per-tenant exceptions (god-set,
+   on I-0118 ABAC); effective-limit lookup. AC: default enforced; exception honored
+   (e.g. default 4, acme 6).
+2. **Desired-count + provision/deprovision API** — per-tenant desired-count state;
+   tenant-admin provisions/deprovisions for *their own* tenant, bounded by the
+   effective limit. AC: rejected past limit; tenant-scoped (no cross-tenant).
+3. **Pluggable actuator + Docker dev actuator** — `FleetActuator` trait
+   (reconcile desired→actual) + a **Docker-container impl** (`bollard` / Docker API):
+   `docker run` N tenant-keyed `cloacina-agent` containers (labelled
+   `cloacina.tenant=<t>`), stop the surplus on scale-down. **First pass = containers
+   only** — no local-process flavor, no K8s. Needs a per-tenant **agent registration
+   key** (tenant-scoped, `agent` provenance) injected as `CLOACINA_API_KEY`. AC: bump
+   desired → a container's agent self-registers into the tenant pool on the compose
+   stack; lower → it drains/stops; actuator never spawns/targets another tenant's
+   containers (cross-scope-denial). **AC (REQ-008): the actuator framework
+   validates the selected actuator against the detected substrate at boot,
+   fail-closed — the Docker actuator REFUSES to start when Kubernetes is detected
+   (`KUBERNETES_SERVICE_HOST` / SA mount), the K8s actuator refuses when not
+   in-cluster, the Docker actuator refuses with no socket — loud boot error, never
+   a silent wrong-scaling.**
+4. **Back-pressure autoscaler** — control loop: per-tenant pressure (NoCapacity
+   rate / Ready-backlog) → adjust desired within [floor, effective-limit] with
+   scale-up/down thresholds + cooldown. AC: sustained pressure scales up to the
+   limit (never beyond); idle scales to the floor.
+5. **Auto-provision on tenant create** — POST /tenants sets the initial desired
+   count (within the default limit). AC: a new tenant comes up with its agent(s).
+6. **UI — tenant agent management** — provision/deprovision + pool/limit/autoscaler
+   state; role-gated (tenant-admin write, read sees state). AC: tenant-admin
+   provisions from the UI and sees the agent join; read users see but can't change.
+
+**Fast-follow (production actuator):**
+
+7. **K8s actuator + Helm RBAC** — K8s `FleetActuator` impl (scale per-tenant agent
+   Deployment replicas). **AC (REQ-006): the Helm chart creates the RBAC the
+   actuator needs — ServiceAccount + Role/RoleBinding to create/scale/delete agent
+   workloads in tenant namespaces, least-privilege, no cluster-admin** — and the
+   actuator uses it to scale a tenant's pool on a real cluster.
 
 ## Related Work
 
@@ -142,6 +218,19 @@ seams:
 
 ## Child Tasks
 
-- **CLOACI-T-0748** — Kubernetes-first deployment — configure and assign agents to
-  tenant workloads from the UI. (Holds the original demo capture; to be split
-  during decomposition.)
+**First slice — control plane + Docker dev actuator (2026-06-27):**
+- **CLOACI-T-0808** — Agent limits (admin default + per-tenant exceptions); model + API.
+- **CLOACI-T-0809** — Per-tenant desired-count + provision/deprovision REST API (+ cross-scope-denial).
+- **CLOACI-T-0810** — Pluggable `FleetActuator` + Docker-container dev actuator + substrate guard (REQ-008).
+- **CLOACI-T-0811** — Back-pressure autoscaler, leader-elected, within limits.
+- **CLOACI-T-0812** — Auto-provision agent(s) on tenant create.
+- **CLOACI-T-0813** — UI: tenant agent management (role-gated).
+
+**Fast-follow — production actuator:**
+- **CLOACI-T-0814** — K8s actuator + Helm RBAC (REQ-006) + per-tenant namespace (REQ-007).
+
+Per-task objective + acceptance criteria are in the *Implementation Plan* above
+(items 1–7); each control-plane task also carries the NFR-004 cross-scope-denial AC.
+
+- **CLOACI-T-0748** — original demo capture; **superseded** by T-0808–T-0814 above
+  (fold/archive once these are populated).

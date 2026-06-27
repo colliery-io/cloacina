@@ -24,6 +24,7 @@
 #![allow(clippy::await_holding_lock)]
 #![allow(unexpected_cfgs)]
 
+pub mod agent_limits;
 pub mod computation_graph;
 pub mod context;
 pub mod dal;

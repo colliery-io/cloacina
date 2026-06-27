@@ -868,6 +868,16 @@ mod postgres_schema {
         }
     }
 
+    // CLOACI-T-0808: per-tenant agent-capacity exceptions (server mode only — Postgres).
+    diesel::table! {
+        agent_capacity_limits (tenant_id) {
+            tenant_id -> Text,
+            max_agents -> Int4,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
     // Manual join syntax should be used in queries when joining auth tables.

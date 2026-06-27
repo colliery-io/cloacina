@@ -299,6 +299,25 @@ pub fn build_authz_table() -> AuthzTable {
         Access::tenant(Level::Admin),
     );
 
+    // CLOACI-T-0808: agent-capacity limits. Setting/clearing a tenant's exception
+    // is god-only (platform + admin); reading the effective limit is tenant-scoped
+    // (a caller may read only its own tenant's limit — cross-tenant is denied).
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/limits",
+        Access::platform(Level::Admin),
+    );
+    add(
+        Method::DELETE,
+        "/tenants/{tenant_id}/limits",
+        Access::platform(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/limits",
+        Access::tenant(Level::Read),
+    );
+
     // ----- Platform + Admin: the global key surface (CLOACI-T-0784 leak fix).
     //       Was Any+Admin (today's unscoped can_admin), which let a tenant
     //       role=admin key list/revoke ANY tenant's keys. God-only now;
@@ -777,7 +796,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            52,
+            55,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
@@ -808,6 +827,19 @@ mod tests {
         assert_eq!(
             get(Method::DELETE, "/tenants/{tenant_id}/keys/{key_id}"),
             Some(Access::tenant(Level::Admin))
+        );
+        // CLOACI-T-0808: agent-capacity limits — set/clear god-only, read tenant-scoped.
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/limits"),
+            Some(Access::platform(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::DELETE, "/tenants/{tenant_id}/limits"),
+            Some(Access::platform(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/limits"),
+            Some(Access::tenant(Level::Read))
         );
         assert_eq!(
             get(Method::POST, "/tenants"),

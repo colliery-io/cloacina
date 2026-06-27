@@ -235,6 +235,11 @@ pub struct AppState {
     /// same value as its tick + dead-after basis. Operator-configurable via
     /// `--agent-heartbeat-interval-s`.
     pub agent_heartbeat_interval_seconds: u32,
+    /// CLOACI-T-0808: platform-wide default agent-capacity limit — the ceiling a
+    /// tenant's provisioning/autoscaling clamps to, absent a per-tenant exception
+    /// in `agent_capacity_limits`. Operator-configurable via
+    /// `CLOACINA_DEFAULT_MAX_AGENTS` (default 4).
+    pub default_max_agents: u32,
     /// CLOACI-T-0783: declarative `(method, path) -> Access` authorization
     /// table, consulted by `authz_mw`. Built once at startup; fail-closed —
     /// a matched route absent from this map is denied.
@@ -795,8 +800,16 @@ pub async fn run(
         std::time::Duration::from_secs(600),
     ));
 
+    // CLOACI-T-0808: platform-wide default agent-capacity limit. Per-tenant
+    // exceptions live in `agent_capacity_limits`; this is the fallback. Default 4.
+    let default_max_agents = std::env::var("CLOACINA_DEFAULT_MAX_AGENTS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(4);
+
     let state = AppState {
         database: runner.database().clone(),
+        default_max_agents,
         runner: Arc::new(runner),
         key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
         endpoint_registry,
@@ -1205,6 +1218,19 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/accounts/{account_id}/password",
             post(crate::routes::local_auth::reset_password),
+        )
+        // CLOACI-T-0808: agent-capacity limits (admin default + per-tenant exceptions).
+        .route(
+            "/tenants/{tenant_id}/limits",
+            post(crate::routes::limits::set_tenant_limit),
+        )
+        .route(
+            "/tenants/{tenant_id}/limits",
+            get(crate::routes::limits::get_tenant_limit),
+        )
+        .route(
+            "/tenants/{tenant_id}/limits",
+            delete(crate::routes::limits::clear_tenant_limit),
         )
         // Workflow packages (tenant-scoped)
         .route(
@@ -1805,6 +1831,7 @@ mod tests {
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+            default_max_agents: 4,
             authz_table: Arc::new(crate::routes::authz::build_authz_table()),
             oidc: None,
             oidc_policy: Arc::new(crate::oidc::MappingPolicy::default()),
@@ -1837,6 +1864,20 @@ mod tests {
             .create_key(&hash, "test-key", None, true, "admin")
             .await
             .expect("Failed to create test API key");
+        plaintext
+    }
+
+    /// Create a tenant-scoped (non-admin) API key and return the plaintext
+    /// token. `role` is the key's permission string ("read"/"write"/"admin");
+    /// the key is bound to `tenant` and is NOT a platform admin, so it can only
+    /// reach its own tenant's tenant-scoped routes.
+    async fn create_tenant_api_key(state: &AppState, tenant: &str, role: &str) -> String {
+        let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        dal.api_keys()
+            .create_key(&hash, "tenant-test-key", Some(tenant), false, role)
+            .await
+            .expect("Failed to create tenant API key");
         plaintext
     }
 
@@ -3137,6 +3178,190 @@ mod tests {
             body
         );
         assert!(body["total"].as_u64().is_some());
+    }
+
+    // ── Agent-capacity limits (CLOACI-T-0808) ────────────────────────
+
+    /// god POST sets a tenant exception → 200 with override + effective.
+    #[tokio::test]
+    #[serial]
+    async fn test_set_agent_limit_god_returns_200() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"max_agents": 6}"#))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["effective_limit"], 6);
+        assert_eq!(body["tenant_override"], 6);
+        assert_eq!(body["default_max_agents"], 4);
+    }
+
+    /// god GET reads back the override just set → effective == override.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_god_reflects_override() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state.clone());
+
+        // Seed an override.
+        let post = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"max_agents": 6}"#))
+            .unwrap();
+        let (status, _) = send_request(app, post).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let app = build_router(state);
+        let get = axum::http::Request::builder()
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, get).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["effective_limit"], 6);
+    }
+
+    /// god GET on a tenant with no override → effective == default, override null.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_no_override_uses_default() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/tenants/otherco/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["effective_limit"], 4);
+        assert!(body["tenant_override"].is_null());
+    }
+
+    /// A tenant-scoped key may read its OWN tenant's limit → 200.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_own_tenant_key_allowed() {
+        let state = test_state().await;
+        let token = create_tenant_api_key(&state, "acme", "read").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        // Own-tenant read is permitted (200). The exact effective value is not
+        // asserted here: server lib tests share one Postgres DB with no
+        // per-test reset, so a prior test may have left an `acme` override.
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert!(body["effective_limit"].is_number(), "body: {:?}", body);
+    }
+
+    /// A tenant-scoped key may NOT read another tenant's limit → 403.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_cross_tenant_key_denied() {
+        let state = test_state().await;
+        let token = create_tenant_api_key(&state, "acme", "read").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/tenants/otherco/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// Setting an exception is god-only — a tenant key (even on its own
+    /// tenant) is denied → 403.
+    #[tokio::test]
+    #[serial]
+    async fn test_set_agent_limit_tenant_key_denied() {
+        let state = test_state().await;
+        let token = create_tenant_api_key(&state, "acme", "admin").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"max_agents": 6}"#))
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// god DELETE clears the exception → 200 and effective reverts to default.
+    #[tokio::test]
+    #[serial]
+    async fn test_delete_agent_limit_god_reverts_to_default() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        // Seed an override first.
+        let app = build_router(state.clone());
+        let post = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"max_agents": 6}"#))
+            .unwrap();
+        let (status, _) = send_request(app, post).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let app = build_router(state);
+        let del = axum::http::Request::builder()
+            .method("DELETE")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, del).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["effective_limit"], 4);
+        assert!(body["tenant_override"].is_null());
+    }
+
+    /// No Authorization header → 401 before authz runs.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_no_auth_returns_401() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/tenants/acme/limits")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     /// CLOACI-T-0580: LRU eviction. With a cache cap of 2, cycling

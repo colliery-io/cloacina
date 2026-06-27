@@ -44,6 +44,8 @@ use crate::database::{AnyPool, BackendType, Database};
 
 // Sub-modules for each entity type
 #[cfg(feature = "postgres")]
+pub mod agent_limits;
+#[cfg(feature = "postgres")]
 pub mod api_keys;
 pub mod checkpoint;
 pub mod context;
@@ -68,6 +70,8 @@ pub mod workflow_packages;
 pub mod workflow_registry_storage;
 
 // Re-export DAL components
+#[cfg(feature = "postgres")]
+pub use agent_limits::AgentLimitsDAL;
 #[cfg(feature = "postgres")]
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
 pub use checkpoint::CheckpointDAL;
@@ -138,6 +142,12 @@ impl DAL {
     /// Returns the connection pool.
     pub fn pool(&self) -> AnyPool {
         self.database.pool()
+    }
+
+    /// Returns an agent-capacity-limits DAL (Postgres only). CLOACI-T-0808.
+    #[cfg(feature = "postgres")]
+    pub fn agent_limits(&self) -> AgentLimitsDAL<'_> {
+        AgentLimitsDAL::new(self)
     }
 
     /// Returns an API key DAL (Postgres only).

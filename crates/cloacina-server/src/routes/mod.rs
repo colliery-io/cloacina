@@ -25,6 +25,7 @@ pub mod error;
 pub mod executions;
 pub mod health_graphs;
 pub mod keys;
+pub mod limits;
 pub mod local_auth;
 pub mod oidc_auth;
 pub mod session;
