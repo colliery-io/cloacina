@@ -24,6 +24,11 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      {{- if eq .Values.fleet.actuator "kubernetes" }}
+      # Bind the least-privilege fleet RBAC (REQ-006) so the K8s actuator can
+      # provision per-tenant namespaces + agent Deployments.
+      serviceAccountName: {{ include "cloacina-server.fleetServiceAccountName" . }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -72,6 +77,16 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.apiKeySecretRef.name }}
                   key: {{ .Values.apiKeySecretRef.key }}
+            {{- end }}
+            {{- if eq .Values.fleet.actuator "kubernetes" }}
+            # Fleet actuator (CLOACI-T-0814). Selects the K8s substrate; the
+            # actuator scales a per-tenant cloacina-agent Deployment.
+            - name: CLOACINA_FLEET_ACTUATOR
+              value: "kubernetes"
+            - name: CLOACINA_AGENT_IMAGE
+              value: {{ .Values.fleet.agentImage | quote }}
+            - name: CLOACINA_AGENT_SERVER_URL
+              value: {{ .Values.fleet.agentServerUrl | default (printf "http://%s:%v" (include "cloacina-server.fullname" .) .Values.service.port) | quote }}
             {{- end }}
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}

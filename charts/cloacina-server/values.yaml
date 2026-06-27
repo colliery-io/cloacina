@@ -116,6 +116,40 @@ server:
   extraEnv: []
 
 # ---------------------------------------------------------------------------
+# Fleet actuator (CLOACI-I-0127 / T-0814)
+#
+# The server can auto-scale a per-tenant pool of cloacina-agent workloads.
+# `actuator` selects the substrate and is OFF by default — existing installs
+# are completely unchanged (no ServiceAccount, no RBAC, no actuator env are
+# rendered unless you opt in).
+#
+#   none        — actuation off (default).
+#   kubernetes  — scale a per-tenant `cloacina-agent` Deployment in the
+#                 tenant's OWN namespace (REQ-007). Renders the least-privilege
+#                 RBAC below (REQ-006) and binds it to the server pod.
+#
+# The Docker actuator (CLOACINA_FLEET_ACTUATOR=docker) is a dev-only substrate
+# and is not offered through this chart.
+# ---------------------------------------------------------------------------
+fleet:
+  actuator: none
+
+  # Agent image the actuator runs for each tenant (CLOACINA_AGENT_IMAGE).
+  agentImage: ghcr.io/colliery-software/cloacina-agent:latest
+
+  # Server URL injected into spawned agents as CLOACINA_SERVER
+  # (CLOACINA_AGENT_SERVER_URL). Defaults to this release's in-cluster Service.
+  # Leave empty to use the chart's Service DNS.
+  agentServerUrl: ""
+
+  # ServiceAccount the server runs as when the actuator is enabled. The chart
+  # creates it (and the RBAC below) only when actuator=kubernetes.
+  serviceAccount:
+    # Name override; empty → "<fullname>-fleet".
+    name: ""
+    annotations: {}
+
+# ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
 service:

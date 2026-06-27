@@ -1,0 +1,72 @@
+{{- if eq .Values.fleet.actuator "kubernetes" }}
+# ---------------------------------------------------------------------------
+# Fleet actuator RBAC (CLOACI-T-0814, REQ-006 + REQ-007)
+#
+# Rendered ONLY when fleet.actuator=kubernetes. Grants the server the LEAST
+# privilege its Kubernetes actuator needs to scale a per-tenant cloacina-agent
+# Deployment in the tenant's own namespace:
+#
+#   - It creates one namespace per tenant (cloacina-tenant-<t>), which is
+#     cluster-scoped — hence a ClusterRole, not a namespaced Role.
+#   - Inside each tenant namespace it manages exactly one Deployment + one
+#     Secret (the agent key) and patches the Deployment's replica count.
+#
+# NO cluster-admin. NO wildcard ("*") verbs or resources. Every rule below is
+# enumerated and justified.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+  {{- with .Values.fleet.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+rules:
+  # Per-tenant namespace provisioning (REQ-007). `create` to make a tenant's
+  # namespace on first provision; `get`/`list` to check whether it already
+  # exists (the actuator is idempotent). Namespaces are cluster-scoped, so this
+  # rule MUST live in a ClusterRole. No `delete` — tenant teardown is a separate
+  # concern and we keep the blast radius minimal.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create", "get", "list"]
+  # The per-tenant agent workload. `create` the Deployment on first provision;
+  # `get`/`list` to reconcile current state; `patch` to set the replica count
+  # (scale up/down); `delete` to remove a tenant's agent pool on deprovision.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "get", "list", "patch", "delete"]
+  # The per-tenant agent key, delivered to agent pods as CLOACINA_API_KEY.
+  # `create` on first provision; `get` to read it back during reconcile;
+  # `update` to rotate it on scale-up; `delete` to clean up on deprovision.
+  # No `list` — the actuator addresses the Secret by its known name, so it never
+  # needs to enumerate (and thereby read) other Secrets.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

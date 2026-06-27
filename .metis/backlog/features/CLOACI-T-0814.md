@@ -4,15 +4,15 @@ level: task
 title: "K8s actuator + Helm RBAC + per-tenant namespace (fast-follow)"
 short_code: "CLOACI-T-0814"
 created_at: 2026-06-27T14:43:41.700850+00:00
-updated_at: 2026-06-27T14:43:41.700850+00:00
+updated_at: 2026-06-27T17:49:39.499953+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -64,6 +64,10 @@ Fast-follow production actuator: the Kubernetes `FleetActuator` impl (scale per-
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -134,4 +138,18 @@ Fast-follow production actuator: the Kubernetes `FleetActuator` impl (scale per-
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-27 — Implemented (local validation green; not committed)
+
+**Kubernetes FleetActuator** (`crates/cloacina-server/src/actuator/kubernetes.rs`): mirrors `docker.rs` exactly — a mockable `KubeOps` trait (`ensure_namespace`, `ensure_secret`, `ensure_deployment`, `scale_deployment`, `count_ready_replicas`) with a real `KubeApiOps` impl (server-side apply for ns/secret/deployment; merge-patch for replicas; `get_opt` for ready count) + a test mock. Reuses the T-0810 `KeyMinter`/`DalKeyMinter`, `ReconcileOutcome`, `ActuatorError`. `reconcile` ensures the tenant namespace `cloacina-tenant-<sanitized>` (REQ-007), upserts a per-tenant `Secret` (agent key, referenced as `CLOACINA_API_KEY`), ensures the `cloacina-agent` Deployment, and scales replicas = desired; spawned/stopped computed from the ready-replica delta. Client construction is in-cluster + lazy (`Config::incluster`), sync — mirrors Docker's lazy connect.
+
+**Guard wiring** (`actuator/guard.rs`): added `Decision::Kubernetes`; `kubernetes` arm now → in-cluster builds the actuator, NOT in-cluster → `Refused` (fail-closed). Removed the dead `NotImplemented` variant. `build_actuator` refactored to delegate to a new injectable `build_actuator_with(kind, substrate, build_docker, build_kubernetes)` seam so K8s/Docker construction is mockable in tests without a real cluster/daemon.
+
+**Helm** (`charts/cloacina-server`): values-gated on `fleet.actuator` (default `none` → existing installs byte-unchanged). New `templates/fleet-rbac.yaml` (rendered only under `eq .Values.fleet.actuator "kubernetes"`): ServiceAccount + least-privilege ClusterRole (namespaces [create,get,list]; apps/deployments [create,get,list,patch,delete]; secrets [create,get,update,delete] — no `list` on secrets, no cluster-admin, no wildcards) + ClusterRoleBinding. Server Deployment binds the SA and sets `CLOACINA_FLEET_ACTUATOR=kubernetes` + `CLOACINA_AGENT_IMAGE` + `CLOACINA_AGENT_SERVER_URL` (defaults to release Service DNS), all under the same gate.
+
+**Deps**: `kube = 2.0` (resolved 2.0.1, `default-features=false`, features `client`+`rustls-tls`) + `k8s-openapi = 0.26` (resolved 0.26.1, feature `v1_32`).
+
+**Validation**: `angreal check crate crates/cloacina-server` green; `cargo test -p cloacina-server --lib -- actuator --test-threads=1` → 33 passed / 0 failed (20 existing + 13 new). `helm lint` clean; `helm template --set fleet.actuator=kubernetes` renders SA + ClusterRole + ClusterRoleBinding + actuator env + SA binding; default `helm template` renders zero fleet artifacts (unchanged).
+
+**Not validated locally (needs a real cluster)**: actual namespace/Deployment creation + agent self-registration. Smoke test (kind/minikube): install with `--set fleet.actuator=kubernetes`, `POST /v1/tenants/{t}/fleet/provision`, watch a `cloacina-agent` Deployment scale up in `cloacina-tenant-<t>` and agents appear via `GET /v1/agents`.
+
+**Flagged decisions**: single per-tenant Secret shared by all replicas (re-minted on scale-UP events, not every reconcile); key revocation on scale-down deferred (same as Docker). Not committed/pushed per instructions.

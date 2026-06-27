@@ -71,6 +71,13 @@ http-body-util = "0.1"
 # constructing the client does not require a reachable daemon (the substrate
 # guard probes the socket explicitly before the actuator is built).
 bollard = "0.21"
+# CLOACI-T-0814: Kubernetes production fleet actuator. Drives a per-tenant
+# `cloacina-agent` Deployment's replicas in the tenant's own namespace. Uses
+# rustls (matching reqwest) — never openssl — to avoid pulling a second TLS
+# stack. Client construction is in-cluster + lazy (the substrate guard confirms
+# we are running as a pod before the actuator is built, fail-closed).
+kube = { version = "2.0", default-features = false, features = ["client", "rustls-tls"] }
+k8s-openapi = { version = "0.26", features = ["v1_32"] }
 tracing-opentelemetry = { version = "0.32", optional = true }
 opentelemetry = { version = "0.31", optional = true }
 opentelemetry-otlp = { version = "0.31", optional = true, features = ["grpc-tonic"] }

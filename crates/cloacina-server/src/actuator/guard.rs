@@ -33,7 +33,8 @@ use std::path::Path;
 use cloacina::database::Database;
 
 use super::docker::DockerActuator;
-use super::{FleetActuator, NoopActuator};
+use super::kubernetes::KubernetesActuator;
+use super::{ActuatorError, FleetActuator, NoopActuator};
 
 /// In-cluster Kubernetes service-account token mount. Its presence (or the
 /// `KUBERNETES_SERVICE_HOST` env var) means we are running inside a pod.
@@ -49,10 +50,9 @@ pub enum GuardError {
     /// The selected actuator is unsafe on the detected substrate (e.g. Docker
     /// actuator selected while running inside Kubernetes).
     Refused(String),
-    /// The selected substrate is unreachable (e.g. no Docker socket).
+    /// The selected substrate is unreachable (e.g. no Docker socket, or
+    /// in-cluster kube credentials are missing/unusable).
     Unavailable(String),
-    /// The selected actuator is recognized but not implemented here.
-    NotImplemented(String),
     /// `CLOACINA_FLEET_ACTUATOR` held an unrecognized value.
     Unknown(String),
 }
@@ -62,7 +62,6 @@ impl std::fmt::Display for GuardError {
         match self {
             GuardError::Refused(m) => write!(f, "fleet actuator refused (fail-closed): {m}"),
             GuardError::Unavailable(m) => write!(f, "fleet actuator substrate unavailable: {m}"),
-            GuardError::NotImplemented(m) => write!(f, "fleet actuator not implemented: {m}"),
             GuardError::Unknown(m) => write!(
                 f,
                 "unknown CLOACINA_FLEET_ACTUATOR value {m:?} (expected one of: none, docker, kubernetes)"
@@ -108,6 +107,8 @@ pub enum Decision {
     Noop,
     /// Build the Docker actuator.
     Docker,
+    /// Build the Kubernetes actuator.
+    Kubernetes,
 }
 
 /// Pure decision logic for the substrate guard (REQ-008). Unit-tested across
@@ -117,8 +118,9 @@ pub enum Decision {
 /// - `none` → [`Decision::Noop`].
 /// - `docker` → **refuse** if Kubernetes is detected; **unavailable** if no
 ///   Docker socket; else [`Decision::Docker`].
-/// - `kubernetes` → recognized but not built here (CLOACI-T-0814): refuse when
-///   not in-cluster, else `NotImplemented`.
+/// - `kubernetes` → **refuse** when not in-cluster (no SA token /
+///   `KUBERNETES_SERVICE_HOST`, fail-closed); else [`Decision::Kubernetes`]
+///   (CLOACI-T-0814).
 /// - anything else → [`GuardError::Unknown`].
 pub fn evaluate(kind: &str, substrate: &dyn Substrate) -> Result<Decision, GuardError> {
     match kind {
@@ -147,13 +149,13 @@ pub fn evaluate(kind: &str, substrate: &dyn Substrate) -> Result<Decision, Guard
             if !substrate.kubernetes_detected() {
                 Err(GuardError::Refused(
                     "CLOACINA_FLEET_ACTUATOR=kubernetes but not running in-cluster \
-                     (no KUBERNETES_SERVICE_HOST / service-account token mount)."
+                     (no KUBERNETES_SERVICE_HOST / service-account token mount). The \
+                     Kubernetes actuator needs in-cluster credentials and refuses to start \
+                     otherwise — run the server as a pod, or set the actuator to 'none'."
                         .to_string(),
                 ))
             } else {
-                Err(GuardError::NotImplemented(
-                    "kubernetes actuator not yet implemented — CLOACI-T-0814".to_string(),
-                ))
+                Ok(Decision::Kubernetes)
             }
         }
         other => Err(GuardError::Unknown(other.to_string())),
@@ -172,19 +174,47 @@ pub fn actuator_kind_from_env() -> String {
 
 /// Build the actuator for `kind`, validating it against `substrate`
 /// (fail-closed). On `Ok` the server proceeds; on `Err` the caller MUST refuse
-/// to start. `database` is used by the Docker actuator to mint per-tenant agent
-/// keys at spawn time.
+/// to start. `database` is used by the actuator to mint per-tenant agent keys.
 pub fn build_actuator(
     kind: &str,
     substrate: &dyn Substrate,
     database: Database,
 ) -> Result<Arc<dyn FleetActuator>, GuardError> {
+    let db_docker = database.clone();
+    build_actuator_with(
+        kind,
+        substrate,
+        move || {
+            DockerActuator::from_env(db_docker).map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
+        },
+        move || {
+            KubernetesActuator::from_env(database).map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
+        },
+    )
+}
+
+/// [`build_actuator`] with the substrate-specific constructors injected.
+///
+/// Real kube/Docker client construction needs the real host (a cluster or a
+/// daemon), so it cannot be exercised in a unit test. This seam lets tests
+/// assert the *wiring* — that a validated `kubernetes`/`docker` decision routes
+/// to (and returns) the corresponding actuator — by passing mock constructors,
+/// while production calls [`build_actuator`] with the real ones.
+pub fn build_actuator_with<D, K>(
+    kind: &str,
+    substrate: &dyn Substrate,
+    build_docker: D,
+    build_kubernetes: K,
+) -> Result<Arc<dyn FleetActuator>, GuardError>
+where
+    D: FnOnce() -> Result<Arc<dyn FleetActuator>, ActuatorError>,
+    K: FnOnce() -> Result<Arc<dyn FleetActuator>, ActuatorError>,
+{
     match evaluate(kind, substrate)? {
         Decision::Noop => Ok(Arc::new(NoopActuator)),
-        Decision::Docker => {
-            let actuator = DockerActuator::from_env(database)
-                .map_err(|e| GuardError::Unavailable(e.to_string()))?;
-            Ok(Arc::new(actuator))
+        Decision::Docker => build_docker().map_err(|e| GuardError::Unavailable(e.to_string())),
+        Decision::Kubernetes => {
+            build_kubernetes().map_err(|e| GuardError::Unavailable(e.to_string()))
         }
     }
 }
@@ -257,13 +287,13 @@ mod tests {
     }
 
     #[test]
-    fn kubernetes_in_cluster_is_not_implemented() {
+    fn kubernetes_in_cluster_is_kubernetes() {
+        // In-cluster + kubernetes selected → build the K8s actuator (T-0814).
         let s = FakeSubstrate {
             k8s: true,
             docker: false,
         };
-        let err = evaluate("kubernetes", &s).unwrap_err();
-        assert!(matches!(err, GuardError::NotImplemented(_)), "got {err:?}");
+        assert_eq!(evaluate("kubernetes", &s).unwrap(), Decision::Kubernetes);
     }
 
     #[test]
@@ -274,6 +304,95 @@ mod tests {
         };
         let err = evaluate("podman", &s).unwrap_err();
         assert!(matches!(err, GuardError::Unknown(_)), "got {err:?}");
+    }
+
+    /// A stand-in actuator whose `kind()` lets the wiring tests assert *which*
+    /// constructor `build_actuator_with` invoked.
+    struct TaggedActuator(&'static str);
+
+    #[async_trait::async_trait]
+    impl FleetActuator for TaggedActuator {
+        async fn reconcile(
+            &self,
+            _tenant_id: &str,
+            desired: u32,
+        ) -> Result<super::super::ReconcileOutcome, ActuatorError> {
+            Ok(super::super::ReconcileOutcome {
+                spawned: 0,
+                stopped: 0,
+                running: desired,
+            })
+        }
+        fn kind(&self) -> &'static str {
+            self.0
+        }
+    }
+
+    fn never_docker() -> Result<Arc<dyn FleetActuator>, ActuatorError> {
+        panic!("docker constructor must not be called");
+    }
+    fn never_kube() -> Result<Arc<dyn FleetActuator>, ActuatorError> {
+        panic!("kubernetes constructor must not be called");
+    }
+
+    #[test]
+    fn build_routes_kubernetes_when_in_cluster() {
+        // Mock the kube-client construction so no real cluster is needed; assert
+        // the validated `kubernetes` decision routes to (and returns) it.
+        let s = FakeSubstrate {
+            k8s: true,
+            docker: false,
+        };
+        let actuator = build_actuator_with(
+            "kubernetes",
+            &s,
+            never_docker,
+            || Ok(Arc::new(TaggedActuator("kubernetes")) as Arc<dyn FleetActuator>),
+        )
+        .expect("kubernetes in-cluster should build");
+        assert_eq!(actuator.kind(), "kubernetes");
+    }
+
+    #[test]
+    fn build_refuses_kubernetes_when_not_in_cluster() {
+        // Fail-closed: neither constructor runs; the guard refuses before build.
+        let s = FakeSubstrate {
+            k8s: false,
+            docker: true,
+        };
+        // `build_actuator_with`'s Ok type (Arc<dyn FleetActuator>) isn't Debug,
+        // so match rather than unwrap_err.
+        match build_actuator_with("kubernetes", &s, never_docker, never_kube) {
+            Err(GuardError::Refused(_)) => {}
+            other => panic!("expected Refused, got {:?}", other.err()),
+        }
+    }
+
+    #[test]
+    fn build_surfaces_kube_construction_failure_as_unavailable() {
+        // An in-cluster decision whose client construction fails must become a
+        // fatal Unavailable (the server refuses to boot), not a silent noop.
+        let s = FakeSubstrate {
+            k8s: true,
+            docker: false,
+        };
+        match build_actuator_with("kubernetes", &s, never_docker, || {
+            Err(ActuatorError::Substrate("no kubeconfig".into()))
+        }) {
+            Err(GuardError::Unavailable(_)) => {}
+            other => panic!("expected Unavailable, got {:?}", other.err()),
+        }
+    }
+
+    #[test]
+    fn build_noop_constructs_neither() {
+        let s = FakeSubstrate {
+            k8s: false,
+            docker: false,
+        };
+        let actuator =
+            build_actuator_with("none", &s, never_docker, never_kube).expect("none builds noop");
+        assert_eq!(actuator.kind(), "none");
     }
 
     #[test]

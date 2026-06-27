@@ -18,9 +18,10 @@
 //!
 //! The control plane (T-0809) owns each tenant's `desired_count`; the
 //! **actuator** reconciles *actual → desired* by spawning/stopping
-//! `cloacina-agent` runtimes. This first pass ships a Docker-container
-//! actuator only (see [`docker`]); local-process and Kubernetes substrates are
-//! out of scope (K8s is CLOACI-T-0814).
+//! `cloacina-agent` runtimes. Two substrates ship: a Docker-container actuator
+//! for dev (see [`docker`]) and a Kubernetes actuator for production (see
+//! [`kubernetes`], CLOACI-T-0814) that scales a per-tenant agent `Deployment`
+//! in the tenant's own namespace.
 //!
 //! Substrate selection is explicit + validated at boot, fail-closed, by the
 //! [`guard`] module (REQ-008): a misconfigured actuator REFUSES to start rather
@@ -28,6 +29,7 @@
 
 pub mod docker;
 pub mod guard;
+pub mod kubernetes;
 
 use async_trait::async_trait;
 
