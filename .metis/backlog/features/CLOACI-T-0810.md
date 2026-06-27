@@ -4,15 +4,15 @@ level: task
 title: "Pluggable FleetActuator trait + Docker-container dev actuator (+ substrate guard)"
 short_code: "CLOACI-T-0810"
 created_at: 2026-06-27T14:43:36.899333+00:00
-updated_at: 2026-06-27T14:43:36.899333+00:00
+updated_at: 2026-06-27T17:14:05.488598+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -64,6 +64,10 @@ The pluggable `FleetActuator` trait (reconcile desired->actual) + the Docker-con
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -134,4 +138,29 @@ The pluggable `FleetActuator` trait (reconcile desired->actual) + the Docker-con
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-27 — Implemented (not committed)
+
+Pluggable `FleetActuator` + Docker dev actuator + fail-closed substrate guard landed on `i0127-agent-control-plane`. Compile + unit tests green locally; the real Docker spawn path is implemented but cannot be CI-tested (needs a live daemon + `cloacina-agent` image) — flagged below.
+
+**New module `crates/cloacina-server/src/actuator/`:**
+- `mod.rs` — `#[async_trait] FleetActuator` trait (`reconcile`, `kind`), `ReconcileOutcome`, `ActuatorError`, `NoopActuator` (kind `"none"`), and pure `reconcile_delta(running, desired) -> ReconcileDelta` (saturating).
+- `guard.rs` — REQ-008 substrate guard. `Substrate` trait (injectable K8s / Docker-socket probes) + `HostSubstrate`; pure `evaluate(kind, &dyn Substrate)`; `build_actuator(...)`; `actuator_kind_from_env()`. Branches: none→Noop, docker+K8s→Refused, docker+no-socket→Unavailable, docker+socket→Docker, kubernetes+not-in-cluster→Refused, kubernetes+in-cluster→NotImplemented (T-0814), unknown→Unknown.
+- `docker.rs` — `DockerActuator` over `ContainerOps` (bollard) + `KeyMinter` traits (both mockable). `BollardOps` (bollard 0.21) does label-scoped list / create+start / stop+remove. `DalKeyMinter` mints a tenant-scoped `read` key per spawn.
+
+**Wiring (`lib.rs`):** `pub mod actuator;`; `AppState.fleet_actuator: Arc<dyn FleetActuator>` (added to runtime + `test_state`); fail-closed `build_actuator` at boot (server refuses to start on guard error); reconcile loop spawned only when `kind != "none"` (interval `CLOACINA_RECONCILE_INTERVAL_S`, default 15) with the T-0811 leader-election TODO.
+
+**Additive DAL (`crates/cloacina/src/dal/unified/agent_desired/mod.rs`):** `list_all() -> Vec<(tenant, u32)>` for the reconcile loop (read-only; T-0809 logic untouched).
+
+**Tests:** 20 passing (`cargo test -p cloacina-server --lib -- actuator`) — guard 8, delta 5, docker mock-reconcile 6, noop 1. `angreal check crate crates/cloacina-server` green.
+
+**Deps:** `bollard = "0.21"` added; `async-trait` already present.
+
+**Agent-key role = `read`:** `routes/authz.rs` authorizes `POST /agent/register` at `Access::any(Level::Read)`, and `register_agent` registers the agent under the caller key's `tenant_id` — so a tenant-scoped `read` key is the minimal self-registration credential.
+
+**Flagged decisions / cannot-validate:**
+- Mint one fresh key per spawned container; key-reuse + revoke-on-stop deferred → keys accumulate in `api_keys` (future cleanup task).
+- `list_managed` counts running containers only (`all=false`).
+- Reconcile loop is single-writer; multi-replica needs leader election (T-0811) — TODO in place.
+- Real Docker spawn NOT validated locally. Smoke-test on compose stack: build `cloacina-agent:latest`; set on server `CLOACINA_FLEET_ACTUATOR=docker`, `CLOACINA_AGENT_NETWORK=<compose net>`, `CLOACINA_AGENT_SERVER_URL=http://server:8080`, mount `/var/run/docker.sock`; `POST /v1/tenants/{t}/fleet/provision`; within the reconcile interval a labelled `cloacina-agent` container starts and self-registers (`GET /v1/agents`); deprovision drains one.
+
+NOT committed / pushed per task instruction.

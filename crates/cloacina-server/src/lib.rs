@@ -20,6 +20,7 @@
 //! single `run()` entrypoint that boots the axum HTTP server with auth, tenant
 //! management, workflow upload, and execution APIs.
 
+pub mod actuator;
 pub mod agent_registry;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
@@ -251,6 +252,12 @@ pub struct AppState {
     pub oidc_policy: Arc<crate::oidc::MappingPolicy>,
     /// CLOACI-T-0790: short-lived in-flight OIDC login state (state/nonce/PKCE).
     pub oidc_login: Arc<crate::oidc::LoginFlowStore>,
+    /// CLOACI-T-0810: fleet actuator that reconciles each tenant's running agent
+    /// count toward its `desired_count`. Selected by `CLOACINA_FLEET_ACTUATOR`
+    /// and validated fail-closed at boot by the substrate guard. `NoopActuator`
+    /// (kind `"none"`) when actuation is off — in which case the reconcile loop
+    /// does not run.
+    pub fleet_actuator: Arc<dyn crate::actuator::FleetActuator>,
 }
 
 /// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
@@ -807,6 +814,30 @@ pub async fn run(
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(4);
 
+    // CLOACI-T-0810: build the fleet actuator, FAIL CLOSED (REQ-008). A
+    // misconfigured/unsafe actuator must refuse to start the server — never
+    // silently scale the wrong substrate. `CLOACINA_FLEET_ACTUATOR` selects it
+    // (default `none` = actuation off); the substrate guard validates the choice
+    // against the detected host (refuses Docker-on-Kubernetes, refuses with no
+    // Docker socket).
+    let actuator_kind = crate::actuator::guard::actuator_kind_from_env();
+    let fleet_actuator = crate::actuator::guard::build_actuator(
+        &actuator_kind,
+        &crate::actuator::guard::HostSubstrate,
+        runner.database().clone(),
+    )
+    .map_err(|e| {
+        anyhow::anyhow!(
+            "FATAL: fleet actuator (CLOACINA_FLEET_ACTUATOR={actuator_kind}) refused to start \
+             — {e}. Set CLOACINA_FLEET_ACTUATOR to a valid, safe value (none | docker) or fix \
+             the substrate. The server will not start with a misconfigured actuator."
+        )
+    })?;
+    info!(
+        actuator = %fleet_actuator.kind(),
+        "fleet actuator initialized"
+    );
+
     let state = AppState {
         database: runner.database().clone(),
         default_max_agents,
@@ -841,6 +872,7 @@ pub async fn run(
         oidc: oidc_provider,
         oidc_policy,
         oidc_login,
+        fleet_actuator: fleet_actuator.clone(),
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -1012,6 +1044,74 @@ pub async fn run(
                     }
                     res = sweep_shutdown.changed() => {
                         if res.is_err() || *sweep_shutdown.borrow() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Fleet actuator reconcile loop (CLOACI-T-0810). Spawned ONLY when an
+    // actuator is active (kind != "none"); the NoopActuator path leaves this
+    // off entirely. Every `CLOACINA_RECONCILE_INTERVAL_S` (default 15) it reads
+    // every `agent_desired_counts` row and reconciles each tenant's running
+    // agents toward its desired count.
+    //
+    // TODO(CLOACI-T-0811): single-writer only; multi-replica needs leader
+    // election (otherwise every replica actuates the same delta and overshoots).
+    if fleet_actuator.kind() != "none" {
+        let reconcile_actuator = fleet_actuator.clone();
+        let reconcile_dal = unified_dal.clone();
+        let mut reconcile_shutdown = substrate_shutdown_rx.clone();
+        let interval_s = std::env::var("CLOACINA_RECONCILE_INTERVAL_S")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(15);
+        let tick = std::time::Duration::from_secs(interval_s);
+        info!(
+            actuator = %fleet_actuator.kind(),
+            interval_s,
+            "fleet actuator reconcile loop started"
+        );
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(tick);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        let desired = match reconcile_dal.agent_desired().list_all().await {
+                            Ok(rows) => rows,
+                            Err(e) => {
+                                warn!(error = %e, "fleet reconcile: failed to read desired counts; skipping tick");
+                                continue;
+                            }
+                        };
+                        for (tenant, want) in desired {
+                            match reconcile_actuator.reconcile(&tenant, want).await {
+                                Ok(out) if out.spawned > 0 || out.stopped > 0 => {
+                                    info!(
+                                        tenant = %tenant,
+                                        desired = want,
+                                        spawned = out.spawned,
+                                        stopped = out.stopped,
+                                        running = out.running,
+                                        "fleet reconcile: actuated tenant"
+                                    );
+                                }
+                                Ok(_) => {}
+                                Err(e) => warn!(
+                                    tenant = %tenant,
+                                    desired = want,
+                                    error = %e,
+                                    "fleet reconcile: tenant reconcile failed"
+                                ),
+                            }
+                        }
+                    }
+                    res = reconcile_shutdown.changed() => {
+                        if res.is_err() || *reconcile_shutdown.borrow() {
                             break;
                         }
                     }
@@ -1851,6 +1951,9 @@ mod tests {
             oidc_login: Arc::new(crate::oidc::LoginFlowStore::new(
                 std::time::Duration::from_secs(600),
             )),
+            // CLOACI-T-0810: tests don't actuate — a Noop actuator keeps handlers
+            // that read `fleet_actuator` constructible without a Docker daemon.
+            fleet_actuator: Arc::new(crate::actuator::NoopActuator),
         }
     }
 

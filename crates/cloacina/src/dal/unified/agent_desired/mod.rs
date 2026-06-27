@@ -70,6 +70,29 @@ impl<'a> AgentDesiredDAL<'a> {
         Ok(row.map(|r| r.desired_count.max(0) as u32).unwrap_or(0))
     }
 
+    /// List every tenant's desired agent count as `(tenant_id, desired_count)`
+    /// pairs. Used by the fleet actuator's reconcile loop (CLOACI-T-0810) to
+    /// drive actual→desired convergence across all provisioned tenants. Rows
+    /// with a non-positive count are clamped to `0`.
+    #[cfg(feature = "postgres")]
+    pub async fn list_all(&self) -> Result<Vec<(String, u32)>, ValidationError> {
+        use crate::database::schema::postgres::agent_desired_counts as t;
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let rows: Vec<AgentDesiredRow> = conn
+            .interact(move |conn| t::table.load(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.tenant_id, r.desired_count.max(0) as u32))
+            .collect())
+    }
+
     /// Set (or replace) the tenant's desired agent count. Upserts on `tenant_id`;
     /// `updated_at` is managed by the column default (not written from Rust).
     #[cfg(feature = "postgres")]
