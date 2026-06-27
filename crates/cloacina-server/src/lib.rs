@@ -242,6 +242,13 @@ pub struct AppState {
     /// in `agent_capacity_limits`. Operator-configurable via
     /// `CLOACINA_DEFAULT_MAX_AGENTS` (default 4).
     pub default_max_agents: u32,
+    /// CLOACI-T-0812: number of agent(s) to auto-provision when a tenant is
+    /// created. On tenant create the handler sets the new tenant's
+    /// `desired_count` to `min(initial_agents, default_max_agents)` (best-effort);
+    /// the T-0811 control loop + T-0810 actuator then bring the agents up.
+    /// Operator-configurable via `CLOACINA_INITIAL_AGENTS` (default 1); `0`
+    /// disables auto-provision.
+    pub initial_agents: u32,
     /// CLOACI-T-0783: declarative `(method, path) -> Access` authorization
     /// table, consulted by `authz_mw`. Built once at startup; fail-closed —
     /// a matched route absent from this map is denied.
@@ -815,6 +822,15 @@ pub async fn run(
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(4);
 
+    // CLOACI-T-0812: initial agent(s) auto-provisioned on tenant create. The
+    // create-tenant handler clamps this to `default_max_agents` and writes the
+    // result as the new tenant's `desired_count` (best-effort). Default 1; `0`
+    // disables auto-provision.
+    let initial_agents = std::env::var("CLOACINA_INITIAL_AGENTS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(1);
+
     // CLOACI-T-0810: build the fleet actuator, FAIL CLOSED (REQ-008). A
     // misconfigured/unsafe actuator must refuse to start the server — never
     // silently scale the wrong substrate. `CLOACINA_FLEET_ACTUATOR` selects it
@@ -842,6 +858,7 @@ pub async fn run(
     let state = AppState {
         database: runner.database().clone(),
         default_max_agents,
+        initial_agents,
         runner: Arc::new(runner),
         key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
         endpoint_registry,
@@ -2043,6 +2060,7 @@ mod tests {
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
             default_max_agents: 4,
+            initial_agents: 1,
             authz_table: Arc::new(crate::routes::authz::build_authz_table()),
             oidc: None,
             oidc_policy: Arc::new(crate::oidc::MappingPolicy::default()),
@@ -3800,6 +3818,86 @@ mod tests {
 
         let (status, _) = send_request(app, req).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    // ── Auto-provision on tenant create (CLOACI-T-0812) ───────────────
+
+    /// The clamp/0-disable logic: effective initial =
+    /// `min(initial_agents, default_max_agents)`.
+    #[test]
+    fn test_initial_desired_count_clamp() {
+        use crate::routes::tenants::initial_desired_count;
+        // initial under the limit → initial.
+        assert_eq!(initial_desired_count(1, 4), 1);
+        assert_eq!(initial_desired_count(3, 4), 3);
+        // initial over the limit → clamped to the limit.
+        assert_eq!(initial_desired_count(10, 4), 4);
+        // 0 initial → 0 (auto-provision disabled).
+        assert_eq!(initial_desired_count(0, 4), 0);
+        // 0 limit → 0 even with a positive initial.
+        assert_eq!(initial_desired_count(2, 0), 0);
+    }
+
+    /// Creating a tenant auto-provisions its initial `desired_count`:
+    /// `POST /v1/tenants` then `GET /v1/tenants/{t}/fleet` shows
+    /// `desired_count == min(initial_agents, default_max_agents)`. With the
+    /// test state's defaults (initial_agents=1, default_max_agents=4) that's 1.
+    /// Requires Postgres (creates a real tenant schema); unique name + DELETE
+    /// cleanup since the lib tests share one DB with no per-test reset.
+    #[tokio::test]
+    #[serial]
+    async fn test_create_tenant_auto_provisions_initial_desired() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await; // god
+
+        let tenant = format!(
+            "test_0812_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+
+        // Create the tenant.
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "name": tenant,
+                    "password": "testpass123",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let (status, body) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status, StatusCode::CREATED, "create tenant: {:?}", body);
+
+        // GET fleet → desired_count auto-provisioned to the clamped initial (1).
+        let req = axum::http::Request::builder()
+            .uri(format!("/v1/tenants/{}/fleet", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status, StatusCode::OK, "get fleet: {:?}", body);
+        assert_eq!(
+            body["desired_count"],
+            crate::routes::tenants::initial_desired_count(
+                state.initial_agents,
+                state.default_max_agents
+            ),
+            "fleet view: {:?}",
+            body
+        );
+
+        // Cleanup: drop schema + user.
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/tenants/{}", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let _ = send_request(build_router(state.clone()), req).await;
     }
 
     /// CLOACI-T-0580: LRU eviction. With a cache cap of 2, cycling

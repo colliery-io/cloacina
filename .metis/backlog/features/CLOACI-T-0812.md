@@ -4,15 +4,15 @@ level: task
 title: "Auto-provision initial agent(s) on tenant create"
 short_code: "CLOACI-T-0812"
 created_at: 2026-06-27T14:43:39.258788+00:00
-updated_at: 2026-06-27T14:43:39.258788+00:00
+updated_at: 2026-06-27T17:44:34.061405+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -64,6 +64,10 @@ Auto-provision initial agent(s) on tenant create (slice 1 #5): POST /v1/tenants 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,20 @@ Auto-provision initial agent(s) on tenant create (slice 1 #5): POST /v1/tenants 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-27 — Implemented + tested (not committed)
+
+Done on branch `i0127-agent-control-plane`. Auto-provision wired into the tenant-create path.
+
+**Source of initial count + clamp**: Added `AppState.initial_agents: u32`, read from `CLOACINA_INITIAL_AGENTS` (default 1), mirroring the existing `default_max_agents` (`CLOACINA_DEFAULT_MAX_AGENTS`, default 4) env read. Set in BOTH `AppState` builders (runtime `run()` + `test_state`, where it defaults to 1). The effective count is `min(initial_agents, default_max_agents)` via a small pure helper `routes::tenants::initial_desired_count(initial, max)`. `0` (from either knob) → `0` → the desired-count write is skipped (auto-provision disabled).
+
+**Best-effort write (DECISION + flag)**: After `admin.create_tenant` succeeds, if the clamped initial is `> 0` the handler calls `dal.agent_desired().set_desired(&credentials.schema_name, initial)`. If that write fails it logs a `warn!` and STILL returns `201 Created` — auto-provision bookkeeping must not fail tenant creation, and the T-0811 control loop reconciles the row on a later tick regardless. Tenant identifier used is `credentials.schema_name` (== public name == username per T-0594).
+
+**Test approach**: Both a pure-helper unit test AND a real-tenant HTTP test (the established pattern here — `test_tenant_runner_cache_lru_evicts_oldest` already creates real tenants via `POST /v1/tenants` with a uuid-suffixed name + `DELETE` cleanup, so a real create was practical rather than impractical).
+- `test_initial_desired_count_clamp`: initial<limit→initial, initial>limit→limit (clamp), 0→0, limit=0→0.
+- `test_create_tenant_auto_provisions_initial_desired`: `POST /v1/tenants` (unique `test_0812_<uuid>` name) then `GET /v1/tenants/{t}/fleet` asserts `desired_count == min(initial_agents, default_max_agents)` (== 1 in test state); DELETEs the tenant to clean up the shared DB.
+
+**Validation**: `angreal check crate crates/cloacina-server` green (only pre-existing `cloacina` warnings). Both tests pass against the postgres lane (`cargo test -p cloacina-server --lib --features postgres -- test_initial_desired_count_clamp test_create_tenant_auto_provisions_initial_desired` → 2 passed).
+
+**Files changed**: `crates/cloacina-server/src/routes/tenants.rs` (helper + best-effort write), `crates/cloacina-server/src/lib.rs` (AppState field + env read + both builders + 2 tests).
+
+**Flag**: scope held to tenants.rs + AppState/lib wiring + tests; actuator/autoscaler/limits/desired-DAL, OpenAPI/SDK, and UI untouched. Not committed/pushed per instruction.
