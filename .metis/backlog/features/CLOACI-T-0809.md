@@ -4,15 +4,15 @@ level: task
 title: "Per-tenant desired agent count + provision/deprovision REST API"
 short_code: "CLOACI-T-0809"
 created_at: 2026-06-27T14:43:35.484772+00:00
-updated_at: 2026-06-27T14:43:35.484772+00:00
+updated_at: 2026-06-27T17:02:27.156458+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -64,6 +64,10 @@ Per-tenant desired-agent-count state + the provision/deprovision REST API (slice
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -134,4 +138,30 @@ Per-tenant desired-agent-count state + the provision/deprovision REST API (slice
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-27 — Implemented + green
+
+Mirrored the T-0808 vertical slice exactly. All layers implemented and tests pass locally against Postgres.
+
+**Files created**
+- `crates/cloacina/src/database/migrations/postgres/037_create_agent_desired_counts/{up,down}.sql` — `agent_desired_counts(tenant_id PK, desired_count INT DEFAULT 0, updated_at TIMESTAMPTZ DEFAULT now())`.
+- `crates/cloacina/src/dal/unified/agent_desired/mod.rs` — `AgentDesiredDAL`: `get_desired` (absent → 0), `set_desired` (upsert; `updated_at` left to DB default; `NaiveDateTime` read-only row field). Postgres-only.
+- `crates/cloacina-server/src/routes/fleet.rs` — `GET /fleet`, `POST /fleet/provision` (409 at-capacity), `POST /fleet/deprovision` (floor 0). DTO `FleetScaleInfo` inline. Not added to central OpenApi `paths()` (same deferral as T-0808).
+- `crates/cloacina/tests/integration/agent_desired.rs` — 3 DAL tests.
+
+**Files modified**
+- `crates/cloacina/src/database/schema.rs` — `agent_desired_counts` `table!` (postgres module).
+- `crates/cloacina/src/dal/unified/mod.rs` — `pub mod agent_desired`, re-export, `DAL::agent_desired()`.
+- `crates/cloacina/tests/integration/main.rs` — `pub mod agent_desired`.
+- `crates/cloacina-server/src/routes/mod.rs` — `pub mod fleet`.
+- `crates/cloacina-server/src/lib.rs` — 3 routes after limits; 7 HTTP functional tests.
+- `crates/cloacina-server/src/routes/authz.rs` — 3 entries (provision/deprovision tenant-admin, GET tenant-read); table size 55 → 58 + assertions.
+
+**actual_count** uses `state.agent_registry.snapshot()` filtered by `AgentRecord.tenant_id == Some(tenant_id)`. The `AgentRegistry` (T-0631) is an in-memory per-replica roster, so this is the local-replica view (documented in the DTO + route doc).
+
+**Tests (all green)**
+- DAL integration: 3 passed (`agent_desired`).
+- Server HTTP functional: 7 fleet tests passed (provision increments, 409 at-capacity, deprovision floor, GET fields, cross-tenant 403, god any-tenant 200, no-auth 401).
+- `authz_table_classifies_known_routes`: passed at 58.
+- `angreal check crate` clean for both crates.
+
+Not committed (per instructions — awaiting review).

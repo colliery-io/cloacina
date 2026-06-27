@@ -318,6 +318,26 @@ pub fn build_authz_table() -> AuthzTable {
         Access::tenant(Level::Read),
     );
 
+    // CLOACI-T-0809: per-tenant fleet scaling (desired-count provisioning).
+    // Provision/deprovision is tenant self-service (tenant-admin on its OWN
+    // tenant; god bypasses; cross-tenant denied); reading the fleet view is a
+    // tenant-scoped read.
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/fleet/provision",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/fleet/deprovision",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/fleet",
+        Access::tenant(Level::Read),
+    );
+
     // ----- Platform + Admin: the global key surface (CLOACI-T-0784 leak fix).
     //       Was Any+Admin (today's unscoped can_admin), which let a tenant
     //       role=admin key list/revoke ANY tenant's keys. God-only now;
@@ -796,7 +816,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            55,
+            58,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
@@ -839,6 +859,19 @@ mod tests {
         );
         assert_eq!(
             get(Method::GET, "/tenants/{tenant_id}/limits"),
+            Some(Access::tenant(Level::Read))
+        );
+        // CLOACI-T-0809: fleet scaling — provision/deprovision tenant-admin, read tenant-scoped.
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/fleet/provision"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/fleet/deprovision"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/fleet"),
             Some(Access::tenant(Level::Read))
         );
         assert_eq!(

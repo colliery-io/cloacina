@@ -878,6 +878,15 @@ mod postgres_schema {
         }
     }
 
+    // CLOACI-T-0809: per-tenant desired agent count (server mode only — Postgres).
+    diesel::table! {
+        agent_desired_counts (tenant_id) {
+            tenant_id -> Text,
+            desired_count -> Int4,
+            updated_at -> Timestamptz,
+        }
+    }
+
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
     // Manual join syntax should be used in queries when joining auth tables.

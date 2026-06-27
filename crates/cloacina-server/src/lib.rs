@@ -1232,6 +1232,19 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/limits",
             delete(crate::routes::limits::clear_tenant_limit),
         )
+        // CLOACI-T-0809: per-tenant fleet scaling (desired-count provisioning).
+        .route(
+            "/tenants/{tenant_id}/fleet",
+            get(crate::routes::fleet::get_fleet),
+        )
+        .route(
+            "/tenants/{tenant_id}/fleet/provision",
+            post(crate::routes::fleet::provision),
+        )
+        .route(
+            "/tenants/{tenant_id}/fleet/deprovision",
+            post(crate::routes::fleet::deprovision),
+        )
         // Workflow packages (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows",
@@ -3357,6 +3370,230 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .uri("/v1/tenants/acme/limits")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    // ── Fleet scaling (desired-count provisioning, CLOACI-T-0809) ─────
+    //
+    // The server lib tests share one Postgres DB with no per-test reset, so each
+    // test below uses a UNIQUE tenant name (fresh desired_count == 0) and seeds
+    // its own effective limit via `agent_limits().set_tenant_limit`.
+
+    /// A tenant-admin key provisions its OWN tenant → 200, desired_count +1.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_provision_tenant_admin_increments() {
+        let state = test_state().await;
+        let tenant = "fleet-self-0809";
+        // Seed a generous limit so provisioning is under capacity.
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_limits()
+            .set_tenant_limit(tenant, 5)
+            .await
+            .expect("seed limit");
+        // Start from a known baseline.
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 0)
+            .await
+            .expect("seed desired");
+        let token = create_tenant_api_key(&state, tenant, "admin").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/provision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 1);
+        assert_eq!(body["effective_limit"], 5);
+        assert_eq!(body["actual_count"], 0);
+        assert_eq!(body["default_max_agents"], 4);
+    }
+
+    /// Provisioning past the effective limit → 409 "at capacity".
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_provision_at_capacity_returns_409() {
+        let state = test_state().await;
+        let tenant = "fleet-cap-0809";
+        // Low limit of 1 so a single provision saturates capacity.
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_limits()
+            .set_tenant_limit(tenant, 1)
+            .await
+            .expect("seed limit");
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 0)
+            .await
+            .expect("seed desired");
+        let token = create_test_api_key(&state).await; // god
+        let app = build_router(state.clone());
+
+        // First provision: 0 → 1 (200, now at limit).
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/provision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 1);
+
+        // Second provision: at the limit → 409.
+        let app = build_router(state);
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/provision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    /// Deprovision decrements, and floors at 0.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_deprovision_decrements_and_floors() {
+        let state = test_state().await;
+        let tenant = "fleet-deprov-0809";
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_limits()
+            .set_tenant_limit(tenant, 5)
+            .await
+            .expect("seed limit");
+        // Start at 1 so the first deprovision lands on 0.
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 1)
+            .await
+            .expect("seed desired");
+        let token = create_test_api_key(&state).await; // god
+        let app = build_router(state.clone());
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/deprovision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 0);
+
+        // Deprovision again: already 0, floors at 0 (still 200).
+        let app = build_router(state);
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/deprovision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 0);
+    }
+
+    /// GET fleet returns the full scaling view → 200 with all fields.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_get_returns_fields() {
+        let state = test_state().await;
+        let tenant = "fleet-get-0809";
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 2)
+            .await
+            .expect("seed desired");
+        let token = create_tenant_api_key(&state, tenant, "read").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri(format!("/v1/tenants/{}/fleet", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["tenant_id"], tenant);
+        assert_eq!(body["desired_count"], 2);
+        assert_eq!(body["effective_limit"], 4); // no override → default
+        assert!(body["actual_count"].is_number());
+        assert_eq!(body["default_max_agents"], 4);
+    }
+
+    /// A tenant-admin key may NOT provision another tenant's fleet → 403.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_provision_cross_tenant_denied() {
+        let state = test_state().await;
+        let token = create_tenant_api_key(&state, "acme", "admin").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/otherco/fleet/provision")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// A god key may provision any tenant's fleet → 200.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_provision_god_any_tenant() {
+        let state = test_state().await;
+        let tenant = "fleet-god-0809";
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_limits()
+            .set_tenant_limit(tenant, 5)
+            .await
+            .expect("seed limit");
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 0)
+            .await
+            .expect("seed desired");
+        let token = create_test_api_key(&state).await; // god
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/provision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 1);
+    }
+
+    /// No Authorization header → 401 before authz runs.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_no_auth_returns_401() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/fleet/provision")
             .body(Body::empty())
             .unwrap();
 

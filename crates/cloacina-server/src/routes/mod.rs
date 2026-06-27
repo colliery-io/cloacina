@@ -23,6 +23,7 @@ pub mod compiler;
 pub mod delivery_ws;
 pub mod error;
 pub mod executions;
+pub mod fleet;
 pub mod health_graphs;
 pub mod keys;
 pub mod limits;
