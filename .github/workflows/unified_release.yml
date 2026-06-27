@@ -386,10 +386,16 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             cross: false
-          - os: ubuntu-latest
+          # Native ARM64 Linux (CLOACI-T-0807) — was Docker `cross`, whose image
+          # has no Python interpreter for pyo3-build-config (pulled transitively
+          # via cloacina-workflow-plugin), failing the build.
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            cross: true
-          - os: macos-latest
+            cross: false
+          # Intel runner for the x86_64 leg (CLOACI-T-0807) — macos-latest is
+          # Apple Silicon, so `brew install libpq` yields ARM64 libpq and the
+          # x86_64 link fails (undefined _PQ* symbols).
+          - os: macos-13
             target: x86_64-apple-darwin
             cross: false
           - os: macos-latest
@@ -415,22 +421,13 @@ jobs:
           echo "PQ_LIB_DIR=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
-      - name: Install cross
-        if: matrix.cross == true
-        run: cargo install cross --locked --version 0.2.5
-
-      # CLOACI-T-0650: build the distributed CLI without `kafka` (and the pyo3
-      # it drags in transitively). kafka is a runtime accumulator backend the
-      # CLI doesn't need; linking librdkafka broke the cross/x-arch legs
-      # (aarch64-linux cross image has no Python for pyo3; x86_64-darwin runner
-      # has no x86_64 librdkafka). postgres+sqlite cover the CLI's DB needs.
-      - name: Build (native)
-        if: matrix.cross == false
+      # CLOACI-T-0650 / T-0807: the distributed CLI drops `kafka` (a runtime
+      # accumulator backend it doesn't need); postgres+sqlite cover its DB needs.
+      # It still pulls pyo3 transitively via cloacina-workflow-plugin, so every
+      # leg now builds natively on a runner that has a Python interpreter + the
+      # matching-arch libpq (no Docker `cross`).
+      - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} -p cloacinactl --no-default-features --features postgres,sqlite --bin cloacinactl
-
-      - name: Build (cross)
-        if: matrix.cross == true
-        run: cross build --release --locked --target ${{ matrix.target }} -p cloacinactl --no-default-features --features postgres,sqlite --bin cloacinactl
 
       - name: Strip binary
         if: runner.os == 'Linux' && matrix.cross == false
