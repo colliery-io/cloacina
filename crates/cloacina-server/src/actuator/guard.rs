@@ -27,8 +27,8 @@
 //! trait so the decision logic ([`evaluate`]) is unit-testable without touching
 //! the real host.
 
-use std::sync::Arc;
 use std::path::Path;
+use std::sync::Arc;
 
 use cloacina::database::Database;
 
@@ -184,9 +184,7 @@ pub fn build_actuator(
     build_actuator_with(
         kind,
         substrate,
-        move || {
-            DockerActuator::from_env(db_docker).map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
-        },
+        move || DockerActuator::from_env(db_docker).map(|a| Arc::new(a) as Arc<dyn FleetActuator>),
         move || {
             KubernetesActuator::from_env(database).map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
         },
@@ -343,12 +341,9 @@ mod tests {
             k8s: true,
             docker: false,
         };
-        let actuator = build_actuator_with(
-            "kubernetes",
-            &s,
-            never_docker,
-            || Ok(Arc::new(TaggedActuator("kubernetes")) as Arc<dyn FleetActuator>),
-        )
+        let actuator = build_actuator_with("kubernetes", &s, never_docker, || {
+            Ok(Arc::new(TaggedActuator("kubernetes")) as Arc<dyn FleetActuator>)
+        })
         .expect("kubernetes in-cluster should build");
         assert_eq!(actuator.kind(), "kubernetes");
     }

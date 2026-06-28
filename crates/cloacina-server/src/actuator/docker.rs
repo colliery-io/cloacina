@@ -376,7 +376,11 @@ mod tests {
     impl MockOps {
         fn with_running(n: usize) -> Self {
             Self {
-                running: (0..n).map(|i| ContainerRef { id: format!("c{i}") }).collect(),
+                running: (0..n)
+                    .map(|i| ContainerRef {
+                        id: format!("c{i}"),
+                    })
+                    .collect(),
                 spawns: AtomicU32::new(0),
                 stops: Mutex::new(Vec::new()),
             }
@@ -385,10 +389,7 @@ mod tests {
 
     #[async_trait]
     impl ContainerOps for MockOps {
-        async fn list_managed(
-            &self,
-            _tenant_id: &str,
-        ) -> Result<Vec<ContainerRef>, ActuatorError> {
+        async fn list_managed(&self, _tenant_id: &str) -> Result<Vec<ContainerRef>, ActuatorError> {
             Ok(self.running.clone())
         }
         async fn spawn(&self, _spec: SpawnSpec) -> Result<(), ActuatorError> {

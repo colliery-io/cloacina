@@ -77,10 +77,14 @@ fn actual_count_for(state: &AppState, tenant_id: &str) -> u32 {
 async fn fleet_info(state: &AppState, tenant_id: &str) -> Result<FleetScaleInfo, ApiError> {
     let dal = cloacina::dal::DAL::new(state.database.clone());
     let default = state.default_max_agents;
-    let desired_count = dal.agent_desired().get_desired(tenant_id).await.map_err(|e| {
-        warn!("desired count lookup failed: {}", e);
-        ApiError::internal("failed to read desired count")
-    })?;
+    let desired_count = dal
+        .agent_desired()
+        .get_desired(tenant_id)
+        .await
+        .map_err(|e| {
+            warn!("desired count lookup failed: {}", e);
+            ApiError::internal("failed to read desired count")
+        })?;
     let effective_limit = dal
         .agent_limits()
         .effective_limit(tenant_id, default)

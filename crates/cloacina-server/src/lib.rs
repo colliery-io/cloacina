@@ -1097,7 +1097,12 @@ pub async fn run(
         let scale_cfg = crate::autoscaler::ScaleConfig::from_env();
         let autoscale_enabled = std::env::var("CLOACINA_AUTOSCALE")
             .ok()
-            .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no"))
+            .map(|v| {
+                !matches!(
+                    v.to_ascii_lowercase().as_str(),
+                    "0" | "false" | "off" | "no"
+                )
+            })
             .unwrap_or(true);
         let default_max = default_max_agents;
         let tick = scale_cfg.interval;

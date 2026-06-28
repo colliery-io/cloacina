@@ -351,8 +351,7 @@ impl TaskExecutor for FleetExecutor {
                 Some(t)
             };
             let snapshot = self.agent_registry.snapshot();
-            let Some(agent) = select_fleet_agent(&snapshot, &task_tenant, &runnable_triples)
-            else {
+            let Some(agent) = select_fleet_agent(&snapshot, &task_tenant, &runnable_triples) else {
                 warn!(
                     task_id = %event.task_execution_id,
                     tenant = ?task_tenant,

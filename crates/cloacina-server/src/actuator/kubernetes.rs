@@ -118,7 +118,11 @@ pub fn tenant_namespace(tenant_id: &str) -> String {
     let segment = segment.trim_end_matches('-');
     // A wholly-invalid tenant id collapses to empty; fall back to a stable
     // marker so the namespace name is still a valid label.
-    let segment = if segment.is_empty() { "unnamed" } else { segment };
+    let segment = if segment.is_empty() {
+        "unnamed"
+    } else {
+        segment
+    };
     format!("{NAMESPACE_PREFIX}{segment}")
 }
 
@@ -163,11 +167,8 @@ pub trait KubeOps: Send + Sync {
         replicas: u32,
     ) -> Result<(), ActuatorError>;
     /// Current ready replica count for the agent `Deployment` (0 if absent).
-    async fn count_ready_replicas(
-        &self,
-        namespace: &str,
-        name: &str,
-    ) -> Result<u32, ActuatorError>;
+    async fn count_ready_replicas(&self, namespace: &str, name: &str)
+        -> Result<u32, ActuatorError>;
 }
 
 /// Kubernetes fleet actuator. Generic over its API substrate ([`KubeOps`]) and
@@ -316,8 +317,9 @@ impl KubeApiOps {
         let config = Config::incluster().map_err(|e| {
             ActuatorError::Substrate(format!("in-cluster kube config unavailable: {e}"))
         })?;
-        let client = Client::try_from(config)
-            .map_err(|e| ActuatorError::Substrate(format!("kube client construction failed: {e}")))?;
+        let client = Client::try_from(config).map_err(|e| {
+            ActuatorError::Substrate(format!("kube client construction failed: {e}"))
+        })?;
         Ok(Self::new(client))
     }
 
@@ -419,9 +421,13 @@ impl KubeOps for KubeApiOps {
                 }
             }
         });
-        api.patch(&spec.name, &Self::apply_params(), &Patch::Apply(&deployment))
-            .await
-            .map_err(|e| ActuatorError::Substrate(format!("ensure_deployment failed: {e}")))?;
+        api.patch(
+            &spec.name,
+            &Self::apply_params(),
+            &Patch::Apply(&deployment),
+        )
+        .await
+        .map_err(|e| ActuatorError::Substrate(format!("ensure_deployment failed: {e}")))?;
         Ok(())
     }
 
@@ -655,10 +661,7 @@ mod tests {
     fn namespace_is_sanitized_and_prefixed() {
         assert_eq!(tenant_namespace("acme"), "cloacina-tenant-acme");
         // Uppercase + underscores → lowercase + single dashes.
-        assert_eq!(
-            tenant_namespace("Acme_Corp"),
-            "cloacina-tenant-acme-corp"
-        );
+        assert_eq!(tenant_namespace("Acme_Corp"), "cloacina-tenant-acme-corp");
         // UUID-style ids stay valid labels.
         assert_eq!(
             tenant_namespace("11111111-2222-3333-4444-555555555555"),

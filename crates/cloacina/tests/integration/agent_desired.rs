@@ -96,10 +96,7 @@ mod postgres_tests {
     }
 
     /// Read a tenant's `last_autoscaled_at` back via `list_all_with_last`.
-    async fn last_autoscaled_at(
-        dal: &DAL,
-        tenant: &str,
-    ) -> Option<chrono::NaiveDateTime> {
+    async fn last_autoscaled_at(dal: &DAL, tenant: &str) -> Option<chrono::NaiveDateTime> {
         dal.agent_desired()
             .list_all_with_last()
             .await
