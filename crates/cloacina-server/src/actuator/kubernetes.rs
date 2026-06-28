@@ -33,10 +33,11 @@
 //! Every namespace/deployment/secret is keyed by `tenant_namespace(tenant)`, so
 //! the actuator only ever touches the requesting tenant's namespace.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tracing::info;
+use tracing::{info, warn};
 
 use cloacina::database::Database;
 
@@ -57,6 +58,13 @@ const AGENT_DEPLOYMENT_NAME: &str = "cloacina-agent";
 const AGENT_SECRET_NAME: &str = "cloacina-agent-key";
 /// Key within [`AGENT_SECRET_NAME`] holding the plaintext agent key.
 const AGENT_SECRET_KEY: &str = "api-key";
+/// Name of the per-tenant agent `NetworkPolicy` (REQ-007, CLOACI-T-0819).
+const AGENT_NETWORK_POLICY_NAME: &str = "cloacina-agent-fleet";
+
+/// uid/gid the agent image runs as (`docker/Dockerfile.agent:70-76`). Reflected
+/// in the pod/container `securityContext` so the pod is admissible on a
+/// PodSecurity `restricted` cluster.
+const AGENT_RUN_AS: i64 = 10001;
 /// Server-side-apply field manager — owns the namespace/secret/deployment
 /// objects (but NOT `spec.replicas`, which is driven separately so the
 /// actuator's apply never fights its own scale).
@@ -68,6 +76,43 @@ const NAMESPACE_PREFIX: &str = "cloacina-tenant-";
 /// Maximum length of a DNS-1123 label (Kubernetes namespace/object names).
 const DNS_LABEL_MAX: usize = 63;
 
+/// Compute requests + limits for the agent container. Defaults are tuned to the
+/// agent's real footprint: it embeds a CPython interpreter (PyO3) and unpacks a
+/// `workflow/`+`vendor/` tree plus `dlopen`s cdylibs, so the memory limit is set
+/// generously (1Gi) to avoid OOM-killing a Python-packaged workflow with vendored
+/// deps; the CPU request is modest (a mostly-idle WS client that bursts on load).
+#[derive(Debug, Clone)]
+pub struct AgentResources {
+    pub cpu_request: String,
+    pub memory_request: String,
+    pub cpu_limit: String,
+    pub memory_limit: String,
+}
+
+impl Default for AgentResources {
+    fn default() -> Self {
+        Self {
+            cpu_request: "250m".to_string(),
+            memory_request: "256Mi".to_string(),
+            cpu_limit: "1".to_string(),
+            memory_limit: "1Gi".to_string(),
+        }
+    }
+}
+
+/// Where the `cloacina-server` lives, so the per-tenant agent `NetworkPolicy`
+/// egress can allow agents → server (CLOACI-T-0819). Plumbed from the chart via
+/// `CLOACINA_SERVER_NAMESPACE` + `CLOACINA_SERVER_POD_SELECTOR` + `CLOACINA_SERVER_PORT`.
+#[derive(Debug, Clone)]
+pub struct ServerEndpoint {
+    /// Namespace the server pods run in (`.Release.Namespace`).
+    pub namespace: String,
+    /// Server pod labels (the chart's `selectorLabels`) the egress rule targets.
+    pub pod_labels: BTreeMap<String, String>,
+    /// Server pod port the agents connect to (containerPort == service port, 8080).
+    pub port: u16,
+}
+
 /// Kubernetes actuator configuration, read from the environment. Mirrors
 /// [`super::docker::DockerConfig`] minus the Docker-network knob (in-cluster
 /// pods reach the server by Service DNS).
@@ -78,19 +123,100 @@ pub struct KubernetesConfig {
     /// Server URL injected as the agent's `CLOACINA_SERVER`
     /// (`CLOACINA_AGENT_SERVER_URL`, default `http://server:8080`).
     pub server_url: String,
+    /// Agent container resource requests + limits (`CLOACINA_AGENT_*`).
+    pub resources: AgentResources,
+    /// Whether to install a per-tenant agent `NetworkPolicy`
+    /// (`CLOACINA_FLEET_NETWORK_POLICY`, default ON). REQ-007 defense-in-depth.
+    pub network_policy_enabled: bool,
+    /// Server endpoint the NetworkPolicy egress allows. `None` when the chart did
+    /// not plumb it — the actuator then SKIPS the policy (fail-OPEN for the
+    /// policy specifically, so a missing knob never locks agents out of the
+    /// server; the server-side ABAC remains the real boundary).
+    pub server_endpoint: Option<ServerEndpoint>,
+    /// Namespace the cluster DNS service runs in
+    /// (`CLOACINA_FLEET_DNS_NAMESPACE`, default `kube-system`).
+    pub dns_namespace: String,
+}
+
+/// Parse a `k=v,k2=v2` selector string into a label map (empty entries skipped).
+fn parse_label_selector(raw: &str) -> BTreeMap<String, String> {
+    raw.split(',')
+        .filter_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            let (k, v) = (k.trim(), v.trim());
+            if k.is_empty() || v.is_empty() {
+                None
+            } else {
+                Some((k.to_string(), v.to_string()))
+            }
+        })
+        .collect()
+}
+
+fn env_nonempty(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 impl KubernetesConfig {
     pub fn from_env() -> Self {
-        let image = std::env::var("CLOACINA_AGENT_IMAGE")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "cloacina-agent:latest".to_string());
-        let server_url = std::env::var("CLOACINA_AGENT_SERVER_URL")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "http://server:8080".to_string());
-        Self { image, server_url }
+        let image =
+            env_nonempty("CLOACINA_AGENT_IMAGE").unwrap_or_else(|| "cloacina-agent:latest".into());
+        let server_url = env_nonempty("CLOACINA_AGENT_SERVER_URL")
+            .unwrap_or_else(|| "http://server:8080".into());
+
+        let defaults = AgentResources::default();
+        let resources = AgentResources {
+            cpu_request: env_nonempty("CLOACINA_AGENT_CPU_REQUEST").unwrap_or(defaults.cpu_request),
+            memory_request: env_nonempty("CLOACINA_AGENT_MEMORY_REQUEST")
+                .unwrap_or(defaults.memory_request),
+            cpu_limit: env_nonempty("CLOACINA_AGENT_CPU_LIMIT").unwrap_or(defaults.cpu_limit),
+            memory_limit: env_nonempty("CLOACINA_AGENT_MEMORY_LIMIT")
+                .unwrap_or(defaults.memory_limit),
+        };
+
+        // Default ON: a Kubernetes actuator implies a production cluster where the
+        // per-tenant NetworkPolicy is wanted. Set CLOACINA_FLEET_NETWORK_POLICY=false
+        // to disable.
+        let network_policy_enabled = env_nonempty("CLOACINA_FLEET_NETWORK_POLICY")
+            .map(|v| {
+                !matches!(
+                    v.to_ascii_lowercase().as_str(),
+                    "false" | "0" | "no" | "off"
+                )
+            })
+            .unwrap_or(true);
+
+        let dns_namespace =
+            env_nonempty("CLOACINA_FLEET_DNS_NAMESPACE").unwrap_or_else(|| "kube-system".into());
+
+        // Only build a ServerEndpoint when the namespace AND a non-empty pod
+        // selector are present — otherwise we cannot author a correct egress
+        // allow and must skip the policy rather than strand the fleet.
+        let server_endpoint = match (
+            env_nonempty("CLOACINA_SERVER_NAMESPACE"),
+            env_nonempty("CLOACINA_SERVER_POD_SELECTOR").map(|s| parse_label_selector(&s)),
+        ) {
+            (Some(namespace), Some(pod_labels)) if !pod_labels.is_empty() => Some(ServerEndpoint {
+                namespace,
+                pod_labels,
+                port: env_nonempty("CLOACINA_SERVER_PORT")
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or(8080),
+            }),
+            _ => None,
+        };
+
+        Self {
+            image,
+            server_url,
+            resources,
+            network_policy_enabled,
+            server_endpoint,
+            dns_namespace,
+        }
     }
 }
 
@@ -139,6 +265,20 @@ pub struct AgentDeployment {
     /// Secret the agent key is read from (referenced as `CLOACINA_API_KEY`).
     pub secret_name: String,
     pub secret_key: String,
+    /// Resource requests + limits for the agent container.
+    pub resources: AgentResources,
+}
+
+/// Everything [`KubeOps::ensure_network_policy`] needs to materialize one
+/// tenant's agent `NetworkPolicy` (CLOACI-T-0819, REQ-007 defense-in-depth).
+#[derive(Debug, Clone)]
+pub struct NetworkPolicySpec {
+    /// Tenant namespace the policy lives in (and whose pods it governs).
+    pub namespace: String,
+    /// Server endpoint the egress rule allows the agents to reach.
+    pub server: ServerEndpoint,
+    /// Namespace the cluster DNS service runs in (DNS egress is allowed there).
+    pub dns_namespace: String,
 }
 
 /// The Kubernetes API operations the actuator needs. Abstracted so `reconcile`
@@ -159,6 +299,10 @@ pub trait KubeOps: Send + Sync {
     /// Ensure the tenant's agent `Deployment` exists (does NOT set replicas).
     /// Idempotent.
     async fn ensure_deployment(&self, spec: &AgentDeployment) -> Result<(), ActuatorError>;
+    /// Ensure the tenant's agent `NetworkPolicy` exists (REQ-007 defense-in-depth,
+    /// CLOACI-T-0819). Default-deny ingress; egress to DNS + the server only.
+    /// Idempotent.
+    async fn ensure_network_policy(&self, spec: &NetworkPolicySpec) -> Result<(), ActuatorError>;
     /// Set the agent `Deployment`'s replica count.
     async fn scale_deployment(
         &self,
@@ -225,6 +369,32 @@ impl FleetActuator for KubernetesActuator {
         // REQ-007: the tenant's namespace is the isolation boundary.
         self.ops.ensure_namespace(&namespace).await?;
 
+        // REQ-007 defense-in-depth (CLOACI-T-0819): lock the namespace down with a
+        // default-deny NetworkPolicy that only lets agents reach DNS + the server.
+        // Skipped (fail-OPEN) when the chart did not plumb the server endpoint, so
+        // a missing knob never strands the fleet — the server-side ABAC (NFR-004)
+        // remains the real boundary.
+        if self.config.network_policy_enabled {
+            match &self.config.server_endpoint {
+                Some(server) => {
+                    self.ops
+                        .ensure_network_policy(&NetworkPolicySpec {
+                            namespace: namespace.clone(),
+                            server: server.clone(),
+                            dns_namespace: self.config.dns_namespace.clone(),
+                        })
+                        .await?;
+                }
+                None => warn!(
+                    tenant = %tenant_id,
+                    namespace = %namespace,
+                    "fleet NetworkPolicy enabled but server endpoint not plumbed \
+                     (CLOACINA_SERVER_NAMESPACE / CLOACINA_SERVER_POD_SELECTOR); \
+                     skipping policy to avoid stranding agents"
+                ),
+            }
+        }
+
         // Ready replicas are our notion of "running" capacity. Absent
         // Deployment → 0 (treated as a cold start).
         let running = self.ops.count_ready_replicas(&namespace, name).await?;
@@ -255,6 +425,7 @@ impl FleetActuator for KubernetesActuator {
             server_url: self.config.server_url.clone(),
             secret_name: AGENT_SECRET_NAME.to_string(),
             secret_key: AGENT_SECRET_KEY.to_string(),
+            resources: self.config.resources.clone(),
         };
         self.ops.ensure_deployment(&spec).await?;
 
@@ -293,8 +464,172 @@ impl FleetActuator for KubernetesActuator {
 
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Secret};
+use k8s_openapi::api::networking::v1::NetworkPolicy;
 use kube::api::{Patch, PatchParams};
 use kube::{Api, Client, Config};
+
+/// Build the hardened agent `Deployment` manifest (CLOACI-T-0819).
+///
+/// Pure function so the hardened pod spec — pod/container `securityContext`,
+/// `emptyDir` volumes for the readOnlyRootFilesystem writable paths, and the
+/// resource requests/limits — is unit-testable WITHOUT a cluster.
+///
+/// NB: no `spec.replicas` (scaling is owned by `scale_deployment`) and
+/// deliberately **no probes** — the agent is a WebSocket client with no health
+/// endpoint; the server tracks liveness via heartbeat + eviction
+/// (`CLOACINA_AGENT_LIVENESS_MISSES`). Do not add an httpGet probe here.
+fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
+    let r = &spec.resources;
+    serde_json::json!({
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {
+            "name": spec.name,
+            "namespace": spec.namespace,
+            "labels": {
+                LABEL_APP: "cloacina-agent",
+                LABEL_MANAGED: "true",
+                LABEL_TENANT: spec.tenant_id,
+            },
+        },
+        "spec": {
+            "selector": {
+                "matchLabels": { LABEL_APP: "cloacina-agent" }
+            },
+            "template": {
+                "metadata": {
+                    "labels": {
+                        LABEL_APP: "cloacina-agent",
+                        LABEL_MANAGED: "true",
+                        LABEL_TENANT: spec.tenant_id,
+                    }
+                },
+                "spec": {
+                    // Pod-level securityContext: non-root, the agent image's uid/gid
+                    // (Dockerfile.agent), fsGroup so the emptyDirs are group-writable,
+                    // and the RuntimeDefault seccomp profile — required for PodSecurity
+                    // `restricted` admission.
+                    "securityContext": {
+                        "runAsNonRoot": true,
+                        "runAsUser": AGENT_RUN_AS,
+                        "runAsGroup": AGENT_RUN_AS,
+                        "fsGroup": AGENT_RUN_AS,
+                        "seccompProfile": { "type": "RuntimeDefault" },
+                    },
+                    "containers": [{
+                        "name": "cloacina-agent",
+                        "image": spec.image,
+                        // Container-level hardening for `restricted` admission.
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "readOnlyRootFilesystem": true,
+                            "capabilities": { "drop": ["ALL"] },
+                        },
+                        "env": [
+                            { "name": "CLOACINA_SERVER", "value": spec.server_url },
+                            {
+                                "name": "CLOACINA_API_KEY",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "name": spec.secret_name,
+                                        "key": spec.secret_key,
+                                    }
+                                }
+                            }
+                        ],
+                        "resources": {
+                            "requests": { "cpu": r.cpu_request, "memory": r.memory_request },
+                            "limits": { "cpu": r.cpu_limit, "memory": r.memory_limit },
+                        },
+                        // readOnlyRootFilesystem → the agent's writable paths must be
+                        // emptyDir volumes. The agent unpacks each Python package's
+                        // workflow/+vendor/ tree and caches cdylibs under $HOME
+                        // (CLOACINA_AGENT_CACHE_DIR=/home/cloacina/.cloacina-agent-cache),
+                        // so /home/cloacina is sized generously; /tmp covers CPython
+                        // scratch.
+                        "volumeMounts": [
+                            { "name": "home", "mountPath": "/home/cloacina" },
+                            { "name": "tmp", "mountPath": "/tmp" },
+                        ],
+                    }],
+                    "volumes": [
+                        { "name": "home", "emptyDir": { "sizeLimit": "2Gi" } },
+                        { "name": "tmp", "emptyDir": { "sizeLimit": "1Gi" } },
+                    ],
+                }
+            }
+        }
+    })
+}
+
+/// Build the per-tenant agent `NetworkPolicy` manifest (CLOACI-T-0819, REQ-007).
+///
+/// Pure function so the egress allow-list is unit-testable WITHOUT a cluster —
+/// the riskiest surface, since a wrong egress rule strands the whole fleet.
+///
+/// - `podSelector: {}` → governs every pod in the tenant namespace.
+/// - Ingress: **deny all** (empty rule list) — agents serve no traffic.
+/// - Egress: allow ONLY (a) DNS (UDP+TCP 53 into the DNS namespace) so the
+///   agent can resolve the server's Service FQDN, and (b) the cloacina-server
+///   pods (namespaceSelector + podSelector) on the server port. Everything else
+///   is denied.
+///
+/// The namespace selectors key on `kubernetes.io/metadata.name`, the immutable
+/// label the API server stamps on every namespace (GA since k8s 1.21), so no
+/// extra labelling of the server/DNS namespaces is required.
+fn network_policy_manifest(spec: &NetworkPolicySpec) -> serde_json::Value {
+    let server_labels: serde_json::Map<String, serde_json::Value> = spec
+        .server
+        .pod_labels
+        .iter()
+        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+        .collect();
+
+    serde_json::json!({
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "name": AGENT_NETWORK_POLICY_NAME,
+            "namespace": spec.namespace,
+            "labels": { LABEL_MANAGED: "true" },
+        },
+        "spec": {
+            "podSelector": {},
+            "policyTypes": ["Ingress", "Egress"],
+            // Ingress: empty list → deny all inbound.
+            "ingress": [],
+            "egress": [
+                // (a) DNS — UDP + TCP 53 into the cluster DNS namespace. Restricted
+                // to that namespace + port (not a podSelector) so it stays correct
+                // across kube-dns / CoreDNS pod-label differences.
+                {
+                    "to": [{
+                        "namespaceSelector": {
+                            "matchLabels": { "kubernetes.io/metadata.name": spec.dns_namespace }
+                        }
+                    }],
+                    "ports": [
+                        { "protocol": "UDP", "port": 53 },
+                        { "protocol": "TCP", "port": 53 },
+                    ],
+                },
+                // (b) the cloacina-server pods, on the server port. This is the
+                // single allow the agents need to register/heartbeat/stream work.
+                {
+                    "to": [{
+                        "namespaceSelector": {
+                            "matchLabels": { "kubernetes.io/metadata.name": spec.server.namespace }
+                        },
+                        "podSelector": { "matchLabels": server_labels }
+                    }],
+                    "ports": [
+                        { "protocol": "TCP", "port": spec.server.port }
+                    ],
+                },
+            ],
+        }
+    })
+}
 
 /// Real [`KubeOps`] backed by an in-cluster kube `Client`.
 ///
@@ -375,52 +710,7 @@ impl KubeOps for KubeApiOps {
 
     async fn ensure_deployment(&self, spec: &AgentDeployment) -> Result<(), ActuatorError> {
         let api: Api<Deployment> = Api::namespaced(self.client.clone(), &spec.namespace);
-        // NB: no `spec.replicas` here — scaling is owned by `scale_deployment`.
-        let deployment = serde_json::json!({
-            "apiVersion": "apps/v1",
-            "kind": "Deployment",
-            "metadata": {
-                "name": spec.name,
-                "namespace": spec.namespace,
-                "labels": {
-                    LABEL_APP: "cloacina-agent",
-                    LABEL_MANAGED: "true",
-                    LABEL_TENANT: spec.tenant_id,
-                },
-            },
-            "spec": {
-                "selector": {
-                    "matchLabels": { LABEL_APP: "cloacina-agent" }
-                },
-                "template": {
-                    "metadata": {
-                        "labels": {
-                            LABEL_APP: "cloacina-agent",
-                            LABEL_MANAGED: "true",
-                            LABEL_TENANT: spec.tenant_id,
-                        }
-                    },
-                    "spec": {
-                        "containers": [{
-                            "name": "cloacina-agent",
-                            "image": spec.image,
-                            "env": [
-                                { "name": "CLOACINA_SERVER", "value": spec.server_url },
-                                {
-                                    "name": "CLOACINA_API_KEY",
-                                    "valueFrom": {
-                                        "secretKeyRef": {
-                                            "name": spec.secret_name,
-                                            "key": spec.secret_key,
-                                        }
-                                    }
-                                }
-                            ]
-                        }]
-                    }
-                }
-            }
-        });
+        let deployment = agent_deployment_manifest(spec);
         api.patch(
             &spec.name,
             &Self::apply_params(),
@@ -428,6 +718,19 @@ impl KubeOps for KubeApiOps {
         )
         .await
         .map_err(|e| ActuatorError::Substrate(format!("ensure_deployment failed: {e}")))?;
+        Ok(())
+    }
+
+    async fn ensure_network_policy(&self, spec: &NetworkPolicySpec) -> Result<(), ActuatorError> {
+        let api: Api<NetworkPolicy> = Api::namespaced(self.client.clone(), &spec.namespace);
+        let policy = network_policy_manifest(spec);
+        api.patch(
+            AGENT_NETWORK_POLICY_NAME,
+            &Self::apply_params(),
+            &Patch::Apply(&policy),
+        )
+        .await
+        .map_err(|e| ActuatorError::Substrate(format!("ensure_network_policy failed: {e}")))?;
         Ok(())
     }
 
@@ -476,6 +779,7 @@ mod tests {
         secrets: AtomicU32,
         deployments: AtomicU32,
         scales: Mutex<Vec<(String, u32)>>,
+        network_policies: Mutex<Vec<NetworkPolicySpec>>,
     }
 
     impl MockOps {
@@ -486,6 +790,7 @@ mod tests {
                 secrets: AtomicU32::new(0),
                 deployments: AtomicU32::new(0),
                 scales: Mutex::new(Vec::new()),
+                network_policies: Mutex::new(Vec::new()),
             }
         }
     }
@@ -508,6 +813,13 @@ mod tests {
         }
         async fn ensure_deployment(&self, _spec: &AgentDeployment) -> Result<(), ActuatorError> {
             self.deployments.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        async fn ensure_network_policy(
+            &self,
+            spec: &NetworkPolicySpec,
+        ) -> Result<(), ActuatorError> {
+            self.network_policies.lock().unwrap().push(spec.clone());
             Ok(())
         }
         async fn scale_deployment(
@@ -544,10 +856,28 @@ mod tests {
         }
     }
 
+    fn server_endpoint() -> ServerEndpoint {
+        let mut pod_labels = BTreeMap::new();
+        pod_labels.insert(
+            "app.kubernetes.io/name".to_string(),
+            "cloacina-server".to_string(),
+        );
+        pod_labels.insert("app.kubernetes.io/instance".to_string(), "rel".to_string());
+        ServerEndpoint {
+            namespace: "cloacina-system".to_string(),
+            pod_labels,
+            port: 8080,
+        }
+    }
+
     fn config() -> KubernetesConfig {
         KubernetesConfig {
             image: "cloacina-agent:latest".to_string(),
             server_url: "http://server:8080".to_string(),
+            resources: AgentResources::default(),
+            network_policy_enabled: true,
+            server_endpoint: Some(server_endpoint()),
+            dns_namespace: "kube-system".to_string(),
         }
     }
 
@@ -581,6 +911,167 @@ mod tests {
             ops.scales.lock().unwrap().as_slice(),
             &[("cloacina-tenant-acme".to_string(), 3u32)]
         );
+        // REQ-007 defense-in-depth (T-0819): a per-tenant NetworkPolicy is ensured
+        // for the tenant namespace, carrying the plumbed server endpoint.
+        let nps = ops.network_policies.lock().unwrap();
+        assert_eq!(nps.len(), 1);
+        assert_eq!(nps[0].namespace, "cloacina-tenant-acme");
+        assert_eq!(nps[0].server.namespace, "cloacina-system");
+        assert_eq!(nps[0].dns_namespace, "kube-system");
+    }
+
+    #[tokio::test]
+    async fn reconcile_skips_network_policy_when_disabled_or_unplumbed() {
+        // Enabled but server endpoint not plumbed → policy skipped (fail-OPEN),
+        // and reconcile still succeeds (fleet not stranded).
+        let mut cfg = config();
+        cfg.server_endpoint = None;
+        let ops = Arc::new(MockOps::with_ready(0));
+        let minter = Arc::new(MockMinter {
+            minted: AtomicU32::new(0),
+        });
+        let act = KubernetesActuator::new(ops.clone(), minter, cfg);
+        act.reconcile("acme", 1).await.unwrap();
+        assert!(ops.network_policies.lock().unwrap().is_empty());
+
+        // Explicitly disabled → policy skipped even when plumbed.
+        let mut cfg = config();
+        cfg.network_policy_enabled = false;
+        let ops = Arc::new(MockOps::with_ready(0));
+        let minter = Arc::new(MockMinter {
+            minted: AtomicU32::new(0),
+        });
+        let act = KubernetesActuator::new(ops.clone(), minter, cfg);
+        act.reconcile("acme", 1).await.unwrap();
+        assert!(ops.network_policies.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn agent_deployment_manifest_is_pod_security_restricted() {
+        let spec = AgentDeployment {
+            namespace: "cloacina-tenant-acme".to_string(),
+            name: "cloacina-agent".to_string(),
+            tenant_id: "acme".to_string(),
+            image: "cloacina-agent:latest".to_string(),
+            server_url: "http://server:8080".to_string(),
+            secret_name: AGENT_SECRET_NAME.to_string(),
+            secret_key: AGENT_SECRET_KEY.to_string(),
+            resources: AgentResources::default(),
+        };
+        let m = agent_deployment_manifest(&spec);
+        let pod = &m["spec"]["template"]["spec"];
+
+        // Pod securityContext (restricted admission).
+        let psc = &pod["securityContext"];
+        assert_eq!(psc["runAsNonRoot"], serde_json::json!(true));
+        assert_eq!(psc["runAsUser"], serde_json::json!(10001));
+        assert_eq!(psc["runAsGroup"], serde_json::json!(10001));
+        assert_eq!(psc["fsGroup"], serde_json::json!(10001));
+        assert_eq!(
+            psc["seccompProfile"]["type"],
+            serde_json::json!("RuntimeDefault")
+        );
+
+        // Container securityContext.
+        let c = &pod["containers"][0];
+        let csc = &c["securityContext"];
+        assert_eq!(csc["allowPrivilegeEscalation"], serde_json::json!(false));
+        assert_eq!(csc["readOnlyRootFilesystem"], serde_json::json!(true));
+        assert_eq!(csc["capabilities"]["drop"], serde_json::json!(["ALL"]));
+
+        // Resources from AgentResources defaults.
+        assert_eq!(c["resources"]["requests"]["cpu"], serde_json::json!("250m"));
+        assert_eq!(
+            c["resources"]["requests"]["memory"],
+            serde_json::json!("256Mi")
+        );
+        assert_eq!(c["resources"]["limits"]["cpu"], serde_json::json!("1"));
+        assert_eq!(c["resources"]["limits"]["memory"], serde_json::json!("1Gi"));
+
+        // emptyDir volumes + mounts for the writable paths under RO rootfs.
+        let mounts = c["volumeMounts"].as_array().unwrap();
+        let mount_paths: Vec<&str> = mounts
+            .iter()
+            .map(|mnt| mnt["mountPath"].as_str().unwrap())
+            .collect();
+        assert!(mount_paths.contains(&"/home/cloacina"));
+        assert!(mount_paths.contains(&"/tmp"));
+        let vols = pod["volumes"].as_array().unwrap();
+        assert_eq!(vols.len(), 2);
+        assert!(vols.iter().all(|v| v.get("emptyDir").is_some()));
+
+        // NO probes (agent is a WS client; liveness via server heartbeat).
+        assert!(c.get("livenessProbe").is_none());
+        assert!(c.get("readinessProbe").is_none());
+        assert!(c.get("startupProbe").is_none());
+        // NO replicas (scaling is owned by scale_deployment).
+        assert!(m["spec"].get("replicas").is_none());
+    }
+
+    #[test]
+    fn network_policy_manifest_denies_ingress_and_allows_only_dns_and_server() {
+        let np = network_policy_manifest(&NetworkPolicySpec {
+            namespace: "cloacina-tenant-acme".to_string(),
+            server: server_endpoint(),
+            dns_namespace: "kube-system".to_string(),
+        });
+        let spec = &np["spec"];
+
+        // Governs all pods; both policy types.
+        assert_eq!(spec["podSelector"], serde_json::json!({}));
+        assert_eq!(
+            spec["policyTypes"],
+            serde_json::json!(["Ingress", "Egress"])
+        );
+        // Ingress deny-all (empty list).
+        assert_eq!(spec["ingress"], serde_json::json!([]));
+
+        let egress = spec["egress"].as_array().unwrap();
+        assert_eq!(egress.len(), 2, "exactly DNS + server egress allows");
+
+        // (a) DNS rule: UDP+TCP 53 into the DNS namespace.
+        let dns = &egress[0];
+        assert_eq!(
+            dns["to"][0]["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"],
+            serde_json::json!("kube-system")
+        );
+        assert_eq!(
+            dns["ports"],
+            serde_json::json!([
+                { "protocol": "UDP", "port": 53 },
+                { "protocol": "TCP", "port": 53 },
+            ])
+        );
+
+        // (b) server rule: server ns + server pod labels on the server port.
+        let srv = &egress[1];
+        assert_eq!(
+            srv["to"][0]["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"],
+            serde_json::json!("cloacina-system")
+        );
+        assert_eq!(
+            srv["to"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
+            serde_json::json!("cloacina-server")
+        );
+        assert_eq!(
+            srv["to"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/instance"],
+            serde_json::json!("rel")
+        );
+        assert_eq!(
+            srv["ports"],
+            serde_json::json!([{ "protocol": "TCP", "port": 8080 }])
+        );
+    }
+
+    #[test]
+    fn parse_label_selector_handles_pairs_and_junk() {
+        let m = parse_label_selector("a=1, b=2 ,,c=,=d,e=3");
+        assert_eq!(m.get("a"), Some(&"1".to_string()));
+        assert_eq!(m.get("b"), Some(&"2".to_string()));
+        assert_eq!(m.get("e"), Some(&"3".to_string()));
+        // empty value / empty key entries dropped.
+        assert!(!m.contains_key("c"));
+        assert_eq!(m.len(), 3);
     }
 
     #[tokio::test]
@@ -687,10 +1178,53 @@ mod tests {
 
     #[test]
     fn config_defaults() {
-        std::env::remove_var("CLOACINA_AGENT_IMAGE");
-        std::env::remove_var("CLOACINA_AGENT_SERVER_URL");
+        for k in [
+            "CLOACINA_AGENT_IMAGE",
+            "CLOACINA_AGENT_SERVER_URL",
+            "CLOACINA_AGENT_CPU_REQUEST",
+            "CLOACINA_AGENT_MEMORY_REQUEST",
+            "CLOACINA_AGENT_CPU_LIMIT",
+            "CLOACINA_AGENT_MEMORY_LIMIT",
+            "CLOACINA_FLEET_NETWORK_POLICY",
+            "CLOACINA_FLEET_DNS_NAMESPACE",
+            "CLOACINA_SERVER_NAMESPACE",
+            "CLOACINA_SERVER_POD_SELECTOR",
+            "CLOACINA_SERVER_PORT",
+        ] {
+            std::env::remove_var(k);
+        }
         let c = KubernetesConfig::from_env();
         assert_eq!(c.image, "cloacina-agent:latest");
         assert_eq!(c.server_url, "http://server:8080");
+        assert_eq!(c.resources.cpu_request, "250m");
+        assert_eq!(c.resources.memory_limit, "1Gi");
+        // Default ON, but skipped at reconcile when the server endpoint is absent.
+        assert!(c.network_policy_enabled);
+        assert!(c.server_endpoint.is_none());
+        assert_eq!(c.dns_namespace, "kube-system");
+
+        // Second phase (kept in ONE test to avoid an env-var race with the
+        // defaults phase above): plumbing the server endpoint env builds it.
+        std::env::set_var("CLOACINA_SERVER_NAMESPACE", "cloacina-system");
+        std::env::set_var(
+            "CLOACINA_SERVER_POD_SELECTOR",
+            "app.kubernetes.io/name=cloacina-server,app.kubernetes.io/instance=rel",
+        );
+        std::env::set_var("CLOACINA_SERVER_PORT", "8080");
+        let c = KubernetesConfig::from_env();
+        let ep = c.server_endpoint.expect("endpoint built from env");
+        assert_eq!(ep.namespace, "cloacina-system");
+        assert_eq!(ep.port, 8080);
+        assert_eq!(
+            ep.pod_labels.get("app.kubernetes.io/name"),
+            Some(&"cloacina-server".to_string())
+        );
+        for k in [
+            "CLOACINA_SERVER_NAMESPACE",
+            "CLOACINA_SERVER_POD_SELECTOR",
+            "CLOACINA_SERVER_PORT",
+        ] {
+            std::env::remove_var(k);
+        }
     }
 }

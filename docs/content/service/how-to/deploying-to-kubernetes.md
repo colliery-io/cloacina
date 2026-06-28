@@ -159,6 +159,8 @@ Setting `fleet.actuator=kubernetes` makes the chart:
    `ghcr.io/colliery-software/cloacina-agent:latest`), and
    `CLOACINA_AGENT_SERVER_URL` (from `fleet.agentServerUrl`, defaulting to this
    release's in-cluster Service DNS).
+3. Render the agent-pod hardening + per-tenant NetworkPolicy knobs (see
+   [Hardened agent pods + NetworkPolicy](#hardened-agent-pods--networkpolicy)).
 
 | Value | Default | Effect |
 |------|---------|--------|
@@ -167,6 +169,9 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 | `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
 | `fleet.serviceAccount.name` | `""` (→ `<fullname>-fleet`) | Override the fleet ServiceAccount name. |
 | `fleet.serviceAccount.annotations` | `{}` | Annotations on that ServiceAccount (e.g. IRSA / Workload Identity). |
+| `fleet.agentResources` | requests `250m`/`256Mi`, limits `1`/`1Gi` | Resource requests/limits applied to every agent pod (rendered as `CLOACINA_AGENT_*`). |
+| `fleet.networkPolicy.enabled` | `true` | Install the per-tenant agent NetworkPolicy (deny ingress; egress to DNS + server only). |
+| `fleet.networkPolicy.dnsNamespace` | `kube-system` | Namespace the policy allows port-53 egress to. |
 
 ### Per-tenant namespaces
 
@@ -189,6 +194,37 @@ cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
 | (core) | `namespaces` | `create`, `patch` | Ensure each tenant's namespace via server-side apply (a single create-or-update call, authorized as `create`+`patch`). No `get`/`list`/`delete`. |
 | `apps` | `deployments` | `create`, `get`, `patch` | Ensure the per-tenant agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count during reconcile. No `list`/`delete` — scale-to-zero replaces deletion. |
 | (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
+| `networking.k8s.io` | `networkpolicies` | `create`, `patch` | Ensure the per-tenant agent NetworkPolicy (server-side apply). Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`/`delete`. |
+
+### Hardened agent pods + NetworkPolicy
+
+The agent pods the actuator creates are hardened to clear a PodSecurity
+**`restricted`** cluster, and each tenant namespace is network-isolated by
+default. This is **defense-in-depth** — the server-side ABAC (NFR-004) remains
+the real tenant-isolation boundary; none of it weakens a server-side check.
+
+- **`securityContext`.** Pods run non-root as uid/gid `10001` (the agent image's
+  user) with `seccompProfile: RuntimeDefault`; containers drop all capabilities,
+  forbid privilege escalation, and use a `readOnlyRootFilesystem`. The agent's
+  writable paths (`$HOME` for the unpacked `workflow/`+`vendor/` tree and cdylib
+  cache, plus `/tmp`) are backed by `emptyDir` volumes.
+- **Resources.** Requests/limits come from `fleet.agentResources`. The defaults
+  account for the agent's embedded CPython interpreter (PyO3) — bump
+  `fleet.agentResources.limits.memory` for heavy vendored dependencies.
+- **No probes.** The agent is a WebSocket client with no health endpoint, so the
+  pods carry no kubelet probe; the server tracks liveness via heartbeat/eviction.
+- **NetworkPolicy** (`fleet.networkPolicy.enabled`, default on). Per tenant
+  namespace: **deny all ingress**, and **allow egress only** to cluster DNS
+  (UDP+TCP 53 in `fleet.networkPolicy.dnsNamespace`) and the `cloacina-server`
+  pods on the server port — the single path agents need to register, heartbeat,
+  and stream work. The actuator learns the server's coordinates from
+  `CLOACINA_SERVER_NAMESPACE` (this release's namespace) and
+  `CLOACINA_SERVER_POD_SELECTOR` (the server's pod labels), both rendered by the
+  chart. Set `fleet.networkPolicy.enabled=false` to skip the policy (the RBAC
+  verb stays granted, so you can re-enable without a redeploy of RBAC).
+
+> **Restricted clusters.** Because the agent pods are already `restricted`-clean,
+> you can safely label tenant namespaces `pod-security.kubernetes.io/enforce: restricted`.
 
 ### Fail-closed guard
 
@@ -202,6 +238,31 @@ the in-cluster path is satisfied by construction. See
 for the concept and
 [Environment Variables]({{< ref "/reference/environment-variables" >}}#fleet-actuator--autoscaler)
 for the autoscaler tuning knobs.
+
+## High availability (multi-replica)
+
+The server is safe to run with `replicaCount > 1`: the reconciler/autoscaler
+leader is gated by a Postgres advisory lock (ADR CLOACI-A-0008), so extra
+replicas serve HTTP without double-driving the control loop. When you raise the
+replica count the chart adds two HA primitives automatically:
+
+| Value | Default | Effect |
+|------|---------|--------|
+| `podDisruptionBudget.enabled` | `true` | Render a PodDisruptionBudget — **only** when `replicaCount > 1` (a PDB over a single replica would wedge node drains). |
+| `podDisruptionBudget.minAvailable` | `1` | Minimum server replicas kept available during voluntary disruptions (drains, rolling updates). |
+| `affinity` | `{}` (→ default) | When unset, the chart applies a **soft** pod-anti-affinity that prefers spreading replicas across hostnames (`topologyKey: kubernetes.io/hostname`, preferred — never blocks scheduling). Set `affinity` to override. |
+
+```sh
+helm upgrade --install cloacina \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
+  --version 0.1.0 --reuse-values \
+  --set replicaCount=3
+```
+
+> **No HorizontalPodAutoscaler.** The chart intentionally ships none. Server
+> *fleet* scaling is driven by the control-plane back-pressure autoscaler, which
+> sees per-tenant utilization an HPA's CPU/memory metrics cannot. Scale the
+> server *replica* count by hand (or your own policy) for HTTP/HA headroom.
 
 ## Upgrades
 

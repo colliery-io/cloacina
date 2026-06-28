@@ -43,6 +43,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
+Selector labels as a `key=value,key=value` CSV — the form the K8s actuator
+parses from CLOACINA_SERVER_POD_SELECTOR to build the agent NetworkPolicy egress
+rule (CLOACI-T-0819). MUST stay in lockstep with selectorLabels above.
+*/}}
+{{- define "cloacina-server.selectorLabelsCSV" -}}
+app.kubernetes.io/name={{ include "cloacina-server.name" . }},app.kubernetes.io/instance={{ .Release.Name }}
+{{- end -}}
+
+{{/*
 Image reference. Defaults image.tag to .Chart.AppVersion when unset.
 */}}
 {{- define "cloacina-server.image" -}}

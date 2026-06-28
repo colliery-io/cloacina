@@ -29,7 +29,31 @@ updateStrategy:
 
 nodeSelector: {}
 tolerations: []
+# Pod affinity/anti-affinity. Leave empty ({}) to get the chart's DEFAULT soft
+# pod-anti-affinity (CLOACI-T-0819): a preferred (whenUnsatisfiable-equivalent)
+# spread of server replicas across hostnames, so replicaCount>1 lands on
+# different nodes when possible without ever blocking scheduling. Set any value
+# here to fully override the default.
 affinity: {}
+
+# ---------------------------------------------------------------------------
+# High availability (CLOACI-T-0819)
+#
+# The server is safe to run with replicaCount>1: the autoscaler/reconciler
+# leader is gated by a Postgres advisory lock (ADR CLOACI-A-0008), so extra
+# replicas serve HTTP without double-driving the control loop. A
+# PodDisruptionBudget keeps a minimum available during voluntary disruptions
+# (node drains, rolling updates).
+#
+# NOTE: there is deliberately NO HorizontalPodAutoscaler. The control-plane
+# back-pressure autoscaler is the scaling mechanism — it sees per-tenant signal
+# (utilization, limits) that an HPA's CPU/memory metrics cannot.
+# ---------------------------------------------------------------------------
+podDisruptionBudget:
+  # Rendered only when enabled AND replicaCount > 1 (a PDB over a single replica
+  # would block all voluntary disruption of that pod).
+  enabled: true
+  minAvailable: 1
 
 # ---------------------------------------------------------------------------
 # Resources — modest defaults; bump for production load.
@@ -150,6 +174,30 @@ fleet:
     # Name override; empty → "<fullname>-fleet".
     name: ""
     annotations: {}
+
+  # Resource requests + limits for each actuator-created cloacina-agent pod
+  # (CLOACI-T-0819), rendered as CLOACINA_AGENT_* env on the server and applied
+  # by the actuator. Tuned to the agent's real footprint: it embeds a CPython
+  # interpreter (PyO3) and unpacks a workflow/+vendor/ tree, so the memory limit
+  # is generous to avoid OOM-killing a Python-packaged workflow.
+  agentResources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  # Per-tenant agent NetworkPolicy (CLOACI-T-0819, REQ-007 defense-in-depth).
+  # When enabled, the actuator installs a NetworkPolicy in each tenant namespace:
+  # default-deny ingress, egress allowed ONLY to cluster DNS + the cloacina-server.
+  # This is defense-in-depth — the server-side ABAC (NFR-004) remains the real
+  # tenant-isolation boundary; the policy never weakens a server-side check.
+  # Defaults ON when actuator=kubernetes; set enabled=false to disable.
+  networkPolicy:
+    enabled: true
+    # Namespace the cluster DNS service runs in (DNS egress is allowed there).
+    dnsNamespace: kube-system
 
 # ---------------------------------------------------------------------------
 # Service
