@@ -166,7 +166,7 @@ substrate (a *FleetActuator*). It is off by default
 
 Each tenant has an **effective limit** — the platform default
 (`CLOACINA_DEFAULT_MAX_AGENTS`, default 4) unless a platform admin grants a
-per-tenant override — and a **`desired_count`** within `[floor, effective_limit]`
+per-tenant override — and a **`desired_count`** in `[0, effective_limit]`
 that a tenant scales for itself via the
 [tenant agent fleet API]({{< ref "/reference/http-api" >}}#tenant-agent-fleet).
 Provisioning only sets the target; an actuator (below) turns it into running
