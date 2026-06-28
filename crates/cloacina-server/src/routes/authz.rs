@@ -193,9 +193,10 @@ pub fn evaluate(principal: &Principal, scope: &ResolvedScope, level: Level) -> D
         ResolvedScope::Tenant(tenant) => {
             let in_tenant = match &principal.tenant {
                 Some(principal_tenant) => principal_tenant == tenant,
-                // A global (non-admin) key may only reach the reserved
-                // "public" tenant.
-                None => tenant == "public",
+                // CLOACI-T-0817: "public" is now a real tenant (Some("public")).
+                // A non-admin key with no tenant scope reaches no tenant; admins
+                // are already permitted above (platform_admin short-circuit).
+                None => false,
             };
             if !in_tenant {
                 Decision::Deny(DENY_TENANT)
@@ -297,6 +298,45 @@ pub fn build_authz_table() -> AuthzTable {
         Method::POST,
         "/tenants/{tenant_id}/accounts/{account_id}/password",
         Access::tenant(Level::Admin),
+    );
+
+    // CLOACI-T-0808: agent-capacity limits. Setting/clearing a tenant's exception
+    // is god-only (platform + admin); reading the effective limit is tenant-scoped
+    // (a caller may read only its own tenant's limit — cross-tenant is denied).
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/limits",
+        Access::platform(Level::Admin),
+    );
+    add(
+        Method::DELETE,
+        "/tenants/{tenant_id}/limits",
+        Access::platform(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/limits",
+        Access::tenant(Level::Read),
+    );
+
+    // CLOACI-T-0809: per-tenant fleet scaling (desired-count provisioning).
+    // Provision/deprovision is tenant self-service (tenant-admin on its OWN
+    // tenant; god bypasses; cross-tenant denied); reading the fleet view is a
+    // tenant-scoped read.
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/fleet/provision",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/fleet/deprovision",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/fleet",
+        Access::tenant(Level::Read),
     );
 
     // ----- Platform + Admin: the global key surface (CLOACI-T-0784 leak fix).
@@ -582,7 +622,9 @@ mod tests {
         }
         match tenant {
             Some(key_tenant) => key_tenant == requested,
-            None => requested == "public",
+            // CLOACI-T-0817: "public" is a real tenant now; a non-admin no-tenant
+            // key reaches nothing (admins handled above).
+            None => false,
         }
     }
 
@@ -777,7 +819,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            52,
+            58,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
@@ -808,6 +850,32 @@ mod tests {
         assert_eq!(
             get(Method::DELETE, "/tenants/{tenant_id}/keys/{key_id}"),
             Some(Access::tenant(Level::Admin))
+        );
+        // CLOACI-T-0808: agent-capacity limits — set/clear god-only, read tenant-scoped.
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/limits"),
+            Some(Access::platform(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::DELETE, "/tenants/{tenant_id}/limits"),
+            Some(Access::platform(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/limits"),
+            Some(Access::tenant(Level::Read))
+        );
+        // CLOACI-T-0809: fleet scaling — provision/deprovision tenant-admin, read tenant-scoped.
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/fleet/provision"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/fleet/deprovision"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/fleet"),
+            Some(Access::tenant(Level::Read))
         );
         assert_eq!(
             get(Method::POST, "/tenants"),

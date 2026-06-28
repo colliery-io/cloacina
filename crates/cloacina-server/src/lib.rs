@@ -20,7 +20,9 @@
 //! single `run()` entrypoint that boots the axum HTTP server with auth, tenant
 //! management, workflow upload, and execution APIs.
 
+pub mod actuator;
 pub mod agent_registry;
+pub mod autoscaler;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
@@ -235,6 +237,18 @@ pub struct AppState {
     /// same value as its tick + dead-after basis. Operator-configurable via
     /// `--agent-heartbeat-interval-s`.
     pub agent_heartbeat_interval_seconds: u32,
+    /// CLOACI-T-0808: platform-wide default agent-capacity limit — the ceiling a
+    /// tenant's provisioning/autoscaling clamps to, absent a per-tenant exception
+    /// in `agent_capacity_limits`. Operator-configurable via
+    /// `CLOACINA_DEFAULT_MAX_AGENTS` (default 4).
+    pub default_max_agents: u32,
+    /// CLOACI-T-0812: number of agent(s) to auto-provision when a tenant is
+    /// created. On tenant create the handler sets the new tenant's
+    /// `desired_count` to `min(initial_agents, default_max_agents)` (best-effort);
+    /// the T-0811 control loop + T-0810 actuator then bring the agents up.
+    /// Operator-configurable via `CLOACINA_INITIAL_AGENTS` (default 1); `0`
+    /// disables auto-provision.
+    pub initial_agents: u32,
     /// CLOACI-T-0783: declarative `(method, path) -> Access` authorization
     /// table, consulted by `authz_mw`. Built once at startup; fail-closed —
     /// a matched route absent from this map is denied.
@@ -246,6 +260,12 @@ pub struct AppState {
     pub oidc_policy: Arc<crate::oidc::MappingPolicy>,
     /// CLOACI-T-0790: short-lived in-flight OIDC login state (state/nonce/PKCE).
     pub oidc_login: Arc<crate::oidc::LoginFlowStore>,
+    /// CLOACI-T-0810: fleet actuator that reconciles each tenant's running agent
+    /// count toward its `desired_count`. Selected by `CLOACINA_FLEET_ACTUATOR`
+    /// and validated fail-closed at boot by the substrate guard. `NoopActuator`
+    /// (kind `"none"`) when actuation is off — in which case the reconcile loop
+    /// does not run.
+    pub fleet_actuator: Arc<dyn crate::actuator::FleetActuator>,
 }
 
 /// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
@@ -795,8 +815,50 @@ pub async fn run(
         std::time::Duration::from_secs(600),
     ));
 
+    // CLOACI-T-0808: platform-wide default agent-capacity limit. Per-tenant
+    // exceptions live in `agent_capacity_limits`; this is the fallback. Default 4.
+    let default_max_agents = std::env::var("CLOACINA_DEFAULT_MAX_AGENTS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(4);
+
+    // CLOACI-T-0812: initial agent(s) auto-provisioned on tenant create. The
+    // create-tenant handler clamps this to `default_max_agents` and writes the
+    // result as the new tenant's `desired_count` (best-effort). Default 1; `0`
+    // disables auto-provision.
+    let initial_agents = std::env::var("CLOACINA_INITIAL_AGENTS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(1);
+
+    // CLOACI-T-0810: build the fleet actuator, FAIL CLOSED (REQ-008). A
+    // misconfigured/unsafe actuator must refuse to start the server — never
+    // silently scale the wrong substrate. `CLOACINA_FLEET_ACTUATOR` selects it
+    // (default `none` = actuation off); the substrate guard validates the choice
+    // against the detected host (refuses Docker-on-Kubernetes, refuses with no
+    // Docker socket).
+    let actuator_kind = crate::actuator::guard::actuator_kind_from_env();
+    let fleet_actuator = crate::actuator::guard::build_actuator(
+        &actuator_kind,
+        &crate::actuator::guard::HostSubstrate,
+        runner.database().clone(),
+    )
+    .map_err(|e| {
+        anyhow::anyhow!(
+            "FATAL: fleet actuator (CLOACINA_FLEET_ACTUATOR={actuator_kind}) refused to start \
+             — {e}. Set CLOACINA_FLEET_ACTUATOR to a valid, safe value (none | docker) or fix \
+             the substrate. The server will not start with a misconfigured actuator."
+        )
+    })?;
+    info!(
+        actuator = %fleet_actuator.kind(),
+        "fleet actuator initialized"
+    );
+
     let state = AppState {
         database: runner.database().clone(),
+        default_max_agents,
+        initial_agents,
         runner: Arc::new(runner),
         key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
         endpoint_registry,
@@ -828,6 +890,7 @@ pub async fn run(
         oidc: oidc_provider,
         oidc_policy,
         oidc_login,
+        fleet_actuator: fleet_actuator.clone(),
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -999,6 +1062,181 @@ pub async fn run(
                     }
                     res = sweep_shutdown.changed() => {
                         if res.is_err() || *sweep_shutdown.borrow() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Fleet control loop (CLOACI-T-0811). ONE leader-gated loop that does both
+    // (a) back-pressure autoscaling — adjust each tenant's `desired_count` from
+    // fleet utilization, clamped to `[floor, effective_limit]` — and (b)
+    // reconciliation — drive actual→desired via the actuator. This SUPERSEDES the
+    // standalone T-0810 reconcile loop (and resolves its leader-election TODO):
+    // both steps now run behind a single Postgres advisory lock so two replicas
+    // never scale/actuate concurrently (NFR-003).
+    //
+    // Spawned ONLY when an actuator is active (kind != "none"); the NoopActuator
+    // path leaves it off entirely. Every replica runs the loop, but the whole
+    // body executes only on the leader for each tick (the rest skip). Cadence is
+    // `CLOACINA_AUTOSCALE_INTERVAL_S` (default 30); the old
+    // `CLOACINA_RECONCILE_INTERVAL_S` no longer applies.
+    //
+    // `CLOACINA_AUTOSCALE` (default on when an actuator is active) is a
+    // kill-switch for ONLY the autoscale step — reconciliation keeps running so
+    // operators can drive `desired_count` by hand (provision API) while the
+    // autoscaler is disabled.
+    if fleet_actuator.kind() != "none" {
+        let loop_actuator = fleet_actuator.clone();
+        let loop_dal = unified_dal.clone();
+        let loop_db = state.database.clone();
+        let loop_registry = agent_registry.clone();
+        let mut loop_shutdown = substrate_shutdown_rx.clone();
+        let scale_cfg = crate::autoscaler::ScaleConfig::from_env();
+        let autoscale_enabled = std::env::var("CLOACINA_AUTOSCALE")
+            .ok()
+            .map(|v| {
+                !matches!(
+                    v.to_ascii_lowercase().as_str(),
+                    "0" | "false" | "off" | "no"
+                )
+            })
+            .unwrap_or(true);
+        let default_max = default_max_agents;
+        let tick = scale_cfg.interval;
+        info!(
+            actuator = %fleet_actuator.kind(),
+            interval_s = tick.as_secs(),
+            autoscale_enabled,
+            up_threshold = scale_cfg.up_threshold,
+            down_threshold = scale_cfg.down_threshold,
+            cooldown_s = scale_cfg.cooldown.as_secs(),
+            floor = scale_cfg.floor,
+            "fleet control loop started (leader-gated)"
+        );
+        tokio::spawn(async move {
+            use crate::autoscaler::{decide, should_act_at, tenant_utilizations, ScaleAction};
+            // Cooldown state lives in the DB (`agent_desired_counts.last_autoscaled_at`),
+            // not in a per-replica in-memory map: leadership rotates per tick, so an
+            // in-memory cooldown could be bypassed by a later-leading replica. Reading
+            // the wall-clock timestamp back each tick honors the cooldown regardless of
+            // which replica leads (CLOACI-A-0008 refinement).
+            let mut ticker = tokio::time::interval(tick);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        // Whole body is leader-gated: only the replica holding the
+                        // advisory lock runs it; others skip this tick.
+                        crate::autoscaler::leader::with_fleet_leadership(&loop_db, || async {
+                            // (a) AUTOSCALE — adjust desired_count from utilization.
+                            if autoscale_enabled {
+                                let utils = tenant_utilizations(&loop_registry.snapshot());
+                                // Tenant set = everyone with a desired_count row
+                                // PLUS any tenant with live registered agents.
+                                // `list_all_with_last` also carries each tenant's
+                                // last_autoscaled_at (DB wall-clock) for the cooldown gate.
+                                let desired_rows = match loop_dal.agent_desired().list_all_with_last().await {
+                                    Ok(rows) => rows,
+                                    Err(e) => {
+                                        warn!(error = %e, "fleet autoscale: failed to read desired counts; skipping autoscale step");
+                                        Vec::new()
+                                    }
+                                };
+                                let mut tenants: std::collections::HashSet<String> =
+                                    desired_rows.iter().map(|(t, _, _)| t.clone()).collect();
+                                tenants.extend(utils.keys().cloned());
+                                let desired_map: std::collections::HashMap<String, u32> =
+                                    desired_rows.iter().map(|(t, d, _)| (t.clone(), *d)).collect();
+                                let last_autoscaled_map: std::collections::HashMap<String, chrono::NaiveDateTime> =
+                                    desired_rows
+                                        .into_iter()
+                                        .filter_map(|(t, _, last)| last.map(|l| (t, l)))
+                                        .collect();
+
+                                let now = chrono::Utc::now().naive_utc();
+                                for tenant in tenants {
+                                    let util = utils.get(&tenant).copied().unwrap_or(0.0);
+                                    let desired = desired_map.get(&tenant).copied().unwrap_or(0);
+                                    let effective_limit = match loop_dal
+                                        .agent_limits()
+                                        .effective_limit(&tenant, default_max)
+                                        .await
+                                    {
+                                        Ok(l) => l,
+                                        Err(e) => {
+                                            warn!(tenant = %tenant, error = %e, "fleet autoscale: effective_limit read failed; skipping tenant");
+                                            continue;
+                                        }
+                                    };
+                                    let action = decide(util, desired, effective_limit, scale_cfg.floor, &scale_cfg);
+                                    if matches!(action, ScaleAction::Hold) {
+                                        continue;
+                                    }
+                                    if !should_act_at(last_autoscaled_map.get(&tenant).copied(), now, scale_cfg.cooldown) {
+                                        continue; // within cooldown (DB wall-clock, cross-replica)
+                                    }
+                                    let new_desired = match action {
+                                        ScaleAction::Up => (desired + 1).min(effective_limit),
+                                        ScaleAction::Down => desired.saturating_sub(1).max(scale_cfg.floor),
+                                        ScaleAction::Hold => desired,
+                                    };
+                                    if new_desired == desired {
+                                        continue;
+                                    }
+                                    match loop_dal.agent_desired().set_desired_autoscaled(&tenant, new_desired).await {
+                                        Ok(()) => {
+                                            info!(
+                                                tenant = %tenant,
+                                                util,
+                                                from = desired,
+                                                to = new_desired,
+                                                effective_limit,
+                                                action = ?action,
+                                                "fleet autoscale: adjusted desired_count"
+                                            );
+                                        }
+                                        Err(e) => warn!(tenant = %tenant, error = %e, "fleet autoscale: set_desired failed"),
+                                    }
+                                }
+                            }
+
+                            // (b) RECONCILE — drive actual→desired for each tenant.
+                            let desired = match loop_dal.agent_desired().list_all().await {
+                                Ok(rows) => rows,
+                                Err(e) => {
+                                    warn!(error = %e, "fleet reconcile: failed to read desired counts; skipping reconcile step");
+                                    return;
+                                }
+                            };
+                            for (tenant, want) in desired {
+                                match loop_actuator.reconcile(&tenant, want).await {
+                                    Ok(out) if out.spawned > 0 || out.stopped > 0 => {
+                                        info!(
+                                            tenant = %tenant,
+                                            desired = want,
+                                            spawned = out.spawned,
+                                            stopped = out.stopped,
+                                            running = out.running,
+                                            "fleet reconcile: actuated tenant"
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => warn!(
+                                        tenant = %tenant,
+                                        desired = want,
+                                        error = %e,
+                                        "fleet reconcile: tenant reconcile failed"
+                                    ),
+                                }
+                            }
+                        })
+                        .await;
+                    }
+                    res = loop_shutdown.changed() => {
+                        if res.is_err() || *loop_shutdown.borrow() {
                             break;
                         }
                     }
@@ -1205,6 +1443,32 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/accounts/{account_id}/password",
             post(crate::routes::local_auth::reset_password),
+        )
+        // CLOACI-T-0808: agent-capacity limits (admin default + per-tenant exceptions).
+        .route(
+            "/tenants/{tenant_id}/limits",
+            post(crate::routes::limits::set_tenant_limit),
+        )
+        .route(
+            "/tenants/{tenant_id}/limits",
+            get(crate::routes::limits::get_tenant_limit),
+        )
+        .route(
+            "/tenants/{tenant_id}/limits",
+            delete(crate::routes::limits::clear_tenant_limit),
+        )
+        // CLOACI-T-0809: per-tenant fleet scaling (desired-count provisioning).
+        .route(
+            "/tenants/{tenant_id}/fleet",
+            get(crate::routes::fleet::get_fleet),
+        )
+        .route(
+            "/tenants/{tenant_id}/fleet/provision",
+            post(crate::routes::fleet::provision),
+        )
+        .route(
+            "/tenants/{tenant_id}/fleet/deprovision",
+            post(crate::routes::fleet::deprovision),
         )
         // Workflow packages (tenant-scoped)
         .route(
@@ -1805,12 +2069,17 @@ mod tests {
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+            default_max_agents: 4,
+            initial_agents: 1,
             authz_table: Arc::new(crate::routes::authz::build_authz_table()),
             oidc: None,
             oidc_policy: Arc::new(crate::oidc::MappingPolicy::default()),
             oidc_login: Arc::new(crate::oidc::LoginFlowStore::new(
                 std::time::Duration::from_secs(600),
             )),
+            // CLOACI-T-0810: tests don't actuate — a Noop actuator keeps handlers
+            // that read `fleet_actuator` constructible without a Docker daemon.
+            fleet_actuator: Arc::new(crate::actuator::NoopActuator),
         }
     }
 
@@ -1837,6 +2106,20 @@ mod tests {
             .create_key(&hash, "test-key", None, true, "admin")
             .await
             .expect("Failed to create test API key");
+        plaintext
+    }
+
+    /// Create a tenant-scoped (non-admin) API key and return the plaintext
+    /// token. `role` is the key's permission string ("read"/"write"/"admin");
+    /// the key is bound to `tenant` and is NOT a platform admin, so it can only
+    /// reach its own tenant's tenant-scoped routes.
+    async fn create_tenant_api_key(state: &AppState, tenant: &str, role: &str) -> String {
+        let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        dal.api_keys()
+            .create_key(&hash, "tenant-test-key", Some(tenant), false, role)
+            .await
+            .expect("Failed to create tenant API key");
         plaintext
     }
 
@@ -2752,11 +3035,19 @@ mod tests {
         let series_count: HashMap<&str, usize> =
             label_sets.iter().map(|(k, v)| (*k, v.len())).collect();
 
-        // Generous per-metric ceiling — every I-0099 metric should be far
-        // below this. If a regression inflates labels (tenant_id, event
-        // keys, raw paths), this assertion fails loudly.
-        let ceiling = 64usize;
+        // Per-metric ceilings. The default stays deliberately tight — most
+        // I-0099 metrics carry a handful of enum-bounded labels and sit far
+        // below it, so an unbounded label (tenant_id, event keys, raw paths)
+        // trips the guard loudly. The two API metrics are labelled only by
+        // (method, status): both bounded, but their product across the full
+        // route surface legitimately exceeds the tight default, so they get a
+        // higher (still bounded) ceiling that an unbounded label would blow
+        // straight past. CLOACI-I-0127.
         for (metric, count) in &series_count {
+            let ceiling = match *metric {
+                "cloacina_api_request_duration_seconds" | "cloacina_api_requests_total" => 256usize,
+                _ => 64usize,
+            };
             assert!(
                 *count <= ceiling,
                 "I-0099 cardinality guard: {} has {} distinct label sets, \
@@ -3137,6 +3428,494 @@ mod tests {
             body
         );
         assert!(body["total"].as_u64().is_some());
+    }
+
+    // ── Agent-capacity limits (CLOACI-T-0808) ────────────────────────
+
+    /// god POST sets a tenant exception → 200 with override + effective.
+    #[tokio::test]
+    #[serial]
+    async fn test_set_agent_limit_god_returns_200() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"max_agents": 6}"#))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["effective_limit"], 6);
+        assert_eq!(body["tenant_override"], 6);
+        assert_eq!(body["default_max_agents"], 4);
+    }
+
+    /// god GET reads back the override just set → effective == override.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_god_reflects_override() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state.clone());
+
+        // Seed an override.
+        let post = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"max_agents": 6}"#))
+            .unwrap();
+        let (status, _) = send_request(app, post).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let app = build_router(state);
+        let get = axum::http::Request::builder()
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, get).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["effective_limit"], 6);
+    }
+
+    /// god GET on a tenant with no override → effective == default, override null.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_no_override_uses_default() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/tenants/otherco/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["effective_limit"], 4);
+        assert!(body["tenant_override"].is_null());
+    }
+
+    /// A tenant-scoped key may read its OWN tenant's limit → 200.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_own_tenant_key_allowed() {
+        let state = test_state().await;
+        let token = create_tenant_api_key(&state, "acme", "read").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        // Own-tenant read is permitted (200). The exact effective value is not
+        // asserted here: server lib tests share one Postgres DB with no
+        // per-test reset, so a prior test may have left an `acme` override.
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert!(body["effective_limit"].is_number(), "body: {:?}", body);
+    }
+
+    /// A tenant-scoped key may NOT read another tenant's limit → 403.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_cross_tenant_key_denied() {
+        let state = test_state().await;
+        let token = create_tenant_api_key(&state, "acme", "read").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/tenants/otherco/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// Setting an exception is god-only — a tenant key (even on its own
+    /// tenant) is denied → 403.
+    #[tokio::test]
+    #[serial]
+    async fn test_set_agent_limit_tenant_key_denied() {
+        let state = test_state().await;
+        let token = create_tenant_api_key(&state, "acme", "admin").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"max_agents": 6}"#))
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// god DELETE clears the exception → 200 and effective reverts to default.
+    #[tokio::test]
+    #[serial]
+    async fn test_delete_agent_limit_god_reverts_to_default() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        // Seed an override first.
+        let app = build_router(state.clone());
+        let post = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"max_agents": 6}"#))
+            .unwrap();
+        let (status, _) = send_request(app, post).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let app = build_router(state);
+        let del = axum::http::Request::builder()
+            .method("DELETE")
+            .uri("/v1/tenants/acme/limits")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, del).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["effective_limit"], 4);
+        assert!(body["tenant_override"].is_null());
+    }
+
+    /// No Authorization header → 401 before authz runs.
+    #[tokio::test]
+    #[serial]
+    async fn test_get_agent_limit_no_auth_returns_401() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/tenants/acme/limits")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    // ── Fleet scaling (desired-count provisioning, CLOACI-T-0809) ─────
+    //
+    // The server lib tests share one Postgres DB with no per-test reset, so each
+    // test below uses a UNIQUE tenant name (fresh desired_count == 0) and seeds
+    // its own effective limit via `agent_limits().set_tenant_limit`.
+
+    /// A tenant-admin key provisions its OWN tenant → 200, desired_count +1.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_provision_tenant_admin_increments() {
+        let state = test_state().await;
+        let tenant = "fleet-self-0809";
+        // Seed a generous limit so provisioning is under capacity.
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_limits()
+            .set_tenant_limit(tenant, 5)
+            .await
+            .expect("seed limit");
+        // Start from a known baseline.
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 0)
+            .await
+            .expect("seed desired");
+        let token = create_tenant_api_key(&state, tenant, "admin").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/provision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 1);
+        assert_eq!(body["effective_limit"], 5);
+        assert_eq!(body["actual_count"], 0);
+        assert_eq!(body["default_max_agents"], 4);
+    }
+
+    /// Provisioning past the effective limit → 409 "at capacity".
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_provision_at_capacity_returns_409() {
+        let state = test_state().await;
+        let tenant = "fleet-cap-0809";
+        // Low limit of 1 so a single provision saturates capacity.
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_limits()
+            .set_tenant_limit(tenant, 1)
+            .await
+            .expect("seed limit");
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 0)
+            .await
+            .expect("seed desired");
+        let token = create_test_api_key(&state).await; // god
+        let app = build_router(state.clone());
+
+        // First provision: 0 → 1 (200, now at limit).
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/provision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 1);
+
+        // Second provision: at the limit → 409.
+        let app = build_router(state);
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/provision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    /// Deprovision decrements, and floors at 0.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_deprovision_decrements_and_floors() {
+        let state = test_state().await;
+        let tenant = "fleet-deprov-0809";
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_limits()
+            .set_tenant_limit(tenant, 5)
+            .await
+            .expect("seed limit");
+        // Start at 1 so the first deprovision lands on 0.
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 1)
+            .await
+            .expect("seed desired");
+        let token = create_test_api_key(&state).await; // god
+        let app = build_router(state.clone());
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/deprovision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 0);
+
+        // Deprovision again: already 0, floors at 0 (still 200).
+        let app = build_router(state);
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/deprovision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 0);
+    }
+
+    /// GET fleet returns the full scaling view → 200 with all fields.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_get_returns_fields() {
+        let state = test_state().await;
+        let tenant = "fleet-get-0809";
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 2)
+            .await
+            .expect("seed desired");
+        let token = create_tenant_api_key(&state, tenant, "read").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri(format!("/v1/tenants/{}/fleet", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["tenant_id"], tenant);
+        assert_eq!(body["desired_count"], 2);
+        assert_eq!(body["effective_limit"], 4); // no override → default
+        assert!(body["actual_count"].is_number());
+        assert_eq!(body["default_max_agents"], 4);
+    }
+
+    /// A tenant-admin key may NOT provision another tenant's fleet → 403.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_provision_cross_tenant_denied() {
+        let state = test_state().await;
+        let token = create_tenant_api_key(&state, "acme", "admin").await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/otherco/fleet/provision")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// A god key may provision any tenant's fleet → 200.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_provision_god_any_tenant() {
+        let state = test_state().await;
+        let tenant = "fleet-god-0809";
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_limits()
+            .set_tenant_limit(tenant, 5)
+            .await
+            .expect("seed limit");
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_desired()
+            .set_desired(tenant, 0)
+            .await
+            .expect("seed desired");
+        let token = create_test_api_key(&state).await; // god
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1/tenants/{}/fleet/provision", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["desired_count"], 1);
+    }
+
+    /// No Authorization header → 401 before authz runs.
+    #[tokio::test]
+    #[serial]
+    async fn test_fleet_no_auth_returns_401() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/acme/fleet/provision")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    // ── Auto-provision on tenant create (CLOACI-T-0812) ───────────────
+
+    /// The clamp/0-disable logic: effective initial =
+    /// `min(initial_agents, default_max_agents)`.
+    #[test]
+    fn test_initial_desired_count_clamp() {
+        use crate::routes::tenants::initial_desired_count;
+        // initial under the limit → initial.
+        assert_eq!(initial_desired_count(1, 4), 1);
+        assert_eq!(initial_desired_count(3, 4), 3);
+        // initial over the limit → clamped to the limit.
+        assert_eq!(initial_desired_count(10, 4), 4);
+        // 0 initial → 0 (auto-provision disabled).
+        assert_eq!(initial_desired_count(0, 4), 0);
+        // 0 limit → 0 even with a positive initial.
+        assert_eq!(initial_desired_count(2, 0), 0);
+    }
+
+    /// Creating a tenant auto-provisions its initial `desired_count`:
+    /// `POST /v1/tenants` then `GET /v1/tenants/{t}/fleet` shows
+    /// `desired_count == min(initial_agents, default_max_agents)`. With the
+    /// test state's defaults (initial_agents=1, default_max_agents=4) that's 1.
+    /// Requires Postgres (creates a real tenant schema); unique name + DELETE
+    /// cleanup since the lib tests share one DB with no per-test reset.
+    #[tokio::test]
+    #[serial]
+    async fn test_create_tenant_auto_provisions_initial_desired() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await; // god
+
+        let tenant = format!(
+            "test_0812_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+
+        // Create the tenant.
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "name": tenant,
+                    "password": "testpass123",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let (status, body) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status, StatusCode::CREATED, "create tenant: {:?}", body);
+
+        // GET fleet → desired_count auto-provisioned to the clamped initial (1).
+        let req = axum::http::Request::builder()
+            .uri(format!("/v1/tenants/{}/fleet", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status, StatusCode::OK, "get fleet: {:?}", body);
+        assert_eq!(
+            body["desired_count"],
+            crate::routes::tenants::initial_desired_count(
+                state.initial_agents,
+                state.default_max_agents
+            ),
+            "fleet view: {:?}",
+            body
+        );
+
+        // Cleanup: drop schema + user.
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/tenants/{}", tenant))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let _ = send_request(build_router(state.clone()), req).await;
     }
 
     /// CLOACI-T-0580: LRU eviction. With a cache cap of 2, cycling
@@ -4031,6 +4810,78 @@ mod tests {
             msg.contains("CLOACINA_VERIFICATION_ORG_ID"),
             "error must also name the env var alternative; got: {}",
             msg
+        );
+    }
+
+    /// CLOACI-T-0811: leader election via a Postgres advisory lock.
+    ///
+    /// Placed here (a `#[serial]` server lib test over `test_state()`'s real
+    /// Postgres `Database`) rather than in `crates/cloacina/tests/integration/`
+    /// because the unit under test — `with_fleet_leadership` — lives in
+    /// `cloacina-server` and needs a live `Database` with a multi-connection
+    /// pool. The shared test runner's pool (size 10) gives us the ≥2 distinct
+    /// sessions the test needs: while the "leader" closure holds the lock on one
+    /// pooled connection, a concurrent attempt draws a *different* connection and
+    /// must observe the lock as taken.
+    #[tokio::test]
+    #[serial]
+    async fn fleet_leadership_is_mutually_exclusive() {
+        use crate::autoscaler::leader::with_fleet_leadership;
+
+        let db = test_state().await.database;
+
+        // Defensively release the key in case a prior aborted run left it held on
+        // a pooled session this process might reuse.
+        if let Ok(conn) = db.get_postgres_connection().await {
+            let _ = conn
+                .interact(|conn| {
+                    use diesel::RunQueryDsl;
+                    diesel::sql_query("SELECT pg_advisory_unlock_all()").execute(conn)
+                })
+                .await;
+        }
+
+        // Gate: the leader closure signals once it holds the lock, then blocks
+        // until we release it — keeping leadership open while a second caller
+        // tries to acquire it.
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel::<()>();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let leader_db = db.clone();
+        let leader = tokio::spawn(async move {
+            with_fleet_leadership(&leader_db, || async move {
+                entered_tx.send(()).expect("signal leadership entered");
+                release_rx.await.expect("await release");
+                42u32
+            })
+            .await
+        });
+
+        // Wait until the leader is holding the lock.
+        entered_rx.await.expect("leader should enter");
+
+        // A second attempt, while the leader holds the lock, must NOT acquire it.
+        let blocked = with_fleet_leadership(&db, || async { 99u32 }).await;
+        assert_eq!(
+            blocked, None,
+            "second caller must not win leadership while the lock is held"
+        );
+
+        // Release the leader; it runs `work` and unlocks.
+        release_tx.send(()).expect("release leader");
+        let leader_out = leader.await.expect("leader task joins");
+        assert_eq!(
+            leader_out,
+            Some(42),
+            "leader should have run work and returned its output"
+        );
+
+        // After unlock, leadership is acquirable again.
+        let after = with_fleet_leadership(&db, || async { 7u32 }).await;
+        assert_eq!(
+            after,
+            Some(7),
+            "leadership must be re-acquirable once the lock is released"
         );
     }
 }

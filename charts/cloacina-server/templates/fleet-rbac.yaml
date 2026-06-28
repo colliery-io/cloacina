@@ -1,0 +1,73 @@
+{{- if eq .Values.fleet.actuator "kubernetes" }}
+# ---------------------------------------------------------------------------
+# Fleet actuator RBAC (CLOACI-T-0814, REQ-006 + REQ-007)
+#
+# Rendered ONLY when fleet.actuator=kubernetes. Grants the server the LEAST
+# privilege its Kubernetes actuator needs to scale a per-tenant cloacina-agent
+# Deployment in the tenant's own namespace:
+#
+#   - It creates one namespace per tenant (cloacina-tenant-<t>), which is
+#     cluster-scoped — hence a ClusterRole, not a namespaced Role.
+#   - Inside each tenant namespace it manages exactly one Deployment + one
+#     Secret (the agent key) and patches the Deployment's replica count.
+#
+# NO cluster-admin. NO wildcard ("*") verbs or resources. Every rule below is
+# enumerated and justified.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+  {{- with .Values.fleet.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+rules:
+  # Per-tenant namespace provisioning (REQ-007). The actuator ensures each
+  # namespace with server-side apply (a single create-or-update call), which the
+  # API server authorizes as `create` + `patch`. Namespaces are cluster-scoped,
+  # so this rule MUST live in a ClusterRole. No `get`/`list` (apply doesn't read
+  # first) and no `delete` (deprovision scales to zero — it never deletes the
+  # namespace), keeping the blast radius minimal.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create", "patch"]
+  # The per-tenant agent Deployment. `create` + `patch` for the server-side apply
+  # that ensures it and the merge-patch that sets the replica count (scale
+  # up/down); `get` to read the ready-replica count during reconcile. No `list`
+  # (addressed by name) and no `delete` (scale-to-zero replaces deletion).
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "get", "patch"]
+  # The per-tenant agent key, delivered to agent pods as CLOACINA_API_KEY. Also
+  # ensured via server-side apply → `create` + `patch`. No `get`/`list` (apply
+  # doesn't read; addressed by its known name), no `update` (apply is a patch),
+  # no `delete`.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cloacina-server.fleetServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

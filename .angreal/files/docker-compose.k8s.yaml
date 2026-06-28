@@ -1,0 +1,109 @@
+---
+# k3s + local registry substrate for the Kubernetes fleet-actuator e2e
+# (CLOACI-T-0815). Mirrors brokkr's .angreal/files/docker-compose.yaml: an
+# isolated single-node k3s cluster, an in-network image registry, and a
+# kubeconfig-translation step so BOTH the host (localhost:6443) and containers
+# on the docker network (k3s:6443) can talk to the API server.
+#
+# Unlike brokkr we run NO app containers here — cloacina-server + the per-tenant
+# cloacina-agent fleet live INSIDE the cluster (helm install + the actuator), so
+# the real chart RBAC / ServiceAccount is exercised. This file only stands up
+# the substrate.
+name: cloacina-k8s-e2e
+
+services:
+  # In-network image registry. The harness pushes locally-built images to the
+  # host-published :5050; k3s pulls them via the `registry:5000` mirror
+  # (k3s-registries.yaml).
+  registry:
+    image: registry:2
+    ports:
+      - "5050:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5000/v2/"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Single-node k3s. traefik / servicelb / metrics-server are disabled — the
+  # e2e reaches the API via `kubectl port-forward`, not an ingress/LB, so we
+  # skip the boot cost. `--tls-san` for both `k3s` (docker network) and
+  # `localhost` (host) keeps the served cert valid for either kubeconfig.
+  k3s:
+    image: rancher/k3s:v1.30.10-k3s1
+    command:
+      - server
+      - --cluster-init
+      - --write-kubeconfig=/output/kubeconfig.yaml
+      - --write-kubeconfig-mode=666
+      - --tls-san=k3s
+      - --tls-san=localhost
+      - --disable=traefik
+      - --disable=metrics-server
+      - --disable=servicelb
+    privileged: true
+    environment:
+      - K3S_TOKEN=cloacina-k8s-e2e-secret
+      - K3S_KUBECONFIG_OUTPUT=/output/kubeconfig.yaml
+    tmpfs:
+      - /run
+      - /var/run
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+      - kube:/output
+      - ./k3s-registries.yaml:/etc/rancher/k3s/registries.yaml:ro
+    depends_on:
+      registry:
+        condition: service_healthy
+    ports:
+      - "6443:6443"
+    healthcheck:
+      test: ["CMD", "kubectl", "get", "--raw", "/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Translate the k3s-written kubeconfig into host- and docker-network variants.
+  init-kubeconfig:
+    image: alpine
+    depends_on:
+      k3s:
+        condition: service_healthy
+    volumes:
+      - kube:/kube
+    command: >
+      sh -c '
+        apk add --no-cache sed >/dev/null 2>&1 &&
+        # Host machine reaches the API via the published 6443 → localhost.
+        cp /kube/kubeconfig.yaml /kube/kubeconfig.host.yaml &&
+        sed -i "s|server: https://127.0.0.1:6443|server: https://localhost:6443|g" /kube/kubeconfig.host.yaml &&
+        # Containers on the docker network reach it by the `k3s` service name.
+        cp /kube/kubeconfig.yaml /kube/kubeconfig.docker.yaml &&
+        sed -i "s|server: https://127.0.0.1:6443|server: https://k3s:6443|g" /kube/kubeconfig.docker.yaml &&
+        sleep 1
+      '
+
+  # Copy the translated kubeconfigs out to a host bind-mount so host helm/kubectl
+  # can use them. The harness sets CLOACINA_K8S_E2E_HOSTDIR to a per-run temp dir.
+  copy-kubeconfig:
+    image: alpine
+    depends_on:
+      init-kubeconfig:
+        condition: service_completed_successfully
+    volumes:
+      - kube:/source:ro
+      - ${CLOACINA_K8S_E2E_HOSTDIR:-/tmp/cloacina-k8s-e2e}:/destination
+    command: >
+      sh -c '
+        mkdir -p /destination &&
+        cp /source/kubeconfig.host.yaml /destination/ &&
+        cp /source/kubeconfig.docker.yaml /destination/ &&
+        chmod -R 777 /destination
+      '
+
+volumes:
+  k3s-data:
+  kube:
+  registry-data:

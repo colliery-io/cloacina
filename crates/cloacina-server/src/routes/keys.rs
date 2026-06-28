@@ -81,7 +81,10 @@ pub async fn create_key(
         .create_key(
             &hash,
             &body.name,
-            None,
+            // CLOACI-T-0817: mint a key for the "public" tenant (the public realm
+            // is a real tenant now; a None-tenant non-admin key would reach
+            // nothing). For named tenants use POST /tenants/{tenant_id}/keys.
+            Some("public"),
             false, /* is_admin: never granted via this endpoint */
             body.role.as_str(),
         )

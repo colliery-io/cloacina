@@ -29,18 +29,40 @@ use cloacina::models::task_execution::NewTaskExecution;
 use cloacina::models::workflow_execution::NewWorkflowExecution;
 use serde_json::json;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Barrier;
 
-/// Test that concurrent task claiming doesn't produce duplicate claims.
+/// Disjoint, complete claiming under concurrent schedulers
+/// (CLOACI-T-0818 / ADR CLOACI-A-0008).
 ///
-/// This test creates multiple ready tasks and spawns several concurrent workers
-/// that all attempt to claim tasks at the same time. It verifies that:
-/// 1. No task is claimed by more than one worker
-/// 2. All tasks are eventually claimed exactly once
+/// This is the AUTHORITATIVE validation of the multi-replica scheduler property:
+/// when two or more `cloacina-server` replicas each run the per-tenant task
+/// scheduler and all poll the SAME set of ready outbox rows, every ready task is
+/// dispatched to EXACTLY ONE scheduler — no double-dispatch and no lost work. The
+/// scheduler is NOT leader-gated (every replica runs it unconditionally), so the
+/// `task_outbox` claim is the only thing standing between two replicas and a
+/// double-dispatch. The `k8s-leader` e2e's assertion 4 (`--claiming`) is the
+/// full-stack analogue of this property, but it is opt-in / best-effort because a
+/// helm-only server ships no compiler (uploaded packages never build and so never
+/// execute); this DAL-level test proves the same invariant deterministically and
+/// is what the e2e docstring points at as the real proof.
 ///
-/// This tests both PostgreSQL's FOR UPDATE SKIP LOCKED and SQLite's
-/// transaction isolation mechanisms.
+/// Setup mirrors N replicas: `NUM_WORKERS` concurrent claimers, each on its OWN
+/// pooled connection (a fresh `DAL` over a cloned `Database`), all released from a
+/// `Barrier` so they genuinely race for the same outbox rows. The claim path under
+/// test is `claim_ready_task` -> Postgres `DELETE ... FOR UPDATE SKIP LOCKED`
+/// (and, on SQLite, the `BEGIN IMMEDIATE` serialization). The pool must hold more
+/// than one connection for the race to be real — see the pool-size note in
+/// `claiming.rs` (CLOACI-T-0622, where a pool of 1 hid a TOCTOU bug); the test
+/// fixtures use pool size 10 (postgres) / 5 (sqlite).
+///
+/// Workers drain to completion (claim until the shared counter shows all N have
+/// been claimed, bounded by a safety deadline), then we assert with ZERO slack:
+/// 1. DISJOINT — no task id claimed by more than one worker (no double-dispatch).
+/// 2. COMPLETE — the union of claimed ids == all N seeded tasks (no lost work).
+/// 3. SOUND    — every claimed id belongs to the seeded set (set equality).
 #[tokio::test]
 async fn test_concurrent_task_claiming_no_duplicates() {
     for (backend, fixture) in get_all_fixtures().await {
@@ -69,7 +91,7 @@ async fn test_concurrent_task_claiming_no_duplicates() {
             .expect("Failed to create workflow execution");
 
         // Create multiple tasks and mark them ready (which populates the outbox)
-        const NUM_TASKS: usize = 20;
+        const NUM_TASKS: usize = 50;
         let mut created_task_ids = Vec::new();
 
         for i in 0..NUM_TASKS {
@@ -111,14 +133,22 @@ async fn test_concurrent_task_claiming_no_duplicates() {
         // Release the fixture lock before spawning concurrent tasks
         drop(guard);
 
-        // Spawn multiple workers that will try to claim tasks concurrently
-        const NUM_WORKERS: usize = 10;
+        // Spawn N concurrent schedulers (one per simulated server replica). Each
+        // gets its OWN pooled connection via a fresh DAL over a cloned Database,
+        // and all are released simultaneously by the Barrier so they genuinely
+        // race for the same ready outbox rows.
+        const NUM_WORKERS: usize = 4;
         let barrier = Arc::new(Barrier::new(NUM_WORKERS));
+        // Shared count of tasks claimed across all workers; drives drain-to-
+        // completion termination (vs. a fixed iteration budget that could leave
+        // rows unclaimed and hide lost work).
+        let claimed_total = Arc::new(AtomicUsize::new(0));
         let mut handles = Vec::new();
 
         for worker_id in 0..NUM_WORKERS {
             let db_clone = database.clone();
             let barrier_clone = barrier.clone();
+            let claimed_total = claimed_total.clone();
 
             let handle = tokio::spawn(async move {
                 let dal = DAL::new(db_clone);
@@ -126,18 +156,36 @@ async fn test_concurrent_task_claiming_no_duplicates() {
                 // Wait for all workers to be ready before claiming
                 barrier_clone.wait().await;
 
-                // Each worker tries to claim multiple tasks
+                // Drain to completion: keep claiming until every seeded task has
+                // been claimed (shared counter), bounded by a safety deadline. A
+                // genuinely lost/stuck task simply fails the COMPLETE assertion
+                // below rather than hanging the test forever.
+                let deadline = Instant::now() + Duration::from_secs(30);
                 let mut claimed = Vec::new();
-                for _ in 0..5 {
+                loop {
+                    if claimed_total.load(Ordering::SeqCst) >= NUM_TASKS {
+                        break;
+                    }
+                    if Instant::now() >= deadline {
+                        break;
+                    }
                     match dal.task_execution().claim_ready_task(2).await {
-                        Ok(results) => {
+                        Ok(results) if !results.is_empty() => {
+                            claimed_total.fetch_add(results.len(), Ordering::SeqCst);
                             for result in results {
                                 claimed.push((worker_id, result.id));
                             }
                         }
+                        Ok(_) => {
+                            // Empty: either truly drained, or peers currently hold
+                            // the remaining rows' locks (SKIP LOCKED returns them to
+                            // nobody). Back off and re-check the shared counter.
+                            tokio::time::sleep(Duration::from_millis(5)).await;
+                        }
                         Err(e) => {
-                            // Some errors are expected due to contention
+                            // Transient contention (e.g. sqlite busy). Back off + retry.
                             tracing::debug!("Worker {} claim error: {:?}", worker_id, e);
+                            tokio::time::sleep(Duration::from_millis(5)).await;
                         }
                     }
                 }
@@ -154,44 +202,44 @@ async fn test_concurrent_task_claiming_no_duplicates() {
             all_claimed.extend(claimed);
         }
 
-        // Extract just the task IDs
-        let claimed_ids: Vec<_> = all_claimed.iter().map(|(_, id)| *id).collect();
+        let claimed_ids: Vec<UniversalUuid> = all_claimed.iter().map(|(_, id)| *id).collect();
+        let unique_ids: HashSet<UniversalUuid> = claimed_ids.iter().copied().collect();
+        let created_set: HashSet<UniversalUuid> = created_task_ids.iter().copied().collect();
 
-        // Check for duplicates - this is the critical assertion
-        let unique_ids: HashSet<_> = claimed_ids.iter().collect();
+        // 1. DISJOINT — no task id claimed by more than one worker (no double-dispatch).
         assert_eq!(
             claimed_ids.len(),
             unique_ids.len(),
-            "[{}] RACE CONDITION DETECTED: Some tasks were claimed by multiple workers! \
-             Total claims: {}, Unique tasks: {}. \
-             This indicates the transaction isolation is not working correctly.",
+            "[{}] DOUBLE-DISPATCH: a task was claimed by more than one scheduler. \
+             Total claims: {}, unique tasks: {}. Concurrent claimers share ready \
+             outbox rows but the SKIP LOCKED + claimed_by claim must hand each row \
+             to exactly one.",
             backend,
             claimed_ids.len(),
             unique_ids.len()
         );
 
-        // Verify we claimed all tasks (or close to it, accounting for timing)
-        assert!(
-            unique_ids.len() >= NUM_TASKS - 2,
-            "[{}] Expected to claim most tasks. Claimed {} of {} tasks.",
+        // 2. COMPLETE — every seeded task was claimed exactly once (no lost work).
+        assert_eq!(
+            unique_ids.len(),
+            NUM_TASKS,
+            "[{}] LOST WORK: claimed {} distinct tasks but seeded {}. Missing: {:?}",
             backend,
             unique_ids.len(),
-            NUM_TASKS
+            NUM_TASKS,
+            created_set.difference(&unique_ids).collect::<Vec<_>>()
         );
 
-        // Verify all claimed tasks were from our created set
-        let created_set: HashSet<_> = created_task_ids.iter().collect();
-        for id in &claimed_ids {
-            assert!(
-                created_set.contains(id),
-                "[{}] Claimed task {:?} was not in our created set",
-                backend,
-                id
-            );
-        }
+        // 3. SOUND — the claimed set is exactly the seeded set (nothing extra).
+        assert_eq!(
+            unique_ids, created_set,
+            "[{}] claimed set != seeded set (unexpected or missing task ids)",
+            backend
+        );
 
         tracing::info!(
-            "[{}] Concurrent claiming test passed: {} workers claimed {} unique tasks with no duplicates",
+            "[{}] Disjoint-claiming test passed: {} concurrent schedulers claimed all {} \
+             tasks exactly once with no double-dispatch (CLOACI-T-0818 / A-0008)",
             backend,
             NUM_WORKERS,
             unique_ids.len()

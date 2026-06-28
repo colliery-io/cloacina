@@ -51,6 +51,17 @@ Image reference. Defaults image.tag to .Chart.AppVersion when unset.
 {{- end -}}
 
 {{/*
+Fleet-actuator ServiceAccount name. Defaults to "<fullname>-fleet".
+*/}}
+{{- define "cloacina-server.fleetServiceAccountName" -}}
+{{- if .Values.fleet.serviceAccount.name -}}
+{{- .Values.fleet.serviceAccount.name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-fleet" (include "cloacina-server.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Validate the database wiring. Fails the install with a clear message if
 neither path is configured.
 */}}

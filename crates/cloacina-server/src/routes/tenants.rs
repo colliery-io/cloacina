@@ -38,6 +38,16 @@ use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
 
+/// CLOACI-T-0812: compute the initial `desired_count` to auto-provision for a
+/// freshly created tenant. The operator-configured `initial_agents`
+/// (`CLOACINA_INITIAL_AGENTS`, default 1) is clamped to the platform default
+/// ceiling (`default_max_agents`) so a fresh tenant never comes up above its
+/// limit. `0` (either knob) disables auto-provision — the caller skips the
+/// desired-count write.
+pub(crate) fn initial_desired_count(initial_agents: u32, default_max_agents: u32) -> u32 {
+    initial_agents.min(default_max_agents)
+}
+
 /// POST /tenants — create a new tenant (Postgres schema + user + migrations).
 /// Admin-only: only is_admin keys can create tenants.
 #[utoipa::path(
@@ -75,6 +85,38 @@ pub async fn create_tenant(
                 description = ?body.description,
                 "Created tenant"
             );
+
+            // CLOACI-T-0812: auto-provision initial agent(s) so a fresh tenant
+            // comes up with working compute automatically. We only set the
+            // desired count here; the T-0811 control loop + T-0810 actuator
+            // bring the agents up. The write is BEST-EFFORT: if it fails we log
+            // a warning and STILL return tenant-created success — auto-provision
+            // bookkeeping must not fail tenant creation, and the control loop
+            // also reconciles the row on a later tick anyway.
+            let initial = initial_desired_count(state.initial_agents, state.default_max_agents);
+            if initial > 0 {
+                let dal = cloacina::dal::DAL::new(state.database.clone());
+                if let Err(e) = dal
+                    .agent_desired()
+                    .set_desired(&credentials.schema_name, initial)
+                    .await
+                {
+                    warn!(
+                        tenant = %credentials.schema_name,
+                        initial = initial,
+                        error = %e,
+                        "auto-provision: failed to set initial desired_count (best-effort; \
+                         tenant creation still succeeds — control loop will reconcile later)"
+                    );
+                } else {
+                    info!(
+                        tenant = %credentials.schema_name,
+                        initial = initial,
+                        "auto-provisioned initial agent desired_count"
+                    );
+                }
+            }
+
             // Note: password and connection_string intentionally excluded from
             // response to prevent credential leakage (SEC-08). The caller should
             // supply their own password via the request body, or retrieve it

@@ -70,8 +70,8 @@ summary, and the most recent executions.
 ## A tour of the views
 
 The console is organized into **Orchestration** (Workflows, Triggers,
-Graphs) and **System** (Operations, API Keys, Settings) sections. Here's
-what each view gives you.
+Graphs) and **System** (Operations, Agent fleet, API Keys, Accounts, Settings)
+sections. Here's what each view gives you.
 
 ### Overview
 
@@ -142,6 +142,17 @@ inputs), and each accumulator row's **inject ▸** opens a typed form built
 from the source's declared boundary schema.
 
 ![Typed inject form for an accumulator](/cloacina/images/web-ui/09-inject-modal.png)
+
+### Agent fleet
+
+Under **System**, the **Agent fleet** view shows this tenant's
+execution-agent pool: **Provisioned** (the requested count), **Running** (agents
+currently registered), and the tenant's **Effective limit**. A tenant-admin can
+scale the pool inline — **Provision +1** (disabled at capacity) and
+**Deprovision −1** (floor 0); read-scope users see the numbers without the
+controls. The controls are role-gated client-side, but the server enforces the
+same authorization regardless. See
+[Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}#capacity-limits--autoscaling).
 
 ## Step 3 — The demo is already live
 

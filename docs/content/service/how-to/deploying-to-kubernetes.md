@@ -130,6 +130,79 @@ The chart emits a `ServiceMonitor` that scrapes `:8080/metrics` every
 30 seconds — picked up automatically by a Prometheus operator that
 watches your namespace.
 
+## Fleet actuator (Kubernetes) + RBAC
+
+The server can provision and autoscale a per-tenant pool of `cloacina-agent`
+workloads itself, instead of you running agents by hand (the agent
+self-management control plane, CLOACI-I-0127). On Kubernetes this is the
+**Kubernetes fleet actuator**. It is **off by default** — existing installs are
+unchanged: no ServiceAccount, no RBAC, and no actuator env are rendered unless
+you opt in. (The Docker actuator is dev-only and is **not** offered through this
+chart.)
+
+### Enable it
+
+```sh
+helm upgrade --install cloacina \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
+  --version 0.1.0 \
+  --reuse-values \
+  --set fleet.actuator=kubernetes
+```
+
+Setting `fleet.actuator=kubernetes` makes the chart:
+
+1. Render the ServiceAccount + least-privilege RBAC below and run the server pod
+   as that ServiceAccount.
+2. Wire the actuator env into the container: `CLOACINA_FLEET_ACTUATOR=kubernetes`,
+   `CLOACINA_AGENT_IMAGE` (from `fleet.agentImage`, default
+   `ghcr.io/colliery-software/cloacina-agent:latest`), and
+   `CLOACINA_AGENT_SERVER_URL` (from `fleet.agentServerUrl`, defaulting to this
+   release's in-cluster Service DNS).
+
+| Value | Default | Effect |
+|------|---------|--------|
+| `fleet.actuator` | `none` | `none` (off) or `kubernetes`. |
+| `fleet.agentImage` | `ghcr.io/colliery-software/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
+| `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
+| `fleet.serviceAccount.name` | `""` (→ `<fullname>-fleet`) | Override the fleet ServiceAccount name. |
+| `fleet.serviceAccount.annotations` | `{}` | Annotations on that ServiceAccount (e.g. IRSA / Workload Identity). |
+
+### Per-tenant namespaces
+
+The actuator gives each tenant its **own** namespace, `cloacina-tenant-<t>`
+(the tenant id is sanitized to a DNS-1123 label), and manages exactly one
+`cloacina-agent` Deployment plus one agent-key Secret inside it. Scaling a
+tenant's fleet patches that Deployment's `replicas`. Tenant isolation is the
+namespace boundary — the actuator only ever touches the requesting tenant's
+namespace.
+
+### The exact RBAC the chart grants
+
+`fleet.actuator=kubernetes` renders a `ServiceAccount`, a `ClusterRole`, and a
+`ClusterRoleBinding` (a ClusterRole — not a namespaced Role — because creating
+per-tenant namespaces is a cluster-scoped operation). There is **no**
+cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
+
+| API group | Resource | Verbs | Why |
+|---|---|---|---|
+| (core) | `namespaces` | `create`, `patch` | Ensure each tenant's namespace via server-side apply (a single create-or-update call, authorized as `create`+`patch`). No `get`/`list`/`delete`. |
+| `apps` | `deployments` | `create`, `get`, `patch` | Ensure the per-tenant agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count during reconcile. No `list`/`delete` — scale-to-zero replaces deletion. |
+| (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
+
+### Fail-closed guard
+
+The actuator validates its substrate at boot and **refuses to start** on a
+mismatch — so a misconfiguration is a loud crash, never silent wrong-scaling. In
+particular, `CLOACINA_FLEET_ACTUATOR=kubernetes` requires the server to be
+running in-cluster (a service-account token mount); it errors out otherwise.
+Because the chart only sets `kubernetes` when it also binds the ServiceAccount,
+the in-cluster path is satisfied by construction. See
+[Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}#pluggable-actuators--substrate-guard)
+for the concept and
+[Environment Variables]({{< ref "/reference/environment-variables" >}}#fleet-actuator--autoscaler)
+for the autoscaler tuning knobs.
+
 ## Upgrades
 
 ```sh

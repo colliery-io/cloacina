@@ -155,7 +155,9 @@ mod tests {
     fn register_then_snapshot_roundtrips() {
         let r = AgentRegistry::new();
         r.register(rec("a1", 4, Some("t1")));
-        r.register(rec("a2", 2, None));
+        // CLOACI-T-0817: public agents register as Some("public"), not None
+        // (the None tenant now belongs solely to the admin/bootstrap key).
+        r.register(rec("a2", 2, Some("public")));
         let snap = r.snapshot();
         assert_eq!(snap.len(), 2);
         assert!(snap
@@ -163,13 +165,13 @@ mod tests {
             .any(|x| x.agent_id == "a1" && x.max_concurrency == 4));
         assert!(snap
             .iter()
-            .any(|x| x.agent_id == "a2" && x.tenant_id.is_none()));
+            .any(|x| x.agent_id == "a2" && x.tenant_id.as_deref() == Some("public")));
     }
 
     #[test]
     fn heartbeat_updates_capacity() {
         let r = AgentRegistry::new();
-        r.register(rec("a1", 4, None));
+        r.register(rec("a1", 4, Some("public")));
         assert!(r.record_heartbeat("a1", 3, 1));
         let snap = r.snapshot();
         assert_eq!(snap[0].in_flight, 3);
@@ -186,9 +188,9 @@ mod tests {
     fn sweep_dead_removes_only_stale_agents() {
         let r = AgentRegistry::new();
         // Fresh agent (heartbeat = now).
-        r.register(rec("fresh", 1, None));
+        r.register(rec("fresh", 1, Some("public")));
         // Stale agent: register, then backdate its last_heartbeat.
-        r.register(rec("stale", 1, None));
+        r.register(rec("stale", 1, Some("public")));
         {
             let mut g = r.by_id.lock().unwrap();
             g.get_mut("stale").unwrap().last_heartbeat = Instant::now() - Duration::from_secs(120);
@@ -204,8 +206,8 @@ mod tests {
     #[test]
     fn sweep_dead_noop_when_all_fresh() {
         let r = AgentRegistry::new();
-        r.register(rec("a1", 1, None));
-        r.register(rec("a2", 1, None));
+        r.register(rec("a1", 1, Some("public")));
+        r.register(rec("a2", 1, Some("public")));
         let removed = r.sweep_dead(Duration::from_secs(60));
         assert!(removed.is_empty());
         assert_eq!(r.len(), 2);

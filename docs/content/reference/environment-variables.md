@@ -94,6 +94,49 @@ The remaining agent options — `--agent-id`, `--max-concurrency` (default `4`),
 
 ---
 
+## Fleet actuator & autoscaler
+
+These server-side variables drive the **agent self-management control plane** (CLOACI-I-0127): the server can hold a per-tenant agent-capacity limit, provision a per-tenant pool of `cloacina-agent` workloads on a pluggable substrate (the *actuator*), and autoscale that pool from observed utilization. The actuator and autoscaler only run when an actuator is selected — with `CLOACINA_FLEET_ACTUATOR=none` (the default) no pool is provisioned and the control loop does not start. A provisioned pool only does useful work when the server's [default executor]({{< ref "/service/explanation/execution-agent-fleet" >}}) is `fleet` (otherwise tasks run in-process and the agents sit idle).
+
+> **Fail-closed substrate guard.** `CLOACINA_FLEET_ACTUATOR` is validated against the detected host at boot. `docker` **refuses to start** when Kubernetes is detected (service-account token mount or `KUBERNETES_SERVICE_HOST`) or when no Docker socket is reachable; `kubernetes` refuses to start when the server is not running in-cluster. A misconfigured actuator is a fatal boot error, never a silent wrong-scaling.
+
+### Capacity limits & provisioning
+
+| Variable | Purpose | Default | Example | Component | Required |
+|----------|---------|---------|---------|-----------|----------|
+| `CLOACINA_DEFAULT_MAX_AGENTS` | Platform-wide default ceiling on a tenant's agent count. The per-tenant *effective limit* is this value unless an admin sets a per-tenant override via `POST /v1/tenants/{id}/limits`. Provisioning and the autoscaler both clamp to the effective limit. CLOACI-T-0808. | `4` | `8` | Server | No |
+| `CLOACINA_INITIAL_AGENTS` | Agent(s) auto-provisioned (as `desired_count`) when a tenant is created, clamped to `min(initial_agents, default_max_agents)`. `0` disables auto-provision. Best-effort: a failure logs a warning but still returns tenant-created success. CLOACI-T-0812. | `1` | `2` | Server | No |
+
+### Actuator selection
+
+| Variable | Purpose | Default | Example | Component | Required |
+|----------|---------|---------|---------|-----------|----------|
+| `CLOACINA_FLEET_ACTUATOR` | Substrate the fleet actuator reconciles each tenant's running agent count on: `none` (actuation off), `docker` (dev-only — spawns labelled `cloacina-agent` containers), or `kubernetes` (scales a per-tenant `cloacina-agent` Deployment in the tenant's own namespace). Validated fail-closed against the host at boot. CLOACI-T-0810 / T-0814. | `none` | `kubernetes` | Server | No |
+| `CLOACINA_AGENT_IMAGE` | Agent image the actuator runs for each tenant. | `cloacina-agent:latest` | `ghcr.io/colliery-software/cloacina-agent:latest` | Server (actuator) | No |
+| `CLOACINA_AGENT_SERVER_URL` | Server URL injected into each spawned agent as `CLOACINA_SERVER` (the agent's registration target). | `http://server:8080` | `http://cloacina-server:8080` | Server (actuator) | No |
+| `CLOACINA_AGENT_NETWORK` | **Docker actuator only.** Docker network attached to each spawned agent container so it can reach the server (e.g. the compose network). Unset = the daemon default. Ignored by the Kubernetes actuator (in-cluster pods reach the server by Service DNS). | None | `cloacina_net` | Server (docker actuator) | No |
+
+The actuator mints a tenant-scoped `read` API key and injects it as `CLOACINA_API_KEY`, so spawned agents self-register exactly like a hand-run agent (see [Execution Agent](#execution-agent)). The Docker actuator mints one key per container; the Kubernetes actuator mints one shared per-tenant key into a `Secret` and re-mints it on scale-up.
+
+### Autoscaler
+
+The autoscaler is a single leader-gated control loop (one replica drives the fleet via a Postgres advisory lock). Each tick it computes per-tenant utilization (Σ `in_flight` / Σ `max_concurrency` over the tenant's live agents) and nudges `desired_count` by ±1 within `[floor, effective_limit]`, then reconciles actual → desired through the actuator.
+
+| Variable | Purpose | Default | Example | Component | Required |
+|----------|---------|---------|---------|-----------|----------|
+| `CLOACINA_AUTOSCALE` | Kill-switch for **only** the autoscale step. Off-values (`0`, `false`, `off`, `no`) freeze `desired_count` so operators drive it by hand (provision API); reconciliation keeps running. Defaults **on** whenever an actuator is active. CLOACI-T-0811. | on (when actuator ≠ `none`) | `false` | Server | No |
+| `CLOACINA_AUTOSCALE_UP_THRESHOLD` | Scale **up** by one when a tenant's utilization is strictly greater than this. | `0.8` | `0.75` | Server | No |
+| `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` | Scale **down** by one when utilization is strictly less than this. The gap to the up-threshold is the hysteresis band that prevents thrash. | `0.2` | `0.1` | Server | No |
+| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Minimum wall-clock seconds between consecutive scale changes for a tenant. | `60` | `120` | Server | No |
+| `CLOACINA_AUTOSCALE_FLOOR` | Lower bound on a tenant's `desired_count`; scale-down never goes below it. | `0` | `1` | Server | No |
+| `CLOACINA_AUTOSCALE_INTERVAL_S` | How often the control loop ticks (both the autoscale and reconcile steps). Values ≤ 0 fall back to the default. | `30` | `15` | Server | No |
+
+> The unified control loop ticks at `CLOACINA_AUTOSCALE_INTERVAL_S`. (An earlier `CLOACINA_RECONCILE_INTERVAL_S` proposal was superseded — there is no separate reconcile-interval variable.)
+
+See [Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}) for the control-plane concepts and the [Tenant agent fleet]({{< ref "/reference/http-api" >}}#tenant-agent-fleet) API for the per-tenant limit + provision endpoints.
+
+---
+
 ## Cloacina Variables (User-Defined Runtime Variables)
 
 Cloacina provides a variable injection system for passing configuration to workflows at runtime, used for external configuration, secrets, and connection strings. All user-defined variables follow the naming convention:
@@ -323,6 +366,18 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `default`; set `fleet` to offload to the agent fleet) |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
+| `CLOACINA_DEFAULT_MAX_AGENTS` | Server | Platform-wide default per-tenant agent limit (default `4`) |
+| `CLOACINA_INITIAL_AGENTS` | Server | Agents auto-provisioned on tenant create (default `1`; `0` disables) |
+| `CLOACINA_FLEET_ACTUATOR` | Server | Fleet actuator substrate: `none` / `docker` / `kubernetes` (default `none`) |
+| `CLOACINA_AGENT_IMAGE` | Server (actuator) | Agent image the actuator runs per tenant |
+| `CLOACINA_AGENT_SERVER_URL` | Server (actuator) | Server URL injected into spawned agents as `CLOACINA_SERVER` |
+| `CLOACINA_AGENT_NETWORK` | Server (docker actuator) | Docker network attached to spawned agent containers |
+| `CLOACINA_AUTOSCALE` | Server | Kill-switch for the autoscale step (default on when an actuator is active) |
+| `CLOACINA_AUTOSCALE_UP_THRESHOLD` | Server | Utilization above which a tenant scales up (default `0.8`) |
+| `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` | Server | Utilization below which a tenant scales down (default `0.2`) |
+| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Server | Min seconds between scale changes per tenant (default `60`) |
+| `CLOACINA_AUTOSCALE_FLOOR` | Server | Lower bound on `desired_count` (default `0`) |
+| `CLOACINA_AUTOSCALE_INTERVAL_S` | Server | Control-loop tick interval (default `30`) |
 | `CLOACINA_SERVER` | Agent | Server base URL the agent registers with |
 | `CLOACINA_API_KEY` | Agent | Agent API key (tenant scope) |
 | `CLOACINA_AGENT_CACHE_DIR` | Agent | Fetched-cdylib cache directory |

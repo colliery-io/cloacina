@@ -20,13 +20,18 @@ path = "src/main.rs"
 
 [features]
 default = ["postgres"]
-postgres = ["cloacina/postgres"]
+postgres = ["cloacina/postgres", "diesel/postgres"]
 sqlite = ["cloacina/sqlite"]
 kafka = ["cloacina/kafka"]
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [dependencies]
 cloacina = { version = "0.9.0", path = "../cloacina", default-features = false }
+# CLOACI-T-0811: the fleet control loop runs raw SQL (Postgres advisory locks for
+# leader election) over a pooled connection — the same `conn.interact` +
+# `diesel::sql_query` idiom the DAL uses. The Postgres backend is enabled via the
+# `postgres` feature so it tracks `cloacina/postgres`.
+diesel = { version = "2.1.0" }
 cloacina-api-types = { workspace = true, features = ["openapi"] }
 utoipa = { version = "5" }
 # Python runtime — server registers the impl at startup so uploaded
@@ -61,6 +66,18 @@ openidconnect = { version = "4", features = ["reqwest"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 bincode = "1.3"
 http-body-util = "0.1"
+# CLOACI-T-0810: Docker dev fleet actuator. Talks the Docker Engine API to
+# spawn/stop tenant-labelled `cloacina-agent` containers. Connection is lazy —
+# constructing the client does not require a reachable daemon (the substrate
+# guard probes the socket explicitly before the actuator is built).
+bollard = "0.21"
+# CLOACI-T-0814: Kubernetes production fleet actuator. Drives a per-tenant
+# `cloacina-agent` Deployment's replicas in the tenant's own namespace. Uses
+# rustls (matching reqwest) — never openssl — to avoid pulling a second TLS
+# stack. Client construction is in-cluster + lazy (the substrate guard confirms
+# we are running as a pod before the actuator is built, fail-closed).
+kube = { version = "2.0", default-features = false, features = ["client", "rustls-tls"] }
+k8s-openapi = { version = "0.26", features = ["v1_32"] }
 tracing-opentelemetry = { version = "0.32", optional = true }
 opentelemetry = { version = "0.31", optional = true }
 opentelemetry-otlp = { version = "0.31", optional = true, features = ["grpc-tonic"] }

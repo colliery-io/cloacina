@@ -405,8 +405,14 @@ services:
     command:
       - "--server"
       - "http://server:8080"
+      # CLOACI-T-0817: register under the PUBLIC tenant key, not the bootstrap
+      # (None/admin) key. "public" is now a first-class tenant; the fleet
+      # executor stamps public work as Some("public") and matches only
+      # Some("public") agents, so a bootstrap-keyed (None) agent no longer
+      # serves the public realm. The public key is seeded via
+      # CLOACINA_DEMO_TENANT_KEYS (public:clk_demo_public_key_0003:admin).
       - "--api-key"
-      - *bootstrap_key
+      - *public_key
       - "--max-concurrency"
       - "16"
     depends_on:
@@ -424,7 +430,9 @@ services:
   # executor (which filters agents by a.tenant_id == task_tenant) routes ONLY
   # acme's tasks here — and acme's tasks run ONLY on these. That's execution
   # isolation: a tenant's work runs on its own agents, never another tenant's.
-  # The admin-keyed `agent` fleet above serves the public (tenant=null) realm.
+  # The `agent` fleet above serves the public realm — CLOACI-T-0817: it now
+  # registers under the public-tenant key (Some("public")), not the bootstrap
+  # (None) key, since "public" is a first-class tenant.
   agent-acme:
     build:
       context: ..
@@ -448,8 +456,9 @@ services:
   # the fleet dispatch hands it the x86_64 cdylib from package_artifacts (built by
   # compiler-x86) instead of the aarch64 primary — triple-matched dispatch proven
   # end-to-end. High max-concurrency so the greedy most-free-capacity selector
-  # routes demo_slow tasks here. Public realm (bootstrap key). Opt-in via the
-  # `multiarch` profile.
+  # routes demo_slow tasks here. Public realm — CLOACI-T-0817: the public key
+  # (Some("public")), not the bootstrap (None) key, so it serves public work
+  # under the first-class "public" tenant. Opt-in via the `multiarch` profile.
   agent-x86:
     platform: linux/amd64
     profiles: ["multiarch"]
@@ -460,7 +469,7 @@ services:
       - "--server"
       - "http://server:8080"
       - "--api-key"
-      - *bootstrap_key
+      - *public_key
       - "--max-concurrency"
       - "32"
     depends_on:

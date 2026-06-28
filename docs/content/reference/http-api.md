@@ -1233,11 +1233,158 @@ an empty/permissive `{}`. The web UI renders these as typed forms.
 }
 ```
 
+## Tenant agent fleet
+
+These endpoints manage a tenant's **agent-capacity limit** and **self-service
+fleet scaling** — the per-tenant control plane introduced in CLOACI-I-0127. They
+set a `desired_count` (the operational target the
+[fleet actuator]({{< ref "/service/explanation/execution-agent-fleet" >}}#pluggable-actuators--substrate-guard)
+and autoscaler reconcile toward); they do **not** themselves start containers.
+
+Authorization is enforced server-side by the route authz table:
+
+- **Reading** a tenant's limit or fleet view is **tenant-scoped read** — a caller
+  may read only its own tenant. Cross-tenant access is denied (`403`,
+  `tenant_access_denied`); a god-mode (`is_admin`) key may read any tenant.
+- **Provisioning / deprovisioning** is **tenant-admin** — a tenant self-services
+  its OWN fleet (god-mode bypasses; cross-tenant is denied).
+- **Setting / clearing** a tenant's limit is **platform-admin only** (`is_admin`
+  god-mode); a tenant cannot raise its own ceiling (NFR-004).
+
+### GET /v1/tenants/{tenant_id}/limits
+
+The tenant's effective agent-capacity limit. Tenant-scoped read.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `tenant_id` | string | Tenant identifier |
+
+**Response:** `200 OK`
+
+```json
+{
+  "tenant_id": "tenant_acme",
+  "default_max_agents": 4,
+  "tenant_override": 6,
+  "effective_limit": 6
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `default_max_agents` | integer | Platform-wide default (`CLOACINA_DEFAULT_MAX_AGENTS`). |
+| `tenant_override` | integer \| null | Per-tenant exception if an admin set one; `null` when none. |
+| `effective_limit` | integer | The limit actually enforced: `tenant_override` if set, else `default_max_agents`. |
+
+**Errors** (envelope per [API Error Envelope]({{< ref "api-error-envelope" >}})):
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | (auth) | Missing or invalid API key. |
+| `403` | `tenant_access_denied` | Caller's key is not scoped to `tenant_id` (and is not god-mode). |
+| `500` | `internal_error` | Failed to read the limit. |
+
+### POST /v1/tenants/{tenant_id}/limits
+
+Set (or replace) a tenant's agent-capacity exception. **Platform-admin only.**
+
+**Request:**
+
+```json
+{ "max_agents": 6 }
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `max_agents` | integer | yes | The new per-tenant ceiling. Becomes `tenant_override`. |
+
+**Response:** `200 OK` — the resulting `TenantAgentLimitInfo` (same shape as `GET`).
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | (auth) | Missing or invalid API key. |
+| `403` | `admin_required` | Caller is not an `is_admin` (god-mode) key. |
+| `500` | `internal_error` | Failed to set the limit. |
+
+### DELETE /v1/tenants/{tenant_id}/limits
+
+Remove a tenant's exception (revert to the platform default).
+**Platform-admin only.**
+
+**Response:** `200 OK` — the resulting `TenantAgentLimitInfo`, now with
+`tenant_override: null` and `effective_limit` equal to `default_max_agents`.
+
+**Errors:** same as `POST .../limits`.
+
+### GET /v1/tenants/{tenant_id}/fleet
+
+The tenant's fleet-scaling view. Tenant-scoped read.
+
+**Response:** `200 OK`
+
+```json
+{
+  "tenant_id": "tenant_acme",
+  "desired_count": 2,
+  "actual_count": 2,
+  "effective_limit": 6,
+  "default_max_agents": 4
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `desired_count` | integer | The tenant's requested agent count (the target the actuator/autoscaler drive toward). |
+| `actual_count` | integer | Agents currently registered for the tenant **in this server replica's** roster (a per-replica local view — the in-memory registry is not shared across replicas). |
+| `effective_limit` | integer | The hard ceiling provisioning clamps to (override if set, else default). |
+| `default_max_agents` | integer | Platform-wide default. |
+
+**Errors:** same shape as `GET .../limits` (`401` / `403 tenant_access_denied` / `500`).
+
+### POST /v1/tenants/{tenant_id}/fleet/provision
+
+Request one more agent. Tenant-admin. Increments `desired_count` by 1 while it is
+under the effective limit.
+
+**Response:** `200 OK` — the updated `FleetScaleInfo`.
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | (auth) | Missing or invalid API key. |
+| `403` | `tenant_access_denied` / `insufficient_permissions` | Caller's key isn't scoped to `tenant_id` (cross-tenant), or is scoped to it but lacks the `admin` role. God-mode bypasses both. |
+| `409` | `at_capacity` | `desired_count` is already at the effective limit. Raise the limit (admin) or deprovision first. |
+| `500` | `internal_error` | Failed to persist the new desired count. |
+
+### POST /v1/tenants/{tenant_id}/fleet/deprovision
+
+Release one agent. Tenant-admin. Decrements `desired_count` by 1 with a floor of
+0 (deprovisioning at 0 is a no-op, not an error).
+
+**Response:** `200 OK` — the updated `FleetScaleInfo`.
+
+**Errors:** `401` / `403` (`tenant_access_denied` cross-tenant, or
+`insufficient_permissions` for an in-tenant non-admin key) / `500` (same as
+`provision`, without the `409`).
+
+> **Auto-provision on tenant create.** `POST /v1/tenants` seeds the new tenant's
+> `desired_count` to `min(CLOACINA_INITIAL_AGENTS, CLOACINA_DEFAULT_MAX_AGENTS)`
+> (default `min(1, 4) = 1`; `0` disables). It is best-effort — a failure logs a
+> warning but the tenant is still created — so a freshly created tenant's first
+> `GET .../fleet` typically already shows `desired_count: 1`.
+
 ## Execution-Agent Fleet
 
 When the server runs an execution-agent fleet, agents call a dedicated set of
 endpoints to register, heartbeat, and return results. These are consumed by the
-agents themselves, not by typical API clients:
+agents themselves, not by typical API clients. (For the tenant-facing
+limit/provision surface that decides how many agents a tenant runs, see
+[Tenant agent fleet](#tenant-agent-fleet) above.)
 
 | Method | Path | Purpose |
 |--------|------|---------|
