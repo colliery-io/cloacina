@@ -392,12 +392,8 @@ jobs:
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             cross: false
-          # Intel runner for the x86_64 leg (CLOACI-T-0807) — macos-latest is
-          # Apple Silicon, so `brew install libpq` yields ARM64 libpq and the
-          # x86_64 link fails (undefined _PQ* symbols).
-          - os: macos-13
-            target: x86_64-apple-darwin
-            cross: false
+          # x86_64-apple-darwin (Intel macOS) intentionally dropped — EOL target
+          # + scarce macos-13 runners; aarch64 (Apple Silicon) covers modern Macs.
           - os: macos-latest
             target: aarch64-apple-darwin
             cross: false
