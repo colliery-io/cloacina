@@ -39,6 +39,11 @@ struct AgentDesiredRow {
     pub desired_count: i32,
     #[allow(dead_code)]
     pub updated_at: chrono::NaiveDateTime,
+    /// Wall-clock of the last autoscaler scale action (NULL = never autoscaled,
+    /// i.e. only ever touched by manual `set_desired`). Stamped via SQL `now()`
+    /// in `set_desired_autoscaled`; read by the control loop to gate the
+    /// cross-replica cooldown (CLOACI-A-0008 refinement).
+    pub last_autoscaled_at: Option<chrono::NaiveDateTime>,
 }
 
 /// DAL for per-tenant desired agent count. Postgres only.
@@ -93,8 +98,46 @@ impl<'a> AgentDesiredDAL<'a> {
             .collect())
     }
 
+    /// Like [`list_all`](Self::list_all), but also returns each tenant's
+    /// `last_autoscaled_at` (the wall-clock of its last autoscaler scale action,
+    /// `None` if never autoscaled). The back-pressure control loop (T-0811) uses
+    /// this to gate the cooldown across replicas: leadership rotates per tick, so
+    /// an in-memory per-replica cooldown could be bypassed by a later leader —
+    /// the DB timestamp holds regardless of which replica leads (CLOACI-A-0008).
+    #[cfg(feature = "postgres")]
+    pub async fn list_all_with_last(
+        &self,
+    ) -> Result<Vec<(String, u32, Option<chrono::NaiveDateTime>)>, ValidationError> {
+        use crate::database::schema::postgres::agent_desired_counts as t;
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let rows: Vec<AgentDesiredRow> = conn
+            .interact(move |conn| t::table.load(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                (
+                    r.tenant_id,
+                    r.desired_count.max(0) as u32,
+                    r.last_autoscaled_at,
+                )
+            })
+            .collect())
+    }
+
     /// Set (or replace) the tenant's desired agent count. Upserts on `tenant_id`;
     /// `updated_at` is managed by the column default (not written from Rust).
+    ///
+    /// This is the **manual** write (provision/deprovision API): it deliberately
+    /// leaves `last_autoscaled_at` untouched, so manual scaling does NOT arm the
+    /// autoscaler cooldown. The autoscaler uses
+    /// [`set_desired_autoscaled`](Self::set_desired_autoscaled) instead.
     #[cfg(feature = "postgres")]
     pub async fn set_desired(
         &self,
@@ -116,6 +159,51 @@ impl<'a> AgentDesiredDAL<'a> {
                 .on_conflict(t::tenant_id)
                 .do_update()
                 .set(t::desired_count.eq(desired))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(())
+    }
+
+    /// The **autoscaler's** write: set the tenant's desired agent count AND stamp
+    /// `last_autoscaled_at = now()` (SQL `now()`, not a Rust-written timestamp —
+    /// mirroring the `updated_at`-via-DB pattern). Upserts on `tenant_id`.
+    ///
+    /// Stamping the wall-clock here is what makes the back-pressure cooldown
+    /// (T-0811) hold across replicas: the loop reads `last_autoscaled_at` back
+    /// and gates `should_act_at`, so a replica leading a later tick still honors
+    /// a peer's recent scale action (CLOACI-A-0008 refinement). Manual
+    /// provision/deprovision uses [`set_desired`](Self::set_desired) instead and
+    /// does NOT arm this cooldown.
+    #[cfg(feature = "postgres")]
+    pub async fn set_desired_autoscaled(
+        &self,
+        tenant_id: &str,
+        desired_count: u32,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::agent_desired_counts as t;
+        let tenant = tenant_id.to_string();
+        let desired = desired_count as i32;
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        conn.interact(move |conn| {
+            diesel::insert_into(t::table)
+                .values((
+                    t::tenant_id.eq(&tenant),
+                    t::desired_count.eq(desired),
+                    t::last_autoscaled_at.eq(diesel::dsl::now),
+                ))
+                .on_conflict(t::tenant_id)
+                .do_update()
+                .set((
+                    t::desired_count.eq(desired),
+                    t::last_autoscaled_at.eq(diesel::dsl::now),
+                ))
                 .execute(conn)
         })
         .await

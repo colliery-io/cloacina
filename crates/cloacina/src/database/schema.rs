@@ -884,6 +884,7 @@ mod postgres_schema {
             tenant_id -> Text,
             desired_count -> Int4,
             updated_at -> Timestamptz,
+            last_autoscaled_at -> Nullable<Timestamptz>,
         }
     }
 

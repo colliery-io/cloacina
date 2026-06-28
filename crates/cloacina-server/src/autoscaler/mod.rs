@@ -26,7 +26,7 @@
 //! This module holds the **pure** decision pieces (no DB, no clock side-effects)
 //! so they're unit-testable in isolation:
 //! - [`decide`] — Up / Down / Hold from utilization vs thresholds + clamp.
-//! - [`should_act`] — cooldown gate (testable without a DB).
+//! - [`should_act_at`] — cooldown gate (testable without a DB).
 //! - [`tenant_utilizations`] — per-tenant utilization from a roster snapshot.
 //!
 //! Leadership (the Postgres advisory lock that ensures only ONE replica runs the
@@ -47,7 +47,7 @@ pub mod leader;
 
 use crate::agent_registry::AgentRecord;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// The scaling action the autoscaler decides for one tenant on one tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,7 +73,7 @@ pub struct ScaleConfig {
     /// band that prevents thrash.
     pub down_threshold: f64,
     /// Minimum wall-clock between consecutive scale changes for a tenant
-    /// (default 60s). Enforced by [`should_act`].
+    /// (default 60s). Enforced by [`should_act_at`].
     pub cooldown: Duration,
     /// Lower bound on a tenant's `desired_count` (default `0`). Scale-down never
     /// goes below this.
@@ -160,17 +160,33 @@ pub fn decide(
 
 /// Cooldown gate: may we act on this tenant now?
 ///
-/// Pure (no DB, clock injected as `now`) so it's testable in isolation. The loop
-/// keeps an in-memory `HashMap<tenant, Instant>` of the last scale-change time
-/// and passes the entry here.
+/// Pure (no DB, clock injected as `now`) so it's testable in isolation. Unlike a
+/// monotonic [`Instant`], the last-action time is a **wall-clock**
+/// `NaiveDateTime` read back from the DB (`agent_desired_counts.last_autoscaled_at`),
+/// so the cooldown is coordinated across replicas: leadership rotates per tick,
+/// and a replica leading a later tick still sees a peer's recent scale action
+/// (CLOACI-A-0008 refinement). Both times are UTC (`chrono::Utc::now().naive_utc()`
+/// and the DB's `now()`).
 ///
-/// - `None` (never scaled) → `true`.
-/// - Within `cooldown` of the last change → `false`.
+/// - `None` (never autoscaled) → `true`.
+/// - Within `cooldown` of the last action → `false`.
 /// - At/after `cooldown` has elapsed → `true`.
-pub fn should_act(last_change: Option<Instant>, now: Instant, cooldown: Duration) -> bool {
-    match last_change {
+///
+/// A negative elapsed (clock skew between replicas, or `last` slightly ahead of
+/// `now`) is treated as "still cooling down" → `false`, the conservative choice.
+pub fn should_act_at(
+    last: Option<chrono::NaiveDateTime>,
+    now: chrono::NaiveDateTime,
+    cooldown: Duration,
+) -> bool {
+    match last {
         None => true,
-        Some(t) => now.duration_since(t) >= cooldown,
+        Some(t) => match (now - t).to_std() {
+            // Non-negative elapsed: gate on the cooldown as usual.
+            Ok(elapsed) => elapsed >= cooldown,
+            // Negative elapsed (now < last, e.g. cross-replica skew): not yet.
+            Err(_) => false,
+        },
     }
 }
 
@@ -207,6 +223,7 @@ pub fn tenant_utilizations(records: &[AgentRecord]) -> HashMap<String, f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     fn cfg() -> ScaleConfig {
         ScaleConfig::default()
@@ -299,25 +316,43 @@ mod tests {
         assert!((utils["t1"] - 0.5).abs() < f64::EPSILON);
     }
 
-    // ---- should_act() — cooldown -------------------------------------------
+    // ---- should_act_at() — cross-replica (wall-clock) cooldown -------------
 
     #[test]
-    fn should_act_when_never_scaled() {
-        assert!(should_act(None, Instant::now(), Duration::from_secs(60)));
+    fn should_act_at_when_never_scaled() {
+        // None (no last_autoscaled_at row / never autoscaled) → always allowed.
+        let now = chrono::Utc::now().naive_utc();
+        assert!(should_act_at(None, now, Duration::from_secs(60)));
     }
 
     #[test]
-    fn should_not_act_within_cooldown() {
-        let now = Instant::now();
-        let last = now - Duration::from_secs(10);
-        assert!(!should_act(Some(last), now, Duration::from_secs(60)));
+    fn should_not_act_at_within_cooldown() {
+        let now = chrono::Utc::now().naive_utc();
+        let last = now - chrono::Duration::seconds(10);
+        assert!(!should_act_at(Some(last), now, Duration::from_secs(60)));
     }
 
     #[test]
-    fn should_act_after_cooldown() {
-        let now = Instant::now();
-        let last = now - Duration::from_secs(90);
-        assert!(should_act(Some(last), now, Duration::from_secs(60)));
+    fn should_act_at_after_cooldown() {
+        let now = chrono::Utc::now().naive_utc();
+        let last = now - chrono::Duration::seconds(90);
+        assert!(should_act_at(Some(last), now, Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn should_act_at_exactly_at_cooldown() {
+        // Boundary: elapsed == cooldown is allowed (>=).
+        let now = chrono::Utc::now().naive_utc();
+        let last = now - chrono::Duration::seconds(60);
+        assert!(should_act_at(Some(last), now, Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn should_not_act_at_with_future_last() {
+        // Cross-replica clock skew: last is ahead of now → conservatively wait.
+        let now = chrono::Utc::now().naive_utc();
+        let last = now + chrono::Duration::seconds(5);
+        assert!(!should_act_at(Some(last), now, Duration::from_secs(60)));
     }
 
     // ---- ScaleConfig::from_env ---------------------------------------------

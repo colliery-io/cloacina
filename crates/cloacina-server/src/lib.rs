@@ -1112,13 +1112,12 @@ pub async fn run(
             "fleet control loop started (leader-gated)"
         );
         tokio::spawn(async move {
-            use crate::autoscaler::{decide, should_act, tenant_utilizations, ScaleAction};
-            // Per-leader in-memory cooldown map: tenant -> last scale-change time.
-            // Reset if leadership moves replicas (a new leader starts with an
-            // empty map and may act immediately — acceptable; cooldown is a thrash
-            // guard, not a hard invariant, and failover is rare).
-            let mut last_change: std::collections::HashMap<String, std::time::Instant> =
-                std::collections::HashMap::new();
+            use crate::autoscaler::{decide, should_act_at, tenant_utilizations, ScaleAction};
+            // Cooldown state lives in the DB (`agent_desired_counts.last_autoscaled_at`),
+            // not in a per-replica in-memory map: leadership rotates per tick, so an
+            // in-memory cooldown could be bypassed by a later-leading replica. Reading
+            // the wall-clock timestamp back each tick honors the cooldown regardless of
+            // which replica leads (CLOACI-A-0008 refinement).
             let mut ticker = tokio::time::interval(tick);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
@@ -1132,7 +1131,9 @@ pub async fn run(
                                 let utils = tenant_utilizations(&loop_registry.snapshot());
                                 // Tenant set = everyone with a desired_count row
                                 // PLUS any tenant with live registered agents.
-                                let desired_rows = match loop_dal.agent_desired().list_all().await {
+                                // `list_all_with_last` also carries each tenant's
+                                // last_autoscaled_at (DB wall-clock) for the cooldown gate.
+                                let desired_rows = match loop_dal.agent_desired().list_all_with_last().await {
                                     Ok(rows) => rows,
                                     Err(e) => {
                                         warn!(error = %e, "fleet autoscale: failed to read desired counts; skipping autoscale step");
@@ -1140,12 +1141,17 @@ pub async fn run(
                                     }
                                 };
                                 let mut tenants: std::collections::HashSet<String> =
-                                    desired_rows.iter().map(|(t, _)| t.clone()).collect();
+                                    desired_rows.iter().map(|(t, _, _)| t.clone()).collect();
                                 tenants.extend(utils.keys().cloned());
                                 let desired_map: std::collections::HashMap<String, u32> =
-                                    desired_rows.into_iter().collect();
+                                    desired_rows.iter().map(|(t, d, _)| (t.clone(), *d)).collect();
+                                let last_autoscaled_map: std::collections::HashMap<String, chrono::NaiveDateTime> =
+                                    desired_rows
+                                        .into_iter()
+                                        .filter_map(|(t, _, last)| last.map(|l| (t, l)))
+                                        .collect();
 
-                                let now = std::time::Instant::now();
+                                let now = chrono::Utc::now().naive_utc();
                                 for tenant in tenants {
                                     let util = utils.get(&tenant).copied().unwrap_or(0.0);
                                     let desired = desired_map.get(&tenant).copied().unwrap_or(0);
@@ -1164,8 +1170,8 @@ pub async fn run(
                                     if matches!(action, ScaleAction::Hold) {
                                         continue;
                                     }
-                                    if !should_act(last_change.get(&tenant).copied(), now, scale_cfg.cooldown) {
-                                        continue; // within cooldown
+                                    if !should_act_at(last_autoscaled_map.get(&tenant).copied(), now, scale_cfg.cooldown) {
+                                        continue; // within cooldown (DB wall-clock, cross-replica)
                                     }
                                     let new_desired = match action {
                                         ScaleAction::Up => (desired + 1).min(effective_limit),
@@ -1175,9 +1181,8 @@ pub async fn run(
                                     if new_desired == desired {
                                         continue;
                                     }
-                                    match loop_dal.agent_desired().set_desired(&tenant, new_desired).await {
+                                    match loop_dal.agent_desired().set_desired_autoscaled(&tenant, new_desired).await {
                                         Ok(()) => {
-                                            last_change.insert(tenant.clone(), now);
                                             info!(
                                                 tenant = %tenant,
                                                 util,
@@ -3025,11 +3030,19 @@ mod tests {
         let series_count: HashMap<&str, usize> =
             label_sets.iter().map(|(k, v)| (*k, v.len())).collect();
 
-        // Generous per-metric ceiling — every I-0099 metric should be far
-        // below this. If a regression inflates labels (tenant_id, event
-        // keys, raw paths), this assertion fails loudly.
-        let ceiling = 64usize;
+        // Per-metric ceilings. The default stays deliberately tight — most
+        // I-0099 metrics carry a handful of enum-bounded labels and sit far
+        // below it, so an unbounded label (tenant_id, event keys, raw paths)
+        // trips the guard loudly. The two API metrics are labelled only by
+        // (method, status): both bounded, but their product across the full
+        // route surface legitimately exceeds the tight default, so they get a
+        // higher (still bounded) ceiling that an unbounded label would blow
+        // straight past. CLOACI-I-0127.
         for (metric, count) in &series_count {
+            let ceiling = match *metric {
+                "cloacina_api_request_duration_seconds" | "cloacina_api_requests_total" => 256usize,
+                _ => 64usize,
+            };
             assert!(
                 *count <= ceiling,
                 "I-0099 cardinality guard: {} has {} distinct label sets, \

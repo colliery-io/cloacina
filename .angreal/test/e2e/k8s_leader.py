@@ -33,10 +33,17 @@ Assertions (priority order):
      agents via REST; the (leader-only) reconcile actuates the tenant Deployment
      to EXACTLY N (not 2N) despite two server replicas. Deprovision → scales down.
   4. DISJOINT CLAIMING — drive workflow executions and assert each task runs
-     exactly once across both replicas' schedulers. BEST-EFFORT / opt-in
-     (`--claiming`): a helm-only cloacina-server deploy ships NO compiler, so
-     source `.cloacina` packages never build → cannot execute. See the BLOCKED
-     note + the per-claim SQL in `_assert_disjoint_claiming`.
+     exactly once across both replicas' schedulers. The AUTHORITATIVE proof of
+     this property lives in the DAL integration test
+     `dal::task_claiming::test_concurrent_task_claiming_no_duplicates`
+     (crates/cloacina/tests/integration/dal/task_claiming.rs), which runs N
+     concurrent claimers on separate pooled connections against the same ready
+     outbox rows and asserts disjoint + complete claiming with zero slack — run
+     it via `angreal test integration --backend postgres -- task_claiming`. This
+     full-stack e2e path is BEST-EFFORT / opt-in (`--claiming`): a helm-only
+     cloacina-server deploy ships NO compiler, so source `.cloacina` packages
+     never build → cannot execute. See the BLOCKED note + the per-claim SQL in
+     `_assert_disjoint_claiming`.
   5. FAILOVER — delete the lock-holding replica; assert the surviving replica
      acquires the lock (control plane keeps working: provisioning still scales
      correctly) and the killed replica reschedules + rejoins as a follower
@@ -349,16 +356,23 @@ def _wait_lock_holder(kubeconfig, target, want_pod=None, not_pod=None, timeout_s
 # ---------------------------------------------------------------------------
 
 CLAIMING_BLOCKED_REASON = (
-    "not validated end-to-end: a helm-only cloacina-server deploy ships NO compiler "
+    "not validated end-to-end HERE: a helm-only cloacina-server deploy ships NO compiler "
     "(charts/cloacina-server has no compiler template), so uploaded source .cloacina "
-    "packages stay build_status='pending' forever and never execute. The disjoint-"
-    "claiming property itself is enforced in cloacina-core by the task_outbox claim "
-    "'DELETE ... FOR UPDATE SKIP LOCKED' + the claimed_by CAS "
+    "packages stay build_status='pending' forever and never execute. This is a "
+    "harness limitation, NOT a coverage gap: the disjoint-claiming property is proven "
+    "deterministically by the DAL integration test "
+    "dal::task_claiming::test_concurrent_task_claiming_no_duplicates "
+    "(crates/cloacina/tests/integration/dal/task_claiming.rs) — N concurrent claimers on "
+    "separate pooled connections, asserting each ready task is claimed by exactly one "
+    "(disjoint) and all are claimed (complete), zero slack. Run it with "
+    "`angreal test integration --backend postgres -- task_claiming`. The property is "
+    "enforced in cloacina-core by the task_outbox claim 'DELETE ... FOR UPDATE SKIP "
+    "LOCKED' + the claimed_by CAS "
     "(crates/cloacina/src/dal/unified/task_execution/claiming.rs) and BOTH replicas "
     "run the per-tenant scheduler unconditionally (services.rs: 'Always: per-runner "
     "task scheduler'; lib.rs:689 global runner per replica) — it is NOT leader-gated. "
-    "To validate behaviourally: deploy a matching-ABI compiler Deployment against the "
-    "same Postgres, upload a package whose path-deps resolve in-container, await "
+    "To ALSO validate behaviourally full-stack: deploy a matching-ABI compiler Deployment "
+    "against the same Postgres, upload a package whose path-deps resolve in-container, await "
     "build_status='success', drive M executions, then assert no (workflow_execution_id, "
     "task_name) has >1 task_executions row. Pass --claiming to attempt it."
 )
