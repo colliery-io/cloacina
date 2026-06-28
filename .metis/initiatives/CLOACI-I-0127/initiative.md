@@ -4,14 +4,14 @@ level: initiative
 title: "Kubernetes-first agent runners — K8s-native fleet with UI-driven agent and tenant assignment"
 short_code: "CLOACI-I-0127"
 created_at: 2026-06-20T02:38:01.431843+00:00
-updated_at: 2026-06-20T02:38:01.431843+00:00
+updated_at: 2026-06-28T16:28:06.161622+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
