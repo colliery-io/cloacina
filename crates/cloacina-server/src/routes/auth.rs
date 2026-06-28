@@ -239,16 +239,23 @@ fn extract_bearer_token(request: &Request) -> Option<&str> {
 impl AuthenticatedKey {
     /// Check if this key can access the given tenant's resources.
     ///
-    /// - Admin keys (is_admin=true) can access any tenant — god mode.
-    /// - Tenant-scoped keys can only access their own tenant.
-    /// - Global keys (tenant_id=None) can access global/public resources only.
+    /// - Admin keys (is_admin=true) can access any tenant — god mode. This
+    ///   includes the now-first-class `"public"` tenant.
+    /// - Tenant-scoped keys can only access their own tenant. CLOACI-T-0817:
+    ///   `"public"` is a real named tenant, so a `Some("public")` key accesses
+    ///   `"public"` via the ordinary same-tenant rule below.
+    /// - A non-admin key with `tenant_id=None` accesses nothing. The only
+    ///   legitimate `None` key is the bootstrap/admin key, which is `is_admin`
+    ///   and short-circuits above; we deliberately do NOT let a non-admin `None`
+    ///   key implicitly reach `"public"` — that retired the old `None == public`
+    ///   conflation between the admin realm and the public tenant.
     pub fn can_access_tenant(&self, tenant_id: &str) -> bool {
         if self.is_admin {
             return true;
         }
         match &self.tenant_id {
             Some(key_tenant) => key_tenant == tenant_id,
-            None => tenant_id == "public",
+            None => false,
         }
     }
 
@@ -610,5 +617,52 @@ mod tests {
 
         let result = store.consume(&fresh).await;
         assert!(result.is_some(), "fresh ticket should be valid");
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0817: `can_access_tenant` after retiring the `None == public`
+    // duality. "public" is a first-class named tenant; the admin/bootstrap
+    // `None` key keeps god-mode; a non-admin `None` key reaches nothing.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn admin_key_can_access_public_and_any_tenant() {
+        // The bootstrap/god key: tenant=None + is_admin.
+        let god = make_auth_with(None, true, "admin");
+        assert!(god.can_access_tenant("public"));
+        assert!(god.can_access_tenant("acme"));
+        assert!(god.can_access_tenant("anything-at-all"));
+    }
+
+    #[test]
+    fn public_tenant_key_accesses_public_only() {
+        let public_key = make_auth_with(Some("public"), false, "admin");
+        assert!(
+            public_key.can_access_tenant("public"),
+            "a Some(\"public\") key reaches the public tenant via same-tenant"
+        );
+        assert!(
+            !public_key.can_access_tenant("acme"),
+            "the public tenant is isolated from named tenants"
+        );
+    }
+
+    #[test]
+    fn named_tenant_key_accesses_own_tenant_only() {
+        let acme = make_auth_with(Some("acme"), false, "write");
+        assert!(acme.can_access_tenant("acme"));
+        assert!(!acme.can_access_tenant("public"));
+        assert!(!acme.can_access_tenant("beta"));
+    }
+
+    #[test]
+    fn non_admin_none_key_accesses_nothing() {
+        // Retired behavior: a non-admin None key used to reach "public".
+        let orphan = make_auth_with(None, false, "admin");
+        assert!(
+            !orphan.can_access_tenant("public"),
+            "a non-admin None key must NOT implicitly reach the public tenant"
+        );
+        assert!(!orphan.can_access_tenant("acme"));
     }
 }

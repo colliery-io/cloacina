@@ -4,15 +4,15 @@ level: task
 title: "Fleet actuator does not serve the null/default tenant realm (cron triggers + public packages)"
 short_code: "CLOACI-T-0817"
 created_at: 2026-06-28T00:23:51.818617+00:00
-updated_at: 2026-06-28T00:23:51.818617+00:00
+updated_at: 2026-06-28T03:58:56.385969+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,12 @@ During the T-0816 fleet-actuator demo + soak, the Docker actuator served named t
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -136,4 +142,54 @@ During the T-0816 fleet-actuator demo + soak, the Docker actuator served named t
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-27 — "public" made a first-class WORK/AGENT tenant (option (a))
+
+Implemented option (a): retire the `None == "public"` duality in the WORK/AGENT
+realm so public work runs as `Some("public")` and matches `Some("public")`
+agents. The admin/bootstrap `None` + `is_admin` key is untouched. Branch
+`i0127-agent-control-plane`. NOT committed (tenant-boundary change under review).
+
+**Code changes**
+- `crates/cloacina-server/src/fleet_executor.rs`: the `task_tenant` mapping for
+  the task namespace now resolves `"public"` -> `Some("public")` (was `None`);
+  both branches collapse to `Some(namespace.tenant_id.clone())`. Extracted the
+  inline agent selection into a testable `select_fleet_agent()` helper (tenant
+  gate `&a.tenant_id == task_tenant`). The package lookup deliberately STAYS
+  `get_active_dispatch_for_package(pkg, None)` — public packages live in the
+  ADMIN schema with `tenant_id IS NULL`; `Some("public")` would find nothing.
+  Added 3 isolation unit tests.
+- `crates/cloacina-server/src/routes/auth.rs`: `can_access_tenant` non-admin
+  `None` arm `tenant_id == "public"` -> `false`. `is_admin` still permits any
+  tenant incl. "public"; `Some("public")` reaches "public" via same-tenant.
+  Added 4 unit tests.
+- `crates/cloacina-server/src/agent_registry.rs`: public-agent fixtures
+  `None` -> `Some("public")`.
+- `docker/docker-compose.demo.yml`: `agent` and `agent-x86` services repointed
+  from `*bootstrap_key` to `*public_key` so they register as `Some("public")`.
+
+**auth.rs verification (riskiest spot).** Non-admin `None` keys CAN be produced
+by one endpoint — `POST /auth/keys` (`routes/keys.rs:81-85`, hard-codes
+`tenant=None, is_admin=false`). Every other producer mints `Some(tenant)`
+(bootstrap = `None`+`is_admin`; `/tenants/{t}/keys`, demo seed, actuator
+`DalKeyMinter` all `Some`). After the change those `/auth/keys` keys access
+nothing (previously "public-only"). Blast radius LOW: UI/actuator/demo use
+tenant-scoped endpoints; `/auth/keys` is god-only-callable and the UI doesn't
+use it. FLAGGED for reviewer: consider repointing `/auth/keys` to mint
+`Some("public")` or deprecating it.
+
+**Package-lookup choice:** kept `None` (IS NULL, admin schema) — confirmed by
+`routes/agent.rs:246` (`resolve("public")` -> admin db) and the cdylib fetch
+path; `Some("public")` would break public-package dispatch.
+
+**Latent divergence flagged:** `routes/authz.rs` (dormant ABAC matcher, T-0783,
+not yet mounted) still encodes `None => requested == "public"` via its local
+`ref_can_access_tenant`; parity tests pass against its own copy. Reconcile when
+T-0783 wires it in. Agent crate (`cloacina-agent/src/main.rs:750`) comment still
+says "public rides as tenant_id = None" — benign (`register_package_tasks` does
+`unwrap_or("public")`; tenant is derived from the task namespace), left per scope.
+
+**Validation:** `cargo test -p cloacina-server --lib` for
+auth/authz/fleet/agent_registry = 38 passed (incl. new isolation + can_access
+tests and the authz parity suite). Both crates compile clean. NOT validated
+here: full demo cron/public dispatch + UI e2e (needs the container stack +
+postgres lane).

@@ -193,9 +193,10 @@ pub fn evaluate(principal: &Principal, scope: &ResolvedScope, level: Level) -> D
         ResolvedScope::Tenant(tenant) => {
             let in_tenant = match &principal.tenant {
                 Some(principal_tenant) => principal_tenant == tenant,
-                // A global (non-admin) key may only reach the reserved
-                // "public" tenant.
-                None => tenant == "public",
+                // CLOACI-T-0817: "public" is now a real tenant (Some("public")).
+                // A non-admin key with no tenant scope reaches no tenant; admins
+                // are already permitted above (platform_admin short-circuit).
+                None => false,
             };
             if !in_tenant {
                 Decision::Deny(DENY_TENANT)
@@ -621,7 +622,9 @@ mod tests {
         }
         match tenant {
             Some(key_tenant) => key_tenant == requested,
-            None => requested == "public",
+            // CLOACI-T-0817: "public" is a real tenant now; a non-admin no-tenant
+            // key reaches nothing (admins handled above).
+            None => false,
         }
     }
 

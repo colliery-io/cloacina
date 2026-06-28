@@ -52,7 +52,7 @@ use cloacina::retry::RetryPolicy;
 use cloacina::Context;
 use tracing::{debug, info, warn};
 
-use crate::agent_registry::AgentRegistry;
+use crate::agent_registry::{AgentRecord, AgentRegistry};
 use crate::fleet_coordinator::FleetCoordinator;
 
 /// Default ceiling on how long the executor will wait for an agent to report
@@ -271,14 +271,15 @@ impl TaskExecutor for FleetExecutor {
                         .await);
                 }
             };
-            // The namespace tenant is "public" for non-tenant-scoped work; map that
-            // onto the agent roster's `Option<String>` tenant (None == public) so
-            // selection + reclaim agree on what "same tenant" means.
-            let task_tenant: Option<String> = if namespace.tenant_id == "public" {
-                None
-            } else {
-                Some(namespace.tenant_id.clone())
-            };
+            // CLOACI-T-0817: "public" is now a first-class named tenant in the
+            // WORK/AGENT realm — public agents register as `Some("public")` (the
+            // actuator/demo mint a public-tenant-scoped key, never the bootstrap
+            // `None` key). So the namespace tenant maps directly onto the agent
+            // roster's `Option<String>` tenant: "public" -> `Some("public")`,
+            // every named tenant -> `Some(<tenant>)`. The old `None == public`
+            // duality is retired (that `None` belonged to the admin/bootstrap key,
+            // which is a different realm entirely).
+            let task_tenant: Option<String> = Some(namespace.tenant_id.clone());
 
             // ── 2. Select a live agent: same tenant as the task, with capacity,
             //       AND an arch this package has a cdylib for. Greedy on most-free-
@@ -350,16 +351,7 @@ impl TaskExecutor for FleetExecutor {
                 Some(t)
             };
             let snapshot = self.agent_registry.snapshot();
-            let Some(agent) = snapshot
-                .iter()
-                .filter(|a| {
-                    a.available_capacity > 0
-                        && a.tenant_id == task_tenant
-                        && runnable_triples
-                            .as_ref()
-                            .map_or(true, |ts| ts.iter().any(|t| t == &a.target_triple))
-                })
-                .max_by_key(|a| a.available_capacity)
+            let Some(agent) = select_fleet_agent(&snapshot, &task_tenant, &runnable_triples)
             else {
                 warn!(
                     task_id = %event.task_execution_id,
@@ -730,6 +722,33 @@ fn kind_of(v: &serde_json::Value) -> &'static str {
     }
 }
 
+/// Select a live fleet agent for a task: same tenant as the work, with spare
+/// capacity, AND a target triple this package has a cdylib for. Greedy on
+/// most-free-capacity so load spreads.
+///
+/// Tenant isolation (REQ-008) lives here: `a.tenant_id == *task_tenant` is the
+/// only cross-tenant gate, so an agent only ever receives work in its own tenant
+/// scope. CLOACI-T-0817: "public" is a real tenant — public work carries
+/// `Some("public")` and matches only `Some("public")` agents; a named tenant's
+/// work matches only that tenant's agents. `runnable_triples == None` means
+/// "any arch is fine" (interpreted package, e.g. Python).
+fn select_fleet_agent<'a>(
+    snapshot: &'a [AgentRecord],
+    task_tenant: &Option<String>,
+    runnable_triples: &Option<Vec<String>>,
+) -> Option<&'a AgentRecord> {
+    snapshot
+        .iter()
+        .filter(|a| {
+            a.available_capacity > 0
+                && &a.tenant_id == task_tenant
+                && runnable_triples
+                    .as_ref()
+                    .map_or(true, |ts| ts.iter().any(|t| t == &a.target_triple))
+        })
+        .max_by_key(|a| a.available_capacity)
+}
+
 // Silence unused warning on UniversalUuid if later changes drop a use.
 const _: fn(UniversalUuid) = |_| {};
 
@@ -762,5 +781,71 @@ mod tests {
         let v = serde_json::json!({"a": 1, "b": "two"});
         let ctx = value_to_context(v.clone()).unwrap();
         assert_eq!(context_to_json(&ctx), v);
+    }
+
+    // ── Agent selection / tenant isolation (CLOACI-T-0817) ──────────────────
+
+    fn agent(id: &str, cap: u32, tenant: Option<&str>) -> AgentRecord {
+        AgentRecord {
+            agent_id: id.to_string(),
+            max_concurrency: cap,
+            in_flight: 0,
+            available_capacity: cap,
+            target_triple: "aarch64-apple-darwin".to_string(),
+            capabilities: vec![],
+            last_heartbeat: std::time::Instant::now(),
+            tenant_id: tenant.map(str::to_string),
+        }
+    }
+
+    /// CLOACI-T-0817: public-namespace work (`task_tenant = Some("public")`,
+    /// which is what the `task_tenant` mapping now produces for the "public"
+    /// namespace) selects a `Some("public")` agent — and never a named tenant's
+    /// agent nor the bootstrap/admin `None` agent.
+    #[test]
+    fn public_work_selects_a_public_agent_only() {
+        let roster = vec![
+            agent("acme-1", 16, Some("acme")),
+            agent("public-1", 8, Some("public")),
+            agent("admin-1", 32, None), // bootstrap/admin-keyed agent
+        ];
+        let chosen = select_fleet_agent(&roster, &Some("public".to_string()), &None)
+            .expect("a public agent must be selectable for public work");
+        assert_eq!(chosen.agent_id, "public-1");
+    }
+
+    /// A named tenant's work matches only that tenant's agents — isolation is
+    /// preserved in both directions: public agents are not eligible for `acme`
+    /// work, and vice versa.
+    #[test]
+    fn named_tenant_work_is_isolated_from_public_and_others() {
+        let roster = vec![
+            agent("public-1", 32, Some("public")),
+            agent("acme-1", 4, Some("acme")),
+            agent("beta-1", 64, Some("beta")),
+        ];
+        // acme work -> only the acme agent, even though others have far more
+        // free capacity (the greedy selector must not cross the tenant gate).
+        let chosen = select_fleet_agent(&roster, &Some("acme".to_string()), &None)
+            .expect("acme work must select the acme agent");
+        assert_eq!(chosen.agent_id, "acme-1");
+
+        // A tenant with no agent in the roster gets nothing — never a fallback
+        // to public or another tenant.
+        assert!(
+            select_fleet_agent(&roster, &Some("gamma".to_string()), &None).is_none(),
+            "work for a tenant with no agents must not leak onto another tenant"
+        );
+    }
+
+    /// Public work must NOT fall back to a bootstrap/admin `None`-tenant agent
+    /// now that the `None == public` duality is retired.
+    #[test]
+    fn public_work_does_not_select_a_none_tenant_agent() {
+        let roster = vec![agent("admin-1", 32, None)];
+        assert!(
+            select_fleet_agent(&roster, &Some("public".to_string()), &None).is_none(),
+            "a None-tenant (bootstrap/admin) agent must not serve public work"
+        );
     }
 }
