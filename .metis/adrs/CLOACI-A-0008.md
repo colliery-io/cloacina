@@ -5,7 +5,7 @@ title: "Fleet control-loop leadership — in-process advisory-lock leader, not a
 number: 1
 short_code: "CLOACI-A-0008"
 created_at: 2026-06-28T03:14:05.225219+00:00
-updated_at: 2026-06-28T03:14:05.225219+00:00
+updated_at: 2026-06-28T04:31:30.230406+00:00
 decision_date: 
 decision_maker: 
 parent: CLOACI-I-0127
@@ -13,7 +13,7 @@ archived: false
 
 tags:
   - "#adr"
-  - "#phase/draft"
+  - "#phase/decided"
 
 
 exit_criteria_met: false
@@ -60,15 +60,13 @@ Serialize the fleet control loop with an **in-process Postgres advisory-lock lea
 ### Neutral
 - At 1 replica the advisory lock holder reads `null`/trivial in instrumentation (observed in the T-0815 soak) — expected, not a defect.
 
-## Review Schedule **[CONDITIONAL: Temporary Decision]**
+## Validation
 
-{Delete if decision is permanent}
+CLOACI-T-0818 built `angreal test e2e k8s-leader` (a `replicaCount=2` k3s deployment of the chart) and ran it green — 4/5; the 5th blocked by environment, not design:
 
-### Review Triggers
-- {Condition that would trigger review 1}
-- {Condition that would trigger review 2}
+- **Single leader** — sampling `pg_locks` for the fleet advisory key (8110127) at ~10 Hz over 60s: **never more than one simultaneous holder**. Leadership *rotates per tick* between the two replicas (the lock is taken and released each control tick), which satisfies "exactly one leader per tick."
+- **Single-writer provisioning** — `provision N=3` scaled the tenant Deployment to exactly 3 (not 2×N) despite two server replicas.
+- **Failover** — deleting the lock-holder pod handed leadership to the survivor (different pid/addr) within a bounded wait; provisioning resumed under the new leader; the killed replica rescheduled and rejoined 2/2 with holders still ≤1.
+- **Disjoint scheduler claiming** — not exercised end-to-end (a helm-only server ships no compiler, so uploaded packages never build); the property is enforced in cloacina-core by the `task_outbox` claim (`DELETE … FOR UPDATE SKIP LOCKED` + `claimed_by` CAS) and both replicas run the per-tenant scheduler unconditionally. An opt-in `--claiming` e2e path is scaffolded for when a matching-ABI in-cluster compiler is available.
 
-### Scheduled Review
-- **Next Review Date**: {Date}
-- **Review Criteria**: {What to evaluate}
-- **Sunset Date**: {When this decision expires if not renewed}
+**Refinement surfaced:** leadership rotates per tick (no sticky leader), and the autoscaler's cooldown / last-action state is in-memory per replica — so the cooldown is **not** globally coordinated (a replica leading a later tick has no memory of a peer's recent scale action). Manual provisioning is unaffected (single-writer holds). To strictly honor the autoscaler cooldown at multi-replica, persist its last-action timestamp in the DB (or hold the lock across ticks for sticky leadership). A candidate autoscaler refinement, not a correctness defect.

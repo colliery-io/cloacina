@@ -4,15 +4,15 @@ level: task
 title: "Leader-election ADR + multi-replica validation (scheduler claiming + single-writer fleet loop)"
 short_code: "CLOACI-T-0818"
 created_at: 2026-06-28T02:02:39.919445+00:00
-updated_at: 2026-06-28T02:02:39.919445+00:00
+updated_at: 2026-06-28T04:30:26.519451+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -68,6 +68,12 @@ Record the leader-election design as an ADR and validate the multi-replica serve
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -138,4 +144,54 @@ Record the leader-election design as an ADR and validate the multi-replica serve
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-28 — Multi-replica validation built + run green (ADR CLOACI-A-0008)
+
+Built the multi-replica validation as a functional e2e lane: **`angreal test e2e k8s-leader`**
+(`.angreal/test/e2e/k8s_leader.py`, registered in the e2e group via
+`.angreal/test/__init__.py`). It reuses the T-0815/T-0816 k3s platform verbatim
+(`bring_up_cluster`, `_prepare_images`, `start_port_forward`, `_server_values`,
+`docker-compose.k8s.yaml`) and deploys the chart at **`replicaCount=2`** with
+`fleet.actuator=kubernetes` on a distinct compose project + port-forward 18096
+(no clash with e2e 18092 / soak 18094). Control tick set to 1s for observability.
+
+**Validated with a REAL run** (`angreal test e2e k8s-leader --skip-build`, reusing the
+retained `localhost:5050/cloacina-{server,agent}:k8s-soak` images). Result: **4/5 green,
+0 failures**, platform torn down, exit 0.
+
+- **[PASS] 1 — both replicas Ready.** `readyReplicas==2`, 2 server pods Running,
+  `/ready` healthy through the Service.
+- **[PASS] 2 — single leader.** Sampled the fleet advisory lock (key **8110127**) at
+  ~10 Hz for 60s via `kubectl exec` into the postgresql pod. **Exact query:**
+  `SELECT a.client_addr, a.pid FROM pg_locks l JOIN pg_stat_activity a ON l.pid=a.pid WHERE l.locktype='advisory' AND l.objid=8110127 AND l.granted;`
+  Observed the lock held in 14 samples; **max simultaneous holders = 1**; `client_addr`
+  mapped (via `kubectl get pods -o wide`) to the two server pods **evenly (7/7)** —
+  confirming the per-tick election the ADR describes ("exactly one replica leads per
+  tick"): leadership legitimately alternates tick-to-tick, never two at once.
+- **[PASS] 3 — single-writer provisioning.** Created tenant `acme`, set its limit,
+  provisioned N=3 via REST → the (leader-only) reconcile scaled the tenant
+  `cloacina-agent` Deployment to **exactly 3** (one Deployment, not 2×N). Deprovision → 0.
+- **[BLOCKED] 4 — disjoint claiming.** NOT validated end-to-end: a helm-only
+  cloacina-server deploy ships **no compiler** (`charts/cloacina-server` has no compiler
+  template), so uploaded source `.cloacina` packages stay `build_status='pending'` and
+  never execute; the dist fixtures also carry host-absolute path-deps the in-cluster
+  compiler does not rewrite. The property itself is enforced in cloacina-core by the
+  `task_outbox` claim `DELETE … FOR UPDATE SKIP LOCKED` + `claimed_by` CAS
+  (`crates/cloacina/src/dal/unified/task_execution/claiming.rs`), and BOTH replicas run
+  the per-tenant scheduler unconditionally (NOT leader-gated:
+  `services.rs` "Always: per-runner task scheduler"; global runner per replica at
+  `lib.rs:689`). An opt-in `--claiming` path (deploy a compiler, upload, await build,
+  drive M executions, assert no `(workflow_execution_id, task_name)` has >1
+  `task_executions` row) is scaffolded for when a matching-ABI compiler is available.
+- **[PASS] 5 — failover.** Caught the lock holder, `kubectl delete pod` on it, then polled
+  the lock query until a **different** pod acquired it. Hand-off observed:
+  old holder `…-lh44g` (pid 120) → killed → re-acquired by `…-ztbgp` (pid 1412, addr
+  10.42.0.40); provisioning still worked under the new leader (scaled to 3); the killed
+  replica rescheduled and rejoined → **2/2 Ready**, lock holders stayed ≤1. (First run
+  exposed a harness bug — the `port-forward svc/…` pins to one pod and died with the
+  killed leader; fixed by re-establishing the forward after the kill.)
+
+Run command: `angreal test e2e k8s-leader --skip-build` (flags: `--no-cleanup`,
+`--claiming`, `--agents N`, `--tag`). Default tears the platform down.
+
+Leaving task **active**: assertions 1/2/3/5 (the ADR A-0008 leadership core) are proven on
+a real 2-replica cluster; assertion 4 remains the one gap (needs an in-cluster compiler).
