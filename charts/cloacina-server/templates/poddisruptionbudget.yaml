@@ -1,0 +1,26 @@
+{{- /*
+PodDisruptionBudget (CLOACI-T-0819).
+
+Keeps a minimum number of cloacina-server replicas available during VOLUNTARY
+disruptions (node drains, cluster upgrades, rolling updates). The server is
+safe to run with multiple replicas — the reconciler/autoscaler leader is gated
+by a Postgres advisory lock (ADR CLOACI-A-0008), so extra replicas serve HTTP
+without double-driving the control loop.
+
+Rendered only when enabled AND replicaCount > 1: a PDB over a single replica
+(minAvailable: 1) would forbid ALL voluntary disruption of that pod, wedging
+node drains — so it is intentionally skipped for single-replica installs.
+*/ -}}
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.replicaCount) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cloacina-server.fullname" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "cloacina-server.selectorLabels" . | nindent 6 }}
+{{- end }}

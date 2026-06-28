@@ -55,6 +55,15 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create", "patch"]
+  # The per-tenant agent NetworkPolicy (CLOACI-T-0819, REQ-007 defense-in-depth):
+  # default-deny ingress, egress to DNS + the server only. Ensured via
+  # server-side apply → `create` + `patch`. No `get`/`list`/`delete`. Rendered
+  # regardless of fleet.networkPolicy.enabled so toggling the policy on later
+  # never requires re-granting RBAC (the actuator simply stops calling
+  # ensure_network_policy when disabled).
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

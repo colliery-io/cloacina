@@ -209,6 +209,25 @@ no Docker socket. It is **dev-only** — for production use the
 [Kubernetes actuator]({{< ref "/service/how-to/deploying-to-kubernetes" >}}#fleet-actuator-kubernetes--rbac),
 which scales a per-tenant agent Deployment with least-privilege RBAC.
 
+### Kubernetes actuator (production)
+
+On Kubernetes the Helm chart drives the actuator for you (`fleet.actuator=kubernetes`).
+Beyond least-privilege RBAC and per-tenant namespaces, it hardens the fleet for a
+production cluster:
+
+- **`restricted`-clean agent pods** — non-root (uid/gid `10001`), dropped
+  capabilities, `readOnlyRootFilesystem` with `emptyDir`s for the agent's
+  writable paths, `seccompProfile: RuntimeDefault`, and configurable
+  resource requests/limits (`fleet.agentResources`). The pods carry **no probes**
+  — the agent has no health endpoint; liveness is the server's heartbeat/eviction
+  sweep, tuned by `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` / `CLOACINA_AGENT_LIVENESS_MISSES`.
+- **Per-tenant `NetworkPolicy`** (`fleet.networkPolicy.enabled`, default on) —
+  deny all ingress; egress only to DNS + the `cloacina-server`. Defense-in-depth;
+  the server-side ABAC remains the real boundary.
+
+See [Deploying to Kubernetes → Hardened agent pods + NetworkPolicy]({{< ref "/service/how-to/deploying-to-kubernetes" >}}#hardened-agent-pods--networkpolicy)
+for the full knob list.
+
 ### Autoscaler tuning
 
 When an actuator is active, a leader-gated control loop autoscales

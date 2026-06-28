@@ -116,6 +116,22 @@ These server-side variables drive the **agent self-management control plane** (C
 | `CLOACINA_AGENT_SERVER_URL` | Server URL injected into each spawned agent as `CLOACINA_SERVER` (the agent's registration target). | `http://server:8080` | `http://cloacina-server:8080` | Server (actuator) | No |
 | `CLOACINA_AGENT_NETWORK` | **Docker actuator only.** Docker network attached to each spawned agent container so it can reach the server (e.g. the compose network). Unset = the daemon default. Ignored by the Kubernetes actuator (in-cluster pods reach the server by Service DNS). | None | `cloacina_net` | Server (docker actuator) | No |
 
+#### Kubernetes agent-pod hardening (CLOACI-T-0819)
+
+These are read by the **Kubernetes actuator** and applied to every `cloacina-agent` pod it creates. The chart renders them from `fleet.agentResources` / `fleet.networkPolicy` when `fleet.actuator=kubernetes`; defaults are sane if unset. Agent pods are created non-root (uid/gid `10001`) with `readOnlyRootFilesystem`, dropped capabilities, and `seccompProfile: RuntimeDefault`, so they pass PodSecurity `restricted`. They carry **no httpGet probes** — the agent is a WebSocket client with no health endpoint; the server tracks liveness via heartbeat/eviction (`CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` × `CLOACINA_AGENT_LIVENESS_MISSES`).
+
+| Variable | Purpose | Default | Example | Component | Required |
+|----------|---------|---------|---------|-----------|----------|
+| `CLOACINA_AGENT_CPU_REQUEST` | CPU request on each agent pod. | `250m` | `500m` | Server (k8s actuator) | No |
+| `CLOACINA_AGENT_MEMORY_REQUEST` | Memory request on each agent pod. | `256Mi` | `512Mi` | Server (k8s actuator) | No |
+| `CLOACINA_AGENT_CPU_LIMIT` | CPU limit on each agent pod. | `1` | `2` | Server (k8s actuator) | No |
+| `CLOACINA_AGENT_MEMORY_LIMIT` | Memory limit on each agent pod. The agent embeds a CPython interpreter (PyO3) and unpacks a `workflow/`+`vendor/` tree, so the default is generous to avoid OOM-killing Python workflows. | `1Gi` | `2Gi` | Server (k8s actuator) | No |
+| `CLOACINA_FLEET_NETWORK_POLICY` | Install a per-tenant agent `NetworkPolicy` (REQ-007 defense-in-depth): default-deny ingress, egress to DNS + the server only. Off-values (`false`/`0`/`no`/`off`) disable it. **Defense-in-depth only** — the server-side ABAC (NFR-004) remains the real tenant boundary. | `true` | `false` | Server (k8s actuator) | No |
+| `CLOACINA_SERVER_NAMESPACE` | Namespace the `cloacina-server` runs in. The NetworkPolicy egress allow targets this namespace. Required for the policy; if unset, the actuator **skips** the policy (fail-open) so a missing knob never strands the fleet. | None | `cloacina-system` | Server (k8s actuator) | No |
+| `CLOACINA_SERVER_POD_SELECTOR` | Server pod label selector (`k=v,k=v`) the NetworkPolicy egress allow targets. The chart renders the server's `selectorLabels`. Required for the policy (see above). | None | `app.kubernetes.io/name=cloacina-server,app.kubernetes.io/instance=rel` | Server (k8s actuator) | No |
+| `CLOACINA_SERVER_PORT` | Server pod port the NetworkPolicy egress allow opens. | `8080` | `8080` | Server (k8s actuator) | No |
+| `CLOACINA_FLEET_DNS_NAMESPACE` | Namespace the cluster DNS service runs in; the NetworkPolicy allows UDP+TCP 53 egress there so agents can resolve the server FQDN. | `kube-system` | `kube-system` | Server (k8s actuator) | No |
+
 The actuator mints a tenant-scoped `read` API key and injects it as `CLOACINA_API_KEY`, so spawned agents self-register exactly like a hand-run agent (see [Execution Agent](#execution-agent)). The Docker actuator mints one key per container; the Kubernetes actuator mints one shared per-tenant key into a `Secret` and re-mints it on scale-up.
 
 ### Autoscaler
@@ -372,6 +388,12 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_IMAGE` | Server (actuator) | Agent image the actuator runs per tenant |
 | `CLOACINA_AGENT_SERVER_URL` | Server (actuator) | Server URL injected into spawned agents as `CLOACINA_SERVER` |
 | `CLOACINA_AGENT_NETWORK` | Server (docker actuator) | Docker network attached to spawned agent containers |
+| `CLOACINA_AGENT_CPU_REQUEST` / `_MEMORY_REQUEST` / `_CPU_LIMIT` / `_MEMORY_LIMIT` | Server (k8s actuator) | Agent pod resource requests/limits (defaults `250m`/`256Mi`/`1`/`1Gi`) |
+| `CLOACINA_FLEET_NETWORK_POLICY` | Server (k8s actuator) | Install per-tenant agent NetworkPolicy (default `true`; defense-in-depth) |
+| `CLOACINA_SERVER_NAMESPACE` | Server (k8s actuator) | Server namespace targeted by the NetworkPolicy egress allow |
+| `CLOACINA_SERVER_POD_SELECTOR` | Server (k8s actuator) | Server pod selector (`k=v,k=v`) targeted by the NetworkPolicy egress allow |
+| `CLOACINA_SERVER_PORT` | Server (k8s actuator) | Server pod port opened by the NetworkPolicy egress (default `8080`) |
+| `CLOACINA_FLEET_DNS_NAMESPACE` | Server (k8s actuator) | DNS namespace allowed for port-53 egress (default `kube-system`) |
 | `CLOACINA_AUTOSCALE` | Server | Kill-switch for the autoscale step (default on when an actuator is active) |
 | `CLOACINA_AUTOSCALE_UP_THRESHOLD` | Server | Utilization above which a tenant scales up (default `0.8`) |
 | `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` | Server | Utilization below which a tenant scales down (default `0.2`) |

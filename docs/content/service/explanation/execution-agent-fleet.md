@@ -197,6 +197,38 @@ scoped to the one tenant (a Docker label filter, or the tenant's Kubernetes
 namespace) so the actuator never touches another tenant's workloads (REQ-008 /
 NFR-004).
 
+### Kubernetes agent-pod hardening (CLOACI-T-0819)
+
+On the `kubernetes` substrate the actuator-created agent pods are hardened to
+clear a PodSecurity **`restricted`** cluster, which would otherwise reject them:
+
+- **Non-root, locked-down `securityContext`.** Pods run as the agent image's uid/gid
+  `10001` (`runAsNonRoot`, `runAsUser`/`runAsGroup`/`fsGroup`) with
+  `seccompProfile: RuntimeDefault`; containers drop **all** capabilities, set
+  `allowPrivilegeEscalation: false`, and run with a `readOnlyRootFilesystem`. The
+  agent's writable paths — `$HOME` (where it unpacks each Python package's
+  `workflow/`+`vendor/` tree and caches cdylibs) and `/tmp` — are backed by
+  `emptyDir` volumes so the read-only root still works.
+- **Resource requests/limits.** Each pod gets requests + limits configurable via
+  the chart's `fleet.agentResources` (rendered as `CLOACINA_AGENT_*`). Defaults
+  are tuned to the agent's real footprint — it embeds a CPython interpreter
+  (PyO3), so the memory limit is generous to avoid OOM-killing Python workflows.
+- **No httpGet probes.** The agent is a WebSocket client with **no** health
+  endpoint, so adding a kubelet probe would be meaningless. Liveness is tracked
+  server-side instead, by the heartbeat/eviction sweep described above
+  (`CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` × `CLOACINA_AGENT_LIVENESS_MISSES`).
+
+The actuator also installs a per-tenant **`NetworkPolicy`** in each
+`cloacina-tenant-<t>` namespace (toggle: `fleet.networkPolicy.enabled`, default
+on): **deny all ingress** (agents serve no traffic) and **allow egress only** to
+cluster DNS (UDP+TCP 53) and the `cloacina-server` pods (on the server port).
+This is **defense-in-depth** — a tenant namespace that is network-isolated by
+default — and it deliberately does **not** replace any server-side check: the
+server-side ABAC (NFR-004) remains the real tenant-isolation boundary, and a
+tenant is still isolated primarily by *being its own tenant*, not by the policy.
+If the chart cannot supply the server's coordinates the actuator skips the policy
+(fail-open) rather than strand a fleet that can no longer reach the server.
+
 ## Capacity limits & autoscaling
 
 Two numbers bound a tenant's fleet:

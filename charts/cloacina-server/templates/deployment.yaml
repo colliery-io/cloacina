@@ -87,6 +87,32 @@ spec:
               value: {{ .Values.fleet.agentImage | quote }}
             - name: CLOACINA_AGENT_SERVER_URL
               value: {{ .Values.fleet.agentServerUrl | default (printf "http://%s.%s.svc.cluster.local:%v" (include "cloacina-server.fullname" .) .Release.Namespace .Values.service.port) | quote }}
+            # Agent pod resource requests/limits (CLOACI-T-0819) — applied by the
+            # actuator to every cloacina-agent pod it creates.
+            - name: CLOACINA_AGENT_CPU_REQUEST
+              value: {{ .Values.fleet.agentResources.requests.cpu | quote }}
+            - name: CLOACINA_AGENT_MEMORY_REQUEST
+              value: {{ .Values.fleet.agentResources.requests.memory | quote }}
+            - name: CLOACINA_AGENT_CPU_LIMIT
+              value: {{ .Values.fleet.agentResources.limits.cpu | quote }}
+            - name: CLOACINA_AGENT_MEMORY_LIMIT
+              value: {{ .Values.fleet.agentResources.limits.memory | quote }}
+            # Per-tenant agent NetworkPolicy (CLOACI-T-0819, REQ-007). The actuator
+            # needs the server's namespace + pod selector so its egress rule can
+            # allow agents → server. The namespace is THIS release's namespace; the
+            # selector is the chart's selectorLabels (which the server pods carry).
+            - name: CLOACINA_FLEET_NETWORK_POLICY
+              value: {{ .Values.fleet.networkPolicy.enabled | quote }}
+            {{- if .Values.fleet.networkPolicy.enabled }}
+            - name: CLOACINA_SERVER_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: CLOACINA_SERVER_POD_SELECTOR
+              value: {{ include "cloacina-server.selectorLabelsCSV" . | quote }}
+            - name: CLOACINA_SERVER_PORT
+              value: {{ .Values.service.port | quote }}
+            - name: CLOACINA_FLEET_DNS_NAMESPACE
+              value: {{ .Values.fleet.networkPolicy.dnsNamespace | quote }}
+            {{- end }}
             {{- end }}
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}
@@ -126,7 +152,21 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- if .Values.affinity }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- else }}
+      # Default soft pod-anti-affinity (CLOACI-T-0819): prefer spreading server
+      # replicas across hostnames so replicaCount>1 survives a single node loss,
+      # without ever blocking scheduling (preferred, not required). Override by
+      # setting .Values.affinity.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "cloacina-server.selectorLabels" . | nindent 20 }}
       {{- end }}
