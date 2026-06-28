@@ -205,11 +205,13 @@ Two numbers bound a tenant's fleet:
   (`CLOACINA_DEFAULT_MAX_AGENTS`, default 4) unless a platform admin sets a
   per-tenant override. A tenant cannot raise its own ceiling; only provision
   within it.
-- **`desired_count`** — the operational target inside `[floor, effective_limit]`.
-  A tenant self-services it through the
+- **`desired_count`** — the operational target. A tenant self-services it in
+  `[0, effective_limit]` through the
   [fleet API]({{< ref "/reference/http-api" >}}#tenant-agent-fleet) (provision
-  `+1`, deprovision `−1`), and a new tenant is seeded with
-  `min(CLOACINA_INITIAL_AGENTS, CLOACINA_DEFAULT_MAX_AGENTS)` on create.
+  `+1`, deprovision `−1` down to 0), and a new tenant is seeded with
+  `min(CLOACINA_INITIAL_AGENTS, CLOACINA_DEFAULT_MAX_AGENTS)` on create. The
+  autoscaler moves it within `[CLOACINA_AUTOSCALE_FLOOR, effective_limit]` — the
+  floor bounds the autoscaler, not the manual deprovision API.
 
 A **back-pressure autoscaler** can move `desired_count` on its own. It runs as a
 single control loop that, each tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default

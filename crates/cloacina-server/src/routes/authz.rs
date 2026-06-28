@@ -133,7 +133,8 @@ pub enum ResolvedScope {
 /// The authenticated subject, projected into authorization attributes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Principal {
-    /// The key's tenant scope. `None` == global/public.
+    /// The key's tenant scope. `None` == a global (admin) key with no tenant;
+    /// `"public"` is a real tenant since CLOACI-T-0817, not `None`.
     pub tenant: Option<String>,
     /// The key's role.
     pub role: Level,
@@ -179,8 +180,9 @@ impl Decision {
 ///
 /// - God-mode (`platform_admin`) short-circuits to [`Decision::Permit`].
 /// - `Platform` scope is god-only → otherwise denied.
-/// - `Tenant(t)` requires the principal to belong to `t` (or be a global key
-///   reaching the reserved `"public"` tenant), then `role >= level`.
+/// - `Tenant(t)` requires the principal to belong to `t` (god-mode passes
+///   above), then `role >= level`. A non-admin global (`None`) key reaches no
+///   tenant — `"public"` is a real tenant since CLOACI-T-0817.
 /// - `Any` requires only `role >= level` (the handler scopes data by tenant).
 pub fn evaluate(principal: &Principal, scope: &ResolvedScope, level: Level) -> Decision {
     // God-mode: cross-tenant superuser passes everything.

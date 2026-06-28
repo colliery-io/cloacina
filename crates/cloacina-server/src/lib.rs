@@ -846,7 +846,7 @@ pub async fn run(
     .map_err(|e| {
         anyhow::anyhow!(
             "FATAL: fleet actuator (CLOACINA_FLEET_ACTUATOR={actuator_kind}) refused to start \
-             — {e}. Set CLOACINA_FLEET_ACTUATOR to a valid, safe value (none | docker) or fix \
+             — {e}. Set CLOACINA_FLEET_ACTUATOR to a valid, safe value (none | docker | kubernetes) or fix \
              the substrate. The server will not start with a misconfigured actuator."
         )
     })?;
