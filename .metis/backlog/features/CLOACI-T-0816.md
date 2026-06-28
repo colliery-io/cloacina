@@ -230,3 +230,60 @@ GAP recap (the one thing to flag): pure-actuator can't serve the demo's NULL/def
 realm (`public` + server cron triggers) — only named tenants (acme works end-to-end).
 A coherent public dashboard would need public seeded as a real tenant, or a retained
 bootstrap-key agent for the null realm, or null-realm provisioning support. Out of scope.
+
+### 2026-06-28 — DELIVERABLE 3: Kubernetes fleet-actuator SOAK (k8s, real RBAC) — built + SHORT-validated
+Extended the soak work from the Docker actuator to the **Kubernetes** actuator under the
+chart's REAL fleet RBAC. This is the long-running stability test we actually care about.
+
+New: `.angreal/test/soak/k8s_fleet.py` → `angreal test soak k8s-fleet`. It REUSES the
+`e2e k8s-fleet` platform (k3s + registry + helm-installed cloacina-server bound to the
+fleet ServiceAccount, `fleet.actuator=kubernetes`) — I factored the e2e's inline bring-up
+into shared helpers (`bring_up_cluster`, `helm_deploy_server`, `start_port_forward`,
+`_server_values`) so both lanes drive the SAME real-RBAC path (no duplicated brittle logic;
+e2e behaviour unchanged). Soak design:
+- Stable platform identity (project `cloacina-k8s-soak`, kubeconfig under
+  `.angreal/test/soak/.k8s-platform/`) so `--reuse-cluster` can re-attach (helm
+  `upgrade --install`, idempotent ns/secret) instead of rebuilding.
+- Seeds 3 tenants: 2 STEADY (held at 2 agents each — the loaded fleet that must never be
+  falsely evicted) + 1 CHURN (scaled 0↔2 each snapshot tick so the K8s actuator
+  continuously creates/patches/scales Deployments+Secrets — the RBAC workout).
+- Every `--snapshot-interval` (default 60s) APPENDS one fsync'd JSON line to a DURABLE log
+  `.angreal/test/soak/runs/k8s-soak-<ts>.log`: /ready, per-tenant GET /v1/agents, kubectl
+  counts (tenant ns, deploy spec/ready replicas, secrets, pods-by-phase incl.
+  CrashLoopBackOff), evicted/reassigned metrics, api_keys row count, leader/advisory-lock
+  holder (FLEET_CONTROL_LOCK_KEY 8110127), and **Docker VM disk free %** (df via throwaway
+  alpine container).
+- VERDICT (continuous-for-abort + final SUMMARY block): steady actual_count never dropped
+  post-convergence (eviction drift), convergence (Σreplicas≈Σdesired, no orphaned
+  ns/deploy/secret), api_keys per-spawn bounded, /ready failures, reconcile/leader-loop log
+  errors, no CrashLoop/stuck-Pending.
+- DISK-SAFETY: each snapshot, if disk free < `--disk-floor` (default 12%) → ABORT GRACEFULLY
+  (scale all tenants→0, reap tenant namespaces, log `ABORT: disk-pressure` + last-good
+  state, force teardown to reclaim space, exit non-zero). SIGTERM/SIGINT → same graceful
+  scale-to-0 + teardown. Log is line-buffered + fsync'd so a crash/disk-full is captured
+  with its cause.
+- Flags: `--duration` (default 86400=24h, env CLOACINA_SOAK_K8S_DURATION_S), `--snapshot-interval`,
+  `--reuse-cluster`, `--no-teardown` (leave platform up, pods scaled to 0), `--disk-floor`,
+  `--skip-build`.
+
+SHORT VALIDATION (`--duration 120 --snapshot-interval 20 --skip-build`, reusing prior
+e2e-built actuator images): **verdict=PASS**, exit 0. 6 snapshots written + fsync'd to the
+durable log; both steady fleets held desired=actual=2 the entire run (eviction_drift=0);
+churn cycled 0↔2 across 3 namespaces (the actuator continuously created/scaled the churn
+Deployment — registered agents peaked at 10 mid-churn, observably reaped); convergence
+managed_replicas=4==Σdesired=4 at settle; tenant_namespaces=3==controlled tenants (no
+orphans); ready_failures=0; reassigned delta=0; api_keys 3→6 (+3 over 6 spawns = 0.5/spawn,
+bounded — same DalKeyMinter per-spawn tradeoff as Docker); crashloop=0; reconcile/leader
+errors=0; **disk probe worked (31% free)**. Platform torn down clean (0 leftover containers).
+Cleaned up the short-run log; left the harness + pre-tagged `localhost:5050/cloacina-*:k8s-soak`
+images ready for the 24h launch.
+
+Files: `.angreal/test/soak/k8s_fleet.py` (new), `.angreal/test/e2e/k8s_fleet.py` (refactor:
+extracted shared bring-up helpers, e2e behaviour unchanged), `.angreal/test/__init__.py`
+(register soak module). Did NOT touch actuator/chart/API logic. NOT committed/pushed.
+
+24h LAUNCH (for main): `angreal test soak k8s-fleet` (default 86400s) — stands up its own
+fresh platform (build server image from current actuator code), durable log at
+`.angreal/test/soak/runs/k8s-soak-<ts>.log` (path printed at start). Add `--skip-build` to
+reuse the pre-tagged images for a faster start. The k3s platform need NOT be pre-stood-up
+(the soak brings it up); `--reuse-cluster` is for re-attaching to an already-running one.

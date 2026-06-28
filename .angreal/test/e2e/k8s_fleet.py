@@ -260,6 +260,138 @@ def _dump_diag(kubeconfig, label):
 
 
 # ---------------------------------------------------------------------------
+# reusable platform bring-up (shared with `soak k8s-fleet`, CLOACI-T-0816)
+#
+# These factor the e2e command's inline substrate/helm/port-forward steps into
+# named helpers so the long-running k8s soak drives the SAME bring-up path (real
+# chart RBAC, identical helm values) instead of duplicating brittle logic.
+# ---------------------------------------------------------------------------
+
+# The server's helm values: in-cluster postgres (ephemeral), K8s actuator bound
+# to the fleet ServiceAccount, autoscaler OFF so desired_count is exactly what
+# the caller provisions, no auto-provision on tenant create.
+def _server_values(tag, agent_ref, bootstrap_secret):
+    return (
+        "image:\n"
+        f"  repository: {REGISTRY_K8S}/cloacina-server\n"
+        f"  tag: {tag}\n"
+        "  pullPolicy: IfNotPresent\n"
+        "postgresql:\n"
+        "  enabled: true\n"
+        "  persistence:\n"
+        "    enabled: false\n"
+        "  auth:\n"
+        "    username: cloacina\n"
+        "    password: cloacina\n"
+        "    database: cloacina\n"
+        "apiKeySecretRef:\n"
+        f"  name: {bootstrap_secret}\n"
+        "  key: bootstrap-key\n"
+        "fleet:\n"
+        "  actuator: kubernetes\n"
+        f"  agentImage: {agent_ref}\n"
+        # agentServerUrl is intentionally left to the chart DEFAULT, which now
+        # renders the cross-namespace Service FQDN
+        # (http://<fullname>.<namespace>.svc.cluster.local:<port>). Agents run
+        # in per-tenant namespaces (cloacina-tenant-<t>) from which the short
+        # service name does NOT resolve — so leaving this unset exercises that
+        # the chart default is correct (regression guard for the T-0815 FQDN fix).
+        "server:\n"
+        "  extraEnv:\n"
+        # Keep reconcile running but stop the util-based autoscaler from
+        # scaling our hand-provisioned agents back to floor=0 (util is 0
+        # — no workflows run in this harness).
+        '    - {name: CLOACINA_AUTOSCALE, value: "false"}\n'
+        '    - {name: CLOACINA_AUTOSCALE_INTERVAL_S, value: "5"}\n'
+        # Deterministic: tenant creation must NOT auto-provision; we drive
+        # desired_count explicitly through the provision API.
+        '    - {name: CLOACINA_INITIAL_AGENTS, value: "0"}\n'
+        '    - {name: RUST_LOG, value: "info,cloacina_server=debug"}\n'
+    )
+
+
+def bring_up_cluster(project, hostdir, compose_env, kubeconfig, reuse=False):
+    """compose-up k3s + registry, translate the kubeconfig, confirm nodes ready.
+
+    With `reuse=True`, a usable existing kubeconfig (nodes reachable) short-
+    circuits the whole bring-up so a soak can attach to an already-running
+    platform (`--reuse-cluster`).
+    """
+    if reuse and kubeconfig.exists():
+        probe = _run(["kubectl", "get", "nodes"], env=_kube_env(kubeconfig),
+                     check=False, capture=True)
+        if probe.returncode == 0:
+            print("  reuse: existing k3s cluster reachable — skipping substrate bring-up")
+            return
+        print("  reuse requested but cluster not reachable; bringing it up")
+    # --wait only on the long-running healthchecked services; the init/copy
+    # containers run to completion and `--wait` treats any exit (even 0) as a
+    # failure — start those separately and poll for the kubeconfig file.
+    _compose(["up", "-d", "--wait", "registry", "k3s"], project, env=compose_env)
+    _compose(["up", "-d", "init-kubeconfig", "copy-kubeconfig"], project, env=compose_env)
+    deadline = time.time() + 60
+    while not kubeconfig.exists() and time.time() < deadline:
+        time.sleep(1)
+    if not kubeconfig.exists():
+        raise AssertionError(f"kubeconfig never materialised at {kubeconfig}")
+    _kubectl(["get", "nodes"], kubeconfig)
+
+
+def helm_deploy_server(kubeconfig, hostdir, tag, agent_ref, *, release=RELEASE,
+                       ns=NS, bootstrap_secret=BOOTSTRAP_SECRET,
+                       bootstrap_key=BOOTSTRAP_KEY, reuse=False):
+    """Create the server namespace + bootstrap secret and helm-install the
+    server with `fleet.actuator=kubernetes` (real chart RBAC).
+
+    With `reuse=True` an existing deployment is left in place (idempotent
+    `helm upgrade --install`, namespace/secret creation tolerated-if-present).
+    """
+    if reuse:
+        existing = _run(["helm", "status", release, "-n", ns],
+                        env=_kube_env(kubeconfig), check=False, capture=True)
+        if existing.returncode == 0:
+            print(f"  reuse: helm release '{release}' already deployed — skipping install")
+            _kubectl(["rollout", "status", f"deploy/{release}-cloacina-server", "-n", ns,
+                      "--timeout=5m"], kubeconfig)
+            return
+        _kubectl(["create", "namespace", ns], kubeconfig, check=False)
+        _kubectl(["create", "secret", "generic", bootstrap_secret, "-n", ns,
+                  f"--from-literal=bootstrap-key={bootstrap_key}"], kubeconfig, check=False)
+    else:
+        _kubectl(["create", "namespace", ns], kubeconfig)
+        _kubectl(["create", "secret", "generic", bootstrap_secret, "-n", ns,
+                  f"--from-literal=bootstrap-key={bootstrap_key}"], kubeconfig)
+
+    values = hostdir / "values.yaml"
+    values.write_text(_server_values(tag, agent_ref, bootstrap_secret))
+    helm_verb = ["upgrade", "--install"] if reuse else ["install"]
+    try:
+        _run(["helm", *helm_verb, release, str(CHART_DIR), "-n", ns,
+              "-f", str(values), "--wait", "--timeout=8m"],
+             env=_kube_env(kubeconfig))
+    except subprocess.CalledProcessError:
+        _dump_diag(kubeconfig, "helm install failed")
+        raise
+    _kubectl(["rollout", "status", f"deploy/{release}-cloacina-server", "-n", ns,
+              "--timeout=5m"], kubeconfig)
+
+
+def start_port_forward(kubeconfig, release=RELEASE, ns=NS, port=FWD_PORT):
+    """Start a `kubectl port-forward` to the server Service; return (proc, base_url).
+
+    Caller is responsible for terminating the returned process and for waiting
+    on `<base_url>/ready` (use `_wait_http`).
+    """
+    proc = subprocess.Popen(
+        ["kubectl", "port-forward", f"svc/{release}-cloacina-server",
+         f"{port}:8080", "-n", ns],
+        env=_kube_env(kubeconfig),
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return proc, f"http://127.0.0.1:{port}"
+
+
+# ---------------------------------------------------------------------------
 # the command
 # ---------------------------------------------------------------------------
 
@@ -304,19 +436,7 @@ def k8s_fleet(no_cleanup=False, skip_build=False, agents="2", tag="k8s-e2e"):
     try:
         # --- substrate: k3s + registry + kubeconfig --------------------------
         print("\n--- 1. bring up k3s + registry (docker compose) ---\n")
-        # --wait only on the long-running healthchecked services; the
-        # init/copy-kubeconfig containers run to completion, and `--wait` treats
-        # any container exit (even 0) as a failure — so start those separately
-        # and poll for the kubeconfig file instead.
-        _compose(["up", "-d", "--wait", "registry", "k3s"], project, env=compose_env)
-        _compose(["up", "-d", "init-kubeconfig", "copy-kubeconfig"], project, env=compose_env)
-
-        deadline = time.time() + 60
-        while not kubeconfig.exists() and time.time() < deadline:
-            time.sleep(1)
-        if not kubeconfig.exists():
-            raise AssertionError(f"kubeconfig never materialised at {kubeconfig}")
-        _kubectl(["get", "nodes"], kubeconfig)
+        bring_up_cluster(project, hostdir, compose_env, kubeconfig)
 
         # --- images ----------------------------------------------------------
         print("\n--- 2. build/push images to the local registry ---\n")
@@ -324,68 +444,11 @@ def k8s_fleet(no_cleanup=False, skip_build=False, agents="2", tag="k8s-e2e"):
 
         # --- helm install: server in-cluster, fleet.actuator=kubernetes ------
         print("\n--- 3. helm install cloacina-server (fleet.actuator=kubernetes) ---\n")
-        _kubectl(["create", "namespace", NS], kubeconfig)
-        _kubectl(["create", "secret", "generic", BOOTSTRAP_SECRET, "-n", NS,
-                  f"--from-literal=bootstrap-key={BOOTSTRAP_KEY}"], kubeconfig)
-
-        values = hostdir / "values.yaml"
-        values.write_text(
-            "image:\n"
-            f"  repository: {REGISTRY_K8S}/cloacina-server\n"
-            f"  tag: {tag}\n"
-            "  pullPolicy: IfNotPresent\n"
-            "postgresql:\n"
-            "  enabled: true\n"
-            "  persistence:\n"
-            "    enabled: false\n"
-            "  auth:\n"
-            "    username: cloacina\n"
-            "    password: cloacina\n"
-            "    database: cloacina\n"
-            "apiKeySecretRef:\n"
-            f"  name: {BOOTSTRAP_SECRET}\n"
-            "  key: bootstrap-key\n"
-            "fleet:\n"
-            "  actuator: kubernetes\n"
-            f"  agentImage: {agent_ref}\n"
-            # agentServerUrl is intentionally left to the chart DEFAULT, which now
-            # renders the cross-namespace Service FQDN
-            # (http://<fullname>.<namespace>.svc.cluster.local:<port>). Agents run
-            # in per-tenant namespaces (cloacina-tenant-<t>) from which the short
-            # service name does NOT resolve — so leaving this unset exercises that
-            # the chart default is correct (regression guard for the T-0815 FQDN fix).
-            "server:\n"
-            "  extraEnv:\n"
-            # Keep reconcile running but stop the util-based autoscaler from
-            # scaling our hand-provisioned agents back to floor=0 (util is 0
-            # — no workflows run in this harness).
-            '    - {name: CLOACINA_AUTOSCALE, value: "false"}\n'
-            '    - {name: CLOACINA_AUTOSCALE_INTERVAL_S, value: "5"}\n'
-            # Deterministic: tenant creation must NOT auto-provision; we drive
-            # desired_count explicitly through the provision API.
-            '    - {name: CLOACINA_INITIAL_AGENTS, value: "0"}\n'
-            '    - {name: RUST_LOG, value: "info,cloacina_server=debug"}\n'
-        )
-        try:
-            _run(["helm", "install", RELEASE, str(CHART_DIR), "-n", NS,
-                  "-f", str(values), "--wait", "--timeout=8m"],
-                 env=_kube_env(kubeconfig))
-        except subprocess.CalledProcessError:
-            _dump_diag(kubeconfig, "helm install failed")
-            raise
-
-        _kubectl(["rollout", "status", f"deploy/{RELEASE}-cloacina-server", "-n", NS,
-                  "--timeout=5m"], kubeconfig)
+        helm_deploy_server(kubeconfig, hostdir, tag, agent_ref)
 
         # --- port-forward the in-cluster server ------------------------------
         print("\n--- 4. port-forward the server API ---\n")
-        fwd = subprocess.Popen(
-            ["kubectl", "port-forward", f"svc/{RELEASE}-cloacina-server",
-             f"{FWD_PORT}:8080", "-n", NS],
-            env=_kube_env(kubeconfig),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        base = f"http://127.0.0.1:{FWD_PORT}"
+        fwd, base = start_port_forward(kubeconfig)
         if not _wait_http(f"{base}/ready", timeout_s=60, proc=fwd):
             print(_server_logs(kubeconfig))
             raise AssertionError("server /ready never became healthy via port-forward")
