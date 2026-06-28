@@ -4,15 +4,15 @@ level: task
 title: "Demo fleet-actuator variant (Docker) + fleet control-plane soak platform"
 short_code: "CLOACI-T-0816"
 created_at: 2026-06-27T23:32:13.024183+00:00
-updated_at: 2026-06-27T23:33:13.400643+00:00
-parent: 
+updated_at: 2026-06-28T00:23:52.095896+00:00
+parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ initiative_id: NULL
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
