@@ -1,0 +1,77 @@
+---
+# Cloacina DEMO — fleet-actuator variant (CLOACI-I-0127 / T-0816).
+#
+# An OVERRIDE layered on docker/docker-compose.demo.yml that swaps the
+# hand-wired STATIC agent services (`agent` 3×, `agent-acme` 2×) for the Docker
+# fleet ACTUATOR: cloacina-server now provisions `cloacina-agent` containers
+# DYNAMICALLY (CLOACINA_FLEET_ACTUATOR=docker), minting a tenant-scoped key per
+# spawn and labelling each container `cloacina.managed=true` /
+# `cloacina.tenant=<t>`. This is the I-0127 agent self-management showcase and
+# the deferred T-0810 docker-actuator compose smoke (real container spawn).
+#
+# Run:
+#   docker compose -f docker/docker-compose.demo.yml \
+#                  -f docker/docker-compose.demo.fleet.yml up -d --build
+#   # then provision a realm so the actuator spawns its agents:
+#   curl -XPOST -H 'Authorization: Bearer clk_demo_bootstrap_key_0001' \
+#        http://localhost:8080/v1/tenants/public/fleet/provision
+#
+# or simply:  angreal ui fleet-up        (brings up + provisions public & acme)
+#             angreal ui fleet-down       (tears down + reaps managed agents)
+#
+# `acme` is created by the harness-acme service, so it AUTO-provisions
+# (CLOACINA_INITIAL_AGENTS) on create; `public` pre-exists, so provision it
+# explicitly (the angreal task / curl above does this).
+
+# Deterministic project name + a FIXED default-network name. The actuator
+# spawns agent containers OUTSIDE this compose project (via the Docker API,
+# attached by network_mode), so they must join a network whose name we know up
+# front and on which the `server` service is reachable by its alias.
+name: cloacina-demo-fleet
+
+networks:
+  default:
+    name: cloacina-demo-fleet-net
+
+services:
+  server:
+    # The actuator drives the host Docker daemon via /var/run/docker.sock, which
+    # is owned root:root (0660) under Docker Desktop — the image's non-root
+    # `cloacina` user (uid 10001) can't open it. Run the demo server as root so
+    # the actuator can reach the socket. Dev-demo only; the K8s actuator uses a
+    # least-privilege ServiceAccount instead (no root, no socket).
+    user: "0:0"
+    environment:
+      # I-0127 agent self-management: the Docker actuator provisions agents
+      # instead of the static `agent`/`agent-acme` services (disabled below).
+      CLOACINA_FLEET_ACTUATOR: "docker"
+      # The agent image the actuator spawns (built by the `agent` service below).
+      CLOACINA_AGENT_IMAGE: "cloacina-agent:demo-fleet"
+      # The fixed default-network name above, so spawned agents reach `server`.
+      CLOACINA_AGENT_NETWORK: "cloacina-demo-fleet-net"
+      CLOACINA_AGENT_SERVER_URL: "http://server:8080"
+      # Platform agent-capacity ceiling, and the initial count auto-provisioned
+      # when a tenant is CREATED (so `acme` comes up with 1 agent automatically).
+      CLOACINA_DEFAULT_MAX_AGENTS: "4"
+      CLOACINA_INITIAL_AGENTS: "1"
+      # Keep AUTOSCALE on (the self-management showcase: scale UP under load) but
+      # floor a provisioned realm at 1 so it never autoscales to zero mid-demo.
+      CLOACINA_AUTOSCALE_FLOOR: "1"
+    volumes:
+      # The actuator drives the host Docker daemon to spawn/stop agent
+      # containers. The substrate guard requires this socket to choose `docker`.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Build the agent image (so the actuator can spawn `cloacina-agent:demo-fleet`)
+  # but run NO static public agents — the actuator provisions them on demand.
+  agent:
+    image: "cloacina-agent:demo-fleet"
+    deploy:
+      replicas: 0
+
+  # No static acme agents either: the actuator provisions acme's fleet when
+  # harness-acme creates the tenant (auto-provision) or on demand.
+  agent-acme:
+    image: "cloacina-agent:demo-fleet"
+    deploy:
+      replicas: 0
