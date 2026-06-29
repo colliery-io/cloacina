@@ -95,7 +95,11 @@ fn stage(root: &Path) {
          [wasm]\ncomponent = \"task_operator_fixture.wasm\"\n",
     )
     .unwrap();
-    std::fs::write(dir.join("operator.json"), fixture_manifest().to_json().unwrap()).unwrap();
+    std::fs::write(
+        dir.join("operator.json"),
+        fixture_manifest().to_json().unwrap(),
+    )
+    .unwrap();
 }
 
 #[tokio::test]
@@ -163,7 +167,10 @@ async fn config_binds_at_load_so_instances_differ() {
     let hello_out = hello.execute(mk()).await.unwrap();
     let goodbye_out = goodbye.execute(mk()).await.unwrap();
 
-    assert_eq!(hello_out.get("result"), Some(&serde_json::json!("hello, world")));
+    assert_eq!(
+        hello_out.get("result"),
+        Some(&serde_json::json!("hello, world"))
+    );
     assert_eq!(
         goodbye_out.get("result"),
         Some(&serde_json::json!("goodbye, world")),

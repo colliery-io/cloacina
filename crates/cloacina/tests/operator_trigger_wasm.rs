@@ -103,12 +103,8 @@ fn build_component(dir_name: &'static str, wasm_file: &'static str) -> Vec<u8> {
         .status()
         .expect("spawn cargo build --target wasm32-wasip2");
     assert!(status.success(), "{dir_name} wasm build failed");
-    std::fs::read(
-        fixture
-            .join("target/wasm32-wasip2/release")
-            .join(wasm_file),
-    )
-    .expect("read built wasm component")
+    std::fs::read(fixture.join("target/wasm32-wasip2/release").join(wasm_file))
+        .expect("read built wasm component")
 }
 
 fn trigger_component() -> &'static [u8] {
@@ -200,7 +196,10 @@ async fn wasm_trigger_operator_fires_when_configured() {
     let result = trigger.poll().await.expect("poll");
     assert!(result.should_fire(), "config should_fire=true → Fire");
     let ctx = result.into_context().expect("fire carries a context");
-    assert_eq!(ctx.get("reason"), Some(&serde_json::json!("boundary crossed")));
+    assert_eq!(
+        ctx.get("reason"),
+        Some(&serde_json::json!("boundary crossed"))
+    );
 }
 
 #[tokio::test]
@@ -237,9 +236,7 @@ async fn non_trigger_primitive_fails_closed() {
     let result = load_trigger_operator(
         tmp.path(),
         "task-operator-pkg",
-        &TaskConfig {
-            prefix: "x".into(),
-        },
+        &TaskConfig { prefix: "x".into() },
         TriggerBinding::default(),
     );
     match result {
@@ -281,7 +278,10 @@ async fn load_operator_registers_trigger_into_runtime() {
     // And it actually dispatches into the configured sandbox.
     let result = trigger.poll().await.expect("poll registered trigger");
     let ctx = result.into_context().expect("fire");
-    assert_eq!(ctx.get("reason"), Some(&serde_json::json!("registered fire")));
+    assert_eq!(
+        ctx.get("reason"),
+        Some(&serde_json::json!("registered fire"))
+    );
 }
 
 #[tokio::test]
@@ -327,17 +327,12 @@ async fn load_operator_rejects_mismatched_binding() {
         &runtime,
         tmp.path(),
         "task-operator-pkg",
-        &TaskConfig {
-            prefix: "x".into(),
-        },
+        &TaskConfig { prefix: "x".into() },
         OperatorBinding::Trigger(TriggerBinding::default()),
     );
     match result {
         Ok(_) => panic!("mismatched binding must fail closed"),
-        Err(err) => assert!(
-            format!("{err}").contains("does not match"),
-            "got: {err}"
-        ),
+        Err(err) => assert!(format!("{err}").contains("does not match"), "got: {err}"),
     }
     assert!(runtime.trigger_names().is_empty());
 }
