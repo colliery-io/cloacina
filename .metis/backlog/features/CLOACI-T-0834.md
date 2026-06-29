@@ -1,12 +1,12 @@
 ---
-id: seed-built-in-operators-one-per
+id: constructor-capability-layer
 level: task
-title: "Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)"
-short_code: "CLOACI-T-0825"
-created_at: 2026-06-28T23:57:44.661370+00:00
-updated_at: 2026-06-28T23:57:44.661370+00:00
+title: "Constructor capability layer: grants to fidius EgressPolicy + WasiCtx, default-closed + load-time lint"
+short_code: "CLOACI-T-0834"
+created_at: 2026-06-29T16:17:54.400032+00:00
+updated_at: 2026-06-29T16:17:54.400032+00:00
 parent: CLOACI-I-0132
-blocked_by: ["CLOACI-T-0834"]
+blocked_by: ["CLOACI-S-0014"]
 archived: false
 
 tags:
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)
+# Constructor capability layer: grants to fidius EgressPolicy + WasiCtx, default-closed + load-time lint
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,9 +29,15 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http-poll **trigger**, a windowed **accumulator**, a **reactor** with firing criteria, and a shell/http **task** — authored via the macros, compiled to WASM components.
+Implement the constructor capability & egress layer specified in [[CLOACI-S-0014]] (decision [[CLOACI-A-0009]]): tenant-authored, default-closed capability grants at construction time, enforced via fidius.
 
-**AC:** each ships as a loadable constructor, instantiable with config, runnable end-to-end in a sample workflow; covered by tests. Blocked by CLOACI-T-0824.
+**Scope:**
+- **Grant grammar + syntax** — a `grants = { http=[host:port|url], tcp=[host:port], fs=[paths], env=[keys] }` form, **identical** across `constructor!`, `#[constructor]`, `#[reactor]` (and structured so the Python/cloaca path mirrors it). Globs allowed.
+- **Carry grants** from the consumer site through the declaration/manifest to the loader.
+- **Translate + enforce** — cloacina builds a fidius `EgressPolicy` (`authorize` from http, `authorize_tcp` from tcp) + a scoped WASI `WasiCtx` (preopens from fs, env from env) and supplies it at `load_wasm_configured`. Default-closed: no grant -> deny.
+- **Load-time capability lint (v1)** — inspect the component's imports (`wasi:http` / `wasi:sockets` / fs / env) vs the grants; warn (or fail) on an imported capability with no matching grant. Decided as v1 so we don't retrofit enforcement into the loader later.
+
+**AC:** a constructor granted `http`/`tcp`/`fs`/`env` reaches exactly the scoped targets and nothing else (fail-closed); a constructor importing a capability with no grant is denied at runtime + flagged at load; the `grants` syntax is identical on all Rust surfaces. Gates [[CLOACI-T-0825]] (seed library). First step: confirm fidius-host's `WasiCtx` fs/env surface.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
