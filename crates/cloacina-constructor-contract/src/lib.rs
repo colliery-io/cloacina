@@ -162,6 +162,25 @@ pub enum PrimitiveKind {
     Reactor,
 }
 
+/// One `#[config]` field of a constructor, recorded in DECLARATION order — the
+/// order the guest's generated config struct bincode-decodes (CLOACI-T-0829).
+///
+/// fidius binds config via bincode (positional, NOT self-describing), so the
+/// consumer (`constructor!(config = { name = value })`) cannot blindly serialize
+/// the author's values in WRITTEN order — it must reorder them into the guest's
+/// declaration order first. This carries that order plus each field's Rust type
+/// name so the consumer can encode each kwarg value AS the concrete type the
+/// guest expects, giving `config = { … }` true kwarg (name-keyed) semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigField {
+    /// The `#[config]` field name — the kwarg key a `constructor!` author writes.
+    pub name: String,
+    /// The field's Rust type name (last path segment), e.g. `String`, `i64`,
+    /// `bool`, `f64`. Used by the consumer to bincode-encode the kwarg value as
+    /// the concrete type the guest's config struct decodes.
+    pub ty: String,
+}
+
 /// The cloacina constructor manifest — emitted by the macros (the same seam that
 /// emits packaged-workflow `PackageTasksMetadata`, CLOACI-T-0826), serialized
 /// into the fidius package as a sidecar `constructor.json`, and read by the loader.
@@ -187,6 +206,13 @@ pub struct ConstructorManifest {
     /// injectable runtime surface (task context keys / trigger config / etc.).
     #[serde(default)]
     pub params: Vec<InputSlot>,
+    /// The constructor's `#[config]` fields in DECLARATION order (CLOACI-T-0829).
+    /// The `constructor!` consumer binds `config = { name = value }` BY NAME
+    /// against this list, reordering the author's values into declaration order
+    /// before bincode-serializing the config tuple fidius binds at load. Empty
+    /// for constructors with no `#[config]` fields.
+    #[serde(default)]
+    pub config_fields: Vec<ConfigField>,
     /// Other constructors/packages this constructor depends on (names).
     #[serde(default)]
     pub dependencies: Vec<String>,
@@ -393,6 +419,10 @@ mod tests {
                 "name",
                 serde_json::json!({"type": "string"}),
             )],
+            config_fields: vec![ConfigField {
+                name: "prefix".into(),
+                ty: "String".into(),
+            }],
             dependencies: vec![],
             description: Some("prefixes a name".into()),
             author: None,
@@ -402,6 +432,7 @@ mod tests {
         assert_eq!(m, back);
         assert_eq!(back.primitive_kind, PrimitiveKind::Task);
         assert_eq!(back.params[0].name, "name");
+        assert_eq!(back.config_fields[0].name, "prefix");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 ---
 id: operator-loader-registry-load-wasm
 level: task
-title: "Operator loader + registry (load_wasm_configured -> register the primitive)"
+title: "Constructor loader + registry (load_wasm_configured -> register the primitive)"
 short_code: "CLOACI-T-0823"
 created_at: 2026-06-28T23:57:41.833766+00:00
 updated_at: 2026-06-29T01:48:57.400152+00:00
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Operator loader + registry (load_wasm_configured -> register the primitive)
+# Constructor loader + registry (load_wasm_configured -> register the primitive)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 

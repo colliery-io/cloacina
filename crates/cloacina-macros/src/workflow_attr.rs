@@ -26,11 +26,11 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use syn::{
     parse::{Parse, ParseStream},
-    Ident, ItemMod, LitStr, Result as SynResult, Token,
+    Expr, Ident, ItemMod, LitStr, Result as SynResult, Token,
 };
 
 use crate::packaged_workflow::{
@@ -68,6 +68,118 @@ pub struct WorkflowParam {
     pub name: String,
     pub ty: syn::Type,
     pub default: Option<syn::Expr>,
+}
+
+/// CLOACI-T-0829: one `constructor!(...)` declaration found inside a `#[workflow]`
+/// module — a packaged constructor wired into the DAG as a primitive node.
+///
+/// The consumer form:
+///
+/// ```rust,ignore
+/// constructor!(
+///     id = "greet",                    // the DAG node id other tasks depend on
+///     from = "acme/text@0.1",          // the provider package (name[@version])
+///     constructor = "prefix",          // which constructor inside the provider
+///     config = { prefix = "hello, " }, // bound once at load
+///     dependencies = ["load_user"],    // wired into the DAG like a #[task]
+/// );
+/// ```
+struct ConstructorNodeDecl {
+    /// DAG node id (what dependents reference; distinct from the constructor's
+    /// own `constructor.json` name).
+    id: String,
+    /// Provider package reference: `name[@version]`.
+    from: String,
+    /// Which constructor inside the provider (its `constructor.json` name).
+    constructor: String,
+    /// `config = { key = expr, … }` bound once at load (key → value expr).
+    config: Vec<(String, Expr)>,
+    /// Upstream DAG node ids this constructor depends on.
+    dependencies: Vec<String>,
+}
+
+impl Parse for ConstructorNodeDecl {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let mut id: Option<String> = None;
+        let mut from: Option<String> = None;
+        let mut constructor: Option<String> = None;
+        let mut config: Vec<(String, Expr)> = Vec::new();
+        let mut dependencies: Vec<String> = Vec::new();
+
+        while !input.is_empty() {
+            let key: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+            match key.to_string().as_str() {
+                "id" => id = Some(input.parse::<LitStr>()?.value()),
+                "from" => from = Some(input.parse::<LitStr>()?.value()),
+                "constructor" => constructor = Some(input.parse::<LitStr>()?.value()),
+                "config" => {
+                    // `config = { key = expr, … }`
+                    let content;
+                    syn::braced!(content in input);
+                    while !content.is_empty() {
+                        let ckey: Ident = content.parse()?;
+                        content.parse::<Token![=]>()?;
+                        let cval: Expr = content.parse()?;
+                        config.push((ckey.to_string(), cval));
+                        if !content.is_empty() {
+                            content.parse::<Token![,]>()?;
+                        }
+                    }
+                }
+                "dependencies" => {
+                    // `dependencies = ["a", "b"]`
+                    let content;
+                    syn::bracketed!(content in input);
+                    while !content.is_empty() {
+                        dependencies.push(content.parse::<LitStr>()?.value());
+                        if !content.is_empty() {
+                            content.parse::<Token![,]>()?;
+                        }
+                    }
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        format!(
+                            "unknown constructor! field '{}'. Valid fields: id, from, \
+                             constructor, config, dependencies",
+                            other
+                        ),
+                    ));
+                }
+            }
+            if !input.is_empty() {
+                input.parse::<Token![,]>()?;
+            }
+        }
+
+        let id =
+            id.ok_or_else(|| syn::Error::new(Span::call_site(), "constructor! requires an `id`"))?;
+        let from = from.ok_or_else(|| {
+            syn::Error::new(Span::call_site(), "constructor! requires a `from` provider")
+        })?;
+        let constructor = constructor.ok_or_else(|| {
+            syn::Error::new(
+                Span::call_site(),
+                "constructor! requires a `constructor` name",
+            )
+        })?;
+
+        Ok(ConstructorNodeDecl {
+            id,
+            from,
+            constructor,
+            config,
+            dependencies,
+        })
+    }
+}
+
+/// True if `item` is a `constructor!(...)` macro invocation (the consumer form the
+/// `#[workflow]` macro lowers + strips).
+fn is_constructor_macro(item: &syn::Item) -> bool {
+    matches!(item, syn::Item::Macro(m) if m.mac.path.is_ident("constructor"))
 }
 
 impl Parse for UnifiedWorkflowAttributes {
@@ -224,9 +336,20 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     // Scan module for #[task] functions
     let mut detected_tasks: HashMap<String, syn::Ident> = HashMap::new();
     let mut task_dependencies: HashMap<String, Vec<String>> = HashMap::new();
+    // CLOACI-T-0829: scan for `constructor!(...)` consumer declarations.
+    let mut constructor_nodes: Vec<ConstructorNodeDecl> = Vec::new();
 
     if let Some((_, items)) = mod_content {
         for item in items {
+            if is_constructor_macro(item) {
+                if let syn::Item::Macro(item_macro) = item {
+                    match syn::parse2::<ConstructorNodeDecl>(item_macro.mac.tokens.clone()) {
+                        Ok(decl) => constructor_nodes.push(decl),
+                        Err(e) => return e.to_compile_error(),
+                    }
+                }
+                continue;
+            }
             if let syn::Item::Fn(item_fn) = item {
                 for attr in &item_fn.attrs {
                     if attr.path().is_ident("task") {
@@ -264,23 +387,42 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         }
     }
 
-    if detected_tasks.is_empty() {
+    if detected_tasks.is_empty() && constructor_nodes.is_empty() {
         return syn::Error::new(
             mod_name.span(),
-            "#[workflow] module must contain at least one #[task] function",
+            "#[workflow] module must contain at least one #[task] function or constructor!(…) node",
         )
         .to_compile_error();
     }
 
+    // CLOACI-T-0829: combine #[task] nodes + constructor!(…) nodes for dependency
+    // validation and cycle detection so a task may depend on a constructor node
+    // (and vice versa) and so a constructor node's own deps are checked.
+    let mut combined_deps: HashMap<String, Vec<String>> = task_dependencies.clone();
+    let mut available_ids: HashSet<String> = detected_tasks.keys().cloned().collect();
+    for decl in &constructor_nodes {
+        if available_ids.contains(&decl.id) {
+            return syn::Error::new(
+                mod_name.span(),
+                format!(
+                    "constructor!(id = \"{}\") collides with another node id in workflow '{}'",
+                    decl.id, workflow_name
+                ),
+            )
+            .to_compile_error();
+        }
+        available_ids.insert(decl.id.clone());
+        combined_deps.insert(decl.id.clone(), decl.dependencies.clone());
+    }
+
     // Validate dependencies
-    let validation_error =
-        validate_dependencies(workflow_name, &detected_tasks, &task_dependencies);
+    let validation_error = validate_dependencies(workflow_name, &available_ids, &combined_deps);
     if let Some(err) = validation_error {
         return err;
     }
 
     // Check for cycles
-    if let Err(cycle_error) = detect_package_cycles(&task_dependencies) {
+    if let Err(cycle_error) = detect_package_cycles(&combined_deps) {
         let error_msg = format!(
             "Circular dependency detected in workflow '{}': {}\n\n\
             Hint: Review your task dependencies to eliminate cycles.",
@@ -312,8 +454,14 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     // warning noise unless we also sweep the manual imports out everywhere; the
     // signature de-ceremony (bare `Context` / `Result<()>`) is the substantive
     // win and lands without that side effect.
+    // CLOACI-T-0829: strip the `constructor!(…)` invocations — they are lowered to
+    // DAG-node registration (below), not re-emitted as module items.
     let module_items = if let Some((_, items)) = mod_content {
-        quote! { #(#items)* }
+        let kept: Vec<&syn::Item> = items
+            .iter()
+            .filter(|it| !is_constructor_macro(it))
+            .collect();
+        quote! { #(#kept)* }
     } else {
         quote! {}
     };
@@ -324,6 +472,14 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     // tasks from inventory).
     let task_inventory_entries =
         build_task_inventory_entries(tenant, workflow_name, mod_name, &detected_tasks);
+
+    // CLOACI-T-0829: constructor!(…) DAG nodes register as TaskEntry's too (so the
+    // executor resolves them via Runtime::get_task), but only in EMBEDDED mode —
+    // the consumer form resolves + loads a WASM provider through cloacina's loader,
+    // which a packaged (cdylib) build does not link. Packaged-mode constructor
+    // nodes are a noted follow-on.
+    let constructor_inventory_entries =
+        build_constructor_inventory_entries(tenant, workflow_name, &constructor_nodes);
 
     // I-0102 / T-C: WorkflowDescriptorEntry carries metadata the shell
     // can't derive from TaskEntry alone (description, author, fingerprint,
@@ -411,6 +567,7 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         &fingerprint,
         &detected_tasks,
         &task_dependencies,
+        &constructor_nodes,
     );
 
     // Generate packaged FFI exports (when `packaged` feature IS active)
@@ -443,6 +600,9 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         // `cloacina::package!()` shell walks these from packaged cdylibs.
         #(#task_inventory_entries)*
 
+        // CLOACI-T-0829: constructor!(…) node registrations (embedded-only).
+        #(#constructor_inventory_entries)*
+
         #workflow_descriptor_entry
 
         #[cfg(not(feature = "packaged"))]
@@ -452,10 +612,12 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     }
 }
 
-/// Validate task dependencies within the module.
+/// Validate task dependencies within the module. `available_ids` is the combined
+/// set of `#[task]` ids + `constructor!(…)` node ids declared in this module
+/// (CLOACI-T-0829), so a dependency may point at either node kind.
 fn validate_dependencies(
     workflow_name: &str,
-    detected_tasks: &HashMap<String, syn::Ident>,
+    available_ids: &HashSet<String>,
     task_dependencies: &HashMap<String, Vec<String>>,
 ) -> Option<TokenStream2> {
     // Check if we're in a test environment
@@ -472,14 +634,14 @@ fn validate_dependencies(
 
     for (task_id, dependencies) in task_dependencies {
         for dep in dependencies {
-            if !detected_tasks.contains_key(dep) {
+            if !available_ids.contains(dep) {
                 // Check global registry
                 let validation = match get_registry().try_lock() {
                     Ok(registry) => {
                         if registry.get_all_task_ids().contains(dep) {
                             Ok(())
                         } else {
-                            let available: Vec<String> = detected_tasks.keys().cloned().collect();
+                            let available: Vec<String> = available_ids.iter().cloned().collect();
                             let suggestions = find_similar_package_task_names(dep, &available);
 
                             let mut msg = format!(
@@ -523,8 +685,24 @@ fn generate_embedded_registration(
     _fingerprint: &str,
     detected_tasks: &HashMap<String, syn::Ident>,
     _task_dependencies: &HashMap<String, Vec<String>>,
+    constructor_nodes: &[ConstructorNodeDecl],
 ) -> TokenStream2 {
     let mod_path_prefix = quote! { #mod_name };
+
+    // CLOACI-T-0829: add each constructor!(…) node to the DAG. The node is the
+    // dynamic analog of a #[task]: it carries the author-chosen id + namespaced
+    // dependencies, and its `execute` delegates into the loaded WASM constructor.
+    let constructor_addition_code: Vec<TokenStream2> = constructor_nodes
+        .iter()
+        .map(|decl| {
+            let load_block = constructor_node_load_block(decl, tenant, workflow_name);
+            quote! {
+                workflow
+                    .add_task(#load_block)
+                    .expect("Failed to add constructor node to workflow");
+            }
+        })
+        .collect();
 
     // Generate workflow constructor
     let task_addition_code: Vec<TokenStream2> = detected_tasks.values().map(|fn_name| {
@@ -627,6 +805,9 @@ fn generate_embedded_registration(
             // Add tasks
             #(#task_addition_code)*
 
+            // Add constructor!(…) DAG nodes (CLOACI-T-0829)
+            #(#constructor_addition_code)*
+
             workflow.validate().expect("Workflow validation failed");
             workflow.finalize()
         }
@@ -638,6 +819,95 @@ fn generate_embedded_registration(
             }
         }
     }
+}
+
+/// CLOACI-T-0829: an expression evaluating to a cached
+/// `Arc<dyn cloacina_workflow::Task>` for one `constructor!(…)` node.
+///
+/// Resolves the provider + loads the WASM constructor through cloacina's loader
+/// (binding `config` once), wrapping it as a DAG node carrying the author-chosen
+/// id + namespaced dependencies. The load is memoized in a per-call-site
+/// `OnceLock` so re-instantiating the workflow / resolving the task does not
+/// re-load the component each time.
+fn constructor_node_load_block(
+    decl: &ConstructorNodeDecl,
+    tenant: &str,
+    workflow_name: &str,
+) -> TokenStream2 {
+    let id = &decl.id;
+    let from = &decl.from;
+    let constructor = &decl.constructor;
+    let deps = &decl.dependencies;
+    // CLOACI-T-0829: `config = { name = value }` is NAME-keyed (true kwarg
+    // semantics). fidius binds `#[config]` via bincode (positional, not
+    // self-describing), so the author's WRITTEN order can't be trusted — instead we
+    // hand the loader each `(name, value)` pair (value lowered to a `serde_json`
+    // literal) and it reorders them into the guest's `#[config]` DECLARATION order
+    // (read from the manifest) before serializing the bincode config tuple.
+    let cfg_pairs = decl.config.iter().map(|(k, v)| {
+        quote! { (#k.to_string(), ::cloacina::serde_json::json!(#v)) }
+    });
+
+    quote! {
+        {
+            static __NODE: ::std::sync::OnceLock<
+                ::std::sync::Arc<dyn ::cloacina_workflow::Task>,
+            > = ::std::sync::OnceLock::new();
+            __NODE
+                .get_or_init(|| {
+                    let pkg_name = env!("CARGO_PKG_NAME");
+                    let __deps: ::std::vec::Vec<::cloacina_workflow::TaskNamespace> = ::std::vec![
+                        #(
+                            ::cloacina_workflow::TaskNamespace::new(
+                                #tenant, pkg_name, #workflow_name, #deps,
+                            )
+                        ),*
+                    ];
+                    let __config: ::std::vec::Vec<(
+                        ::std::string::String,
+                        ::cloacina::serde_json::Value,
+                    )> = ::std::vec![ #(#cfg_pairs),* ];
+                    ::cloacina::registry::loader::load_constructor_node(
+                        #id, #from, #constructor, __config, __deps,
+                    )
+                    .unwrap_or_else(|e| {
+                        ::std::panic!("constructor!(id = \"{}\"): {}", #id, e)
+                    })
+                })
+                .clone()
+        }
+    }
+}
+
+/// CLOACI-T-0829: `TaskEntry` inventory submissions for `constructor!(…)` nodes so
+/// `Runtime::get_task` resolves them at execution time. Embedded-only (the loader
+/// path is not linked in packaged cdylib builds).
+fn build_constructor_inventory_entries(
+    tenant: &str,
+    workflow_name: &str,
+    constructor_nodes: &[ConstructorNodeDecl],
+) -> Vec<TokenStream2> {
+    constructor_nodes
+        .iter()
+        .map(|decl| {
+            let id = &decl.id;
+            let load_block = constructor_node_load_block(decl, tenant, workflow_name);
+            quote! {
+                #[cfg(not(feature = "packaged"))]
+                ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+                    ::cloacina::cloacina_workflow_plugin::TaskEntry {
+                        namespace: || ::cloacina_workflow::TaskNamespace::new(
+                            #tenant,
+                            env!("CARGO_PKG_NAME"),
+                            #workflow_name,
+                            #id,
+                        ),
+                        constructor: || #load_block,
+                    }
+                }
+            }
+        })
+        .collect()
 }
 
 /// Build `inventory::submit!` blocks for each task in the workflow.

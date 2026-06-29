@@ -1,7 +1,7 @@
 ---
 id: operator-contract-manifest-schema
 level: task
-title: "Operator contract + manifest schema (macros emit it)"
+title: "Constructor contract + manifest schema (macros emit it)"
 short_code: "CLOACI-T-0822"
 created_at: 2026-06-28T23:57:40.497369+00:00
 updated_at: 2026-06-29T01:25:20.619493+00:00
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Operator contract + manifest schema (macros emit it)
+# Constructor contract + manifest schema (macros emit it)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 

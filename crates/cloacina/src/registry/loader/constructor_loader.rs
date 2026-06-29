@@ -1056,3 +1056,422 @@ pub fn load_reactor_constructor<C: Serialize>(
         handle: Arc::new(handle),
     })
 }
+
+// ===========================================================================
+// Consumer surface — `constructor!` workflow DAG node (CLOACI-T-0829)
+// ===========================================================================
+//
+// The runtime half of the `constructor!(id = .., from = "..", constructor = "..",
+// config = { .. }, dependencies = [..])` form a workflow author writes inside a
+// `#[workflow]` module. The `#[workflow]` macro (cloacina-macros::workflow_attr)
+// lowers each `constructor!` declaration into a call to [`load_constructor_node`],
+// emitted in BOTH places a `#[task]` is: the workflow's DAG builder (so the node
+// participates in topological planning + dependency edges) and a `TaskEntry`
+// inventory submission (so `Runtime::get_task` resolves it for execution).
+//
+// ## `from` resolution seam
+//
+// `from = "name[@version]"` names a provider package by its fidius `[package].name`
+// (the same name the loose-dir/`load_task_constructor` path matches on). It is
+// resolved against a single PROVIDER SEARCH-PATH directory — a directory holding
+// unpacked provider packages — chosen (highest precedence first) by:
+//
+//   1. the process-wide override set via [`set_provider_search_path`];
+//   2. the `CLOACINA_PROVIDER_PATH` environment variable;
+//   3. the `providers` directory (relative to the process CWD) as the default.
+//
+// This mirrors the embedded-first philosophy: no server, no registry service — a
+// constructor provider is resolved from a directory on disk, exactly as
+// [`load_task_constructor`] already does. An optional `@version` suffix is stripped
+// (version pinning is advisory today; honoring it is a noted follow-on), and
+// `constructor = "name"` selects WHICH constructor inside the provider — validated
+// against the loaded `constructor.json`'s `name` so an author mismatch fails closed.
+
+/// Process-wide override for the provider search path the `constructor!` consumer
+/// form resolves `from = "..."` against. `None` falls back to
+/// [`PROVIDER_PATH_ENV`] then [`DEFAULT_PROVIDER_DIR`]. Set it once at startup
+/// (e.g. from a deployment's config) via [`set_provider_search_path`].
+static PROVIDER_SEARCH_PATH: std::sync::RwLock<Option<std::path::PathBuf>> =
+    std::sync::RwLock::new(None);
+
+/// Environment variable naming the directory `constructor!(from = ...)` resolves
+/// provider packages in (overridden by [`set_provider_search_path`]).
+pub const PROVIDER_PATH_ENV: &str = "CLOACINA_PROVIDER_PATH";
+
+/// Default provider search-path directory (relative to CWD) when neither the
+/// process override nor [`PROVIDER_PATH_ENV`] is set.
+pub const DEFAULT_PROVIDER_DIR: &str = "providers";
+
+/// Set the process-wide provider search path used to resolve `constructor!`
+/// `from = "..."` references. Takes precedence over [`PROVIDER_PATH_ENV`].
+pub fn set_provider_search_path(path: impl Into<std::path::PathBuf>) {
+    *PROVIDER_SEARCH_PATH.write().unwrap() = Some(path.into());
+}
+
+/// Clear the process-wide provider search-path override (falls back to env/default).
+pub fn clear_provider_search_path() {
+    *PROVIDER_SEARCH_PATH.write().unwrap() = None;
+}
+
+/// The directory `constructor!(from = ...)` resolves provider packages in:
+/// the [`set_provider_search_path`] override, else [`PROVIDER_PATH_ENV`], else
+/// [`DEFAULT_PROVIDER_DIR`].
+pub fn provider_search_path() -> std::path::PathBuf {
+    if let Some(p) = PROVIDER_SEARCH_PATH.read().unwrap().clone() {
+        return p;
+    }
+    if let Ok(p) = std::env::var(PROVIDER_PATH_ENV) {
+        if !p.is_empty() {
+            return std::path::PathBuf::from(p);
+        }
+    }
+    std::path::PathBuf::from(DEFAULT_PROVIDER_DIR)
+}
+
+/// Strip an optional `@version` suffix from a `from = "name[@version]"` reference,
+/// yielding the fidius `[package].name` the loader matches on.
+fn provider_package_name(from: &str) -> &str {
+    match from.split_once('@') {
+        Some((name, _ver)) => name,
+        None => from,
+    }
+}
+
+/// A workflow DAG node backed by a packaged WASM task constructor — the runtime
+/// representation of a `constructor!(...)` declaration (CLOACI-T-0829).
+///
+/// Wraps the `Arc<dyn Task>` [`load_task_constructor`] returns, overriding its
+/// `id` (the DAG node id the workflow author chose, which other tasks depend on —
+/// distinct from the constructor's own `constructor.json` name) and its
+/// `dependencies` (the workflow-namespaced deps the `constructor!` declared).
+/// Everything else delegates to the loaded constructor.
+pub struct ConstructorNode {
+    id: String,
+    inner: Arc<dyn Task>,
+    dependencies: Vec<TaskNamespace>,
+}
+
+impl std::fmt::Debug for ConstructorNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConstructorNode")
+            .field("id", &self.id)
+            .field("dependencies", &self.dependencies)
+            .finish_non_exhaustive()
+    }
+}
+
+#[async_trait]
+impl Task for ConstructorNode {
+    async fn execute(
+        &self,
+        context: Context<serde_json::Value>,
+    ) -> Result<Context<serde_json::Value>, TaskError> {
+        self.inner.execute(context).await
+    }
+
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn dependencies(&self) -> &[TaskNamespace] {
+        &self.dependencies
+    }
+
+    fn retry_policy(&self) -> crate::retry::RetryPolicy {
+        self.inner.retry_policy()
+    }
+
+    fn trigger_rules(&self) -> serde_json::Value {
+        self.inner.trigger_rules()
+    }
+
+    fn code_fingerprint(&self) -> Option<String> {
+        self.inner.code_fingerprint()
+    }
+
+    fn requires_handle(&self) -> bool {
+        self.inner.requires_handle()
+    }
+}
+
+/// A single `#[config]` value resolved from a `constructor!(config = { … })`
+/// literal, typed per the constructor manifest's declared field type (CLOACI-T-0829).
+///
+/// fidius binds config via bincode, which is positional + width-sensitive (an `i64`
+/// field is 8 bytes, an `i32` field 4). Serializing a `serde_json::Value` directly
+/// would emit the wrong bytes (an enum tag, the wrong width), so each kwarg value is
+/// coerced into the concrete variant matching the guest's declared field type and
+/// serialized with the matching serde method — byte-identical to what the guest's
+/// generated config struct decodes.
+enum TypedConfigValue {
+    Str(String),
+    Bool(bool),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    F32(f32),
+    F64(f64),
+}
+
+impl Serialize for TypedConfigValue {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            TypedConfigValue::Str(v) => s.serialize_str(v),
+            TypedConfigValue::Bool(v) => s.serialize_bool(*v),
+            TypedConfigValue::I8(v) => s.serialize_i8(*v),
+            TypedConfigValue::I16(v) => s.serialize_i16(*v),
+            TypedConfigValue::I32(v) => s.serialize_i32(*v),
+            TypedConfigValue::I64(v) => s.serialize_i64(*v),
+            TypedConfigValue::U8(v) => s.serialize_u8(*v),
+            TypedConfigValue::U16(v) => s.serialize_u16(*v),
+            TypedConfigValue::U32(v) => s.serialize_u32(*v),
+            TypedConfigValue::U64(v) => s.serialize_u64(*v),
+            TypedConfigValue::F32(v) => s.serialize_f32(*v),
+            TypedConfigValue::F64(v) => s.serialize_f64(*v),
+        }
+    }
+}
+
+/// The reordered `#[config]` values in the guest's DECLARATION order, serialized as
+/// a bincode TUPLE (no length prefix, no field names) — byte-identical to the
+/// guest's generated config struct. This is what crosses the sandbox to the
+/// `configure` hook once at load.
+struct OrderedConfig(Vec<TypedConfigValue>);
+
+impl Serialize for OrderedConfig {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeTuple;
+        let mut tup = s.serialize_tuple(self.0.len())?;
+        for v in &self.0 {
+            tup.serialize_element(v)?;
+        }
+        tup.end()
+    }
+}
+
+/// Coerce one kwarg JSON value into the [`TypedConfigValue`] matching the declared
+/// Rust type `ty` (the manifest's `ConfigField::ty`). Returns a clear, key-named
+/// error if the literal's JSON kind doesn't fit the declared type.
+fn coerce_config_value(
+    key: &str,
+    ty: &str,
+    value: &serde_json::Value,
+) -> Result<TypedConfigValue, String> {
+    let wrong =
+        |want: &str| format!("config field '{key}' expects {want} (declared `{ty}`), got {value}");
+    match ty {
+        "String" | "str" => value
+            .as_str()
+            .map(|s| TypedConfigValue::Str(s.to_string()))
+            .ok_or_else(|| wrong("a string")),
+        "bool" => value
+            .as_bool()
+            .map(TypedConfigValue::Bool)
+            .ok_or_else(|| wrong("a boolean")),
+        "i8" => int_in_range::<i8>(value)
+            .map(TypedConfigValue::I8)
+            .ok_or_else(|| wrong("an i8")),
+        "i16" => int_in_range::<i16>(value)
+            .map(TypedConfigValue::I16)
+            .ok_or_else(|| wrong("an i16")),
+        "i32" => int_in_range::<i32>(value)
+            .map(TypedConfigValue::I32)
+            .ok_or_else(|| wrong("an i32")),
+        // `isize` is serialized as i64 by serde/bincode, so it shares this arm.
+        "i64" | "isize" => value
+            .as_i64()
+            .map(TypedConfigValue::I64)
+            .ok_or_else(|| wrong("an i64")),
+        "u8" => uint_in_range::<u8>(value)
+            .map(TypedConfigValue::U8)
+            .ok_or_else(|| wrong("a u8")),
+        "u16" => uint_in_range::<u16>(value)
+            .map(TypedConfigValue::U16)
+            .ok_or_else(|| wrong("a u16")),
+        "u32" => uint_in_range::<u32>(value)
+            .map(TypedConfigValue::U32)
+            .ok_or_else(|| wrong("a u32")),
+        // `usize` is serialized as u64 by serde/bincode, so it shares this arm.
+        "u64" | "usize" => value
+            .as_u64()
+            .map(TypedConfigValue::U64)
+            .ok_or_else(|| wrong("a u64")),
+        "f32" => value
+            .as_f64()
+            .map(|f| TypedConfigValue::F32(f as f32))
+            .ok_or_else(|| wrong("a number")),
+        "f64" => value
+            .as_f64()
+            .map(TypedConfigValue::F64)
+            .ok_or_else(|| wrong("a number")),
+        other => Err(format!(
+            "config field '{key}' has unsupported declared type `{other}`; \
+             constructor config supports string/bool/integer/float literals"
+        )),
+    }
+}
+
+/// Narrow a JSON integer into a signed target width, rejecting out-of-range.
+fn int_in_range<T: TryFrom<i64>>(value: &serde_json::Value) -> Option<T> {
+    value.as_i64().and_then(|v| T::try_from(v).ok())
+}
+
+/// Narrow a JSON integer into an unsigned target width, rejecting out-of-range.
+fn uint_in_range<T: TryFrom<u64>>(value: &serde_json::Value) -> Option<T> {
+    value.as_u64().and_then(|v| T::try_from(v).ok())
+}
+
+/// Bind the author's `config = { name = value }` kwargs BY NAME against the
+/// constructor's declared `#[config]` schema (CLOACI-T-0829), reordering them into
+/// the guest's declaration order and coercing each to its declared type.
+///
+/// Enforces true kwarg semantics, failing closed with a key-named error on:
+///   * an UNKNOWN config key (not a declared `#[config]` field),
+///   * a DUPLICATE config key,
+///   * a MISSING declared field, or
+///   * a value whose JSON kind doesn't fit the declared type.
+fn bind_config_by_name(
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    manifest: &ConstructorManifest,
+    mut author: Vec<(String, serde_json::Value)>,
+) -> Result<OrderedConfig, LoaderError> {
+    let ctx = |reason: String| {
+        LoaderError::Validation {
+        reason: format!(
+            "constructor node '{node_id}' (from = '{from}', constructor = '{constructor_name}'): {reason}"
+        ),
+    }
+    };
+    let declared: Vec<&str> = manifest
+        .config_fields
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+
+    // Reject unknown keys up front (names the offending key, lists the valid set).
+    for (k, _) in &author {
+        if !declared.contains(&k.as_str()) {
+            return Err(ctx(format!(
+                "config key '{k}' is not a #[config] field of constructor '{}'. \
+                 Declared config fields: [{}]",
+                manifest.name,
+                declared.join(", ")
+            )));
+        }
+    }
+
+    // Pull each declared field's value in DECLARATION order; absence is an error.
+    let mut ordered = Vec::with_capacity(manifest.config_fields.len());
+    for field in &manifest.config_fields {
+        let pos = author.iter().position(|(k, _)| k == &field.name);
+        let value = match pos {
+            Some(i) => author.remove(i).1,
+            None => {
+                return Err(ctx(format!(
+                    "missing required config field '{}' for constructor '{}'",
+                    field.name, manifest.name
+                )))
+            }
+        };
+        let typed = coerce_config_value(&field.name, &field.ty, &value).map_err(ctx)?;
+        ordered.push(typed);
+    }
+
+    // Anything left over (unknown keys were already rejected) is a duplicate key.
+    if let Some((dup, _)) = author.into_iter().next() {
+        return Err(ctx(format!("duplicate config key '{dup}'")));
+    }
+
+    Ok(OrderedConfig(ordered))
+}
+
+/// Resolve + load a packaged constructor as a workflow DAG node (the runtime half
+/// of the `constructor!(...)` consumer form).
+///
+/// Resolves `from` against the [`provider_search_path`], reads the resolved
+/// constructor's manifest to learn its `#[config]` schema, binds the author's
+/// `config = { name = value }` kwargs BY NAME ([`bind_config_by_name`]), loads the
+/// named `constructor` via the packaged task-constructor loader (binding the
+/// reordered config once), validates that the provider actually carries the
+/// requested constructor, and wraps it as a [`ConstructorNode`] carrying the
+/// author-chosen `node_id` + the workflow-namespaced `dependencies`.
+///
+/// `config` is the author's `config = { … }` entries as `(name, value)` pairs in
+/// WRITTEN order. fidius binds config via bincode (positional, NOT self-describing),
+/// so before loading we **reorder** the values into the constructor's `#[config]`
+/// DECLARATION order — read from the manifest's `config_fields` — and coerce each to
+/// its declared type. This gives `config = { name = value }` true kwarg semantics:
+/// the field NAMES bind the values, not their written order.
+///
+/// Fails closed (a clear [`LoaderError`]) if the provider is missing, the manifest
+/// is unreadable / not a `Task`, the interface version mismatches, a config kwarg is
+/// unknown / duplicated / missing / mistyped, or the resolved constructor name does
+/// not match `constructor_name`.
+pub fn load_constructor_node(
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    dependencies: Vec<TaskNamespace>,
+) -> Result<Arc<dyn Task>, LoaderError> {
+    let search_path = provider_search_path();
+    let package_name = provider_package_name(from);
+
+    // Peek the manifest to learn the constructor's #[config] schema, so we can bind
+    // `config = { name = value }` by NAME (reorder into declaration order) before
+    // the positional bincode load.
+    let host = PluginHost::builder()
+        .search_path(&search_path)
+        .build()
+        .map_err(|e| LoaderError::LibraryLoad {
+            path: search_path.display().to_string(),
+            error: format!("build plugin host: {e}"),
+        })?;
+    let dir = host
+        .find_wasm_package(package_name)
+        .map_err(|e| LoaderError::Validation {
+            reason: format!(
+                "resolve constructor node '{node_id}' (from = '{from}', constructor = \
+                 '{constructor_name}'): locate provider package '{package_name}' in \
+                 provider search path '{}': {e}",
+                search_path.display()
+            ),
+        })?;
+    let manifest = read_constructor_manifest(&dir)?;
+
+    let ordered_config = bind_config_by_name(node_id, from, constructor_name, &manifest, config)?;
+
+    let task = load_task_constructor(&search_path, package_name, &ordered_config).map_err(|e| {
+        LoaderError::Validation {
+            reason: format!(
+                "resolve constructor node '{node_id}' (from = '{from}', constructor = \
+                     '{constructor_name}') in provider search path '{}': {e}",
+                search_path.display()
+            ),
+        }
+    })?;
+
+    if task.id() != constructor_name {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "constructor node '{node_id}': provider '{from}' (package '{package_name}') \
+                 carries constructor '{}', but the workflow asked for constructor = \
+                 '{constructor_name}'",
+                task.id()
+            ),
+        });
+    }
+
+    Ok(Arc::new(ConstructorNode {
+        id: node_id.to_string(),
+        inner: task,
+        dependencies,
+    }))
+}

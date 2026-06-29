@@ -1,12 +1,12 @@
 ---
-id: seed-built-in-operators-one-per
+id: python-cloaca-constructor
 level: task
-title: "Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)"
-short_code: "CLOACI-T-0825"
-created_at: 2026-06-28T23:57:44.661370+00:00
-updated_at: 2026-06-28T23:57:44.661370+00:00
+title: "Python (cloaca) constructor consumption surface"
+short_code: "CLOACI-T-0831"
+created_at: 2026-06-29T14:00:00.846110+00:00
+updated_at: 2026-06-29T14:00:00.846110+00:00
 parent: CLOACI-I-0132
-blocked_by: ["CLOACI-T-0830"]
+blocked_by: ["CLOACI-T-0829"]
 archived: false
 
 tags:
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)
+# Python (cloaca) constructor consumption surface
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,9 +29,11 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http-poll **trigger**, a windowed **accumulator**, a **reactor** with firing criteria, and a shell/http **task** — authored via the macros, compiled to WASM components.
+The Python/cloaca half of the constructor consumption surface (deferred from [[CLOACI-T-0829]], whose Rust `constructor!` surface is landing). Add a cloaca API mirroring `constructor!` — id / from (provider) / constructor / config (name-keyed kwarg) / dependencies — so a Python workflow author can wire a packaged constructor into a workflow as a primitive node.
 
-**AC:** each ships as a loadable constructor, instantiable with config, runnable end-to-end in a sample workflow; covered by tests. Blocked by CLOACI-T-0824.
+NOTE: execution is ALREADY language-agnostic — the Rust runtime runs the WASM constructor via `load_constructor_node`. This is purely the cloaca authoring/instantiation surface + binding the same provider-search-path seam (`CLOACINA_PROVIDER_PATH` / `./providers`). Mirror the Rust name-keyed config semantics.
+
+**AC:** a Python (cloaca) workflow references a packaged constructor (config + deps) and runs end-to-end, config bound by name. Blocked by CLOACI-T-0829.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
