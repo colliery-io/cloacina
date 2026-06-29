@@ -556,7 +556,7 @@ pub use database::connection::Database;
 // Re-export key types for convenience
 pub use cloacina_computation_graph::{
     Graph, ReactionMode as ComputationReactionMode, Reactor, ReactorConstructor,
-    ReactorRegistration,
+    ReactorConstructorRef, ReactorRegistration,
 };
 pub use computation_graph::ComputationGraphRegistration;
 pub use computation_graph::{TriggerlessGraph, TriggerlessGraphFn, TriggerlessGraphRegistration};

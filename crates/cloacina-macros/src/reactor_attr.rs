@@ -37,7 +37,7 @@ use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{parse2, Ident, ItemStruct, LitStr, Token};
+use syn::{parse2, Expr, Ident, ItemStruct, LitStr, Token};
 
 /// Parsed form of the `#[reactor(...)]` arguments.
 struct ReactorArgs {
@@ -46,6 +46,15 @@ struct ReactorArgs {
     criteria_mode: CriteriaMode,
     criteria_accumulators: Vec<Ident>,
     criteria_span: Span,
+    /// CLOACI-T-0830: optional packaged reactor-constructor reference. When
+    /// `from`/`constructor` are present, the reactor's firing decision is
+    /// delegated to the named WASM constructor's `evaluate` (resolved + installed
+    /// by the CG scheduler via `Reactor::with_evaluator`) instead of the built-in
+    /// `criteria`. `config = { name = value }` is bound BY NAME at load, exactly
+    /// as the T-0829 `constructor!(...)` consumer form does for task/trigger.
+    from: Option<LitStr>,
+    constructor: Option<LitStr>,
+    config: Vec<(String, Expr)>,
 }
 
 impl std::fmt::Debug for ReactorArgs {
@@ -93,6 +102,9 @@ impl Parse for ReactorArgs {
         let mut name: Option<LitStr> = None;
         let mut accumulators: Option<Vec<Ident>> = None;
         let mut criteria: Option<(CriteriaMode, Vec<Ident>, Span)> = None;
+        let mut from: Option<LitStr> = None;
+        let mut constructor: Option<LitStr> = None;
+        let mut config: Vec<(String, Expr)> = Vec::new();
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -178,12 +190,52 @@ impl Parse for ReactorArgs {
                     }
                     criteria = Some((mode, list, mode_span));
                 }
+                "from" => {
+                    if from.is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate 'from' field"));
+                    }
+                    let lit: LitStr = input.parse()?;
+                    if lit.value().is_empty() {
+                        return Err(syn::Error::new(
+                            lit.span(),
+                            "reactor 'from' provider cannot be empty",
+                        ));
+                    }
+                    from = Some(lit);
+                }
+                "constructor" => {
+                    if constructor.is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate 'constructor' field"));
+                    }
+                    let lit: LitStr = input.parse()?;
+                    if lit.value().is_empty() {
+                        return Err(syn::Error::new(
+                            lit.span(),
+                            "reactor 'constructor' name cannot be empty",
+                        ));
+                    }
+                    constructor = Some(lit);
+                }
+                "config" => {
+                    // `config = { key = expr, … }` — bound BY NAME at load.
+                    let content;
+                    syn::braced!(content in input);
+                    while !content.is_empty() {
+                        let ckey: Ident = content.parse()?;
+                        content.parse::<Token![=]>()?;
+                        let cval: Expr = content.parse()?;
+                        config.push((ckey.to_string(), cval));
+                        if !content.is_empty() {
+                            content.parse::<Token![,]>()?;
+                        }
+                    }
+                }
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
                             "unknown field '{}' in #[reactor(...)] — expected 'name', \
-                             'accumulators', or 'criteria'",
+                             'accumulators', 'criteria', 'from', 'constructor', or 'config'",
                             other
                         ),
                     ));
@@ -228,12 +280,31 @@ impl Parse for ReactorArgs {
             }
         }
 
+        // CLOACI-T-0830: `from`/`constructor` are both-or-neither, and `config`
+        // only makes sense when a constructor is named.
+        if from.is_some() != constructor.is_some() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "#[reactor] reactor-constructor reference requires BOTH 'from' and \
+                 'constructor' (e.g. from = \"acme/gate@0.1\", constructor = \"gate\")",
+            ));
+        }
+        if constructor.is_none() && !config.is_empty() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "#[reactor] 'config' is only valid alongside a 'constructor' reference",
+            ));
+        }
+
         Ok(ReactorArgs {
             name,
             accumulators,
             criteria_mode,
             criteria_accumulators,
             criteria_span,
+            from,
+            constructor,
+            config,
         })
     }
 }
@@ -303,6 +374,29 @@ fn reactor_impl(
     let _ = parsed.criteria_span;
     let _ = parsed.criteria_accumulators;
 
+    // CLOACI-T-0830: build the optional reactor-constructor reference token for
+    // the LIB (embedded) inventory submission. The scheduler resolves it against
+    // the T-0829 provider search path and installs the WASM `evaluate` as the
+    // reactor's firing decider. Only emitted in lib mode — provider resolution is
+    // an embedded-host concern (behind `constructors-wasm`), not a packaged-cdylib
+    // one, so the packaged submission always carries `None`. `config` values are
+    // lowered to `serde_json` literals and bound BY NAME at load (T-0829).
+    let lib_constructor_ref = match (&parsed.from, &parsed.constructor) {
+        (Some(from_lit), Some(ctor_lit)) => {
+            let cfg_pairs = parsed.config.iter().map(|(k, v)| {
+                quote! { (#k.to_string(), ::cloacina::serde_json::json!(#v)) }
+            });
+            quote! {
+                ::std::option::Option::Some(#cg_path::ReactorConstructorRef {
+                    from: #from_lit.to_string(),
+                    constructor: #ctor_lit.to_string(),
+                    config: ::std::vec![ #(#cfg_pairs),* ],
+                })
+            }
+        }
+        _ => quote! { ::std::option::Option::None },
+    };
+
     let auto_register_ident = format_ident!(
         "_auto_register_reactor_{}",
         reactor_name_str.replace('-', "_")
@@ -333,6 +427,7 @@ fn reactor_impl(
                     name: #reactor_name_lit.to_string(),
                     accumulator_names: vec![#(#accumulator_strs.to_string()),*],
                     reaction_mode: #cg_path::ReactionMode::#mode_variant,
+                    constructor: #lib_constructor_ref,
                 },
             }
         }
@@ -345,6 +440,7 @@ fn reactor_impl(
                     name: #reactor_name_lit.to_string(),
                     accumulator_names: vec![#(#accumulator_strs.to_string()),*],
                     reaction_mode: #cg_path::ReactionMode::#mode_variant,
+                    constructor: ::std::option::Option::None,
                 },
             }
         }
@@ -486,6 +582,85 @@ mod tests {
         assert!(out.contains("\"alpha\""));
         assert!(out.contains("\"beta\""));
         assert!(out.contains("WhenAny"));
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0830: reactor-constructor reference (from/constructor/config)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_reactor_constructor_ref() {
+        let args = quote! {
+            name = "gate",
+            accumulators = [x],
+            criteria = when_any(x),
+            from = "acme/gate@0.1",
+            constructor = "gate",
+            config = { gate = 5.0 },
+        };
+        let parsed: ReactorArgs = syn::parse2(args).unwrap();
+        assert_eq!(parsed.from.as_ref().unwrap().value(), "acme/gate@0.1");
+        assert_eq!(parsed.constructor.as_ref().unwrap().value(), "gate");
+        assert_eq!(parsed.config.len(), 1);
+        assert_eq!(parsed.config[0].0, "gate");
+    }
+
+    #[test]
+    fn error_from_without_constructor() {
+        let args = quote! {
+            name = "gate",
+            accumulators = [x],
+            criteria = when_any(x),
+            from = "acme/gate@0.1",
+        };
+        let err = syn::parse2::<ReactorArgs>(args).unwrap_err();
+        assert!(err.to_string().contains("BOTH 'from' and 'constructor'"));
+    }
+
+    #[test]
+    fn error_config_without_constructor() {
+        let args = quote! {
+            name = "gate",
+            accumulators = [x],
+            criteria = when_any(x),
+            config = { gate = 5.0 },
+        };
+        let err = syn::parse2::<ReactorArgs>(args).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("'config' is only valid alongside a 'constructor'"));
+    }
+
+    #[test]
+    fn impl_emits_constructor_ref() {
+        let args = quote! {
+            name = "gate",
+            accumulators = [x],
+            criteria = when_any(x),
+            from = "acme/gate@0.1",
+            constructor = "gate",
+            config = { gate = 5.0 },
+        };
+        let input = quote! { pub struct Gate; };
+        let out = reactor_impl(args, input).unwrap().to_string();
+        assert!(out.contains("ReactorConstructorRef"));
+        assert!(out.contains("\"acme/gate@0.1\""));
+        // The packaged submission always carries None for the ref.
+        assert!(out.contains("None"));
+    }
+
+    #[test]
+    fn impl_no_constructor_ref_when_absent() {
+        let args = quote! {
+            name = "rx",
+            accumulators = [alpha],
+            criteria = when_any(alpha),
+        };
+        let input = quote! { pub struct Rx; };
+        let out = reactor_impl(args, input).unwrap().to_string();
+        assert!(!out.contains("ReactorConstructorRef"));
+        // Both submissions emit `constructor: None`.
+        assert!(out.contains("constructor"));
     }
 
     #[test]

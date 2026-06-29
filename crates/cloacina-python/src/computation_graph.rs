@@ -882,6 +882,9 @@ pub fn build_python_graph_declaration(
             criteria,
             strategy: InputStrategy::Latest,
             graph_fn,
+            // CLOACI-T-0830: the Python CG path doesn't author WASM reactor
+            // constructors — native dirty-flag firing only.
+            constructor: None,
         },
         tenant_id,
         // T-0544 M5: thread the reactor name from the `@cloaca.reactor`

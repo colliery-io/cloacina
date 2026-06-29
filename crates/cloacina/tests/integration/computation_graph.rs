@@ -418,6 +418,7 @@ async fn test_computation_graph_scheduler_end_to_end() {
             criteria: ReactionCriteria::WhenAny,
             strategy: InputStrategy::Latest,
             graph_fn,
+            constructor: None,
         },
         tenant_id: None,
         reactor_name: None,
@@ -1883,6 +1884,7 @@ mod resilience_tests {
                 criteria: ReactionCriteria::WhenAny,
                 strategy: InputStrategy::Latest,
                 graph_fn,
+                constructor: None,
             },
             tenant_id: None,
             reactor_name: None,
@@ -2179,6 +2181,7 @@ async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
         name: "cloaci_t_0538_reactor_split".to_string(),
         accumulator_names: vec!["alpha".to_string()],
         reaction_mode: ComputationReactionMode::WhenAny,
+        constructor: None,
     };
 
     scheduler
@@ -2272,6 +2275,7 @@ async fn test_cloaci_t_0538_split_missing_accumulator_fails() {
         name: "cloaci_t_0538_broken_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
         reaction_mode: ComputationReactionMode::WhenAny,
+        constructor: None,
     };
 
     let result = scheduler
@@ -2334,6 +2338,7 @@ async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
         name: "cloaci_t_0544_shared_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
         reaction_mode: ComputationReactionMode::WhenAny,
+        constructor: None,
     };
 
     let accs = || {
@@ -2433,6 +2438,7 @@ async fn test_cloaci_t_0544_contract_mismatch_rejected() {
         name: "cloaci_t_0544_clash".to_string(),
         accumulator_names: vec!["alpha".to_string()],
         reaction_mode: ComputationReactionMode::WhenAny,
+        constructor: None,
     };
     scheduler
         .load_graph_split(
@@ -2453,6 +2459,7 @@ async fn test_cloaci_t_0544_contract_mismatch_rejected() {
         name: "cloaci_t_0544_clash".to_string(),
         accumulator_names: vec!["alpha".to_string()],
         reaction_mode: ComputationReactionMode::WhenAll,
+        constructor: None,
     };
     let err = scheduler
         .load_graph_split(
@@ -2543,6 +2550,7 @@ async fn test_cloaci_t_0544_dispatch_is_concurrent() {
         name: "cloaci_t_0544_concurrent_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
         reaction_mode: ComputationReactionMode::WhenAny,
+        constructor: None,
     };
     let accs = || {
         vec![AccumulatorDeclaration {
@@ -2621,6 +2629,7 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
             cloacina::computation_graph::reactor::InputStrategy::Latest,
             None,
             vec![],
+            None,
         )
         .await
         .expect("load_reactor should spawn the reactor with empty subscribers");
@@ -2650,6 +2659,7 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
             cloacina::computation_graph::reactor::InputStrategy::Latest,
             None,
             vec![],
+            None,
         )
         .await
         .expect("idempotent load_reactor should succeed when contract matches");
@@ -2666,6 +2676,7 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
             cloacina::computation_graph::reactor::InputStrategy::Latest,
             None,
             vec![],
+            None,
         )
         .await
         .expect_err("contract mismatch should reject");
@@ -2764,6 +2775,7 @@ async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
         name: "cloaci_t_0544_unbind_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
         reaction_mode: ComputationReactionMode::WhenAny,
+        constructor: None,
     };
     let accs = || {
         vec![AccumulatorDeclaration {
@@ -2837,6 +2849,7 @@ async fn test_cloaci_t_0544_unload_reactor_rejects_with_subscribers() {
         name: "cloaci_t_0544_busy_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
         reaction_mode: ComputationReactionMode::WhenAny,
+        constructor: None,
     };
     let accs = || {
         vec![AccumulatorDeclaration {
@@ -2902,6 +2915,7 @@ async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
             name: "cloaci_t_0538_reactor_split".to_string(),
             accumulator_names: vec!["alpha".to_string()],
             reaction_mode: cloacina::ComputationReactionMode::WhenAny,
+            constructor: None,
         }
     });
 

@@ -34,9 +34,9 @@ pub use task_registrar::TaskRegistrar;
 
 #[cfg(feature = "constructors-wasm")]
 pub use constructor_loader::{
-    clear_provider_search_path, load_constructor, load_constructor_node, load_task_constructor,
-    load_task_constructor_from_package, load_trigger_constructor, provider_search_path,
-    set_provider_search_path, unpack_provider_archive, ConstructorBinding, ConstructorNode,
-    TriggerBinding, WasmTaskConstructor, WasmTriggerConstructor, DEFAULT_PROVIDER_DIR,
-    PROVIDER_PATH_ENV,
+    clear_provider_search_path, load_constructor, load_constructor_node,
+    load_reactor_constructor_node, load_task_constructor, load_task_constructor_from_package,
+    load_trigger_constructor, provider_search_path, set_provider_search_path,
+    unpack_provider_archive, ConstructorBinding, ConstructorNode, TriggerBinding,
+    WasmTaskConstructor, WasmTriggerConstructor, DEFAULT_PROVIDER_DIR, PROVIDER_PATH_ENV,
 };

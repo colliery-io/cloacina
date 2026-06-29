@@ -358,6 +358,36 @@ pub trait Reactor {
     const REACTION_MODE: ReactionMode;
 }
 
+/// A reference to a packaged WASM reactor **constructor** carried by a reactor
+/// declaration (CLOACI-T-0830).
+///
+/// When present, the reactor's firing decision is delegated to the named WASM
+/// constructor's `evaluate` (installed on the live `Reactor` via
+/// `with_evaluator`), REPLACING the built-in `WhenAny`/`WhenAll` dirty-flag
+/// criteria. The fields mirror the `constructor!(...)` consumer surface added for
+/// task/trigger in CLOACI-T-0829, so a reactor constructor is authored/resolved
+/// the same way:
+///   * `from` — the provider package, `"name[@version]"`, resolved against the
+///     T-0829 provider search path (`CLOACINA_PROVIDER_PATH` / `./providers` /
+///     the process override);
+///   * `constructor` — which constructor inside that provider (validated against
+///     the provider's `constructor.json` `name`);
+///   * `config` — the author's `config = { name = value }` kwargs as
+///     `(name, value)` pairs in WRITTEN order, bound BY NAME at load.
+///
+/// Resolution happens in the CG scheduler (`load_reactor`) behind the
+/// `constructors-wasm` feature; this type itself is always compiled (it carries
+/// only `String`/`serde_json::Value`, no wasmtime types).
+#[derive(Debug, Clone)]
+pub struct ReactorConstructorRef {
+    /// Provider package reference, `"name[@version]"`.
+    pub from: String,
+    /// The constructor's `constructor.json` name inside the provider.
+    pub constructor: String,
+    /// Author config as `(name, value)` pairs in written order; bound by name.
+    pub config: Vec<(String, serde_json::Value)>,
+}
+
 /// Runtime-side description of a reactor.
 ///
 /// Populated by the `#[reactor]` macro's emitted inventory entry.
@@ -366,6 +396,11 @@ pub struct ReactorRegistration {
     pub name: String,
     pub accumulator_names: Vec<String>,
     pub reaction_mode: ReactionMode,
+    /// Optional packaged WASM reactor-constructor reference (CLOACI-T-0830).
+    /// `Some(..)` makes the WASM guest's `evaluate` the reactor's firing
+    /// criteria; `None` is the native dirty-flag reactor. Defaults to `None`
+    /// so every pre-existing construction site stays valid.
+    pub constructor: Option<ReactorConstructorRef>,
 }
 
 pub type ReactorConstructor = Box<dyn Fn() -> ReactorRegistration + Send + Sync>;
