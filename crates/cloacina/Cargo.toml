@@ -23,6 +23,16 @@ sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool
 auth = ["postgres"]
 macros = ["cloacina-macros"]
 kafka = ["rdkafka"]
+# CLOACI-I-0132 / T-0823 — WASM task-operator loader + executor bridge.
+# OFF by default: enabling it turns on fidius-host's `wasm` feature (→ wasmtime +
+# cranelift, ~55 crates) and pulls fidius-macro (for the host-side interface
+# descriptor) + the operator contract crate. The default cloacina build pulls
+# NONE of this.
+operators-wasm = [
+    "dep:fidius-macro",
+    "dep:cloacina-operator-contract",
+    "fidius-host/wasm",
+]
 
 [dependencies]
 # Workspace dependencies
@@ -51,6 +61,10 @@ dotenvy = { version = "0.15" }
 bzip2 = { version = "0.4" }
 fidius-host = "0.5.4"
 fidius-core = "0.5.4"
+# Only compiled in when `operators-wasm` is on (host-side interface descriptor +
+# the shared operator contract). Default builds pull neither.
+fidius-macro = { version = "0.5.4", optional = true }
+cloacina-operator-contract = { workspace = true, optional = true }
 libloading = { version = "0.8" }
 parking_lot = { version = "0.12" }
 rdkafka = { version = "0.39", features = ["tokio"], optional = true }
