@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-client", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-operator-contract", "crates/cloacina-python"]
+members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-client", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-constructor-contract", "crates/cloacina-python"]
 exclude = ["examples/*"]
 resolver = "2"
 
@@ -23,7 +23,7 @@ cloacina-api-types = { version = "0.9.0", path = "crates/cloacina-api-types" }
 cloacina-client = { version = "0.9.0", path = "crates/cloacina-client" }
 cloacina-macros = { version = "0.9.0", path = "crates/cloacina-macros" }
 cloacina-workflow = { version = "0.9.0", path = "crates/cloacina-workflow" }
-cloacina-operator-contract = { version = "0.9.0", path = "crates/cloacina-operator-contract" }
+cloacina-constructor-contract = { version = "0.9.0", path = "crates/cloacina-constructor-contract" }
 clap = { version = "4.0", features = ["derive", "env"] }
 anyhow = { version = "1.0" }
 toml = { version = "0.8" }

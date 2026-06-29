@@ -1,7 +1,7 @@
 ---
 id: operator-distribution-as-fidius
 level: task
-title: "Operator distribution as fidius provider packages + registry load"
+title: "Constructor distribution as fidius provider packages + registry load"
 short_code: "CLOACI-T-0827"
 created_at: 2026-06-28T23:57:48.544299+00:00
 updated_at: 2026-06-28T23:57:48.544299+00:00
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Operator distribution as fidius provider packages + registry load
+# Constructor distribution as fidius provider packages + registry load
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,9 +29,9 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-Operators distributed as **fidius provider packages** (signed, versioned) + the registry **load path** (install/resolve/load an operator package).
+Constructors distributed as **fidius provider packages** (signed, versioned) + the registry **load path** (install/resolve/load an constructor package).
 
-**AC:** an operator is packaged (`.fid`/`.cloacina`), signed, installed, and loaded by a server/runtime from the registry; versioning + signature verification enforced; a "provider" = a package of operators. Blocked by CLOACI-T-0823 (the loader); can follow CLOACI-T-0825.
+**AC:** an constructor is packaged (`.fid`/`.cloacina`), signed, installed, and loaded by a server/runtime from the registry; versioning + signature verification enforced; a "provider" = a package of constructors. Blocked by CLOACI-T-0823 (the loader); can follow CLOACI-T-0825.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
