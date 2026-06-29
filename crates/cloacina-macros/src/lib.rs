@@ -184,8 +184,10 @@ pub fn reactor(args: TokenStream, input: TokenStream) -> TokenStream {
 /// }
 /// ```
 ///
-/// Only `kind = task` is code-generated today; the sibling kinds (trigger /
-/// accumulator / reactor) map onto the same shape and are a noted continuation.
+/// All four kinds are code-generated: `task` (T-0826), `trigger` (T-0829), and
+/// `accumulator` / `reactor` (T-0828). `trigger`'s author body returns a fire
+/// decision (`Result<bool, ConstructorError>`) and uses `set`/`get` to build the
+/// fired context.
 #[proc_macro_attribute]
 pub fn constructor(args: TokenStream, input: TokenStream) -> TokenStream {
     constructor_attr::constructor_attr(args, input)

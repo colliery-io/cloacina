@@ -118,6 +118,18 @@ impl InputSlot {
     }
 }
 
+/// One `#[config]` field of a constructor, in DECLARATION order (CLOACI-T-0829) —
+/// the order the guest's generated config struct bincode-decodes. The consumer
+/// (`constructor!`) binds `config = { name = value }` BY NAME against this, so the
+/// kwarg field names — not their written order — determine the bincode layout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigField {
+    /// The `#[config]` field name (the kwarg key the author writes).
+    pub name: String,
+    /// The field's Rust type name (e.g. `String`, `i64`, `bool`, `f64`).
+    pub ty: String,
+}
+
 /// The cloacina constructor manifest — emitted by the macros (the same seam that
 /// emits packaged-workflow `PackageTasksMetadata`), serialized into the fidius
 /// package, and read by the loader (T-0823).
@@ -143,6 +155,10 @@ pub struct ConstructorManifest {
     /// injectable runtime surface (task context keys / trigger config / etc.).
     #[serde(default)]
     pub params: Vec<InputSlot>,
+    /// The constructor's `#[config]` fields in DECLARATION order (CLOACI-T-0829),
+    /// so the `constructor!` consumer can bind `config = { name = value }` by NAME.
+    #[serde(default)]
+    pub config_fields: Vec<ConfigField>,
     /// Other constructors/packages this constructor depends on (names).
     #[serde(default)]
     pub dependencies: Vec<String>,
@@ -383,6 +399,10 @@ mod tests {
                 "name",
                 serde_json::json!({"type": "string"}),
             )],
+            config_fields: vec![ConfigField {
+                name: "prefix".into(),
+                ty: "String".into(),
+            }],
             dependencies: vec![],
             description: Some("prefixes a name".into()),
             author: None,

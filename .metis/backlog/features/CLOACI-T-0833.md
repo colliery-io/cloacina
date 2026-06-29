@@ -1,12 +1,12 @@
 ---
-id: seed-built-in-operators-one-per
+id: version-pinning-for-constructor
 level: task
-title: "Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)"
-short_code: "CLOACI-T-0825"
-created_at: 2026-06-28T23:57:44.661370+00:00
-updated_at: 2026-06-28T23:57:44.661370+00:00
+title: "Version pinning for constructor provider resolution (from = name@version)"
+short_code: "CLOACI-T-0833"
+created_at: 2026-06-29T14:00:01.127657+00:00
+updated_at: 2026-06-29T14:00:01.127657+00:00
 parent: CLOACI-I-0132
-blocked_by: ["CLOACI-T-0830"]
+blocked_by: ["CLOACI-T-0829"]
 archived: false
 
 tags:
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)
+# Version pinning for constructor provider resolution (from = name@version)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,9 +29,11 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http-poll **trigger**, a windowed **accumulator**, a **reactor** with firing criteria, and a shell/http **task** — authored via the macros, compiled to WASM components.
+`from = "name@version"` currently strips `@version` as advisory — the provider is resolved by name only against the provider search path. Add real version resolution/pinning so a constructor reference binds to a specific provider version.
 
-**AC:** each ships as a loadable constructor, instantiable with config, runnable end-to-end in a sample workflow; covered by tests. Blocked by CLOACI-T-0824.
+The Rust consumer surface ([[CLOACI-T-0829]]) resolves `from` against one provider dir (`CLOACINA_PROVIDER_PATH` / `./providers`) by package name. Lift: honor `@version` (semver match/pin) when resolving, error on missing/ambiguous version.
+
+**AC:** `from = "prefix@0.1.0"` resolves to that version; a missing/mismatched version errors clearly. Relates to [[CLOACI-T-0827]] (packaging carries the version). Blocked by CLOACI-T-0829.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 

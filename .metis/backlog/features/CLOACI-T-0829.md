@@ -4,15 +4,15 @@ level: task
 title: "Constructor consumption surface — instantiate constructors in workflows (Rust + Python)"
 short_code: "CLOACI-T-0829"
 created_at: 2026-06-29T11:16:30.362953+00:00
-updated_at: 2026-06-29T11:16:30.362953+00:00
+updated_at: 2026-06-29T14:22:13.345728+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -71,6 +71,12 @@ The surface for a workflow author to USE (consume) a constructor — the gap fla
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -141,4 +147,72 @@ The surface for a workflow author to USE (consume) a constructor — the gap fla
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-29 — Rust half landed (consumer surface + trigger kind)
+
+Branch `i0132-t0829-consumer-surface`. The **Rust consumer surface** + the
+`#[constructor(kind = trigger)]` authoring kind are implemented, built, and tested
+end-to-end. The **Python/cloaca consumer surface is deferred** to a follow-on (noted
+below). Not committed — pending review.
+
+**Landed `constructor!` syntax** (inside `#[workflow]`):
+```rust
+constructor!(
+    id = "greet",                    // DAG node id dependents reference
+    from = "prefix@0.1.0",           // provider package (name[@version])
+    constructor = "prefix",          // which constructor inside the provider
+    config = { prefix = "hello, " }, // bound once at load (positional, see below)
+    dependencies = ["load_user"],    // wired into the DAG like a #[task]
+);
+```
+
+**How it resolves / registers / wires (the seam):**
+- `cloacina-macros/src/workflow_attr.rs` parses `constructor!(...)` items inside the
+  `#[workflow]` module, strips them from the emitted module, and folds their ids +
+  deps into dependency-validation + cycle-detection (a `#[task]` may depend on a
+  constructor node and vice-versa).
+- Each node lowers to BOTH (mirroring `#[task]`): (1) added to the `Workflow` DAG in
+  the embedded workflow constructor (topological planning + dep edges), and (2) a
+  `TaskEntry` inventory submission so `Runtime::get_task` resolves it for execution.
+  Both call new `cloacina::registry::loader::load_constructor_node(...)`, memoized in a
+  per-site `OnceLock` to avoid re-loading the WASM component.
+- `load_constructor_node` (in `registry/loader/constructor_loader.rs`, behind
+  `constructors-wasm`) resolves `from` against a provider search-path directory, loads
+  the named constructor via the existing packaged loader (`load_task_constructor`),
+  validates the resolved `constructor.json` name == requested `constructor`, and wraps
+  it as a `ConstructorNode` (overrides `id`/`dependencies`, delegates `execute`).
+- **`from` resolution seam (flagged for confirmation):** ONE provider directory chosen
+  by precedence: `set_provider_search_path()` override → `CLOACINA_PROVIDER_PATH` env →
+  `./providers` default. Embedded-first (no registry service; a provider is a dir of
+  unpacked packages, like `load_task_constructor`). `@version` is stripped (advisory;
+  version pinning is a follow-on). Constructor-node lowering is EMBEDDED-only
+  (`#[cfg(not(feature = "packaged"))]`); packaged-cdylib nodes are a follow-on.
+- **config binding is POSITIONAL (flagged):** fidius binds config via bincode (not
+  self-describing), so the macro emits `config` values as a TUPLE in written order —
+  bincode-identical to the guest config struct PROVIDED the author lists them in the
+  constructor's `#[config]` declaration order. The manifest carries `params`, not the
+  `#[config]` schema, so name-keyed config is a noted follow-on.
+
+**`#[constructor(kind = trigger)]`** (`constructor_attr.rs::expand_trigger`): mirrors the
+task kind onto the trigger contract — method `poll`, wire `TriggerInvocation`/`PollOutcome`,
+author body `fn poll(&self) -> Result<bool, ConstructorError>` (Ok(true) fires with the
+`set` fire-context, Ok(false) skips). `#[param]` rejected; `#[config]`-only. The macro now
+code-generates all four kinds.
+
+**Validation (all run, all green):**
+- `cargo check -p cloacina` clean; `cargo tree -p cloacina -i wasmtime` absent.
+- `cargo fmt --all -- --check` exit 0.
+- New `examples/constructor-contract/trigger-constructor-macro-fixture` builds to
+  wasm32-wasip2 + emits its manifest on host.
+- `cargo test -p cloacina --features constructors-wasm --test constructor_trigger_macro_wasm`
+  — 3/3 (trigger constructor loads + fires/skips per config).
+- `cargo test -p cloacina --features constructors-wasm --test constructor_workflow_node_wasm`
+  — 1/1: a `#[workflow]` packages the macro fixture as a provider, wires it via
+  `constructor!` between `load_user` and `notify`, runs to completion on embedded
+  `DefaultRunner`/SQLite — `result == "hello, world"` visible to the dependent `#[task]`.
+- Existing `constructor_macro_wasm` still 4/4 (no loader regression).
+
+**Deferred (Python/cloaca consumer surface):** a cloaca authoring API mirroring
+`constructor!` — instantiate a packaged constructor with id/from/constructor/config/
+dependencies and add it to a Python workflow. Execution is already language-agnostic
+(the Rust runtime runs the WASM constructor via `load_constructor_node`), so this is the
+cloaca instantiation surface + binding the same provider-search-path seam.

@@ -1,7 +1,7 @@
 ---
 id: operator-authoring-instantiation
 level: task
-title: "Operator authoring + instantiation surface (Rust + Python)"
+title: "Constructor authoring + instantiation surface (Rust + Python)"
 short_code: "CLOACI-T-0826"
 created_at: 2026-06-28T23:57:47.816546+00:00
 updated_at: 2026-06-29T02:31:37.483810+00:00
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Operator authoring + instantiation surface (Rust + Python)
+# Constructor authoring + instantiation surface (Rust + Python)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 

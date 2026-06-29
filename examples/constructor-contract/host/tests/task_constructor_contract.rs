@@ -21,7 +21,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use fidius_host::PluginHost;
-use constructor_contract::{InputSlot, ConstructorManifest, PrimitiveKind, TaskInvocation, TaskOutcome};
+use constructor_contract::{ConfigField, InputSlot, ConstructorManifest, PrimitiveKind, TaskInvocation, TaskOutcome};
 use serde::Serialize;
 
 /// Per-instance config the host binds once (mirrors the fixture's `Config`).
@@ -53,6 +53,10 @@ fn fixture_manifest() -> ConstructorManifest {
             "name",
             serde_json::json!({"type": "string"}),
         )],
+        config_fields: vec![ConfigField {
+            name: "prefix".into(),
+            ty: "String".into(),
+        }],
         dependencies: vec![],
         description: Some("Prefixes the context `name` into `result`.".into()),
         author: Some("CLOACI-T-0822".into()),

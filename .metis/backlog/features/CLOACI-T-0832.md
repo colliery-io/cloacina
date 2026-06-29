@@ -1,12 +1,12 @@
 ---
-id: seed-built-in-operators-one-per
+id: packaged-workflow-constructor
 level: task
-title: "Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)"
-short_code: "CLOACI-T-0825"
-created_at: 2026-06-28T23:57:44.661370+00:00
-updated_at: 2026-06-28T23:57:44.661370+00:00
+title: "Packaged-workflow constructor support (constructor! beyond embedded)"
+short_code: "CLOACI-T-0832"
+created_at: 2026-06-29T14:00:00.991521+00:00
+updated_at: 2026-06-29T14:00:00.991521+00:00
 parent: CLOACI-I-0132
-blocked_by: ["CLOACI-T-0830"]
+blocked_by: ["CLOACI-T-0829"]
 archived: false
 
 tags:
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)
+# Packaged-workflow constructor support (constructor! beyond embedded)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,9 +29,11 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http-poll **trigger**, a windowed **accumulator**, a **reactor** with firing criteria, and a shell/http **task** — authored via the macros, compiled to WASM components.
+`constructor!` currently lowers **embedded-only** (`cfg(not(packaged))`): a packaged (cdylib) workflow doesn't link the constructor loader, so it can't reference constructors. Extend support so packaged workflows can also use `constructor!`.
 
-**AC:** each ships as a loadable constructor, instantiable with config, runnable end-to-end in a sample workflow; covered by tests. Blocked by CLOACI-T-0824.
+The Rust consumer surface ([[CLOACI-T-0829]]) wires constructors into the DAG + runtime for embedded workflows (DefaultRunner). The gap is the packaged cdylib path. Lift: make the constructor loader (or a thin shim) available in the packaged-workflow runtime and lower `constructor!` nodes there too.
+
+**AC:** a packaged (.cloacina) workflow using `constructor!` loads + runs its constructor node end-to-end. Additive to embedded-first, not a replacement. Blocked by CLOACI-T-0829.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 

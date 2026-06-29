@@ -438,6 +438,7 @@ mod tests {
             interface: "task-constructor".into(),
             interface_version: 1,
             params: vec![],
+            config_fields: vec![],
             dependencies: vec![],
             description: None,
             author: None,

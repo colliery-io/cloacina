@@ -58,6 +58,7 @@ fn fixture_manifest() -> ConstructorManifest {
             "name",
             serde_json::json!({"type": "string"}),
         )],
+        config_fields: vec![],
         dependencies: vec![],
         description: Some("Prefixes the context `name` into `result`.".into()),
         author: Some("CLOACI-T-0823".into()),

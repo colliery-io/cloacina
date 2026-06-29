@@ -1,7 +1,7 @@
 ---
 id: wasm-operator-spike-rust-wasm
 level: task
-title: "WASM-operator spike: Rust -> WASM-component + configured-load (de-risk)"
+title: "WASM-constructor spike: Rust -> WASM-component + configured-load (de-risk)"
 short_code: "CLOACI-T-0821"
 created_at: 2026-06-28T23:57:39.265598+00:00
 updated_at: 2026-06-29T00:58:26.876437+00:00
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# WASM-operator spike: Rust -> WASM-component + configured-load (de-risk)
+# WASM-constructor spike: Rust -> WASM-component + configured-load (de-risk)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 

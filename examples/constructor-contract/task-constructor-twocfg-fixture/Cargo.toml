@@ -1,0 +1,47 @@
+# CLOACI-T-0829 — a `#[constructor]`-authored TASK constructor with TWO `#[config]`
+# fields, used to prove NAME-KEYED `config = { … }` binding end-to-end.
+#
+# The sibling `task-constructor-macro-fixture` has a single `#[config]` field, so a
+# reordering bug is unobservable. This fixture declares `prefix` THEN `suffix`, and
+# its output depends on both being bound to the right value — so a consumer that
+# lists the kwargs in a DIFFERENT order than this declaration order still gets the
+# right result only if `config = { name = value }` binds by NAME (not position).
+#
+# Standalone crate, EXCLUDED from the cloacina workspace (under examples/* plus the
+# empty [workspace] table) so the wasm build stays self-contained.
+[workspace]
+
+[package]
+name = "task-constructor-twocfg-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+# cdylib → the wasm component; rlib → so `emit_manifest` (host) can link it.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "emit_manifest"
+path = "src/bin/emit_manifest.rs"
+
+[dependencies]
+# The `#[constructor]` authoring macro under test (path dep; proc-macro runs on host).
+cloacina-macros = { path = "../../../crates/cloacina-macros" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Shared, language-neutral contract types (wire structs + manifest + ConstructorError).
+constructor-contract = { path = "../constructor-contract" }
+
+# fidius guest SDK is needed ONLY for the wasm32 component build (the macro's guest
+# glue is `#[cfg(target_arch = "wasm32")]`). Target-gating it keeps the host build
+# (the `emit_manifest` bin) free of wasm-only deps.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+fidius-guest = "0.5.4"
+fidius-macro = "0.5.4"
+wit-bindgen = "0.44"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
