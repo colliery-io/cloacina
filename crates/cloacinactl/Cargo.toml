@@ -21,7 +21,10 @@ sqlite = ["cloacina/sqlite"]
 kafka = ["cloacina/kafka"]
 
 [dependencies]
-cloacina = { version = "0.9.0", path = "../cloacina", default-features = false }
+# `constructor-packaging` gives `cloacinactl constructor package` the provider
+# assembly/sign/pack path (CLOACI-T-0827). It is wasmtime-free (serde-only
+# contract crate) — it does NOT pull `constructors-wasm`, so the CLI stays light.
+cloacina = { version = "0.9.0", path = "../cloacina", default-features = false, features = ["constructor-packaging"] }
 cloacina-client = { workspace = true }
 cloacina-workflow-plugin = { version = "0.9.0", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
