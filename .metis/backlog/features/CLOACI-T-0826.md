@@ -4,15 +4,15 @@ level: task
 title: "Operator authoring + instantiation surface (Rust + Python)"
 short_code: "CLOACI-T-0826"
 created_at: 2026-06-28T23:57:47.816546+00:00
-updated_at: 2026-06-28T23:57:47.816546+00:00
+updated_at: 2026-06-29T02:31:37.483810+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,12 @@ The **instantiation ergonomics**: how a workflow author instantiates an operator
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -136,4 +142,38 @@ The **instantiation ergonomics**: how a workflow author instantiates an operator
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-28 — `#[operator]` authoring macro (Rust), TASK kind end-to-end
+
+Implemented the **authoring** half of this ticket: a `#[operator(kind = task, name, version)]` proc-macro in `cloacina-macros` that lets an author write the CLEAN operator form and generates the RAW fidius contract the loader already consumes. (The consumer-side **instantiation** ergonomics — `operator!(...)` in Rust + the Python surface from this ticket's original objective — remain the deferred continuation; see below.)
+
+**Author surface** (`examples/operator-contract/task-operator-macro-fixture`):
+```rust
+#[operator(kind = task, name = "prefix", version = "0.1.0", contract = operator_contract, ...)]
+pub struct Prefix {
+    #[config] prefix: String,        // bound once per instance at load
+    #[param(required)] name: String, // declared input, pulled from the task context
+}
+impl Prefix {
+    fn execute(&self) -> Result<(), OperatorError> {   // the ONLY thing the author writes
+        self.set("result", format!("{}{}", self.prefix, self.name));
+        Ok(())
+    }
+}
+```
+
+**What the macro generates** (vs the hand-written `task-operator-fixture`):
+- the SYNC `#[plugin_interface] TaskOperator` trait (tokens mirror the host's `crate = "fidius_core"` re-declaration verbatim so the fidius interface hash matches) + a `#[plugin_impl(config = <generated Config>)]` impl whose `execute(invocation_json) -> outcome_json` decodes the `TaskInvocation`, pulls the `#[param]` fields out of the context (required/optional honored), binds the `#[config]` fields, runs the author body, and encodes the `TaskOutcome`;
+- the `configure` hook binding the `#[config]` fields once at load;
+- a `#[config]`-derived `Config` struct + `set`/`get` over an output buffer (interior-mutable, so the `&self` body can write outputs);
+- `pub fn __operator_manifest() -> OperatorManifest` carrying `primitive_kind = Task`, `name`, `version`, `interface`, `interface_version`, and `params: Vec<InputSlot>` (required `String` → `{"type":"string"}` slot). The macro cannot write a file; **packaging (CLOACI-T-0827) serializes this to the sidecar `operator.json`**.
+
+**Host/wasm split:** the fidius guest glue is emitted under `#[cfg(target_arch = "wasm32")]`, so the same crate compiles on the host with only the struct + `__operator_manifest()`. That lets a host `emit_manifest` bin materialize `operator.json` from the generated fn (the T-0827 stand-in) without the wasm-only exports.
+
+**Proof** — `crates/cloacina/tests/operator_macro_wasm.rs` (`--features operators-wasm`), mirroring T-0823: builds the macro fixture to a wasm32-wasip2 component, writes `operator.json` from `__operator_manifest()`, loads via the cloacina loader → `Arc<dyn Task>`, runs with `Context { name: "world" }` → asserts `result == "hello, world"`; plus config-binding, missing-required-param fail-closed, and a manifest-shape assertion. **4/4 pass.** Default `cargo check -p cloacina` clean, `cargo tree -i wasmtime` empty (no wasmtime in the default build), `cargo fmt --all` clean.
+
+Also added a tiny serde/wasm-safe `OperatorError` (`Result<(), OperatorError>` body return) to both `cloacina-operator-contract` and the example contract crate.
+
+**Deferred (noted continuation):**
+- **Instantiation ergonomics** — `operator!(...)` workflow instantiation in Rust and the Python authoring/instantiation surface (this ticket's original objective). Params-validated-at-instantiation rides on that surface.
+- **Other kinds** — `kind = trigger | accumulator | reactor`. Each maps cleanly onto the same shape (own sync trait + `poll`/`ingest`/`evaluate` body, own `*Invocation`/`*Outcome` wire); the trait/body mapping is documented in `operator_attr.rs`. Full codegen + fixtures deferred (their host bridges are themselves a T-0824 continuation). `#[operator]` currently errors clearly for non-task kinds.
+- **Richer param schema** — slots use a built-in scalar→JSON-Schema map (schemars-free, so the manifest fn stays wasm-buildable); wiring the full I-0128 `schema_for::<T>()` is a refinement.

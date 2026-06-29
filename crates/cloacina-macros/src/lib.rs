@@ -45,6 +45,7 @@
 //! ```
 
 pub(crate) mod computation_graph;
+mod operator_attr;
 pub(crate) mod packaged_workflow;
 mod reactor_attr;
 mod registry;
@@ -156,6 +157,38 @@ pub fn computation_graph(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn reactor(args: TokenStream, input: TokenStream) -> TokenStream {
     reactor_attr::reactor_attr(args, input)
+}
+
+/// Author a WASM **operator** in clean form; generate the raw fidius contract
+/// (sync trait impl + config + JSON wire + the `operator.json` manifest data)
+/// the loader consumes (CLOACI-T-0826).
+///
+/// Applied to a struct whose fields are `#[config]` (bound once per instance at
+/// load) or `#[param(required)]` / `#[param(optional)]` (declared inputs pulled
+/// from the task context). The author writes ONLY the body method (`execute` for
+/// `kind = task`); the macro emits the `#[plugin_interface]` sync trait, the
+/// `#[plugin_impl(config = …)]` impl + `configure` hook, and a
+/// `pub fn __operator_manifest() -> OperatorManifest`.
+///
+/// ```rust,ignore
+/// #[operator(kind = task, name = "prefix", version = "0.1.0")]
+/// struct Prefix {
+///     #[config] prefix: String,
+///     #[param(required)] name: String,
+/// }
+/// impl Prefix {
+///     fn execute(&self) -> Result<(), OperatorError> {
+///         self.set("result", format!("{}{}", self.prefix, self.name));
+///         Ok(())
+///     }
+/// }
+/// ```
+///
+/// Only `kind = task` is code-generated today; the sibling kinds (trigger /
+/// accumulator / reactor) map onto the same shape and are a noted continuation.
+#[proc_macro_attribute]
+pub fn operator(args: TokenStream, input: TokenStream) -> TokenStream {
+    operator_attr::operator_attr(args, input)
 }
 
 /// Define a passthrough accumulator (socket-only, no event loop).

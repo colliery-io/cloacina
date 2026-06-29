@@ -74,6 +74,46 @@ use serde::{Deserialize, Serialize};
 /// JSON-Schema-typed slots the rest of cloacina uses.
 pub use cloacina_api_types::InputSlot;
 
+/// The error an `#[operator]`-authored body returns (`Result<(), OperatorError>`,
+/// CLOACI-T-0826). Deliberately tiny + serde/wasm-safe: it carries a message the
+/// macro-emitted glue stringifies into the failed `TaskOutcome.error`. Authors
+/// construct it with [`OperatorError::msg`] or via `From<String>` / `From<&str>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OperatorError {
+    pub message: String,
+}
+
+impl OperatorError {
+    /// Build an error from a message.
+    pub fn msg(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for OperatorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for OperatorError {}
+
+impl From<String> for OperatorError {
+    fn from(message: String) -> Self {
+        Self { message }
+    }
+}
+
+impl From<&str> for OperatorError {
+    fn from(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
+        }
+    }
+}
+
 /// The vtable method index of `TaskOperator::execute` (the single sync method).
 pub const METHOD_EXECUTE: usize = 0;
 
