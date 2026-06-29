@@ -22,8 +22,18 @@
 
 pub mod ffi_trigger;
 pub mod ffi_triggerless_graph;
+/// WASM task-operator loader + executor adapter (CLOACI-I-0132 / T-0823).
+/// Default-OFF behind the `operators-wasm` feature.
+#[cfg(feature = "operators-wasm")]
+pub mod operator_loader;
 pub mod package_loader;
 pub mod task_registrar;
 
 pub use package_loader::PackageLoader;
 pub use task_registrar::TaskRegistrar;
+
+#[cfg(feature = "operators-wasm")]
+pub use operator_loader::{
+    load_operator, load_task_operator, load_trigger_operator, OperatorBinding, TriggerBinding,
+    WasmTaskOperator, WasmTriggerOperator,
+};

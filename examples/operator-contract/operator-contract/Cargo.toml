@@ -1,0 +1,23 @@
+# CLOACI-T-0822 operator contract — shared contract types.
+#
+# Host- AND guest-shared, language-neutral contract for WASM operators:
+#   * the operator MANIFEST schema (name, version, primitive kind, param
+#     schema, dependencies) — cloacina-defined metadata that travels in the
+#     fidius package and tells the loader (T-0823) which primitive to register.
+#   * the per-primitive WASM-boundary wire types (task: TaskInvocation in,
+#     TaskOutcome out) — bincode/JSON-serializable, sync.
+#
+# Standalone (empty [workspace]) so the whole example stays workspace-excluded
+# and removable, matching the T-0821 spike ethos. Depends only on serde +
+# serde_json so it compiles for BOTH the host and the wasm32-wasip2 guest.
+[workspace]
+
+[package]
+name = "operator-contract"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

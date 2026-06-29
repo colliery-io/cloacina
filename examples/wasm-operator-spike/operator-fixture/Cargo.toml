@@ -1,0 +1,32 @@
+# CLOACI-T-0821 WASM-operator spike — author fixture.
+#
+# Standalone crate, EXCLUDED from the cloacina workspace (lives under
+# examples/*, which the root Cargo.toml excludes). The empty [workspace]
+# table below makes it fully self-contained so `cargo build` from this dir
+# does not try to attach to the cloacina workspace.
+#
+# A minimal SYNCHRONOUS fidius operator authored with the fidius macros and
+# built to a wasm32-wasip2 component. `#[plugin_impl(.., config = Config)]`
+# binds config once via the macro-emitted `fidius-configure` export; `apply`
+# then uses the bound config without the caller re-passing it.
+[workspace]
+
+[package]
+name = "wasm-operator-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fidius-guest = "0.5.4"
+fidius-macro = "0.5.4"
+wit-bindgen = "0.44"
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

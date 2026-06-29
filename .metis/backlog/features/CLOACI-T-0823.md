@@ -4,15 +4,15 @@ level: task
 title: "Operator loader + registry (load_wasm_configured -> register the primitive)"
 short_code: "CLOACI-T-0823"
 created_at: 2026-06-28T23:57:41.833766+00:00
-updated_at: 2026-06-28T23:57:41.833766+00:00
+updated_at: 2026-06-29T01:48:57.400152+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,12 @@ Extend cloacina's loader to load a WASM operator via `load_wasm_configured`, rea
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -136,4 +142,68 @@ Extend cloacina's loader to load a WASM operator via `load_wasm_configured`, rea
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-28 — TASK-operator loader + executor bridge: PROVEN end-to-end (not committed)
+
+A WASM **task operator** now loads + runs as a cloacina `Task`, end-to-end,
+behind a default-OFF feature. NOT committed — review gate.
+
+#### Contract promoted to a real crate
+`crates/cloacina-operator-contract` (new workspace member): `OperatorManifest`,
+`PrimitiveKind`, `TaskInvocation`, `TaskOutcome`, `METHOD_EXECUTE`,
+`TASK_OPERATOR_INTERFACE_VERSION`, and the `TaskOperator` sync-trait shape
+(documented; the `#[plugin_interface]` declaration itself is bound to a fidius
+`crate =` target so it lives host-/guest-side, not here). Reuses the **canonical**
+`cloacina_api_types::InputSlot` (re-exported), not a vendored copy. serde-only
+deps -> wasm-buildable. 2 unit tests + 1 doctest green.
+
+#### Loader + executor adapter (feature `operators-wasm`, default OFF)
+`crates/cloacina/src/registry/loader/operator_loader.rs`:
+- Host-side `#[fidius_macro::plugin_interface(version=1, crate="fidius_core")]
+  trait TaskOperator` -> emits `__fidius_TaskOperator::TaskOperator_WASM_DESCRIPTOR`.
+- `load_task_operator(search_path, package_name, &config) -> Arc<dyn Task>`:
+  reads sidecar `operator.json`, requires `primitive_kind == Task` +
+  matching `interface_version` (else fail-closed `LoaderError`), then
+  `load_wasm_configured(component, &config)` (config bound ONCE at load) and
+  wraps the handle.
+- `WasmTaskOperator: Task` — the async/sync bridge: `Context.to_json()` ->
+  `JSON(TaskInvocation)` -> `tokio::spawn_blocking` the wasmtime `call_method(0,
+  (inv,))` -> parse `JSON(TaskOutcome)` -> `Context::from_json` on success, or a
+  `TaskError::ExecutionFailed` from a failed outcome. Handle held in `Arc` so a
+  `'static + Send` clone goes into `spawn_blocking`; the WASM backend serializes
+  calls behind its own store mutex.
+
+Feature wiring: `operators-wasm = ["dep:fidius-macro",
+"dep:cloacina-operator-contract", "fidius-host/wasm"]`. fidius-host has no
+default features, so the default cloacina build pulls neither wasmtime nor
+fidius-macro.
+
+#### Gating proof (no-wasmtime-by-default)
+- `cargo tree -p cloacina -i wasmtime` -> "did not match any packages" (absent).
+- `cargo tree -p cloacina --features operators-wasm -i wasmtime` -> `wasmtime
+  v45.0.3` via `fidius-host`. Symmetric for `fidius-macro`.
+- `cargo check -p cloacina` (default) -> Finished, clean.
+
+#### End-to-end (feature on)
+`crates/cloacina/tests/operator_loader_wasm.rs` (reuses the proven fixture
+`examples/operator-contract/task-operator-fixture`, built to wasm32-wasip2,
+staged as `.wasm` + `package.toml` + `operator.json`):
+- `wasm_task_operator_runs_as_cloacina_task` — load -> `Arc<dyn Task>` -> `execute`
+  `Context{name:"world"}` -> `result == "hello, world"`, `name` preserved.
+- `config_binds_at_load_so_instances_differ` — `hello, ` vs `goodbye, `
+  instances differ.
+- `non_task_primitive_fails_closed` — a Trigger-kind manifest is rejected.
+- `cargo test -p cloacina --features operators-wasm --test operator_loader_wasm`
+  -> `3 passed; 0 failed`. (Benign `unexpected cfg "host"` warning from the
+  fixture's wasm build only; the loader module suppresses it.)
+
+#### Deferred (unchanged scope)
+- **CLOACI-T-0824**: trigger `poll` / accumulator `ingest` / reactor `evaluate`
+  bridges + wire types, and wiring a loaded operator into the Runtime/scheduler
+  registries (this task returns a `Arc<dyn Task>`; it does not register it).
+- **CLOACI-T-0826**: the `#[operator(kind=...)]` authoring macro (manifests are
+  hand-built in the test; the macro emits them at the metadata seam).
+- The async `CloacinaPlugin` packaged-workflow path is untouched (parallel shape).
+- Generic config across arbitrary guest structs stays out of scope: fidius
+  config wire is bincode (the dev=JSON/release=bincode note is stale — fidius
+  is always bincode now), so the loader is generic `<C: Serialize>` and the test
+  passes a concrete `Config{prefix}` matching the guest.

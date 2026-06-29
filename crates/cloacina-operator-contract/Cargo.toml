@@ -1,0 +1,30 @@
+# CLOACI-T-0823 — operator contract (real workspace crate, promoted from the
+# proven `examples/operator-contract/operator-contract` first cut).
+#
+# The cloacina-defined OPERATOR CONTRACT shared by the host loader and the WASM
+# guest. It carries:
+#   * the operator MANIFEST schema (`OperatorManifest` / `PrimitiveKind`) — the
+#     sidecar `operator.json` metadata the loader (T-0823) reads to learn which
+#     primitive a component implements, plus its param schema + dependencies. It
+#     reuses the canonical CLOACI-I-0128 `InputSlot` (from `cloacina-api-types`),
+#     NOT a vendored copy.
+#   * the per-primitive WASM-boundary wire types — for the TASK primitive that is
+#     `TaskInvocation` in / `TaskOutcome` out (serde-serializable, sync).
+#
+# Deps are serde-only (+ the serde-only `cloacina-api-types`) so the crate
+# compiles for BOTH the host and the wasm32-wasip2 guest.
+[package]
+name = "cloacina-operator-contract"
+version.workspace = true
+edition = "2021"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "WASM operator contract for cloacina — operator manifest schema + per-primitive sync wire types (CLOACI-I-0132)."
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json.workspace = true
+cloacina-api-types = { workspace = true }
