@@ -58,8 +58,13 @@
 //! method index for `execute` is `0` ([`METHOD_EXECUTE`]).
 //!
 //! Sibling primitives (trigger `poll`, accumulator `ingest`, reactor `evaluate`)
-//! are all single-arg JSON-String-in/JSON-String-out, sync — their wire types
-//! are deferred to CLOACI-T-0824 alongside their loader/registry wiring.
+//! are all single-arg JSON-String-in/JSON-String-out, sync. CLOACI-T-0824 lands
+//! the TRIGGER primitive end-to-end ([`TriggerInvocation`] in / [`PollOutcome`]
+//! out, bridged to [`cloacina_workflow::Trigger`] by the host loader) plus the
+//! Runtime-registry wiring, and defines the ACCUMULATOR
+//! ([`AccumulatorInvocation`] / [`AccumulatorOutcome`]) and REACTOR
+//! ([`ReactorInvocation`] / [`ReactorOutcome`]) wire types whose full host
+//! bridge/fixture is a noted continuation.
 
 use serde::{Deserialize, Serialize};
 
@@ -72,10 +77,33 @@ pub use cloacina_api_types::InputSlot;
 /// The vtable method index of `TaskOperator::execute` (the single sync method).
 pub const METHOD_EXECUTE: usize = 0;
 
+/// The vtable method index of `TriggerOperator::poll` (the single sync method).
+pub const METHOD_POLL: usize = 0;
+
+/// The vtable method index of `AccumulatorOperator::ingest` (CLOACI-T-0824
+/// continuation — wire type defined, bridge sketched).
+pub const METHOD_INGEST: usize = 0;
+
+/// The vtable method index of `ReactorOperator::evaluate` (CLOACI-T-0824
+/// continuation — wire type defined, bridge sketched).
+pub const METHOD_EVALUATE: usize = 0;
+
 /// The fidius interface version of the TASK-operator contract. Must match the
 /// `version` passed to the guest/host `#[plugin_interface(version = ..)]` and is
 /// cross-checked against [`OperatorManifest::interface_version`] by the loader.
 pub const TASK_OPERATOR_INTERFACE_VERSION: u32 = 1;
+
+/// The fidius interface version of the TRIGGER-operator contract. Cross-checked
+/// against [`OperatorManifest::interface_version`] for trigger primitives.
+pub const TRIGGER_OPERATOR_INTERFACE_VERSION: u32 = 1;
+
+/// The fidius interface version of the ACCUMULATOR-operator contract
+/// (continuation — see [`AccumulatorInvocation`]).
+pub const ACCUMULATOR_OPERATOR_INTERFACE_VERSION: u32 = 1;
+
+/// The fidius interface version of the REACTOR-operator contract
+/// (continuation — see [`ReactorInvocation`]).
+pub const REACTOR_OPERATOR_INTERFACE_VERSION: u32 = 1;
 
 /// Which cloacina runtime primitive a WASM operator implements. The loader
 /// (CLOACI-T-0823 for `Task`; the rest land in T-0824) switches on this to pick
@@ -190,6 +218,125 @@ impl TaskOutcome {
     }
 }
 
+// ---------------------------------------------------------------------------
+// TRIGGER primitive — the WASM-boundary wire types (CLOACI-T-0824).
+// ---------------------------------------------------------------------------
+
+/// What crosses INTO a trigger operator's `poll`. The async `Trigger::poll`
+/// takes no arguments, but every operator method is single-arg over the WASM
+/// boundary, so the host passes this (currently-empty) envelope. `context_json`
+/// is reserved so a future host can feed the last-fired context back into a
+/// poll without a wire break.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TriggerInvocation {
+    /// Reserved: JSON-serialized context from a prior fire, if the host chooses
+    /// to thread it through. Empty for all current poll calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_json: Option<String>,
+}
+
+/// What crosses OUT of a trigger operator's `poll`. The host bridge maps this to
+/// a [`cloacina_workflow::TriggerResult`]: `fire == true` →
+/// `Fire(context_json?)`, `fire == false` → `Skip`. A populated `error` is
+/// surfaced as a `TriggerError::PollError` (polling then continues next tick).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PollOutcome {
+    /// Whether the workflow should fire this tick.
+    pub fire: bool,
+    /// Optional JSON-serialized `Context` to fire with (only meaningful when
+    /// `fire`). `None` fires with no context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_json: Option<String>,
+    /// Optional poll error; surfaced as `TriggerError::PollError` by the host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl PollOutcome {
+    /// Fire the workflow, optionally carrying a context JSON.
+    pub fn fire(context_json: Option<String>) -> Self {
+        Self {
+            fire: true,
+            context_json,
+            error: None,
+        }
+    }
+
+    /// Skip this tick (keep polling).
+    pub fn skip() -> Self {
+        Self {
+            fire: false,
+            context_json: None,
+            error: None,
+        }
+    }
+
+    /// A failed poll, surfaced host-side as `TriggerError::PollError`.
+    pub fn err(message: impl Into<String>) -> Self {
+        Self {
+            fire: false,
+            context_json: None,
+            error: Some(message.into()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ACCUMULATOR primitive — wire types (CLOACI-T-0824 continuation).
+// ---------------------------------------------------------------------------
+
+/// What crosses INTO an accumulator operator's `ingest`: one raw event. Mirrors
+/// `cloacina`'s `Accumulator::process(event: Vec<u8>) -> Option<Output>`, except
+/// the bytes are base64/JSON-string-carried to keep the boundary a JSON String
+/// like the other primitives. The host event loop calls `ingest` per event and
+/// forwards any produced boundary to the reactor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccumulatorInvocation {
+    /// Raw event payload as a JSON string (the guest owns deserialization, the
+    /// runtime is format-agnostic — mirrors the native `Accumulator` contract).
+    pub event_json: String,
+}
+
+/// What crosses OUT of an accumulator operator's `ingest`: an optional boundary
+/// for the reactor (mirrors `Option<Self::Output>`). `boundary_json == None`
+/// means "buffered, no boundary emitted this event".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccumulatorOutcome {
+    /// JSON-serialized boundary to forward to the reactor, if one was produced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boundary_json: Option<String>,
+    /// Optional ingest error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// REACTOR primitive — wire types (CLOACI-T-0824 continuation).
+// ---------------------------------------------------------------------------
+
+/// What crosses INTO a reactor operator's `evaluate`: the set of currently-held
+/// boundaries (one JSON blob per named accumulator slot). Mirrors the reactor's
+/// firing-criteria evaluation over its accumulator set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReactorInvocation {
+    /// JSON-serialized boundaries keyed by accumulator name.
+    pub boundaries_json: String,
+}
+
+/// What crosses OUT of a reactor operator's `evaluate`: whether to fire the
+/// downstream computation graph, and the context to fire it with.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReactorOutcome {
+    /// Whether the reactor's firing criteria are satisfied.
+    pub fire: bool,
+    /// JSON-serialized context to fire the graph with (only when `fire`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_json: Option<String>,
+    /// Optional evaluate error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +382,46 @@ mod tests {
         let err = TaskOutcome::err("boom");
         assert!(!err.success);
         assert_eq!(err.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn trigger_wire_round_trips() {
+        let inv = TriggerInvocation::default();
+        let s = serde_json::to_string(&inv).unwrap();
+        let back: TriggerInvocation = serde_json::from_str(&s).unwrap();
+        assert_eq!(inv, back);
+
+        let fire = PollOutcome::fire(Some(r#"{"hit":true}"#.into()));
+        let s = serde_json::to_string(&fire).unwrap();
+        let back: PollOutcome = serde_json::from_str(&s).unwrap();
+        assert_eq!(fire, back);
+        assert!(back.fire);
+        assert_eq!(back.context_json.as_deref(), Some(r#"{"hit":true}"#));
+
+        let skip = PollOutcome::skip();
+        assert!(!skip.fire);
+        assert!(skip.context_json.is_none());
+
+        let err = PollOutcome::err("poll boom");
+        assert!(!err.fire);
+        assert_eq!(err.error.as_deref(), Some("poll boom"));
+    }
+
+    #[test]
+    fn accumulator_and_reactor_wire_round_trip() {
+        let acc = AccumulatorOutcome {
+            boundary_json: Some(r#"{"sum":3}"#.into()),
+            error: None,
+        };
+        let s = serde_json::to_string(&acc).unwrap();
+        assert_eq!(serde_json::from_str::<AccumulatorOutcome>(&s).unwrap(), acc);
+
+        let rea = ReactorOutcome {
+            fire: true,
+            context_json: Some(r#"{"go":1}"#.into()),
+            error: None,
+        };
+        let s = serde_json::to_string(&rea).unwrap();
+        assert_eq!(serde_json::from_str::<ReactorOutcome>(&s).unwrap(), rea);
     }
 }

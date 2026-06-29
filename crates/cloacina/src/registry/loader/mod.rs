@@ -33,4 +33,7 @@ pub use package_loader::PackageLoader;
 pub use task_registrar::TaskRegistrar;
 
 #[cfg(feature = "operators-wasm")]
-pub use operator_loader::{load_task_operator, WasmTaskOperator};
+pub use operator_loader::{
+    load_operator, load_task_operator, load_trigger_operator, OperatorBinding, TriggerBinding,
+    WasmTaskOperator, WasmTriggerOperator,
+};

@@ -172,6 +172,58 @@ impl TaskOutcome {
     }
 }
 
+// ---------------------------------------------------------------------------
+// TRIGGER primitive — the WASM-boundary wire types (CLOACI-T-0824).
+// ---------------------------------------------------------------------------
+
+/// What crosses INTO a trigger operator's `poll`. The async `Trigger::poll`
+/// takes no arguments, but every operator method is single-arg over the WASM
+/// boundary, so the host passes this (currently-empty) envelope.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TriggerInvocation {
+    /// Reserved: JSON context from a prior fire, if the host threads it through.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_json: Option<String>,
+}
+
+/// What crosses OUT of a trigger operator's `poll`. The host maps this to a
+/// `TriggerResult`: `fire` → `Fire(context_json?)`, else `Skip`; `error` →
+/// `TriggerError::PollError`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PollOutcome {
+    pub fire: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl PollOutcome {
+    pub fn fire(context_json: Option<String>) -> Self {
+        Self {
+            fire: true,
+            context_json,
+            error: None,
+        }
+    }
+
+    pub fn skip() -> Self {
+        Self {
+            fire: false,
+            context_json: None,
+            error: None,
+        }
+    }
+
+    pub fn err(message: impl Into<String>) -> Self {
+        Self {
+            fire: false,
+            context_json: None,
+            error: Some(message.into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

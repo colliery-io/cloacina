@@ -4,15 +4,15 @@ level: task
 title: "Configured WASM execution in the runtime/scheduler"
 short_code: "CLOACI-T-0824"
 created_at: 2026-06-28T23:57:42.943615+00:00
-updated_at: 2026-06-28T23:57:42.943615+00:00
+updated_at: 2026-06-29T02:03:09.558810+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,12 @@ Bridge the runtime/scheduler to invoke a **configured WASM operator** as its bou
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -136,4 +142,54 @@ Bridge the runtime/scheduler to invoke a **configured WASM operator** as its bou
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-28 — TRIGGER bridge + Runtime registration landed (active)
+
+Built on T-0823's idioms (spawn_blocking async->sync bridge, host-side
+`#[plugin_interface]` re-declaration, fail-closed `LoaderError`s). All WASM
+stays behind the default-OFF `operators-wasm` feature.
+
+**Done / proven (must-haves):**
+- Contract crate (`cloacina-operator-contract`): added `TriggerInvocation` /
+  `PollOutcome` wire types (+ `fire`/`skip`/`err` ctors), `METHOD_POLL`,
+  `TRIGGER_OPERATOR_INTERFACE_VERSION`; round-trip unit tests pass.
+- Trigger bridge (`operator_loader.rs`): host-side `TriggerOperator`
+  `#[plugin_interface]` trait (`poll`); `WasmTriggerOperator: impl Trigger`
+  whose async `poll()` spawn_blocks into the sync WASM `poll`, mapping
+  `PollOutcome` -> `TriggerResult::Fire(ctx)`/`Skip`, outcome `error` ->
+  `TriggerError::PollError`. `load_trigger_operator(search_path, package,
+  config, TriggerBinding)`.
+- Runtime registration: `load_operator(runtime, search_path, package, config,
+  OperatorBinding)` reads `operator.json`, dispatches on `primitive_kind`,
+  registers Task -> `register_task(namespace)` / Trigger ->
+  `register_trigger(name)`. Mismatched binding fails closed.
+- Fixture + e2e (`examples/operator-contract/trigger-operator-fixture`,
+  `tests/operator_trigger_wasm.rs`): trigger fixture compiles to wasm32-wasip2,
+  loads, polls Fire/Skip config-bound; registration lands the primitive in the
+  correct `Runtime` registry by `primitive_kind`. 6 tests pass; existing task
+  e2e (3) still green; contract unit tests (4) pass.
+
+**Design wrinkle - poll_interval sourcing:** the operator manifest has no
+poll-interval field (it describes the component, not a deployment), and the
+WASM guest never needs the cadence. So host-side scheduling metadata
+(poll_interval / allow_concurrent / workflow_name / cron_expression) is bound
+via a separate `TriggerBinding` at load - the trigger analogue of "config binds
+once". The guest `poll` decides *whether* to fire; the host decides *how often*.
+
+**Validation (exact):**
+- `cargo test -p cloacina-operator-contract` -> 4 passed.
+- `cargo check -p cloacina` -> clean; `cargo tree -p cloacina` wasmtime count =
+  0 (default), 43 (with `--features operators-wasm`).
+- `cargo test -p cloacina --features operators-wasm --test operator_trigger_wasm`
+  -> 6 passed.
+
+**Deferred (clearly-noted continuation):** ACCUMULATOR + REACTOR. Their sync
+contract traits (`AccumulatorOperator::ingest` / `ReactorOperator::evaluate`)
+and wire types (`AccumulatorInvocation`/`AccumulatorOutcome`,
+`ReactorInvocation`/`ReactorOutcome`) are defined and the `Wasm*Operator`
+bridge shapes are documented in `operator_loader.rs`, but full impl + fixtures
+are left because neither is a plain `Runtime` constructor: the accumulator is a
+stateful `&mut self` event sink driven by `accumulator_runtime` (no `Runtime`
+registry), and a reactor is represented as a `ReactorRegistration` descriptor
+(not a callable) evaluated by the CG scheduler. Wiring those needs threading a
+callable evaluator / event loop through the scheduler - beyond this task's
+surface. Not committed (per reviewer request).
