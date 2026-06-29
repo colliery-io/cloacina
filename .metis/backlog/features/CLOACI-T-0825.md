@@ -1,7 +1,7 @@
 ---
 id: seed-built-in-operators-one-per
 level: task
-title: "Seed built-in operators (one per primitive: task/trigger/accumulator/reactor)"
+title: "Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)"
 short_code: "CLOACI-T-0825"
 created_at: 2026-06-28T23:57:44.661370+00:00
 updated_at: 2026-06-28T23:57:44.661370+00:00
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Seed built-in operators (one per primitive: task/trigger/accumulator/reactor)
+# Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,9 +29,9 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-Ship a **seed built-in library**: >=1 operator per primitive — e.g. an http-poll **trigger**, a windowed **accumulator**, a **reactor** with firing criteria, and a shell/http **task** — authored via the macros, compiled to WASM components.
+Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http-poll **trigger**, a windowed **accumulator**, a **reactor** with firing criteria, and a shell/http **task** — authored via the macros, compiled to WASM components.
 
-**AC:** each ships as a loadable operator, instantiable with config, runnable end-to-end in a sample workflow; covered by tests. Blocked by CLOACI-T-0824.
+**AC:** each ships as a loadable constructor, instantiable with config, runnable end-to-end in a sample workflow; covered by tests. Blocked by CLOACI-T-0824.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 

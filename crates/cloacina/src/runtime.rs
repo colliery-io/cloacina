@@ -170,14 +170,14 @@ impl Runtime {
     // -----------------------------------------------------------------------
 
     /// Register a task constructor for the given namespace.
-    pub fn register_task<F>(&self, namespace: TaskNamespace, constructor: F)
+    pub fn register_task<F>(&self, namespace: TaskNamespace, factory: F)
     where
         F: Fn() -> Arc<dyn Task> + Send + Sync + 'static,
     {
         self.inner
             .tasks
             .write()
-            .insert(namespace, Box::new(constructor));
+            .insert(namespace, Box::new(factory));
     }
 
     /// Remove a task constructor. Returns true if the entry existed.
@@ -238,14 +238,11 @@ impl Runtime {
     // -----------------------------------------------------------------------
 
     /// Register a trigger constructor by name.
-    pub fn register_trigger<F>(&self, name: String, constructor: F)
+    pub fn register_trigger<F>(&self, name: String, factory: F)
     where
         F: Fn() -> Arc<dyn Trigger> + Send + Sync + 'static,
     {
-        self.inner
-            .triggers
-            .write()
-            .insert(name, Box::new(constructor));
+        self.inner.triggers.write().insert(name, Box::new(factory));
     }
 
     /// Remove a trigger constructor. Returns true if the entry existed.

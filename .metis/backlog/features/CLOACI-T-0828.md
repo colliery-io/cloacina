@@ -1,7 +1,7 @@
 ---
 id: accumulator-reactor-operator
 level: task
-title: "Accumulator + reactor operator execution (scheduler-level wiring)"
+title: "Accumulator + reactor constructor execution (scheduler-level wiring)"
 short_code: "CLOACI-T-0828"
 created_at: 2026-06-29T02:03:51.709831+00:00
 updated_at: 2026-06-29T02:03:51.709831+00:00
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Accumulator + reactor operator execution (scheduler-level wiring)
+# Accumulator + reactor constructor execution (scheduler-level wiring)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,14 +29,14 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-Implement operator EXECUTION for the **accumulator** and **reactor** primitives — deferred from [[CLOACI-T-0824]] because, unlike task/trigger, they are NOT plain `Runtime` constructors:
+Implement constructor EXECUTION for the **accumulator** and **reactor** primitives — deferred from [[CLOACI-T-0824]] because, unlike task/trigger, they are NOT plain `Runtime` constructors:
 
-- **Accumulator**: a stateful `&mut self` event sink driven by `accumulator_runtime` (no `Runtime` registry). Needs a `WasmAccumulatorOperator` bridging the async ingest path to the sync WASM `ingest`, threading the configured handle through the accumulator runtime's event loop.
-- **Reactor**: stored as a `ReactorRegistration` *descriptor* evaluated by the CG scheduler (not a callable). Needs a `WasmReactorOperator` exposing the sync WASM `evaluate` as the reactor's firing-criteria callable, threaded through the scheduler.
+- **Accumulator**: a stateful `&mut self` event sink driven by `accumulator_runtime` (no `Runtime` registry). Needs a `WasmAccumulatorConstructor` bridging the async ingest path to the sync WASM `ingest`, threading the configured handle through the accumulator runtime's event loop.
+- **Reactor**: stored as a `ReactorRegistration` *descriptor* evaluated by the CG scheduler (not a callable). Needs a `WasmReactorConstructor` exposing the sync WASM `evaluate` as the reactor's firing-criteria callable, threaded through the scheduler.
 
-The sync contract traits (`AccumulatorOperator::ingest`, `ReactorOperator::evaluate`) + wire types are already defined in `cloacina-operator-contract` (T-0824); the bridge shapes are sketched in `operator_loader.rs`.
+The sync contract traits (`AccumulatorConstructor::ingest`, `ReactorConstructor::evaluate`) + wire types are already defined in `cloacina-constructor-contract` (T-0824); the bridge shapes are sketched in `constructor_loader.rs`.
 
-**AC:** an accumulator operator + a reactor operator each load, register/wire, and run end-to-end (config-bound), feature-gated behind `operators-wasm`; mirrors the task/trigger bridges. Completes the four-primitive operator scope for [[CLOACI-I-0132]]. Blocked by CLOACI-T-0824.
+**AC:** an accumulator constructor + a reactor constructor each load, register/wire, and run end-to-end (config-bound), feature-gated behind `constructors-wasm`; mirrors the task/trigger bridges. Completes the four-primitive constructor scope for [[CLOACI-I-0132]]. Blocked by CLOACI-T-0824.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
