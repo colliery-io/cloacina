@@ -185,8 +185,7 @@ impl Task for WasmTaskOperator {
             let updated = outcome
                 .context_json
                 .ok_or_else(|| exec_err(&id, "successful outcome missing context_json"))?;
-            Context::from_json(updated)
-                .map_err(|e| exec_err(&id, format!("rebuild context: {e}")))
+            Context::from_json(updated).map_err(|e| exec_err(&id, format!("rebuild context: {e}")))
         } else {
             Err(exec_err(
                 &id,
