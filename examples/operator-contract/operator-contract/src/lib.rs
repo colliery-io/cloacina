@@ -26,6 +26,46 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The error an `#[operator]`-authored body returns (`Result<(), OperatorError>`).
+///
+/// Deliberately tiny + serde/wasm-safe: it carries a message the macro-emitted
+/// glue stringifies into the failed `TaskOutcome.error`. Authors construct it
+/// with [`OperatorError::msg`] or via `From<String>` / `From<&str>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OperatorError {
+    pub message: String,
+}
+
+impl OperatorError {
+    pub fn msg(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for OperatorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for OperatorError {}
+
+impl From<String> for OperatorError {
+    fn from(message: String) -> Self {
+        Self { message }
+    }
+}
+
+impl From<&str> for OperatorError {
+    fn from(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
+        }
+    }
+}
+
 /// Which cloacina runtime primitive a WASM operator implements. The loader
 /// (T-0823) switches on this to pick the matching fidius interface descriptor
 /// and register the component against the right runtime subsystem.
@@ -236,7 +276,10 @@ mod tests {
             primitive_kind: PrimitiveKind::Task,
             interface: "task-operator".into(),
             interface_version: 1,
-            params: vec![InputSlot::required("name", serde_json::json!({"type": "string"}))],
+            params: vec![InputSlot::required(
+                "name",
+                serde_json::json!({"type": "string"}),
+            )],
             dependencies: vec![],
             description: Some("prefixes a name".into()),
             author: None,
