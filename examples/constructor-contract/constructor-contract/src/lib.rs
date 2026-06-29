@@ -264,6 +264,109 @@ impl PollOutcome {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ACCUMULATOR primitive — the WASM-boundary wire types (CLOACI-T-0828).
+// ---------------------------------------------------------------------------
+
+/// What crosses INTO an accumulator constructor's `ingest`: one raw event as a
+/// JSON string (mirrors `cloacina`'s `Accumulator::process(event: Vec<u8>)`).
+/// The host event loop calls `ingest` per event and forwards any produced
+/// boundary to the reactor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccumulatorInvocation {
+    /// Raw event payload as a JSON string (the guest owns deserialization).
+    pub event_json: String,
+}
+
+/// What crosses OUT of an accumulator constructor's `ingest`: an optional
+/// boundary for the reactor (mirrors `Option<Self::Output>`). `boundary_json ==
+/// None` means "buffered, no boundary emitted this event".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccumulatorOutcome {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boundary_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl AccumulatorOutcome {
+    /// Emit a boundary for the reactor.
+    pub fn emit(boundary_json: String) -> Self {
+        Self {
+            boundary_json: Some(boundary_json),
+            error: None,
+        }
+    }
+
+    /// Buffer this event without emitting a boundary.
+    pub fn buffered() -> Self {
+        Self {
+            boundary_json: None,
+            error: None,
+        }
+    }
+
+    /// A failed ingest.
+    pub fn err(message: impl Into<String>) -> Self {
+        Self {
+            boundary_json: None,
+            error: Some(message.into()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// REACTOR primitive — the WASM-boundary wire types (CLOACI-T-0828).
+// ---------------------------------------------------------------------------
+
+/// What crosses INTO a reactor constructor's `evaluate`: the set of
+/// currently-held boundaries as a JSON object keyed by accumulator/source name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReactorInvocation {
+    /// JSON-serialized boundaries keyed by source name.
+    pub boundaries_json: String,
+}
+
+/// What crosses OUT of a reactor constructor's `evaluate`: whether to fire the
+/// downstream computation graph, and the context to fire it with.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReactorOutcome {
+    pub fire: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl ReactorOutcome {
+    /// Fire the graph, optionally with a context JSON.
+    pub fn fire(context_json: Option<String>) -> Self {
+        Self {
+            fire: true,
+            context_json,
+            error: None,
+        }
+    }
+
+    /// Do not fire this evaluation.
+    pub fn hold() -> Self {
+        Self {
+            fire: false,
+            context_json: None,
+            error: None,
+        }
+    }
+
+    /// A failed evaluate.
+    pub fn err(message: impl Into<String>) -> Self {
+        Self {
+            fire: false,
+            context_json: None,
+            error: Some(message.into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

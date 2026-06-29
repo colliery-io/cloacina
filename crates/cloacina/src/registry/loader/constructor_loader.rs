@@ -56,16 +56,26 @@
 //! fidius handle, so every `get_task`/`get_trigger` call dispatches into the
 //! same sandboxed instance.
 //!
-//! ## Continuation (CLOACI-T-0824 follow-up)
+//! ## Accumulator + reactor (CLOACI-T-0828)
 //!
-//! The ACCUMULATOR `ingest` / REACTOR `evaluate` bridges have their sync
-//! contract traits ([`AccumulatorConstructor`] / [`ReactorConstructor`]) and wire
-//! types defined here + in the contract crate, and their adapter shape is
-//! sketched ([`WasmAccumulatorConstructor`] / [`WasmReactorConstructor`]); a full
-//! event-loop / reactor-firing impl + fixtures is a noted continuation because
-//! those primitives are not simple `Runtime` constructors (the accumulator has
-//! no `Runtime` registry; a reactor registers a `ReactorRegistration`
-//! descriptor, not a callable). The `#[constructor]` authoring macro is T-0826.
+//! These two primitives are NOT plain `Runtime` constructors, so they are wired
+//! differently from task/trigger:
+//!
+//!   * ACCUMULATOR — [`WasmAccumulatorConstructor`] implements
+//!     [`Accumulator`](crate::computation_graph::accumulator::Accumulator)
+//!     directly; [`load_accumulator_constructor`] returns it for
+//!     `accumulator_runtime` to drive. `Accumulator::process` is SYNC, so the
+//!     bridge calls the blocking wasmtime `ingest` directly (no `spawn_blocking`).
+//!   * REACTOR — the reactor's firing decision is now pluggable via the
+//!     [`ReactorFireDecider`] seam added to
+//!     [`Reactor`](crate::computation_graph::reactor::Reactor)
+//!     (`with_evaluator`). [`WasmReactorConstructor`] implements it, bridging the
+//!     async decision to a `spawn_blocking` `evaluate`. The bridge + seam are
+//!     proven against `Reactor` directly; threading a reactor constructor through
+//!     the CG SCHEDULER's package-load path is a documented remaining lift.
+//!
+//! The `#[constructor]` authoring macro covers all four kinds (task/trigger T-0826,
+//! accumulator/reactor T-0828).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -76,12 +86,17 @@ use chrono::Utc;
 use serde::Serialize;
 
 use cloacina_constructor_contract::{
-    ConstructorManifest, PollOutcome, PrimitiveKind, TaskInvocation, TaskOutcome,
-    TriggerInvocation, METHOD_EXECUTE, METHOD_POLL, TASK_CONSTRUCTOR_INTERFACE_VERSION,
+    AccumulatorInvocation, AccumulatorOutcome, ConstructorManifest, PollOutcome, PrimitiveKind,
+    ReactorInvocation, ReactorOutcome, TaskInvocation, TaskOutcome, TriggerInvocation,
+    ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, METHOD_EVALUATE, METHOD_EXECUTE, METHOD_INGEST,
+    METHOD_POLL, REACTOR_CONSTRUCTOR_INTERFACE_VERSION, TASK_CONSTRUCTOR_INTERFACE_VERSION,
     TRIGGER_CONSTRUCTOR_INTERFACE_VERSION,
 };
 use fidius_host::PluginHost;
 
+use crate::computation_graph::accumulator::Accumulator;
+use crate::computation_graph::reactor::ReactorFireDecider;
+use crate::computation_graph::types::InputCache;
 use crate::context::Context;
 use crate::error::TaskError;
 use crate::registry::error::LoaderError;
@@ -651,46 +666,393 @@ pub fn load_constructor<C: Serialize>(
 }
 
 // ===========================================================================
-// ACCUMULATOR + REACTOR primitives — sketched continuation (CLOACI-T-0824)
+// ACCUMULATOR primitive (CLOACI-T-0828)
 // ===========================================================================
 //
-// The contract traits + wire types are defined (here and in the contract
-// crate). The host bridges below mirror the task/trigger pattern but are left
-// as a clearly-noted continuation: unlike Task/Trigger, neither primitive is a
-// plain `Runtime` constructor.
+// Unlike Task/Trigger, an accumulator is NOT a `Runtime` constructor: it is a
+// stateful event sink (`Accumulator::process(Vec<u8>) -> Option<Output>`) driven
+// by `accumulator_runtime`'s processor loop. The bridge below wires a configured
+// WASM handle into that loop by implementing `Accumulator` directly.
 //
-//   * ACCUMULATOR — `cloacina::computation_graph::accumulator::Accumulator` is a
-//     stateful `&mut self` event sink (`process(Vec<u8>) -> Option<Output>`)
-//     driven by an async runtime loop (`accumulator_runtime`), NOT a `Runtime`
-//     registry entry. A `WasmAccumulatorConstructor` would own the configured
-//     handle and, per event, `spawn_blocking` the sync `ingest`
-//     (`JSON(AccumulatorInvocation)` -> `JSON(AccumulatorOutcome)`) and forward
-//     any `boundary_json` to the reactor via the `BoundarySender`. Wiring it in
-//     means standing up that event loop against a loaded handle.
-//
-//   * REACTOR — the runtime represents a reactor as a `ReactorRegistration`
-//     *descriptor* (name + accumulator set + reaction mode), not a callable;
-//     firing is evaluated by the CG scheduler. A `WasmReactorConstructor` would
-//     bridge the firing *decision* (`JSON(ReactorInvocation)` ->
-//     `JSON(ReactorOutcome)`), but registering it requires threading a callable
-//     evaluator through the scheduler, which is beyond this task's surface.
-//
-// The sync contract traits are declared host-side so the descriptors exist and
-// the shapes are validated by the compiler; the adapters are intentionally not
-// yet implemented.
+// WRINKLE vs task/trigger: `Accumulator::process` is itself SYNCHRONOUS (the
+// runtime calls it inline on its processor task and owns deserialization), so
+// the bridge calls the blocking wasmtime `ingest` DIRECTLY — there is no async
+// method to hang a `spawn_blocking` off. This is consistent with the native
+// contract, whose `process` is sync CPU-bound work called sequentially.
 
-/// Host-side re-declaration of the ACCUMULATOR-constructor interface (continuation).
-/// `JSON(AccumulatorInvocation)` in -> `JSON(AccumulatorOutcome)` out. SYNC.
+/// Host-side re-declaration of the ACCUMULATOR-constructor interface (CLOACI-T-0828).
+/// Same trait shape the guest implements; the fidius macro emits the matching
+/// `AccumulatorConstructor_WASM_DESCRIPTOR` the loader links against. Single SYNC
+/// method — the WASM analogue of `Accumulator::process`.
 #[fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = "fidius_core")]
 pub trait AccumulatorConstructor: Send + Sync {
-    /// Ingest one event, optionally producing a boundary for the reactor.
+    /// `JSON(AccumulatorInvocation)` in -> `JSON(AccumulatorOutcome)` out. SYNC.
     fn ingest(&self, invocation_json: String) -> String;
 }
 
-/// Host-side re-declaration of the REACTOR-constructor interface (continuation).
-/// `JSON(ReactorInvocation)` in -> `JSON(ReactorOutcome)` out. SYNC.
+/// A loaded, configured WASM accumulator constructor wrapped as a cloacina
+/// [`Accumulator`].
+///
+/// Holds the configured fidius handle behind an [`Arc`]; each event's `process`
+/// dispatches the sync `ingest` into the already-configured sandbox. Its
+/// `Output` is the boundary's JSON **bytes** (`Vec<u8>`): the
+/// `BoundarySender` then bincode-serializes that to `bincode(json_bytes)` —
+/// exactly the canonical boundary frame the reactor's FFI bridge /
+/// [`capture_fire_inputs`](crate::computation_graph::reactor) decode. Emitting a
+/// `serde_json::Value` would NOT round-trip (bincode is not self-describing), so
+/// the JSON-bytes shape is both correct and downstream-compatible.
+pub struct WasmAccumulatorConstructor {
+    name: String,
+    handle: Arc<fidius_host::PluginHandle>,
+}
+
+impl WasmAccumulatorConstructor {
+    /// The accumulator constructor's declared name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl std::fmt::Debug for WasmAccumulatorConstructor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WasmAccumulatorConstructor")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+#[async_trait::async_trait]
+impl Accumulator for WasmAccumulatorConstructor {
+    type Output = Vec<u8>;
+
+    /// The sync bridge: turn the raw event bytes into `JSON(AccumulatorInvocation)`,
+    /// call the blocking wasmtime `ingest`, and hand the guest's boundary JSON back
+    /// as bytes. Errors (non-UTF-8 event, FFI failure, invalid boundary JSON, a
+    /// populated outcome `error`) are logged and surfaced as `None` — exactly the
+    /// native `process` contract, which returns `None` when an event yields no
+    /// boundary.
+    fn process(&mut self, event: Vec<u8>) -> Option<Vec<u8>> {
+        let event_json = match String::from_utf8(event) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!(name = %self.name, "accumulator constructor: event is not UTF-8 JSON: {e}");
+                return None;
+            }
+        };
+
+        let inv_json = match serde_json::to_string(&AccumulatorInvocation { event_json }) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!(name = %self.name, "accumulator constructor: serialize invocation: {e}");
+                return None;
+            }
+        };
+
+        // `process` is synchronous, so the blocking wasmtime call is made
+        // directly (no spawn_blocking — there is no async context here).
+        let out_json: String = match self
+            .handle
+            .call_method::<_, String>(METHOD_INGEST, &(inv_json,))
+        {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!(name = %self.name, "accumulator constructor: ingest FFI call: {e}");
+                return None;
+            }
+        };
+
+        let outcome: AccumulatorOutcome = match serde_json::from_str(&out_json) {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::error!(name = %self.name, "accumulator constructor: parse ingest outcome: {e}");
+                return None;
+            }
+        };
+
+        if let Some(err) = outcome.error {
+            tracing::error!(name = %self.name, "accumulator constructor ingest error: {err}");
+            return None;
+        }
+
+        match outcome.boundary_json {
+            None => None,
+            Some(boundary) => {
+                // Validate the guest emitted well-formed JSON, then forward its
+                // bytes — `BoundarySender` bincode-wraps them into the canonical
+                // `bincode(json_bytes)` boundary frame.
+                if let Err(e) = serde_json::from_str::<serde_json::Value>(&boundary) {
+                    tracing::error!(name = %self.name, "accumulator constructor: boundary is not valid JSON: {e}");
+                    return None;
+                }
+                Some(boundary.into_bytes())
+            }
+        }
+    }
+}
+
+/// Load a WASM **accumulator** constructor and return it as a runnable
+/// [`Accumulator`].
+///
+/// The returned value is driven by
+/// [`accumulator_runtime`](crate::computation_graph::accumulator::accumulator_runtime):
+/// hand it (plus an `AccumulatorContext` carrying the `BoundarySender` to the
+/// reactor) to that runtime and each socket/source event flows through the
+/// configured WASM `ingest`. `config` binds the constructor's per-instance WASM
+/// configuration once at load (the guest's `configure` hook).
+///
+/// Fails closed if the package is missing, the manifest is unreadable, the
+/// primitive is not an `Accumulator`, or the interface version doesn't match the
+/// accumulator contract.
+pub fn load_accumulator_constructor<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    config: &C,
+) -> Result<WasmAccumulatorConstructor, LoaderError> {
+    let search_path = search_path.as_ref();
+
+    let host = PluginHost::builder()
+        .search_path(search_path)
+        .build()
+        .map_err(|e| LoaderError::LibraryLoad {
+            path: search_path.display().to_string(),
+            error: format!("build plugin host: {e}"),
+        })?;
+
+    let dir = host
+        .find_wasm_package(package_name)
+        .map_err(|e| LoaderError::Validation {
+            reason: format!("locate wasm constructor package '{package_name}': {e}"),
+        })?;
+
+    let manifest = read_constructor_manifest(&dir)?;
+
+    if manifest.primitive_kind != PrimitiveKind::Accumulator {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "constructor '{}' is {:?}, not Accumulator",
+                manifest.name, manifest.primitive_kind
+            ),
+        });
+    }
+
+    if manifest.interface_version != ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "constructor '{}' declares accumulator-constructor interface v{}, loader supports v{}",
+                manifest.name, manifest.interface_version, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION
+            ),
+        });
+    }
+
+    let handle = host
+        .load_wasm_configured(
+            package_name,
+            &__fidius_AccumulatorConstructor::AccumulatorConstructor_WASM_DESCRIPTOR,
+            config,
+        )
+        .map_err(|e| LoaderError::LibraryLoad {
+            path: dir.display().to_string(),
+            error: format!("load_wasm_configured: {e}"),
+        })?;
+
+    Ok(WasmAccumulatorConstructor {
+        name: manifest.name,
+        handle: Arc::new(handle),
+    })
+}
+
+// ===========================================================================
+// REACTOR primitive (CLOACI-T-0828)
+// ===========================================================================
+//
+// A reactor is NOT a callable in the runtime: the `Reactor` is a concrete struct
+// whose firing decision is hardcoded (`WhenAny`/`WhenAll` over `DirtyFlags`) in
+// its executor loop. To let a WASM `evaluate` make that decision, T-0828 added a
+// pluggable [`ReactorFireDecider`] seam to `Reactor` (`with_evaluator`): when a
+// decider is present the executor consults IT instead of the dirty-flag criteria.
+// `WasmReactorConstructor` implements that seam, bridging the firing decision to
+// the sync WASM `evaluate`.
+//
+// The decider method IS async (it is our own trait, not the runtime's sync
+// `process`), so — like task/trigger — the blocking wasmtime `evaluate` runs on
+// `spawn_blocking`.
+//
+// DEFERRED (reported, not faked): threading a `WasmReactorConstructor` through
+// the CG SCHEDULER's package-load path (`scheduler.rs` builds `Reactor::new`
+// from a `ReactorDeclaration`; nothing in the declaration/packaging types yet
+// carries a reactor-constructor reference). The seam + bridge are proven against
+// `Reactor` directly; the scheduler/declaration/packaging wiring is the
+// remaining lift.
+
+/// Host-side re-declaration of the REACTOR-constructor interface (CLOACI-T-0828).
+/// Same trait shape the guest implements; the fidius macro emits the matching
+/// `ReactorConstructor_WASM_DESCRIPTOR` the loader links against. Single SYNC
+/// method — the WASM analogue of the reactor's firing-criteria evaluation.
 #[fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = "fidius_core")]
 pub trait ReactorConstructor: Send + Sync {
-    /// Evaluate firing criteria over the held boundaries.
+    /// `JSON(ReactorInvocation)` in -> `JSON(ReactorOutcome)` out. SYNC.
     fn evaluate(&self, invocation_json: String) -> String;
+}
+
+/// A loaded, configured WASM reactor constructor.
+///
+/// Holds the configured fidius handle behind an [`Arc`]. Exposes the firing
+/// decision two ways:
+///   * [`WasmReactorConstructor::evaluate`] — call the bridge directly with a
+///     pre-serialized boundaries JSON (used by tests / a future scheduler), and
+///   * the [`ReactorFireDecider`] impl — what a live [`Reactor`] consults via
+///     `with_evaluator` so the WASM guest IS the firing criteria.
+pub struct WasmReactorConstructor {
+    name: String,
+    handle: Arc<fidius_host::PluginHandle>,
+}
+
+impl WasmReactorConstructor {
+    /// The reactor constructor's declared name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Bridge the firing decision: serialize-free `boundaries_json` in,
+    /// [`ReactorOutcome`] out. Hops into the blocking wasmtime `evaluate` on a
+    /// `spawn_blocking` thread (mirrors the task/trigger bridge).
+    pub async fn evaluate(&self, boundaries_json: String) -> Result<ReactorOutcome, LoaderError> {
+        let name = self.name.clone();
+        let inv_json =
+            serde_json::to_string(&ReactorInvocation { boundaries_json }).map_err(|e| {
+                LoaderError::Validation {
+                    reason: format!("reactor constructor '{name}': serialize invocation: {e}"),
+                }
+            })?;
+
+        let handle = self.handle.clone();
+        let call_name = name.clone();
+        let out_json: String = tokio::task::spawn_blocking(move || {
+            handle.call_method::<_, String>(METHOD_EVALUATE, &(inv_json,))
+        })
+        .await
+        .map_err(|e| LoaderError::Validation {
+            reason: format!("reactor constructor '{call_name}': evaluate join: {e}"),
+        })?
+        .map_err(|e| LoaderError::Validation {
+            reason: format!("reactor constructor '{call_name}': evaluate FFI call: {e}"),
+        })?;
+
+        serde_json::from_str::<ReactorOutcome>(&out_json).map_err(|e| LoaderError::Validation {
+            reason: format!("reactor constructor '{name}': parse evaluate outcome: {e}"),
+        })
+    }
+}
+
+impl std::fmt::Debug for WasmReactorConstructor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WasmReactorConstructor")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+#[async_trait]
+impl ReactorFireDecider for WasmReactorConstructor {
+    /// Serialize the reactor's current boundary cache to the `boundaries_json`
+    /// envelope and ask the WASM guest whether to fire. A bridge error or a
+    /// populated outcome `error` is logged and treated as "do not fire".
+    async fn should_fire(&self, snapshot: &InputCache) -> bool {
+        // Decode each cached boundary to a JSON value (the frames are
+        // `bincode(json_bytes)`; fall back to raw JSON, then null) — the same
+        // shape the reactor's fire log captures.
+        let boundaries: std::collections::HashMap<String, serde_json::Value> =
+            crate::computation_graph::reactor::capture_fire_inputs(snapshot);
+        let boundaries_json = match serde_json::to_string(&boundaries) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!(name = %self.name, "reactor constructor: serialize boundaries: {e}");
+                return false;
+            }
+        };
+
+        match self.evaluate(boundaries_json).await {
+            Ok(outcome) => {
+                if let Some(err) = outcome.error {
+                    tracing::error!(name = %self.name, "reactor constructor evaluate error: {err}");
+                    return false;
+                }
+                outcome.fire
+            }
+            Err(e) => {
+                tracing::error!(name = %self.name, "reactor constructor evaluate failed: {e}");
+                false
+            }
+        }
+    }
+}
+
+/// Load a WASM **reactor** constructor and return its configured firing-decision
+/// bridge.
+///
+/// Hand the returned [`WasmReactorConstructor`] to
+/// [`Reactor::with_evaluator`](crate::computation_graph::reactor::Reactor::with_evaluator)
+/// (as an `Arc<dyn ReactorFireDecider>`) so the running reactor consults the WASM
+/// guest's `evaluate` for its firing decision. `config` binds the constructor's
+/// per-instance WASM configuration once at load.
+///
+/// Fails closed if the package is missing, the manifest is unreadable, the
+/// primitive is not a `Reactor`, or the interface version doesn't match the
+/// reactor contract.
+pub fn load_reactor_constructor<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    config: &C,
+) -> Result<WasmReactorConstructor, LoaderError> {
+    let search_path = search_path.as_ref();
+
+    let host = PluginHost::builder()
+        .search_path(search_path)
+        .build()
+        .map_err(|e| LoaderError::LibraryLoad {
+            path: search_path.display().to_string(),
+            error: format!("build plugin host: {e}"),
+        })?;
+
+    let dir = host
+        .find_wasm_package(package_name)
+        .map_err(|e| LoaderError::Validation {
+            reason: format!("locate wasm constructor package '{package_name}': {e}"),
+        })?;
+
+    let manifest = read_constructor_manifest(&dir)?;
+
+    if manifest.primitive_kind != PrimitiveKind::Reactor {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "constructor '{}' is {:?}, not Reactor",
+                manifest.name, manifest.primitive_kind
+            ),
+        });
+    }
+
+    if manifest.interface_version != REACTOR_CONSTRUCTOR_INTERFACE_VERSION {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "constructor '{}' declares reactor-constructor interface v{}, loader supports v{}",
+                manifest.name, manifest.interface_version, REACTOR_CONSTRUCTOR_INTERFACE_VERSION
+            ),
+        });
+    }
+
+    let handle = host
+        .load_wasm_configured(
+            package_name,
+            &__fidius_ReactorConstructor::ReactorConstructor_WASM_DESCRIPTOR,
+            config,
+        )
+        .map_err(|e| LoaderError::LibraryLoad {
+            path: dir.display().to_string(),
+            error: format!("load_wasm_configured: {e}"),
+        })?;
+
+    Ok(WasmReactorConstructor {
+        name: manifest.name,
+        handle: Arc::new(handle),
+    })
 }
