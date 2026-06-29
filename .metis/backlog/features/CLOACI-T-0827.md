@@ -1,18 +1,18 @@
 ---
-id: operator-distribution-as-fidius
+id: constructor-distribution-as-fidius
 level: task
 title: "Constructor distribution as fidius provider packages + registry load"
 short_code: "CLOACI-T-0827"
 created_at: 2026-06-28T23:57:48.544299+00:00
-updated_at: 2026-06-28T23:57:48.544299+00:00
+updated_at: 2026-06-29T11:44:42.503204+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,12 @@ Constructors distributed as **fidius provider packages** (signed, versioned) + t
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -136,4 +142,28 @@ Constructors distributed as **fidius provider packages** (signed, versioned) + t
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-29 — Provider packaging + signed load-from-package landed (branch `i0132-t0827-packaging`, NOT committed)
+
+**Implemented (mirrors workflow packaging, reuses fidius rather than a parallel format):**
+
+1. **Provider package format + packaging step** — `crates/cloacina/src/packaging/constructor_provider.rs` (new, gated by new default-OFF `constructor-packaging` feature). `package_constructor_provider()` builds the crate to `wasm32-wasip2`, runs its manifest-emitter bin (`emit_manifest`) for the constructor manifest JSON, stages a fidius `runtime = "wasm"` package dir (`package.toml` + the `.wasm` component + `constructor.json` sidecar + a new N-capable `provider.json` index), optionally Ed25519-signs it (reusing fidius's `package_digest` + `package.sig` scheme, byte-compatible with `fidius_host::verify_package`), then packs via `fidius_core::package::pack_package` → `<name>-<version>.cloacina`. `ProviderManifest { constructors: Vec<…> }` is structured for N constructors; single is wired end-to-end (a fidius `[wasm]` package binds one component; N-per-archive is the noted follow-on).
+
+2. **Command** — `cloacinactl constructor package <crate-dir> [--out] [--sign-key K] [--manifest-bin emit_manifest] [--debug]` (`crates/cloacinactl/src/nouns/constructor/mod.rs`, wired in `nouns/mod.rs` + `main.rs`). cloacinactl enables `cloacina/constructor-packaging` (wasmtime-free).
+
+3. **Loader resolves the packaged form** — `constructor_loader.rs`: new `unpack_provider_archive()` (unpack + optional Ed25519 signature verify; fails closed on hostile/tampered/unsigned-when-required archive) and `load_task_constructor_from_package()` (unpack/verify → delegate to existing loose-dir `load_task_constructor`, since fidius resolves a package by its `[package].name` regardless of dir name). Loose-dir path unchanged.
+
+**Gating (intact):** new `constructor-packaging` feature pulls only the serde-only contract crate — NOT `fidius-host/wasm`. `constructors-wasm` now implies `constructor-packaging`. `cargo tree -p cloacina -i wasmtime` ABSENT under both default and `constructor-packaging`; only the wasm *loader* pulls wasmtime.
+
+**Validation (all run, all green):**
+- `cargo check -p cloacina` (default) — Finished clean.
+- `cargo check -p cloacina --features constructor-packaging` — clean; `cargo tree … -i wasmtime` → "did not match any packages" (absent).
+- `cargo check -p cloacinactl` — clean.
+- `cargo test -p cloacina --features constructors-wasm --test constructor_provider_package_wasm` — **4 passed**: signed package → load-from-package → runs as Task → `result == "hello, world"`; wrong-key fails closed; tampered (repacked) package fails signature verification; missing `constructor.json` fails closed.
+- Regression `--test constructor_macro_wasm` — 4 passed (loose-dir path intact).
+- Packaging lib unit tests — 2 passed.
+- CLI smoke: `cloacinactl constructor package <fixture>` → archive `prefix-0.1.0/{package.toml,constructor.json,provider.json,task_constructor_macro_fixture.wasm}`.
+- `cargo fmt --all -- --check` exit 0.
+
+**Deferred (noted, not built):** remote registry/publish endpoint (push/pull providers); signing-key management; multi-constructor-per-archive packing (data model is already N-shaped); Python authoring/consumer surface; trigger/accumulator/reactor packaging (only `task` codegen exists today).
+
+**NOT committed — left for review.**

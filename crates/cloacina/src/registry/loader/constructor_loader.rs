@@ -299,6 +299,82 @@ pub fn load_task_constructor<C: Serialize>(
 }
 
 // ===========================================================================
+// Packed provider resolution (CLOACI-T-0827)
+// ===========================================================================
+
+/// Unpack a packed **provider package** archive (a `.cloacina`/`.fid` produced by
+/// [`crate::packaging::constructor_provider::package_constructor_provider`]) into
+/// `dest` and, when `verify_keys` is non-empty, verify its Ed25519 `package.sig`
+/// against those trusted keys. Returns the unpacked package directory (which
+/// contains `package.toml`, the `constructor.json` sidecar, and the `.wasm`
+/// component).
+///
+/// Fails closed at every stage:
+///   * a structurally-hostile archive (path traversal, absolute path, symlink,
+///     hardlink, size/ratio bomb, or no `package.toml`) is rejected by
+///     [`fidius_core::package::unpack_package`];
+///   * with `verify_keys` supplied, a missing or non-verifying signature — which
+///     is exactly what tampering with the component or manifest after signing
+///     produces (the digest no longer matches) — is a hard error via
+///     [`fidius_host::package::verify_package`].
+///
+/// An empty `verify_keys` skips signature checking (the unsigned/dev flow); the
+/// structural archive checks still apply.
+pub fn unpack_provider_archive(
+    archive: impl AsRef<Path>,
+    dest: impl AsRef<Path>,
+    verify_keys: &[ed25519_dalek::VerifyingKey],
+) -> Result<std::path::PathBuf, LoaderError> {
+    let archive = archive.as_ref();
+    let dest = dest.as_ref();
+
+    let pkg_dir = fidius_core::package::unpack_package(archive, dest).map_err(|e| {
+        LoaderError::Validation {
+            reason: format!("unpack provider package '{}': {e}", archive.display()),
+        }
+    })?;
+
+    if !verify_keys.is_empty() {
+        fidius_host::package::verify_package(&pkg_dir, verify_keys).map_err(|e| {
+            LoaderError::Validation {
+                reason: format!("verify provider signature for '{}': {e}", pkg_dir.display()),
+            }
+        })?;
+    }
+
+    Ok(pkg_dir)
+}
+
+/// Load a WASM **task** constructor from a packed provider archive and return it
+/// as a runnable [`Task`].
+///
+/// The packaged analogue of [`load_task_constructor`]: it unpacks (and, with
+/// `verify_keys`, verifies the signature of) the provider archive into `dest`,
+/// then resolves `package_name` out of the unpacked tree exactly as the loose-dir
+/// loader does (the unpacked package dir lives under `dest`, and fidius matches
+/// the package by its `[package].name`, not its directory name). `config` binds
+/// the constructor's per-instance configuration once at load.
+///
+/// Fails closed if the archive is hostile/unsigned-when-required, the package is
+/// missing, the manifest is unreadable or not a `Task`, or the interface version
+/// doesn't match the contract.
+pub fn load_task_constructor_from_package<C: Serialize>(
+    archive: impl AsRef<Path>,
+    dest: impl AsRef<Path>,
+    package_name: &str,
+    config: &C,
+    verify_keys: &[ed25519_dalek::VerifyingKey],
+) -> Result<Arc<dyn Task>, LoaderError> {
+    let dest = dest.as_ref();
+    // Unpack (+ verify) first; this is the seam that rejects a tampered or
+    // unsigned-but-required archive before any wasm is loaded.
+    let _pkg_dir = unpack_provider_archive(archive, dest, verify_keys)?;
+    // `dest` is the fidius search path; the package resolves by name out of the
+    // freshly-unpacked `<name>-<version>/` directory it contains.
+    load_task_constructor(dest, package_name, config)
+}
+
+// ===========================================================================
 // TRIGGER primitive (CLOACI-T-0824)
 // ===========================================================================
 

@@ -23,15 +23,25 @@ sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool
 auth = ["postgres"]
 macros = ["cloacina-macros"]
 kafka = ["rdkafka"]
+# CLOACI-I-0132 / T-0827 — constructor provider PACKAGING (assemble + sign + pack a
+# built constructor crate into a distributable `.cloacina` provider archive). This
+# is the build/distribute side and needs NO wasm runtime: it only pulls the
+# serde-only constructor-contract crate (for the manifest schema) on top of the
+# already-present fidius-core (pack/digest) + ed25519-dalek (signing). Crucially it
+# does NOT enable `fidius-host/wasm`, so a default + packaging build stays
+# wasmtime-free (`cargo tree -p cloacina -i wasmtime` is absent).
+constructor-packaging = ["dep:cloacina-constructor-contract"]
 # CLOACI-I-0132 / T-0823 — WASM task-constructor loader + executor bridge.
 # OFF by default: enabling it turns on fidius-host's `wasm` feature (→ wasmtime +
 # cranelift, ~55 crates) and pulls fidius-macro (for the host-side interface
 # descriptor) + the constructor contract crate. The default cloacina build pulls
-# NONE of this.
+# NONE of this. Implies `constructor-packaging` (the loader also resolves the
+# packaged provider form, T-0827).
 constructors-wasm = [
     "dep:fidius-macro",
     "dep:cloacina-constructor-contract",
     "fidius-host/wasm",
+    "constructor-packaging",
 ]
 
 [dependencies]
@@ -102,6 +112,10 @@ cel-interpreter = "0.10"
 [dev-dependencies]
 tracing-test = "0.2"
 tempfile = "3.2"
+# CLOACI-T-0827: signed-provider e2e test signs/verifies with the same Ed25519
+# scheme fidius uses, and repacks a tampered dir to prove the loader fails closed.
+ed25519-dalek = { version = "2.1" }
+fidius-core = "0.5.4"
 once_cell = "1.19.0"
 serial_test = "3.2.0"
 aquamarine = "0.6.0"

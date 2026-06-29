@@ -20,6 +20,11 @@
 //! into distributable fidius source archives. These functions can be used by CLI
 //! tools, tests, or other applications that need to package workflows.
 
+/// Constructor **provider package** assembly + packing (CLOACI-T-0827).
+/// Default-OFF behind the `constructor-packaging` feature (serde-only contract
+/// crate; no wasm runtime).
+#[cfg(feature = "constructor-packaging")]
+pub mod constructor_provider;
 pub mod manifest_schema;
 pub mod platform;
 pub mod types;
