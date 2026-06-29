@@ -4,15 +4,15 @@ level: task
 title: "Fidius upgrade 0.2.1 -> 0.5.4 (configured-instances enabler)"
 short_code: "CLOACI-T-0820"
 created_at: 2026-06-28T23:57:38.028819+00:00
-updated_at: 2026-06-28T23:57:38.028819+00:00
+updated_at: 2026-06-29T00:19:39.965677+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,12 @@ Bump fidius (`fidius` / `fidius-core` / `fidius-host`) **0.2.1 -> 0.5.4** across
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
