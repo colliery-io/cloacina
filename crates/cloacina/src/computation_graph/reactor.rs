@@ -419,6 +419,22 @@ impl ReactorHandle {
     }
 }
 
+/// A pluggable firing-decision hook for a [`Reactor`] (CLOACI-T-0828).
+///
+/// When a reactor is built [`with_evaluator`](Reactor::with_evaluator), its
+/// executor consults this decider on every received boundary INSTEAD of the
+/// built-in `WhenAny`/`WhenAll` dirty-flag criteria — letting an external
+/// evaluator (e.g. a WASM reactor constructor's sync `evaluate`, bridged by
+/// `WasmReactorConstructor`) decide whether to fire the graph. Only consulted on
+/// the [`InputStrategy::Latest`] path; a manual `ForceFire` still fires
+/// unconditionally.
+#[async_trait::async_trait]
+pub trait ReactorFireDecider: Send + Sync {
+    /// Given the reactor's current boundary cache snapshot, decide whether to
+    /// fire the downstream graph this evaluation.
+    async fn should_fire(&self, snapshot: &InputCache) -> bool;
+}
+
 /// Type alias for the compiled graph function.
 /// Re-exported from `cloacina-computation-graph`.
 pub use cloacina_computation_graph::CompiledGraphFn;
@@ -462,6 +478,11 @@ pub struct Reactor {
     batch_flush_senders: Vec<mpsc::Sender<()>>,
     /// Live fire counters, shared with the `ReactorHandle` (WS-10).
     stats: Arc<ReactorStats>,
+    /// Optional pluggable firing-decision hook (CLOACI-T-0828). When set, the
+    /// executor consults this instead of the `WhenAny`/`WhenAll` dirty-flag
+    /// criteria on the `Latest` path — this is the seam a WASM reactor
+    /// constructor's `evaluate` plugs into.
+    evaluator: Option<Arc<dyn ReactorFireDecider>>,
 }
 
 impl Reactor {
@@ -490,7 +511,19 @@ impl Reactor {
             accumulator_health_rxs: Vec::new(),
             batch_flush_senders: Vec::new(),
             stats: Arc::new(ReactorStats::default()),
+            evaluator: None,
         }
+    }
+
+    /// Set a pluggable firing-decision hook (CLOACI-T-0828).
+    ///
+    /// When present, the executor consults `evaluator.should_fire(snapshot)` on
+    /// every received boundary (the `Latest` path) instead of the built-in
+    /// `WhenAny`/`WhenAll` dirty-flag criteria — so a WASM reactor constructor's
+    /// `evaluate` becomes the reactor's firing criteria.
+    pub fn with_evaluator(mut self, evaluator: Arc<dyn ReactorFireDecider>) -> Self {
+        self.evaluator = Some(evaluator);
+        self
     }
 
     /// Add batch flush senders — reactor will signal these after each graph execution.
@@ -825,6 +858,9 @@ impl Reactor {
         // watchdog that flips the reactor to `Degraded` after 5 in a row.
         let persist_streak = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let health_exec = self.health.clone();
+        // CLOACI-T-0828: when set, replaces the WhenAny/WhenAll criteria on the
+        // Latest path with an external firing decision (a WASM reactor `evaluate`).
+        let evaluator = self.evaluator.clone();
 
         loop {
             tokio::select! {
@@ -837,10 +873,18 @@ impl Reactor {
                         InputStrategy::Latest => {
                             let should_run = match signal {
                                 StrategySignal::BoundaryReceived => {
-                                    let d = dirty_exec.read().await;
-                                    match &criteria {
-                                        ReactionCriteria::WhenAny => d.any_set(),
-                                        ReactionCriteria::WhenAll => d.all_set(),
+                                    // CLOACI-T-0828: a plugged-in evaluator (e.g. a
+                                    // WASM reactor `evaluate`) decides firing when
+                                    // present; otherwise the dirty-flag criteria do.
+                                    if let Some(ref ev) = evaluator {
+                                        let snap = cache_exec.read().await.snapshot();
+                                        ev.should_fire(&snap).await
+                                    } else {
+                                        let d = dirty_exec.read().await;
+                                        match &criteria {
+                                            ReactionCriteria::WhenAny => d.any_set(),
+                                            ReactionCriteria::WhenAll => d.all_set(),
+                                        }
                                     }
                                 }
                                 StrategySignal::ForceFire => true,

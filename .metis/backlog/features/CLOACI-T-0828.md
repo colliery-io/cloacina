@@ -1,18 +1,18 @@
 ---
-id: accumulator-reactor-operator
+id: accumulator-reactor-constructor
 level: task
 title: "Accumulator + reactor constructor execution (scheduler-level wiring)"
 short_code: "CLOACI-T-0828"
 created_at: 2026-06-29T02:03:51.709831+00:00
-updated_at: 2026-06-29T02:03:51.709831+00:00
+updated_at: 2026-06-29T12:35:50.415158+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -71,6 +71,12 @@ The sync contract traits (`AccumulatorConstructor::ingest`, `ReactorConstructor:
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -141,4 +147,26 @@ The sync contract traits (`AccumulatorConstructor::ingest`, `ReactorConstructor:
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-29 — Accumulator DONE end-to-end; Reactor bridge + run-loop seam DONE, scheduler threading deferred
+
+Branch `i0132-t0828-accumulator-reactor`. Constructor EXECUTION + AUTHORING for accumulator + reactor implemented. NOT committed (under review).
+
+**Accumulator (fully proven):**
+- Bridge `WasmAccumulatorConstructor: impl Accumulator` in `constructor_loader.rs`. `Accumulator::process` is SYNC (runtime calls it inline on its processor task), so UNLIKE task/trigger the blocking wasmtime `ingest` is called DIRECTLY — no `spawn_blocking` (no async method to hang it off). Config bound once at load.
+- Wire wrinkle found+fixed: `type Output = Vec<u8>` (boundary JSON bytes), NOT `serde_json::Value` — `BoundarySender` bincode-wraps the output; a `Value` does not round-trip through bincode (`deserialize_any`), and `bincode(json_bytes)` IS the canonical boundary frame the reactor's `capture_fire_inputs`/FFI bridge decode. So the output is directly reactor-consumable.
+- Wiring: `load_accumulator_constructor(...)` returns the `impl Accumulator`; driven by the existing `accumulator_runtime` loop (no `Runtime` registry for accumulators — the structural difference vs task/trigger).
+- Macro `#[constructor(kind = accumulator)]`: author writes `fn ingest(&self, event_json: &str) -> Result<Option<String>, ConstructorError>` (`Some` emits, `None` buffers); `#[config]`-only fields.
+- e2e (`constructor_accumulator_wasm.rs`, 4 PASS): macro fixture → wasm → load → `accumulator_runtime` emits above threshold, buffers below, config-bound.
+
+**Reactor (bridge + run-loop seam proven; scheduler threading deferred):**
+- `Reactor` is a concrete struct with hardcoded `WhenAny`/`WhenAll` criteria — no `Reactor` trait. Added a contained pluggable seam: `pub trait ReactorFireDecider { async fn should_fire(&self, &InputCache) -> bool }` + `Reactor::with_evaluator(...)`; the `Latest`-path `should_run` consults it when present, else the existing criteria. Defaults to `None` → existing behavior untouched (44 computation_graph unit tests pass).
+- Bridge `WasmReactorConstructor` impls `ReactorFireDecider` + exposes `evaluate(boundaries_json)`; the decision IS async (our trait, not the runtime's sync `process`), so it uses `spawn_blocking` into the WASM `evaluate` — faithful to task/trigger. `load_reactor_constructor(...)`. Config bound at load.
+- Macro `#[constructor(kind = reactor)]`: author writes `fn evaluate(&self, boundaries_json: &str) -> Result<Option<String>, ConstructorError>` (`Some(ctx)` fires, `None` holds).
+- e2e (`constructor_reactor_wasm.rs`, 4 PASS): `evaluate` bridge config-bound (fire/hold per gate) AND a live `Reactor::with_evaluator(<loaded>)` fires the graph only when the WASM guest says so.
+- DEFERRED (reported, NOT faked): threading a reactor constructor through the CG SCHEDULER's package-load path. `scheduler.rs` builds `Reactor::new` from a `ReactorDeclaration`; nothing in the declaration/packaging types carries a reactor-constructor reference yet. Follow-up: add that reference to `ReactorDeclaration`/packaging, have `scheduler.rs::load_reactor` load it and `.with_evaluator(...)`. The seam it plugs into is landed + proven against `Reactor` directly; only the declaration/packaging/scheduler plumbing remains.
+
+**Macro:** now generates task (T-0826) + accumulator + reactor (T-0828); `trigger` still errors (hand-authored vs raw fidius contract). accumulator/reactor take `#[config]`-only fields, payload arrives as the body argument (no output buffer / set/get / `#[param]`).
+
+**Validation (all run):** `cargo fmt --all -- --check` exit 0; default `cargo check -p cloacina` clean + `cargo tree -p cloacina -i wasmtime` absent; `cargo check -p cloacina --features constructors-wasm --tests` clean; accumulator e2e 4 passed; reactor e2e 4 passed; trigger+macro regression pass; `cargo test -p cloacina --lib computation_graph::` 44 passed.
+
+**Files:** `crates/cloacina/src/registry/loader/constructor_loader.rs`, `crates/cloacina/src/computation_graph/reactor.rs`, `crates/cloacina-macros/src/constructor_attr.rs`, `examples/constructor-contract/{accumulator,reactor}-constructor-fixture/`, `examples/constructor-contract/constructor-contract/src/lib.rs`, `crates/cloacina/tests/constructor_{accumulator,reactor}_wasm.rs`.
