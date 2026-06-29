@@ -30,7 +30,7 @@ use tracing::{error, info, warn};
 use super::accumulator::{health_channel, shutdown_signal, AccumulatorHealth};
 use super::reactor::{
     reactor_health_channel, CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
-    ReactorHandle,
+    ReactorFireDecider, ReactorHandle,
 };
 use super::registry::{AccumulatorAuthPolicy, EndpointRegistry, ReactorAuthPolicy};
 use super::types::{GraphResult, InputCache, SourceName};
@@ -105,11 +105,22 @@ pub trait AccumulatorFactory: Send + Sync {
 #[derive(Clone)]
 pub struct ReactorDeclaration {
     /// Reaction criteria (when_any / when_all).
+    ///
+    /// Ignored at runtime when `constructor` is `Some(..)` — a reactor
+    /// constructor's WASM `evaluate` replaces the dirty-flag criteria.
     pub criteria: ReactionCriteria,
     /// Input strategy (latest / sequential).
     pub strategy: InputStrategy,
     /// The compiled graph function.
     pub graph_fn: CompiledGraphFn,
+    /// Optional packaged WASM reactor-constructor reference (CLOACI-T-0830).
+    ///
+    /// `Some(..)` makes the named constructor's WASM `evaluate` the reactor's
+    /// firing decision: [`load_reactor`](ComputationGraphScheduler::load_reactor)
+    /// resolves it against the T-0829 provider search path and installs it via
+    /// [`Reactor::with_evaluator`], replacing the built-in `criteria`. `None`
+    /// (the default for every existing path) is the native dirty-flag reactor.
+    pub constructor: Option<cloacina_computation_graph::ReactorConstructorRef>,
 }
 
 /// Status of a managed computation graph.
@@ -213,6 +224,53 @@ fn dummy_graph_fn() -> CompiledGraphFn {
     Arc::new(|_cache: InputCache| Box::pin(async move { GraphResult::completed(vec![]) }))
 }
 
+/// Resolve a [`ReactorConstructorRef`](cloacina_computation_graph::ReactorConstructorRef)
+/// into a live firing decider (CLOACI-T-0830).
+///
+/// `None` ref → `None` decider (the native dirty-flag reactor). `Some(ref)` loads
+/// the named WASM reactor constructor through the T-0829 provider seam — resolving
+/// `from` against the provider search path, binding `config` BY NAME, and validating
+/// the resolved `constructor` name — and returns it as an
+/// `Arc<dyn ReactorFireDecider>` ready for [`Reactor::with_evaluator`]. The load is
+/// blocking (builds a `PluginHost`, loads + configures the wasmtime component), so it
+/// runs on `spawn_blocking`.
+///
+/// Behind the default-OFF `constructors-wasm` feature: a ref present in a build that
+/// lacks the feature fails closed with a clear error rather than silently ignoring the
+/// author's firing logic.
+async fn resolve_reactor_evaluator(
+    constructor: &Option<cloacina_computation_graph::ReactorConstructorRef>,
+) -> Result<Option<Arc<dyn ReactorFireDecider>>, String> {
+    let Some(cref) = constructor else {
+        return Ok(None);
+    };
+
+    #[cfg(feature = "constructors-wasm")]
+    {
+        let cref = cref.clone();
+        let decider = tokio::task::spawn_blocking(move || {
+            crate::registry::loader::constructor_loader::load_reactor_constructor_node(
+                &cref.from,
+                &cref.constructor,
+                cref.config,
+            )
+        })
+        .await
+        .map_err(|e| format!("reactor constructor load task join failed: {e}"))?
+        .map_err(|e| format!("reactor constructor load failed: {e}"))?;
+        Ok(Some(decider))
+    }
+
+    #[cfg(not(feature = "constructors-wasm"))]
+    {
+        Err(format!(
+            "reactor declares constructor '{}' from provider '{}', but this build lacks \
+             the 'constructors-wasm' feature required to load WASM reactor constructors",
+            cref.constructor, cref.from
+        ))
+    }
+}
+
 /// Subscribers bound to a single reactor instance.
 ///
 /// Today every reactor has exactly one subscriber (the bundled-form graph
@@ -311,6 +369,12 @@ struct RunningGraph {
     failure_counts: HashMap<String, u32>,
     /// Timestamp of last successful operation per component (for failure count reset).
     last_success: HashMap<String, std::time::Instant>,
+    /// Resolved reactor-constructor firing decider (CLOACI-T-0830). `Some(..)`
+    /// when this reactor was loaded with a [`ReactorConstructorRef`]: the WASM
+    /// `evaluate` was resolved ONCE at load and is shared (it is `Send + Sync`)
+    /// so the supervisor reuses it on restart instead of re-loading the
+    /// component. `None` is the native dirty-flag reactor.
+    evaluator: Option<Arc<dyn ReactorFireDecider>>,
 }
 
 /// Maximum consecutive failures before a component is permanently abandoned.
@@ -429,6 +493,11 @@ impl ComputationGraphScheduler {
         strategy: InputStrategy,
         tenant_id: Option<String>,
         register_aliases: Vec<String>,
+        // CLOACI-T-0830: optional packaged reactor-constructor reference. When
+        // `Some(..)`, the named WASM constructor's `evaluate` becomes the
+        // reactor's firing decider (via `Reactor::with_evaluator`), replacing
+        // the `criteria`. Resolved once here and reused across restarts.
+        constructor: Option<cloacina_computation_graph::ReactorConstructorRef>,
     ) -> Result<(), String> {
         // Idempotent path: matching contract → no-op.
         {
@@ -441,6 +510,7 @@ impl ComputationGraphScheduler {
                         criteria: criteria.clone(),
                         strategy: strategy.clone(),
                         graph_fn: dummy_graph_fn(),
+                        constructor: constructor.clone(),
                     },
                     tenant_id: tenant_id.clone(),
                     reactor_name: Some(reactor_name.clone()),
@@ -455,6 +525,12 @@ impl ComputationGraphScheduler {
                 return Ok(());
             }
         }
+
+        // CLOACI-T-0830: resolve the reactor-constructor reference (if any) into a
+        // live firing decider BEFORE we spawn anything, so a bad constructor ref
+        // fails the load cleanly instead of leaving a half-wired reactor running.
+        // The resolved decider is reused on restart (stored on `RunningGraph`).
+        let evaluator = resolve_reactor_evaluator(&constructor).await?;
 
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
         let stored_shutdown_rx = shutdown_rx.clone();
@@ -544,6 +620,13 @@ impl ComputationGraphScheduler {
         .with_accumulator_health(acc_health_rxs)
         .with_tenant_id(tenant_id.clone());
 
+        // CLOACI-T-0830: a resolved reactor-constructor decider replaces the
+        // built-in WhenAny/WhenAll criteria — the WASM guest's `evaluate` decides
+        // firing. The native path leaves `evaluator` as `None` (unchanged).
+        if let Some(ref ev) = evaluator {
+            reactor = reactor.with_evaluator(ev.clone());
+        }
+
         if let Some(ref dal) = self.dal {
             reactor = reactor.with_dal(dal.clone());
         }
@@ -604,6 +687,11 @@ impl ComputationGraphScheduler {
                 criteria,
                 strategy,
                 graph_fn: dummy_graph_fn(),
+                // Preserve the constructor ref on the anchor for fidelity; the
+                // restart path reuses the already-resolved `evaluator` rather
+                // than re-resolving from this, but keeping it keeps the anchor an
+                // honest record of how the reactor was declared (CLOACI-T-0830).
+                constructor,
             },
             tenant_id,
             reactor_name: Some(reactor_name.clone()),
@@ -623,6 +711,7 @@ impl ComputationGraphScheduler {
             endpoint_registry_keys,
             failure_counts: HashMap::new(),
             last_success: HashMap::new(),
+            evaluator,
         };
 
         self.reactors.write().await.insert(reactor_name, running);
@@ -746,6 +835,7 @@ impl ComputationGraphScheduler {
             decl.reactor.strategy.clone(),
             decl.tenant_id.clone(),
             vec![name.clone()],
+            decl.reactor.constructor.clone(),
         )
         .await?;
 
@@ -798,6 +888,9 @@ impl ComputationGraphScheduler {
                 criteria: reactor.reaction_mode.into(),
                 strategy: InputStrategy::Latest,
                 graph_fn,
+                // Split-form (`#[computation_graph(trigger = reactor(T))]`) does
+                // not author WASM reactor constructors — native firing only.
+                constructor: None,
             },
             tenant_id,
             // Split-form callers carry an explicit reactor identity. Multiple
@@ -1181,6 +1274,13 @@ impl ComputationGraphScheduler {
                 .with_expected_sources(expected_sources)
                 .with_accumulator_health(restart_acc_health_rxs)
                 .with_tenant_id(running.declaration.tenant_id.clone());
+                // CLOACI-T-0830: re-install the reactor-constructor decider on
+                // restart. The decider was resolved once at load and is shared
+                // (`Arc<dyn ReactorFireDecider>`, `Send + Sync`), so the restart
+                // reuses it rather than re-loading the WASM component.
+                if let Some(ref ev) = running.evaluator {
+                    reactor = reactor.with_evaluator(ev.clone());
+                }
                 if let Some(ref dal) = self.dal {
                     reactor = reactor.with_dal(dal.clone());
                 }
@@ -1570,6 +1670,7 @@ mod tests {
                 criteria: ReactionCriteria::WhenAny,
                 strategy: InputStrategy::Latest,
                 graph_fn,
+                constructor: None,
             },
             tenant_id: None,
             reactor_name: None,
@@ -1614,6 +1715,7 @@ mod tests {
                 criteria: ReactionCriteria::WhenAny,
                 strategy: InputStrategy::Latest,
                 graph_fn,
+                constructor: None,
             },
             tenant_id: None,
             reactor_name: None,
@@ -1652,6 +1754,7 @@ mod tests {
                 criteria: ReactionCriteria::WhenAny,
                 strategy: InputStrategy::Latest,
                 graph_fn,
+                constructor: None,
             },
             tenant_id: None,
             reactor_name: None,

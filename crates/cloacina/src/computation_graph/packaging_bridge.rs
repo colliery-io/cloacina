@@ -225,6 +225,11 @@ pub fn build_declaration_from_ffi(
             criteria,
             strategy,
             graph_fn,
+            // CLOACI-T-0830: the FFI/cdylib packaged path doesn't yet carry a
+            // reactor-constructor reference through `GraphPackageMetadata`
+            // (deferred — see `dispatch_package_reactors_into_scheduler`). Native
+            // dirty-flag firing only for this path.
+            constructor: None,
         },
         tenant_id: None, // Set by the reconciler based on package ownership
         // Propagate the explicit reactor name from the FFI metadata
@@ -687,6 +692,11 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
                 strategy,
                 tenant_id.clone(),
                 vec![],
+                // CLOACI-T-0830: carry the reactor-constructor reference from the
+                // runtime registration (populated by `#[reactor(from=.., …)]`)
+                // into the scheduler, which resolves + installs the WASM
+                // `evaluate` as the reactor's firing decider.
+                registration.constructor.clone(),
             )
             .await?;
 
@@ -767,6 +777,11 @@ pub async fn dispatch_package_reactors_into_scheduler(
                 strategy,
                 tenant_id.clone(),
                 vec![],
+                // CLOACI-T-0830: threading a reactor-constructor reference through
+                // the FFI `ReactorPackageMetadata` shape is deferred (it needs new
+                // serialized fields + signing). Rust cdylib packages dispatch as
+                // native dirty-flag reactors for now.
+                None,
             )
             .await?;
 

@@ -877,12 +877,15 @@ pub fn load_accumulator_constructor<C: Serialize>(
 // `process`), so — like task/trigger — the blocking wasmtime `evaluate` runs on
 // `spawn_blocking`.
 //
-// DEFERRED (reported, not faked): threading a `WasmReactorConstructor` through
-// the CG SCHEDULER's package-load path (`scheduler.rs` builds `Reactor::new`
-// from a `ReactorDeclaration`; nothing in the declaration/packaging types yet
-// carries a reactor-constructor reference). The seam + bridge are proven against
-// `Reactor` directly; the scheduler/declaration/packaging wiring is the
-// remaining lift.
+// CLOACI-T-0830 (done): the reactor constructor is now threaded through the CG
+// SCHEDULER's package-load path. `ReactorDeclaration` carries an optional
+// `ReactorConstructorRef` (from/constructor/config); `scheduler.rs::load_reactor`
+// resolves it via [`load_reactor_constructor_node`] (below) and installs the
+// loaded `WasmReactorConstructor` on the live `Reactor` via `with_evaluator`. The
+// `#[reactor(from = .., constructor = .., config = { .. })]` authoring form
+// populates the ref (carried on `ReactorRegistration`), and the resolved decider
+// is reused across reactor restarts. Threading the ref through the FFI
+// `ReactorPackageMetadata` (Rust cdylib packaging) remains a documented follow-on.
 
 /// Host-side re-declaration of the REACTOR-constructor interface (CLOACI-T-0828).
 /// Same trait shape the guest implements; the fidius macro emits the matching
@@ -1474,4 +1477,97 @@ pub fn load_constructor_node(
         inner: task,
         dependencies,
     }))
+}
+
+// ===========================================================================
+// Reactor-constructor consumer surface — CG scheduler load path (CLOACI-T-0830)
+// ===========================================================================
+//
+// A reactor is NOT a `Runtime` constructor (task/trigger) or a DAG node — it is
+// the CG SCHEDULER's firing engine. So a packaged reactor constructor is consumed
+// differently from the `constructor!(...)` node form: instead of producing an
+// `Arc<dyn Task>` for the workflow DAG, it produces an `Arc<dyn ReactorFireDecider>`
+// that the scheduler installs on the live `Reactor` via `with_evaluator`.
+//
+// This is the runtime half of the `#[reactor(from = .., constructor = .., config =
+// { .. })]` authoring form: the CG scheduler (`load_reactor`) calls this to resolve
+// the declaration's `ReactorConstructorRef`. It reuses the SAME T-0829 provider
+// resolution (`provider_search_path`/`provider_package_name`) and name-keyed config
+// binding (`bind_config_by_name`) as the task/trigger node form, so a reactor
+// constructor is authored and resolved exactly like the others.
+
+/// Resolve + load a packaged WASM **reactor** constructor as a firing decider for
+/// the CG scheduler (the runtime half of the `#[reactor(from = .., constructor =
+/// .., config = { .. })]` authoring form — CLOACI-T-0830).
+///
+/// Resolves `from` against the [`provider_search_path`], reads the resolved
+/// constructor's manifest to learn its `#[config]` schema, binds the author's
+/// `config = { name = value }` kwargs BY NAME ([`bind_config_by_name`], reordered
+/// into the guest's declaration order), loads the named reactor constructor via
+/// [`load_reactor_constructor`] (binding the reordered config once), validates the
+/// resolved constructor's name matches `constructor_name`, and returns it as an
+/// `Arc<dyn ReactorFireDecider>` ready for
+/// [`Reactor::with_evaluator`](crate::computation_graph::reactor::Reactor::with_evaluator).
+///
+/// `config` is the author's `config = { … }` entries as `(name, value)` pairs in
+/// WRITTEN order; the reorder/coerce is identical to [`load_constructor_node`] (the
+/// task/trigger node form) so config binds by NAME, not written order.
+///
+/// Fails closed (a clear [`LoaderError`]) if the provider is missing, the manifest
+/// is unreadable / not a `Reactor`, the interface version mismatches, a config kwarg
+/// is unknown / duplicated / missing / mistyped, or the resolved constructor name
+/// does not match `constructor_name`.
+pub fn load_reactor_constructor_node(
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+) -> Result<Arc<dyn ReactorFireDecider>, LoaderError> {
+    let search_path = provider_search_path();
+    let package_name = provider_package_name(from);
+
+    // Peek the manifest to learn the constructor's #[config] schema, so we can bind
+    // `config = { name = value }` by NAME before the positional bincode load.
+    let host = PluginHost::builder()
+        .search_path(&search_path)
+        .build()
+        .map_err(|e| LoaderError::LibraryLoad {
+            path: search_path.display().to_string(),
+            error: format!("build plugin host: {e}"),
+        })?;
+    let dir = host
+        .find_wasm_package(package_name)
+        .map_err(|e| LoaderError::Validation {
+            reason: format!(
+                "resolve reactor constructor (from = '{from}', constructor = '{constructor_name}'): \
+                 locate provider package '{package_name}' in provider search path '{}': {e}",
+                search_path.display()
+            ),
+        })?;
+    let manifest = read_constructor_manifest(&dir)?;
+
+    // Reuse the T-0829 name-keyed config binding (node_id = the constructor name,
+    // since a reactor has no separate DAG node id).
+    let ordered_config =
+        bind_config_by_name(constructor_name, from, constructor_name, &manifest, config)?;
+
+    let reactor_constructor = load_reactor_constructor(&search_path, package_name, &ordered_config)
+        .map_err(|e| LoaderError::Validation {
+            reason: format!(
+                "resolve reactor constructor (from = '{from}', constructor = \
+                     '{constructor_name}') in provider search path '{}': {e}",
+                search_path.display()
+            ),
+        })?;
+
+    if reactor_constructor.name() != constructor_name {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "reactor constructor: provider '{from}' (package '{package_name}') carries \
+                 constructor '{}', but the reactor declared constructor = '{constructor_name}'",
+                reactor_constructor.name()
+            ),
+        });
+    }
+
+    Ok(Arc::new(reactor_constructor) as Arc<dyn ReactorFireDecider>)
 }

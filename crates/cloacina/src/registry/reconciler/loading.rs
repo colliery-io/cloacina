@@ -2152,6 +2152,7 @@ mod tests {
                 name: "py_reactor".to_string(),
                 accumulator_names: vec!["src_a".to_string(), "src_b".to_string()],
                 reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
+                constructor: None,
             }
         });
 
@@ -2180,6 +2181,7 @@ mod tests {
                 name: "preexisting".to_string(),
                 accumulator_names: vec!["x".to_string()],
                 reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
+                constructor: None,
             }
         });
 
@@ -2203,6 +2205,7 @@ mod tests {
                 name: "py_reactor".to_string(),
                 accumulator_names: vec!["topic_a".to_string()],
                 reaction_mode: cloacina_computation_graph::ReactionMode::WhenAll,
+                constructor: None,
             }
         });
 
@@ -2477,6 +2480,7 @@ mod tests {
                 InputStrategy::Latest,
                 Some("public".to_string()),
                 vec![],
+                None,
             )
             .await
             .expect("publishing reactor should load");
@@ -2803,6 +2807,7 @@ mod tests {
                 name: "ephemeral_rx".to_string(),
                 accumulator_names: vec!["alpha".to_string()],
                 reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
+                constructor: None,
             }
         });
         assert!(

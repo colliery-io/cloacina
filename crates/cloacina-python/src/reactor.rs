@@ -132,6 +132,9 @@ pub fn reactor(
                 name: reg_name.clone(),
                 accumulator_names: reg_accs.clone(),
                 reaction_mode: reg_mode,
+                // CLOACI-T-0830: the Python reactor path doesn't (yet) author
+                // WASM reactor constructors — native dirty-flag firing only.
+                constructor: None,
             });
 
             tracing::debug!(
