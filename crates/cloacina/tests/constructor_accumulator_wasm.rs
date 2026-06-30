@@ -141,6 +141,7 @@ async fn wasm_accumulator_emits_boundary_when_threshold_crossed() {
         tmp.path(),
         "accumulator-constructor-pkg",
         &Config { threshold: 5.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_accumulator_constructor");
     assert_eq!(acc.name(), "threshold");
@@ -198,6 +199,7 @@ async fn wasm_accumulator_buffers_below_threshold() {
         tmp.path(),
         "accumulator-constructor-pkg",
         &Config { threshold: 5.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_accumulator_constructor");
 
@@ -245,9 +247,13 @@ async fn non_accumulator_primitive_fails_closed() {
     // assert the loader's primitive-kind guard message exists by loading a
     // missing package (fails closed on resolution).
     let tmp = tempfile::TempDir::new().unwrap();
-    let err =
-        load_accumulator_constructor(tmp.path(), "does-not-exist-pkg", &Config { threshold: 1.0 })
-            .expect_err("loading a missing package must fail closed");
+    let err = load_accumulator_constructor(
+        tmp.path(),
+        "does-not-exist-pkg",
+        &Config { threshold: 1.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+    )
+    .expect_err("loading a missing package must fail closed");
     let msg = format!("{err}");
     assert!(
         msg.contains("does-not-exist-pkg"),

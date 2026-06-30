@@ -126,9 +126,13 @@ async fn wasm_reactor_evaluate_bridge_is_config_bound() {
     stage(tmp.path());
 
     // gate = 5.0 → a held boundary value of 10.0 crosses → fire.
-    let firing =
-        load_reactor_constructor(tmp.path(), "reactor-constructor-pkg", &Config { gate: 5.0 })
-            .expect("load_reactor_constructor (firing)");
+    let firing = load_reactor_constructor(
+        tmp.path(),
+        "reactor-constructor-pkg",
+        &Config { gate: 5.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+    )
+    .expect("load_reactor_constructor (firing)");
     let boundaries = serde_json::json!({ "x": { "value": 10.0 } }).to_string();
     let outcome = firing.evaluate(boundaries.clone()).await.expect("evaluate");
     assert!(outcome.fire, "10.0 >= gate 5.0 → fire");
@@ -138,6 +142,7 @@ async fn wasm_reactor_evaluate_bridge_is_config_bound() {
         tmp.path(),
         "reactor-constructor-pkg",
         &Config { gate: 50.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_reactor_constructor (holding)");
     let outcome = holding.evaluate(boundaries).await.expect("evaluate");
@@ -147,8 +152,13 @@ async fn wasm_reactor_evaluate_bridge_is_config_bound() {
 #[tokio::test]
 async fn non_reactor_primitive_fails_closed() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let err = load_reactor_constructor(tmp.path(), "missing-reactor-pkg", &Config { gate: 1.0 })
-        .expect_err("loading a missing package must fail closed");
+    let err = load_reactor_constructor(
+        tmp.path(),
+        "missing-reactor-pkg",
+        &Config { gate: 1.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+    )
+    .expect_err("loading a missing package must fail closed");
     assert!(
         format!("{err}").contains("missing-reactor-pkg"),
         "error should name the missing package, got: {err}"
@@ -161,9 +171,13 @@ async fn reactor_with_wasm_evaluator_fires_when_guest_says_so() {
     stage(tmp.path());
 
     // gate = 5.0: the WASM guest fires when a held boundary crosses 5.0.
-    let evaluator =
-        load_reactor_constructor(tmp.path(), "reactor-constructor-pkg", &Config { gate: 5.0 })
-            .expect("load_reactor_constructor");
+    let evaluator = load_reactor_constructor(
+        tmp.path(),
+        "reactor-constructor-pkg",
+        &Config { gate: 5.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+    )
+    .expect("load_reactor_constructor");
 
     let (acc_tx, acc_rx) = mpsc::channel::<(SourceName, Vec<u8>)>(10);
     let (_manual_tx, manual_rx) = mpsc::channel::<ManualCommand>(10);

@@ -94,6 +94,8 @@ use cloacina_constructor_contract::{
 };
 use fidius_host::PluginHost;
 
+use super::grants::{lint_unmet_intents, translate, GrantSpec, ResolvedGrants};
+
 use crate::computation_graph::accumulator::Accumulator;
 use crate::computation_graph::reactor::ReactorFireDecider;
 use crate::computation_graph::types::InputCache;
@@ -256,6 +258,7 @@ pub fn load_task_constructor<C: Serialize>(
     search_path: impl AsRef<Path>,
     package_name: &str,
     config: &C,
+    grants: &ResolvedGrants,
 ) -> Result<Arc<dyn Task>, LoaderError> {
     let search_path = search_path.as_ref();
 
@@ -294,16 +297,20 @@ pub fn load_task_constructor<C: Serialize>(
         });
     }
 
-    // Config binds ONCE here; the integrity hash is checked inside fidius.
+    // Config binds ONCE here; the integrity hash is checked inside fidius. The
+    // tenant's translated grants override the manifest caps + supply the egress
+    // policy (default-closed when `grants` is deny-all).
     let handle = host
-        .load_wasm_configured(
+        .load_wasm_configured_with_grants(
             package_name,
             &__fidius_TaskConstructor::TaskConstructor_WASM_DESCRIPTOR,
             config,
+            grants.capabilities.clone(),
+            grants.egress.clone(),
         )
         .map_err(|e| LoaderError::LibraryLoad {
             path: dir.display().to_string(),
-            error: format!("load_wasm_configured: {e}"),
+            error: format!("load_wasm_configured_with_grants: {e}"),
         })?;
 
     Ok(Arc::new(WasmTaskConstructor {
@@ -379,6 +386,7 @@ pub fn load_task_constructor_from_package<C: Serialize>(
     package_name: &str,
     config: &C,
     verify_keys: &[ed25519_dalek::VerifyingKey],
+    grants: &ResolvedGrants,
 ) -> Result<Arc<dyn Task>, LoaderError> {
     let dest = dest.as_ref();
     // Unpack (+ verify) first; this is the seam that rejects a tampered or
@@ -386,7 +394,7 @@ pub fn load_task_constructor_from_package<C: Serialize>(
     let _pkg_dir = unpack_provider_archive(archive, dest, verify_keys)?;
     // `dest` is the fidius search path; the package resolves by name out of the
     // freshly-unpacked `<name>-<version>/` directory it contains.
-    load_task_constructor(dest, package_name, config)
+    load_task_constructor(dest, package_name, config, grants)
 }
 
 // ===========================================================================
@@ -533,6 +541,7 @@ pub fn load_trigger_constructor<C: Serialize>(
     package_name: &str,
     config: &C,
     binding: TriggerBinding,
+    grants: &ResolvedGrants,
 ) -> Result<Arc<dyn Trigger>, LoaderError> {
     let search_path = search_path.as_ref();
 
@@ -571,14 +580,16 @@ pub fn load_trigger_constructor<C: Serialize>(
     }
 
     let handle = host
-        .load_wasm_configured(
+        .load_wasm_configured_with_grants(
             package_name,
             &__fidius_TriggerConstructor::TriggerConstructor_WASM_DESCRIPTOR,
             config,
+            grants.capabilities.clone(),
+            grants.egress.clone(),
         )
         .map_err(|e| LoaderError::LibraryLoad {
             path: dir.display().to_string(),
-            error: format!("load_wasm_configured: {e}"),
+            error: format!("load_wasm_configured_with_grants: {e}"),
         })?;
 
     Ok(Arc::new(WasmTriggerConstructor {
@@ -624,6 +635,7 @@ pub fn load_constructor<C: Serialize>(
     package_name: &str,
     config: &C,
     binding: ConstructorBinding,
+    grants: &ResolvedGrants,
 ) -> Result<(), LoaderError> {
     let search_path = search_path.as_ref();
 
@@ -644,14 +656,15 @@ pub fn load_constructor<C: Serialize>(
 
     match (&binding, manifest.primitive_kind) {
         (ConstructorBinding::Task { namespace }, PrimitiveKind::Task) => {
-            let task = load_task_constructor(search_path, package_name, config)?;
+            let task = load_task_constructor(search_path, package_name, config, grants)?;
             let namespace = namespace.clone();
             runtime.register_task(namespace, move || task.clone());
             Ok(())
         }
         (ConstructorBinding::Trigger(tb), PrimitiveKind::Trigger) => {
             let name = manifest.name.clone();
-            let trigger = load_trigger_constructor(search_path, package_name, config, tb.clone())?;
+            let trigger =
+                load_trigger_constructor(search_path, package_name, config, tb.clone(), grants)?;
             runtime.register_trigger(name, move || trigger.clone());
             Ok(())
         }
@@ -807,6 +820,7 @@ pub fn load_accumulator_constructor<C: Serialize>(
     search_path: impl AsRef<Path>,
     package_name: &str,
     config: &C,
+    grants: &ResolvedGrants,
 ) -> Result<WasmAccumulatorConstructor, LoaderError> {
     let search_path = search_path.as_ref();
 
@@ -845,14 +859,16 @@ pub fn load_accumulator_constructor<C: Serialize>(
     }
 
     let handle = host
-        .load_wasm_configured(
+        .load_wasm_configured_with_grants(
             package_name,
             &__fidius_AccumulatorConstructor::AccumulatorConstructor_WASM_DESCRIPTOR,
             config,
+            grants.capabilities.clone(),
+            grants.egress.clone(),
         )
         .map_err(|e| LoaderError::LibraryLoad {
             path: dir.display().to_string(),
-            error: format!("load_wasm_configured: {e}"),
+            error: format!("load_wasm_configured_with_grants: {e}"),
         })?;
 
     Ok(WasmAccumulatorConstructor {
@@ -1006,6 +1022,7 @@ pub fn load_reactor_constructor<C: Serialize>(
     search_path: impl AsRef<Path>,
     package_name: &str,
     config: &C,
+    grants: &ResolvedGrants,
 ) -> Result<WasmReactorConstructor, LoaderError> {
     let search_path = search_path.as_ref();
 
@@ -1044,14 +1061,16 @@ pub fn load_reactor_constructor<C: Serialize>(
     }
 
     let handle = host
-        .load_wasm_configured(
+        .load_wasm_configured_with_grants(
             package_name,
             &__fidius_ReactorConstructor::ReactorConstructor_WASM_DESCRIPTOR,
             config,
+            grants.capabilities.clone(),
+            grants.egress.clone(),
         )
         .map_err(|e| LoaderError::LibraryLoad {
             path: dir.display().to_string(),
-            error: format!("load_wasm_configured: {e}"),
+            error: format!("load_wasm_configured_with_grants: {e}"),
         })?;
 
     Ok(WasmReactorConstructor {
@@ -1395,6 +1414,24 @@ fn bind_config_by_name(
     Ok(OrderedConfig(ordered))
 }
 
+/// Load-time capability lint (REQ-1.3.1 / [[CLOACI-S-0014]]): read the package's
+/// declared `[wasm].capabilities` (the author's stated intent) and emit a warning
+/// for each capability the tenant's `grants` don't cover. Advisory only —
+/// best-effort (a manifest we can't read is silently skipped); enforcement still
+/// fails closed at runtime. This turns "this constructor wants `http` you didn't
+/// grant" from a mystery runtime denial into a load-time heads-up.
+fn lint_constructor_grants(node_id: &str, from: &str, dir: &Path, grants: &GrantSpec) {
+    let Ok(pkg) = fidius_core::package::load_manifest_untyped(dir) else {
+        return;
+    };
+    let Some(wasm) = pkg.wasm.as_ref() else {
+        return;
+    };
+    for warning in lint_unmet_intents(&wasm.capabilities, grants) {
+        tracing::warn!(node = %node_id, from = %from, "{warning}");
+    }
+}
+
 /// Resolve + load a packaged constructor as a workflow DAG node (the runtime half
 /// of the `constructor!(...)` consumer form).
 ///
@@ -1423,9 +1460,16 @@ pub fn load_constructor_node(
     constructor_name: &str,
     config: Vec<(String, serde_json::Value)>,
     dependencies: Vec<TaskNamespace>,
+    grants: GrantSpec,
 ) -> Result<Arc<dyn Task>, LoaderError> {
     let search_path = provider_search_path();
     let package_name = provider_package_name(from);
+
+    // Translate the tenant's grants into the fidius caps + egress policy. Fail
+    // closed: a malformed grant aborts the load (it never silently widens access).
+    let resolved = translate(&grants).map_err(|e| LoaderError::Validation {
+        reason: format!("constructor node '{node_id}' (from = '{from}'): {e}"),
+    })?;
 
     // Peek the manifest to learn the constructor's #[config] schema, so we can bind
     // `config = { name = value }` by NAME (reorder into declaration order) before
@@ -1449,17 +1493,21 @@ pub fn load_constructor_node(
         })?;
     let manifest = read_constructor_manifest(&dir)?;
 
+    // Load-time capability lint (REQ-1.3.1, advisory): warn when the package
+    // declares an intent to use a capability the tenant didn't grant — it will be
+    // denied at runtime, so surface it now rather than as a mystery failure later.
+    lint_constructor_grants(node_id, from, &dir, &grants);
+
     let ordered_config = bind_config_by_name(node_id, from, constructor_name, &manifest, config)?;
 
-    let task = load_task_constructor(&search_path, package_name, &ordered_config).map_err(|e| {
-        LoaderError::Validation {
+    let task = load_task_constructor(&search_path, package_name, &ordered_config, &resolved)
+        .map_err(|e| LoaderError::Validation {
             reason: format!(
                 "resolve constructor node '{node_id}' (from = '{from}', constructor = \
                      '{constructor_name}') in provider search path '{}': {e}",
                 search_path.display()
             ),
-        }
-    })?;
+        })?;
 
     if task.id() != constructor_name {
         return Err(LoaderError::Validation {
@@ -1521,9 +1569,16 @@ pub fn load_reactor_constructor_node(
     from: &str,
     constructor_name: &str,
     config: Vec<(String, serde_json::Value)>,
+    grants: GrantSpec,
 ) -> Result<Arc<dyn ReactorFireDecider>, LoaderError> {
     let search_path = provider_search_path();
     let package_name = provider_package_name(from);
+
+    // Translate the tenant's grants (fail closed on a malformed grant) before any
+    // load work, so an invalid grant never silently widens access.
+    let resolved = translate(&grants).map_err(|e| LoaderError::Validation {
+        reason: format!("reactor constructor '{constructor_name}' (from = '{from}'): {e}"),
+    })?;
 
     // Peek the manifest to learn the constructor's #[config] schema, so we can bind
     // `config = { name = value }` by NAME before the positional bincode load.
@@ -1545,19 +1600,24 @@ pub fn load_reactor_constructor_node(
         })?;
     let manifest = read_constructor_manifest(&dir)?;
 
+    // Load-time capability lint (REQ-1.3.1, advisory).
+    lint_constructor_grants(constructor_name, from, &dir, &grants);
+
     // Reuse the T-0829 name-keyed config binding (node_id = the constructor name,
     // since a reactor has no separate DAG node id).
     let ordered_config =
         bind_config_by_name(constructor_name, from, constructor_name, &manifest, config)?;
 
-    let reactor_constructor = load_reactor_constructor(&search_path, package_name, &ordered_config)
-        .map_err(|e| LoaderError::Validation {
-            reason: format!(
-                "resolve reactor constructor (from = '{from}', constructor = \
+    let reactor_constructor =
+        load_reactor_constructor(&search_path, package_name, &ordered_config, &resolved).map_err(
+            |e| LoaderError::Validation {
+                reason: format!(
+                    "resolve reactor constructor (from = '{from}', constructor = \
                      '{constructor_name}') in provider search path '{}': {e}",
-                search_path.display()
-            ),
-        })?;
+                    search_path.display()
+                ),
+            },
+        )?;
 
     if reactor_constructor.name() != constructor_name {
         return Err(LoaderError::Validation {

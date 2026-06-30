@@ -517,6 +517,61 @@ impl PackageLoader {
         result
     }
 
+    /// Extract packaged `constructor!(...)` node declarations from compiled library
+    /// bytes (CLOACI-T-0832).
+    ///
+    /// Calls `get_constructor_metadata()` (method index 10) on the fidius plugin.
+    /// Plugins that predate trait v4 return `Ok(vec![])` here. Each returned
+    /// [`cloacina_workflow_plugin::ConstructorPackageMetadata`] is resolved by the
+    /// host (which links the WASM constructor loader) via `load_constructor_node`
+    /// — applying the tenant capability grants — and injected into the rebuilt
+    /// workflow DAG.
+    pub async fn extract_constructor_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "constructor_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        let result =
+            crate::computation_graph::packaging_bridge::call_get_constructor_metadata(&handle)
+                .map_err(|e| LoaderError::MetadataExtraction { reason: e });
+
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        result
+    }
+
     /// Extract trigger metadata from compiled library bytes (T-B / I-0102).
     ///
     /// Calls `get_trigger_metadata()` (method index 5) on the fidius plugin.

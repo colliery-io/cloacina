@@ -238,6 +238,50 @@ impl ConstructorManifest {
     }
 }
 
+/// The package-level manifest for a **provider** — a *suite* of constructors
+/// (CLOACI-A-0011). One provider crate compiles to ONE WASM component that may
+/// expose **N constructors**; this manifest (the package's `provider.json`) is the
+/// `List[Constructor]` index over them. A consumer selects a member by
+/// `constructor = "<name>"`, and the loader carries that name in the `configure`
+/// payload (so all members share the one per-kind fidius interface — no per-member
+/// interface, no fidius change). A single-constructor provider is just a suite of
+/// one.
+///
+/// `Constructor` is [`ConstructorManifest`] (the per-member descriptor); the member
+/// list replaces the older per-constructor `constructor.json` sidecars.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderManifest {
+    /// Provider name — the Cargo package name (the `from = "<name>"` a consumer
+    /// references; CLOACI-A-0010).
+    pub name: String,
+    /// Provider version (semver string), independent of cloacina's version.
+    pub version: String,
+    /// The single `.wasm` component filename inside the package that implements
+    /// every member constructor (one component per provider; CLOACI-A-0011).
+    pub component: String,
+    /// The member constructors this provider exposes, in declaration order.
+    pub constructors: Vec<ConstructorManifest>,
+}
+
+impl ProviderManifest {
+    /// Look up a member constructor by its `name` (the consumer's
+    /// `constructor = "<name>"` selector). `None` if this provider has no such
+    /// member.
+    pub fn constructor(&self, name: &str) -> Option<&ConstructorManifest> {
+        self.constructors.iter().find(|c| c.name == name)
+    }
+
+    /// Serialize to the JSON form that travels in the package (`provider.json`).
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Parse the package's `provider.json` back into a provider manifest.
+    pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(s)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TASK primitive — the WASM-boundary wire types.
 // ---------------------------------------------------------------------------

@@ -118,6 +118,7 @@ async fn wasm_task_constructor_runs_as_cloacina_task() {
         &Config {
             prefix: "hello, ".into(),
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_task_constructor");
 
@@ -150,6 +151,7 @@ async fn config_binds_at_load_so_instances_differ() {
         &Config {
             prefix: "hello, ".into(),
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load hello constructor");
 
@@ -159,6 +161,7 @@ async fn config_binds_at_load_so_instances_differ() {
         &Config {
             prefix: "goodbye, ".into(),
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load goodbye constructor");
 
@@ -203,6 +206,7 @@ async fn non_task_primitive_fails_closed() {
         tmp.path(),
         "task-constructor-pkg",
         &Config { prefix: "x".into() },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     );
     match result {
         Ok(_) => panic!("non-Task primitive should fail closed"),

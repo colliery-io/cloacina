@@ -197,6 +197,32 @@ pub struct ReactorPackageMetadata {
     pub accumulators: Vec<AccumulatorDeclarationEntry>,
 }
 
+/// Metadata for a single `constructor!(...)` DAG node declared by a PACKAGED
+/// workflow, returned by `get_constructor_metadata()` (CLOACI-T-0832). The
+/// packaged cdylib can't link the WASM constructor loader, so it publishes this
+/// declaration and the server resolves it via
+/// `load_constructor_node(.., GrantSpec::from_pairs(grants))` — injecting the
+/// resulting task node into the rebuilt workflow DAG. The capability `grants`
+/// (CLOACI-T-0834) ride along and are enforced through the same fidius two-key
+/// gate as the embedded path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstructorPackageMetadata {
+    /// The workflow this constructor node belongs to.
+    pub workflow: String,
+    /// The DAG node id (what dependents reference).
+    pub id: String,
+    /// Provider package reference, `"name[@version]"`.
+    pub from: String,
+    /// The constructor's `constructor.json` name inside the provider.
+    pub constructor: String,
+    /// Author config as `(name, value)` pairs in written order; bound by name.
+    pub config: Vec<(String, serde_json::Value)>,
+    /// Tenant capability grants as raw `(kind, patterns)` pairs.
+    pub grants: Vec<(String, Vec<String>)>,
+    /// Upstream DAG node ids this constructor depends on.
+    pub dependencies: Vec<String>,
+}
+
 /// Metadata entry for a single trigger-less computation graph declared
 /// by this package, returned by `get_triggerless_graph_metadata()`.
 /// `terminal_node_names` mirrors the field on

@@ -153,6 +153,7 @@ async fn macro_authored_wasm_trigger_constructor_fires_when_configured() {
             workflow_name: "my_workflow".into(),
             cron_expression: None,
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_trigger_constructor");
 
@@ -182,6 +183,7 @@ async fn macro_authored_wasm_trigger_constructor_skips_when_configured_off() {
             message: "unused".into(),
         },
         TriggerBinding::default(),
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_trigger_constructor");
 

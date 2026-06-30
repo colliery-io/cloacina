@@ -103,6 +103,7 @@ async fn signed_provider_loads_from_package_and_runs_as_task() {
             prefix: "hello, ".into(),
         },
         &[vk],
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_task_constructor_from_package (signed, verified)");
 
@@ -135,6 +136,7 @@ async fn wrong_verifying_key_fails_closed() {
         "prefix",
         &Config { prefix: "x".into() },
         &[wrong],
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .err()
     .expect("loading with a non-signing key must fail closed");
@@ -173,6 +175,7 @@ async fn tampered_package_fails_signature_verification() {
         "prefix",
         &Config { prefix: "x".into() },
         &[vk],
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .err()
     .expect("tampered package must fail signature verification");
@@ -199,6 +202,7 @@ async fn missing_constructor_manifest_fails_closed() {
         &dest,
         "prefix",
         &Config { prefix: "x".into() },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .err()
     .expect("missing constructor.json must fail closed");

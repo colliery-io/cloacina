@@ -150,6 +150,7 @@ async fn macro_authored_wasm_task_constructor_runs_as_cloacina_task() {
         &Config {
             prefix: "hello, ".into(),
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_task_constructor");
 
@@ -182,6 +183,7 @@ async fn macro_config_binds_at_load_so_instances_differ() {
         &Config {
             prefix: "hello, ".into(),
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load hello constructor");
 
@@ -191,6 +193,7 @@ async fn macro_config_binds_at_load_so_instances_differ() {
         &Config {
             prefix: "goodbye, ".into(),
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load goodbye constructor");
 
@@ -225,6 +228,7 @@ async fn macro_missing_required_param_fails_closed() {
         tmp.path(),
         "task-constructor-macro-pkg",
         &Config { prefix: "x".into() },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load constructor");
 

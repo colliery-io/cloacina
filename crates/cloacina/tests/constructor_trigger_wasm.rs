@@ -191,6 +191,7 @@ async fn wasm_trigger_constructor_fires_when_configured() {
             workflow_name: "my_workflow".into(),
             cron_expression: None,
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_trigger_constructor");
 
@@ -222,6 +223,7 @@ async fn wasm_trigger_constructor_skips_when_configured_off() {
             message: "unused".into(),
         },
         TriggerBinding::default(),
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_trigger_constructor");
 
@@ -245,6 +247,7 @@ async fn non_trigger_primitive_fails_closed() {
         "task-constructor-pkg",
         &TaskConfig { prefix: "x".into() },
         TriggerBinding::default(),
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     );
     match result {
         Ok(_) => panic!("a Task package must not load as a Trigger"),
@@ -274,6 +277,7 @@ async fn load_constructor_registers_trigger_into_runtime() {
             workflow_name: "wf".into(),
             cron_expression: None,
         }),
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_constructor (trigger)");
 
@@ -310,6 +314,7 @@ async fn load_constructor_registers_task_into_runtime() {
         ConstructorBinding::Task {
             namespace: ns.clone(),
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_constructor (task)");
 
@@ -336,6 +341,7 @@ async fn load_constructor_rejects_mismatched_binding() {
         "task-constructor-pkg",
         &TaskConfig { prefix: "x".into() },
         ConstructorBinding::Trigger(TriggerBinding::default()),
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     );
     match result {
         Ok(_) => panic!("mismatched binding must fail closed"),

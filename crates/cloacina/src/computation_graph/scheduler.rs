@@ -249,10 +249,12 @@ async fn resolve_reactor_evaluator(
     {
         let cref = cref.clone();
         let decider = tokio::task::spawn_blocking(move || {
+            let grants = crate::registry::loader::grants::GrantSpec::from_pairs(cref.grants);
             crate::registry::loader::constructor_loader::load_reactor_constructor_node(
                 &cref.from,
                 &cref.constructor,
                 cref.config,
+                grants,
             )
         })
         .await
