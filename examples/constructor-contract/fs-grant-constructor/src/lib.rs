@@ -40,7 +40,7 @@
 // workspace check-cfg lint flags as unknown — benign (mirrors the loader's own allow).
 #![allow(unexpected_cfgs)]
 
-use cloacina_macros::constructor;
+use cloacina_macros::{constructor, constructor_provider};
 use constructor_contract::ConstructorError;
 
 /// Reads the file at the bound `#[config] path` and stores its contents in the
@@ -72,3 +72,48 @@ impl ReadFile {
         Ok(())
     }
 }
+
+/// Writes the context's `contents` to the bound `#[config] path` and reports the
+/// byte count back under `written_bytes`. The SECOND member of this suite — it
+/// proves the provider-as-suite model (CLOACI-A-0011): two constructors in one
+/// crate, one component, selected by `constructor = "read_file" | "write_file"`.
+/// The write only succeeds if the consuming workflow granted `fs = ["rw:<dir>"]`
+/// (default-closed otherwise — same fail-closed semantics as the read).
+#[constructor(
+    kind = task,
+    name = "write_file",
+    version = "0.1.0",
+    contract = constructor_contract,
+    description = "Writes a file from inside the sandbox; succeeds only with a writable fs grant.",
+    author = "CLOACI-T-0837"
+)]
+pub struct WriteFile {
+    /// The absolute file path to write, bound once per instance at load.
+    #[config]
+    path: String,
+    /// The content to write, pulled from the task context (required).
+    #[param(required)]
+    contents: String,
+}
+
+impl WriteFile {
+    /// The ONLY thing the author writes: write the `#[param] contents` to the bound
+    /// `#[config] path` through the sandbox. Reaches the host filesystem ONLY if the
+    /// tenant granted a writable `fs` grant; otherwise the zero-grant `WasiCtx`
+    /// denies it and this returns an error (fail-closed).
+    fn execute(&self) -> Result<(), ConstructorError> {
+        std::fs::write(&self.path, &self.contents)
+            .map_err(|e| ConstructorError::msg(format!("write {}: {e}", self.path)))?;
+        self.set("written_bytes", self.contents.len() as i64);
+        Ok(())
+    }
+}
+
+// The provider suite: one crate → one component → two task members
+// (`read_file` + `write_file`), indexed by the `provider.json` this emits.
+constructor_provider!(
+    name = "cloacina-provider-fs",
+    version = "0.1.0",
+    contract = constructor_contract,
+    task = [ReadFile, WriteFile],
+);

@@ -1,3 +1,19 @@
+/*
+ *  Copyright 2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
 // CLOACI-T-0822 constructor contract — shared, language-neutral contract types.
 //
 // This crate is the cloacina-defined CONSTRUCTOR CONTRACT shared by the host and
@@ -182,6 +198,79 @@ impl ConstructorManifest {
     pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(s)
     }
+}
+
+/// The package-level manifest for a **provider** — a *suite* of constructors
+/// (CLOACI-A-0011). One provider crate compiles to ONE WASM component that may
+/// expose **N constructors**; this manifest (the package's `provider.json`) is the
+/// `List[Constructor]` index over them. A consumer selects a member by
+/// `constructor = "<name>"`, and the loader carries that name in the `configure`
+/// payload. A single-constructor provider is just a suite of one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderManifest {
+    /// Provider name — the `from = "<name>"` a consumer references (CLOACI-A-0010).
+    pub name: String,
+    /// Provider version (semver string), independent of cloacina's version.
+    pub version: String,
+    /// The single `.wasm` component filename inside the package implementing every
+    /// member constructor (one component per provider; CLOACI-A-0011).
+    pub component: String,
+    /// The member constructors this provider exposes, in declaration order.
+    pub constructors: Vec<ConstructorManifest>,
+}
+
+impl ProviderManifest {
+    /// Look up a member constructor by its `name` (the consumer's
+    /// `constructor = "<name>"` selector). `None` if there is no such member.
+    pub fn constructor(&self, name: &str) -> Option<&ConstructorManifest> {
+        self.constructors.iter().find(|c| c.name == name)
+    }
+
+    /// Serialize to the JSON form that travels in the package (`provider.json`).
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Parse the package's `provider.json` back into a provider manifest.
+    pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(s)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Object-safe per-kind member traits — the suite dispatch seam (CLOACI-A-0011).
+// ---------------------------------------------------------------------------
+//
+// The boxable, OBJECT-SAFE form of each primitive's single sync WASM method. The
+// `#[constructor]`-generated configured type implements one of these (pure serde,
+// on every target); the `constructor_provider!` shell holds the selected member as
+// a `Box<dyn <Kind>Object>` and dispatches each call to it. fidius-agnostic by
+// design — the fidius `#[plugin_impl]` glue lives only in the shell.
+
+/// Object-safe form of the TASK member: `JSON(TaskInvocation)` in → `JSON(TaskOutcome)` out.
+pub trait TaskObject: Send + Sync {
+    /// Run the configured task member.
+    fn execute(&self, invocation_json: String) -> String;
+}
+
+/// Object-safe form of the TRIGGER member: `JSON(TriggerInvocation)` in → `JSON(PollOutcome)` out.
+pub trait TriggerObject: Send + Sync {
+    /// Run the configured trigger member.
+    fn poll(&self, invocation_json: String) -> String;
+}
+
+/// Object-safe form of the ACCUMULATOR member: `JSON(AccumulatorInvocation)` in →
+/// `JSON(AccumulatorOutcome)` out.
+pub trait AccumulatorObject: Send + Sync {
+    /// Run the configured accumulator member.
+    fn ingest(&self, invocation_json: String) -> String;
+}
+
+/// Object-safe form of the REACTOR member: `JSON(ReactorInvocation)` in →
+/// `JSON(ReactorOutcome)` out.
+pub trait ReactorObject: Send + Sync {
+    /// Run the configured reactor member.
+    fn evaluate(&self, invocation_json: String) -> String;
 }
 
 // ---------------------------------------------------------------------------

@@ -22,9 +22,9 @@
 //! emitted on every target, while the wasm guest glue is not.
 
 fn main() {
-    let manifest = fs_grant_constructor::__constructor_manifest();
+    let manifest = fs_grant_constructor::__provider_manifest();
     print!(
         "{}",
-        manifest.to_json().expect("serialize constructor manifest")
+        manifest.to_json().expect("serialize provider manifest")
     );
 }

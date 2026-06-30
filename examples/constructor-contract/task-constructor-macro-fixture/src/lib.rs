@@ -44,7 +44,7 @@
 // allow; see CLOACI-T-0821).
 #![allow(unexpected_cfgs)]
 
-use cloacina_macros::constructor;
+use cloacina_macros::{constructor, constructor_provider};
 use constructor_contract::ConstructorError;
 
 /// Prefixes the context's `name` into `result` — the macro analogue of the raw
@@ -74,3 +74,11 @@ impl Prefix {
         Ok(())
     }
 }
+
+// The provider suite shell (CLOACI-A-0011): one member behind one component.
+constructor_provider!(
+    name = "prefix",
+    version = "0.1.0",
+    contract = constructor_contract,
+    task = [Prefix],
+);

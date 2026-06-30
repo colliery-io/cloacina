@@ -22,9 +22,9 @@
 //! manifest fn is emitted on every target, while the wasm guest glue is not.
 
 fn main() {
-    let manifest = task_constructor_macro_fixture::__constructor_manifest();
+    let manifest = task_constructor_macro_fixture::__provider_manifest();
     print!(
         "{}",
-        manifest.to_json().expect("serialize constructor manifest")
+        manifest.to_json().expect("serialize provider manifest")
     );
 }

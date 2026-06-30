@@ -21,9 +21,9 @@
 //! records the ordered `#[config]` fields) and prints `ConstructorManifest::to_json()`.
 
 fn main() {
-    let manifest = task_constructor_twocfg_fixture::__constructor_manifest();
+    let manifest = task_constructor_twocfg_fixture::__provider_manifest();
     print!(
         "{}",
-        manifest.to_json().expect("serialize constructor manifest")
+        manifest.to_json().expect("serialize provider manifest")
     );
 }

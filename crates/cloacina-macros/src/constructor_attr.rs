@@ -336,7 +336,6 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
     }
 
     let contract = &args.contract;
-    let fidius_crate = LitStr::new(&args.fidius_crate, proc_macro2::Span::call_site());
     let op_name = &args.name;
     let op_version = &args.version;
     let interface = args
@@ -447,60 +446,68 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
         }
     });
     let config_fields_lit = config_fields_tokens(contract, &config_fields);
-    let manifest_fn = quote! {
-        /// CLOACI-T-0826: the constructor manifest the macro emits. Packaging
-        /// (CLOACI-T-0827) serializes this to the sidecar `constructor.json`. Always
-        /// `pub` so a host packaging step / harness can read it across crates.
-        #[allow(dead_code)]
-        pub fn __constructor_manifest() -> #contract::ConstructorManifest {
-            #contract::ConstructorManifest {
-                name: #op_name.to_string(),
-                version: #op_version.to_string(),
-                primitive_kind: #contract::PrimitiveKind::#primitive_variant,
-                interface: #interface.to_string(),
-                interface_version: #interface_version,
-                params: ::std::vec![ #(#slot_exprs),* ],
-                config_fields: #config_fields_lit,
-                dependencies: ::std::vec::Vec::new(),
-                description: #description_tokens,
-                author: #author_tokens,
+    let configured_ident = format_ident!("__{}Configured", struct_ident);
+    let fidius_crate_ident = format_ident!("{}", args.fidius_crate);
+
+    // ----- Associated member metadata (CLOACI-T-0837). -----
+    //
+    // Replaces the old free `pub fn __constructor_manifest()` (which name-collided
+    // when two `#[constructor]`s shared a crate) with ASSOCIATED fns on the member
+    // struct, so N members coexist. The crate-level `constructor_provider!` shell
+    // aggregates `__constructor_manifest()` into `provider.json` and dispatches
+    // `configure` by `__constructor_name()` → `__constructor_make()`.
+    let assoc_impl = quote! {
+        impl #struct_ident {
+            /// The member's declared constructor name — the `constructor = "<name>"`
+            /// selector a consumer writes and the shell dispatches on.
+            #[allow(dead_code)]
+            pub fn __constructor_name() -> &'static str { #op_name }
+
+            /// CLOACI-T-0826/0837: the member's manifest entry. Always `pub` so the
+            /// shell's `__provider_manifest()` (and a host packaging harness) can read
+            /// it across crates.
+            #[allow(dead_code)]
+            pub fn __constructor_manifest() -> #contract::ConstructorManifest {
+                #contract::ConstructorManifest {
+                    name: #op_name.to_string(),
+                    version: #op_version.to_string(),
+                    primitive_kind: #contract::PrimitiveKind::#primitive_variant,
+                    interface: #interface.to_string(),
+                    interface_version: #interface_version,
+                    params: ::std::vec![ #(#slot_exprs),* ],
+                    config_fields: #config_fields_lit,
+                    dependencies: ::std::vec::Vec::new(),
+                    description: #description_tokens,
+                    author: #author_tokens,
+                }
+            }
+
+            /// Decode this member's bound `#[config]` from the wire bytes (the suite
+            /// `configure` payload's per-member config slice) and box it as the
+            /// object-safe member the shell dispatches to. WASM-guest only: it uses
+            /// fidius's wire codec, which the host build does not link here.
+            #[cfg(target_arch = "wasm32")]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::TaskObject> {
+                let __cfg: #config_ident = #fidius_crate_ident::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
             }
         }
     };
 
-    // ----- The fidius guest glue (wasm-only). -----
+    // ----- The configured member + its object-safe `TaskObject` impl. -----
     //
-    // Emitted as top-level items rather than nested in a `const _` block: the
-    // fidius `#[plugin_interface]` / `#[plugin_impl]` macros emit companion
-    // items at the CRATE ROOT (e.g. `__fidius_TaskConstructor`,
-    // `__FIDIUS_INSTANCE_*`) and reference them by `crate::` / `super::` path, so
-    // the annotated items must live at module scope. Each item is gated with
-    // `#[cfg(target_arch = "wasm32")]` placed BEFORE the fidius attribute, so on
-    // the host the item (and the fidius expansion) is stripped entirely, leaving
-    // only the struct + `__constructor_manifest()`.
-    let configured_ident = format_ident!("__{}Configured", struct_ident);
-    let guest_glue = quote! {
-        // The TASK-constructor sync contract. Identical shape to the host's
-        // re-declaration (`crate = "fidius_core"`) so the interface hash matches.
-        // The trait tokens MUST match the host's re-declaration verbatim (bare
-        // `String` / `Send` / `Sync`, the `invocation_json` arg name): the fidius
-        // interface hash is derived from the signature tokens, so any divergence
-        // (e.g. `::std::string::String`) fails the load-time hash gate.
-        #[cfg(target_arch = "wasm32")]
-        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #fidius_crate)]
-        pub trait TaskConstructor: Send + Sync {
-            /// `JSON(TaskInvocation)` in -> `JSON(TaskOutcome)` out. SYNC.
-            fn execute(&self, invocation_json: String) -> String;
-        }
-
-        #[cfg(target_arch = "wasm32")]
+    // Pure serde — emitted on ALL targets (the fidius `#[plugin_interface]` /
+    // `#[plugin_impl]` glue that DRIVES this lives in the `constructor_provider!`
+    // shell, so members carry no per-struct fidius interface and N can share one
+    // component). The shell holds the selected member as `Box<dyn TaskObject>`.
+    let member_impl = quote! {
         pub struct #configured_ident {
             cfg: #config_ident,
         }
 
-        #[cfg(target_arch = "wasm32")]
-        #[::fidius_macro::plugin_impl(TaskConstructor, crate = #fidius_crate, config = #config_ident)]
-        impl TaskConstructor for #configured_ident {
+        impl #contract::TaskObject for #configured_ident {
             fn execute(&self, invocation_json: String) -> String {
                 let __outcome = self.__constructor_run(&invocation_json);
                 ::serde_json::to_string(&__outcome)
@@ -508,13 +515,7 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
             }
         }
 
-        #[cfg(target_arch = "wasm32")]
         impl #configured_ident {
-            // The macro-emitted `configure` hook: binds #[config] once at load.
-            fn configure(cfg: #config_ident) -> Self {
-                Self { cfg }
-            }
-
             fn __constructor_run(&self, invocation_json: &str) -> #contract::TaskOutcome {
                 let __inv: #contract::TaskInvocation = match ::serde_json::from_str(invocation_json) {
                     ::std::result::Result::Ok(v) => v,
@@ -560,8 +561,8 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
         #clean_struct
         #set_get_impl
         #config_struct
-        #manifest_fn
-        #guest_glue
+        #assoc_impl
+        #member_impl
     })
 }
 
@@ -668,7 +669,6 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
     }
 
     let contract = &args.contract;
-    let fidius_crate = LitStr::new(&args.fidius_crate, proc_macro2::Span::call_site());
     let op_name = &args.name;
     let op_version = &args.version;
     let interface = args
@@ -733,50 +733,58 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
         quote! { #id: ::std::clone::Clone::clone(&self.cfg.#id) }
     });
 
-    // ----- The generated manifest fn (host + wasm). Triggers carry no params. -----
+    // ----- Member metadata + object-safe impl (CLOACI-T-0837). Mirrors the task
+    // path: associated `__constructor_*` fns + an object-safe `TriggerObject` impl;
+    // the fidius `#[plugin_interface]`/`#[plugin_impl]` glue lives in the shell.
+    // Triggers carry no params. -----
     let config_fields_lit = config_fields_tokens(contract, &config_fields);
-    let manifest_fn = quote! {
-        /// CLOACI-T-0829: the trigger-constructor manifest the macro emits.
-        /// Packaging serializes this to the sidecar `constructor.json`. Always
-        /// `pub` so a host packaging step / harness can read it across crates.
-        #[allow(dead_code)]
-        pub fn __constructor_manifest() -> #contract::ConstructorManifest {
-            #contract::ConstructorManifest {
-                name: #op_name.to_string(),
-                version: #op_version.to_string(),
-                primitive_kind: #contract::PrimitiveKind::#primitive_variant,
-                interface: #interface.to_string(),
-                interface_version: #interface_version,
-                params: ::std::vec::Vec::new(),
-                config_fields: #config_fields_lit,
-                dependencies: ::std::vec::Vec::new(),
-                description: #description_tokens,
-                author: #author_tokens,
+    let configured_ident = format_ident!("__{}Configured", struct_ident);
+    let fidius_crate_ident = format_ident!("{}", args.fidius_crate);
+
+    let assoc_impl = quote! {
+        impl #struct_ident {
+            /// The member's declared constructor name — the `constructor = "<name>"`
+            /// selector the shell dispatches on.
+            #[allow(dead_code)]
+            pub fn __constructor_name() -> &'static str { #op_name }
+
+            /// CLOACI-T-0829/0837: the member's manifest entry, aggregated into
+            /// `provider.json` by the `constructor_provider!` shell.
+            #[allow(dead_code)]
+            pub fn __constructor_manifest() -> #contract::ConstructorManifest {
+                #contract::ConstructorManifest {
+                    name: #op_name.to_string(),
+                    version: #op_version.to_string(),
+                    primitive_kind: #contract::PrimitiveKind::#primitive_variant,
+                    interface: #interface.to_string(),
+                    interface_version: #interface_version,
+                    params: ::std::vec::Vec::new(),
+                    config_fields: #config_fields_lit,
+                    dependencies: ::std::vec::Vec::new(),
+                    description: #description_tokens,
+                    author: #author_tokens,
+                }
+            }
+
+            /// Decode this member's bound `#[config]` from the suite `configure`
+            /// payload's per-member slice and box it as the object-safe member the
+            /// shell dispatches to. WASM-guest only (uses fidius's wire codec).
+            #[cfg(target_arch = "wasm32")]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::TriggerObject> {
+                let __cfg: #config_ident = #fidius_crate_ident::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
             }
         }
     };
 
-    // ----- The fidius guest glue (wasm-only). Mirrors the task path; see its
-    // comment for why these are top-level cfg(wasm32) items. The trait tokens MUST
-    // match the host's re-declaration verbatim (the fidius interface hash is derived
-    // from the signature tokens). -----
-    let configured_ident = format_ident!("__{}Configured", struct_ident);
-    let guest_glue = quote! {
-        #[cfg(target_arch = "wasm32")]
-        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #fidius_crate)]
-        pub trait TriggerConstructor: Send + Sync {
-            /// `JSON(TriggerInvocation)` in -> `JSON(PollOutcome)` out. SYNC.
-            fn poll(&self, invocation_json: String) -> String;
-        }
-
-        #[cfg(target_arch = "wasm32")]
+    let member_impl = quote! {
         pub struct #configured_ident {
             cfg: #config_ident,
         }
 
-        #[cfg(target_arch = "wasm32")]
-        #[::fidius_macro::plugin_impl(TriggerConstructor, crate = #fidius_crate, config = #config_ident)]
-        impl TriggerConstructor for #configured_ident {
+        impl #contract::TriggerObject for #configured_ident {
             fn poll(&self, invocation_json: String) -> String {
                 let __outcome = self.__constructor_run(&invocation_json);
                 ::serde_json::to_string(&__outcome)
@@ -784,13 +792,7 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
             }
         }
 
-        #[cfg(target_arch = "wasm32")]
         impl #configured_ident {
-            // The macro-emitted `configure` hook: binds #[config] once at load.
-            fn configure(cfg: #config_ident) -> Self {
-                Self { cfg }
-            }
-
             fn __constructor_run(&self, invocation_json: &str) -> #contract::PollOutcome {
                 // Decode the (currently-empty) invocation envelope — proves the
                 // wire shape even though the fire decision ignores it.
@@ -828,8 +830,8 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
         #clean_struct
         #set_get_impl
         #config_struct
-        #manifest_fn
-        #guest_glue
+        #assoc_impl
+        #member_impl
     })
 }
 
@@ -919,7 +921,6 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
     }
 
     let contract = &args.contract;
-    let fidius_crate = LitStr::new(&args.fidius_crate, proc_macro2::Span::call_site());
     let op_name = &args.name;
     let op_version = &args.version;
     let interface = args
@@ -957,34 +958,16 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
         quote! { #id: ::std::clone::Clone::clone(&self.cfg.#id) }
     });
 
-    // ----- The generated manifest fn (host + wasm). No params for these kinds. -----
+    // ----- Member metadata + object-safe impl (CLOACI-T-0837). -----
     let config_fields_lit = config_fields_tokens(contract, &config_fields);
-    let manifest_fn = quote! {
-        /// CLOACI-T-0828: the constructor manifest the macro emits. Packaging
-        /// serializes this to the sidecar `constructor.json`. Always `pub` so a
-        /// host packaging step / harness can read it across crates.
-        #[allow(dead_code)]
-        pub fn __constructor_manifest() -> #contract::ConstructorManifest {
-            #contract::ConstructorManifest {
-                name: #op_name.to_string(),
-                version: #op_version.to_string(),
-                primitive_kind: #contract::PrimitiveKind::#primitive_variant,
-                interface: #interface.to_string(),
-                interface_version: #interface_version,
-                params: ::std::vec::Vec::new(),
-                config_fields: #config_fields_lit,
-                dependencies: ::std::vec::Vec::new(),
-                description: #description_tokens,
-                author: #author_tokens,
-            }
-        }
-    };
+    let configured_ident = format_ident!("__{}Configured", struct_ident);
+    let fidius_crate_ident = format_ident!("{}", args.fidius_crate);
 
-    // ----- Per-kind wire shapes. -----
-    let trait_ident = if is_reactor {
-        format_ident!("ReactorConstructor")
+    // The object-safe member trait + its single method for this kind.
+    let object_ident = if is_reactor {
+        format_ident!("ReactorObject")
     } else {
-        format_ident!("AccumulatorConstructor")
+        format_ident!("AccumulatorObject")
     };
     let method_ident = if is_reactor {
         format_ident!("evaluate")
@@ -1027,24 +1010,50 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
     };
     let encode_fallback = LitStr::new(encode_fallback, proc_macro2::Span::call_site());
 
-    // ----- The fidius guest glue (wasm-only). Mirrors the task path; see its
-    // comment for why these are top-level cfg(wasm32) items. -----
-    let configured_ident = format_ident!("__{}Configured", struct_ident);
-    let guest_glue = quote! {
-        #[cfg(target_arch = "wasm32")]
-        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #fidius_crate)]
-        pub trait #trait_ident: Send + Sync {
-            fn #method_ident(&self, invocation_json: String) -> String;
-        }
+    let assoc_impl = quote! {
+        impl #struct_ident {
+            /// The member's declared constructor name — the `constructor = "<name>"`
+            /// selector the shell dispatches on.
+            #[allow(dead_code)]
+            pub fn __constructor_name() -> &'static str { #op_name }
 
-        #[cfg(target_arch = "wasm32")]
+            /// CLOACI-T-0828/0837: the member's manifest entry, aggregated into
+            /// `provider.json` by the `constructor_provider!` shell.
+            #[allow(dead_code)]
+            pub fn __constructor_manifest() -> #contract::ConstructorManifest {
+                #contract::ConstructorManifest {
+                    name: #op_name.to_string(),
+                    version: #op_version.to_string(),
+                    primitive_kind: #contract::PrimitiveKind::#primitive_variant,
+                    interface: #interface.to_string(),
+                    interface_version: #interface_version,
+                    params: ::std::vec::Vec::new(),
+                    config_fields: #config_fields_lit,
+                    dependencies: ::std::vec::Vec::new(),
+                    description: #description_tokens,
+                    author: #author_tokens,
+                }
+            }
+
+            /// Decode this member's bound `#[config]` from the suite `configure`
+            /// payload's per-member slice and box it as the object-safe member the
+            /// shell dispatches to. WASM-guest only (uses fidius's wire codec).
+            #[cfg(target_arch = "wasm32")]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::#object_ident> {
+                let __cfg: #config_ident = #fidius_crate_ident::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
+            }
+        }
+    };
+
+    let member_impl = quote! {
         pub struct #configured_ident {
             cfg: #config_ident,
         }
 
-        #[cfg(target_arch = "wasm32")]
-        #[::fidius_macro::plugin_impl(#trait_ident, crate = #fidius_crate, config = #config_ident)]
-        impl #trait_ident for #configured_ident {
+        impl #contract::#object_ident for #configured_ident {
             fn #method_ident(&self, invocation_json: String) -> String {
                 let __outcome = self.__constructor_run(&invocation_json);
                 ::serde_json::to_string(&__outcome)
@@ -1052,13 +1061,7 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
             }
         }
 
-        #[cfg(target_arch = "wasm32")]
         impl #configured_ident {
-            // The macro-emitted `configure` hook: binds #[config] once at load.
-            fn configure(cfg: #config_ident) -> Self {
-                Self { cfg }
-            }
-
             fn __constructor_run(&self, invocation_json: &str) -> #outcome_ty {
                 let __inv: #invocation_ty = match ::serde_json::from_str(invocation_json) {
                     ::std::result::Result::Ok(v) => v,
@@ -1082,8 +1085,8 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
     Ok(quote! {
         #clean_struct
         #config_struct
-        #manifest_fn
-        #guest_glue
+        #assoc_impl
+        #member_impl
     })
 }
 

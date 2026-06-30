@@ -18,9 +18,9 @@
 //! JSON (the packaging stand-in that materializes the sidecar `constructor.json`).
 
 fn main() {
-    let manifest = accumulator_constructor_fixture::__constructor_manifest();
+    let manifest = accumulator_constructor_fixture::__provider_manifest();
     print!(
         "{}",
-        manifest.to_json().expect("serialize constructor manifest")
+        manifest.to_json().expect("serialize provider manifest")
     );
 }
