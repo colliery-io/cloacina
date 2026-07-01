@@ -118,7 +118,7 @@ fn stage(root: &Path) {
          [wasm]\ncomponent = \"reactor_constructor_fixture.wasm\"\n",
     )
     .unwrap();
-    std::fs::write(dir.join("constructor.json"), macro_manifest_json()).unwrap();
+    std::fs::write(dir.join("provider.json"), macro_manifest_json()).unwrap();
 }
 
 // ---------------------------------------------------------------------------
