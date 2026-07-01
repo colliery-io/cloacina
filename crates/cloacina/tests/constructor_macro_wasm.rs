@@ -43,7 +43,7 @@ use std::sync::OnceLock;
 
 use cloacina::registry::loader::constructor_loader::load_task_constructor;
 use cloacina::Context;
-use cloacina_constructor_contract::{ConstructorManifest, PrimitiveKind};
+use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 use serde::Serialize;
 
 /// Per-instance config the loader binds once at load (mirrors the fixture's
@@ -111,8 +111,8 @@ fn stage(root: &Path) {
          [wasm]\ncomponent = \"task_constructor_macro_fixture.wasm\"\n",
     )
     .unwrap();
-    // The sidecar is the macro-generated manifest verbatim.
-    std::fs::write(dir.join("constructor.json"), macro_manifest_json()).unwrap();
+    // The provider index is the macro-generated `__provider_manifest()` verbatim.
+    std::fs::write(dir.join("provider.json"), macro_manifest_json()).unwrap();
 }
 
 #[tokio::test]
@@ -120,8 +120,12 @@ async fn macro_authored_manifest_carries_the_declared_surface() {
     // The macro-generated `__constructor_manifest()` describes the constructor: a Task
     // named "prefix", interface v1, with the single required `name` param the
     // author declared via `#[param(required)]`.
-    let manifest = ConstructorManifest::from_json(macro_manifest_json())
-        .expect("macro manifest parses against the real contract crate");
+    let provider = ProviderManifest::from_json(macro_manifest_json())
+        .expect("macro provider manifest parses against the real contract crate");
+    assert_eq!(provider.name, "prefix");
+    let manifest = provider
+        .constructor("prefix")
+        .expect("suite carries the `prefix` member");
 
     assert_eq!(manifest.name, "prefix");
     assert_eq!(manifest.version, "0.1.0");
@@ -147,6 +151,7 @@ async fn macro_authored_wasm_task_constructor_runs_as_cloacina_task() {
     let task = load_task_constructor(
         tmp.path(),
         "task-constructor-macro-pkg",
+        "prefix",
         &Config {
             prefix: "hello, ".into(),
         },
@@ -180,6 +185,7 @@ async fn macro_config_binds_at_load_so_instances_differ() {
     let hello = load_task_constructor(
         tmp.path(),
         "task-constructor-macro-pkg",
+        "prefix",
         &Config {
             prefix: "hello, ".into(),
         },
@@ -190,6 +196,7 @@ async fn macro_config_binds_at_load_so_instances_differ() {
     let goodbye = load_task_constructor(
         tmp.path(),
         "task-constructor-macro-pkg",
+        "prefix",
         &Config {
             prefix: "goodbye, ".into(),
         },
@@ -227,6 +234,7 @@ async fn macro_missing_required_param_fails_closed() {
     let task = load_task_constructor(
         tmp.path(),
         "task-constructor-macro-pkg",
+        "prefix",
         &Config { prefix: "x".into() },
         &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )

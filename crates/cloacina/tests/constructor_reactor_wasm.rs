@@ -44,7 +44,7 @@ use cloacina::computation_graph::reactor::{
 };
 use cloacina::computation_graph::types::{GraphResult, InputCache, SourceName};
 use cloacina::registry::loader::constructor_loader::load_reactor_constructor;
-use cloacina_constructor_contract::{ConstructorManifest, PrimitiveKind};
+use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 use serde::Serialize;
 
 /// Per-instance config the loader binds once at load (mirrors the fixture's
@@ -106,13 +106,16 @@ fn stage(root: &Path) {
          [wasm]\ncomponent = \"reactor_constructor_fixture.wasm\"\n",
     )
     .unwrap();
-    std::fs::write(dir.join("constructor.json"), macro_manifest_json()).unwrap();
+    std::fs::write(dir.join("provider.json"), macro_manifest_json()).unwrap();
 }
 
 #[tokio::test]
 async fn macro_authored_manifest_is_a_reactor() {
-    let manifest = ConstructorManifest::from_json(macro_manifest_json())
-        .expect("macro manifest parses against the real contract crate");
+    let provider = ProviderManifest::from_json(macro_manifest_json())
+        .expect("macro provider manifest parses against the real contract crate");
+    let manifest = provider
+        .constructor("gate")
+        .expect("suite carries the  member");
     assert_eq!(manifest.name, "gate");
     assert_eq!(manifest.primitive_kind, PrimitiveKind::Reactor);
     assert_eq!(manifest.interface, "reactor-constructor");
@@ -129,6 +132,7 @@ async fn wasm_reactor_evaluate_bridge_is_config_bound() {
     let firing = load_reactor_constructor(
         tmp.path(),
         "reactor-constructor-pkg",
+        "gate",
         &Config { gate: 5.0 },
         &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
@@ -141,6 +145,7 @@ async fn wasm_reactor_evaluate_bridge_is_config_bound() {
     let holding = load_reactor_constructor(
         tmp.path(),
         "reactor-constructor-pkg",
+        "gate",
         &Config { gate: 50.0 },
         &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
@@ -155,6 +160,7 @@ async fn non_reactor_primitive_fails_closed() {
     let err = load_reactor_constructor(
         tmp.path(),
         "missing-reactor-pkg",
+        "gate",
         &Config { gate: 1.0 },
         &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
@@ -174,6 +180,7 @@ async fn reactor_with_wasm_evaluator_fires_when_guest_says_so() {
     let evaluator = load_reactor_constructor(
         tmp.path(),
         "reactor-constructor-pkg",
+        "gate",
         &Config { gate: 5.0 },
         &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
