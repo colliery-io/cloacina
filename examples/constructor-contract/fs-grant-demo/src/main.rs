@@ -14,14 +14,18 @@
  *  limitations under the License.
  */
 
-//! CLOACI-T-0834 — runnable proof of the constructor capability-GRANT model.
+//! CLOACI-T-0834 / A-0011 — runnable proof of the constructor capability-GRANT model
+//! over a provider SUITE.
 //!
-//! ONE author crate (`../fs-grant-constructor`) provides ONE constructor, `read_file`,
-//! whose `execute` does `std::fs::read_to_string(self.path)` inside a WASM sandbox. We
-//! run that IDENTICAL constructor in two `#[workflow]`s that differ in exactly one way:
+//! ONE provider crate (`../fs-grant-constructor`) is a *suite* (`cloacina-provider-fs`)
+//! of TWO members compiled into ONE component: `read_file` and `write_file`, each
+//! selected by `constructor = "<name>"`. We wire them across three `#[workflow]`s that
+//! differ only in the tenant's `grants`:
 //!
-//!   * `granted`   wires it with `grants = { fs = ["ro:<dir>"] }` → the read SUCCEEDS.
-//!   * `ungranted` wires it with NO `grants` field (default-closed) → the read is DENIED.
+//!   * `granted`       — `read_file`  with `grants = { fs = ["ro:<dir>"] }` → read SUCCEEDS.
+//!   * `ungranted`     — `read_file`  with NO `grants` (default-closed)     → read DENIED.
+//!   * `write_granted` — `write_file` with `grants = { fs = ["rw:<dir>"] }` → write SUCCEEDS,
+//!     proving the SECOND member of the same provider coexists and runs.
 //!
 //! fidius's capability model is fail-closed by construction: with no `fs` grant the
 //! guest's `WasiCtx` carries zero filesystem capabilities, so the read errors, the
@@ -67,7 +71,7 @@ pub mod granted {
 
     constructor!(
         id = "reader",
-        from = "read_file@0.1.0",
+        from = "cloacina-provider-fs@0.1.0",
         constructor = "read_file",
         config = { path = "/tmp/cloacina-fs-grant-demo/secret.txt" },
         grants = { fs = ["ro:/tmp/cloacina-fs-grant-demo"] },
@@ -100,7 +104,7 @@ pub mod ungranted {
 
     constructor!(
         id = "reader_denied",
-        from = "read_file@0.1.0",
+        from = "cloacina-provider-fs@0.1.0",
         constructor = "read_file",
         config = { path = "/tmp/cloacina-fs-grant-demo/secret.txt" },
     );
@@ -114,6 +118,47 @@ pub mod ungranted {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         println!("    [ungranted] downstream task saw NO secret (contents={contents:?})");
+        Ok(())
+    }
+}
+
+// ===========================================================================
+// `write_granted` — the SECOND member of the SAME provider (`write_file`), wired
+// with `fs = ["rw:<dir>"]`. An upstream #[task] seeds the `contents` param; the
+// constructor writes it through the sandbox. Proves the suite: two members, one
+// provider/component, selected by `constructor = "..."`.
+// ===========================================================================
+#[workflow(
+    name = "write_granted",
+    description = "write_file (the provider's second member) with a writable fs grant"
+)]
+pub mod write_granted {
+    use super::*;
+
+    #[task(id = "seed", dependencies = [])]
+    pub async fn seed(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        // The `write_file` member pulls its `#[param(required)] contents` from the
+        // context, so an upstream task supplies it.
+        context.insert("contents", json!(SECRET_CONTENTS))?;
+        Ok(())
+    }
+
+    constructor!(
+        id = "writer",
+        from = "cloacina-provider-fs@0.1.0",
+        constructor = "write_file",
+        config = { path = "/tmp/cloacina-fs-grant-demo/written.txt" },
+        grants = { fs = ["rw:/tmp/cloacina-fs-grant-demo"] },
+        dependencies = ["seed"],
+    );
+
+    #[task(id = "show_written", dependencies = ["writer"])]
+    pub async fn show_written(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        let n = context
+            .get("written_bytes")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(-1);
+        println!("    [write]     write_file wrote {n} bytes through the sandbox");
         Ok(())
     }
 }
@@ -232,10 +277,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
+    // -- Case 3: WRITE_GRANTED (the provider's SECOND member) ----------------
+    println!("--- Case 3: `write_granted` (write_file, fs = [\"rw:{DATA_DIR}\"]) ---");
+    let written_path = format!("{DATA_DIR}/written.txt");
+    let _ = std::fs::remove_file(&written_path);
+    let write_result = runner.execute("write_granted", Context::new()).await?;
+    let on_disk = std::fs::read_to_string(&written_path).ok();
+
+    if write_result.status == WorkflowStatus::Completed
+        && on_disk.as_deref() == Some(SECRET_CONTENTS)
+    {
+        println!(
+            "    [write]     SUCCESS: the SECOND member wrote {written_path} through the grant: {:?}",
+            on_disk.unwrap()
+        );
+    } else {
+        eprintln!(
+            "    [write]     UNEXPECTED FAILURE: status={:?} on_disk={:?} error={:?}",
+            write_result.status, on_disk, write_result.error_message
+        );
+        runner.shutdown().await?;
+        std::process::exit(1);
+    }
+    println!();
+
     println!("== Result ==");
-    println!("   granted   → read the secret (the tenant granted fs access).");
-    println!("   ungranted → denied (no grant; the sandbox reached nothing).");
-    println!("   The constructor code was IDENTICAL; only the tenant's grants changed.");
+    println!("   granted       → read_file read the secret (the tenant granted ro access).");
+    println!("   ungranted     → read_file denied (no grant; the sandbox reached nothing).");
+    println!("   write_granted → write_file wrote a file (the tenant granted rw access).");
+    println!(
+        "   read_file + write_file are ONE provider suite (cloacina-provider-fs), one component,"
+    );
+    println!("   selected by `constructor = \"...\"`; only the tenant's grants differ.");
 
     runner.shutdown().await?;
     Ok(())
