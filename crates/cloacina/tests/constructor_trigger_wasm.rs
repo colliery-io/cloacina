@@ -14,259 +14,110 @@
  *  limitations under the License.
  */
 
-//! CLOACI-T-0824 — end-to-end: a WASM **trigger constructor** runs as a cloacina
-//! [`Trigger`], and a loaded constructor registers into the correct [`Runtime`]
-//! registry by `primitive_kind`.
+//! CLOACI-T-0824 / T-0837 — the **Runtime-registration** path for loaded
+//! constructors: [`load_constructor`] lands a loaded provider member in the correct
+//! [`Runtime`] registry by `primitive_kind` (Trigger → `get_trigger`, Task →
+//! `get_task`), and a mismatched [`ConstructorBinding`] fails closed.
 //!
-//! Builds the trigger-constructor fixture (a wasm32-wasip2 component), stages it as
-//! an constructor package (`.wasm` + `package.toml` + sidecar `constructor.json`),
-//! loads it through the cloacina `constructors-wasm` loader to get an
-//! `Arc<dyn Trigger>`, and asserts `poll()` returns `Fire`/`Skip` per the
-//! config bound at load. Then proves the Runtime-registration path: loading a
-//! trigger constructor lands it in `Runtime::get_trigger`, and loading the task
-//! constructor lands it in `Runtime::get_task` — each keyed by `primitive_kind`.
+//! The trigger's fire/skip poll behavior itself is covered by
+//! `constructor_trigger_macro_wasm`; this file focuses on the registration seam.
+//! Both providers are the macro-authored suite fixtures (`trigger-constructor-macro-fixture`
+//! → member `heartbeat`, `task-constructor-macro-fixture` → member `prefix`), packaged
+//! via the real `package_constructor_provider` path and resolved by provider name.
 //!
 //! Feature-gated: only built/run with `--features constructors-wasm`.
 #![cfg(feature = "constructors-wasm")]
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use cloacina::packaging::constructor_provider::{
+    package_constructor_provider, ProviderPackageOptions,
+};
 use cloacina::registry::loader::constructor_loader::{
     load_constructor, load_trigger_constructor, ConstructorBinding, TriggerBinding,
 };
-use cloacina::trigger::TriggerResult;
+use cloacina::registry::loader::{grants::ResolvedGrants, unpack_provider_archive};
 use cloacina::{Context, Runtime, TaskNamespace};
-use cloacina_constructor_contract::{ConstructorManifest, InputSlot, PrimitiveKind};
 use serde::Serialize;
 
-/// Per-instance config the loader binds once at load (mirrors the trigger
-/// fixture's `Config { should_fire, message }`).
+/// Per-instance config for the `heartbeat` trigger member (mirrors its generated
+/// `__HeartbeatConfig { should_fire, message }`).
 #[derive(Serialize)]
 struct TriggerConfig {
     should_fire: bool,
     message: String,
 }
 
-/// Config for the task fixture (mirrors `task-constructor-fixture::Config`).
+/// Per-instance config for the `prefix` task member (mirrors `__PrefixConfig { prefix }`).
 #[derive(Serialize)]
 struct TaskConfig {
     prefix: String,
 }
 
-fn trigger_manifest() -> ConstructorManifest {
-    ConstructorManifest {
-        name: "tick".into(),
-        version: "0.1.0".into(),
-        primitive_kind: PrimitiveKind::Trigger,
-        interface: "trigger-constructor".into(),
-        interface_version: 1,
-        params: vec![InputSlot::optional(
-            "should_fire",
-            serde_json::json!({"type": "boolean"}),
-            Some(serde_json::json!(false)),
-        )],
-        config_fields: vec![],
-        dependencies: vec![],
-        description: Some("Fires (or skips) on a config flag.".into()),
-        author: Some("CLOACI-T-0824".into()),
-    }
+fn examples_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/constructor-contract")
 }
 
-fn task_manifest() -> ConstructorManifest {
-    ConstructorManifest {
-        name: "greet".into(),
-        version: "0.1.0".into(),
-        primitive_kind: PrimitiveKind::Task,
-        interface: "task-constructor".into(),
-        interface_version: 1,
-        params: vec![InputSlot::required(
-            "name",
-            serde_json::json!({"type": "string"}),
-        )],
-        config_fields: vec![],
-        dependencies: vec![],
-        description: Some("Prefixes the context `name` into `result`.".into()),
-        author: Some("CLOACI-T-0824".into()),
-    }
+/// Package a macro suite fixture into an (unsigned) provider archive and unpack it
+/// into the shared providers dir.
+fn stage_into(work: &tempfile::TempDir, providers: &std::path::Path, fixture: &str) {
+    let archive = work.path().join(format!("{fixture}.cloacina"));
+    let opts = ProviderPackageOptions {
+        crate_dir: examples_dir().join(fixture),
+        output: Some(archive.clone()),
+        sign_key: None,
+        manifest_bin: "emit_manifest".to_string(),
+        release: true,
+    };
+    package_constructor_provider(&opts).expect("package_constructor_provider");
+    unpack_provider_archive(&archive, providers, &[]).expect("unpack provider archive");
 }
 
-/// Build a fixture crate under `examples/constructor-contract/<dir>` to a wasm
-/// component once; return its bytes.
-fn build_component(dir_name: &'static str, wasm_file: &'static str) -> Vec<u8> {
-    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/constructor-contract")
-        .join(dir_name);
-    let status = Command::new("cargo")
-        .args(["build", "--target", "wasm32-wasip2", "--release"])
-        .current_dir(&fixture)
-        .status()
-        .expect("spawn cargo build --target wasm32-wasip2");
-    assert!(status.success(), "{dir_name} wasm build failed");
-    std::fs::read(fixture.join("target/wasm32-wasip2/release").join(wasm_file))
-        .expect("read built wasm component")
-}
-
-fn trigger_component() -> &'static [u8] {
-    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
-    BYTES.get_or_init(|| {
-        build_component(
-            "trigger-constructor-fixture",
-            "trigger_constructor_fixture.wasm",
-        )
-    })
-}
-
-fn task_component() -> &'static [u8] {
-    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
-    BYTES.get_or_init(|| {
-        build_component("task-constructor-fixture", "task_constructor_fixture.wasm")
-    })
-}
-
-/// Stage a wasm constructor package: component + package.toml + constructor.json.
-fn stage(
-    root: &Path,
-    pkg: &str,
-    wasm_file: &str,
-    bytes: &[u8],
-    interface: &str,
-    manifest: &ConstructorManifest,
-) {
-    let dir = root.join(pkg);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join(wasm_file), bytes).unwrap();
-    std::fs::write(
-        dir.join("package.toml"),
-        format!(
-            "[package]\nname = \"{pkg}\"\nversion = \"0.1.0\"\n\
-             interface = \"{interface}\"\ninterface_version = 1\nruntime = \"wasm\"\n\n\
-             [metadata]\ncategory = \"constructor\"\n\n\
-             [wasm]\ncomponent = \"{wasm_file}\"\n"
-        ),
-    )
-    .unwrap();
-    std::fs::write(dir.join("constructor.json"), manifest.to_json().unwrap()).unwrap();
-}
-
-fn stage_trigger(root: &Path) {
-    stage(
-        root,
-        "trigger-constructor-pkg",
-        "trigger_constructor_fixture.wasm",
-        trigger_component(),
-        "trigger-constructor",
-        &trigger_manifest(),
-    );
-}
-
-fn stage_task(root: &Path) {
-    stage(
-        root,
-        "task-constructor-pkg",
-        "task_constructor_fixture.wasm",
-        task_component(),
-        "task-constructor",
-        &task_manifest(),
-    );
-}
-
-#[tokio::test]
-async fn wasm_trigger_constructor_fires_when_configured() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    stage_trigger(tmp.path());
-
-    let trigger = load_trigger_constructor(
-        tmp.path(),
-        "trigger-constructor-pkg",
-        &TriggerConfig {
-            should_fire: true,
-            message: "boundary crossed".into(),
-        },
-        TriggerBinding {
-            poll_interval: Duration::from_secs(5),
-            allow_concurrent: true,
-            workflow_name: "my_workflow".into(),
-            cron_expression: None,
-        },
-        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
-    )
-    .expect("load_trigger_constructor");
-
-    assert_eq!(trigger.name(), "tick");
-    assert_eq!(trigger.poll_interval(), Duration::from_secs(5));
-    assert!(trigger.allow_concurrent());
-    assert_eq!(trigger.workflow_name(), "my_workflow");
-    assert!(trigger.cron_expression().is_none());
-
-    let result = trigger.poll().await.expect("poll");
-    assert!(result.should_fire(), "config should_fire=true → Fire");
-    let ctx = result.into_context().expect("fire carries a context");
-    assert_eq!(
-        ctx.get("reason"),
-        Some(&serde_json::json!("boundary crossed"))
-    );
-}
-
-#[tokio::test]
-async fn wasm_trigger_constructor_skips_when_configured_off() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    stage_trigger(tmp.path());
-
-    let trigger = load_trigger_constructor(
-        tmp.path(),
-        "trigger-constructor-pkg",
-        &TriggerConfig {
-            should_fire: false,
-            message: "unused".into(),
-        },
-        TriggerBinding::default(),
-        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
-    )
-    .expect("load_trigger_constructor");
-
-    let result = trigger.poll().await.expect("poll");
-    assert!(
-        !result.should_fire(),
-        "config should_fire=false → Skip, got {result:?}"
-    );
-    assert!(matches!(result, TriggerResult::Skip));
+/// Build + stage BOTH provider fixtures into one shared dir ONCE for the whole test
+/// binary (each wasm component builds only once; the dir outlives every test).
+fn providers_dir() -> &'static PathBuf {
+    static PROVIDERS: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
+    &PROVIDERS
+        .get_or_init(|| {
+            let work = tempfile::TempDir::new().unwrap();
+            let providers = work.path().join("providers");
+            std::fs::create_dir_all(&providers).unwrap();
+            stage_into(&work, &providers, "trigger-constructor-macro-fixture");
+            stage_into(&work, &providers, "task-constructor-macro-fixture");
+            (work, providers)
+        })
+        .1
 }
 
 #[tokio::test]
 async fn non_trigger_primitive_fails_closed() {
-    // The task package's manifest claims primitive Task; the trigger loader
-    // must reject it.
-    let tmp = tempfile::TempDir::new().unwrap();
-    stage_task(tmp.path());
-
+    // The `prefix` provider's member is a Task; the trigger loader must reject it.
     let result = load_trigger_constructor(
-        tmp.path(),
-        "task-constructor-pkg",
+        providers_dir(),
+        "prefix",
+        "prefix",
         &TaskConfig { prefix: "x".into() },
         TriggerBinding::default(),
-        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+        &ResolvedGrants::deny_all(),
     );
     match result {
-        Ok(_) => panic!("a Task package must not load as a Trigger"),
+        Ok(_) => panic!("a Task member must not load as a Trigger"),
         Err(err) => assert!(format!("{err}").contains("not Trigger"), "got: {err}"),
     }
 }
 
 #[tokio::test]
 async fn load_constructor_registers_trigger_into_runtime() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    stage_trigger(tmp.path());
-
     let runtime = Runtime::empty();
-    assert!(runtime.get_trigger("tick").is_none());
+    assert!(runtime.get_trigger("heartbeat").is_none());
 
     load_constructor(
         &runtime,
-        tmp.path(),
-        "trigger-constructor-pkg",
+        providers_dir(),
+        "heartbeat",
+        "heartbeat",
         &TriggerConfig {
             should_fire: true,
             message: "registered fire".into(),
@@ -277,13 +128,15 @@ async fn load_constructor_registers_trigger_into_runtime() {
             workflow_name: "wf".into(),
             cron_expression: None,
         }),
-        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+        &ResolvedGrants::deny_all(),
     )
     .expect("load_constructor (trigger)");
 
     // Registered in the trigger registry, NOT the task registry.
-    assert_eq!(runtime.trigger_names(), vec!["tick".to_string()]);
-    let trigger = runtime.get_trigger("tick").expect("registered trigger");
+    assert_eq!(runtime.trigger_names(), vec!["heartbeat".to_string()]);
+    let trigger = runtime
+        .get_trigger("heartbeat")
+        .expect("registered trigger");
     assert_eq!(trigger.poll_interval(), Duration::from_secs(30));
 
     // And it actually dispatches into the configured sandbox.
@@ -297,24 +150,22 @@ async fn load_constructor_registers_trigger_into_runtime() {
 
 #[tokio::test]
 async fn load_constructor_registers_task_into_runtime() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    stage_task(tmp.path());
-
     let runtime = Runtime::empty();
-    let ns = TaskNamespace::new("public", "task-constructor-pkg", "ops", "greet");
+    let ns = TaskNamespace::new("public", "prefix", "ops", "prefix");
     assert!(runtime.get_task(&ns).is_none());
 
     load_constructor(
         &runtime,
-        tmp.path(),
-        "task-constructor-pkg",
+        providers_dir(),
+        "prefix",
+        "prefix",
         &TaskConfig {
             prefix: "hello, ".into(),
         },
         ConstructorBinding::Task {
             namespace: ns.clone(),
         },
-        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+        &ResolvedGrants::deny_all(),
     )
     .expect("load_constructor (task)");
 
@@ -330,18 +181,16 @@ async fn load_constructor_registers_task_into_runtime() {
 
 #[tokio::test]
 async fn load_constructor_rejects_mismatched_binding() {
-    // Task package, but caller hands a Trigger binding → fail closed.
-    let tmp = tempfile::TempDir::new().unwrap();
-    stage_task(tmp.path());
-
+    // Task member, but caller hands a Trigger binding → fail closed.
     let runtime = Runtime::empty();
     let result = load_constructor(
         &runtime,
-        tmp.path(),
-        "task-constructor-pkg",
+        providers_dir(),
+        "prefix",
+        "prefix",
         &TaskConfig { prefix: "x".into() },
         ConstructorBinding::Trigger(TriggerBinding::default()),
-        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+        &ResolvedGrants::deny_all(),
     );
     match result {
         Ok(_) => panic!("mismatched binding must fail closed"),

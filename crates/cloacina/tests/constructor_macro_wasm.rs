@@ -17,12 +17,13 @@
 //! CLOACI-T-0826 — end-to-end: a `#[constructor]`-AUTHORED WASM task constructor runs
 //! as a cloacina [`Task`].
 //!
-//! The macro counterpart to `constructor_loader_wasm.rs` (T-0823, which loads the
-//! HAND-WRITTEN fixture). Here the constructor is authored with the `#[constructor(
-//! kind = task, ...)]` macro (`examples/constructor-contract/task-constructor-macro-fixture`):
-//! the author wrote only a struct (with `#[config]` / `#[param]` fields) and an
-//! `execute` body; the macro generated the fidius `TaskConstructor` trait + impl +
-//! `configure` + the JSON wire, plus `__constructor_manifest()`.
+//! The cloacina-loader end-to-end for a macro-authored (suite) task constructor.
+//! The constructor is authored with the `#[constructor(kind = task, ...)]` macro
+//! (`examples/constructor-contract/task-constructor-macro-fixture`): the author wrote
+//! only a struct (with `#[config]` / `#[param]` fields) and an `execute` body; the
+//! macro generated the member's object-safe impl + config + JSON wire, and the
+//! `constructor_provider!` shell aggregated it into the fidius `TaskConstructor`
+//! interface + `__provider_manifest()`.
 //!
 //! The proof exercises the WHOLE generated surface:
 //!   1. build the fixture to a wasm32-wasip2 component (the macro's guest glue);
