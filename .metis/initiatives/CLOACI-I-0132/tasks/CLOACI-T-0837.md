@@ -247,11 +247,15 @@ provider_package(5) · macro(4) · trigger_macro(3) · accumulator(4) · reactor
 
 **T-0837 core is COMPLETE + fully tested in Rust.** Commits on `feat/i0132-constructors`: c1cb2ef5 (host keystone) → b7e39fd3/cc4d6d53 (packaged fs suite test) → 45951604 (loose-dir macro tests) → fc45a460 (reactor scheduler) → 1f1b0b2e (retire raw + full lane green).
 
-### STILL OPEN (not blocking the Rust story)
-- **(7) cloacinactl** noun: doc-comment text still says `__constructor_manifest` (cosmetic).
-- **(8) embedded `fs-grant-demo`**: update for the 2-member suite (consumes via `constructor!`; needs the provider staged + grants per member). Verify it runs.
-- **(8b) docs** (A-0011 mandate): authoring guide — provider=suite, `from`=provider crate, `constructor`=member, `cloacina-provider-<name>` convention, worked fs example.
-- **THEN the PYTHON half of the session goal:** T-0836 (resolve provider Cargo dep → build wasm → bundle into `.cloacina`) → T-0832 held resolution → packaged **Python** demo (cloaca bindings consumer surface) + server-load test. Rust packaged demo is already proven by the provider_package test.
+### ✅ RUST STORY COMPLETE (items 7, 8, 8b DONE — commits 1b4f36f8, 6009e46d)
+- **(8) embedded `fs-grant-demo` DONE + VERIFIED RUNNING:** fixed the `from` (→ `cloacina-provider-fs@0.1.0`) + added a 3rd workflow `write_granted` driving the SECOND member (`write_file`, rw grant, upstream task seeds `contents`). `cargo run` end-to-end: granted read ✅, ungranted read fails closed (no WASI preopen) ✅, write_granted writes 25 bytes ✅ — both members from ONE provider suite via the embedded `constructor!` consumer path.
+- **(8b) docs DONE:** new `docs/content/engine/constructors/` section (draft) + "Author a Constructor Provider" how-to (suite model, `from`/`constructor`, `cloacina-provider-<name>` convention, cloacinactl packaging, grant-gated consumption, points at the runnable fs example). Draft until packaged consumption lands.
+- **(7) cloacinactl DONE:** noun doc text → `provider.json`/`__provider_manifest`.
+
+**T-0837 IS FUNCTIONALLY COMPLETE for the RUST + embedded story** (authoring → package → sign → load-by-name → run, both loose-dir and packaged, plus the runnable grant demo; full `constructors-wasm` lane green: 29 tests). Not yet marked `completed` in Metis pending the human's call on whether the Python half is in-scope for THIS task or spins to T-0836/T-0831.
+
+### REMAINING = the PYTHON half of the session goal (separate infra)
+Needs: **T-0836** (resolve a provider Cargo dep → build wasm → bundle into a consumer `.cloacina`) → **T-0832** held server-side resolution → a packaged **Python** demo (cloaca bindings constructor consumer surface, ~T-0831) + server-load test. The Rust packaged path is already proven end-to-end by `constructor_provider_package_wasm`; Python reuses the same loader/packaging, so the lift is the bundle (T-0836) + the Python authoring/consumer surface + server wiring.
 **(6c) RAW fixtures** `task-constructor-fixture` + `trigger-constructor-fixture` (NON-macro, hand-written fidius glue, single `configure(cfg)` NOT name-in-configure) — used by `constructor_loader_wasm.rs` (+ maybe `constructor_trigger_wasm.rs`). DECISION NEEDED: either hand-write a suite shell for them (name-in-configure + provider.json) OR repoint those tests at the macro fixtures and retire the raw ones. Lean: repoint tests to macro fixtures (raw path is the obsolete T-0821 spike; macro fixtures cover it canonically) — but flag to human.
 **(7) cloacinactl** noun: only doc-comment text mentions `__constructor_manifest` (harmless); optional polish.
 **(8) embedded `fs-grant-demo`** — update for the suite (it consumes via `constructor!`/`load_constructor_node`, which already takes `constructor=`; mainly needs the provider staged under the provider_search_path + grants for read_file vs write_file).

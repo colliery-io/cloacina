@@ -1,0 +1,144 @@
+---
+title: "Author a Constructor Provider"
+description: "How to write a provider crate that ships N constructor members in one WASM component, and consume them by name with capability grants."
+weight: 10
+draft: true
+---
+
+# Author a Constructor Provider
+
+This guide shows how to author a **provider** — a suite of constructor members
+compiled into one WASM component — and how a workflow consumes a member by name.
+
+A single provider crate can expose **many** constructors. They share one component
+and one `provider.json` index; a consumer picks one with `constructor = "<name>"`.
+A single-constructor provider is just a suite of one.
+
+## The authoring model
+
+- **A provider is a suite.** You author N `#[constructor]` members in one crate and
+  aggregate them with one `constructor_provider!(...)` declaration.
+- **`from` names the provider; `constructor` names the member.** At the call site,
+  `from = "<provider crate>"` resolves the provider package and
+  `constructor = "<name>"` selects the member.
+- **Naming convention.** Core and community providers are named
+  `cloacina-provider-<name>` (e.g. `cloacina-provider-fs`). This is a discovery
+  signal, not an enforced rule.
+- **The mechanics are free.** Every member shares one per-kind fidius interface;
+  the chosen member's name travels in the `configure` payload, so adding members
+  costs nothing at the interface/loader layer.
+
+## 1. Author the members
+
+Each member is a struct plus the one body method for its kind. Fields are either
+`#[config]` (bound once per instance at load) or `#[param(required|optional)]`
+(pulled from the runtime context — `task` kind only).
+
+```rust,ignore
+use cloacina_macros::{constructor, constructor_provider};
+use cloacina_constructor_contract::ConstructorError;
+
+#[constructor(kind = task, name = "read_file", version = "0.1.0")]
+pub struct ReadFile {
+    #[config]
+    path: String,
+}
+impl ReadFile {
+    fn execute(&self) -> Result<(), ConstructorError> {
+        let contents = std::fs::read_to_string(&self.path)
+            .map_err(|e| ConstructorError::msg(format!("read {}: {e}", self.path)))?;
+        self.set("contents", contents);
+        Ok(())
+    }
+}
+
+#[constructor(kind = task, name = "write_file", version = "0.1.0")]
+pub struct WriteFile {
+    #[config]
+    path: String,
+    #[param(required)]
+    contents: String,
+}
+impl WriteFile {
+    fn execute(&self) -> Result<(), ConstructorError> {
+        std::fs::write(&self.path, &self.contents)
+            .map_err(|e| ConstructorError::msg(format!("write {}: {e}", self.path)))?;
+        self.set("written_bytes", self.contents.len() as i64);
+        Ok(())
+    }
+}
+```
+
+## 2. Declare the provider suite
+
+One `constructor_provider!` per crate aggregates the members into the component,
+grouped by kind, and emits the `provider.json` index:
+
+```rust,ignore
+constructor_provider!(
+    name = "cloacina-provider-fs",
+    version = "0.1.0",
+    task = [ReadFile, WriteFile],
+    // trigger = [...], accumulator = [...], reactor = [...] for other kinds
+);
+```
+
+The crate is a standalone `crate-type = ["cdylib", "rlib"]` package with a small
+`emit_manifest` host bin that prints `__provider_manifest()` — the packaging step
+reads it to write `provider.json`.
+
+## 3. Package the provider
+
+```bash
+cloacinactl constructor package ./cloacina-provider-fs --sign-key key.secret
+```
+
+This builds the crate to `wasm32-wasip2`, emits `provider.json` (both members),
+assembles a `runtime = "wasm"` package, optionally Ed25519-signs it, and packs a
+`cloacina-provider-fs-0.1.0.cloacina` archive.
+
+## 4. Consume a member with grants
+
+Inside a `#[workflow]`, a `constructor!(...)` node instantiates ONE member. The
+consumer supplies `config` (bound by name) and default-closed `grants` — the
+constructor code is identical regardless of who instantiates it; only the grants
+decide what the sandbox may reach.
+
+```rust,ignore
+#[workflow(name = "granted")]
+pub mod granted {
+    use super::*;
+
+    constructor!(
+        id = "reader",
+        from = "cloacina-provider-fs@0.1.0",
+        constructor = "read_file",
+        config = { path = "/data/secret.txt" },
+        grants = { fs = ["ro:/data"] },   // omit → default-closed, the read is denied
+    );
+}
+```
+
+Selecting the other member is just a different `constructor = "..."`:
+
+```rust,ignore
+constructor!(
+    id = "writer",
+    from = "cloacina-provider-fs@0.1.0",
+    constructor = "write_file",
+    config = { path = "/data/out.txt" },
+    grants = { fs = ["rw:/data"] },
+    dependencies = ["seed"],             // an upstream task supplies the `contents` param
+);
+```
+
+Both `read_file` and `write_file` resolve from the **same** provider package and
+component — one download, two members, coexisting independently.
+
+## Worked example
+
+A complete, runnable example lives at
+`examples/constructor-contract/fs-grant-constructor` (the `cloacina-provider-fs`
+suite) and `examples/constructor-contract/fs-grant-demo` (three workflows: a
+granted read, a denied read, and a granted write via the second member). Run it
+with `cargo run` in the demo crate.

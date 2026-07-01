@@ -17,12 +17,12 @@
 //! `cloacinactl constructor <verb>` — author-side distribution of `#[constructor]`
 //! crates as fidius **provider packages** (CLOACI-T-0827).
 //!
-//! `constructor package <crate-dir>` builds the crate to a `wasm32-wasip2`
-//! component, emits its `constructor.json` from the macro-generated
-//! `__constructor_manifest()`, assembles a fidius `runtime = "wasm"` provider
-//! package, optionally Ed25519-signs it, and packs it into a distributable
-//! `<name>-<version>.cloacina` archive — the constructor analogue of
-//! `cloacinactl package pack`.
+//! `constructor package <crate-dir>` builds the provider crate (a *suite* of
+//! members, CLOACI-A-0011) to a `wasm32-wasip2` component, emits its `provider.json`
+//! from the macro-generated `__provider_manifest()`, assembles a fidius
+//! `runtime = "wasm"` provider package, optionally Ed25519-signs it, and packs it
+//! into a distributable `<name>-<version>.cloacina` archive — the constructor
+//! analogue of `cloacinactl package pack`.
 
 use std::path::PathBuf;
 
@@ -55,8 +55,8 @@ enum ConstructorVerb {
         /// Sign the package with this Ed25519 secret-key file (32 raw bytes).
         #[arg(long = "sign-key")]
         sign_key: Option<PathBuf>,
-        /// Host binary in the crate that prints the constructor manifest JSON
-        /// (the `__constructor_manifest()` emitter).
+        /// Host binary in the crate that prints the provider manifest JSON
+        /// (the `__provider_manifest()` emitter).
         #[arg(long, default_value = "emit_manifest")]
         manifest_bin: String,
         /// Build the wasm component in debug profile (default is release).
