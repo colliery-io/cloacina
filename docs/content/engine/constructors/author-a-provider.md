@@ -18,12 +18,14 @@ A single-constructor provider is just a suite of one.
 
 - **A provider is a suite.** You author N `#[constructor]` members in one crate and
   aggregate them with one `constructor_provider!(...)` declaration.
-- **`from` names the provider; `constructor` names the member.** At the call site,
-  `from = "<provider crate>"` resolves the provider package and
-  `constructor = "<name>"` selects the member.
-- **Naming convention.** Core and community providers are named
-  `cloacina-provider-<name>` (e.g. `cloacina-provider-fs`). This is a discovery
-  signal, not an enforced rule.
+- **`from` names the provider crate; `constructor` names the member.** At the call
+  site, `from = "<provider crate>"` resolves the provider package and
+  `constructor = "<name>"` selects the member. The provider name **is** the provider
+  crate's Cargo package name — the same string resolves the Cargo dependency at build
+  time and the bundled package at load time.
+- **Naming convention.** Name the crate `cloacina-provider-<name>` (e.g.
+  `cloacina-provider-fs`); the provider name defaults to it. This is a discovery
+  convention, not an enforced rule.
 - **The mechanics are free.** Every member shares one per-kind fidius interface;
   the chosen member's name travels in the `configure` payload, so adding members
   costs nothing at the interface/loader layer.
@@ -72,11 +74,12 @@ impl WriteFile {
 ## 2. Declare the provider suite
 
 One `constructor_provider!` per crate aggregates the members into the component,
-grouped by kind, and emits the `provider.json` index:
+grouped by kind, and emits the `provider.json` index. Omit `name` and it defaults to
+the crate's Cargo package name (`cloacina-provider-fs`) — the string a consumer's
+`from` resolves:
 
 ```rust,ignore
 constructor_provider!(
-    name = "cloacina-provider-fs",
     version = "0.1.0",
     task = [ReadFile, WriteFile],
     // trigger = [...], accumulator = [...], reactor = [...] for other kinds
@@ -138,7 +141,7 @@ component — one download, two members, coexisting independently.
 ## Worked example
 
 A complete, runnable example lives at
-`examples/constructor-contract/fs-grant-constructor` (the `cloacina-provider-fs`
+`examples/constructor-contract/cloacina-provider-fs` (the `cloacina-provider-fs`
 suite) and `examples/constructor-contract/fs-grant-demo` (three workflows: a
 granted read, a denied read, and a granted write via the second member). Run it
 with `cargo run` in the demo crate.

@@ -110,9 +110,11 @@ impl WriteFile {
 }
 
 // The provider suite: one crate → one component → two task members
-// (`read_file` + `write_file`), indexed by the `provider.json` this emits.
+// (`read_file` + `write_file`), indexed by the `provider.json` this emits. The
+// provider name is omitted, so it defaults to this crate's Cargo package name
+// (`cloacina-provider-fs`) — the `cloacina-provider-<name>` convention, and the
+// name a consumer's `from = "cloacina-provider-fs"` resolves at both build and load.
 constructor_provider!(
-    name = "cloacina-provider-fs",
     version = "0.1.0",
     contract = constructor_contract,
     task = [ReadFile, WriteFile],

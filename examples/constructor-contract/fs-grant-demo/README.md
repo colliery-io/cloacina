@@ -7,7 +7,7 @@ filesystem **only** when the consuming workflow's tenant explicitly grants it.
 ## What it proves
 
 There is exactly **one** constructor, `read_file`, authored in the sibling crate
-[`../fs-grant-constructor`](../fs-grant-constructor). Its entire body is:
+[`../cloacina-provider-fs`](../cloacina-provider-fs). Its entire body is:
 
 ```rust
 let contents = std::fs::read_to_string(&self.path)?; // inside a WASM sandbox

@@ -1,6 +1,6 @@
 # CLOACI-T-0834 — runnable end-to-end demo of constructor capability GRANTS.
 #
-# Standalone crate (empty [workspace]) that packages the sibling `fs-grant-constructor`
+# Standalone crate (empty [workspace]) that packages the sibling `cloacina-provider-fs`
 # author crate into a WASM provider, then runs the SAME constructor in two workflows:
 #   * `granted`   — `grants = { fs = ["ro:<dir>"] }` → the sandboxed read SUCCEEDS.
 #   * `ungranted` — no grants (default-closed)       → the sandboxed read is DENIED.

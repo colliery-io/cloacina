@@ -139,7 +139,11 @@ impl Kind {
 
 /// Parsed `constructor_provider!(...)` arguments.
 struct ProviderArgs {
-    name: String,
+    /// The provider name. `None` → defaults to `env!("CARGO_PKG_NAME")` (the
+    /// provider crate's own Cargo package name), so the fidius provider name a
+    /// consumer resolves via `find_wasm_package` always equals the Cargo package
+    /// name a build resolves via `cargo metadata` (CLOACI-A-0010).
+    name: Option<String>,
     version: String,
     /// The `.wasm` component filename. `None` → derived from `name` (`-`→`_` + `.wasm`).
     component: Option<String>,
@@ -197,9 +201,6 @@ impl Parse for ProviderArgs {
             }
         }
 
-        let name = name.ok_or_else(|| {
-            syn::Error::new(input.span(), "constructor_provider! requires `name`")
-        })?;
         let version = version.ok_or_else(|| {
             syn::Error::new(input.span(), "constructor_provider! requires `version`")
         })?;
@@ -238,10 +239,26 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
     let contract = &args.contract;
     let fidius_crate = LitStr::new(&args.fidius_crate, Span::call_site());
 
-    let component = args
-        .component
-        .clone()
-        .unwrap_or_else(|| format!("{}.wasm", args.name.replace('-', "_")));
+    // The provider name defaults to the provider crate's own Cargo package name so
+    // build-time (`cargo metadata`) and load-time (`find_wasm_package`) resolve the
+    // consumer's `from` against the SAME string (A-0010). `env!` in the emitted code
+    // resolves in the provider crate, i.e. its own `CARGO_PKG_NAME`.
+    let name_expr = match &args.name {
+        Some(n) => quote! { #n.to_string() },
+        None => quote! { ::std::string::String::from(env!("CARGO_PKG_NAME")) },
+    };
+    // Component filename default (`-`→`_` + `.wasm`); packaging overrides it with the
+    // actual built artifact, so this is only a hint.
+    let component_expr = match (&args.component, &args.name) {
+        (Some(c), _) => quote! { #c.to_string() },
+        (None, Some(n)) => {
+            let c = format!("{}.wasm", n.replace('-', "_"));
+            quote! { #c.to_string() }
+        }
+        (None, None) => {
+            quote! { format!("{}.wasm", env!("CARGO_PKG_NAME").replace('-', "_")) }
+        }
+    };
 
     // One fidius shell per KIND present.
     let mut shells: Vec<TokenStream2> = Vec::new();
@@ -270,7 +287,6 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
         .iter()
         .map(|m| quote! { #m::__constructor_manifest() });
 
-    let provider_name = &args.name;
     let provider_version = &args.version;
 
     quote! {
@@ -283,9 +299,9 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
         #[allow(dead_code)]
         pub fn __provider_manifest() -> #contract::ProviderManifest {
             #contract::ProviderManifest {
-                name: #provider_name.to_string(),
+                name: #name_expr,
                 version: #provider_version.to_string(),
-                component: #component.to_string(),
+                component: #component_expr,
                 constructors: ::std::vec![ #(#manifest_exprs),* ],
             }
         }

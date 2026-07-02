@@ -20,7 +20,7 @@
 //! signature → `load_wasm_configured` with name-in-configure) to run as cloacina
 //! [`Task`](cloacina::task::Task)s.
 //!
-//! The fixture is `fs-grant-constructor`, now a 2-member suite (CLOACI-A-0011):
+//! The fixture is `cloacina-provider-fs`, now a 2-member suite (CLOACI-A-0011):
 //! provider `cloacina-provider-fs` = { `read_file`, `write_file` }, one component.
 //! The proof:
 //!   1. `package_constructor_provider` builds the suite to a `wasm32-wasip2`
@@ -66,7 +66,7 @@ struct PathConfig {
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/constructor-contract/fs-grant-constructor")
+        .join("../../examples/constructor-contract/cloacina-provider-fs")
 }
 
 /// A deterministic Ed25519 keypair for the test (no OsRng needed). Writes the

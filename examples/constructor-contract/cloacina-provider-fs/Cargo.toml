@@ -17,7 +17,7 @@
 [workspace]
 
 [package]
-name = "fs-grant-constructor"
+name = "cloacina-provider-fs"
 version = "0.0.0"
 edition = "2021"
 publish = false
