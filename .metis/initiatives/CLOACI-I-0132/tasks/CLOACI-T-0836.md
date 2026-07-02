@@ -4,14 +4,14 @@ level: task
 title: "Constructor provider build-side: resolve provider Cargo dep → build to wasm → bundle into the .cloacina (S-0015)"
 short_code: "CLOACI-T-0836"
 created_at: 2026-06-30T15:57:36.954974+00:00
-updated_at: 2026-06-30T15:57:36.954974+00:00
+updated_at: 2026-07-02T01:55:28.222984+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -86,6 +86,8 @@ This is the **unblock** for packaged constructors end-to-end: it lets a server l
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] {Specific, testable requirement 1}
@@ -155,4 +157,27 @@ This is the **unblock** for packaged constructors end-to-end: it lets a server l
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-01 — STARTED: grounded design (T-0837 done unblocks this)
+**Prereq state:** T-0837 fully landed for Rust/embedded — `package_constructor_provider` (build wasm → emit `provider.json` → fidius pack), the loader (`load_task_constructor` name-in-configure + `read_provider_manifest`), and `load_constructor_node` (`provider_search_path` resolution) all exist + green (29 wasm tests). The pieces T-0836 ORCHESTRATES already work; new work is discovery + bundle + wiring.
+
+**Pipeline recon (hook points):**
+- `crates/cloacina/src/packaging/mod.rs::package_workflow` = SOURCE packaging (packs the project dir; fidius builds on load). cloacinactl `package`.
+- `crates/cloacina-compiler/src/build.rs::run_build` = COMPILER SERVICE: unpacks submitted source `.cloacina` → `cargo build` → **artifact = cdylib `Vec<u8>`** in the registry; server loads it. THIS is where cargo can resolve+build a provider dep (has source Cargo.toml + runs cargo).
+- T-0832 already added the READ side: `packaging_bridge::call_get_constructor_metadata(handle)` + `package_loader::extract_constructor_metadata` → each node's `{from, constructor, config,...}` (FFI idx 10 `get_constructor_metadata`).
+
+**DESIGN (S-0015/A-0010):** (1) after building the cdylib, load it + `call_get_constructor_metadata` → unique `from` set. (2) `cargo metadata --format-version 1` in the source dir → each `from` (exact pkg name, opt `@version`) → resolved manifest dir. (3) reuse `package_constructor_provider` per provider (validate real provider: `provider.json`). (4) unpack each under `providers/<crate>-<version>/` alongside the cdylib in the built ARTIFACT + record `from`→dir in the manifest. **⇒ compiler artifact grows from bare cdylib bytes into a bundle (cdylib + providers/ + manifest)** — the format decision that ripples to the server load path + T-0832's held `step_load_constructor_nodes` (which sets `provider_search_path` to the bundled `providers/`). (5) fast-follow: cache by (crate, version, source, fidius interface hash).
+
+**BUILD ORDER:** (a) [THIS INCREMENT] additive core `packaging::provider_bundle`: `resolve_provider_crate(consumer_dir, from, ver?)->dir` (cargo metadata) + `bundle_providers(consumer_dir, from_list, dest)->Vec<BundledProvider>` (resolve→`package_constructor_provider`→unpack into `dest/providers/<crate>-<ver>/`), tested against a path-dep consumer of `cloacina-provider-fs`. (b) bundle/artifact format + manifest field. (c) compiler `run_build` wiring (discover via FFI → bundle → store). (d) T-0832 consumption: point `provider_search_path` at the bundle. (e) e2e: packaged Rust `constructor!` workflow loads+runs on the server. (f) Python (T-0831) reuses the bundle.
+
+### 2026-07-01 — INCREMENT (a) DONE: `packaging::provider_bundle` (compiles green)
+New module `crates/cloacina/src/packaging/provider_bundle.rs` (gated `constructor-packaging`, wasmtime-free — uses `fidius_core::package::unpack_package` directly, not the loader wrapper):
+- `ProviderRef::parse("name[@version]")` (+ unit test).
+- `resolve_provider_crate(consumer_dir, &ProviderRef) -> PathBuf`: shells `cargo metadata --format-version 1`, finds the package by exact name (+ advisory version prefix/equal filter), returns its crate dir. Path/git/crates.io uniform.
+- `bundle_providers(consumer_dir, &[ProviderRef], dest, release) -> Vec<BundledProvider>`: de-dups by name, resolves → `package_constructor_provider` → `unpack_package` into `dest/providers/<name>-<ver>/`, reads back `provider.json` for authoritative name/version/members. `BundledProvider { from, crate_dir, provider_name, version, bundled_dir, constructors }`.
+`cargo check -p cloacina --features constructor-packaging` ✅.
+
+### ⚠️ KEY FINDING — Cargo-name vs provider-name must reconcile (blocks e2e)
+`from` is resolved TWO ways: build-time = **Cargo package name** (via `cargo metadata`, A-0010); load-time = **fidius `[package].name`** = the provider name in `constructor_provider!(name=...)` (via `find_wasm_package`). For the PACKAGED path these MUST be the same string. The `fs-grant-constructor` fixture violates it (Cargo name `fs-grant-constructor` ≠ provider name `cloacina-provider-fs`) — fine for T-0837 embedded (which resolves purely by provider name) but breaks packaged resolution.
+**RECOMMENDATION (increment b):** make `constructor_provider!` DEFAULT `name` to `env!("CARGO_PKG_NAME")` (the macro runs in the provider crate, so this is the provider's own Cargo name) and treat an explicit `name` as an override that SHOULD match; then RENAME the fs example crate dir + Cargo `name` to `cloacina-provider-fs` so Cargo-name == provider-name == the `cloacina-provider-<x>` convention. That unifies embedded + packaged `from` on ONE name and makes the fixture a correct convention exemplar (ripples: the 8 wasm tests' fixture dir/artifact refs + the demo — mechanical).
+
+### NEXT: (a-test) a minimal consumer fixture (path-dep on the renamed provider) + integration test of resolve+bundle; (b) the name reconciliation above; (c) compiler `run_build` wiring (discover via `call_get_constructor_metadata` → `bundle_providers` → grow the artifact into a bundle); (d) T-0832 `provider_search_path`→bundle; (e) e2e packaged Rust `constructor!` on the server; (f) Python.

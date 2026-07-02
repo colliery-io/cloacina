@@ -27,6 +27,10 @@
 pub mod constructor_provider;
 pub mod manifest_schema;
 pub mod platform;
+/// Provider discovery + bundling for the packaged-constructor build side
+/// (CLOACI-T-0836). Default-OFF behind `constructor-packaging`.
+#[cfg(feature = "constructor-packaging")]
+pub mod provider_bundle;
 pub mod types;
 pub mod validation;
 
