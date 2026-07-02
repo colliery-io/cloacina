@@ -115,7 +115,6 @@ impl WriteFile {
 // (`cloacina-provider-fs`) — the `cloacina-provider-<name>` convention, and the
 // name a consumer's `from = "cloacina-provider-fs"` resolves at both build and load.
 constructor_provider!(
-    version = "0.1.0",
     contract = constructor_contract,
     task = [ReadFile, WriteFile],
 );

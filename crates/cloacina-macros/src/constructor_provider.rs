@@ -144,7 +144,9 @@ struct ProviderArgs {
     /// consumer resolves via `find_wasm_package` always equals the Cargo package
     /// name a build resolves via `cargo metadata` (CLOACI-A-0010).
     name: Option<String>,
-    version: String,
+    /// The provider version. `None` → defaults to `env!("CARGO_PKG_VERSION")`, so the
+    /// `@version` a consumer pins on `from` matches the provider crate's Cargo version.
+    version: Option<String>,
     /// The `.wasm` component filename. `None` → derived from `name` (`-`→`_` + `.wasm`).
     component: Option<String>,
     /// Path to the constructor-contract crate (default `::cloacina_constructor_contract`).
@@ -201,9 +203,6 @@ impl Parse for ProviderArgs {
             }
         }
 
-        let version = version.ok_or_else(|| {
-            syn::Error::new(input.span(), "constructor_provider! requires `version`")
-        })?;
         let contract =
             contract.unwrap_or_else(|| syn::parse_quote!(::cloacina_constructor_contract));
         let fidius_crate = fidius_crate.unwrap_or_else(|| "fidius_guest".to_string());
@@ -287,7 +286,10 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
         .iter()
         .map(|m| quote! { #m::__constructor_manifest() });
 
-    let provider_version = &args.version;
+    let version_expr = match &args.version {
+        Some(v) => quote! { #v.to_string() },
+        None => quote! { ::std::string::String::from(env!("CARGO_PKG_VERSION")) },
+    };
 
     quote! {
         #(#shells)*
@@ -300,7 +302,7 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
         pub fn __provider_manifest() -> #contract::ProviderManifest {
             #contract::ProviderManifest {
                 name: #name_expr,
-                version: #provider_version.to_string(),
+                version: #version_expr,
                 component: #component_expr,
                 constructors: ::std::vec![ #(#manifest_exprs),* ],
             }

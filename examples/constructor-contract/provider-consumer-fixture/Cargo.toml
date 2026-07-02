@@ -1,0 +1,19 @@
+# CLOACI-T-0836 — a minimal CONSUMER crate that declares a constructor provider as
+# an ordinary Cargo dependency (`cloacina-provider-fs`, by path). It exists so the
+# build-side `provider_bundle` can be exercised against a REAL resolved dependency
+# graph: `cargo metadata` here resolves the provider, and `bundle_providers` builds +
+# bundles it. The consumer itself is trivial — the point is the dependency edge.
+#
+# Standalone (empty [workspace]) so it stays workspace-excluded like the sibling
+# provider/demo crates.
+[workspace]
+
+[package]
+name = "provider-consumer-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# The provider, referenced exactly as a consumer would (A-0010: `from` = this name).
+cloacina-provider-fs = { path = "../cloacina-provider-fs" }
