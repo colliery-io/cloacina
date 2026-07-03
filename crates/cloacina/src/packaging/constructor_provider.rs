@@ -112,6 +112,8 @@ pub struct ProviderPackageResult {
     pub signed: bool,
     /// The provider name (fidius package name).
     pub provider_name: String,
+    /// The provider version (from its `provider.json`).
+    pub provider_version: String,
     /// Names of the member constructors the provider carries.
     pub constructors: Vec<String>,
 }
@@ -240,6 +242,7 @@ pub fn package_constructor_provider(
         archive: result.path,
         signed,
         provider_name,
+        provider_version: provider.version.clone(),
         constructors: constructor_names,
     })
 }

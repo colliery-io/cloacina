@@ -96,6 +96,39 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         self.loaded_packages.len()
     }
 
+    /// Persist the bundled constructor providers a build produced for a package
+    /// (CLOACI-T-0836): one `package_providers` row per provider, each carrying
+    /// the packed `.cloacina` archive the reconciler unpacks at load. Called by
+    /// the compiler after a successful Rust build that discovered `constructor!`
+    /// `from` references. `providers` is `(provider_name, provider_version,
+    /// archive_bytes)`.
+    pub async fn store_package_providers(
+        &self,
+        package_name: &str,
+        version: &str,
+        providers: Vec<(String, String, Vec<u8>)>,
+    ) -> Result<(), RegistryError> {
+        use sha2::{Digest, Sha256};
+        let dal = crate::dal::DAL::new(self.database.clone());
+        for (provider_name, provider_version, archive) in providers {
+            let mut hasher = Sha256::new();
+            hasher.update(&archive);
+            let content_hash = format!("{:x}", hasher.finalize());
+            dal.workflow_packages()
+                .upsert_provider(
+                    package_name,
+                    version,
+                    None,
+                    &provider_name,
+                    &provider_version,
+                    &content_hash,
+                    archive,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Get the total number of registered tasks across all packages.
     pub fn total_registered_tasks(&self) -> usize {
         self.loaded_packages.values().map(|tasks| tasks.len()).sum()

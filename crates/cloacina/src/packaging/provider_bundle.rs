@@ -284,9 +284,157 @@ pub fn bundle_providers(
     Ok(bundled)
 }
 
+/// One provider resolved + built + PACKED (not unpacked) — the storage form the
+/// compiler persists into `package_providers` (the reconciler unpacks at load).
+#[derive(Debug, Clone)]
+pub struct PackedProvider {
+    /// The `from` name the consumer referenced (the exact Cargo package name).
+    pub from: String,
+    /// The provider's own name from its `provider.json`.
+    pub provider_name: String,
+    /// The provider version (from `provider.json`).
+    pub version: String,
+    /// The member constructors the provider carries.
+    pub constructors: Vec<String>,
+    /// The packed provider `.cloacina` archive bytes.
+    pub archive: Vec<u8>,
+}
+
+/// Resolve + build + PACK every referenced provider, returning the archives
+/// (the compiler-side variant of [`bundle_providers`]: same resolve/build, but the
+/// output is bytes for the `package_providers` store rather than an unpacked
+/// `providers/` tree). Duplicate `from` names are built once.
+pub fn pack_providers(
+    consumer_dir: &Path,
+    provider_refs: &[ProviderRef],
+    release: bool,
+) -> Result<Vec<PackedProvider>, ProviderBundleError> {
+    let mut seen: Vec<String> = Vec::new();
+    let mut packed: Vec<PackedProvider> = Vec::new();
+
+    for provider in provider_refs {
+        if seen.contains(&provider.name) {
+            continue;
+        }
+        seen.push(provider.name.clone());
+
+        let crate_dir = resolve_provider_crate(consumer_dir, provider)?;
+
+        let staging = tempfile::TempDir::new()
+            .map_err(|e| ProviderBundleError::Io(format!("create staging dir: {e}")))?;
+        let archive_path = staging.path().join(format!("{}.cloacina", provider.name));
+        let opts = ProviderPackageOptions {
+            crate_dir,
+            output: Some(archive_path.clone()),
+            sign_key: None,
+            manifest_bin: "emit_manifest".to_string(),
+            release,
+        };
+        let result = package_constructor_provider(&opts)?;
+
+        let archive = std::fs::read(&archive_path).map_err(|e| {
+            ProviderBundleError::Io(format!(
+                "read packed provider archive for '{}': {e}",
+                provider.name
+            ))
+        })?;
+
+        packed.push(PackedProvider {
+            from: provider.name.clone(),
+            provider_name: result.provider_name,
+            version: result.provider_version,
+            constructors: result.constructors,
+            archive,
+        });
+    }
+
+    Ok(packed)
+}
+
+/// Discover the provider references a consumer's SOURCE declares: scan `.rs` files
+/// for `constructor!( ... from = "<ref>" ... )` and `#[reactor( ... from = "<ref>"
+/// ... )]` occurrences (the S-0015 discovery rule — build + bundle ONLY what the
+/// package references). Anchored on the macro tokens so stray `from = "..."`
+/// strings elsewhere don't false-positive; a wrong ref fails loudly at resolve.
+pub fn discover_provider_refs(source_dir: &Path) -> Vec<ProviderRef> {
+    let mut refs: Vec<ProviderRef> = Vec::new();
+    let mut stack = vec![source_dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Skip build output; everything else is fair game.
+                if path.file_name().and_then(|n| n.to_str()) != Some("target") {
+                    stack.push(path);
+                }
+            } else if path.extension().and_then(|x| x.to_str()) == Some("rs") {
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                for anchor in ["constructor!", "#[reactor("] {
+                    let mut rest = text.as_str();
+                    while let Some(pos) = rest.find(anchor) {
+                        // Search a bounded window after the anchor for `from = "..."`.
+                        let window = &rest[pos..rest.len().min(pos + 2048)];
+                        if let Some(from) = extract_from_literal(window) {
+                            let parsed = ProviderRef::parse(&from);
+                            if !refs.iter().any(|r| r == &parsed) {
+                                refs.push(parsed);
+                            }
+                        }
+                        rest = &rest[pos + anchor.len()..];
+                    }
+                }
+            }
+        }
+    }
+    refs
+}
+
+/// Pull the first `from = "<value>"` string literal out of a macro-body window.
+fn extract_from_literal(window: &str) -> Option<String> {
+    let idx = window.find("from")?;
+    let after = window[idx + 4..].trim_start();
+    let after = after.strip_prefix('=')?.trim_start();
+    let after = after.strip_prefix('"')?;
+    let end = after.find('"')?;
+    Some(after[..end].to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovers_constructor_from_refs_in_source() {
+        let src = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/constructor-contract/packaged-consumer-fixture");
+        let refs = discover_provider_refs(&src);
+        assert_eq!(
+            refs,
+            vec![ProviderRef {
+                name: "cloacina-provider-fs".into(),
+                version: Some("0.1.0".into())
+            }],
+            "the packaged consumer fixture declares exactly one provider ref"
+        );
+    }
+
+    #[test]
+    fn discovery_ignores_unanchored_from_strings() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            r#"// from = "not-a-provider" (comment, no macro anchor)
+               fn f() { let _x = ("from", "also-not"); }"#,
+        )
+        .unwrap();
+        assert!(discover_provider_refs(dir.path()).is_empty());
+    }
 
     #[test]
     fn provider_ref_parses_name_and_optional_version() {

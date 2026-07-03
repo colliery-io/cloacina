@@ -286,6 +286,49 @@ async fn run_build(
         BuildError,
     > = match result {
         Ok(success) => {
+            // CLOACI-T-0836: discover the package's `constructor!` provider refs
+            // in the source and bundle each referenced provider (resolve the Cargo
+            // dep → build to wasm → pack) into `package_providers`, so the
+            // reconciler can resolve constructor nodes hermetically at load. Rust
+            // packages only; a declared-but-unbundleable provider FAILS the build
+            // (fail closed — the package could never load).
+            if language == "rust" {
+                let refs =
+                    cloacina::packaging::provider_bundle::discover_provider_refs(&source_dir);
+                if !refs.is_empty() {
+                    info!(
+                        %package_id,
+                        providers = ?refs.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+                        "bundling constructor providers referenced by the package"
+                    );
+                    let src = source_dir.clone();
+                    let packed = tokio::task::spawn_blocking(move || {
+                        cloacina::packaging::provider_bundle::pack_providers(&src, &refs, true)
+                    })
+                    .await
+                    .map_err(|e| BuildError::internal(format!("provider bundle join: {e}")))?
+                    .map_err(|e| {
+                        BuildError::internal(format!(
+                            "failed to bundle constructor provider(s) for {} v{}: {e}",
+                            meta.package_name, meta.version
+                        ))
+                    })?;
+                    let rows: Vec<(String, String, Vec<u8>)> = packed
+                        .into_iter()
+                        .map(|p| (p.provider_name, p.version, p.archive))
+                        .collect();
+                    registry
+                        .store_package_providers(&meta.package_name, &meta.version, rows)
+                        .await
+                        .map_err(|e| {
+                            BuildError::internal(format!(
+                                "failed to store bundled providers for {} v{}: {e}",
+                                meta.package_name, meta.version
+                            ))
+                        })?;
+                }
+            }
+
             audit::log_compiler_build_finished(
                 build_claim_id,
                 &meta.package_name,
