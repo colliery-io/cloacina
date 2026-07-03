@@ -150,4 +150,6 @@ NOTE: execution is ALREADY language-agnostic — the Rust runtime runs the WASM 
 **5. Reconciler Python branch:** the Rust branch's Step 5b reads FFI decls; Python has no cdylib. But if `cloaca.constructor()` registers the node DURING module import (the scoped-runtime load), NO reconciler change is needed for the embedded-interpreter path — the node is already in the scoped runtime when the workflow assembles. Needs `set_provider_search_path` before the Python module import (fetch+unpack `package_providers` rows in the PYTHON load path — mirror Step 5b's unpack, minus the FFI extraction).
 **6. Demo:** a Python workflow consuming `cloacina-provider-fs` read_file+write_file (the session-goal Python half), embedded (`:memory:`) first, then packaged via the server lane.
 
-**Estimated order:** (a) pymodule fn + synthetic-module twin (embedded path, gated feature) → (b) embedded Python demo → (c) python-load-path provider unpack + packaged discovery/synthesized-Cargo.toml → (d) packaged Python demo + server test.
+**HUMAN DECISIONS (2026-07-02):** (3) → **ship wasmtime in the wheel** (`constructors-wasm` always on in cloacina-python; Python is core, no feature matrix). (4) → **explicit `[providers]` section in package.toml** (deterministic; doubles as the version pin; source refs validated against it).
+
+**Order:** (a) pymodule fn + synthetic-module twin (feature always-on) → (b) embedded Python demo → (c) python-load-path provider unpack + `[providers]`-driven synthesized-Cargo.toml bundling → (d) packaged Python demo + server test. STARTED (a).
