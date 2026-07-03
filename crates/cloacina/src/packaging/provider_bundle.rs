@@ -351,6 +351,58 @@ pub fn pack_providers(
     Ok(packed)
 }
 
+/// Resolve + build + PACK providers from **manifest dependency specs** rather than
+/// an existing Cargo project — the path for PYTHON consumers (CLOACI-T-0831),
+/// which have no Cargo.toml. Each spec is `(provider_name, toml_dep_value)` where
+/// the value is the literal TOML dependency expression from the package manifest's
+/// `[providers]` section (e.g. `"0.1"`, `{ path = "/abs" }`, `{ git = "…" }`),
+/// embedded VERBATIM into a synthesized scratch Cargo project so version, path,
+/// and git providers resolve uniformly through cargo.
+pub fn pack_providers_from_specs(
+    specs: &[(String, String)],
+    release: bool,
+) -> Result<Vec<PackedProvider>, ProviderBundleError> {
+    if specs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Synthesize the scratch consumer: an empty [workspace] table keeps cargo from
+    // capturing any parent workspace; the stub lib.rs satisfies target checks.
+    let scratch = tempfile::TempDir::new()
+        .map_err(|e| ProviderBundleError::Io(format!("create scratch consumer dir: {e}")))?;
+    let mut manifest = String::from(
+        "# Synthesized by cloacina provider bundling (CLOACI-T-0836/T-0831) to resolve\n\
+         # a Python package's [providers] deps through cargo.\n\
+         [workspace]\n\n\
+         [package]\n\
+         name = \"cloacina-provider-fetch\"\n\
+         version = \"0.0.0\"\n\
+         edition = \"2021\"\n\n\
+         [dependencies]\n",
+    );
+    for (name, spec) in specs {
+        manifest.push_str(&format!("{name} = {spec}\n"));
+    }
+    std::fs::write(scratch.path().join("Cargo.toml"), manifest)
+        .map_err(|e| ProviderBundleError::Io(format!("write scratch Cargo.toml: {e}")))?;
+    std::fs::create_dir_all(scratch.path().join("src"))
+        .map_err(|e| ProviderBundleError::Io(format!("create scratch src: {e}")))?;
+    std::fs::write(
+        scratch.path().join("src/lib.rs"),
+        "// provider fetch stub\n",
+    )
+    .map_err(|e| ProviderBundleError::Io(format!("write scratch lib.rs: {e}")))?;
+
+    let refs: Vec<ProviderRef> = specs
+        .iter()
+        .map(|(name, _)| ProviderRef {
+            name: name.clone(),
+            version: None, // pinning is expressed in the dep spec itself
+        })
+        .collect();
+    pack_providers(scratch.path(), &refs, release)
+}
+
 /// Discover the provider references a consumer's SOURCE declares: scan `.rs` files
 /// for `constructor!( ... from = "<ref>" ... )` and `#[reactor( ... from = "<ref>"
 /// ... )]` occurrences (the S-0015 discovery rule — build + bundle ONLY what the

@@ -286,23 +286,29 @@ async fn run_build(
         BuildError,
     > = match result {
         Ok(success) => {
-            // CLOACI-T-0836: discover the package's `constructor!` provider refs
-            // in the source and bundle each referenced provider (resolve the Cargo
-            // dep → build to wasm → pack) into `package_providers`, so the
-            // reconciler can resolve constructor nodes hermetically at load. Rust
-            // packages only; a declared-but-unbundleable provider FAILS the build
-            // (fail closed — the package could never load).
-            if language == "rust" {
+            // CLOACI-T-0836/T-0831: bundle the constructor providers this package
+            // consumes (resolve → build to wasm → pack) into `package_providers`,
+            // so the reconciler can resolve its constructor nodes hermetically at
+            // load. Discovery is per-language: RUST scans the source for
+            // `constructor!`/`#[reactor]` `from` refs (Cargo.toml is the dep
+            // source of truth); PYTHON reads the AUTHORITATIVE
+            // `[metadata.providers]` manifest section (no Cargo.toml — a scratch
+            // Cargo project is synthesized around the specs). Either way, a
+            // declared-but-unbundleable provider FAILS the build (fail closed —
+            // the package could never load).
+            let packed = if language == "rust" {
                 let refs =
                     cloacina::packaging::provider_bundle::discover_provider_refs(&source_dir);
-                if !refs.is_empty() {
+                if refs.is_empty() {
+                    Vec::new()
+                } else {
                     info!(
                         %package_id,
                         providers = ?refs.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
                         "bundling constructor providers referenced by the package"
                     );
                     let src = source_dir.clone();
-                    let packed = tokio::task::spawn_blocking(move || {
+                    tokio::task::spawn_blocking(move || {
                         cloacina::packaging::provider_bundle::pack_providers(&src, &refs, true)
                     })
                     .await
@@ -312,21 +318,68 @@ async fn run_build(
                             "failed to bundle constructor provider(s) for {} v{}: {e}",
                             meta.package_name, meta.version
                         ))
-                    })?;
-                    let rows: Vec<(String, String, Vec<u8>)> = packed
-                        .into_iter()
-                        .map(|p| (p.provider_name, p.version, p.archive))
-                        .collect();
-                    registry
-                        .store_package_providers(&meta.package_name, &meta.version, rows)
-                        .await
-                        .map_err(|e| {
-                            BuildError::internal(format!(
-                                "failed to store bundled providers for {} v{}: {e}",
-                                meta.package_name, meta.version
-                            ))
-                        })?;
+                    })?
                 }
+            } else {
+                // `[metadata.providers]` from the (untyped) manifest, deserialized
+                // through the canonical ProviderDep schema.
+                let providers: std::collections::HashMap<
+                    String,
+                    cloacina::cloacina_workflow_plugin::ProviderDep,
+                > = match manifest
+                    .get("metadata")
+                    .and_then(|m| m.get("providers"))
+                    .cloned()
+                {
+                    Some(v) => v.try_into().map_err(|e| {
+                        BuildError::internal(format!(
+                            "invalid [metadata.providers] in {} v{}: {e}",
+                            meta.package_name, meta.version
+                        ))
+                    })?,
+                    None => Default::default(),
+                };
+                let specs: Vec<(String, String)> = providers
+                    .iter()
+                    .map(|(name, dep)| (name.clone(), dep.to_toml_value()))
+                    .collect();
+                if specs.is_empty() {
+                    Vec::new()
+                } else {
+                    info!(
+                        %package_id,
+                        providers = ?specs.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+                        "bundling [metadata.providers] declared by the Python package"
+                    );
+                    tokio::task::spawn_blocking(move || {
+                        cloacina::packaging::provider_bundle::pack_providers_from_specs(
+                            &specs, true,
+                        )
+                    })
+                    .await
+                    .map_err(|e| BuildError::internal(format!("provider bundle join: {e}")))?
+                    .map_err(|e| {
+                        BuildError::internal(format!(
+                            "failed to bundle [metadata.providers] for {} v{}: {e}",
+                            meta.package_name, meta.version
+                        ))
+                    })?
+                }
+            };
+            if !packed.is_empty() {
+                let rows: Vec<(String, String, Vec<u8>)> = packed
+                    .into_iter()
+                    .map(|p| (p.provider_name, p.version, p.archive))
+                    .collect();
+                registry
+                    .store_package_providers(&meta.package_name, &meta.version, rows)
+                    .await
+                    .map_err(|e| {
+                        BuildError::internal(format!(
+                            "failed to store bundled providers for {} v{}: {e}",
+                            meta.package_name, meta.version
+                        ))
+                    })?;
             }
 
             audit::log_compiler_build_finished(

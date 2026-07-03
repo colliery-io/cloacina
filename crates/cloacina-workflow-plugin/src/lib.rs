@@ -51,10 +51,10 @@ pub use inventory_entries::{
 pub use types::{
     AccumulatorDeclarationEntry, CloacinaMetadata, ConstructorPackageMetadata,
     GraphExecutionRequest, GraphExecutionResult, GraphPackageMetadata, InputInterfaceDescriptor,
-    InputInterfaceEntry, PackageTasksMetadata, ReactorPackageMetadata, TaskExecutionRequest,
-    TaskExecutionResult, TaskMetadataEntry, TriggerInvokeRequest, TriggerInvokeResult,
-    TriggerPackageMetadata, TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult,
-    TriggerlessGraphMetadataEntry,
+    InputInterfaceEntry, PackageTasksMetadata, ProviderDep, ReactorPackageMetadata,
+    TaskExecutionRequest, TaskExecutionResult, TaskMetadataEntry, TriggerInvokeRequest,
+    TriggerInvokeResult, TriggerPackageMetadata, TriggerlessGraphInvokeRequest,
+    TriggerlessGraphInvokeResult, TriggerlessGraphMetadataEntry,
 };
 
 // Re-export fidius crates so generated code can reference them

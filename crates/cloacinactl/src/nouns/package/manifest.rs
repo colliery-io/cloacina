@@ -379,6 +379,7 @@ mod tests {
             reaction_mode: None,
             input_strategy: None,
             accumulators: Vec::new(),
+            providers: Default::default(),
         }
     }
 
@@ -461,6 +462,7 @@ mod tests {
             reaction_mode: None,
             input_strategy: None,
             accumulators: Vec::new(),
+            providers: Default::default(),
         }
     }
 

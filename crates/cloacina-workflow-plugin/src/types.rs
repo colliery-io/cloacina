@@ -397,6 +397,79 @@ pub struct CloacinaMetadata {
     /// Accumulator configuration overrides (from package.toml, merged with FFI defaults)
     #[serde(default)]
     pub accumulators: Vec<AccumulatorConfig>,
+    /// Constructor providers this package consumes (CLOACI-T-0831), keyed by the
+    /// provider's Cargo package name — the `from` a `cloaca.constructor(...)` /
+    /// `constructor!(...)` references. For PYTHON packages (no Cargo.toml) this is
+    /// the AUTHORITATIVE list the compiler resolves + bundles; each value is a
+    /// Cargo-style dependency spec (version string, or a path/git table). Rust
+    /// packages don't need it (their Cargo.toml is the source of truth).
+    #[serde(default)]
+    pub providers: std::collections::HashMap<String, ProviderDep>,
+}
+
+/// One `[metadata.providers]` dependency spec — a Cargo-style dependency
+/// expression for a constructor provider (CLOACI-T-0831).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ProviderDep {
+    /// `provider = "0.1"` — a crates.io version requirement.
+    Version(String),
+    /// `provider = { version = "0.1" }` / `{ path = "…" }` / `{ git = "…", tag = "…" }`
+    /// — the escape hatches, mirroring Cargo dependency tables.
+    Detailed {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        git: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rev: Option<String>,
+    },
+}
+
+impl ProviderDep {
+    /// Render this spec as the literal TOML dependency VALUE for a synthesized
+    /// Cargo.toml (`"0.1"` or `{ path = "…" }`), so version/path/git providers
+    /// resolve uniformly through cargo.
+    pub fn to_toml_value(&self) -> String {
+        match self {
+            ProviderDep::Version(v) => format!("{v:?}"),
+            ProviderDep::Detailed {
+                version,
+                path,
+                git,
+                tag,
+                branch,
+                rev,
+            } => {
+                let mut parts: Vec<String> = Vec::new();
+                if let Some(v) = version {
+                    parts.push(format!("version = {v:?}"));
+                }
+                if let Some(p) = path {
+                    parts.push(format!("path = {p:?}"));
+                }
+                if let Some(g) = git {
+                    parts.push(format!("git = {g:?}"));
+                }
+                if let Some(t) = tag {
+                    parts.push(format!("tag = {t:?}"));
+                }
+                if let Some(b) = branch {
+                    parts.push(format!("branch = {b:?}"));
+                }
+                if let Some(r) = rev {
+                    parts.push(format!("rev = {r:?}"));
+                }
+                format!("{{ {} }}", parts.join(", "))
+            }
+        }
+    }
 }
 
 /// Accumulator configuration from package.toml metadata.

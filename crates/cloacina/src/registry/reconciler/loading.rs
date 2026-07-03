@@ -402,6 +402,13 @@ impl RegistryReconciler {
                         metadata.package_name
                     ),
                     })?;
+
+            // CLOACI-T-0831: stage the package's bundled constructor providers
+            // BEFORE the module import — `cloaca.constructor(...)` calls resolve
+            // against the provider search path DURING import. Packages that
+            // bundle none stage nothing (Ok(0)).
+            self.stage_bundled_providers(&metadata).await?;
+
             let loaded = {
                 let archive_data = loaded_workflow.package_data.clone();
                 let runtime = runtime.clone();
@@ -2044,6 +2051,83 @@ impl RegistryReconciler {
     /// process-global (fine under today's sequential reconciler; concurrent loads
     /// of different packages would race it), and constructor nodes registered here
     /// are dropped with the runtime rather than per-package unload.
+    /// Stage a package's bundled constructor providers (CLOACI-T-0836/T-0831):
+    /// fetch the `package_providers` rows, unpack each archive into a fresh
+    /// `providers/` tree, and point the loader's provider search path at it.
+    /// Returns how many providers were staged (0 = the package bundles none).
+    ///
+    /// Shared by BOTH load paths: the Rust branch's Step 5b (before resolving FFI
+    /// constructor declarations) and the Python branch (BEFORE the module import,
+    /// so `cloaca.constructor(...)` calls resolve against the bundle during load).
+    ///
+    /// The unpacked dir must outlive the process' use of the search path (wasm
+    /// components are re-read on every node load), so it is deliberately leaked —
+    /// one small dir per loaded package version, reclaimed on process exit
+    /// (mirrors the dlopen temp-dir lifecycle above).
+    ///
+    /// Fails closed: a package WITH bundled providers on a host built without
+    /// `constructors-wasm` cannot resolve them — hard error rather than a
+    /// mystery failure at import/execute.
+    pub(super) async fn stage_bundled_providers(
+        &self,
+        metadata: &WorkflowMetadata,
+    ) -> Result<usize, RegistryError> {
+        let providers = self
+            .registry
+            .get_package_providers(&metadata.package_name, &metadata.version)
+            .await?;
+        if providers.is_empty() {
+            return Ok(0);
+        }
+
+        #[cfg(not(feature = "constructors-wasm"))]
+        {
+            Err(RegistryError::RegistrationFailed {
+                message: format!(
+                    "package {} v{} bundles {} constructor provider(s), but this host was \
+                     built without the `constructors-wasm` feature — it cannot resolve WASM \
+                     constructor providers (fail closed)",
+                    metadata.package_name,
+                    metadata.version,
+                    providers.len()
+                ),
+            })
+        }
+
+        #[cfg(feature = "constructors-wasm")]
+        {
+            use crate::registry::loader::{set_provider_search_path, unpack_provider_archive};
+
+            let providers_root = tempfile::TempDir::new()
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!("create providers dir: {e}"),
+                })?
+                .keep();
+            for (provider_name, archive_bytes) in &providers {
+                let archive_path = providers_root.join(format!("{provider_name}.cloacina"));
+                std::fs::write(&archive_path, archive_bytes).map_err(|e| {
+                    RegistryError::RegistrationFailed {
+                        message: format!("stage provider archive '{provider_name}': {e}"),
+                    }
+                })?;
+                unpack_provider_archive(&archive_path, &providers_root, &[]).map_err(|e| {
+                    RegistryError::RegistrationFailed {
+                        message: format!("unpack bundled provider '{provider_name}': {e}"),
+                    }
+                })?;
+            }
+            set_provider_search_path(&providers_root);
+            info!(
+                "Unpacked {} bundled provider(s) for {} v{} into {}",
+                providers.len(),
+                metadata.package_name,
+                metadata.version,
+                providers_root.display()
+            );
+            Ok(providers.len())
+        }
+    }
+
     pub(super) async fn step_load_constructor_nodes(
         &self,
         metadata: &WorkflowMetadata,
@@ -2075,16 +2159,12 @@ impl RegistryReconciler {
         #[cfg(feature = "constructors-wasm")]
         {
             use crate::registry::loader::grants::GrantSpec;
-            use crate::registry::loader::{
-                load_constructor_node, set_provider_search_path, unpack_provider_archive,
-            };
+            use crate::registry::loader::load_constructor_node;
 
-            // Fetch the provider archives bundled for this package.
-            let providers = self
-                .registry
-                .get_package_providers(&metadata.package_name, &metadata.version)
-                .await?;
-            if providers.is_empty() {
+            // Stage this package's bundled providers (fail closed: decls with no
+            // bundle refuse to load — the hermetic guarantee).
+            let staged = self.stage_bundled_providers(metadata).await?;
+            if staged == 0 {
                 return Err(RegistryError::RegistrationFailed {
                     message: format!(
                         "package {} v{} declares {} constructor node(s) but has NO bundled \
@@ -2096,38 +2176,6 @@ impl RegistryReconciler {
                     ),
                 });
             }
-
-            // Unpack each provider archive into a providers/ tree. The dir must
-            // outlive the process' use of the search path (wasm components are
-            // re-read on every node load), so it is deliberately leaked — one
-            // small dir per loaded package version, reclaimed on process exit
-            // (mirrors the dlopen temp-dir lifecycle above).
-            let providers_root = tempfile::TempDir::new()
-                .map_err(|e| RegistryError::RegistrationFailed {
-                    message: format!("create providers dir: {e}"),
-                })?
-                .keep();
-            for (provider_name, archive_bytes) in &providers {
-                let archive_path = providers_root.join(format!("{provider_name}.cloacina"));
-                std::fs::write(&archive_path, archive_bytes).map_err(|e| {
-                    RegistryError::RegistrationFailed {
-                        message: format!("stage provider archive '{provider_name}': {e}"),
-                    }
-                })?;
-                unpack_provider_archive(&archive_path, &providers_root, &[]).map_err(|e| {
-                    RegistryError::RegistrationFailed {
-                        message: format!("unpack bundled provider '{provider_name}': {e}"),
-                    }
-                })?;
-            }
-            set_provider_search_path(&providers_root);
-            info!(
-                "Unpacked {} bundled provider(s) for {} v{} into {}",
-                providers.len(),
-                metadata.package_name,
-                metadata.version,
-                providers_root.display()
-            );
 
             let runtime =
                 self.runtime
@@ -2307,6 +2355,7 @@ mod tests {
             reaction_mode: None,
             input_strategy: None,
             accumulators: Vec::new(),
+            providers: Default::default(),
         }
     }
 

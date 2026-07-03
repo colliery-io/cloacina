@@ -136,3 +136,49 @@ fn duplicate_refs_bundle_once() {
         "a provider referenced twice is built once"
     );
 }
+
+/// CLOACI-T-0831: the PYTHON-consumer path — no Cargo.toml, providers declared as
+/// manifest dep specs. A scratch Cargo project is synthesized around the specs and
+/// the provider resolves+packs exactly like the Rust path (here via a `path` spec;
+/// crates.io/git specs ride the same synthesized manifest).
+#[test]
+fn packs_providers_from_manifest_specs() {
+    use cloacina::packaging::provider_bundle::pack_providers_from_specs;
+
+    let provider_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/constructor-contract/cloacina-provider-fs")
+        .canonicalize()
+        .unwrap();
+    let specs = vec![(
+        "cloacina-provider-fs".to_string(),
+        format!("{{ path = {:?} }}", provider_dir.display().to_string()),
+    )];
+
+    let packed = pack_providers_from_specs(&specs, false).expect("pack from specs");
+    assert_eq!(packed.len(), 1);
+    let p = &packed[0];
+    assert_eq!(p.provider_name, "cloacina-provider-fs");
+    assert_eq!(p.version, "0.1.0");
+    assert_eq!(
+        p.constructors,
+        vec!["read_file".to_string(), "write_file".to_string()]
+    );
+    assert!(!p.archive.is_empty(), "the packed archive travels as bytes");
+}
+
+/// An unknown provider spec fails closed at resolve (cargo can't find it).
+#[test]
+fn unknown_manifest_spec_fails_closed() {
+    use cloacina::packaging::provider_bundle::pack_providers_from_specs;
+    let specs = vec![(
+        "cloacina-provider-nonexistent".to_string(),
+        "{ path = \"/definitely/not/a/crate\" }".to_string(),
+    )];
+    let err = pack_providers_from_specs(&specs, false)
+        .err()
+        .expect("bad spec must fail closed");
+    assert!(
+        format!("{err}").contains("cargo metadata") || format!("{err}").contains("nonexistent"),
+        "error should surface the resolution failure, got: {err}"
+    );
+}
