@@ -214,6 +214,12 @@ Mirrored the name fix for VERSION: `constructor_provider!` `version` now optiona
 
 **THE FULL CHAIN NOW EXISTS END-TO-END:** author (suite macro) → package → compiler discovers+bundles → `package_providers` → reconciler Step 5b unpacks+resolves → the node RUNS. Verified this session: discovery 3/3, provider_bundle integration 5/5, reconciler 25/25 incl. Step 5b e2e 2/2 (node executes, reads granted file), compiler check green, both DB backends green.
 
+### 2026-07-03 — LIVE-DEMO ENABLEMENT (in progress)
+- **Server + agent now link the loader**: `constructors-wasm` EXPLICIT on both `cloacina-server` and `cloacina-agent` cloacina deps (was only transitive via cloacina-python's always-on wheel decision — fragile). Compile checks running.
+- **Compiler images get the wasm target**: `rustup target add wasm32-wasip2` in `docker/Dockerfile.compiler` AND `Dockerfile.demo`'s `workspace` stage (the demo compiler/fixtures runtime).
+- **`packaged-consumer-fixture` is now canonical A-0010**: the provider is a real Cargo dep (`__WORKSPACE__` path), so the compiler's source-scan→cargo-metadata flow resolves it (the reconciler e2e test re-verifies with the dep present).
+- **NEW demo fixture `examples/fixtures/demo-constructor-rust`** + packer entry in `pack-demo-fixtures.sh`: workflow `constructor_demo` — `reader` = `cloacina-provider-fs`/`read_file` with `grants={fs=["ro:/etc"]}` reading `/etc/os-release` (present in every container), downstream `summarize` task. Compiles staged (host, `__WORKSPACE__`→repo). The demo stack (`docker compose -f docker/docker-compose.demo.yml up --build` / `angreal ui up`) now exercises the FULL live chain: harness uploads → compiler discovers+bundles the provider (wasm target in-image) → server resolves Step 5b → sandboxed grant-gated execution visible in the UI.
+
 **STILL OPEN (verification + polish, not code):** (a) LIVE compiler-service verification (docker demo lane — needs the wasm32-wasip2 target in the compiler image + a demo package with a crates.io/git provider dep; path deps inside submitted archives don't resolve in the compiler's temp dir); (b) migration 028 run-verified only implicitly (the reconciler test stubs the registry) — a DAL round-trip test or any sqlite `DefaultRunner` boot exercises it; (c) unload does not unregister constructor nodes (documented caveat); (d) provider build cache (fast-follow per spec); (e) PYTHON consumer surface (T-0831) — reuses this entire chain.
 
 **ORIGINAL IMPLEMENTATION ORDER (for reference; each kept green):**

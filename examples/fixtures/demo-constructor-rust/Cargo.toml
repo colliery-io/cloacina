@@ -1,14 +1,15 @@
-# CLOACI-T-0836 — a PACKAGED consumer workflow that uses a constructor provider.
+# CLOACI-T-0836 demo — a packaged workflow consuming a CONSTRUCTOR PROVIDER.
+# TEMPLATE — `__WORKSPACE__` is rewritten to an absolute path by
+# docker/pack-demo-fixtures.sh before packing.
 #
-# TEMPLATE — `__WORKSPACE__` is rewritten to an absolute path by the test that
-# builds this fixture (mirrors examples/fixtures/compiler-happy-rust). Builds as a
-# `packaged` cdylib: the `constructor!` node lowers to a ConstructorEntry
-# DECLARATION (id/from/constructor/config/grants/deps) that the server resolves
-# against the package's BUNDLED provider at load (reconciler Step 5b).
+# The provider (`cloacina-provider-fs`) is an ordinary Cargo dependency (A-0010):
+# the compiler discovers the `constructor!` `from` ref in the source, resolves it
+# from this dependency graph, builds it to a WASM component, and bundles it into
+# `package_providers` — the server then resolves the node hermetically at load.
 [workspace]
 
 [package]
-name = "packaged-consumer-fixture"
+name = "demo-constructor-rust"
 version = "0.1.0"
 edition = "2021"
 
@@ -20,10 +21,6 @@ default = ["packaged"]
 packaged = []
 
 [dependencies]
-# The constructor PROVIDER, as an ordinary Cargo dependency (A-0010): the build
-# side resolves `constructor!` `from` refs against this graph and bundles the
-# provider to wasm. The consumer never links provider code in packaged mode —
-# the dep is the resolution + version pin.
 cloacina-provider-fs = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-fs" }
 cloacina-macros = { path = "__WORKSPACE__/crates/cloacina-macros" }
 cloacina-computation-graph = { path = "__WORKSPACE__/crates/cloacina-computation-graph" }

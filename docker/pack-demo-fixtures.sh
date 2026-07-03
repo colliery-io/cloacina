@@ -91,6 +91,13 @@ pack_rust_ws acme-billing-rust
 pack_rust_ws acme-payroll-rust
 pack_rust_ws acme-fulfillment-rust
 
+# --- Constructor provider (Rust) — CLOACI-T-0836. The workflow's first node is
+#     cloacina-provider-fs's read_file member: the compiler discovers the
+#     `constructor!` from-ref, builds the provider to WASM, bundles it into
+#     package_providers; the server resolves it at load and executes it sandboxed
+#     with an fs grant (reads /etc/os-release). ---
+pack_rust_ws demo-constructor-rust
+
 # --- Kafka-sourced stream accumulator → reactor-bound CG (Rust) — CLOACI-T-0676 ---
 pack_rust_ws demo-kafka-stream-rust
 

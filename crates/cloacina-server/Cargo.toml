@@ -26,7 +26,10 @@ kafka = ["cloacina/kafka"]
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [dependencies]
-cloacina = { version = "0.9.0", path = "../cloacina", default-features = false }
+# `constructors-wasm` is explicit (not just transitive via cloacina-python) so the
+# server can always resolve packaged constructor providers (reconciler Step 5b,
+# CLOACI-T-0836) — packaged workflows are the primary consumer window.
+cloacina = { version = "0.9.0", path = "../cloacina", default-features = false, features = ["constructors-wasm"] }
 # CLOACI-T-0811: the fleet control loop runs raw SQL (Postgres advisory locks for
 # leader election) over a pooled connection — the same `conn.interact` +
 # `diesel::sql_query` idiom the DAL uses. The Postgres backend is enabled via the
