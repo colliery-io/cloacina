@@ -349,6 +349,14 @@ impl RegistryReconciler {
                     &library_data,
                 )
                 .await?;
+            // Step 5b: packaged `constructor!` nodes (CLOACI-T-0832/T-0836).
+            // Resolve each declared constructor node against the package's
+            // BUNDLED providers and register it into the runtime registry,
+            // BEFORE step 6 builds the workflow — the DAG builder
+            // (`create_workflow_from_host_registry_static`) enumerates the
+            // registry, so resolved nodes join the topology automatically.
+            self.step_load_constructor_nodes(&metadata, &library_data)
+                .await?;
             // Step 6: workflows (tasks + workflow + trigger-subscription
             // validation).
             let (task_namespaces, workflow_name) =
@@ -2016,6 +2024,177 @@ impl RegistryReconciler {
 
     /// Pipeline step 6: workflows. Registers tasks + workflow + validates
     /// `#[workflow(triggers = [...])]` subscriptions against the runtime.
+    /// Step 5b (CLOACI-T-0832/T-0836): resolve packaged `constructor!` nodes
+    /// against the package's BUNDLED providers and register each as a task in the
+    /// runtime registry, so step 6's DAG builder picks them up like any other task.
+    ///
+    /// Flow: extract the cdylib's `ConstructorPackageMetadata` declarations (FFI
+    /// method 10; empty for constructor-free packages — the fast path costs one
+    /// FFI call). If any exist: fetch the provider archives stored for this
+    /// package (`package_providers`, written by the compiler's bundle step),
+    /// unpack them into a `providers/` tree, point the loader's provider search
+    /// path at it, and resolve each declaration via `load_constructor_node`
+    /// (name-in-configure member select + tenant capability grants), registering
+    /// the resolved node under `TaskNamespace(tenant, package, workflow, id)`.
+    ///
+    /// Fails closed: a package that declares constructor nodes but has no bundled
+    /// providers (or an unresolvable member/grant/config) does not load.
+    ///
+    /// Known v1 caveats (documented in CLOACI-T-0836): the provider search path is
+    /// process-global (fine under today's sequential reconciler; concurrent loads
+    /// of different packages would race it), and constructor nodes registered here
+    /// are dropped with the runtime rather than per-package unload.
+    pub(super) async fn step_load_constructor_nodes(
+        &self,
+        metadata: &WorkflowMetadata,
+        library_data: &[u8],
+    ) -> Result<(), RegistryError> {
+        let declarations = self
+            .package_loader
+            .extract_constructor_metadata(library_data)
+            .await
+            .map_err(RegistryError::Loader)?;
+        if declarations.is_empty() {
+            return Ok(());
+        }
+
+        #[cfg(not(feature = "constructors-wasm"))]
+        {
+            return Err(RegistryError::RegistrationFailed {
+                message: format!(
+                    "package {} v{} declares {} constructor node(s), but this host was built \
+                     without the `constructors-wasm` feature — it cannot resolve WASM \
+                     constructor providers (fail closed)",
+                    metadata.package_name,
+                    metadata.version,
+                    declarations.len()
+                ),
+            });
+        }
+
+        #[cfg(feature = "constructors-wasm")]
+        {
+            use crate::registry::loader::grants::GrantSpec;
+            use crate::registry::loader::{
+                load_constructor_node, set_provider_search_path, unpack_provider_archive,
+            };
+
+            // Fetch the provider archives bundled for this package.
+            let providers = self
+                .registry
+                .get_package_providers(&metadata.package_name, &metadata.version)
+                .await?;
+            if providers.is_empty() {
+                return Err(RegistryError::RegistrationFailed {
+                    message: format!(
+                        "package {} v{} declares {} constructor node(s) but has NO bundled \
+                         providers — the build step must bundle each `from` provider \
+                         (CLOACI-T-0836) before the reconciler can resolve them",
+                        metadata.package_name,
+                        metadata.version,
+                        declarations.len()
+                    ),
+                });
+            }
+
+            // Unpack each provider archive into a providers/ tree. The dir must
+            // outlive the process' use of the search path (wasm components are
+            // re-read on every node load), so it is deliberately leaked — one
+            // small dir per loaded package version, reclaimed on process exit
+            // (mirrors the dlopen temp-dir lifecycle above).
+            let providers_root = tempfile::TempDir::new()
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!("create providers dir: {e}"),
+                })?
+                .keep();
+            for (provider_name, archive_bytes) in &providers {
+                let archive_path = providers_root.join(format!("{provider_name}.cloacina"));
+                std::fs::write(&archive_path, archive_bytes).map_err(|e| {
+                    RegistryError::RegistrationFailed {
+                        message: format!("stage provider archive '{provider_name}': {e}"),
+                    }
+                })?;
+                unpack_provider_archive(&archive_path, &providers_root, &[]).map_err(|e| {
+                    RegistryError::RegistrationFailed {
+                        message: format!("unpack bundled provider '{provider_name}': {e}"),
+                    }
+                })?;
+            }
+            set_provider_search_path(&providers_root);
+            info!(
+                "Unpacked {} bundled provider(s) for {} v{} into {}",
+                providers.len(),
+                metadata.package_name,
+                metadata.version,
+                providers_root.display()
+            );
+
+            let runtime =
+                self.runtime
+                    .as_ref()
+                    .ok_or_else(|| RegistryError::RegistrationFailed {
+                        message: format!(
+                            "package {} declares constructor nodes but the reconciler has no \
+                         Runtime attached",
+                            metadata.package_name
+                        ),
+                    })?;
+            let tenant = self.config.default_tenant_id.as_str();
+
+            // Resolve + register each declared node. wasmtime compilation is
+            // blocking work; hop off the async executor per node.
+            for decl in declarations {
+                let namespace =
+                    TaskNamespace::new(tenant, &metadata.package_name, &decl.workflow, &decl.id);
+                let dependencies: Vec<TaskNamespace> = decl
+                    .dependencies
+                    .iter()
+                    .map(|dep| {
+                        TaskNamespace::new(tenant, &metadata.package_name, &decl.workflow, dep)
+                    })
+                    .collect();
+                let grants = GrantSpec::from_pairs(decl.grants.clone());
+
+                let (node_id, from, constructor) =
+                    (decl.id.clone(), decl.from.clone(), decl.constructor.clone());
+                let config = decl.config.clone();
+                let node = tokio::task::spawn_blocking(move || {
+                    load_constructor_node(
+                        &node_id,
+                        &from,
+                        &constructor,
+                        config,
+                        dependencies,
+                        grants,
+                    )
+                })
+                .await
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!("constructor node '{}' load join: {e}", decl.id),
+                })?
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!(
+                        "resolve constructor node '{}' (from = '{}', constructor = '{}') for \
+                         package {} v{}: {e}",
+                        decl.id,
+                        decl.from,
+                        decl.constructor,
+                        metadata.package_name,
+                        metadata.version
+                    ),
+                })?;
+
+                runtime.register_task(namespace.clone(), move || node.clone());
+                info!(
+                    "Registered packaged constructor node {} (from = '{}', constructor = '{}')",
+                    namespace, decl.from, decl.constructor
+                );
+            }
+
+            Ok(())
+        }
+    }
+
     pub(super) async fn step_load_workflows(
         &self,
         metadata: &WorkflowMetadata,

@@ -233,6 +233,27 @@ mod unified_schema {
         }
     }
 
+    // CLOACI-T-0836: bundled constructor providers for hermetic packaged
+    // workflows. One row per (consumer package, provider): the provider's packed
+    // `.cloacina` archive (arch-neutral WASM), unpacked by the reconciler into a
+    // `providers/` tree that `constructor!` nodes resolve against at load.
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBinary};
+
+        package_providers (id) {
+            id -> DbUuid,
+            package_name -> Text,
+            version -> Text,
+            tenant_id -> Nullable<Text>,
+            provider_name -> Text,
+            provider_version -> Text,
+            content_hash -> Text,
+            provider_data -> DbBinary,
+            created_at -> DbTimestamp,
+        }
+    }
+
     // =========================================================================
     // Unified Schedule Tables
     // =========================================================================

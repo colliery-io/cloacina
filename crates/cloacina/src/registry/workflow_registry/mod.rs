@@ -640,6 +640,25 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             ))),
         }
     }
+
+    /// Bundled constructor providers for a package (CLOACI-T-0836): queries
+    /// `package_providers` (stored tenant-neutral, like per-target artifacts) and
+    /// returns each provider's packed archive for the reconciler to unpack.
+    async fn get_package_providers(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>, RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        let rows = dal
+            .workflow_packages()
+            .get_providers_for_package(package_name, version, None)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.provider_name, r.provider_data.into_inner()))
+            .collect())
+    }
 }
 
 /// Unpack a `.cloacina` source archive in a temp dir and collect its UTF-8
