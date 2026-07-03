@@ -215,8 +215,12 @@ pub struct ConstructorPackageMetadata {
     pub from: String,
     /// The constructor's `constructor.json` name inside the provider.
     pub constructor: String,
-    /// Author config as `(name, value)` pairs in written order; bound by name.
-    pub config: Vec<(String, serde_json::Value)>,
+    /// Author config as `(name, JSON-encoded value)` pairs in written order;
+    /// bound by name. Each value is a JSON **string** (not `serde_json::Value`):
+    /// this type crosses the fidius bincode wire, and `Value`'s `deserialize_any`
+    /// is unsupported there — the host parses each value back with
+    /// `serde_json::from_str` before binding.
+    pub config: Vec<(String, String)>,
     /// Tenant capability grants as raw `(kind, patterns)` pairs.
     pub grants: Vec<(String, Vec<String>)>,
     /// Upstream DAG node ids this constructor depends on.

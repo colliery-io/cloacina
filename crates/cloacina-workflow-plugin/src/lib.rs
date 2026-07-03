@@ -457,31 +457,6 @@ macro_rules! package {
                     Ok(out)
                 }
 
-                fn get_constructor_metadata(
-                    &self,
-                ) -> ::core::result::Result<
-                    ::std::vec::Vec<$crate::ConstructorPackageMetadata>,
-                    $crate::PluginError,
-                > {
-                    // CLOACI-T-0832: project each declared `constructor!(...)` node
-                    // into metadata the host resolves (it links the WASM loader; this
-                    // cdylib does not). Grants ride along for host-side enforcement.
-                    let mut out: ::std::vec::Vec<$crate::ConstructorPackageMetadata> =
-                        ::std::vec::Vec::new();
-                    for entry in $crate::inventory::iter::<$crate::ConstructorEntry> {
-                        out.push($crate::ConstructorPackageMetadata {
-                            workflow: entry.workflow.to_string(),
-                            id: entry.id.to_string(),
-                            from: entry.from.to_string(),
-                            constructor: entry.constructor.to_string(),
-                            config: (entry.config)(),
-                            grants: (entry.grants)(),
-                            dependencies: (entry.dependencies)(),
-                        });
-                    }
-                    Ok(out)
-                }
-
                 fn get_trigger_metadata(
                     &self,
                 ) -> ::core::result::Result<
@@ -774,6 +749,44 @@ macro_rules! package {
                     }
 
                     Ok($crate::InputInterfaceDescriptor { entries })
+                }
+
+                // NOTE: the fidius vtable is built in IMPL-BLOCK order, and the
+                // host's METHOD_* index constants assume TRAIT-declaration order —
+                // new methods MUST be appended at the END of this impl (matching
+                // their position at the end of the trait), never inserted
+                // mid-block. Inserting `get_constructor_metadata` mid-block
+                // silently shifted methods 5-10 for every packaged cdylib (caught
+                // by the first live T-0836 exercise).
+                fn get_constructor_metadata(
+                    &self,
+                ) -> ::core::result::Result<
+                    ::std::vec::Vec<$crate::ConstructorPackageMetadata>,
+                    $crate::PluginError,
+                > {
+                    // CLOACI-T-0832: project each declared `constructor!(...)` node
+                    // into metadata the host resolves (it links the WASM loader; this
+                    // cdylib does not). Grants ride along for host-side enforcement.
+                    // Config values are JSON-ENCODED per value: `serde_json::Value`
+                    // cannot cross the bincode FFI wire (`deserialize_any`), so the
+                    // string form travels and the host parses it back.
+                    let mut out: ::std::vec::Vec<$crate::ConstructorPackageMetadata> =
+                        ::std::vec::Vec::new();
+                    for entry in $crate::inventory::iter::<$crate::ConstructorEntry> {
+                        out.push($crate::ConstructorPackageMetadata {
+                            workflow: entry.workflow.to_string(),
+                            id: entry.id.to_string(),
+                            from: entry.from.to_string(),
+                            constructor: entry.constructor.to_string(),
+                            config: (entry.config)()
+                                .into_iter()
+                                .map(|(k, v)| (k, v.to_string()))
+                                .collect(),
+                            grants: (entry.grants)(),
+                            dependencies: (entry.dependencies)(),
+                        });
+                    }
+                    Ok(out)
                 }
             }
 

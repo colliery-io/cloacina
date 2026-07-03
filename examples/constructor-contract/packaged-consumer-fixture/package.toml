@@ -1,0 +1,16 @@
+# CLOACI-T-0836 packaged consumer fixture: a workflow whose DAG contains a
+# `constructor!` node from the `cloacina-provider-fs` provider suite plus a
+# downstream #[task]. The test harness rewrites `__WORKSPACE__` paths and builds
+# the cdylib; the reconciler resolves the constructor node against the bundled
+# provider at load (Step 5b).
+[package]
+name = "packaged-consumer-fixture"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "provider_consumer"
+language = "rust"
+description = "packaged workflow consuming a bundled constructor provider"
