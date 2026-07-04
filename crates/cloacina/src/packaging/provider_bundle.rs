@@ -176,13 +176,16 @@ pub fn resolve_provider_crate(
         )));
     }
 
-    // Version filter (advisory pin): keep exact-equal or prefix matches when a
-    // version was requested. If nothing matches the pin but the name exists, that
-    // is a hard error (the author asked for a version the graph does not provide).
+    // Version filter (advisory pin): keep exact-equal or SEGMENT-prefix matches
+    // when a version was requested ("0.1" matches 0.1.x but NOT 0.10.x — hence
+    // the trailing dot on the prefix). If nothing matches the pin but the name
+    // exists, that is a hard error (the author asked for a version the graph
+    // does not provide).
     if let Some(want) = &provider.version {
+        let segment_prefix = format!("{want}.");
         let filtered: Vec<&(String, PathBuf)> = matches
             .iter()
-            .filter(|(v, _)| v == want || v.starts_with(want))
+            .filter(|(v, _)| v == want || v.starts_with(&segment_prefix))
             .collect();
         return match filtered.first() {
             Some((_, dir)) => Ok((*dir).clone()),
@@ -423,9 +426,20 @@ pub fn discover_provider_refs(source_dir: &Path) -> Vec<ProviderRef> {
                     stack.push(path);
                 }
             } else if path.extension().and_then(|x| x.to_str()) == Some("rs") {
-                let Ok(text) = std::fs::read_to_string(&path) else {
+                let Ok(raw) = std::fs::read_to_string(&path) else {
                     continue;
                 };
+                // Drop whole-line comments (`//`, `///`, `//!`) so doc-comment
+                // `constructor!` examples don't register phantom refs and
+                // comment lines inside a macro body can't shadow the real
+                // `from` field. Trailing mid-line comments are left alone
+                // (truncating them could eat a string literal containing
+                // `//`); extract_from_literal skips their contents instead.
+                let text: String = raw
+                    .lines()
+                    .filter(|l| !l.trim_start().starts_with("//"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 for anchor in ["constructor!", "#[reactor("] {
                     let mut rest = text.as_str();
                     while let Some(pos) = rest.find(anchor) {
@@ -446,14 +460,33 @@ pub fn discover_provider_refs(source_dir: &Path) -> Vec<ProviderRef> {
     refs
 }
 
-/// Pull the first `from = "<value>"` string literal out of a macro-body window.
+/// Pull the `from = "<value>"` string literal out of a macro-body window.
+///
+/// Loops over `from` occurrences rather than bailing on the first: a `from`
+/// inside a preceding value literal (`id = "reader_from_disk"`) or a trailing
+/// comment must not shadow the real field. A hit counts only when it sits on a
+/// token boundary AND is followed (after whitespace) by `=`.
 fn extract_from_literal(window: &str) -> Option<String> {
-    let idx = window.find("from")?;
-    let after = window[idx + 4..].trim_start();
-    let after = after.strip_prefix('=')?.trim_start();
-    let after = after.strip_prefix('"')?;
-    let end = after.find('"')?;
-    Some(after[..end].to_string())
+    let mut search = window;
+    while let Some(idx) = search.find("from") {
+        let boundary_ok = idx == 0
+            || matches!(
+                search.as_bytes()[idx - 1],
+                b' ' | b'\t' | b'\n' | b'\r' | b',' | b'(' | b'{'
+            );
+        let after = search[idx + 4..].trim_start();
+        if boundary_ok {
+            if let Some(rest) = after.strip_prefix('=') {
+                let rest = rest.trim_start();
+                if let Some(rest) = rest.strip_prefix('"') {
+                    let end = rest.find('"')?;
+                    return Some(rest[..end].to_string());
+                }
+            }
+        }
+        search = &search[idx + 4..];
+    }
+    None
 }
 
 #[cfg(test)]
@@ -486,6 +519,34 @@ mod tests {
         )
         .unwrap();
         assert!(discover_provider_refs(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn discovery_survives_comments_and_preceding_from_substrings() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            r#"/// Doc example must NOT register a phantom ref:
+               /// constructor!(from = "phantom-provider");
+               fn consumer() {}
+               constructor!(
+                   // Reads from disk on startup
+                   id = "reader_from_disk",
+                   from = "real-provider",
+               );"#,
+        )
+        .unwrap();
+        let refs = discover_provider_refs(dir.path());
+        assert_eq!(
+            refs,
+            vec![ProviderRef {
+                name: "real-provider".into(),
+                version: None
+            }],
+            "comment 'from's and value-literal 'from's must not shadow the real field, \
+             and doc-comment examples must not false-positive"
+        );
     }
 
     #[test]

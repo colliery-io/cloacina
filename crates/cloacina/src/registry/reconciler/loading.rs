@@ -2077,6 +2077,14 @@ impl RegistryReconciler {
             .get_package_providers(&metadata.package_name, &metadata.version)
             .await?;
         if providers.is_empty() {
+            // Hermeticity: the search path is process-global, so without this a
+            // package that bundles NOTHING would silently resolve constructor
+            // refs against whatever bundle the PREVIOUS load staged
+            // (load-order-dependent imports). Clear it so undeclared refs fail
+            // closed for the current package. Already-loaded nodes are
+            // unaffected — they hold their wasm handles.
+            #[cfg(feature = "constructors-wasm")]
+            crate::registry::loader::clear_provider_search_path();
             return Ok(0);
         }
 
