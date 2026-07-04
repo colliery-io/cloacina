@@ -21,8 +21,12 @@
 //! provider at load (the compiler discovered the `from` ref, built the provider
 //! to wasm, and stored it in `package_providers`) and executed in a sandbox that
 //! can reach ONLY the granted `/etc` (default-closed otherwise). It reads
-//! `/etc/os-release` — present in every container — and the downstream `#[task]`
-//! summarizes what came through the sandbox.
+//! `/etc/hostname` — a REGULAR file docker bind-mounts into every container —
+//! and the downstream `#[task]` summarizes what came through the sandbox.
+//!
+//! NOTE: deliberately NOT `/etc/os-release`, which is a SYMLINK to
+//! `/usr/lib/os-release` in debian-slim: the WASI sandbox refuses symlinks that
+//! escape the granted tree (proven live — the read fails closed with EPERM).
 
 use cloacina_workflow::{task, workflow, Context, TaskError};
 
@@ -40,7 +44,7 @@ pub mod constructor_demo {
         id = "reader",
         from = "cloacina-provider-fs@0.1.0",
         constructor = "read_file",
-        config = { path = "/etc/os-release" },
+        config = { path = "/etc/hostname" },
         grants = { fs = ["ro:/etc"] },
     );
 
@@ -50,9 +54,11 @@ pub mod constructor_demo {
             .get("contents")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let first_line = contents.lines().next().unwrap_or("").to_string();
         context.insert("sandbox_read_bytes", serde_json::json!(contents.len()))?;
-        context.insert("os_release_first_line", serde_json::json!(first_line))?;
+        context.insert(
+            "sandbox_read_hostname",
+            serde_json::json!(contents.trim().to_string()),
+        )?;
         Ok(())
     }
 }
