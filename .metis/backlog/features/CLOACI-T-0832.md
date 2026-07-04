@@ -4,7 +4,7 @@ level: task
 title: "Packaged-workflow constructor support (constructor! beyond embedded)"
 short_code: "CLOACI-T-0832"
 created_at: 2026-06-29T14:00:00.991521+00:00
-updated_at: 2026-06-30T14:10:42.698611+00:00
+updated_at: 2026-07-04T03:33:54.285612+00:00
 parent: CLOACI-I-0132
 blocked_by: [CLOACI-T-0829]
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -68,6 +68,8 @@ The Rust consumer surface ([[CLOACI-T-0829]]) wires constructors into the DAG + 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -203,3 +205,8 @@ Human reframed provider resolution as the **distribution layer**, decided it = C
 **REMAINING for T-0832 (once S-0015 bundle format exists):** `step_load_constructor_nodes` resolving the bundled provider + `PackageLoadView.constructors` field · packaged example (.cloacina with a bundled provider + server load) + tests · reactor `grants` into `ReactorPackageMetadata` (packaged reactor arm drops ref to None — reactor_attr.rs:474).
 
 **NET:** T-0832 is paused pending the S-0015 distribution/build work; its plumbing (P1/P2) is in and green.
+
+### 2026-07-04 — CLOSING: the held resolution LANDED as reconciler Step 5b (via T-0836) + LIVE-VERIFIED
+Once the S-0015 bundle existed (`package_providers`, T-0836), the held `step_load_constructor_nodes` was implemented exactly per the design above: extract FFI decls → stage bundled providers (`stage_bundled_providers`) → `load_constructor_node` per decl → `runtime.register_task(TaskNamespace(tenant,pkg,workflow,id))` → `create_workflow_from_host_registry_static` picks them up. Fails closed (no feature / no bundle). **Verified:** reconciler e2e 2/2 (`packaged-consumer-fixture`, node executes reading a granted file) + the FULL LIVE demo-stack chain 7/7 (`constructor_demo` Completed, hostname read through the sandbox).
+**Two latent bugs in THIS task's P2 plumbing found+fixed by the first live exercise:** (1) the shell's `get_constructor_metadata` was inserted mid-impl — fidius vtables follow IMPL order, silently shifting methods 5–10 (moved to end + warning comment); (2) `ConstructorPackageMetadata.config` carried `serde_json::Value`, which can't cross the bincode FFI wire (now JSON-encoded strings).
+**Residual (tracked elsewhere):** agent/fleet execution → [[CLOACI-T-0838]]; reactor `grants` into `ReactorPackageMetadata` (packaged reactor arm) — small, noted in T-0838's orbit. COMPLETE.

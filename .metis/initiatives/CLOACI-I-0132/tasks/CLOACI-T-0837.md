@@ -4,14 +4,14 @@ level: task
 title: "Provider-as-suite contract: ProviderManifest = List[Constructor], N constructors per crate via name-in-configure (A-0011) + authoring docs"
 short_code: "CLOACI-T-0837"
 created_at: 2026-06-30T16:19:42.294491+00:00
-updated_at: 2026-06-30T16:23:54.436840+00:00
+updated_at: 2026-07-04T03:33:18.155798+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -96,6 +96,8 @@ Implement the provider-as-suite contract decided in [[CLOACI-A-0011]]: one provi
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -265,3 +267,6 @@ Needs: **T-0836** (resolve a provider Cargo dep → build wasm → bundle into a
 **Heavy test runs are the user's to kick (angreal):** the `constructors-wasm` lane builds N wasm components + wasmtime. Give the command, don't run in-tool.
 
 **State at break:** host fully migrated+committed (c1cb2ef5); fs suite + all macro fixtures build to wasm + emit provider.json. wasm TESTS + raw fixtures + demo NOT yet migrated (that lane red on the WIP branch; default build/unit/fmt lanes green). T-0834 done+verified+green (uncommitted on main). T-0832 plumbing (P1/P2) in+green (uncommitted). Decisions all captured: A-0010, A-0011 (both decided), S-0015. Tasks: T-0837 (this, active) → T-0836 → T-0832 (held) ; T-0835 deferred. **Nothing committed/PR'd yet — a large uncommitted pile on main.**
+
+### 2026-07-04 — CLOSING
+The "Python half" question resolved: it landed in T-0831/T-0836 (as scoped), and this task's own deliverables are all shipped on `feat/i0132-constructors`: suite contract, macro keystone (`constructor_provider!`, name/version defaulting to CARGO_PKG_*), name-in-configure loader, `provider.json` packaging, the full wasm lane (8 files/29 tests), the fs suite + demo, and the authoring docs. Downstream consumers built on it end-to-end (T-0836 bundling, T-0831 Python, the live 7/7 demo-stack verification). COMPLETE.

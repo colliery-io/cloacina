@@ -4,14 +4,14 @@ level: task
 title: "Constructor provider build-side: resolve provider Cargo dep → build to wasm → bundle into the .cloacina (S-0015)"
 short_code: "CLOACI-T-0836"
 created_at: 2026-06-30T15:57:36.954974+00:00
-updated_at: 2026-07-02T01:55:28.222984+00:00
+updated_at: 2026-07-04T03:34:18.024573+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -85,6 +85,8 @@ This is the **unblock** for packaged constructors end-to-end: it lets a server l
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -232,6 +234,9 @@ Five live attempts on the demo stack. **VERIFIED LIVE, each stage from real logs
 With the disk bumped (87GB): **build succeeded, `package_providers` row stored (cloacina-provider-fs 0.1.0, 85KB)**, and the server's **Step 5b ran live twice**: `Unpacked 1 bundled provider(s)` + `Registered packaged constructor node public::demo-constructor-rust::constructor_demo::reader`. Fired `constructor_demo` via the API.
 **FINDING #4 — AGENTS CANNOT EXECUTE CONSTRUCTOR NODES (real follow-on):** with `CLOACINA_DEFAULT_EXECUTOR=fleet`, the reader task dispatched to an agent, whose load path (task_registrar "host-managed approach") does NOT run Step 5b and whose registry has no provider bundles (the fleet protocol doesn't ship `package_providers`) → `"task …reader not registered after loading package (registered: [summarize])"`. NEEDS: (a) provider-bundle delivery to agents (fleet protocol or server API fetch) + (b) constructor-node resolution in the agent load path. Until then, constructor workflows require in-process execution (`default` executor).
 **FINDING #5 — WASI symlink fail-closed (demo bug, GOOD security behavior):** with the in-process executor, the node EXECUTED in the sandbox; the read of `/etc/os-release` failed `Operation not permitted` because it's a SYMLINK → `/usr/lib/os-release`, outside the `ro:/etc` grant — the sandbox correctly refusing a path escape. Fixture updated to read `/etc/hostname` (regular bind-mounted file) + bumped to 0.1.1.
+
+### 2026-07-04 — CLOSING
+The build/distribution half of S-0015 is fully shipped + live-verified (see the 7/7 entry below). Residuals dispositioned: **agent/fleet execution → [[CLOACI-T-0838]]** (filed, with the live evidence); **provider build cache** — S-0015 fast-follow, revisit when provider counts make cold builds hurt; **unload doesn't unregister constructor nodes** — documented caveat in `step_load_constructor_nodes` docs, acceptable v1 (nodes drop with the runtime); **semver-req matching for `@version` pins** → [[CLOACI-T-0833]]. Five real integration findings from the live lane, all fixed or filed. COMPLETE.
 
 ### 2026-07-04 — 🏁 FULL LIVE CHAIN VERIFIED 7/7 (fresh stack, project `cloacina-demo`)
 After a full volume reset (stale pre-upgrade volume was the ABI-200 noise source; fresh seed built ALL packages clean): `demo-constructor-rust 0.1.2` (hostname fixture + E0502 fix, commit 6ca2518b) uploaded via the API → compiler claim → cdylib build → provider discovery+bundle → **`package_providers` row (0.1.2, 85157 bytes)** → server Step 5b (`Registered packaged constructor node …constructor_demo::reader`) → **execution `0dc34eb5` `Completed`** with final context `{"contents":"2605abd458ca\n","sandbox_read_bytes":13,"sandbox_read_hostname":"2605abd458ca"}` — the container hostname read from `/etc/hostname` INSIDE the WASM sandbox through the `ro:/etc` grant, from the provider bundled at compile time. In-process executor (`CLOACINA_DEFAULT_EXECUTOR=default` via compose override — the fleet/agent leg is finding #4's follow-on). Compose project renamed `cloacina-demo` (b5d652ad).

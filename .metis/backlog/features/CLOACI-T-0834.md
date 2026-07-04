@@ -4,7 +4,7 @@ level: task
 title: "Constructor capability layer: grants to fidius EgressPolicy + WasiCtx, default-closed + load-time lint"
 short_code: "CLOACI-T-0834"
 created_at: 2026-06-29T16:17:54.400032+00:00
-updated_at: 2026-06-29T18:57:47.668374+00:00
+updated_at: 2026-07-04T03:32:17.202397+00:00
 parent: CLOACI-I-0132
 blocked_by: [CLOACI-S-0014]
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ Implement the constructor capability & egress layer specified in [[CLOACI-S-0014
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -235,3 +237,6 @@ fidius 0.5.5 published (lockstep — all 4 crates: fidius/core/host/macro). Re-p
 - Optional: file the scheduling quirk (dependents of a FAILED task ran: "1 failed, 1 completed, 0 skipped" — no leak, but arguably should skip); wire the demo into `angreal demos`.
 - **Python/cloaca grants surface** — mirror the grammar (T-0831 territory, separate task).
 - Optional: wire the demo into `angreal demos`; http/tcp/env example variants (enforcement already covered by unit + fidius e2e).
+
+### 2026-07-04 — CLOSING (all follow-ups landed or filed)
+Everything above shipped on `feat/i0132-constructors` (committed + pushed). Since the last update: the Python grants surface LANDED (`cloaca.constructor(grants={...})`, T-0831); the demo re-verified repeatedly incl. the 2-member suite; and the layer was proven LIVE on the demo stack — including the WASI sandbox fail-closing on a symlink escaping the `ro:/etc` grant (T-0836 finding #5, the strongest real-world validation of default-closed). Coverage: 14 grants unit + 33+ constructor e2e + 3 fidius e2e + live demo. COMPLETE.
