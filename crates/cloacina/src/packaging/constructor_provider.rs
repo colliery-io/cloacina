@@ -292,6 +292,11 @@ fn primitive_kind_str(kind: PrimitiveKind) -> &'static str {
 
 /// `cargo build --lib --target wasm32-wasip2 [--release]` in `crate_dir`, then
 /// locate the produced `.wasm` component.
+///
+/// Honors `CARGO_TARGET_DIR` (relative paths resolve against `crate_dir`, matching
+/// cargo): environments like the compiler service set a SHARED target dir, so the
+/// artifact does NOT land under `<crate>/target` there — caught live by the first
+/// in-container provider bundle (CLOACI-T-0836).
 fn build_wasm_component(crate_dir: &Path, release: bool) -> Result<PathBuf, ProviderPackageError> {
     let mut cmd = Command::new("cargo");
     cmd.arg("build")
@@ -315,7 +320,21 @@ fn build_wasm_component(crate_dir: &Path, release: bool) -> Result<PathBuf, Prov
         )));
     }
 
-    let out_dir = crate_dir.join("target").join("wasm32-wasip2").join(profile);
+    // Where cargo actually wrote the artifact: CARGO_TARGET_DIR if set (relative →
+    // against the build cwd, i.e. `crate_dir`), else `<crate>/target`.
+    let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) if !dir.is_empty() => {
+            let p = PathBuf::from(dir);
+            if p.is_absolute() {
+                p
+            } else {
+                crate_dir.join(p)
+            }
+        }
+        _ => crate_dir.join("target"),
+    };
+
+    let out_dir = target_root.join("wasm32-wasip2").join(profile);
 
     // Prefer the artifact named after the crate; fall back to the sole `.wasm`.
     let preferred = crate_name(crate_dir).map(|n| out_dir.join(format!("{n}.wasm")));
