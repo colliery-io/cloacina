@@ -50,15 +50,14 @@ pub mod constructor_demo {
 
     #[task(id = "summarize", dependencies = ["reader"], retry_attempts = 0)]
     pub async fn summarize(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        // Own the value: `get` borrows the context, and `insert` needs it mutably.
         let contents = context
             .get("contents")
             .and_then(|v| v.as_str())
-            .unwrap_or("");
+            .unwrap_or("")
+            .to_string();
         context.insert("sandbox_read_bytes", serde_json::json!(contents.len()))?;
-        context.insert(
-            "sandbox_read_hostname",
-            serde_json::json!(contents.trim().to_string()),
-        )?;
+        context.insert("sandbox_read_hostname", serde_json::json!(contents.trim()))?;
         Ok(())
     }
 }

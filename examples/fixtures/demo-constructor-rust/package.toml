@@ -3,7 +3,7 @@
 # at load and executed sandboxed with an fs grant (CLOACI-T-0836).
 [package]
 name = "demo-constructor-rust"
-version = "0.1.1"
+version = "0.1.2"
 interface = "cloacina-workflow-plugin"
 interface_version = 1
 extension = "cloacina"
