@@ -175,6 +175,7 @@ impl AccumulatorFactory for PassthroughFactory {
 /// loaded + fired entirely through the scheduler. `gate` is bound BY NAME via the
 /// declaration's `config`; the graph fires only when the guest's `evaluate` says so.
 #[tokio::test]
+#[serial_test::serial(provider_search_path)]
 async fn reactor_constructor_fires_via_scheduler() {
     let tmp = tempfile::TempDir::new().unwrap();
     stage(tmp.path());
@@ -266,6 +267,7 @@ async fn reactor_constructor_fires_via_scheduler() {
 /// `constructor.json` name fails the load closed — the author asked for a
 /// constructor the provider does not carry.
 #[tokio::test]
+#[serial_test::serial(provider_search_path)]
 async fn reactor_constructor_name_mismatch_fails_closed() {
     let tmp = tempfile::TempDir::new().unwrap();
     stage(tmp.path());

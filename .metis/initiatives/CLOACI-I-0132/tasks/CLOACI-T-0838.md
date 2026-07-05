@@ -4,14 +4,14 @@ level: task
 title: "Fleet/agent constructor execution — ship provider bundles to agents + resolve constructor nodes in the agent load path"
 short_code: "CLOACI-T-0838"
 created_at: 2026-07-04T03:30:18.377372+00:00
-updated_at: 2026-07-04T03:30:18.377372+00:00
+updated_at: 2026-07-05T02:23:51.960824+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -40,12 +40,16 @@ The demo works only with the in-process executor (`default`) via a compose overr
 3. **Fail-closed parity** — an agent handed a constructor-bearing package without its bundles must refuse the load with the same clear error the server gives, not a mystery "task not registered".
 4. **Verification** — the demo stack with `CLOACINA_DEFAULT_EXECUTOR=fleet` (the compose default, no override) runs `constructor_demo` to completion on an agent; e2e fleet lane covers it.
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] Agents receive (or fetch) the provider bundles for constructor-bearing packages
-- [ ] The agent load path resolves + registers `constructor!` nodes (Step-5b parity), grants enforced identically
-- [ ] Missing bundles fail the agent load closed with a named error
-- [ ] `constructor_demo` completes on the demo stack with the stock fleet executor (no compose override)
+- [x] Agents receive (or fetch) the provider bundles for constructor-bearing packages
+- [x] The agent load path resolves + registers `constructor!` nodes (Step-5b parity), grants enforced identically
+- [x] Missing bundles fail the agent load closed with a named error
+- [x] `constructor_demo` completes on the demo stack with the stock fleet executor (no compose override)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -110,4 +114,10 @@ The demo works only with the in-process executor (`default`) via a compose overr
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-04 — DONE + LIVE-VERIFIED ON THE FLEET (branch feat/i0132-completion, commit e68b1ce9)
+Chose the endpoint option (content-addressed, mirrors the artifact fetch):
+- **Server**: `GET /v1/agent/providers/{digest}` (routes/agent.rs `fetch_providers`, authz + router entries) — resolves digest → (name, version) via new DAL `get_package_name_version_by_content_hash`, returns the `package_providers` archives base64-JSON.
+- **Agent Rust path** (`load_rust_cdylib`): after `register_package_tasks`, extract the cdylib's constructor decls (FFI idx 10); when present → `stage_agent_providers` (fetch, unpack, `set_provider_search_path`; ZERO providers clears the path for hermeticity) → fail closed if decls>0 but staged==0 → `resolve_agent_constructor_nodes` (the Step-5b twin: JSON-decode config values, `GrantSpec::from_pairs`, `load_constructor_node` in spawn_blocking, `runtime.register_task` under the dispatched namespace).
+- **Agent Python path** (`load_python_package`): stage bundles BEFORE the module import so `cloaca.constructor(...)` resolves during load.
+
+**LIVE VERIFICATION (fresh stack, stock fleet executor, no override):** `constructor_demo` (rust 0.1.2) AND `constructor_demo_py` both **Completed** with execution on agents — agent-1 logs show both loads ("registered 1 tasks for demo-constructor-rust" + "Python workflow imported: 2 tasks for demo-constructor-py"), and the clincher: both final contexts carry the AGENT container's own hostname (`f0be3e01f257`) read from ITS `/etc/hostname` inside the WASM sandbox through the `ro:/etc` grant. All four ACs met.

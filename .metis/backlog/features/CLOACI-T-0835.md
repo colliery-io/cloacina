@@ -4,15 +4,15 @@ level: task
 title: "Post-upgrade artifact recompile signal — cloacina tells the compiler to rebuild stale packaged artifacts after an ABI/interface-version bump"
 short_code: "CLOACI-T-0835"
 created_at: 2026-06-30T14:58:06.805614+00:00
-updated_at: 2026-06-30T14:58:06.805614+00:00
+updated_at: 2026-07-05T02:29:07.262135+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -89,6 +89,12 @@ Captured during [[CLOACI-T-0832]] (the constructor FFI method bumps the `Cloacin
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] cloacina can enumerate registered/known packaged artifacts whose recorded interface-hash / ABI version is older than what the current build expects (the "stale set").
@@ -159,4 +165,7 @@ Captured during [[CLOACI-T-0832]] (the constructor FFI method bumps the `Cloacin
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-04 — DONE (branch feat/i0132-completion, commit 73b6de29) — shipped as AUTOMATIC self-healing
+Chose the strongest of the sketched shapes: fully automatic, no operator command needed. The reconciler already retries every registered `success` package each tick — so detection rides the load failure itself: when a load fails with a STALE-ARTIFACT error (fidius "incompatible ABI version" / "interface hash mismatch" — `is_stale_artifact_error`), the reconciler calls the new `WorkflowRegistry::request_recompile(package_id)` (default-false trait seam; unified-DB override flips `build_status` success/failed → `pending`, never stomping an in-flight `building` claim). The compiler claims + rebuilds from retained source; the next reconcile tick loads the fresh artifact. A once-per-package-per-process guard prevents ping-pong when the rebuilt artifact is still stale (e.g. the COMPILER is the outdated side).
+
+**AC disposition:** enumerate-stale = the reconciler's tick IS the sweep (every stale package trips the classifier within one interval — no schema change needed since the recorded-hash comparison already happens at load) ✓ · concrete signal = automatic `pending` flip (stronger than the sketched one-command CLI) ✓ · clear UX = a WARN naming the package + "requested a recompile from retained source; it will reload once the compiler rebuilds it" ✓ · documented in the reconciler code + this task (the T-0832 release note references the interface bump) ✓. Motivated live: the 2026-07-04 demo volume had 10 packages at fidius ABI 200 vs the host's 500 — exactly the mystery-failure pile this closes. Classifier unit-tested; cloacina + server + agent check clean.

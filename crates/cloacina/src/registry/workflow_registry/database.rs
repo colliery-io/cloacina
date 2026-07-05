@@ -1817,6 +1817,76 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(())
     }
 
+    /// Flip a previously-built package back to `pending` so the compiler
+    /// rebuilds it from its retained source (CLOACI-T-0835 — the post-upgrade
+    /// recompile signal). Used by the reconciler when a load fails with a
+    /// STALE-ARTIFACT error (fidius ABI bump, `CloacinaPlugin` interface-hash
+    /// mismatch): the recorded artifact predates the host's expected ABI, and
+    /// only a rebuild fixes it.
+    ///
+    /// Guarded to `success`/`failed` rows only — an in-flight `building` claim
+    /// is never stomped. Returns `true` when the row was flipped.
+    pub async fn request_recompile(&self, package_id: Uuid) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let updated: usize = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .filter(workflow_packages::build_status.eq_any(["success", "failed"])),
+                    )
+                    .set((
+                        workflow_packages::build_status.eq("pending"),
+                        workflow_packages::build_error.eq(None::<String>),
+                        workflow_packages::build_claimed_at
+                            .eq(None::<crate::database::universal_types::UniversalTimestamp>),
+                    ))
+                    .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .filter(workflow_packages::build_status.eq_any(["success", "failed"])),
+                    )
+                    .set((
+                        workflow_packages::build_status.eq("pending"),
+                        workflow_packages::build_error.eq(None::<String>),
+                        workflow_packages::build_claimed_at
+                            .eq(None::<crate::database::universal_types::UniversalTimestamp>),
+                    ))
+                    .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+        Ok(updated > 0)
+    }
+
     /// Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.
     /// No-op if the row is no longer in `building` state.
     pub async fn heartbeat_build(&self, package_id: Uuid) -> Result<(), RegistryError> {

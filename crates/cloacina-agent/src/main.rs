@@ -708,6 +708,184 @@ async fn load_rust_cdylib(
         registered = ?registered.iter().map(|n| n.to_string()).collect::<Vec<_>>(),
         "cdylib registered"
     );
+
+    // CLOACI-T-0838: resolve the package's `constructor!` node declarations —
+    // the agent twin of the reconciler's Step 5b. Fail closed both ways: decls
+    // with no bundled providers refuse the load (hermetic guarantee), and a
+    // node that can't resolve refuses rather than surfacing later as a mystery
+    // "task not registered".
+    let loader = cloacina::registry::loader::package_loader::PackageLoader::new().map_err(|e| {
+        cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: format!("package loader init: {}", e),
+        }
+    })?;
+    let decls = loader
+        .extract_constructor_metadata(&cdylib_bytes)
+        .await
+        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: format!("extract constructor metadata: {}", e),
+        })?;
+    if !decls.is_empty() {
+        let staged =
+            stage_agent_providers(http, server, api_key, &packet.artifact.digest, cache_dir)
+                .await
+                .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+                    reason: RefusalReason::RuntimeLoadFailed,
+                    message: e,
+                })?;
+        if staged == 0 {
+            return Err(cloacina::fleet::AgentOutcome::Refused {
+                reason: RefusalReason::RuntimeLoadFailed,
+                message: format!(
+                    "package declares {} constructor node(s) but the server has NO bundled \
+                     providers for it — rebuild the package so the compiler bundles each \
+                     `from` provider (CLOACI-T-0836)",
+                    decls.len()
+                ),
+            });
+        }
+        // Namespace components come from the dispatched task's namespace so the
+        // registered nodes match what the scheduler will look up.
+        let ns = cloacina::parse_namespace(&packet.task_name).map_err(|e| {
+            cloacina::fleet::AgentOutcome::Failure {
+                message: format!("parse_namespace({}): {}", packet.task_name, e),
+                classification: cloacina::fleet::FailureClassification::Validation,
+            }
+        })?;
+        resolve_agent_constructor_nodes(decls, &ns.tenant_id, &ns.package_name, runtime)
+            .await
+            .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+                reason: RefusalReason::RuntimeLoadFailed,
+                message: e,
+            })?;
+    }
+    Ok(())
+}
+
+/// CLOACI-T-0838: fetch the package's bundled CONSTRUCTOR PROVIDERS from the
+/// server (`GET /v1/agent/providers/{digest}` — the fleet twin of the
+/// reconciler reading `package_providers`), unpack them under `cache_dir`, and
+/// point the process-global provider search path at them. Returns how many
+/// providers were staged. Zero providers CLEARS the search path (hermeticity:
+/// this package must not resolve against a previously-loaded package's
+/// bundle). The staged tree is left in place — loaded constructor nodes re-read
+/// their wasm components from it for the process lifetime.
+async fn stage_agent_providers(
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    digest: &str,
+    cache_dir: &std::path::Path,
+) -> std::result::Result<usize, String> {
+    use base64::Engine as _;
+
+    #[derive(serde::Deserialize)]
+    struct ProviderEntry {
+        name: String,
+        data: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct ProvidersResponse {
+        providers: Vec<ProviderEntry>,
+    }
+
+    let url = format!("{}/v1/agent/providers/{}", server, digest);
+    let resp = http
+        .get(&url)
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|e| format!("providers fetch: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("providers fetch: HTTP {}", resp.status()));
+    }
+    let body: ProvidersResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("providers decode: {}", e))?;
+
+    if body.providers.is_empty() {
+        cloacina::registry::loader::clear_provider_search_path();
+        return Ok(0);
+    }
+
+    let providers_root = cache_dir.join(format!("providers-{}", digest));
+    std::fs::create_dir_all(&providers_root)
+        .map_err(|e| format!("create providers dir {:?}: {}", providers_root, e))?;
+    for entry in &body.providers {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&entry.data)
+            .map_err(|e| format!("provider '{}' base64: {}", entry.name, e))?;
+        let archive_path = providers_root.join(format!("{}.cloacina", entry.name));
+        std::fs::write(&archive_path, bytes)
+            .map_err(|e| format!("stage provider '{}': {}", entry.name, e))?;
+        cloacina::registry::loader::unpack_provider_archive(&archive_path, &providers_root, &[])
+            .map_err(|e| format!("unpack provider '{}': {}", entry.name, e))?;
+    }
+    cloacina::registry::loader::set_provider_search_path(&providers_root);
+    Ok(body.providers.len())
+}
+
+/// CLOACI-T-0838: resolve each declared `constructor!` node against the staged
+/// provider bundles and register it into the per-package runtime — the agent
+/// twin of the reconciler's Step 5b (`step_load_constructor_nodes`). The
+/// namespace components (tenant/package/workflow) come from the declaration +
+/// the dispatched task's namespace, matching what the scheduler dispatches.
+async fn resolve_agent_constructor_nodes(
+    decls: Vec<cloacina::cloacina_workflow_plugin::ConstructorPackageMetadata>,
+    tenant: &str,
+    package_name: &str,
+    runtime: &Arc<cloacina::Runtime>,
+) -> std::result::Result<(), String> {
+    use cloacina::registry::loader::grants::GrantSpec;
+    use cloacina::registry::loader::load_constructor_node;
+    use cloacina::TaskNamespace;
+
+    for decl in decls {
+        let namespace = TaskNamespace::new(tenant, package_name, &decl.workflow, &decl.id);
+        let dependencies: Vec<TaskNamespace> = decl
+            .dependencies
+            .iter()
+            .map(|dep| TaskNamespace::new(tenant, package_name, &decl.workflow, dep))
+            .collect();
+        let grants = GrantSpec::from_pairs(decl.grants.clone());
+        // Config values crossed the FFI wire JSON-encoded (bincode can't carry
+        // `serde_json::Value`); parse each back before binding.
+        let config: Vec<(String, serde_json::Value)> = decl
+            .config
+            .iter()
+            .map(|(k, raw)| {
+                serde_json::from_str(raw)
+                    .map(|v| (k.clone(), v))
+                    .map_err(|e| {
+                        format!(
+                            "constructor node '{}': config value for '{}' is not valid JSON \
+                         ({raw}): {e}",
+                            decl.id, k
+                        )
+                    })
+            })
+            .collect::<Result<_, _>>()?;
+
+        let (node_id, from, constructor) = (decl.id.clone(), decl.from.clone(), decl.constructor);
+        // wasmtime compilation is blocking work; hop off the async executor.
+        let node = tokio::task::spawn_blocking(move || {
+            load_constructor_node(&node_id, &from, &constructor, config, dependencies, grants)
+        })
+        .await
+        .map_err(|e| format!("constructor node '{}' load join: {}", decl.id, e))?
+        .map_err(|e| {
+            format!(
+                "resolve constructor node '{}' (from = '{}'): {}",
+                decl.id, decl.from, e
+            )
+        })?;
+
+        runtime.register_task(namespace.clone(), move || node.clone());
+        debug!(namespace = %namespace, "registered packaged constructor node (agent)");
+    }
     Ok(())
 }
 
@@ -730,6 +908,19 @@ async fn load_python_package(
         .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
             reason: RefusalReason::ArtifactFetchFailed,
             message: format!("python source fetch failed: {}", e),
+        })?;
+
+    // CLOACI-T-0838: stage the package's bundled constructor providers BEFORE
+    // the module import, so `cloaca.constructor(...)` calls resolve against
+    // them during load (the agent twin of the reconciler's Python branch).
+    // Zero providers clears the search path — an undeclared ref then fails the
+    // import with a clear "no such provider" instead of leaking to a
+    // previously-loaded package's bundle.
+    stage_agent_providers(http, server, api_key, digest, cache_dir)
+        .await
+        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: e,
         })?;
 
     let staging = cache_dir.join(format!("pysrc-{}", digest));

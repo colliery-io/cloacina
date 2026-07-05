@@ -283,6 +283,13 @@ pub struct RegistryReconciler {
     /// server mode had no cron registration at all). Closes the gap
     /// where packaged cron triggers never fired under cloacina-server.
     pub(super) cron_registrar: Option<Arc<dyn CronWorkflowRegistrar>>,
+
+    /// CLOACI-T-0835: packages this process already asked the compiler to
+    /// rebuild after a stale-artifact load failure. One request per package
+    /// per process — if the rebuilt artifact STILL fails (e.g. the compiler
+    /// itself is the stale side), we do not ping-pong the row back to
+    /// `pending` forever.
+    recompile_requested: std::sync::Mutex<std::collections::HashSet<WorkflowPackageId>>,
 }
 
 impl RegistryReconciler {
@@ -311,6 +318,7 @@ impl RegistryReconciler {
             interval,
             graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
             cron_registrar: None,
+            recompile_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
         })
     }
 
@@ -554,6 +562,38 @@ impl RegistryReconciler {
                             package_id, package_metadata.package_name, package_metadata.version, e
                         );
                         error!("{}", error_msg);
+
+                        // CLOACI-T-0835: a STALE-ARTIFACT failure (the cdylib
+                        // was built against an older plugin ABI / interface
+                        // version than this host expects) is fixable by a
+                        // rebuild from retained source — signal the compiler
+                        // by flipping the row back to `pending`. Once per
+                        // package per process, so a rebuild that comes back
+                        // still-stale doesn't ping-pong forever.
+                        if is_stale_artifact_error(&error_msg)
+                            && self.recompile_requested.lock().unwrap().insert(*package_id)
+                        {
+                            match self.registry.request_recompile(*package_id).await {
+                                Ok(true) => warn!(
+                                    "Package {} v{} has a STALE compiled artifact (ABI/interface \
+                                     mismatch) — requested a recompile from retained source; it \
+                                     will reload once the compiler rebuilds it",
+                                    package_metadata.package_name, package_metadata.version
+                                ),
+                                Ok(false) => debug!(
+                                    "Stale artifact for {} v{}, but this registry cannot \
+                                     schedule recompiles",
+                                    package_metadata.package_name, package_metadata.version
+                                ),
+                                Err(req_err) => warn!(
+                                    "Failed to request recompile for {} v{}: {}",
+                                    package_metadata.package_name,
+                                    package_metadata.version,
+                                    req_err
+                                ),
+                            }
+                        }
+
                         result.packages_failed.push((*package_id, error_msg));
 
                         if !self.config.continue_on_package_error {
@@ -620,9 +660,35 @@ impl RegistryReconciler {
     }
 }
 
+/// CLOACI-T-0835: does this load failure mean the compiled artifact is STALE
+/// (built against an older plugin ABI / interface version than this host
+/// expects) — i.e. a rebuild from source would fix it? Matches the two gates a
+/// version bump trips: fidius's ABI check ("incompatible ABI version") and its
+/// per-interface hash check ("interface hash mismatch"). Message-based because
+/// the typed fidius error is stringly-flattened by the loader layers; both
+/// strings are fidius-host error display texts, stable within a pinned fidius.
+fn is_stale_artifact_error(message: &str) -> bool {
+    message.contains("incompatible ABI version") || message.contains("interface hash mismatch")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_artifact_classifier_matches_abi_and_interface_hash() {
+        assert!(is_stale_artifact_error(
+            "Failed to load library at /tmp/x.so: incompatible ABI version: got 200, expected 500"
+        ));
+        assert!(is_stale_artifact_error(
+            "interface hash mismatch: got 0xdead, expected 0xbeef"
+        ));
+        // Ordinary failures must NOT trigger a rebuild.
+        assert!(!is_stale_artifact_error("No space left on device"));
+        assert!(!is_stale_artifact_error(
+            "declares 1 constructor node(s) but has NO bundled providers"
+        ));
+    }
     use std::time::Duration;
     use uuid::Uuid;
 
