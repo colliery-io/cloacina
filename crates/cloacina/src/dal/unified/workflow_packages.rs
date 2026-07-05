@@ -1464,6 +1464,59 @@ impl<'a> WorkflowPackagesDAL<'a> {
         );
         Ok(result.map(|b| b.into_inner()))
     }
+
+    /// Resolve a successfully-built package's `(package_name, version)` from its
+    /// content hash. CLOACI-T-0838: agents identify packages by artifact digest
+    /// (content-addressed), while `package_providers` is keyed by name+version —
+    /// this is the bridge the `/v1/agent/providers/{digest}` route uses.
+    pub async fn get_package_name_version_by_content_hash(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<(String, String)>, RegistryError> {
+        let content_hash = content_hash.to_string();
+        let result: Option<(String, String)> = crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    workflow_packages::table
+                        .filter(workflow_packages::content_hash.eq(content_hash))
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .select((workflow_packages::package_name, workflow_packages::version))
+                        .first::<(String, String)>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    workflow_packages::table
+                        .filter(workflow_packages::content_hash.eq(content_hash))
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .select((workflow_packages::package_name, workflow_packages::version))
+                        .first::<(String, String)>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

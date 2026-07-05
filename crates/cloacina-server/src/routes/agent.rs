@@ -313,6 +313,65 @@ pub async fn fetch_source(
     Ok(resp)
 }
 
+/// One bundled constructor provider in a [`AgentProvidersResponse`]
+/// (CLOACI-T-0838). `data` is the packed provider archive, base64-encoded.
+#[derive(serde::Serialize)]
+pub struct AgentProviderEntry {
+    pub name: String,
+    pub data: String,
+}
+
+/// Response body for `GET /v1/agent/providers/{digest}`.
+#[derive(serde::Serialize)]
+pub struct AgentProvidersResponse {
+    pub providers: Vec<AgentProviderEntry>,
+}
+
+/// `GET /v1/agent/providers/{digest}` — the bundled CONSTRUCTOR PROVIDERS for
+/// the package whose active build has `content_hash == digest`
+/// (CLOACI-T-0838). Agents fetch these alongside the artifact so their load
+/// path can resolve `constructor!` nodes exactly like the server's reconciler
+/// Step 5b: unpack the bundles, set the provider search path, load each node.
+/// Empty list = the package uses no constructors. Same content-addressed
+/// access model as `fetch_artifact`.
+pub async fn fetch_providers(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path(digest): Path<String>,
+) -> Result<Json<AgentProvidersResponse>, ApiError> {
+    use base64::Engine as _;
+
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let Some((package_name, version)) = dal
+        .workflow_packages()
+        .get_package_name_version_by_content_hash(&digest)
+        .await
+        .map_err(|e| ApiError::internal(format!("provider lookup failed: {}", e)))?
+    else {
+        return Err(ApiError::not_found(
+            "package_not_found",
+            format!("no successfully-built package with digest {}", digest),
+        ));
+    };
+
+    let rows = dal
+        .workflow_packages()
+        .get_providers_for_package(&package_name, &version, None)
+        .await
+        .map_err(|e| ApiError::internal(format!("provider fetch failed: {}", e)))?;
+
+    Ok(Json(AgentProvidersResponse {
+        providers: rows
+            .into_iter()
+            .map(|r| AgentProviderEntry {
+                name: r.provider_name,
+                data: base64::engine::general_purpose::STANDARD
+                    .encode(r.provider_data.into_inner()),
+            })
+            .collect(),
+    }))
+}
+
 /// `GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
 /// roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
 /// registered against *this* server instance.

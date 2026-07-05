@@ -468,6 +468,11 @@ pub fn build_authz_table() -> AuthzTable {
     );
     add(
         Method::GET,
+        "/agent/providers/{digest}",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::GET,
         "/health/accumulators",
         Access::any(Level::Read),
     );
