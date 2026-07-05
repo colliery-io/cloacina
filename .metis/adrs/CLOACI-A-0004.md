@@ -5,7 +5,7 @@ title: "cloacina-compiler service — separate binary, DB queue, heartbeat sweep
 number: 4
 short_code: "CLOACI-A-0004"
 created_at: 2026-04-18T01:47:43.344919+00:00
-updated_at: 2026-04-18T01:49:43.169389+00:00
+updated_at: 2026-07-05T16:30:25.805935+00:00
 decision_date:
 decision_maker: Dylan Storey
 parent:
@@ -13,7 +13,7 @@ archived: false
 
 tags:
   - "#adr"
-  - "#phase/discussion"
+  - "#phase/decided"
 
 
 exit_criteria_met: false

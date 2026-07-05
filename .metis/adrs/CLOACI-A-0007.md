@@ -5,15 +5,15 @@ title: "Injectable input interface — JSON Schema descriptor + native authoring
 number: 1
 short_code: "CLOACI-A-0007"
 created_at: 2026-06-20T15:40:31.662609+00:00
-updated_at: 2026-06-20T15:40:31.662609+00:00
-decision_date: 2026-06-20
+updated_at: 2026-07-05T16:30:51.328955+00:00
+decision_date:
 decision_maker: dstorey
 parent: CLOACI-S-0013
 archived: false
 
 tags:
   - "#adr"
-  - "#phase/draft"
+  - "#phase/decided"
 
 
 exit_criteria_met: false

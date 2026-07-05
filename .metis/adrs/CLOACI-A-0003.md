@@ -5,7 +5,7 @@ title: "cloacinactl CLI surface — noun-verb hierarchy, binary split, profile m
 number: 3
 short_code: "CLOACI-A-0003"
 created_at: 2026-04-17T17:01:52.724967+00:00
-updated_at: 2026-04-17T17:53:32.341527+00:00
+updated_at: 2026-07-05T16:30:20.637266+00:00
 decision_date:
 decision_maker: Dylan Storey
 parent:
@@ -13,7 +13,7 @@ archived: false
 
 tags:
   - "#adr"
-  - "#phase/discussion"
+  - "#phase/decided"
 
 
 exit_criteria_met: false

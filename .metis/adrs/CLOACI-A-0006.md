@@ -5,7 +5,7 @@ title: "Interservice work delivery: transactional outbox + WS push over poll-bas
 number: 1
 short_code: "CLOACI-A-0006"
 created_at: 2026-05-27T14:18:31.434467+00:00
-updated_at: 2026-05-27T14:18:31.434467+00:00
+updated_at: 2026-07-05T16:30:36.352331+00:00
 decision_date:
 decision_maker: dylan.storey@gmail.com
 parent:
@@ -13,7 +13,7 @@ archived: false
 
 tags:
   - "#adr"
-  - "#phase/draft"
+  - "#phase/decided"
 
 
 exit_criteria_met: false

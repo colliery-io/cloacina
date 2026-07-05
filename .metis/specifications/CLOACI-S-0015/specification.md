@@ -4,14 +4,14 @@ level: specification
 title: "Constructor provider distribution mechanics — Cargo-native resolve, build-to-wasm, bundle into the consumer package"
 short_code: "CLOACI-S-0015"
 created_at: 2026-06-30T15:37:35.808677+00:00
-updated_at: 2026-06-30T15:57:14.268345+00:00
+updated_at: 2026-07-05T16:30:02.536545+00:00
 parent: CLOACI-I-0132
 blocked_by: []
 archived: false
 
 tags:
   - "#specification"
-  - "#phase/drafting"
+  - "#phase/published"
 
 
 exit_criteria_met: false
