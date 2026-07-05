@@ -43,8 +43,8 @@ use base64::Engine as _;
 use clap::Parser;
 use cloacina::fleet::{
     host_target_triple, AgentHeartbeatRequest, AgentRegisterRequest, AgentRegisterResponse,
-    AgentResultRequest, AgentResultResponse, RefusalReason, WorkPacket, AGENT_PROTOCOL_VERSION,
-    AGENT_RECIPIENT_PREFIX, WORK_PACKET_KIND,
+    AgentResultRequest, AgentResultResponse, GraphWorkPacket, RefusalReason, WorkPacket,
+    AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, GRAPH_PACKET_KIND, WORK_PACKET_KIND,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
@@ -443,6 +443,40 @@ async fn handle_text_frame(
                 .and_then(|v| v.as_i64())
                 .ok_or_else(|| anyhow!("push frame missing numeric `id`"))?;
             let kind = env.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            // CLOACI-T-0722: whole-graph firings ride their own packet kind.
+            if kind == GRAPH_PACKET_KIND {
+                let cur = in_flight.load(Ordering::SeqCst);
+                let packet = decode_graph_packet(&env).context("decode graph packet")?;
+                if cur >= max_concurrency {
+                    warn!(
+                        in_flight = cur,
+                        max_concurrency, "saturated; refusing graph firing"
+                    );
+                    spawn_graph_refusal(
+                        http.clone(),
+                        server.to_string(),
+                        api_key.to_string(),
+                        agent_id.to_string(),
+                        packet,
+                        "agent at max_concurrency".to_string(),
+                        ack_tx.clone(),
+                        push_id,
+                    );
+                    return Ok(());
+                }
+                spawn_graph_worker(
+                    http.clone(),
+                    server.to_string(),
+                    api_key.to_string(),
+                    agent_id.to_string(),
+                    packet,
+                    in_flight.clone(),
+                    ack_tx.clone(),
+                    push_id,
+                    cache_dir.clone(),
+                );
+                return Ok(());
+            }
             if kind != WORK_PACKET_KIND {
                 warn!(kind = %kind, push_id, "non-work push received; acking + ignoring");
                 let _ = ack_tx.send(Message::Text(make_ack(push_id)?.into()));
@@ -506,6 +540,18 @@ fn decode_packet(env: &serde_json::Value) -> Result<WorkPacket> {
     serde_json::from_slice::<WorkPacket>(&bytes).with_context(|| "deserialize WorkPacket JSON")
 }
 
+fn decode_graph_packet(env: &serde_json::Value) -> Result<GraphWorkPacket> {
+    let b64 = env
+        .get("payload_b64")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("push frame missing `payload_b64`"))?;
+    let bytes = BASE64
+        .decode(b64)
+        .with_context(|| "decode base64 payload")?;
+    serde_json::from_slice::<GraphWorkPacket>(&bytes)
+        .with_context(|| "deserialize GraphWorkPacket JSON")
+}
+
 fn make_ack(id: i64) -> Result<String> {
     let v = serde_json::json!({
         "type": "ack",
@@ -558,6 +604,193 @@ fn spawn_packet_worker(
         }
         in_flight.fetch_sub(1, Ordering::SeqCst);
     });
+}
+
+/// CLOACI-T-0722: per-digest cache of loaded GRAPH plugins, mirroring the
+/// task-side `loaded_runtimes()` — one dlopen per package, reused across
+/// firings for the process lifetime.
+fn loaded_graphs() -> &'static tokio::sync::Mutex<
+    std::collections::HashMap<
+        String,
+        Arc<cloacina::computation_graph::packaging_bridge::LoadedGraphPlugin>,
+    >,
+> {
+    static CACHE: std::sync::OnceLock<
+        tokio::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                Arc<cloacina::computation_graph::packaging_bridge::LoadedGraphPlugin>,
+            >,
+        >,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// CLOACI-T-0722: spawn a worker that executes one whole-graph firing —
+/// fetch the cdylib by digest, `execute_graph(cache)` via FFI, report the
+/// outcome under the packet's `firing_id` (the server's rendezvous key).
+#[allow(clippy::too_many_arguments)]
+fn spawn_graph_worker(
+    http: reqwest::Client,
+    server: String,
+    api_key: String,
+    agent_id: String,
+    packet: GraphWorkPacket,
+    in_flight: Arc<AtomicU32>,
+    ack_tx: mpsc::UnboundedSender<Message>,
+    push_id: i64,
+    cache_dir: Arc<std::path::PathBuf>,
+) {
+    in_flight.fetch_add(1, Ordering::SeqCst);
+    tokio::spawn(async move {
+        let start = Instant::now();
+        let outcome =
+            process_graph_packet(&packet, &http, &server, &api_key, cache_dir.as_path()).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        let req = AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id: agent_id.clone(),
+            task_execution_id: packet.firing_id.clone(),
+            attempt: 1,
+            duration_ms,
+            outcome,
+        };
+        report_outcome(&http, &server, &api_key, &req).await;
+        if let Ok(ack) = make_ack(push_id) {
+            let _ = ack_tx.send(Message::Text(ack.into()));
+        }
+        in_flight.fetch_sub(1, Ordering::SeqCst);
+    });
+}
+
+/// CLOACI-T-0722: refuse a graph firing pre-execution (saturation). The
+/// server treats a refusal as "the agent did NOT run it" and falls back
+/// in-process.
+#[allow(clippy::too_many_arguments)]
+fn spawn_graph_refusal(
+    http: reqwest::Client,
+    server: String,
+    api_key: String,
+    agent_id: String,
+    packet: GraphWorkPacket,
+    message: String,
+    ack_tx: mpsc::UnboundedSender<Message>,
+    push_id: i64,
+) {
+    tokio::spawn(async move {
+        let req = AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id,
+            task_execution_id: packet.firing_id.clone(),
+            attempt: 1,
+            duration_ms: 0,
+            outcome: cloacina::fleet::AgentOutcome::Refused {
+                reason: RefusalReason::Shutdown,
+                message,
+            },
+        };
+        report_outcome(&http, &server, &api_key, &req).await;
+        if let Ok(ack) = make_ack(push_id) {
+            let _ = ack_tx.send(Message::Text(ack.into()));
+        }
+    });
+}
+
+/// Execute one whole-graph firing (CLOACI-T-0722): fetch + cache the cdylib
+/// by digest, load it once per digest, call the plugin's `execute_graph`
+/// with the packet's pre-converted FFI cache, and map the result.
+async fn process_graph_packet(
+    packet: &GraphWorkPacket,
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    cache_dir: &std::path::Path,
+) -> cloacina::fleet::AgentOutcome {
+    let digest = packet.artifact.digest.clone();
+
+    let plugin = {
+        let mut cache = loaded_graphs().lock().await;
+        if let Some(p) = cache.get(&digest) {
+            p.clone()
+        } else {
+            let artifact_path =
+                match fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir)
+                    .await
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return cloacina::fleet::AgentOutcome::Refused {
+                            reason: RefusalReason::ArtifactFetchFailed,
+                            message: format!("graph artifact fetch failed: {}", e),
+                        };
+                    }
+                };
+            let bytes = match std::fs::read(&artifact_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    return cloacina::fleet::AgentOutcome::Refused {
+                        reason: RefusalReason::ArtifactFetchFailed,
+                        message: format!("read cached graph artifact: {}", e),
+                    };
+                }
+            };
+            let loaded =
+                match cloacina::computation_graph::packaging_bridge::LoadedGraphPlugin::load(&bytes)
+                {
+                    Ok(p) => Arc::new(p),
+                    Err(e) => {
+                        return cloacina::fleet::AgentOutcome::Refused {
+                            reason: RefusalReason::RuntimeLoadFailed,
+                            message: format!("load graph plugin: {}", e),
+                        };
+                    }
+                };
+            cache.insert(digest.clone(), loaded.clone());
+            loaded
+        }
+    };
+
+    let request = cloacina::cloacina_workflow_plugin::GraphExecutionRequest {
+        cache: packet.cache.clone(),
+    };
+    let plugin_for_call = plugin.clone();
+    let result = tokio::task::spawn_blocking(move || plugin_for_call.execute_graph(request)).await;
+
+    match result {
+        Ok(Ok(ffi_result)) => {
+            if ffi_result.success {
+                let outputs: Vec<serde_json::Value> = ffi_result
+                    .terminal_outputs_json
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|j| serde_json::from_str::<serde_json::Value>(&j).ok())
+                    .collect();
+                debug!(
+                    graph = %packet.graph_name,
+                    outputs = outputs.len(),
+                    "graph firing executed on agent"
+                );
+                cloacina::fleet::AgentOutcome::Success {
+                    context: serde_json::json!({ "outputs": outputs }),
+                }
+            } else {
+                cloacina::fleet::AgentOutcome::Failure {
+                    message: ffi_result
+                        .error
+                        .unwrap_or_else(|| "unknown FFI graph execution error".to_string()),
+                    classification: cloacina::fleet::FailureClassification::TaskError,
+                }
+            }
+        }
+        Ok(Err(e)) => cloacina::fleet::AgentOutcome::Failure {
+            message: format!("execute_graph FFI call failed: {}", e),
+            classification: cloacina::fleet::FailureClassification::TaskError,
+        },
+        Err(join_err) => cloacina::fleet::AgentOutcome::Failure {
+            message: format!("execute_graph panicked: {}", join_err),
+            classification: cloacina::fleet::FailureClassification::TaskError,
+        },
+    }
 }
 
 /// Spawn a worker that POSTs a refusal + acks. Same shape as `spawn_packet_worker`

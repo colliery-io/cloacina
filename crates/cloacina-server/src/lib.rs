@@ -26,6 +26,7 @@ pub mod autoscaler;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
+pub mod fleet_graph_executor;
 pub mod identity;
 pub mod oidc;
 pub mod openapi;
@@ -944,6 +945,40 @@ pub async fn run(
                 "Fleet executor NOT registered — runner has no dispatcher \
                  (push-based execution disabled); fleet dispatch will not fire"
             );
+        }
+
+        // CLOACI-T-0722: computation-graph firings also dispatch to the fleet.
+        // The scheduler's default in-process executor is swapped for the fleet
+        // one; every fire event still carries the compiled closure, so
+        // undispatched graphs (embedded, Python, no agent) fall back in-process.
+        let storage =
+            cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage::new(
+                state.database.clone(),
+            );
+        match cloacina::registry::workflow_registry::WorkflowRegistryImpl::new(
+            storage,
+            state.database.clone(),
+        ) {
+            Ok(registry) => {
+                let graph_fleet = crate::fleet_graph_executor::FleetGraphExecutor::new(
+                    unified_dal.clone(),
+                    unified_dal.clone(),
+                    agent_registry.clone(),
+                    fleet_coordinator.clone(),
+                    delivery_wake.clone(),
+                    registry,
+                );
+                state
+                    .graph_scheduler
+                    .set_graph_executor(Arc::new(graph_fleet))
+                    .await;
+                info!("Fleet GRAPH executor installed on the CG scheduler (CLOACI-T-0722)");
+            }
+            Err(e) => warn!(
+                "Fleet graph executor NOT installed (registry init failed: {}); \
+                 CG firings stay in-process",
+                e
+            ),
         }
     }
 

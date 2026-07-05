@@ -434,6 +434,10 @@ const SUCCESS_RESET_SECS: u64 = 60;
 pub struct ComputationGraphScheduler {
     /// Endpoint registry for WebSocket routing.
     registry: EndpointRegistry,
+    /// Where reactor firings execute (CLOACI-T-0722): in-process by default;
+    /// the server swaps in its fleet executor under `--default-executor
+    /// fleet`. Applied to every reactor spawned (and re-spawned) after set.
+    graph_executor: Arc<RwLock<Arc<dyn super::graph_executor::GraphExecutor>>>,
     /// Running reactors, keyed by reactor name. Each reactor owns a subscriber
     /// map that may contain one or more graphs sharing this reactor instance.
     reactors: Arc<RwLock<HashMap<String, RunningGraph>>>,
@@ -454,6 +458,9 @@ impl ComputationGraphScheduler {
     pub fn new(registry: EndpointRegistry) -> Self {
         Self {
             registry,
+            graph_executor: Arc::new(RwLock::new(
+                super::graph_executor::in_process_graph_executor(),
+            )),
             reactors: Arc::new(RwLock::new(HashMap::new())),
             graph_to_reactor: Arc::new(RwLock::new(HashMap::new())),
             graph_topologies: Arc::new(RwLock::new(HashMap::new())),
@@ -465,6 +472,9 @@ impl ComputationGraphScheduler {
     pub fn with_dal(registry: EndpointRegistry, dal: crate::dal::unified::DAL) -> Self {
         Self {
             registry,
+            graph_executor: Arc::new(RwLock::new(
+                super::graph_executor::in_process_graph_executor(),
+            )),
             reactors: Arc::new(RwLock::new(HashMap::new())),
             graph_to_reactor: Arc::new(RwLock::new(HashMap::new())),
             graph_topologies: Arc::new(RwLock::new(HashMap::new())),
@@ -487,6 +497,16 @@ impl ComputationGraphScheduler {
     /// packages) typically pass `&[]` and address the reactor by its name.
     ///
     /// Subscribers are bound separately via [`bind_graph_to_reactor`].
+    /// Swap the graph executor firings run through (CLOACI-T-0722). Takes
+    /// effect for reactors spawned/restarted AFTER the call — the server sets
+    /// this once at startup, before any packages load.
+    pub async fn set_graph_executor(
+        &self,
+        executor: Arc<dyn super::graph_executor::GraphExecutor>,
+    ) {
+        *self.graph_executor.write().await = executor;
+    }
+
     pub async fn load_reactor(
         &self,
         reactor_name: String,
@@ -620,7 +640,8 @@ impl ComputationGraphScheduler {
         .with_health(reactor_health_tx)
         .with_expected_sources(expected_sources)
         .with_accumulator_health(acc_health_rxs)
-        .with_tenant_id(tenant_id.clone());
+        .with_tenant_id(tenant_id.clone())
+        .with_graph_executor(self.graph_executor.read().await.clone());
 
         // CLOACI-T-0830: a resolved reactor-constructor decider replaces the
         // built-in WhenAny/WhenAll criteria — the WASM guest's `evaluate` decides
@@ -1275,7 +1296,8 @@ impl ComputationGraphScheduler {
                 .with_health(reactor_health_tx)
                 .with_expected_sources(expected_sources)
                 .with_accumulator_health(restart_acc_health_rxs)
-                .with_tenant_id(running.declaration.tenant_id.clone());
+                .with_tenant_id(running.declaration.tenant_id.clone())
+                .with_graph_executor(self.graph_executor.read().await.clone());
                 // CLOACI-T-0830: re-install the reactor-constructor decider on
                 // restart. The decider was resolved once at load and is shared
                 // (`Arc<dyn ReactorFireDecider>`, `Send + Sync`), so the restart

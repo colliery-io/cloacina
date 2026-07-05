@@ -43,7 +43,7 @@ use super::types::{GraphError, GraphResult, InputCache, SourceName};
 /// Loaded once from library bytes, kept alive for the lifetime of the graph.
 /// The `PluginHandle` is behind a `Mutex` because fidius calls are synchronous
 /// and must not be invoked concurrently.
-struct LoadedGraphPlugin {
+pub struct LoadedGraphPlugin {
     handle: std::sync::Mutex<fidius_host::PluginHandle>,
     // Keep the temp dir alive so the dylib file isn't deleted while loaded
     _temp_dir: tempfile::TempDir,
@@ -56,8 +56,9 @@ unsafe impl Sync for LoadedGraphPlugin {}
 
 impl LoadedGraphPlugin {
     /// Load a graph plugin from library bytes. The library is written to a temp
-    /// file, loaded via fidius, and kept resident for reuse.
-    fn load(library_data: &[u8]) -> Result<Self, String> {
+    /// file, loaded via fidius, and kept resident for reuse. Public so the
+    /// execution agent can run whole-graph firings (CLOACI-T-0722).
+    pub fn load(library_data: &[u8]) -> Result<Self, String> {
         let temp_dir =
             tempfile::TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
@@ -93,7 +94,7 @@ impl LoadedGraphPlugin {
     }
 
     /// Call execute_graph on the loaded plugin.
-    fn execute_graph(
+    pub fn execute_graph(
         &self,
         request: GraphExecutionRequest,
     ) -> Result<cloacina_workflow_plugin::GraphExecutionResult, String> {
@@ -265,40 +266,46 @@ pub fn build_declaration_from_ffi(
 }
 
 /// Execute a computation graph via FFI using the pre-loaded plugin handle.
-async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult {
+/// Convert an [`InputCache`] snapshot into the FFI/wire cache shape
+/// (source name → UTF-8 JSON string) — the same conversion the in-process FFI
+/// call performs, shared with the fleet path so a dispatched firing carries an
+/// agent-ready cache (CLOACI-T-0722). Boundary frames are `bincode(Vec<u8>)`
+/// of raw event JSON; non-UTF-8 payloads are hex-encoded.
+pub fn input_cache_to_ffi_cache(cache: &InputCache) -> Result<HashMap<String, String>, String> {
     let cache_snapshot = cache.snapshot();
-
-    // Recover raw bytes from bincode wire format, then interpret as UTF-8 JSON
-    // for the FFI boundary. The passthrough accumulator stores raw event bytes
-    // (typically JSON from WebSocket) which are bincode-serialized as Vec<u8>.
     let mut ffi_cache: HashMap<String, String> = HashMap::new();
     for source_name in cache_snapshot.sources() {
         if let Some(raw_bytes) = cache_snapshot.get_raw(source_name.as_str()) {
-            // Wire format is bincode(Vec<u8>) — recover the original bytes
             match bincode::deserialize::<Vec<u8>>(raw_bytes) {
                 Ok(original_bytes) => {
-                    // Original bytes are JSON from WebSocket — convert to string
                     let json_str = String::from_utf8(original_bytes).unwrap_or_else(|e| {
                         tracing::warn!(
                             source = source_name.as_str(),
                             "cache entry is not valid UTF-8, hex-encoding: {}",
                             e
                         );
-                        // Fall back to hex encoding for non-UTF-8 data
                         raw_bytes.iter().map(|b| format!("{:02x}", b)).collect()
                     });
                     ffi_cache.insert(source_name.as_str().to_string(), json_str);
                 }
                 Err(e) => {
-                    return GraphResult::error(GraphError::Serialization(format!(
+                    return Err(format!(
                         "Failed to deserialize cache entry '{}' for FFI: {}",
                         source_name.as_str(),
                         e
-                    )));
+                    ));
                 }
             }
         }
     }
+    Ok(ffi_cache)
+}
+
+async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult {
+    let ffi_cache = match input_cache_to_ffi_cache(cache) {
+        Ok(c) => c,
+        Err(e) => return GraphResult::error(GraphError::Serialization(e)),
+    };
 
     let request = GraphExecutionRequest { cache: ffi_cache };
 

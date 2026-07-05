@@ -731,7 +731,7 @@ fn kind_of(v: &serde_json::Value) -> &'static str {
 /// `Some("public")` and matches only `Some("public")` agents; a named tenant's
 /// work matches only that tenant's agents. `runnable_triples == None` means
 /// "any arch is fine" (interpreted package, e.g. Python).
-fn select_fleet_agent<'a>(
+pub(crate) fn select_fleet_agent<'a>(
     snapshot: &'a [AgentRecord],
     task_tenant: &Option<String>,
     runnable_triples: &Option<Vec<String>>,
