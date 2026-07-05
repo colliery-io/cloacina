@@ -302,3 +302,47 @@ fn config_kwarg_errors_are_clear() {
         "missing-field error must name the missing field: {msg}"
     );
 }
+
+/// T-0833: the `@version` pin is ENFORCED against the resolved provider's
+/// `provider.json` version — a matching pin loads, a mismatched pin fails
+/// closed naming BOTH versions, and a segment-prefix pin ("0.1") matches
+/// the 0.1.x series.
+#[test]
+fn version_pin_is_enforced_at_load() {
+    set_provider_search_path(providers_dir());
+
+    let unwrap_err = |r: Result<_, cloacina::registry::error::LoaderError>, what: &str| match r {
+        Ok(_) => panic!("{what}"),
+        Err(e) => e.to_string(),
+    };
+    let node = |from: &str| {
+        load_constructor_node(
+            "wrap",
+            from,
+            "affix",
+            vec![
+                ("prefix".to_string(), json!("hello, ")),
+                ("suffix".to_string(), json!("!")),
+            ],
+            vec![],
+            cloacina::registry::loader::grants::GrantSpec::default(),
+        )
+    };
+
+    // Exact pin and segment-prefix pin both load (the fixture is 0.1.0).
+    assert!(node("affix@0.1.0").is_ok(), "exact pin must load");
+    assert!(node("affix@0.1").is_ok(), "segment-prefix pin must load");
+    assert!(node("affix").is_ok(), "unpinned ref must load");
+
+    // A mismatched pin fails closed, naming both versions.
+    let msg = unwrap_err(node("affix@9.9.9"), "mismatched pin must fail closed");
+    assert!(
+        msg.contains("9.9.9") && msg.contains("0.1.0") && msg.contains("pins"),
+        "pin-mismatch error must name the pin and the resolved version: {msg}"
+    );
+
+    // "0.1" is a SEGMENT prefix — it must not be satisfied by e.g. 0.10.x, and
+    // conversely a "0.10" pin must not match the 0.1.x fixture.
+    let msg = unwrap_err(node("affix@0.10"), "0.10 pin must not match 0.1.x");
+    assert!(msg.contains("0.10"), "boundary error names the pin: {msg}");
+}

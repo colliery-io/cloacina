@@ -1198,10 +1198,11 @@ pub fn load_reactor_constructor<C: Serialize>(
 //
 // This mirrors the embedded-first philosophy: no server, no registry service — a
 // constructor provider is resolved from a directory on disk, exactly as
-// [`load_task_constructor`] already does. An optional `@version` suffix is stripped
-// (version pinning is advisory today; honoring it is a noted follow-on), and
-// `constructor = "name"` selects WHICH constructor inside the provider — validated
-// against the loaded `constructor.json`'s `name` so an author mismatch fails closed.
+// [`load_task_constructor`] already does. An optional `@version` suffix is ENFORCED
+// against the resolved provider's `provider.json` version (exact or segment-prefix
+// match, T-0833), and `constructor = "name"` selects WHICH constructor inside the
+// provider — validated against the loaded manifest's `name` so an author mismatch
+// fails closed.
 
 /// Process-wide override for the provider search path the `constructor!` consumer
 /// form resolves `from = "..."` against. `None` falls back to
@@ -1251,6 +1252,40 @@ fn provider_package_name(from: &str) -> &str {
         Some((name, _ver)) => name,
         None => from,
     }
+}
+
+/// The optional `@version` pin from a `from = "name[@version]"` reference.
+fn provider_version_pin(from: &str) -> Option<&str> {
+    from.split_once('@').map(|(_name, ver)| ver)
+}
+
+/// True when the provider's actual `version` satisfies the author's pin: exact
+/// equality or a SEGMENT prefix ("0.1" matches 0.1.x but NOT 0.10.x — hence the
+/// trailing dot). Mirrors the build-side filter in
+/// `packaging::provider_bundle::resolve_provider_crate` so a ref that bundled
+/// also loads (CLOACI-T-0833).
+fn version_satisfies_pin(actual: &str, pin: &str) -> bool {
+    actual == pin || actual.starts_with(&format!("{pin}."))
+}
+
+/// Enforce a `from = "name@version"` pin against the RESOLVED provider's
+/// `provider.json` version (CLOACI-T-0833). No pin → no check. Fails closed
+/// with a clear error naming both versions on mismatch.
+fn enforce_version_pin(context: &str, from: &str, dir: &Path) -> Result<(), LoaderError> {
+    let Some(pin) = provider_version_pin(from) else {
+        return Ok(());
+    };
+    let provider = read_provider_manifest(dir)?;
+    if version_satisfies_pin(&provider.version, pin) {
+        return Ok(());
+    }
+    Err(LoaderError::Validation {
+        reason: format!(
+            "{context}: provider '{}' resolved at version {} but the reference \
+             pins @{pin} — restage the pinned provider version or update the pin",
+            provider.name, provider.version
+        ),
+    })
 }
 
 /// A workflow DAG node backed by a packaged WASM task constructor — the runtime
@@ -1585,6 +1620,8 @@ pub fn load_constructor_node(
                 search_path.display()
             ),
         })?;
+    // Honor the author's `@version` pin against the resolved provider (T-0833).
+    enforce_version_pin(&format!("constructor node '{node_id}'"), from, &dir)?;
     // Select the requested member from the provider suite (fails closed, naming the
     // available members, if `constructor` is not in this provider).
     let manifest = read_member_manifest(&dir, constructor_name)?;
@@ -1689,6 +1726,12 @@ pub fn load_reactor_constructor_node(
                 search_path.display()
             ),
         })?;
+    // Honor the author's `@version` pin against the resolved provider (T-0833).
+    enforce_version_pin(
+        &format!("reactor constructor '{constructor_name}'"),
+        from,
+        &dir,
+    )?;
     // Select the requested member from the provider suite (fails closed if absent).
     let manifest = read_member_manifest(&dir, constructor_name)?;
 
@@ -1716,4 +1759,28 @@ pub fn load_reactor_constructor_node(
     })?;
 
     Ok(Arc::new(reactor_constructor) as Arc<dyn ReactorFireDecider>)
+}
+
+#[cfg(test)]
+mod version_pin_tests {
+    use super::*;
+
+    #[test]
+    fn pin_parsing_splits_name_and_version() {
+        assert_eq!(provider_package_name("p@0.1.0"), "p");
+        assert_eq!(provider_package_name("p"), "p");
+        assert_eq!(provider_version_pin("p@0.1.0"), Some("0.1.0"));
+        assert_eq!(provider_version_pin("p"), None);
+    }
+
+    #[test]
+    fn pin_matching_requires_segment_boundary() {
+        assert!(version_satisfies_pin("0.1.0", "0.1.0"));
+        assert!(version_satisfies_pin("0.1.5", "0.1"));
+        assert!(version_satisfies_pin("1.2.0", "1"));
+        // "0.1" must NOT match the 0.10.x series (segment boundary).
+        assert!(!version_satisfies_pin("0.10.0", "0.1"));
+        assert!(!version_satisfies_pin("10.0.0", "1"));
+        assert!(!version_satisfies_pin("0.2.0", "0.1.0"));
+    }
 }
