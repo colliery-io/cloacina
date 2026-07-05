@@ -251,12 +251,12 @@ fn test_plugin_info_populated() {
         "Interface hash should be non-zero"
     );
     assert_eq!(
-        plugin.info.interface_version, 3,
-        "Interface version should be 3 (CLOACI-I-0128 get_input_interface)"
+        plugin.info.interface_version, 4,
+        "Interface version should be 4 (CLOACI-I-0132 get_constructor_metadata)"
     );
     assert_eq!(
-        plugin.method_count, 10,
-        "Should have 10 methods (get_task_metadata, execute_task, get_graph_metadata, execute_graph, get_reactor_metadata, get_trigger_metadata, invoke_trigger_poll, get_triggerless_graph_metadata, invoke_triggerless_graph, get_input_interface)"
+        plugin.method_count, 11,
+        "Should have 11 methods (get_task_metadata, execute_task, get_graph_metadata, execute_graph, get_reactor_metadata, get_trigger_metadata, invoke_trigger_poll, get_triggerless_graph_metadata, invoke_triggerless_graph, get_input_interface, get_constructor_metadata)"
     );
 }
 
