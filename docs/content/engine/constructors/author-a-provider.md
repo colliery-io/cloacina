@@ -91,12 +91,18 @@ reads it to write `provider.json`.
 
 ## 3. Distribute the provider
 
-**You usually don't package anything by hand.** A provider is distributed as an
-ordinary Cargo crate (crates.io, git, or a path). When a packaged workflow
-depends on it and references a member, the **compiler** resolves it from the
-dependency graph, builds it to `wasm32-wasip2`, and bundles it into the
-workflow package automatically — see
+**You usually don't package the provider by hand.** A provider is distributed
+as an ordinary Cargo crate (crates.io, git, or a path). When a packaged
+workflow depends on it and references a member, the **compiler** resolves it
+from the dependency graph, builds it to `wasm32-wasip2`, and bundles it into
+the workflow package automatically — see
 [Consume a Constructor Provider]({{< ref "consume-a-provider.md" >}}).
+
+(To be clear: the **workflow** package itself is still packed and uploaded
+exactly as always — that remains the front door for distributing workflows.
+What the compiler removes is the *second* channel: hand-packaging providers
+and staging them on the server. The provider rides inside the workflow
+package.)
 
 For the **embedded** path (no server/compiler), package it explicitly:
 
