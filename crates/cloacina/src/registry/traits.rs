@@ -215,6 +215,22 @@ pub trait WorkflowRegistry: Send + Sync {
         let _ = (package_name, version);
         Ok(Vec::new())
     }
+
+    /// CLOACI-T-0835: ask the compiler to REBUILD this package from its
+    /// retained source, because its compiled artifact is stale (built against
+    /// an older plugin ABI / interface version than this host expects).
+    ///
+    /// Returns `true` when a rebuild was actually scheduled. Default impl: not
+    /// supported (`false`) — registries without a build pipeline (filesystem,
+    /// in-memory, mocks) can't recompile. The unified-DB registry overrides
+    /// this to flip `build_status` back to `pending` for the compiler to claim.
+    async fn request_recompile(
+        &self,
+        package_id: WorkflowPackageId,
+    ) -> Result<bool, RegistryError> {
+        let _ = package_id;
+        Ok(false)
+    }
 }
 
 /// Trait for binary storage backends.

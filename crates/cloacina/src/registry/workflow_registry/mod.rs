@@ -692,6 +692,15 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             .map(|r| (r.provider_name, r.provider_data.into_inner()))
             .collect())
     }
+
+    /// CLOACI-T-0835: flip the package back to `pending` so the compiler
+    /// rebuilds it from retained source (stale-artifact recompile signal).
+    async fn request_recompile(
+        &self,
+        package_id: crate::registry::types::WorkflowPackageId,
+    ) -> Result<bool, RegistryError> {
+        self.request_recompile(package_id).await
+    }
 }
 
 /// Unpack a `.cloacina` source archive in a temp dir and collect its UTF-8
