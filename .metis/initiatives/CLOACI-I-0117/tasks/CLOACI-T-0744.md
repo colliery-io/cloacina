@@ -4,14 +4,14 @@ level: task
 title: "Enrich accumulator-card operational metrics — lift buffer-depth/fires gauges into the health API"
 short_code: "CLOACI-T-0744"
 created_at: 2026-06-17T22:44:24.570660+00:00
-updated_at: 2026-07-05T15:36:24.102412+00:00
+updated_at: 2026-07-05T16:09:39.179+00:00
 parent: CLOACI-I-0117
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -61,6 +61,8 @@ never sees.
 
 ### Priority
 - [x] P3 - Low (when time permits)
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -183,3 +185,8 @@ never sees.
 - **UI** (`Graphs.tsx` accumulators card): buffer fill (`buf N` / `buf N/cap`), events total, last-event via the library's `formatAgo` — the card previously showed NONE of the freshness fields despite the API carrying them since T-0765.
 Rust checks clean (cloacina + api-types + server); `tsc -b` clean. Remaining: openapi.json regen (in flight) + TS API types + live demo-stack check of py_window N/5 + commit/PR.
 NOTE on "fires" in the title: reactor fire counts already ship on `ReactorStatus` (T-0766 fires log + timeseries); the accumulator-side gap was buffer/fill, which this closes.
+
+### 2026-07-05 — CLOSING (commit 4501781f); the live py_window AC exposed a SEPARATE latent bug → [[CLOACI-T-0839]]
+Also derived ~events/min on the card by feeding `events_total` through the library's fires-delta throughput hook, and confirmed the new fields LIVE on the rebuilt demo server (`buffer_depth`/`buffer_capacity` present in `/v1/health/accumulators`; freshness + inject counters all correct under real injects). openapi.json + TS client regenerated, drift gates clean; unit probe test `test_state_accumulator_probe_reports_buffer_fill` proves the state runtime reports depth 3 / capacity 5 through the shared probe.
+
+**The one AC not demonstrable live** — `py_window` at N/5 — is blocked by a pre-existing, unrelated defect this verification UNCOVERED: packaged Python state accumulators silently degrade to passthrough server-side (the names-only reactor dispatch drops `accumulator_type`), so live `py_window` has no buffer for ANY gauge to report — Prometheus reads 0 too. Filed with full root cause + repro as [[CLOACI-T-0839]] (P1). When T-0839 lands, the N/5 fill renders with zero further work here — the T-0744 machinery is unit-proven against the real state runtime. COMPLETE.

@@ -4,14 +4,14 @@ level: initiative
 title: "Cloacina web UI — tenant-scoped control plane (React SPA on @cloacina/client)"
 short_code: "CLOACI-I-0117"
 created_at: 2026-06-10T18:33:09.675518+00:00
-updated_at: 2026-06-11T02:28:56.958866+00:00
+updated_at: 2026-07-05T16:09:44.988886+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

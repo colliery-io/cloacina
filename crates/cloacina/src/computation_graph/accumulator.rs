@@ -1898,6 +1898,53 @@ mod tests {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
     }
 
+    /// CLOACI-T-0744: the freshness probe reports the state buffer's live
+    /// depth and bounded capacity so the health API can render `N/capacity`.
+    #[tokio::test]
+    async fn test_state_accumulator_probe_reports_buffer_fill() {
+        let capacity = 5;
+        let (socket_tx, socket_rx) = mpsc::channel::<Vec<u8>>(32);
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(32);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+        let probe = FreshnessHandle::new();
+        let ctx = AccumulatorContext {
+            output: BoundarySender::with_freshness(
+                boundary_tx,
+                SourceName::new("state_probe"),
+                probe.clone(),
+            ),
+            name: "state_probe".to_string(),
+            shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
+        };
+        let acc = StateAccumulator::<serde_json::Value>::new(capacity);
+        let handle = tokio::spawn(state_accumulator_runtime(acc, ctx, socket_rx));
+
+        for v in [1_i64, 2, 3] {
+            socket_tx
+                .send(serde_json::to_vec(&serde_json::json!(v)).unwrap())
+                .await
+                .unwrap();
+            // Consume the emitted boundary so the ingest completed.
+            tokio::time::timeout(std::time::Duration::from_secs(2), boundary_rx.recv())
+                .await
+                .expect("boundary should arrive within 2s")
+                .expect("boundary channel open");
+        }
+
+        assert_eq!(probe.buffer_depth(), Some(3), "3 ingests -> depth 3");
+        assert_eq!(
+            probe.buffer_capacity(),
+            Some(5),
+            "bounded capacity reported"
+        );
+        assert_eq!(probe.events_total(), 3);
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    }
+
     /// `capacity == 0` is a write-only sink: values are buffered but NO boundary
     /// is emitted back to the reactor.
     #[tokio::test]
