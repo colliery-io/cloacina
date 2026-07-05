@@ -1,0 +1,27 @@
+# Demo (CLOACI-T-0831): a packaged PYTHON workflow whose first DAG node is a WASM
+# constructor-provider member — the Python twin of demo-constructor-rust.
+#
+# Python packages have no Cargo.toml, so `[metadata.providers]` is the
+# AUTHORITATIVE provider declaration (A-0010 for Python): the compiler
+# synthesizes a scratch Cargo project from these specs, builds each provider to
+# a WASM component, and bundles it into `package_providers` — the server then
+# resolves `cloaca.constructor(...)` refs hermetically at load.
+#
+# TEMPLATE — `__WORKSPACE__` is rewritten to an absolute path by
+# docker/pack-demo-fixtures.sh before packing.
+[package]
+name = "demo-constructor-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "constructor_demo_py"
+language = "python"
+description = "python constructor provider demo — sandboxed read via a capability grant"
+author = "CLOACI-T-0831"
+entry_module = "constructor_demo_py.tasks"
+
+[metadata.providers]
+cloacina-provider-fs = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-fs" }

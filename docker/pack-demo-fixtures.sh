@@ -61,6 +61,18 @@ pack_python() {
     tar -cjf "$OUT/$name.cloacina" -C "$stage" "$prefix"
 }
 
+# Like pack_python, but rewrites the __WORKSPACE__ placeholder in package.toml —
+# for Python packages whose [metadata.providers] path-dep constructor providers
+# from the workspace (CLOACI-T-0831).
+pack_python_ws() {
+    name="$1"; srcdir="$2"; ver="${3:-0.1.0}"; prefix="$name-$ver"
+    stage="/tmp/pystage-$name"; rm -rf "$stage"; mkdir -p "$stage/$prefix"
+    cp -R "$srcdir"/. "$stage/$prefix/"
+    sed "s|__WORKSPACE__|$WS|g" "$srcdir/package.toml" > "$stage/$prefix/package.toml"
+    echo "packing $name (python/ws) → $OUT/$name.cloacina"
+    tar -cjf "$OUT/$name.cloacina" -C "$stage" "$prefix"
+}
+
 # --- Executions: plain Rust task workflows (completed / failed / in-flight) ---
 pack_rust_ws demo-slow-rust
 pack_rust_ws demo-fail-rust
@@ -95,8 +107,14 @@ pack_rust_ws acme-fulfillment-rust
 #     cloacina-provider-fs's read_file member: the compiler discovers the
 #     `constructor!` from-ref, builds the provider to WASM, bundles it into
 #     package_providers; the server resolves it at load and executes it sandboxed
-#     with an fs grant (reads /etc/os-release). ---
+#     with an fs grant (reads /etc/hostname). ---
 pack_rust_ws demo-constructor-rust
+
+# --- Constructor provider (Python) — CLOACI-T-0831. The Python twin: the
+#     provider is declared in [metadata.providers] (no Cargo.toml to discover
+#     from), bundled the same way, and resolved at load for the module's
+#     cloaca.constructor(...) call. ---
+pack_python_ws demo-constructor-py "$WS/examples/fixtures/demo-constructor-py" 0.1.0
 
 # --- Kafka-sourced stream accumulator → reactor-bound CG (Rust) — CLOACI-T-0676 ---
 pack_rust_ws demo-kafka-stream-rust
