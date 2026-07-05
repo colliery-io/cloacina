@@ -76,6 +76,14 @@ export function Graphs() {
 
   const throughput = useGraphThroughput(graphs.data?.items ?? []);
   const reactorThroughput = useGraphThroughput(reactors.data?.items ?? []);
+  // CLOACI-T-0744: derive events/min per accumulator from the monotonic
+  // events_total counter, reusing the fires-delta hook.
+  const accThroughput = useGraphThroughput(
+    (accs.data?.items ?? []).map((a) => ({
+      name: a.name,
+      fires: (a as { events_total?: number | null }).events_total ?? undefined,
+    })),
+  );
 
   const graphItems = graphs.data?.items ?? [];
   const reactorItems = reactors.data?.items ?? [];
@@ -223,6 +231,21 @@ export function Graphs() {
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {accItems.map((a) => {
               const reactor = (a as { reactor?: string | null }).reactor ?? null;
+              // CLOACI-T-0744: operational metrics from the enriched health row —
+              // buffer fill (N or N/capacity for bounded state/batch), events
+              // received, and last-event freshness.
+              const metrics = a as {
+                buffer_depth?: number | null;
+                buffer_capacity?: number | null;
+                events_total?: number | null;
+                last_event_at?: string | null;
+              };
+              const bufferLabel =
+                metrics.buffer_depth != null
+                  ? metrics.buffer_capacity != null
+                    ? `buf ${metrics.buffer_depth}/${metrics.buffer_capacity}`
+                    : `buf ${metrics.buffer_depth}`
+                  : null;
               return (
                 <Box key={a.name} style={{ ...cardSurface, padding: "9px 15px" }}>
                   <Group justify="space-between" wrap="nowrap">
@@ -234,6 +257,20 @@ export function Graphs() {
                       </span>
                     </Group>
                     <Group gap={12} wrap="nowrap">
+                      {bufferLabel && (
+                        <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--muted)" }}>{bufferLabel}</span>
+                      )}
+                      {metrics.events_total != null && (
+                        <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--muted)" }}>
+                          {metrics.events_total} events
+                          {accThroughput.get(a.name) != null ? ` · ~${accThroughput.get(a.name)}/min` : ""}
+                        </span>
+                      )}
+                      {metrics.last_event_at && (
+                        <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
+                          {formatAgo(metrics.last_event_at)}
+                        </span>
+                      )}
                       {reactor && (
                         <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>→ {reactor}</span>
                       )}

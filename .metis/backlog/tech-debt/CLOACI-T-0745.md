@@ -4,15 +4,15 @@ level: task
 title: "Scheduler dispatch throughput — eliminate O(executions x tasks) per-tick DB round-trips that stall the loop under backlog"
 short_code: "CLOACI-T-0745"
 created_at: 2026-06-17T23:34:07.029193+00:00
-updated_at: 2026-06-17T23:34:46.009701+00:00
-parent: 
+updated_at: 2026-07-05T15:32:36.270992+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -88,6 +88,10 @@ re-fetch), not pool/lock contention. Restarting a backed-up server makes it wors
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] Per-tick scheduler DB round-trips are O(1)–O(distinct workflows), not
@@ -120,7 +124,7 @@ re-fetch), not pool/lock contention. Restarting a backed-up server makes it wors
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -132,7 +136,7 @@ re-fetch), not pool/lock contention. Restarting a backed-up server makes it wors
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -161,7 +165,7 @@ re-fetch), not pool/lock contention. Restarting a backed-up server makes it wors
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -172,7 +176,7 @@ re-fetch), not pool/lock contention. Restarting a backed-up server makes it wors
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}
@@ -217,6 +221,7 @@ re-fetch), not pool/lock contention. Restarting a backed-up server makes it wors
 
 ## Status Updates **[REQUIRED]**
 
+- 2026-07-05: **CLOSING (bookkeeping).** All ACs were met on 2026-06-17; the work landed via the #133 squash-merge (branch SHAs 8647e74e/bda2b42d/5d8c0220 don't exist on main, the code does) — verified in main: `get_all_task_statuses_for_executions` batched reads (scheduler_loop.rs:277) + fire-and-forget `tokio::spawn` dispatch (scheduler_loop.rs:379). The task was simply never transitioned. COMPLETE.
 - 2026-06-17: **Implemented on #133 (`timer-driven-cron`) per user — two layered
   fixes, both load-validated.**
   - **Batched reads (commit 8647e74e):** new DAL

@@ -4,7 +4,7 @@ level: task
 title: "UI manual execution — surface a workflow's declared configuration options at execute time"
 short_code: "CLOACI-T-0747"
 created_at: 2026-06-20T02:26:30.274166+00:00
-updated_at: 2026-06-20T13:24:49.012931+00:00
+updated_at: 2026-07-05T15:35:25.485516+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/blocked"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -71,6 +71,10 @@ without prior knowledge of the workflow internals.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] The manual-execute dialog displays the workflow's declared config/context
       options: key name, type, required flag, and default (where declared).
 - [ ] Required options are validated client-side before submit; missing/invalid
@@ -115,6 +119,9 @@ Recommendation: keep blocked under I-0116; pick up when I-0116 delivers the
 declared-param API and the frontend freeze lifts. At that point this becomes
 mostly a UI/SDK surfacing task (validate inputs from the declared schema, fall
 back to the free-form blob for undeclared workflows).
+
+### 2026-07-05 — CLOSING: delivered by I-0128 (T-0756/T-0768); the blocked state was stale
+The unblock path played out exactly as written and the work SHIPPED with I-0128: `ui/src/components/RunWorkflowModal.tsx:39` reads the workflow detail's `declared_params` and renders a TYPED field per param (Switch/NumberInput/TextInput at :82-113), assembling the execution context from them (:44-50) — not a raw JSON textarea. Required/typed handling comes from the declared JSON-Schema slots (T-0755/0756); workflows without declared params degrade to free-form context. All four ACs met; this task just never got re-triaged after I-0128 completed. COMPLETE.
 
 ### 2026-06-20 — Unblock path defined: now a consumer of I-0128
 

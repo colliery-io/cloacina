@@ -977,6 +977,21 @@ export interface components {
         };
         /** @description One row in `GET /v1/health/accumulators`. */
         AccumulatorStatus: {
+            /**
+             * Format: int64
+             * @description Declared buffer capacity for bounded kinds — state `capacity = N`, batch
+             *     `max_buffer_size`. `None` when unbounded or not applicable. The UI
+             *     renders `buffer_depth/buffer_capacity` as fill (CLOACI-T-0744).
+             */
+            buffer_capacity?: number | null;
+            /**
+             * Format: int64
+             * @description Buffered-event count for buffering kinds — batch (events awaiting flush)
+             *     and state (window entries). `None` for kinds that don't buffer
+             *     (passthrough/stream/polling) or runtimes predating the gauge
+             *     (CLOACI-T-0744).
+             */
+            buffer_depth?: number | null;
             /** @description Degradation detail when the source is unhealthy (e.g. connection error). */
             error?: string | null;
             /**
@@ -1434,6 +1449,21 @@ export interface components {
          */
         ListResponse_AccumulatorStatus: {
             items: {
+                /**
+                 * Format: int64
+                 * @description Declared buffer capacity for bounded kinds — state `capacity = N`, batch
+                 *     `max_buffer_size`. `None` when unbounded or not applicable. The UI
+                 *     renders `buffer_depth/buffer_capacity` as fill (CLOACI-T-0744).
+                 */
+                buffer_capacity?: number | null;
+                /**
+                 * Format: int64
+                 * @description Buffered-event count for buffering kinds — batch (events awaiting flush)
+                 *     and state (window entries). `None` for kinds that don't buffer
+                 *     (passthrough/stream/polling) or runtimes predating the gauge
+                 *     (CLOACI-T-0744).
+                 */
+                buffer_depth?: number | null;
                 /** @description Degradation detail when the source is unhealthy (e.g. connection error). */
                 error?: string | null;
                 /**

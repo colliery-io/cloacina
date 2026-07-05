@@ -4,15 +4,15 @@ level: task
 title: "Release binary build — fix aarch64-linux (pyo3 cross) + x86_64-darwin (libpq arch) legs"
 short_code: "CLOACI-T-0807"
 created_at: 2026-06-27T13:09:48.069830+00:00
-updated_at: 2026-06-27T13:09:48.069830+00:00
-parent: 
+updated_at: 2026-07-05T15:36:12.857767+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -47,7 +47,7 @@ Both are runner-architecture mismatches, not code bugs. Fix = build every leg na
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -59,7 +59,7 @@ Both are runner-architecture mismatches, not code bugs. Fix = build every leg na
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -74,6 +74,12 @@ Both are runner-architecture mismatches, not code bugs. Fix = build every leg na
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -91,7 +97,7 @@ Both are runner-architecture mismatches, not code bugs. Fix = build every leg na
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -102,7 +108,7 @@ Both are runner-architecture mismatches, not code bugs. Fix = build every leg na
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}
@@ -148,3 +154,5 @@ Both are runner-architecture mismatches, not code bugs. Fix = build every leg na
 ## Status Updates **[REQUIRED]**
 
 **2026-06-27 — fix implemented (in PR).** `unified_release.yml` Build-Binary matrix: aarch64-linux → `ubuntu-24.04-arm` (cross:false), x86_64-darwin → `macos-13`; removed the now-dead `Install cross` / `Build (cross)` steps and collapsed to a single native `Build` step. Diagnosis confirmed locally: `cargo tree -p cloacinactl --no-default-features --features postgres,sqlite` includes `pyo3-build-config` (via cloacina-workflow-plugin), and the darwin failure is `_PQ*` (libpq) — both arch-mismatch, not code. YAML validated (ruby). Pending: next-release verification + the v0.9.0-backfill decision (see acceptance criteria).
+
+**2026-07-05 — CLOSING.** Current `unified_release.yml` state (verified): aarch64-linux runs natively on `ubuntu-24.04-arm` (:389-394, cross:false) ✓; **x86_64-darwin was subsequently RETIRED rather than fixed** (:395-396) — the matrix is 3 legs (x86_64-linux, aarch64-linux, aarch64-darwin), all native, no continue-on-error, `fail_on_unmatched_files: true`. Residuals dispositioned: next-tag verification of the binary legs folds into [[CLOACI-T-0746]] (the remaining release-pipeline task — it must watch the next release anyway for npm); v0.9.0 backfill decision = default taken (leave it; cargo/pip/Docker cover v0.9.0). COMPLETE.

@@ -271,6 +271,13 @@ pub struct BoundarySender {
     /// Wall-clock (unix millis) of the last successful emit; `0` = never
     /// (CLOACI-T-0765 freshness). Shared across clones.
     last_event_ms: Arc<std::sync::atomic::AtomicI64>,
+    /// Current buffered-event count for buffering kinds (batch/state); `-1` =
+    /// this accumulator kind doesn't buffer / untracked (CLOACI-T-0744).
+    /// Shared across clones and into the `FreshnessHandle` the health API samples.
+    buffer_depth: Arc<std::sync::atomic::AtomicI64>,
+    /// Declared buffer capacity for bounded kinds (state `capacity = N`, batch
+    /// `max_buffer_size`); `<= 0` = unbounded / not applicable (CLOACI-T-0744).
+    buffer_capacity: Arc<std::sync::atomic::AtomicI64>,
 }
 
 /// Read-only freshness probe for an accumulator (CLOACI-T-0765): the monotonic
@@ -280,6 +287,8 @@ pub struct BoundarySender {
 pub struct FreshnessHandle {
     events_total: Arc<AtomicU64>,
     last_event_ms: Arc<std::sync::atomic::AtomicI64>,
+    buffer_depth: Arc<std::sync::atomic::AtomicI64>,
+    buffer_capacity: Arc<std::sync::atomic::AtomicI64>,
 }
 
 impl Default for FreshnessHandle {
@@ -295,6 +304,8 @@ impl FreshnessHandle {
         Self {
             events_total: Arc::new(AtomicU64::new(0)),
             last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            buffer_depth: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+            buffer_capacity: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
         }
     }
 
@@ -307,6 +318,26 @@ impl FreshnessHandle {
         let v = self.last_event_ms.load(Ordering::Relaxed);
         if v > 0 {
             Some(v)
+        } else {
+            None
+        }
+    }
+    /// Buffered-event count for buffering kinds (batch/state), or `None` for
+    /// kinds that don't buffer / runtimes predating the gauge (CLOACI-T-0744).
+    pub fn buffer_depth(&self) -> Option<u64> {
+        let v = self.buffer_depth.load(Ordering::Relaxed);
+        if v >= 0 {
+            Some(v as u64)
+        } else {
+            None
+        }
+    }
+    /// Declared buffer capacity for bounded kinds, or `None` when unbounded /
+    /// not applicable (CLOACI-T-0744). The UI renders `depth/capacity`.
+    pub fn buffer_capacity(&self) -> Option<u64> {
+        let v = self.buffer_capacity.load(Ordering::Relaxed);
+        if v > 0 {
+            Some(v as u64)
         } else {
             None
         }
@@ -327,6 +358,8 @@ impl BoundarySender {
             source_name,
             sequence: Arc::new(AtomicU64::new(0)),
             last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            buffer_depth: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+            buffer_capacity: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
         }
     }
 
@@ -343,6 +376,8 @@ impl BoundarySender {
             source_name,
             sequence: freshness.events_total.clone(),
             last_event_ms: freshness.last_event_ms.clone(),
+            buffer_depth: freshness.buffer_depth.clone(),
+            buffer_capacity: freshness.buffer_capacity.clone(),
         }
     }
 
@@ -357,6 +392,8 @@ impl BoundarySender {
             source_name,
             sequence: Arc::new(AtomicU64::new(start_sequence)),
             last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            buffer_depth: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+            buffer_capacity: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
         }
     }
 
@@ -385,12 +422,29 @@ impl BoundarySender {
         self.sequence.load(Ordering::SeqCst)
     }
 
+    /// Record the current buffered-event count so the health API can report it
+    /// (CLOACI-T-0744). Called by the buffering runtimes (batch/state) alongside
+    /// the Prometheus gauge.
+    pub fn set_buffer_depth(&self, depth: u64) {
+        self.buffer_depth
+            .store(depth as i64, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Record the declared buffer capacity for bounded kinds (CLOACI-T-0744).
+    /// Pass a positive value; unbounded/none kinds just never call this.
+    pub fn set_buffer_capacity(&self, capacity: u64) {
+        self.buffer_capacity
+            .store(capacity as i64, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// A shared freshness probe (events_total + last_event), for registration
     /// with the graph registry so the health endpoint can report freshness.
     pub fn freshness(&self) -> FreshnessHandle {
         FreshnessHandle {
             events_total: self.sequence.clone(),
             last_event_ms: self.last_event_ms.clone(),
+            buffer_depth: self.buffer_depth.clone(),
+            buffer_capacity: self.buffer_capacity.clone(),
         }
     }
 }
@@ -745,6 +799,11 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
 ) {
     set_health(&ctx, AccumulatorHealth::Starting);
     set_accumulator_buffer_depth(&ctx, 0.0);
+    // CLOACI-T-0744: surface the bounded flush threshold as the buffer
+    // capacity so the health API can render fill (`depth/capacity`).
+    if let Some(cap) = config.max_buffer_size {
+        ctx.output.set_buffer_capacity(cap as u64);
+    }
 
     // Restore buffered events from checkpoint if available
     let mut buffer: Vec<Vec<u8>> = Vec::new();
@@ -925,6 +984,9 @@ fn set_accumulator_buffer_depth(ctx: &AccumulatorContext, depth: f64) {
         "accumulator" => ctx.name.clone(),
     )
     .set(depth);
+    // CLOACI-T-0744: mirror into the freshness probe so the polled health API
+    // reports the same gauge the Prometheus series carries.
+    ctx.output.set_buffer_depth(depth as u64);
 }
 
 /// Persist last-emitted boundary with sequence number to DAL (best-effort, logs on failure).
@@ -1030,6 +1092,14 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
         }
     }
 
+    // CLOACI-T-0744: state buffers were previously invisible to BOTH the
+    // Prometheus gauge and the health API — report depth (incl. the restored
+    // buffer) and the bounded capacity so the UI can render `N/capacity`.
+    set_accumulator_buffer_depth(&ctx, acc.buffer.len() as f64);
+    if acc.capacity > 0 {
+        ctx.output.set_buffer_capacity(acc.capacity as u64);
+    }
+
     set_health(&ctx, AccumulatorHealth::SocketOnly);
 
     let mut shutdown = ctx.shutdown.clone();
@@ -1050,6 +1120,7 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
                                 acc.buffer.pop_front();
                             }
                         }
+                        set_accumulator_buffer_depth(&ctx, acc.buffer.len() as f64);
 
                         // Persist to DAL
                         if let Some(ref handle) = ctx.checkpoint {
@@ -1822,6 +1893,53 @@ mod tests {
                 capacity
             );
         }
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    }
+
+    /// CLOACI-T-0744: the freshness probe reports the state buffer's live
+    /// depth and bounded capacity so the health API can render `N/capacity`.
+    #[tokio::test]
+    async fn test_state_accumulator_probe_reports_buffer_fill() {
+        let capacity = 5;
+        let (socket_tx, socket_rx) = mpsc::channel::<Vec<u8>>(32);
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(32);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+        let probe = FreshnessHandle::new();
+        let ctx = AccumulatorContext {
+            output: BoundarySender::with_freshness(
+                boundary_tx,
+                SourceName::new("state_probe"),
+                probe.clone(),
+            ),
+            name: "state_probe".to_string(),
+            shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
+        };
+        let acc = StateAccumulator::<serde_json::Value>::new(capacity);
+        let handle = tokio::spawn(state_accumulator_runtime(acc, ctx, socket_rx));
+
+        for v in [1_i64, 2, 3] {
+            socket_tx
+                .send(serde_json::to_vec(&serde_json::json!(v)).unwrap())
+                .await
+                .unwrap();
+            // Consume the emitted boundary so the ingest completed.
+            tokio::time::timeout(std::time::Duration::from_secs(2), boundary_rx.recv())
+                .await
+                .expect("boundary should arrive within 2s")
+                .expect("boundary channel open");
+        }
+
+        assert_eq!(probe.buffer_depth(), Some(3), "3 ingests -> depth 3");
+        assert_eq!(
+            probe.buffer_capacity(),
+            Some(5),
+            "bounded capacity reported"
+        );
+        assert_eq!(probe.events_total(), 3);
 
         shutdown_tx.send(true).unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;

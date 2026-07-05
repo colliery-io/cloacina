@@ -46,6 +46,17 @@ pub struct AccumulatorStatus {
     /// Total boundaries emitted since load (monotonic). `None` when untracked.
     #[serde(default)]
     pub events_total: Option<u64>,
+    /// Buffered-event count for buffering kinds — batch (events awaiting flush)
+    /// and state (window entries). `None` for kinds that don't buffer
+    /// (passthrough/stream/polling) or runtimes predating the gauge
+    /// (CLOACI-T-0744).
+    #[serde(default)]
+    pub buffer_depth: Option<u64>,
+    /// Declared buffer capacity for bounded kinds — state `capacity = N`, batch
+    /// `max_buffer_size`. `None` when unbounded or not applicable. The UI
+    /// renders `buffer_depth/buffer_capacity` as fill (CLOACI-T-0744).
+    #[serde(default)]
+    pub buffer_capacity: Option<u64>,
     /// Degradation detail when the source is unhealthy (e.g. connection error).
     #[serde(default)]
     pub error: Option<String>,
