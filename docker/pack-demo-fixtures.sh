@@ -92,6 +92,10 @@ pack_rust_rel mixed-rust
 #     one operator "fire" fans out to both. Publisher (declares the trigger) must
 #     pack/register before the subscriber; "demo-fanout-rust" sorts before
 #     "demo-fanout-sub-rust" and the harness uploads in sorted order. ---
+# --- Poll trigger (Rust) — a 30s poll_interval trigger so the Triggers view
+#     shows the poll-driven kind alongside cron + manual (CLOACI-T-0664). ---
+pack_rust_ws demo-poll-rust
+
 pack_rust_ws demo-fanout-rust
 pack_rust_ws demo-fanout-sub-rust
 

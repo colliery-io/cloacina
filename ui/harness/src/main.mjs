@@ -246,6 +246,20 @@ async function seed(client) {
   const liveId = await executeReady(client, cfg.slowWorkflow, {});
   log(`in-flight-run: ${liveId} (left running at natural pace)`);
 
+  // 4) MANUAL TRIGGER FIRE (CLOACI-T-0664) — fire the manual-only
+  //    `settlement_close` trigger once so the demo shows an operator fire
+  //    fanning out to its subscribed workflows (gold "manual" pill on the
+  //    started runs). Best-effort: the fan-out packages may still be
+  //    compiling on a cold stack; a miss is logged, not fatal.
+  try {
+    await client.fireTrigger("settlement_close", {
+      event: { region: "eu-west", as_of_date: new Date().toISOString().slice(0, 10) },
+    });
+    log("manual-fire: settlement_close → fanned out to subscribed workflows");
+  } catch (err) {
+    log(`manual-fire: settlement_close skipped (${err?.message ?? err})`);
+  }
+
   log("seed complete:");
   log(`  completed = ${doneId} (${doneStatus})`);
   log(`  failed    = ${failId} (${failStatus})`);
