@@ -4,7 +4,7 @@ level: task
 title: "Fires log renders state-accumulator windows as null — capture_fire_inputs only decodes passthrough frames"
 short_code: "CLOACI-T-0842"
 created_at: 2026-07-05T22:47:18.558543+00:00
-updated_at: 2026-07-05T22:54:28.088539+00:00
+updated_at: 2026-07-05T22:59:18.794443+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,6 +51,8 @@ Emit state windows in the SAME shape passthrough events use: `bincode(Vec<u8>)` 
   1. Inject events into a state accumulator (e.g. `py_window`, capacity 5) until its reactor fires.
   2. `GET /v1/health/reactors/<reactor>/fires` → the state source renders `inputs: null`.
 - **Expected vs Actual**: expected the bounded window as a JSON array; actual `null` (and empty node inputs on the py side).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -126,4 +128,9 @@ Emit state windows in the SAME shape passthrough events use: `bincode(Vec<u8>)` 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-05 — FIXED + LIVE-PROVEN (branch fix/t0842-fires-log-state-windows, commit 96774394)
+First attempt (decode `bincode(Vec<Value>)` in `capture_fire_inputs`) was DISPROVEN by its own regression test — bincode cannot deserialize `Value` at all (the runtime tests that seemed to contradict this decode `Vec<i64>`, not `Value`). That proved the wire format itself was write-only and forced the correct fix at the EMIT side: `state_window_frame()` ships the window as `bincode(Vec<u8>)` of the JSON array (the passthrough shape) at both emit sites; every existing decoder then just works. The Python executor's input loop — which could never decode ANY frame shape via `get::<Value>` — now decodes the real wire (`get::<Vec<u8>>` + JSON parse), so py CG nodes receive accumulator inputs for the first time.
+
+**Tests**: `capture_fire_inputs_decodes_state_windows_and_passthrough` (both shapes), state runtime tests updated to the new wire, CG suite 46/46.
+
+**LIVE PROOF (demo stack)**: five injects into `py_window` (capacity 5) → `demo_py_state_rx` fires show the window GROWING in the fires log — `"inputs":{"py_window":[{"value":1.0},…,{"value":4.0}]}` then `[…,{"value":5.0}]` — previously an unbroken column of `null`. All ACs met. COMPLETE.
