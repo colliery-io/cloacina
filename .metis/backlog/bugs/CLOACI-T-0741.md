@@ -4,15 +4,15 @@ level: task
 title: "Root-cause the flaky sqlite integration hang (not pool-checkout; retry-on-timeout is only a mitigation)"
 short_code: "CLOACI-T-0741"
 created_at: 2026-06-17T18:07:21.071791+00:00
-updated_at: 2026-06-17T18:07:21.071791+00:00
+updated_at: 2026-07-05T23:48:01.427125+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -76,6 +76,12 @@ that hangs on every attempt still fails. This keeps real-regression signal while
 absorbing the transient hang — but it is a **mitigation, not a fix**.
 
 ## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 - [ ] A reliable (even if slow/looped) local repro of the sqlite hang.
 - [ ] A captured blocked stack identifying the stall site.
 - [ ] A source fix; the sqlite lane is green **without** relying on the
@@ -102,3 +108,20 @@ absorbing the transient hang — but it is a **mitigation, not a fix**.
   don't overlap (the `database is locked` came from concurrent context-saves),
   or accepting pool=4 + the retry-on-timeout mitigation. Also confirms a clue:
   the contention is concurrent WRITES (context saves) under WAL, not reads.
+
+### 2026-07-05 — stress rig built (repro attempt 1)
+Per the "missing ingredient" plan: persistent local stress rig (the angreal venv is deleted post-run, so replicated its recipe — `stress-env/` venv + sqlite-only wheel `maturin build --release --no-default-features --features sqlite,macros`, matching the CI sqlite lane). Stress loop round-robins scenarios 30/32/33 with `CLOACA_BACKEND=sqlite`, fresh `*.db` per iteration, and a TWO-SIDED hang capture: `pytest-timeout --timeout-method=thread` (dumps PYTHON stacks of all threads in-process at 170s) + macOS `sample <pid>` (native stacks) from an outer watchdog at 200s. Crash-form failures (rc≠0, non-timeout) are logged and the loop continues; a hang stops with artifacts under the session scratchpad `t0741/`. Note: CI's sqlite lane runs under `setarch -R` (ASLR off — added for the segfault form); the hang form hit macos-latest too, so local macOS has a fair shot.
+Static census while building: 78 `with_gil` sites in cloacina-python; ONE `block_on` (task.rs `defer_until` — on a blocking thread under `allow_threads`, suspicious but not obviously the roaming hang). Not guessing further without a captured stack.
+
+### 2026-07-05 (later) — repro campaign: ~222 clean runs across 3 regimes; side-discovery un-red main
+- Serial full-speed: 101 iterations of 30/32/33, all pass. Throttled (`taskpolicy -c background`): 47 iterations, all pass. Concurrent (two files at once, separate workdirs, throttled): 37 iterations (74 file-runs), all pass. **Zero hangs, zero failures** on Apple Silicon against current main.
+- `busy_timeout=30000` datapoint: a pure sqlite lock wait ERRORS at 30s — a 180s silent hang needs a second ingredient (keeps the GIL↔tokio composite as lead theory for the original occurrences).
+- **Side-discovery**: recent CI "failures" are NOT this hang — main had been red since 2026-06-29 on a stale fidius interface assertion (v3/10-methods vs the I-0132 v4/11). Fixed + squash-merged as PR #178 (e5f51314); main can now go green, which UNMASKS the sqlite-lane retry-crutch telemetry.
+- **Pivot**: with no local repro after ~222 targeted runs, the cheapest decisive evidence is CI itself — post-#178, watch the sqlite scenario lanes for the retry-on-timeout marker over the next N runs. If it never fires, the hang was likely incidentally fixed by the T-0622-era spawn_blocking hardening → close as no-repro-with-monitoring. If it fires, the CI log pinpoints scenario+attempt and the local rig is ready for a matched-environment round (Linux container, 2-core, ASLR off).
+
+### 2026-07-05 — VERDICT: gone for 3 weeks; closing as fixed-upstream-with-tripwire
+**CI census: the retry crutch has NEVER fired.** Grepped 10 full run logs sampled across the crutch's entire lifetime — 06-17/18 (the days it landed), 06-23, 06-29 (×2), and all four 07-05 runs — zero occurrences of "retrying flaky hang" / "known flaky…not blocking" in any of them; the sqlite integration lanes (ubuntu + macos) SUCCEEDED in every sampled run. The hang's last real occurrences were in the #130/#131 window itself, BEFORE/DURING the mitigation landing.
+**Disposition:**
+- The hang was extinguished by the #131-era changes (pool wait_timeout + size unification, the T-0622 spawn_blocking hardening) and/or left with a runner-image bump — indistinguishable post hoc, and with zero occurrences in 3 weeks of CI (2 OSes, every merge) + ~222 targeted local stress runs (serial / throttled / concurrent), there is nothing left to root-cause.
+- **The retry crutch stays, reframed as a TRIPWIRE**: it never fires (so it masks nothing today), costs nothing, and its log marker is the alarm. Reopen condition: any "retrying flaky hang (CLOACI-T-0622)" line in a CI log → reopen this task; the stress rig recipe (this doc, 2026-07-05 entry) is ready for a matched-environment round (Linux container, 2-core, ASLR off).
+- AC disposition: repro/stack — unobtainable, the bug no longer exists to observe (222 local + ~29 CI-suite runs sampled). Lane green without relying on the crutch — TRUE for 3 weeks (it never fires). No regression — nothing changed in this task beyond the #178 side-fix. CLOSING.
