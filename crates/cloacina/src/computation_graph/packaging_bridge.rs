@@ -678,20 +678,31 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
             .accumulator_names
             .iter()
             .map(|acc_name| {
-                let factory: Arc<dyn AccumulatorFactory> = match accumulator_overrides
+                // CLOACI-T-0839 precedence: manifest override (deployment wins)
+                // → authored spec carried on the registration → passthrough.
+                // The authored-spec fallback closes the gap where a
+                // runtime-registered reactor's state/stream accumulators
+                // silently degraded to passthrough (this site only had names).
+                let (acc_type, acc_config) = match accumulator_overrides
                     .iter()
                     .find(|cfg| &cfg.name == acc_name)
                 {
-                    Some(override_cfg) => match override_cfg.accumulator_type.as_str() {
-                        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
-                            override_cfg.config.clone(),
-                        )),
-                        "state" => Arc::new(StateAccumulatorFactory::new(
-                            state_capacity_from_config(&override_cfg.config),
-                        )),
-                        _ => Arc::new(PassthroughAccumulatorFactory),
+                    Some(cfg) => (cfg.accumulator_type.clone(), cfg.config.clone()),
+                    None => match registration
+                        .accumulator_specs
+                        .iter()
+                        .find(|spec| &spec.name == acc_name)
+                    {
+                        Some(spec) => (spec.accumulator_type.clone(), spec.config.clone()),
+                        None => ("passthrough".to_string(), Default::default()),
                     },
-                    None => Arc::new(PassthroughAccumulatorFactory),
+                };
+                let factory: Arc<dyn AccumulatorFactory> = match acc_type.as_str() {
+                    "stream" => Arc::new(StreamBackendAccumulatorFactory::new(acc_config)),
+                    "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
+                        &acc_config,
+                    ))),
+                    _ => Arc::new(PassthroughAccumulatorFactory),
                 };
                 AccumulatorDeclaration {
                     name: acc_name.clone(),

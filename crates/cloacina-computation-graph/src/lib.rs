@@ -394,6 +394,20 @@ pub struct ReactorConstructorRef {
     pub grants: Vec<(String, Vec<String>)>,
 }
 
+/// The authored KIND + config of one accumulator a reactor consumes
+/// (CLOACI-T-0839). Carried on [`ReactorRegistration`] so runtime-walking
+/// load paths (notably packaged Python, where `@cloaca.state_accumulator`
+/// is the only declaration) can spawn the right accumulator runtime instead
+/// of defaulting to passthrough. `config` is the same String-keyed map the
+/// manifest override channel uses (e.g. `capacity` for state accumulators).
+#[derive(Debug, Clone)]
+pub struct AccumulatorSpec {
+    pub name: String,
+    /// "passthrough" | "stream" | "polling" | "batch" | "state".
+    pub accumulator_type: String,
+    pub config: std::collections::HashMap<String, String>,
+}
+
 /// Runtime-side description of a reactor.
 ///
 /// Populated by the `#[reactor]` macro's emitted inventory entry.
@@ -401,6 +415,12 @@ pub struct ReactorConstructorRef {
 pub struct ReactorRegistration {
     pub name: String,
     pub accumulator_names: Vec<String>,
+    /// Authored accumulator kinds/configs for (a subset of) `accumulator_names`
+    /// (CLOACI-T-0839). Empty on paths where the kind travels out-of-band
+    /// (Rust packaged reactors carry it in the FFI metadata); populated by the
+    /// Python `@cloaca.reactor` path from the module's accumulator decorators.
+    /// Consumers fall back to manifest overrides, then passthrough.
+    pub accumulator_specs: Vec<AccumulatorSpec>,
     pub reaction_mode: ReactionMode,
     /// Optional packaged WASM reactor-constructor reference (CLOACI-T-0830).
     /// `Some(..)` makes the WASM guest's `evaluate` the reactor's firing

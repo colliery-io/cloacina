@@ -709,15 +709,27 @@ pub async fn inject_accumulator(
         }
     }
 
-    // Serialize the typed JSON event to the boundary wire encoding server-side.
-    let boundary = match encode_boundary_input(&req.event) {
+    // CLOACI-T-0839: deliver RAW JSON bytes — the accumulator SOCKET contract
+    // (what the WS producer path sends and what every accumulator runtime
+    // decodes: state's serde_json::from_slice, batch's buffered events, and
+    // passthrough — whose own emit adds the one boundary-frame wrap).
+    // Pre-wrapping in the boundary frame here (the old behavior) double-encoded
+    // through passthrough (the fires log showed undecodable `inputs: null`)
+    // and made state/batch accumulators reject the event outright
+    // ("deserialize error: expected value"). The frame encoding remains
+    // correct for the reactor `fire_with` path, which feeds the boundary
+    // CACHE, not an accumulator socket.
+    let event = match serde_json::to_vec(&req.event) {
         Ok(b) => b,
-        Err(e) => return ApiError::bad_request("invalid_input", e).into_response(),
+        Err(e) => {
+            return ApiError::bad_request("invalid_input", format!("encode event: {}", e))
+                .into_response()
+        }
     };
 
     match state
         .endpoint_registry
-        .send_to_accumulator(&name, boundary)
+        .send_to_accumulator(&name, event)
         .await
     {
         Ok(delivered) => {
