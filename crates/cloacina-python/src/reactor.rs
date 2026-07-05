@@ -128,13 +128,42 @@ pub fn reactor(
             let reg_name = name_clone.clone();
             let reg_accs = accumulators_clone.clone();
             let reg_mode = reaction_mode;
-            rt.register_reactor(reg_name.clone(), move || ReactorRegistration {
-                name: reg_name.clone(),
-                accumulator_names: reg_accs.clone(),
-                reaction_mode: reg_mode,
-                // CLOACI-T-0830: the Python reactor path doesn't (yet) author
-                // WASM reactor constructors — native dirty-flag firing only.
-                constructor: None,
+            rt.register_reactor(reg_name.clone(), move || {
+                // CLOACI-T-0839: carry the module's authored accumulator kinds
+                // (`@cloaca.state_accumulator(capacity=N)` etc.) on the
+                // registration, so runtime-walking load paths (packaged Python
+                // via the reconciler) spawn the right accumulator runtime
+                // instead of defaulting to passthrough. Resolved lazily — by
+                // the time anyone calls `get_reactor`, all module decorators
+                // have run regardless of declaration order.
+                let accumulator_specs = crate::computation_graph::get_registered_accumulators()
+                    .into_iter()
+                    .filter(|areg| reg_accs.contains(&areg.name))
+                    .map(|areg| {
+                        let mut config = areg.config.clone();
+                        // state capacity rides the config map (the same key
+                        // `state_capacity_from_config` reads host-side).
+                        if areg.accumulator_type == "state" {
+                            config
+                                .entry("capacity".to_string())
+                                .or_insert_with(|| areg.capacity.to_string());
+                        }
+                        cloacina_computation_graph::AccumulatorSpec {
+                            name: areg.name,
+                            accumulator_type: areg.accumulator_type,
+                            config,
+                        }
+                    })
+                    .collect();
+                ReactorRegistration {
+                    name: reg_name.clone(),
+                    accumulator_names: reg_accs.clone(),
+                    accumulator_specs,
+                    reaction_mode: reg_mode,
+                    // CLOACI-T-0830: the Python reactor path doesn't (yet) author
+                    // WASM reactor constructors — native dirty-flag firing only.
+                    constructor: None,
+                }
             });
 
             tracing::debug!(

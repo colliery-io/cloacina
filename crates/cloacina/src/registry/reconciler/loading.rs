@@ -1374,10 +1374,22 @@ impl RegistryReconciler {
                 .accumulator_names
                 .iter()
                 .map(|acc_name| {
+                    // CLOACI-T-0839 precedence: manifest override (deployment
+                    // wins) → authored spec carried on the registration (e.g.
+                    // Python's `@cloaca.state_accumulator`) → passthrough.
+                    // Before the authored-spec fallback existed, packaged
+                    // Python state/stream accumulators silently degraded to
+                    // passthrough here.
                     let (accumulator_type, config) = accumulator_overrides
                         .iter()
                         .find(|cfg| &cfg.name == acc_name)
                         .map(|cfg| (cfg.accumulator_type.clone(), cfg.config.clone()))
+                        .or_else(|| {
+                            reg.accumulator_specs
+                                .iter()
+                                .find(|spec| &spec.name == acc_name)
+                                .map(|spec| (spec.accumulator_type.clone(), spec.config.clone()))
+                        })
                         .unwrap_or_else(|| ("passthrough".to_string(), Default::default()));
                     AccumulatorDeclarationEntry {
                         name: acc_name.clone(),
@@ -2403,6 +2415,7 @@ mod tests {
             cloacina_computation_graph::ReactorRegistration {
                 name: "py_reactor".to_string(),
                 accumulator_names: vec!["src_a".to_string(), "src_b".to_string()],
+                accumulator_specs: vec![],
                 reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
                 constructor: None,
             }
@@ -2432,6 +2445,7 @@ mod tests {
             cloacina_computation_graph::ReactorRegistration {
                 name: "preexisting".to_string(),
                 accumulator_names: vec!["x".to_string()],
+                accumulator_specs: vec![],
                 reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
                 constructor: None,
             }
@@ -2456,6 +2470,7 @@ mod tests {
             cloacina_computation_graph::ReactorRegistration {
                 name: "py_reactor".to_string(),
                 accumulator_names: vec!["topic_a".to_string()],
+                accumulator_specs: vec![],
                 reaction_mode: cloacina_computation_graph::ReactionMode::WhenAll,
                 constructor: None,
             }
@@ -2477,6 +2492,62 @@ mod tests {
         assert_eq!(acc.accumulator_type, "stream");
         assert_eq!(acc.config.get("topic").map(|s| s.as_str()), Some("events"));
         assert_eq!(view.reactors[0].reaction_mode, "when_all");
+    }
+
+    /// CLOACI-T-0839: an AUTHORED accumulator spec carried on the runtime
+    /// registration (e.g. Python's `@cloaca.state_accumulator(capacity=5)`)
+    /// must reach the view when no manifest override exists — previously this
+    /// silently degraded to passthrough. A manifest override still wins.
+    #[tokio::test]
+    async fn build_view_python_honors_authored_accumulator_specs() {
+        let reconciler = make_test_reconciler();
+        let runtime = runtime_of(&reconciler);
+        runtime.register_reactor("py_state_rx".to_string(), || {
+            let mut config = std::collections::HashMap::new();
+            config.insert("capacity".to_string(), "5".to_string());
+            cloacina_computation_graph::ReactorRegistration {
+                name: "py_state_rx".to_string(),
+                accumulator_names: vec!["py_window".to_string(), "overridden".to_string()],
+                accumulator_specs: vec![
+                    cloacina_computation_graph::AccumulatorSpec {
+                        name: "py_window".to_string(),
+                        accumulator_type: "state".to_string(),
+                        config,
+                    },
+                    cloacina_computation_graph::AccumulatorSpec {
+                        name: "overridden".to_string(),
+                        accumulator_type: "state".to_string(),
+                        config: Default::default(),
+                    },
+                ],
+                reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
+                constructor: None,
+            }
+        });
+
+        // Deployment override on the SECOND accumulator — it must beat the
+        // authored spec; the first accumulator uses its authored spec.
+        let overrides = vec![cloacina_workflow_plugin::types::AccumulatorConfig {
+            name: "overridden".to_string(),
+            accumulator_type: "passthrough".to_string(),
+            config: Default::default(),
+        }];
+
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("py-pkg", &pre_r, &pre_t, &pre_g, &overrides);
+        assert_eq!(view.reactors.len(), 1);
+        let accs = &view.reactors[0].accumulators;
+        let window = accs.iter().find(|a| a.name == "py_window").unwrap();
+        assert_eq!(
+            window.accumulator_type, "state",
+            "authored spec must not degrade to passthrough"
+        );
+        assert_eq!(window.config.get("capacity").map(|s| s.as_str()), Some("5"));
+        let overridden = accs.iter().find(|a| a.name == "overridden").unwrap();
+        assert_eq!(
+            overridden.accumulator_type, "passthrough",
+            "manifest override must beat the authored spec"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -3058,6 +3129,7 @@ mod tests {
             cloacina_computation_graph::ReactorRegistration {
                 name: "ephemeral_rx".to_string(),
                 accumulator_names: vec!["alpha".to_string()],
+                accumulator_specs: vec![],
                 reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
                 constructor: None,
             }

@@ -280,3 +280,60 @@ class OnlyRx:
         });
     assert_eq!(dispatched, vec!["m3a_only_rx".to_string()]);
 }
+
+/// CLOACI-T-0839: the `@cloaca.reactor` registration carries the module's
+/// AUTHORED accumulator kinds (`@cloaca.state_accumulator(capacity=N)`), so
+/// runtime-walking load paths (packaged Python via the reconciler) spawn the
+/// right accumulator runtime instead of silently degrading to passthrough.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reactor_registration_carries_authored_accumulator_specs() {
+    pyo3::prepare_freethreaded_python();
+
+    let rt = Arc::new(cloacina::Runtime::empty());
+    let _scope = ScopedRuntime::new(rt.clone()).unwrap();
+
+    Python::with_gil(|py| {
+        let locals = pyo3::types::PyDict::new(py);
+        locals
+            .set_item(
+                "reactor",
+                pyo3::wrap_pyfunction!(py_reactor::reactor, py).unwrap(),
+            )
+            .unwrap();
+        locals
+            .set_item(
+                "state_accumulator",
+                pyo3::wrap_pyfunction!(
+                    cloacina_python::computation_graph::state_accumulator_decorator,
+                    py
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        py.run(
+            c_str!(
+                r#"
+@state_accumulator(capacity=5)
+def spec_window(event):
+    return event
+
+@reactor(name="spec_rx", accumulators=["spec_window"], mode="when_any")
+class SpecRx: pass
+"#
+            ),
+            None,
+            Some(&locals),
+        )
+        .unwrap();
+    });
+
+    let reg = rt.get_reactor("spec_rx").expect("reactor registered");
+    let spec = reg
+        .accumulator_specs
+        .iter()
+        .find(|s| s.name == "spec_window")
+        .expect("authored accumulator spec carried on the registration");
+    assert_eq!(spec.accumulator_type, "state");
+    assert_eq!(spec.config.get("capacity").map(|s| s.as_str()), Some("5"));
+}

@@ -4,15 +4,15 @@ level: task
 title: "Packaged Python state/stream accumulators silently degrade to passthrough server-side (names-only reactor dispatch drops accumulator_type)"
 short_code: "CLOACI-T-0839"
 created_at: 2026-07-05T16:08:11.000964+00:00
-updated_at: 2026-07-05T16:08:11.000964+00:00
+updated_at: 2026-07-05T17:02:57.060280+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -59,6 +59,10 @@ Thread the Python accumulator registrations through to the dispatch: either (a) 
   2. `POST /v1/health/accumulators/py_window/inject` ×3 with `{"event": {"bid": 1.5, "ask": 1.9}}`.
   3. Observe `cloacina_accumulator_buffer_depth{accumulator="py_window"}` stays 0 and the reactor receives per-event fires, not growing windows.
 - **Expected vs Actual**: expected a capacity-5 window (boundary = list, evicting oldest); actual passthrough (boundary = single event, no state, no persistence).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -130,4 +134,9 @@ Thread the Python accumulator registrations through to the dispatch: either (a) 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-05 — implementation (branch fix/t0839-py-state-accumulator-dispatch), option (b)
+Chose the registration-enrichment shape: new `AccumulatorSpec { name, accumulator_type, config }` in cloacina-computation-graph + `ReactorRegistration.accumulator_specs: Vec<AccumulatorSpec>` (empty on paths where the kind travels out-of-band — Rust packaged reactors use FFI metadata; 17 construction sites updated).
+- **Producer** (cloacina-python `reactor.rs`): the `@cloaca.reactor` registration closure resolves specs LAZILY from `get_registered_accumulators()` (so decorator order doesn't matter), folding state `capacity` into the config map under the same key `state_capacity_from_config` reads.
+- **Consumers**: `build_view_python` (loading.rs) and the names-only `dispatch_runtime_reactors_into_scheduler` (packaging_bridge.rs:664 site) now resolve with precedence **manifest override (deployment wins) → authored spec → passthrough**.
+- **Tests**: `build_view_python_honors_authored_accumulator_specs` (authored state spec survives; override still beats it) — reconciler lib suite green; new producer-side test `test_reactor_registration_carries_authored_accumulator_specs` (py decorators → registration carries state/capacity=5) in python_reactor_library. cloacina-python + macros + computation-graph check clean.
+Remaining: integration-tests compile check, full py test suite, live demo re-verify (py_window N/5 — also closes T-0744's deferred AC), commit/PR.

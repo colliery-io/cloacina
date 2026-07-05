@@ -457,6 +457,7 @@ fn reactor_impl(
                 constructor: || #cg_path::ReactorRegistration {
                     name: #reactor_name_lit.to_string(),
                     accumulator_names: vec![#(#accumulator_strs.to_string()),*],
+                    accumulator_specs: ::std::vec::Vec::new(),
                     reaction_mode: #cg_path::ReactionMode::#mode_variant,
                     constructor: #lib_constructor_ref,
                 },
@@ -470,6 +471,7 @@ fn reactor_impl(
                 constructor: || #cg_path::ReactorRegistration {
                     name: #reactor_name_lit.to_string(),
                     accumulator_names: vec![#(#accumulator_strs.to_string()),*],
+                    accumulator_specs: ::std::vec::Vec::new(),
                     reaction_mode: #cg_path::ReactionMode::#mode_variant,
                     constructor: ::std::option::Option::None,
                 },

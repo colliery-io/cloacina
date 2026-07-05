@@ -2180,6 +2180,7 @@ async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
     let reactor_reg = ReactorRegistration {
         name: "cloaci_t_0538_reactor_split".to_string(),
         accumulator_names: vec!["alpha".to_string()],
+        accumulator_specs: vec![],
         reaction_mode: ComputationReactionMode::WhenAny,
         constructor: None,
     };
@@ -2274,6 +2275,7 @@ async fn test_cloaci_t_0538_split_missing_accumulator_fails() {
     let reactor_reg = ReactorRegistration {
         name: "cloaci_t_0538_broken_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
+        accumulator_specs: vec![],
         reaction_mode: ComputationReactionMode::WhenAny,
         constructor: None,
     };
@@ -2337,6 +2339,7 @@ async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
     let reactor_reg = ReactorRegistration {
         name: "cloaci_t_0544_shared_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
+        accumulator_specs: vec![],
         reaction_mode: ComputationReactionMode::WhenAny,
         constructor: None,
     };
@@ -2437,6 +2440,7 @@ async fn test_cloaci_t_0544_contract_mismatch_rejected() {
     let reactor_v1 = ReactorRegistration {
         name: "cloaci_t_0544_clash".to_string(),
         accumulator_names: vec!["alpha".to_string()],
+        accumulator_specs: vec![],
         reaction_mode: ComputationReactionMode::WhenAny,
         constructor: None,
     };
@@ -2458,6 +2462,7 @@ async fn test_cloaci_t_0544_contract_mismatch_rejected() {
     let reactor_v2 = ReactorRegistration {
         name: "cloaci_t_0544_clash".to_string(),
         accumulator_names: vec!["alpha".to_string()],
+        accumulator_specs: vec![],
         reaction_mode: ComputationReactionMode::WhenAll,
         constructor: None,
     };
@@ -2549,6 +2554,7 @@ async fn test_cloaci_t_0544_dispatch_is_concurrent() {
     let reactor_reg = ReactorRegistration {
         name: "cloaci_t_0544_concurrent_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
+        accumulator_specs: vec![],
         reaction_mode: ComputationReactionMode::WhenAny,
         constructor: None,
     };
@@ -2774,6 +2780,7 @@ async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
     let reactor_reg = ReactorRegistration {
         name: "cloaci_t_0544_unbind_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
+        accumulator_specs: vec![],
         reaction_mode: ComputationReactionMode::WhenAny,
         constructor: None,
     };
@@ -2848,6 +2855,7 @@ async fn test_cloaci_t_0544_unload_reactor_rejects_with_subscribers() {
     let reactor_reg = ReactorRegistration {
         name: "cloaci_t_0544_busy_reactor".to_string(),
         accumulator_names: vec!["alpha".to_string()],
+        accumulator_specs: vec![],
         reaction_mode: ComputationReactionMode::WhenAny,
         constructor: None,
     };
@@ -2914,6 +2922,7 @@ async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
         cloacina::ReactorRegistration {
             name: "cloaci_t_0538_reactor_split".to_string(),
             accumulator_names: vec!["alpha".to_string()],
+            accumulator_specs: vec![],
             reaction_mode: cloacina::ComputationReactionMode::WhenAny,
             constructor: None,
         }
