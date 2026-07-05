@@ -96,6 +96,39 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         self.loaded_packages.len()
     }
 
+    /// Persist the bundled constructor providers a build produced for a package
+    /// (CLOACI-T-0836): one `package_providers` row per provider, each carrying
+    /// the packed `.cloacina` archive the reconciler unpacks at load. Called by
+    /// the compiler after a successful Rust build that discovered `constructor!`
+    /// `from` references. `providers` is `(provider_name, provider_version,
+    /// archive_bytes)`.
+    pub async fn store_package_providers(
+        &self,
+        package_name: &str,
+        version: &str,
+        providers: Vec<(String, String, Vec<u8>)>,
+    ) -> Result<(), RegistryError> {
+        use sha2::{Digest, Sha256};
+        let dal = crate::dal::DAL::new(self.database.clone());
+        for (provider_name, provider_version, archive) in providers {
+            let mut hasher = Sha256::new();
+            hasher.update(&archive);
+            let content_hash = format!("{:x}", hasher.finalize());
+            dal.workflow_packages()
+                .upsert_provider(
+                    package_name,
+                    version,
+                    None,
+                    &provider_name,
+                    &provider_version,
+                    &content_hash,
+                    archive,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Get the total number of registered tasks across all packages.
     pub fn total_registered_tasks(&self) -> usize {
         self.loaded_packages.values().map(|tasks| tasks.len()).sum()
@@ -639,6 +672,25 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
                 package_hash, e
             ))),
         }
+    }
+
+    /// Bundled constructor providers for a package (CLOACI-T-0836): queries
+    /// `package_providers` (stored tenant-neutral, like per-target artifacts) and
+    /// returns each provider's packed archive for the reconciler to unpack.
+    async fn get_package_providers(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>, RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        let rows = dal
+            .workflow_packages()
+            .get_providers_for_package(package_name, version, None)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.provider_name, r.provider_data.into_inner()))
+            .collect())
     }
 }
 

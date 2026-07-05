@@ -386,6 +386,12 @@ pub struct ReactorConstructorRef {
     pub constructor: String,
     /// Author config as `(name, value)` pairs in written order; bound by name.
     pub config: Vec<(String, serde_json::Value)>,
+    /// Tenant capability grants as raw `(kind, patterns)` pairs (kinds: `http`,
+    /// `tcp`, `fs`, `env`) — the `grants = { .. }` literal from the reactor's
+    /// consumer surface (CLOACI-T-0834). Carried opaquely (like `config`) and
+    /// translated to a fidius `EgressPolicy` + capability allow-list at load.
+    /// Empty ⇒ default-closed (the constructor reaches nothing).
+    pub grants: Vec<(String, Vec<String>)>,
 }
 
 /// Runtime-side description of a reactor.

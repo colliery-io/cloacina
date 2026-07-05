@@ -1,22 +1,22 @@
 ---
-id: operators-reusable-polyglot
+id: constructors-reusable-polyglot
 level: initiative
 title: "Constructors — reusable polyglot configured-instance factories for cloacina primitives (task/trigger/accumulator/reactor)"
 short_code: "CLOACI-I-0132"
 created_at: 2026-06-28T23:53:34.203685+00:00
-updated_at: 2026-06-28T23:53:34.203685+00:00
+updated_at: 2026-07-04T03:34:53.522551+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
 estimated_complexity: XL
-initiative_id: operators-reusable-polyglot
+initiative_id: constructors-reusable-polyglot
 ---
 
 # Constructors — reusable polyglot configured-instance factories for cloacina primitives Initiative
@@ -151,3 +151,9 @@ constructor). Sketch:
 
 ## Child Tasks
 (Decomposed into the CLOACI-T-08xx tasks parented to this initiative — see below.)
+
+## Status (2026-07-04 — bookkeeping snapshot)
+**COMPLETED (Phases A + B + most of C):** T-0820 (fidius upgrade) · T-0821 (spike) · T-0822 (contract) · T-0823 (loader) · T-0824 (runtime execution) · T-0826 (authoring) · T-0827 (provider packaging) · T-0828 (acc/reactor execution) · T-0829 (consumption surface) · T-0830 (reactor→CG scheduler) · **T-0832** (packaged support — Step 5b live) · **T-0834** (capability layer, A-0009/S-0014) · **T-0836** (build-side bundling, A-0010/S-0015) · **T-0837** (provider-as-suite, A-0011).
+**Landmark:** the full packaged chain verified LIVE on the demo stack 7/7 — author → compile-time provider discovery+bundling → hermetic store → server resolution → grant-gated sandboxed execution (`constructor_demo` Completed). Both Rust (`constructor!`) and Python (`cloaca.constructor()`) consumer surfaces shipped. All on branch `feat/i0132-constructors` (~35 commits, in review).
+**REMAINING:** T-0825 (seed built-in provider library) · T-0831 (packaged-Python live demo; embedded surface DONE) · T-0833 (semver version pinning) · T-0835 (post-ABI-bump recompile signal — freshly motivated by the live stale-artifact episode) · **T-0838** (fleet/agent constructor execution — live finding #4).
+**ADRs decided:** A-0009 (capabilities) · A-0010 (Cargo distribution) · A-0011 (suites). Spec S-0015 drafting → should advance with T-0836 done.

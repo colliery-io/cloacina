@@ -110,6 +110,11 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
     module.add_class::<super::task::PyTaskHandle>()?;
     module.add_class::<super::task::TaskDecorator>()?;
 
+    // CLOACI-T-0831: packaged constructor-provider consumption (mirrors Rust's
+    // `constructor!`). Twin of the maturin `#[pymodule]` registration in lib.rs —
+    // keep BOTH in sync.
+    module.add_function(wrap_pyfunction!(super::constructor::constructor, &module)?)?;
+
     // CLOACI-T-0763: Python trigger-rule builders (parity with Rust's DSL).
     module.add_function(wrap_pyfunction!(
         super::trigger_rules::context_value,

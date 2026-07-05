@@ -55,6 +55,11 @@ struct ReactorArgs {
     from: Option<LitStr>,
     constructor: Option<LitStr>,
     config: Vec<(String, Expr)>,
+    /// CLOACI-T-0834: `grants = { http=[..], tcp=[..], fs=[..], env=[..] }` —
+    /// tenant capability grants for the reactor constructor, raw `(kind, patterns)`
+    /// pairs. Same grammar/lowering as the `constructor!(...)` consumer surface.
+    /// Only valid alongside a `constructor` reference.
+    grants: Vec<(String, Vec<String>)>,
 }
 
 impl std::fmt::Debug for ReactorArgs {
@@ -105,6 +110,7 @@ impl Parse for ReactorArgs {
         let mut from: Option<LitStr> = None;
         let mut constructor: Option<LitStr> = None;
         let mut config: Vec<(String, Expr)> = Vec::new();
+        let mut grants: Vec<(String, Vec<String>)> = Vec::new();
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -230,12 +236,18 @@ impl Parse for ReactorArgs {
                         }
                     }
                 }
+                "grants" => {
+                    // CLOACI-T-0834: same `grants = { kind=[..] }` grammar as
+                    // `constructor!(...)`, shared verbatim for cross-surface parity.
+                    grants = crate::workflow_attr::parse_grants_block(input)?;
+                }
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
                             "unknown field '{}' in #[reactor(...)] — expected 'name', \
-                             'accumulators', 'criteria', 'from', 'constructor', or 'config'",
+                             'accumulators', 'criteria', 'from', 'constructor', 'config', \
+                             or 'grants'",
                             other
                         ),
                     ));
@@ -295,6 +307,12 @@ impl Parse for ReactorArgs {
                 "#[reactor] 'config' is only valid alongside a 'constructor' reference",
             ));
         }
+        if constructor.is_none() && !grants.is_empty() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "#[reactor] 'grants' is only valid alongside a 'constructor' reference",
+            ));
+        }
 
         Ok(ReactorArgs {
             name,
@@ -305,6 +323,7 @@ impl Parse for ReactorArgs {
             from,
             constructor,
             config,
+            grants,
         })
     }
 }
@@ -386,11 +405,23 @@ fn reactor_impl(
             let cfg_pairs = parsed.config.iter().map(|(k, v)| {
                 quote! { (#k.to_string(), ::cloacina::serde_json::json!(#v)) }
             });
+            // CLOACI-T-0834: carry the tenant grants as raw `(kind, patterns)` pairs
+            // alongside config; the scheduler translates them to a fidius egress
+            // policy + capability allow-list at load.
+            let grant_pairs = parsed.grants.iter().map(|(kind, patterns)| {
+                quote! {
+                    (
+                        #kind.to_string(),
+                        ::std::vec![ #( #patterns.to_string() ),* ],
+                    )
+                }
+            });
             quote! {
                 ::std::option::Option::Some(#cg_path::ReactorConstructorRef {
                     from: #from_lit.to_string(),
                     constructor: #ctor_lit.to_string(),
                     config: ::std::vec![ #(#cfg_pairs),* ],
+                    grants: ::std::vec![ #(#grant_pairs),* ],
                 })
             }
         }

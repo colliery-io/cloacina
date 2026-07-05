@@ -113,9 +113,10 @@ impl LoadedGraphPlugin {
 /// `crate::computation_graph::packaging_bridge::METHOD_*` consumers don't
 /// have to change their import paths.
 pub use cloacina_workflow_plugin::{
-    METHOD_EXECUTE_GRAPH, METHOD_EXECUTE_TASK, METHOD_GET_GRAPH_METADATA,
-    METHOD_GET_REACTOR_METADATA, METHOD_GET_TASK_METADATA, METHOD_GET_TRIGGERLESS_GRAPH_METADATA,
-    METHOD_GET_TRIGGER_METADATA, METHOD_INVOKE_TRIGGERLESS_GRAPH, METHOD_INVOKE_TRIGGER_POLL,
+    METHOD_EXECUTE_GRAPH, METHOD_EXECUTE_TASK, METHOD_GET_CONSTRUCTOR_METADATA,
+    METHOD_GET_GRAPH_METADATA, METHOD_GET_REACTOR_METADATA, METHOD_GET_TASK_METADATA,
+    METHOD_GET_TRIGGERLESS_GRAPH_METADATA, METHOD_GET_TRIGGER_METADATA,
+    METHOD_INVOKE_TRIGGERLESS_GRAPH, METHOD_INVOKE_TRIGGER_POLL,
 };
 
 /// Call `get_reactor_metadata` (method index 4) on a loaded fidius plugin.
@@ -136,6 +137,24 @@ pub fn call_get_reactor_metadata(
         Ok(metadata) => Ok(metadata),
         Err(fidius_host::CallError::NotImplemented { .. }) => Ok(Vec::new()),
         Err(e) => Err(format!("get_reactor_metadata FFI call failed: {}", e)),
+    }
+}
+
+/// Call `get_constructor_metadata` (method index 10) on a loaded fidius plugin
+/// (CLOACI-T-0832). Returns the packaged workflow's declared `constructor!(...)`
+/// nodes for the host to resolve + inject. Plugins built before trait v4 return
+/// `CallError::NotImplemented` → `Ok(vec![])` ("package declares no constructor
+/// nodes"), so older packages keep loading unchanged.
+pub fn call_get_constructor_metadata(
+    handle: &fidius_host::PluginHandle,
+) -> Result<Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>, String> {
+    match handle.call_method::<(), Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>>(
+        METHOD_GET_CONSTRUCTOR_METADATA,
+        &(),
+    ) {
+        Ok(metadata) => Ok(metadata),
+        Err(fidius_host::CallError::NotImplemented { .. }) => Ok(Vec::new()),
+        Err(e) => Err(format!("get_constructor_metadata FFI call failed: {}", e)),
     }
 }
 

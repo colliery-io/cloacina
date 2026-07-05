@@ -118,7 +118,7 @@ fn stage(root: &Path) {
          [wasm]\ncomponent = \"reactor_constructor_fixture.wasm\"\n",
     )
     .unwrap();
-    std::fs::write(dir.join("constructor.json"), macro_manifest_json()).unwrap();
+    std::fs::write(dir.join("provider.json"), macro_manifest_json()).unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +209,7 @@ async fn reactor_constructor_fires_via_scheduler() {
                 from: PROVIDER_PACKAGE.to_string(),
                 constructor: "gate".to_string(),
                 config: vec![("gate".to_string(), serde_json::json!(5.0))],
+                grants: vec![],
             }),
         },
         tenant_id: None,
@@ -290,6 +291,7 @@ async fn reactor_constructor_name_mismatch_fails_closed() {
                 from: PROVIDER_PACKAGE.to_string(),
                 constructor: "not_the_gate".to_string(),
                 config: vec![("gate".to_string(), serde_json::json!(5.0))],
+                grants: vec![],
             }),
         },
         tenant_id: None,

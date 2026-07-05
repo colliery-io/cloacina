@@ -32,7 +32,7 @@
 #![allow(dead_code)]
 #![allow(unexpected_cfgs)]
 
-use cloacina_macros::constructor;
+use cloacina_macros::{constructor, constructor_provider};
 use constructor_contract::ConstructorError;
 
 /// Fires when ANY held boundary's numeric value crosses the configured `gate`.
@@ -74,3 +74,11 @@ impl Gate {
         }
     }
 }
+
+// The provider suite shell (CLOACI-A-0011): one member behind one component.
+constructor_provider!(
+    name = "gate",
+    version = "0.1.0",
+    contract = constructor_contract,
+    reactor = [Gate],
+);

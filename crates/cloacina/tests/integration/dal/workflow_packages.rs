@@ -550,3 +550,93 @@ async fn test_package_versioning() {
     assert_eq!(versioned_packages.len(), 1);
     assert_eq!(versioned_packages[0].version, "1.0.0");
 }
+
+/// CLOACI-T-0836: `package_providers` round-trip — run-verifies migration
+/// `create_package_providers` plus the upsert/get DAL pair. The archive bytes are
+/// opaque here (the reconciler unpacks real provider archives at load).
+#[tokio::test]
+async fn test_package_providers_upsert_and_get_round_trip() {
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    fixture.initialize().await;
+    fixture.reset_database().await;
+
+    let dal = fixture.get_dal();
+    let wp = dal.workflow_packages();
+
+    // Empty for a package with no bundled providers.
+    let none = wp
+        .get_providers_for_package("consumer-pkg", "0.1.0", None)
+        .await
+        .expect("get providers (empty)");
+    assert!(none.is_empty());
+
+    // Upsert two providers for one consumer package.
+    wp.upsert_provider(
+        "consumer-pkg",
+        "0.1.0",
+        None,
+        "cloacina-provider-fs",
+        "0.1.0",
+        "hash-a",
+        vec![1, 2, 3],
+    )
+    .await
+    .expect("upsert provider fs");
+    wp.upsert_provider(
+        "consumer-pkg",
+        "0.1.0",
+        None,
+        "cloacina-provider-http",
+        "0.2.0",
+        "hash-b",
+        vec![4, 5],
+    )
+    .await
+    .expect("upsert provider http");
+
+    let mut rows = wp
+        .get_providers_for_package("consumer-pkg", "0.1.0", None)
+        .await
+        .expect("get providers");
+    rows.sort_by(|a, b| a.provider_name.cmp(&b.provider_name));
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].provider_name, "cloacina-provider-fs");
+    assert_eq!(rows[0].provider_version, "0.1.0");
+    assert_eq!(rows[0].content_hash, "hash-a");
+    assert_eq!(rows[0].provider_data.as_slice(), &[1, 2, 3]);
+    assert_eq!(rows[1].provider_name, "cloacina-provider-http");
+
+    // Upsert REPLACES a rebuild's row for the same (package, provider).
+    wp.upsert_provider(
+        "consumer-pkg",
+        "0.1.0",
+        None,
+        "cloacina-provider-fs",
+        "0.1.1",
+        "hash-a2",
+        vec![9, 9, 9, 9],
+    )
+    .await
+    .expect("re-upsert provider fs");
+    let rows = wp
+        .get_providers_for_package("consumer-pkg", "0.1.0", None)
+        .await
+        .expect("get providers after re-upsert");
+    assert_eq!(rows.len(), 2, "replace, not accumulate");
+    let fs = rows
+        .iter()
+        .find(|r| r.provider_name == "cloacina-provider-fs")
+        .unwrap();
+    assert_eq!(fs.provider_version, "0.1.1");
+    assert_eq!(fs.provider_data.as_slice(), &[9, 9, 9, 9]);
+
+    // Other package versions see nothing.
+    let other = wp
+        .get_providers_for_package("consumer-pkg", "0.2.0", None)
+        .await
+        .expect("get providers other version");
+    assert!(other.is_empty());
+}

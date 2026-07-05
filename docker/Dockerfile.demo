@@ -82,6 +82,10 @@ RUN apt-get update \
         build-essential cmake libpq-dev libsasl2-dev libssl-dev pkg-config \
         git ca-certificates bzip2 python3 python3-dev \
  && rm -rf /var/lib/apt/lists/*
+# CLOACI-T-0836: constructor providers build to WASM components at package build
+# time (`pack_providers` → `cargo build --target wasm32-wasip2`), so the compiler
+# runtime needs the target.
+RUN rustup target add wasm32-wasip2
 COPY --from=builder /workspace /workspace
 COPY --from=builder /usr/local/bin/cloacina-compiler /usr/local/bin/cloacina-compiler
 COPY --from=builder /usr/local/bin/cloacinactl /usr/local/bin/cloacinactl

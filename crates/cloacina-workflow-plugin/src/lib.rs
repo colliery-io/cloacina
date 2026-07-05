@@ -42,23 +42,30 @@ pub mod inventory_entries;
 pub mod types;
 
 pub use inventory_entries::{
-    ComputationGraphEntry, ReactorEntry, TaskEntry, TriggerEntry, TriggerlessGraph,
-    TriggerlessGraphEntry, TriggerlessGraphFn, TriggerlessGraphRegistration,
+    ComputationGraphEntry, ConstructorEntry, ReactorEntry, TaskEntry, TriggerEntry,
+    TriggerlessGraph, TriggerlessGraphEntry, TriggerlessGraphFn, TriggerlessGraphRegistration,
     WorkflowDescriptorEntry,
 };
 
 // Re-export the interface types for convenience
 pub use types::{
-    AccumulatorDeclarationEntry, CloacinaMetadata, GraphExecutionRequest, GraphExecutionResult,
-    GraphPackageMetadata, InputInterfaceDescriptor, InputInterfaceEntry, PackageTasksMetadata,
-    ReactorPackageMetadata, TaskExecutionRequest, TaskExecutionResult, TaskMetadataEntry,
-    TriggerInvokeRequest, TriggerInvokeResult, TriggerPackageMetadata,
-    TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult, TriggerlessGraphMetadataEntry,
+    AccumulatorDeclarationEntry, CloacinaMetadata, ConstructorPackageMetadata,
+    GraphExecutionRequest, GraphExecutionResult, GraphPackageMetadata, InputInterfaceDescriptor,
+    InputInterfaceEntry, PackageTasksMetadata, ProviderDep, ReactorPackageMetadata,
+    TaskExecutionRequest, TaskExecutionResult, TaskMetadataEntry, TriggerInvokeRequest,
+    TriggerInvokeResult, TriggerPackageMetadata, TriggerlessGraphInvokeRequest,
+    TriggerlessGraphInvokeResult, TriggerlessGraphMetadataEntry,
 };
 
 // Re-export fidius crates so generated code can reference them
 pub use fidius;
 pub use fidius_core;
+
+// Re-export serde_json so the `#[workflow]` macro's PACKAGED `ConstructorEntry`
+// emission can lower `constructor!(config = { .. })` values via
+// `::cloacina_workflow_plugin::serde_json::json!` without the packaged cdylib
+// needing its own serde_json dependency (CLOACI-T-0832).
+pub use serde_json;
 
 // Re-export fidius modules needed by generated code when crate = "cloacina_workflow_plugin"
 pub use fidius_core::descriptor;
@@ -743,6 +750,44 @@ macro_rules! package {
 
                     Ok($crate::InputInterfaceDescriptor { entries })
                 }
+
+                // NOTE: the fidius vtable is built in IMPL-BLOCK order, and the
+                // host's METHOD_* index constants assume TRAIT-declaration order —
+                // new methods MUST be appended at the END of this impl (matching
+                // their position at the end of the trait), never inserted
+                // mid-block. Inserting `get_constructor_metadata` mid-block
+                // silently shifted methods 5-10 for every packaged cdylib (caught
+                // by the first live T-0836 exercise).
+                fn get_constructor_metadata(
+                    &self,
+                ) -> ::core::result::Result<
+                    ::std::vec::Vec<$crate::ConstructorPackageMetadata>,
+                    $crate::PluginError,
+                > {
+                    // CLOACI-T-0832: project each declared `constructor!(...)` node
+                    // into metadata the host resolves (it links the WASM loader; this
+                    // cdylib does not). Grants ride along for host-side enforcement.
+                    // Config values are JSON-ENCODED per value: `serde_json::Value`
+                    // cannot cross the bincode FFI wire (`deserialize_any`), so the
+                    // string form travels and the host parses it back.
+                    let mut out: ::std::vec::Vec<$crate::ConstructorPackageMetadata> =
+                        ::std::vec::Vec::new();
+                    for entry in $crate::inventory::iter::<$crate::ConstructorEntry> {
+                        out.push($crate::ConstructorPackageMetadata {
+                            workflow: entry.workflow.to_string(),
+                            id: entry.id.to_string(),
+                            from: entry.from.to_string(),
+                            constructor: entry.constructor.to_string(),
+                            config: (entry.config)()
+                                .into_iter()
+                                .map(|(k, v)| (k, v.to_string()))
+                                .collect(),
+                            grants: (entry.grants)(),
+                            dependencies: (entry.dependencies)(),
+                        });
+                    }
+                    Ok(out)
+                }
             }
 
             $crate::fidius_plugin_registry!();
@@ -777,6 +822,9 @@ pub const METHOD_INVOKE_TRIGGERLESS_GRAPH: usize = 8;
 /// See [`METHOD_GET_TASK_METADATA`]. Injectable input interface (CLOACI-I-0128),
 /// optional since interface version 3.
 pub const METHOD_GET_INPUT_INTERFACE: usize = 9;
+/// See [`METHOD_GET_TASK_METADATA`]. Packaged `constructor!(...)` node declarations
+/// (CLOACI-T-0832), optional since interface version 4.
+pub const METHOD_GET_CONSTRUCTOR_METADATA: usize = 10;
 
 /// The plugin interface for cloacina workflow packages.
 ///
@@ -790,7 +838,7 @@ pub const METHOD_GET_INPUT_INTERFACE: usize = 9;
 ///   (IDs, dependencies, descriptions). Called once at registration time.
 /// - `execute_task` — Runs a specific task by name with a JSON-serialized
 ///   context. Returns the updated context or an error.
-#[fidius::plugin_interface(version = 3, buffer = PluginAllocated)]
+#[fidius::plugin_interface(version = 4, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.
     /// Method index 0.
@@ -895,4 +943,17 @@ pub trait CloacinaPlugin: Send + Sync {
     /// and calls each entry's `params` fn. (CLOACI-I-0128 / T-0756)
     #[optional(since = 3)]
     fn get_input_interface(&self) -> Result<InputInterfaceDescriptor, PluginError>;
+
+    /// Returns the declared `constructor!(...)` DAG nodes for this package's
+    /// workflows. Method index 10. Optional (since version 4): plugins built
+    /// against older hosts return `CallError::NotImplemented`, which the host
+    /// treats as "package declares no constructor nodes" (empty). A packaged
+    /// cdylib can't link the WASM constructor loader, so it DECLARES each node
+    /// here; the host (which links wasmtime) resolves it via
+    /// `load_constructor_node(.., GrantSpec::from_pairs(grants))` and injects the
+    /// task into the rebuilt workflow DAG. The unified `cloacina::package!()`
+    /// shell walks `inventory::iter::<ConstructorEntry>` and projects each into a
+    /// `ConstructorPackageMetadata`. (CLOACI-T-0832)
+    #[optional(since = 4)]
+    fn get_constructor_metadata(&self) -> Result<Vec<ConstructorPackageMetadata>, PluginError>;
 }

@@ -21,6 +21,10 @@
 # CORS: the browser loads the SPA from :8082 and calls the server at :8080
 # cross-origin, so the server allows that origin (REQ-009).
 
+# Project name: containers become cloacina-demo-<service>-1 instead of docker-*
+# (the default project name came from the docker/ directory).
+name: cloacina-demo
+
 x-bootstrap-key: &bootstrap_key "clk_demo_bootstrap_key_0001"
 x-db-url: &db_url "postgres://cloacina:cloacina@postgres:5432/cloacina"
 # CLOACI-T-0779 — multi-tenancy demo. Deterministic tenant-SCOPED keys (NOT admin)

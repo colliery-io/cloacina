@@ -1,0 +1,38 @@
+# CLOACI-T-0836 demo — a packaged workflow consuming a CONSTRUCTOR PROVIDER.
+# TEMPLATE — `__WORKSPACE__` is rewritten to an absolute path by
+# docker/pack-demo-fixtures.sh before packing.
+#
+# The provider (`cloacina-provider-fs`) is an ordinary Cargo dependency (A-0010):
+# the compiler discovers the `constructor!` `from` ref in the source, resolves it
+# from this dependency graph, builds it to a WASM component, and bundles it into
+# `package_providers` — the server then resolves the node hermetically at load.
+[workspace]
+
+[package]
+name = "demo-constructor-rust"
+version = "0.1.2"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["packaged"]
+packaged = []
+
+[dependencies]
+cloacina-provider-fs = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-fs" }
+cloacina-macros = { path = "__WORKSPACE__/crates/cloacina-macros" }
+cloacina-computation-graph = { path = "__WORKSPACE__/crates/cloacina-computation-graph" }
+cloacina-workflow = { path = "__WORKSPACE__/crates/cloacina-workflow", features = ["packaged"] }
+cloacina-workflow-plugin = { path = "__WORKSPACE__/crates/cloacina-workflow-plugin" }
+serde_json = "1.0"
+futures = "0.3"
+async-trait = "0.1"
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+tokio = { version = "1.0", features = ["time"] }
+
+[build-dependencies]
+cloacina-build = { path = "__WORKSPACE__/crates/cloacina-build" }

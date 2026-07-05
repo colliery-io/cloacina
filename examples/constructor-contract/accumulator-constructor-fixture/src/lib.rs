@@ -36,7 +36,7 @@
 // workspace check-cfg lint flags as unknown — benign (see CLOACI-T-0821).
 #![allow(unexpected_cfgs)]
 
-use cloacina_macros::constructor;
+use cloacina_macros::{constructor, constructor_provider};
 use constructor_contract::ConstructorError;
 
 /// Emits a boundary only when an event's numeric `value` crosses the configured
@@ -74,3 +74,11 @@ impl Threshold {
         }
     }
 }
+
+// The provider suite shell (CLOACI-A-0011): one member behind one component.
+constructor_provider!(
+    name = "threshold",
+    version = "0.1.0",
+    contract = constructor_contract,
+    accumulator = [Threshold],
+);

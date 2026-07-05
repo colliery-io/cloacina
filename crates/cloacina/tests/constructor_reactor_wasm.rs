@@ -44,7 +44,7 @@ use cloacina::computation_graph::reactor::{
 };
 use cloacina::computation_graph::types::{GraphResult, InputCache, SourceName};
 use cloacina::registry::loader::constructor_loader::load_reactor_constructor;
-use cloacina_constructor_contract::{ConstructorManifest, PrimitiveKind};
+use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 use serde::Serialize;
 
 /// Per-instance config the loader binds once at load (mirrors the fixture's
@@ -106,13 +106,16 @@ fn stage(root: &Path) {
          [wasm]\ncomponent = \"reactor_constructor_fixture.wasm\"\n",
     )
     .unwrap();
-    std::fs::write(dir.join("constructor.json"), macro_manifest_json()).unwrap();
+    std::fs::write(dir.join("provider.json"), macro_manifest_json()).unwrap();
 }
 
 #[tokio::test]
 async fn macro_authored_manifest_is_a_reactor() {
-    let manifest = ConstructorManifest::from_json(macro_manifest_json())
-        .expect("macro manifest parses against the real contract crate");
+    let provider = ProviderManifest::from_json(macro_manifest_json())
+        .expect("macro provider manifest parses against the real contract crate");
+    let manifest = provider
+        .constructor("gate")
+        .expect("suite carries the  member");
     assert_eq!(manifest.name, "gate");
     assert_eq!(manifest.primitive_kind, PrimitiveKind::Reactor);
     assert_eq!(manifest.interface, "reactor-constructor");
@@ -126,9 +129,14 @@ async fn wasm_reactor_evaluate_bridge_is_config_bound() {
     stage(tmp.path());
 
     // gate = 5.0 → a held boundary value of 10.0 crosses → fire.
-    let firing =
-        load_reactor_constructor(tmp.path(), "reactor-constructor-pkg", &Config { gate: 5.0 })
-            .expect("load_reactor_constructor (firing)");
+    let firing = load_reactor_constructor(
+        tmp.path(),
+        "reactor-constructor-pkg",
+        "gate",
+        &Config { gate: 5.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+    )
+    .expect("load_reactor_constructor (firing)");
     let boundaries = serde_json::json!({ "x": { "value": 10.0 } }).to_string();
     let outcome = firing.evaluate(boundaries.clone()).await.expect("evaluate");
     assert!(outcome.fire, "10.0 >= gate 5.0 → fire");
@@ -137,7 +145,9 @@ async fn wasm_reactor_evaluate_bridge_is_config_bound() {
     let holding = load_reactor_constructor(
         tmp.path(),
         "reactor-constructor-pkg",
+        "gate",
         &Config { gate: 50.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_reactor_constructor (holding)");
     let outcome = holding.evaluate(boundaries).await.expect("evaluate");
@@ -147,8 +157,14 @@ async fn wasm_reactor_evaluate_bridge_is_config_bound() {
 #[tokio::test]
 async fn non_reactor_primitive_fails_closed() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let err = load_reactor_constructor(tmp.path(), "missing-reactor-pkg", &Config { gate: 1.0 })
-        .expect_err("loading a missing package must fail closed");
+    let err = load_reactor_constructor(
+        tmp.path(),
+        "missing-reactor-pkg",
+        "gate",
+        &Config { gate: 1.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+    )
+    .expect_err("loading a missing package must fail closed");
     assert!(
         format!("{err}").contains("missing-reactor-pkg"),
         "error should name the missing package, got: {err}"
@@ -161,9 +177,14 @@ async fn reactor_with_wasm_evaluator_fires_when_guest_says_so() {
     stage(tmp.path());
 
     // gate = 5.0: the WASM guest fires when a held boundary crosses 5.0.
-    let evaluator =
-        load_reactor_constructor(tmp.path(), "reactor-constructor-pkg", &Config { gate: 5.0 })
-            .expect("load_reactor_constructor");
+    let evaluator = load_reactor_constructor(
+        tmp.path(),
+        "reactor-constructor-pkg",
+        "gate",
+        &Config { gate: 5.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+    )
+    .expect("load_reactor_constructor");
 
     let (acc_tx, acc_rx) = mpsc::channel::<(SourceName, Vec<u8>)>(10);
     let (_manual_tx, manual_rx) = mpsc::channel::<ManualCommand>(10);

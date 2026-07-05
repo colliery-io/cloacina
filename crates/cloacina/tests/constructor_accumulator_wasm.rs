@@ -45,7 +45,7 @@ use cloacina::computation_graph::accumulator::{
 };
 use cloacina::computation_graph::types::{deserialize, SourceName};
 use cloacina::registry::loader::constructor_loader::load_accumulator_constructor;
-use cloacina_constructor_contract::{ConstructorManifest, PrimitiveKind};
+use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 use serde::Serialize;
 
 /// Per-instance config the loader binds once at load (mirrors the fixture's
@@ -116,13 +116,16 @@ fn stage(root: &Path) {
          [wasm]\ncomponent = \"accumulator_constructor_fixture.wasm\"\n",
     )
     .unwrap();
-    std::fs::write(dir.join("constructor.json"), macro_manifest_json()).unwrap();
+    std::fs::write(dir.join("provider.json"), macro_manifest_json()).unwrap();
 }
 
 #[tokio::test]
 async fn macro_authored_manifest_is_an_accumulator() {
-    let manifest = ConstructorManifest::from_json(macro_manifest_json())
-        .expect("macro manifest parses against the real contract crate");
+    let provider = ProviderManifest::from_json(macro_manifest_json())
+        .expect("macro provider manifest parses against the real contract crate");
+    let manifest = provider
+        .constructor("threshold")
+        .expect("suite carries the  member");
     assert_eq!(manifest.name, "threshold");
     assert_eq!(manifest.version, "0.1.0");
     assert_eq!(manifest.primitive_kind, PrimitiveKind::Accumulator);
@@ -140,7 +143,9 @@ async fn wasm_accumulator_emits_boundary_when_threshold_crossed() {
     let acc = load_accumulator_constructor(
         tmp.path(),
         "accumulator-constructor-pkg",
+        "threshold",
         &Config { threshold: 5.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_accumulator_constructor");
     assert_eq!(acc.name(), "threshold");
@@ -197,7 +202,9 @@ async fn wasm_accumulator_buffers_below_threshold() {
     let acc = load_accumulator_constructor(
         tmp.path(),
         "accumulator-constructor-pkg",
+        "threshold",
         &Config { threshold: 5.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_accumulator_constructor");
 
@@ -245,9 +252,14 @@ async fn non_accumulator_primitive_fails_closed() {
     // assert the loader's primitive-kind guard message exists by loading a
     // missing package (fails closed on resolution).
     let tmp = tempfile::TempDir::new().unwrap();
-    let err =
-        load_accumulator_constructor(tmp.path(), "does-not-exist-pkg", &Config { threshold: 1.0 })
-            .expect_err("loading a missing package must fail closed");
+    let err = load_accumulator_constructor(
+        tmp.path(),
+        "does-not-exist-pkg",
+        "threshold",
+        &Config { threshold: 1.0 },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
+    )
+    .expect_err("loading a missing package must fail closed");
     let msg = format!("{err}");
     assert!(
         msg.contains("does-not-exist-pkg"),

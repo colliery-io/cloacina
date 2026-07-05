@@ -37,7 +37,7 @@
 // workspace check-cfg lint flags as unknown — benign (see CLOACI-T-0821).
 #![allow(unexpected_cfgs)]
 
-use cloacina_macros::constructor;
+use cloacina_macros::{constructor, constructor_provider};
 use constructor_contract::ConstructorError;
 
 /// Fires (or skips) on each poll based on its bound config — the macro analogue of
@@ -71,3 +71,11 @@ impl Heartbeat {
         }
     }
 }
+
+// The provider suite shell (CLOACI-A-0011): one member behind one component.
+constructor_provider!(
+    name = "heartbeat",
+    version = "0.1.0",
+    contract = constructor_contract,
+    trigger = [Heartbeat],
+);

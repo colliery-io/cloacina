@@ -96,6 +96,45 @@ struct ConstructorNodeDecl {
     config: Vec<(String, Expr)>,
     /// Upstream DAG node ids this constructor depends on.
     dependencies: Vec<String>,
+    /// `grants = { http=[..], tcp=[..], fs=[..], env=[..] }` — tenant capability
+    /// grants as raw `(kind, patterns)` pairs (CLOACI-T-0834). Empty ⇒ default-closed.
+    grants: Vec<(String, Vec<String>)>,
+}
+
+/// Parse a `grants = { http=[..], tcp=[..], fs=[..], env=[..] }` block into raw
+/// `(kind, patterns)` pairs — the tenant capability-grant grammar shared verbatim by
+/// every consumer surface (`constructor!`, `#[reactor]`) so it looks/feels identical
+/// everywhere (CLOACI-T-0834 / [[CLOACI-S-0014]]). The caller has already consumed
+/// the `grants` ident + `=`. Unknown grant kinds are a compile error.
+pub(crate) fn parse_grants_block(input: ParseStream) -> SynResult<Vec<(String, Vec<String>)>> {
+    let content;
+    syn::braced!(content in input);
+    let mut grants: Vec<(String, Vec<String>)> = Vec::new();
+    while !content.is_empty() {
+        let gkey: Ident = content.parse()?;
+        let kind = gkey.to_string();
+        if !matches!(kind.as_str(), "http" | "tcp" | "fs" | "env") {
+            return Err(syn::Error::new(
+                gkey.span(),
+                format!("unknown grant kind '{kind}'. Valid kinds: http, tcp, fs, env"),
+            ));
+        }
+        content.parse::<Token![=]>()?;
+        let list;
+        syn::bracketed!(list in content);
+        let mut patterns: Vec<String> = Vec::new();
+        while !list.is_empty() {
+            patterns.push(list.parse::<LitStr>()?.value());
+            if !list.is_empty() {
+                list.parse::<Token![,]>()?;
+            }
+        }
+        grants.push((kind, patterns));
+        if !content.is_empty() {
+            content.parse::<Token![,]>()?;
+        }
+    }
+    Ok(grants)
 }
 
 impl Parse for ConstructorNodeDecl {
@@ -105,6 +144,7 @@ impl Parse for ConstructorNodeDecl {
         let mut constructor: Option<String> = None;
         let mut config: Vec<(String, Expr)> = Vec::new();
         let mut dependencies: Vec<String> = Vec::new();
+        let mut grants: Vec<(String, Vec<String>)> = Vec::new();
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -113,6 +153,7 @@ impl Parse for ConstructorNodeDecl {
                 "id" => id = Some(input.parse::<LitStr>()?.value()),
                 "from" => from = Some(input.parse::<LitStr>()?.value()),
                 "constructor" => constructor = Some(input.parse::<LitStr>()?.value()),
+                "grants" => grants = parse_grants_block(input)?,
                 "config" => {
                     // `config = { key = expr, … }`
                     let content;
@@ -143,7 +184,7 @@ impl Parse for ConstructorNodeDecl {
                         key.span(),
                         format!(
                             "unknown constructor! field '{}'. Valid fields: id, from, \
-                             constructor, config, dependencies",
+                             constructor, config, dependencies, grants",
                             other
                         ),
                     ));
@@ -172,6 +213,7 @@ impl Parse for ConstructorNodeDecl {
             constructor,
             config,
             dependencies,
+            grants,
         })
     }
 }
@@ -847,6 +889,16 @@ fn constructor_node_load_block(
     let cfg_pairs = decl.config.iter().map(|(k, v)| {
         quote! { (#k.to_string(), ::cloacina::serde_json::json!(#v)) }
     });
+    // CLOACI-T-0834: lower `grants = { kind=[..] }` to raw `(kind, patterns)` pairs;
+    // the loader translates them to a fidius egress policy + capability allow-list.
+    let grant_pairs = decl.grants.iter().map(|(kind, patterns)| {
+        quote! {
+            (
+                #kind.to_string(),
+                ::std::vec![ #( #patterns.to_string() ),* ],
+            )
+        }
+    });
 
     quote! {
         {
@@ -867,8 +919,11 @@ fn constructor_node_load_block(
                         ::std::string::String,
                         ::cloacina::serde_json::Value,
                     )> = ::std::vec![ #(#cfg_pairs),* ];
+                    let __grants = ::cloacina::registry::loader::grants::GrantSpec::from_pairs(
+                        ::std::vec![ #(#grant_pairs),* ],
+                    );
                     ::cloacina::registry::loader::load_constructor_node(
-                        #id, #from, #constructor, __config, __deps,
+                        #id, #from, #constructor, __config, __deps, __grants,
                     )
                     .unwrap_or_else(|e| {
                         ::std::panic!("constructor!(id = \"{}\"): {}", #id, e)
@@ -880,8 +935,15 @@ fn constructor_node_load_block(
 }
 
 /// CLOACI-T-0829: `TaskEntry` inventory submissions for `constructor!(…)` nodes so
-/// `Runtime::get_task` resolves them at execution time. Embedded-only (the loader
-/// path is not linked in packaged cdylib builds).
+/// In EMBEDDED mode (`cfg(not(packaged))`) `Runtime::get_task` resolves the node
+/// at execution time via a `TaskEntry` whose constructor runs the WASM loader.
+///
+/// In PACKAGED mode (`cfg(feature = "packaged")`) the cdylib can't link the WASM
+/// loader, so instead it emits a `ConstructorEntry` DECLARATION (id/from/constructor/
+/// config/grants/deps). The `package!()` shell projects these into
+/// `get_constructor_metadata()`, and the server (which links wasmtime) resolves +
+/// injects the node at workflow load (CLOACI-T-0832). Both arms are emitted; the cfg
+/// picks the right one per build mode.
 fn build_constructor_inventory_entries(
     tenant: &str,
     workflow_name: &str,
@@ -891,7 +953,31 @@ fn build_constructor_inventory_entries(
         .iter()
         .map(|decl| {
             let id = &decl.id;
+            let from = &decl.from;
+            let constructor = &decl.constructor;
+            let deps = &decl.dependencies;
             let load_block = constructor_node_load_block(decl, tenant, workflow_name);
+
+            // Packaged-mode declaration: lower config to serde_json pairs (via the
+            // plugin crate's re-exported serde_json so the cdylib needs no direct
+            // dep) and grants to the raw `(kind, patterns)` pairs.
+            let cfg_pairs = decl.config.iter().map(|(k, v)| {
+                quote! {
+                    (
+                        #k.to_string(),
+                        ::cloacina_workflow_plugin::serde_json::json!(#v),
+                    )
+                }
+            });
+            let grant_pairs = decl.grants.iter().map(|(kind, patterns)| {
+                quote! {
+                    (
+                        #kind.to_string(),
+                        ::std::vec![ #( #patterns.to_string() ),* ],
+                    )
+                }
+            });
+
             quote! {
                 #[cfg(not(feature = "packaged"))]
                 ::cloacina::cloacina_workflow_plugin::inventory::submit! {
@@ -903,6 +989,19 @@ fn build_constructor_inventory_entries(
                             #id,
                         ),
                         constructor: || #load_block,
+                    }
+                }
+
+                #[cfg(feature = "packaged")]
+                ::cloacina_workflow_plugin::inventory::submit! {
+                    ::cloacina_workflow_plugin::ConstructorEntry {
+                        workflow: #workflow_name,
+                        id: #id,
+                        from: #from,
+                        constructor: #constructor,
+                        config: || ::std::vec![ #(#cfg_pairs),* ],
+                        grants: || ::std::vec![ #(#grant_pairs),* ],
+                        dependencies: || ::std::vec![ #( #deps.to_string() ),* ],
                     }
                 }
             }

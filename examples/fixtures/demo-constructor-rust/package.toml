@@ -1,0 +1,14 @@
+# Demo: a packaged workflow whose first DAG node is a WASM constructor-provider
+# member (cloacina-provider-fs / read_file), resolved from the bundled provider
+# at load and executed sandboxed with an fs grant (CLOACI-T-0836).
+[package]
+name = "demo-constructor-rust"
+version = "0.1.2"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "constructor_demo"
+language = "rust"
+description = "constructor provider demo — sandboxed read via a capability grant"

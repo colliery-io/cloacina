@@ -14,40 +14,40 @@
  *  limitations under the License.
  */
 
-//! Constructor **provider package** assembly + packing (CLOACI-T-0827).
+//! Constructor **provider package** assembly + packing (CLOACI-T-0827 / A-0011).
 //!
-//! Turns a built `#[constructor]` crate into a distributable, signable **fidius
-//! provider package** — the same machinery cloacina already uses to pack a
-//! workflow into a `.cloacina` archive ([`super::package_workflow`] →
-//! [`fidius_core::package::pack_package`]), reused for constructor providers
-//! rather than a parallel format.
+//! Turns a built `#[constructor]` **provider crate** (a *suite* of constructor
+//! members, CLOACI-A-0011) into a distributable, signable **fidius provider
+//! package** — the same machinery cloacina already uses to pack a workflow into a
+//! `.cloacina` archive ([`super::package_workflow`] →
+//! [`fidius_core::package::pack_package`]), reused for constructor providers rather
+//! than a parallel format.
 //!
 //! ## What a provider package is
 //!
-//! A provider package is an ordinary fidius `runtime = "wasm"` source package —
-//! a directory with a `package.toml` header that fidius understands — carrying:
+//! A provider package is an ordinary fidius `runtime = "wasm"` source package — a
+//! directory with a `package.toml` header that fidius understands — carrying:
 //!
-//!   * the constructor's `.wasm` **component** (built to `wasm32-wasip2`),
-//!   * `constructor.json`, the sidecar [`ConstructorManifest`] the loader
-//!     already reads (written here from the macro-generated
-//!     `__constructor_manifest()` — the step the macro itself cannot do), and
-//!   * `provider.json`, a small [`ProviderManifest`] index that names the
-//!     provider and lists its member constructors.
+//!   * the provider's single `.wasm` **component** (built to `wasm32-wasip2`),
+//!     which exposes EVERY member constructor behind one per-kind fidius interface
+//!     (the member is selected at load by name-in-configure), and
+//!   * `provider.json`, the [`ProviderManifest`] (`List[Constructor]`) the loader
+//!     reads to select a member by `constructor = "<name>"` — written here from the
+//!     macro-generated `__provider_manifest()` (the step the macro cannot do).
 //!
-//! It is packed (tar + bzip2) into a `<name>-<version>.cloacina` archive and may
-//! be **Ed25519-signed** (a `package.sig` over the package digest) reusing
-//! fidius's signing scheme verbatim, so `fidius_host::verify_package` /
+//! It is packed (tar + bzip2) into a `<name>-<version>.cloacina` archive and may be
+//! **Ed25519-signed** (a `package.sig` over the package digest) reusing fidius's
+//! signing scheme verbatim, so `fidius_host::verify_package` /
 //! `fidius_core::package::package_digest` verify it unchanged.
 //!
 //! ## Providers carry N constructors (Airflow "provider" = package of operators)
 //!
-//! [`ProviderManifest`] is a `Vec<ProviderConstructorEntry>` so the format
-//! describes a multi-constructor provider. The packaging step here wires the
-//! **single-constructor** provider end-to-end (one component, one
-//! `constructor.json`, one provider entry) because a fidius `[wasm]` package
-//! binds exactly one `component`; packing N constructors into one archive (N
-//! components, or one multi-export component) is the noted follow-on — the data
-//! model is already N-shaped so that extension is additive.
+//! One provider crate compiles to ONE component exposing N members; the
+//! `provider.json` is the `List[Constructor]` index over them. A homogeneous suite
+//! (every member the same kind — the common case) exports one fidius interface, so
+//! the `package.toml` header's `interface`/`interface_version` come from the
+//! members (they share one). A mixed-kind suite (multiple interfaces in one
+//! component) is a documented follow-on.
 //!
 //! ## Gating
 //!
@@ -62,62 +62,28 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ed25519_dalek::{Signer, SigningKey};
-use serde::{Deserialize, Serialize};
 
-use cloacina_constructor_contract::{ConstructorManifest, PrimitiveKind};
+use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 
-/// The sidecar manifest filename inside a provider package (one per constructor
-/// component — the file the loader reads). Mirrors
-/// `constructor_loader::CONSTRUCTOR_MANIFEST_FILE`.
-pub const CONSTRUCTOR_MANIFEST_FILE: &str = "constructor.json";
-
-/// The provider index filename inside a provider package.
+/// The provider-index filename inside a provider package (the file the loader
+/// reads). Mirrors `constructor_loader::PROVIDER_MANIFEST_FILE`.
 pub const PROVIDER_MANIFEST_FILE: &str = "provider.json";
 
 /// The archive extension cloacina packages use (vs fidius's default `fid`).
 pub const PROVIDER_EXTENSION: &str = "cloacina";
 
-/// The provider index written into a provider package as `provider.json`.
-///
-/// Names the provider and lists its member constructors. Single-constructor
-/// providers carry exactly one entry; the `Vec` is what makes the format
-/// N-capable (a "provider" being a package of constructors).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ProviderManifest {
-    /// Provider name (the fidius `[package].name` the loader matches on).
-    pub name: String,
-    /// Provider version (semver string).
-    pub version: String,
-    /// The member constructors this provider distributes.
-    pub constructors: Vec<ProviderConstructorEntry>,
-}
-
-/// One constructor member of a [`ProviderManifest`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ProviderConstructorEntry {
-    /// Constructor name (its `ConstructorManifest::name`).
-    pub name: String,
-    /// Which runtime primitive the constructor plugs into.
-    pub primitive_kind: PrimitiveKind,
-    /// The `.wasm` component filename inside the package implementing it.
-    pub component: String,
-    /// The sidecar manifest filename inside the package describing it.
-    pub manifest_file: String,
-}
-
 /// Inputs to [`package_constructor_provider`].
 #[derive(Debug, Clone)]
 pub struct ProviderPackageOptions {
-    /// The `#[constructor]` crate directory to package.
+    /// The `#[constructor]` provider crate directory to package.
     pub crate_dir: PathBuf,
     /// Output archive path. `None` → `<name>-<version>.cloacina` in the CWD.
     pub output: Option<PathBuf>,
     /// Ed25519 secret-key file (32 raw bytes) to sign the package with. `None`
     /// produces an unsigned provider.
     pub sign_key: Option<PathBuf>,
-    /// Host binary in the crate that prints the constructor manifest JSON to
-    /// stdout (the `__constructor_manifest()` emitter). Defaults to
-    /// `emit_manifest`.
+    /// Host binary in the crate that prints the provider manifest JSON to stdout
+    /// (the `__provider_manifest()` emitter). Defaults to `emit_manifest`.
     pub manifest_bin: String,
     /// Build the `wasm32-wasip2` component in release profile (default `true`).
     pub release: bool,
@@ -146,7 +112,9 @@ pub struct ProviderPackageResult {
     pub signed: bool,
     /// The provider name (fidius package name).
     pub provider_name: String,
-    /// Names of the constructors the provider carries.
+    /// The provider version (from its `provider.json`).
+    pub provider_version: String,
+    /// Names of the member constructors the provider carries.
     pub constructors: Vec<String>,
 }
 
@@ -159,8 +127,9 @@ pub enum ProviderPackageError {
     /// `cargo build`/`cargo run` failed.
     #[error("build step failed: {0}")]
     Build(String),
-    /// The emitted manifest JSON did not parse as a `ConstructorManifest`.
-    #[error("constructor manifest parse failed: {0}")]
+    /// The emitted manifest JSON did not parse as a `ProviderManifest`, or the
+    /// provider declared no members.
+    #[error("provider manifest parse failed: {0}")]
     Manifest(String),
     /// The Ed25519 secret key was missing or not exactly 32 bytes.
     #[error("signing key error: {0}")]
@@ -170,16 +139,16 @@ pub enum ProviderPackageError {
     Pack(String),
 }
 
-/// Build, assemble, (optionally sign,) and pack a `#[constructor]` crate into a
-/// distributable provider package.
+/// Build, assemble, (optionally sign,) and pack a `#[constructor]` provider crate
+/// into a distributable provider package.
 ///
-/// Steps, mirroring `package_workflow` but for a constructor component:
+/// Steps, mirroring `package_workflow` but for a constructor suite component:
 /// 1. `cargo build --lib --target wasm32-wasip2` → the `.wasm` component.
-/// 2. `cargo run --bin <manifest_bin>` → the constructor's manifest JSON, parsed
-///    into a [`ConstructorManifest`] (this is the packaging step writing
-///    `constructor.json`, which the macro cannot do itself).
-/// 3. Stage `package.toml` (`runtime = "wasm"`), the component, `constructor.json`,
-///    and `provider.json` into a temp package dir.
+/// 2. `cargo run --bin <manifest_bin>` → the provider's manifest JSON, parsed into
+///    a [`ProviderManifest`] (this is the packaging step writing `provider.json`,
+///    which the macro cannot do itself).
+/// 3. Stage `package.toml` (`runtime = "wasm"`), the component, and `provider.json`
+///    (its `component` corrected to the actual built artifact name) into a temp dir.
 /// 4. If `sign_key` is set, write a `package.sig` (Ed25519 over the package
 ///    digest) reusing fidius's signing scheme.
 /// 5. [`fidius_core::package::pack_package`] → the `.cloacina` archive.
@@ -189,7 +158,7 @@ pub fn package_constructor_provider(
     let crate_dir = &opts.crate_dir;
     if !crate_dir.join("Cargo.toml").exists() {
         return Err(ProviderPackageError::Io(format!(
-            "no Cargo.toml in constructor crate dir {}",
+            "no Cargo.toml in constructor provider crate dir {}",
             crate_dir.display()
         )));
     }
@@ -197,10 +166,21 @@ pub fn package_constructor_provider(
     // 1. Build the wasm component.
     let wasm = build_wasm_component(crate_dir, opts.release)?;
 
-    // 2. Emit + parse the constructor manifest.
+    // 2. Emit + parse the provider manifest.
     let manifest_json = emit_manifest_json(crate_dir, &opts.manifest_bin)?;
-    let manifest = ConstructorManifest::from_json(&manifest_json)
+    let mut provider = ProviderManifest::from_json(&manifest_json)
         .map_err(|e| ProviderPackageError::Manifest(e.to_string()))?;
+
+    let head = provider
+        .constructors
+        .first()
+        .ok_or_else(|| {
+            ProviderPackageError::Manifest(format!(
+                "provider '{}' declares no constructors",
+                provider.name
+            ))
+        })?
+        .clone();
 
     // 3. Stage the provider package directory.
     let staging = tempfile::TempDir::new()
@@ -208,39 +188,41 @@ pub fn package_constructor_provider(
     let pkg_dir = staging.path();
 
     // Component filename: keep the built artifact's own name so it is stable +
-    // recognizable inside the archive.
+    // recognizable inside the archive, and make the manifest authoritative about it.
     let component_file = wasm
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "constructor.wasm".to_string());
+        .unwrap_or_else(|| "provider.wasm".to_string());
 
     std::fs::copy(&wasm, pkg_dir.join(&component_file))
         .map_err(|e| ProviderPackageError::Io(format!("copy wasm component: {e}")))?;
 
-    // The sidecar manifest the loader reads (verbatim emitter output).
-    std::fs::write(pkg_dir.join(CONSTRUCTOR_MANIFEST_FILE), &manifest_json)
-        .map_err(|e| ProviderPackageError::Io(format!("write constructor.json: {e}")))?;
+    provider.component = component_file.clone();
 
-    // The N-capable provider index (single entry today).
-    let provider_name = manifest.name.clone();
-    let provider = ProviderManifest {
-        name: provider_name.clone(),
-        version: manifest.version.clone(),
-        constructors: vec![ProviderConstructorEntry {
-            name: manifest.name.clone(),
-            primitive_kind: manifest.primitive_kind,
-            component: component_file.clone(),
-            manifest_file: CONSTRUCTOR_MANIFEST_FILE.to_string(),
-        }],
-    };
-    let provider_json = serde_json::to_string_pretty(&provider)
+    // The provider index the loader reads (`List[Constructor]`).
+    let provider_name = provider.name.clone();
+    let constructor_names: Vec<String> = provider
+        .constructors
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+    let provider_json = provider
+        .to_json()
         .map_err(|e| ProviderPackageError::Manifest(format!("serialize provider.json: {e}")))?;
     std::fs::write(pkg_dir.join(PROVIDER_MANIFEST_FILE), provider_json)
         .map_err(|e| ProviderPackageError::Io(format!("write provider.json: {e}")))?;
 
-    // The fidius wasm package header. `interface` / `interface_version` come from
-    // the constructor manifest so the loader's descriptor + version gate line up.
-    let package_toml = render_package_toml(&manifest, &component_file);
+    // The fidius wasm package header. `interface` / `interface_version` come from the
+    // members (a homogeneous suite shares one) so the loader's descriptor + version
+    // gate line up.
+    let package_toml = render_package_toml(
+        &provider_name,
+        &provider.version,
+        &head.interface,
+        head.interface_version,
+        head.primitive_kind,
+        &component_file,
+    );
     std::fs::write(pkg_dir.join("package.toml"), package_toml)
         .map_err(|e| ProviderPackageError::Io(format!("write package.toml: {e}")))?;
 
@@ -260,12 +242,21 @@ pub fn package_constructor_provider(
         archive: result.path,
         signed,
         provider_name,
-        constructors: provider.constructors.into_iter().map(|c| c.name).collect(),
+        provider_version: provider.version.clone(),
+        constructors: constructor_names,
     })
 }
 
 /// Render the fidius `package.toml` header for a constructor provider.
-fn render_package_toml(manifest: &ConstructorManifest, component_file: &str) -> String {
+#[allow(clippy::too_many_arguments)]
+fn render_package_toml(
+    name: &str,
+    version: &str,
+    interface: &str,
+    interface_version: u32,
+    primitive: PrimitiveKind,
+    component_file: &str,
+) -> String {
     format!(
         "# Generated by cloacina constructor packaging (CLOACI-T-0827).\n\
          [package]\n\
@@ -280,12 +271,12 @@ fn render_package_toml(manifest: &ConstructorManifest, component_file: &str) -> 
          primitive_kind = \"{primitive}\"\n\n\
          [wasm]\n\
          component = \"{component}\"\n",
-        name = manifest.name,
-        version = manifest.version,
-        interface = manifest.interface,
-        iface_version = manifest.interface_version,
+        name = name,
+        version = version,
+        interface = interface,
+        iface_version = interface_version,
         ext = PROVIDER_EXTENSION,
-        primitive = primitive_kind_str(manifest.primitive_kind),
+        primitive = primitive_kind_str(primitive),
         component = component_file,
     )
 }
@@ -301,6 +292,11 @@ fn primitive_kind_str(kind: PrimitiveKind) -> &'static str {
 
 /// `cargo build --lib --target wasm32-wasip2 [--release]` in `crate_dir`, then
 /// locate the produced `.wasm` component.
+///
+/// Honors `CARGO_TARGET_DIR` (relative paths resolve against `crate_dir`, matching
+/// cargo): environments like the compiler service set a SHARED target dir, so the
+/// artifact does NOT land under `<crate>/target` there — caught live by the first
+/// in-container provider bundle (CLOACI-T-0836).
 fn build_wasm_component(crate_dir: &Path, release: bool) -> Result<PathBuf, ProviderPackageError> {
     let mut cmd = Command::new("cargo");
     cmd.arg("build")
@@ -324,7 +320,21 @@ fn build_wasm_component(crate_dir: &Path, release: bool) -> Result<PathBuf, Prov
         )));
     }
 
-    let out_dir = crate_dir.join("target").join("wasm32-wasip2").join(profile);
+    // Where cargo actually wrote the artifact: CARGO_TARGET_DIR if set (relative →
+    // against the build cwd, i.e. `crate_dir`), else `<crate>/target`.
+    let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) if !dir.is_empty() => {
+            let p = PathBuf::from(dir);
+            if p.is_absolute() {
+                p
+            } else {
+                crate_dir.join(p)
+            }
+        }
+        _ => crate_dir.join("target"),
+    };
+
+    let out_dir = target_root.join("wasm32-wasip2").join(profile);
 
     // Prefer the artifact named after the crate; fall back to the sole `.wasm`.
     let preferred = crate_name(crate_dir).map(|n| out_dir.join(format!("{n}.wasm")));
@@ -410,29 +420,11 @@ fn sign_package_dir(pkg_dir: &Path, key_path: &Path) -> Result<(), ProviderPacka
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cloacina_constructor_contract::ConstructorManifest;
 
-    #[test]
-    fn provider_manifest_round_trips() {
-        let p = ProviderManifest {
-            name: "prefix".into(),
-            version: "0.1.0".into(),
-            constructors: vec![ProviderConstructorEntry {
-                name: "prefix".into(),
-                primitive_kind: PrimitiveKind::Task,
-                component: "prefix.wasm".into(),
-                manifest_file: CONSTRUCTOR_MANIFEST_FILE.into(),
-            }],
-        };
-        let s = serde_json::to_string_pretty(&p).unwrap();
-        let back: ProviderManifest = serde_json::from_str(&s).unwrap();
-        assert_eq!(p, back);
-        assert_eq!(back.constructors[0].primitive_kind, PrimitiveKind::Task);
-    }
-
-    #[test]
-    fn package_toml_has_wasm_runtime_and_component() {
-        let manifest = ConstructorManifest {
-            name: "prefix".into(),
+    fn member(name: &str) -> ConstructorManifest {
+        ConstructorManifest {
+            name: name.into(),
             version: "0.1.0".into(),
             primitive_kind: PrimitiveKind::Task,
             interface: "task-constructor".into(),
@@ -442,11 +434,38 @@ mod tests {
             dependencies: vec![],
             description: None,
             author: None,
+        }
+    }
+
+    #[test]
+    fn provider_manifest_round_trips() {
+        let p = ProviderManifest {
+            name: "cloacina-provider-fs".into(),
+            version: "0.1.0".into(),
+            component: "cloacina_provider_fs.wasm".into(),
+            constructors: vec![member("read_file"), member("write_file")],
         };
-        let toml = render_package_toml(&manifest, "prefix.wasm");
+        let s = p.to_json().unwrap();
+        let back = ProviderManifest::from_json(&s).unwrap();
+        assert_eq!(p, back);
+        assert_eq!(back.constructors.len(), 2);
+        assert_eq!(back.constructor("write_file").unwrap().name, "write_file");
+    }
+
+    #[test]
+    fn package_toml_has_wasm_runtime_and_component() {
+        let toml = render_package_toml(
+            "cloacina-provider-fs",
+            "0.1.0",
+            "task-constructor",
+            1,
+            PrimitiveKind::Task,
+            "cloacina_provider_fs.wasm",
+        );
         assert!(toml.contains("runtime = \"wasm\""));
-        assert!(toml.contains("component = \"prefix.wasm\""));
+        assert!(toml.contains("component = \"cloacina_provider_fs.wasm\""));
         assert!(toml.contains("interface = \"task-constructor\""));
+        assert!(toml.contains("name = \"cloacina-provider-fs\""));
         assert!(toml.contains("extension = \"cloacina\""));
         // Parses as valid TOML.
         let _: toml::Value = toml.parse().expect("rendered package.toml is valid TOML");

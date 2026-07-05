@@ -46,6 +46,7 @@
 
 pub(crate) mod computation_graph;
 mod constructor_attr;
+mod constructor_provider;
 pub(crate) mod packaged_workflow;
 mod reactor_attr;
 mod registry;
@@ -159,16 +160,20 @@ pub fn reactor(args: TokenStream, input: TokenStream) -> TokenStream {
     reactor_attr::reactor_attr(args, input)
 }
 
-/// Author a WASM **constructor** in clean form; generate the raw fidius contract
-/// (sync trait impl + config + JSON wire + the `constructor.json` manifest data)
-/// the loader consumes (CLOACI-T-0826).
+/// Author a WASM **constructor** member in clean form (CLOACI-T-0826 / T-0837).
+///
+/// A constructor is one MEMBER of a provider *suite*: the macro generates the
+/// member's config struct, its object-safe `<Kind>Object` impl (the `JSON`-wire
+/// body), and the associated metadata fns (`__constructor_name`,
+/// `__constructor_manifest`, `__constructor_make`) the crate-level
+/// [`macro@constructor_provider`] shell aggregates. The macro does NOT emit fidius
+/// `#[plugin_interface]` / `#[plugin_impl]` glue — that is the shell's job, so N
+/// constructors can coexist in one crate behind one component (CLOACI-A-0011).
 ///
 /// Applied to a struct whose fields are `#[config]` (bound once per instance at
 /// load) or `#[param(required)]` / `#[param(optional)]` (declared inputs pulled
-/// from the task context). The author writes ONLY the body method (`execute` for
-/// `kind = task`); the macro emits the `#[plugin_interface]` sync trait, the
-/// `#[plugin_impl(config = …)]` impl + `configure` hook, and a
-/// `pub fn __constructor_manifest() -> ConstructorManifest`.
+/// from the task context — `task` kind only). The author writes ONLY the body
+/// method (`execute` for `kind = task`).
 ///
 /// ```rust,ignore
 /// #[constructor(kind = task, name = "prefix", version = "0.1.0")]
@@ -182,6 +187,9 @@ pub fn reactor(args: TokenStream, input: TokenStream) -> TokenStream {
 ///         Ok(())
 ///     }
 /// }
+///
+/// // One provider = a suite of members behind one component:
+/// constructor_provider!(name = "cloacina-provider-text", version = "0.1.0", task = [Prefix]);
 /// ```
 ///
 /// All four kinds are code-generated: `task` (T-0826), `trigger` (T-0829), and
@@ -191,6 +199,36 @@ pub fn reactor(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn constructor(args: TokenStream, input: TokenStream) -> TokenStream {
     constructor_attr::constructor_attr(args, input)
+}
+
+/// Declare a constructor **provider** — a *suite* of `#[constructor]` members
+/// compiled into one WASM component (CLOACI-A-0011 / T-0837).
+///
+/// Aggregates the explicitly-listed members (by struct name, grouped by kind) into
+/// the per-kind fidius `#[plugin_interface]` + `#[plugin_impl]` shell with a
+/// name-dispatched `configure` (the consumer's `constructor = "<name>"` selects
+/// the member; the name travels in the `configure` payload), and emits a crate-level
+/// `pub fn __provider_manifest() -> ProviderManifest` listing every member. A
+/// single-constructor provider is just a suite of one.
+///
+/// ```rust,ignore
+/// #[constructor(kind = task, name = "read_file", version = "0.1.0")]
+/// struct ReadFile { #[config] path: String }
+/// // ... impl ReadFile { fn execute(&self) -> Result<(), ConstructorError> { ... } }
+///
+/// #[constructor(kind = task, name = "write_file", version = "0.1.0")]
+/// struct WriteFile { #[config] path: String, #[param(required)] contents: String }
+/// // ... impl WriteFile { fn execute(&self) -> Result<(), ConstructorError> { ... } }
+///
+/// constructor_provider!(
+///     name = "cloacina-provider-fs",
+///     version = "0.1.0",
+///     task = [ReadFile, WriteFile],
+/// );
+/// ```
+#[proc_macro]
+pub fn constructor_provider(input: TokenStream) -> TokenStream {
+    constructor_provider::constructor_provider(input)
 }
 
 /// Define a passthrough accumulator (socket-only, no event loop).

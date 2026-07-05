@@ -276,6 +276,7 @@ fn config_kwarg_errors_are_clear() {
                 ("bogus".to_string(), json!("x")),
             ],
             vec![],
+            cloacina::registry::loader::grants::GrantSpec::default(),
         ),
         "unknown config key must fail closed",
     );
@@ -292,6 +293,7 @@ fn config_kwarg_errors_are_clear() {
             "affix",
             vec![("prefix".to_string(), json!("hello, "))],
             vec![],
+            cloacina::registry::loader::grants::GrantSpec::default(),
         ),
         "missing required config field must fail closed",
     );

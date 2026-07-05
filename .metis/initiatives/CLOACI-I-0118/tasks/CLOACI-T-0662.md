@@ -1,17 +1,17 @@
 ---
 id: ui-oidc-login-integration-login
 level: task
-title: "UI OIDC login integration — \"Login with provider\" browser flow (gated on I-0118)"
+title: "UI OIDC login integration — Login-with-provider browser flow (gated on I-0118)"
 short_code: "CLOACI-T-0662"
 created_at: 2026-06-11T02:19:06.404306+00:00
-updated_at: 2026-06-11T18:00:00.000000+00:00
+updated_at: 2026-07-04T03:38:55.741345+00:00
 parent: CLOACI-I-0118
-blocked_by: ["CLOACI-T-0651"]
+blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0118
 ## Objective **[REQUIRED]**
 
 The browser side of OIDC/GitHub login (REQ-001 path a): "Login with <provider>" buttons on `/connect`, the redirect/callback handling, storing the server-minted short-TTL key in `sessionStorage`, and silent `/auth/refresh` for all-day sessions. The server capability is owned by **CLOACI-I-0118**; this task consumes its `/auth/*` contract. Cross-initiative dependency — **gated on I-0118 reaching ~Phase 3 (mint + refresh) with a stable contract**; not on the v1 critical path.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -49,4 +53,5 @@ Contract coupling to I-0118 — co-design the `/auth/*` shapes with that initiat
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-04 — CLOSED: subsumed by [[CLOACI-T-0800]]
+T-0800 delivered this task's entire scope and verified it live in the compose stack: Connect.tsx SSO mode (`Continue with SSO` → `/v1/auth/oidc/login`), callback fragment pickup (`/connect#key=…` → sessionStorage, stripped from history), silent refresh (~10m re-mint via `client.refresh()`), logout via the server lifecycle (T-0794). The remaining criterion (server-driven provider LIST) doesn't apply: I-0118 v1 is single-issuer by design (T-0789); a multi-provider list becomes relevant only if multi-issuer support is ever added. No work remains.

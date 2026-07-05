@@ -198,6 +198,23 @@ pub trait WorkflowRegistry: Send + Sync {
         let _ = (package_id, tasks);
         Ok(())
     }
+
+    /// Fetch the bundled constructor **providers** stored for a package
+    /// (CLOACI-T-0836): `(provider_name, packed provider archive bytes)` pairs the
+    /// reconciler unpacks into a `providers/` tree before resolving the package's
+    /// `constructor!` nodes. Empty for packages that use no constructors.
+    ///
+    /// Default impl: no provider store (filesystem, in-memory, mocks).
+    /// Implementations backed by the unified DB schema override this to query
+    /// `package_providers`.
+    async fn get_package_providers(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>, RegistryError> {
+        let _ = (package_name, version);
+        Ok(Vec::new())
+    }
 }
 
 /// Trait for binary storage backends.

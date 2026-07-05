@@ -14,22 +14,26 @@
  *  limitations under the License.
  */
 
-//! CLOACI-T-0827 — end-to-end: a `#[constructor]`-authored crate is packaged into
-//! a **signed fidius provider package**, and the loader resolves the constructor
-//! **from the packed archive** (unpack → verify signature → `load_wasm_configured`)
-//! to run as a cloacina [`Task`].
+//! CLOACI-T-0837 — end-to-end: a `#[constructor]`-authored **provider SUITE** is
+//! packaged into a **signed fidius provider package**, and the loader resolves
+//! **two different members by name** from the ONE packed component (unpack → verify
+//! signature → `load_wasm_configured` with name-in-configure) to run as cloacina
+//! [`Task`](cloacina::task::Task)s.
 //!
-//! This is the packaged counterpart to `constructor_macro_wasm.rs` (which loads
-//! the same fixture from a loose dir). The proof:
-//!   1. `package_constructor_provider` builds the fixture to a `wasm32-wasip2`
-//!      component, emits `constructor.json` from `__constructor_manifest()`,
-//!      assembles a `runtime = "wasm"` provider package, Ed25519-signs it, and
-//!      packs it into a `.cloacina` archive;
-//!   2. `load_task_constructor_from_package` unpacks + verifies the signature and
-//!      loads the constructor → `Arc<dyn Task>`;
-//!   3. running it with `Context { name: "world" }` yields `result == "hello, world"`.
-//! Plus fail-closed paths: a wrong verifying key, a tampered package, and a
-//! missing `constructor.json` are all rejected.
+//! The fixture is `cloacina-provider-fs`, now a 2-member suite (CLOACI-A-0011):
+//! provider `cloacina-provider-fs` = { `read_file`, `write_file` }, one component.
+//! The proof:
+//!   1. `package_constructor_provider` builds the suite to a `wasm32-wasip2`
+//!      component, emits `provider.json` from `__provider_manifest()` (BOTH
+//!      members), assembles a `runtime = "wasm"` package, Ed25519-signs it, packs
+//!      a `.cloacina` archive;
+//!   2. `load_task_constructor_from_package(.., "read_file", ..)` and `.., "write_file", ..)`
+//!      each select their member by name from the SAME archive/component and load
+//!      it → `Arc<dyn Task>`;
+//!   3. with an `fs` grant, `read_file` reads a file and `write_file` writes one —
+//!      proving the two members coexist and run independently from one package.
+//! Plus fail-closed paths: an unknown member, a wrong verifying key, a tampered
+//! package, and a missing `provider.json` are all rejected.
 //!
 //! Feature-gated (`constructors-wasm`, which pulls wasmtime + implies
 //! `constructor-packaging`). Excluded from the default build.
@@ -43,19 +47,26 @@ use serde::Serialize;
 use cloacina::packaging::constructor_provider::{
     package_constructor_provider, ProviderPackageOptions,
 };
-use cloacina::registry::loader::{load_task_constructor_from_package, unpack_provider_archive};
+use cloacina::registry::loader::grants::{translate, GrantSpec, ResolvedGrants};
+use cloacina::registry::loader::{
+    load_task_constructor, load_task_constructor_from_package, unpack_provider_archive,
+};
 use cloacina::Context;
 
-/// Per-instance config the loader binds once at load (serde-compatible with the
-/// macro-generated guest `__PrefixConfig { prefix }`).
+/// The provider's fidius `[package].name` — the suite the archive carries.
+const PROVIDER: &str = "cloacina-provider-fs";
+
+/// Per-instance config the loader binds once at load: both `read_file` and
+/// `write_file` take a single `#[config] path` (serde-compatible with the
+/// macro-generated guest config tuple).
 #[derive(Serialize)]
-struct Config {
-    prefix: String,
+struct PathConfig {
+    path: String,
 }
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/constructor-contract/task-constructor-macro-fixture")
+        .join("../../examples/constructor-contract/cloacina-provider-fs")
 }
 
 /// A deterministic Ed25519 keypair for the test (no OsRng needed). Writes the
@@ -68,56 +79,130 @@ fn write_test_key(dir: &std::path::Path) -> (PathBuf, ed25519_dalek::VerifyingKe
     (secret_path, verifying)
 }
 
-/// Package the fixture into a signed `.cloacina` provider archive once.
+/// Package the fs suite into a signed `.cloacina` provider archive once.
 fn signed_archive(work: &std::path::Path) -> (PathBuf, ed25519_dalek::VerifyingKey) {
     let (key_path, vk) = write_test_key(work);
-    let out = work.join("prefix-provider.cloacina");
+    let out = work.join("fs-provider.cloacina");
 
     let opts = ProviderPackageOptions {
         crate_dir: fixture_dir(),
         output: Some(out.clone()),
         sign_key: Some(key_path),
         manifest_bin: "emit_manifest".to_string(),
-        release: true,
+        // Debug build keeps the test fast (reuses the debug wasm artifact).
+        release: false,
     };
     let result = package_constructor_provider(&opts).expect("package_constructor_provider");
 
     assert!(result.signed, "archive should be signed");
-    assert_eq!(result.provider_name, "prefix");
-    assert_eq!(result.constructors, vec!["prefix".to_string()]);
+    assert_eq!(result.provider_name, PROVIDER);
+    // The provider carries BOTH members (a real suite), in declaration order.
+    assert_eq!(
+        result.constructors,
+        vec!["read_file".to_string(), "write_file".to_string()],
+        "provider.json should list both suite members"
+    );
     assert!(out.exists(), "archive written to {}", out.display());
     (out, vk)
 }
 
+/// Build a granting [`ResolvedGrants`] for the given `ro:`/`rw:`-prefixed fs entries.
+fn fs_grant(entries: Vec<String>) -> ResolvedGrants {
+    translate(&GrantSpec::from_lists(vec![], vec![], entries, vec![])).expect("translate fs grant")
+}
+
 #[tokio::test]
-async fn signed_provider_loads_from_package_and_runs_as_task() {
+async fn suite_members_coexist_and_run_from_one_signed_package() {
     let work = tempfile::TempDir::new().unwrap();
     let (archive, vk) = signed_archive(work.path());
 
-    let dest = work.path().join("unpacked");
-    let task = load_task_constructor_from_package(
+    // A data dir to grant, holding a file for `read_file` to read.
+    let data = work.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let in_file = data.join("input.txt");
+    std::fs::write(&in_file, "hello from disk").unwrap();
+
+    // --- Member 1: read_file (selected by name; granted read of `data`). ---
+    let dest_read = work.path().join("unpacked-read");
+    let read = load_task_constructor_from_package(
         &archive,
-        &dest,
-        "prefix",
-        &Config {
-            prefix: "hello, ".into(),
+        &dest_read,
+        PROVIDER,
+        "read_file",
+        &PathConfig {
+            path: in_file.display().to_string(),
         },
         &[vk],
+        &fs_grant(vec![format!("ro:{}", data.display())]),
     )
-    .expect("load_task_constructor_from_package (signed, verified)");
+    .expect("load read_file from signed package");
+    assert_eq!(read.id(), "read_file");
 
-    assert_eq!(task.id(), "prefix");
-
-    let mut ctx = Context::new();
-    ctx.insert("name", serde_json::json!("world")).unwrap();
-    let out = task.execute(ctx).await.expect("constructor task execute");
-
+    let out = read
+        .execute(Context::new())
+        .await
+        .expect("read_file execute");
     assert_eq!(
-        out.get("result"),
-        Some(&serde_json::json!("hello, world")),
-        "constructor loaded FROM THE SIGNED PACKAGE produces result = prefix + name"
+        out.get("contents"),
+        Some(&serde_json::json!("hello from disk")),
+        "read_file (member 1) reads the granted file from inside the sandbox"
     );
-    assert_eq!(out.get("name"), Some(&serde_json::json!("world")));
+
+    // --- Member 2: write_file (SAME component, different member, granted rw). ---
+    let out_file = data.join("output.txt");
+    let dest_write = work.path().join("unpacked-write");
+    let write = load_task_constructor_from_package(
+        &archive,
+        &dest_write,
+        PROVIDER,
+        "write_file",
+        &PathConfig {
+            path: out_file.display().to_string(),
+        },
+        &[vk],
+        &fs_grant(vec![format!("rw:{}", data.display())]),
+    )
+    .expect("load write_file from signed package");
+    assert_eq!(write.id(), "write_file");
+
+    let msg = "written by write_file";
+    let mut ctx = Context::new();
+    ctx.insert("contents", serde_json::json!(msg)).unwrap();
+    let out2 = write.execute(ctx).await.expect("write_file execute");
+    assert_eq!(
+        out2.get("written_bytes"),
+        Some(&serde_json::json!(msg.len() as i64)),
+        "write_file (member 2) reports the bytes written"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&out_file).unwrap(),
+        msg,
+        "write_file actually wrote the granted file"
+    );
+}
+
+#[tokio::test]
+async fn unknown_member_fails_closed_naming_the_suite() {
+    let work = tempfile::TempDir::new().unwrap();
+    let (archive, vk) = signed_archive(work.path());
+
+    let dest = work.path().join("unpacked-unknown");
+    let err = load_task_constructor_from_package(
+        &archive,
+        &dest,
+        PROVIDER,
+        "delete_file", // not a member of this suite
+        &PathConfig { path: "x".into() },
+        &[vk],
+        &ResolvedGrants::deny_all(),
+    )
+    .err()
+    .expect("an unknown member must fail closed");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("delete_file") && msg.contains("read_file") && msg.contains("write_file"),
+        "error should name the missing member + list the available ones, got: {msg}"
+    );
 }
 
 #[tokio::test]
@@ -132,9 +217,11 @@ async fn wrong_verifying_key_fails_closed() {
     let err = load_task_constructor_from_package(
         &archive,
         &dest,
-        "prefix",
-        &Config { prefix: "x".into() },
+        PROVIDER,
+        "read_file",
+        &PathConfig { path: "x".into() },
         &[wrong],
+        &ResolvedGrants::deny_all(),
     )
     .err()
     .expect("loading with a non-signing key must fail closed");
@@ -150,14 +237,14 @@ async fn tampered_package_fails_signature_verification() {
     let work = tempfile::TempDir::new().unwrap();
     let (archive, vk) = signed_archive(work.path());
 
-    // Unpack WITHOUT verifying, tamper a packaged file, then REPACK it (carrying
-    // the original, now-stale `package.sig`).
+    // Unpack WITHOUT verifying, tamper the provider manifest, then REPACK it
+    // (carrying the original, now-stale `package.sig`).
     let dest = work.path().join("unpacked-tamper");
     let pkg_dir = unpack_provider_archive(&archive, &dest, &[]).expect("unpack (no verify)");
 
-    let manifest = pkg_dir.join("constructor.json");
+    let manifest = pkg_dir.join("provider.json");
     let mut content = std::fs::read_to_string(&manifest).unwrap();
-    content.push_str("\n");
+    content.push('\n');
     content.push_str("{\"tampered\":true}");
     std::fs::write(&manifest, content).unwrap();
 
@@ -170,9 +257,11 @@ async fn tampered_package_fails_signature_verification() {
     let err = load_task_constructor_from_package(
         &tampered,
         &dest2,
-        "prefix",
-        &Config { prefix: "x".into() },
+        PROVIDER,
+        "read_file",
+        &PathConfig { path: "x".into() },
         &[vk],
+        &ResolvedGrants::deny_all(),
     )
     .err()
     .expect("tampered package must fail signature verification");
@@ -184,27 +273,29 @@ async fn tampered_package_fails_signature_verification() {
 }
 
 #[tokio::test]
-async fn missing_constructor_manifest_fails_closed() {
+async fn missing_provider_manifest_fails_closed() {
     let work = tempfile::TempDir::new().unwrap();
     let (archive, _vk) = signed_archive(work.path());
 
-    // Unpack, delete the sidecar manifest, then load through the loose-dir path
-    // the package loader delegates to: a provider without its `constructor.json`
-    // must not load.
+    // Unpack, delete the provider index, then load through the loose-dir path the
+    // package loader delegates to: a provider without its `provider.json` must not
+    // load.
     let dest = work.path().join("unpacked-nomanifest");
     let pkg_dir = unpack_provider_archive(&archive, &dest, &[]).expect("unpack");
-    std::fs::remove_file(pkg_dir.join("constructor.json")).unwrap();
+    std::fs::remove_file(pkg_dir.join("provider.json")).unwrap();
 
-    let err = cloacina::registry::loader::load_task_constructor(
+    let err = load_task_constructor(
         &dest,
-        "prefix",
-        &Config { prefix: "x".into() },
+        PROVIDER,
+        "read_file",
+        &PathConfig { path: "x".into() },
+        &ResolvedGrants::deny_all(),
     )
     .err()
-    .expect("missing constructor.json must fail closed");
+    .expect("missing provider.json must fail closed");
     let msg = format!("{err}");
     assert!(
-        msg.contains("constructor.json") || msg.to_lowercase().contains("manifest"),
+        msg.contains("provider.json") || msg.to_lowercase().contains("manifest"),
         "error should mention the missing manifest, got: {msg}"
     );
 }

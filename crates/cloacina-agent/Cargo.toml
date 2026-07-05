@@ -22,7 +22,9 @@ path = "src/main.rs"
 # other members; the stricter NFR-002 (truly no diesel link) is a
 # carry-forward that extracts the protocol DTOs to a no-deps `cloacina-fleet-protocol`
 # crate. See T-0632 status notes.
-cloacina = { version = "0.9.0", path = "../cloacina", default-features = false, features = ["sqlite"] }
+# `constructors-wasm` explicit (CLOACI-T-0836): agents load packaged workflows too
+# and must resolve bundled constructor providers rather than fail closed.
+cloacina = { version = "0.9.0", path = "../cloacina", default-features = false, features = ["sqlite", "constructors-wasm"] }
 
 # Python runtime (PyO3) so the agent can run Python-packaged workflows, not just
 # Rust cdylibs — the agent fetches a Python package's source archive and imports

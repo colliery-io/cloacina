@@ -26,6 +26,10 @@
 pub mod constructor_loader;
 pub mod ffi_trigger;
 pub mod ffi_triggerless_graph;
+/// Constructor capability grants → fidius enforcement (CLOACI-T-0834).
+/// Default-OFF behind the `constructors-wasm` feature.
+#[cfg(feature = "constructors-wasm")]
+pub mod grants;
 pub mod package_loader;
 pub mod task_registrar;
 

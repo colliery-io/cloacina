@@ -89,6 +89,36 @@ pub struct ReactorEntry {
 }
 inventory::collect!(ReactorEntry);
 
+/// Constructor-node entry emitted by `constructor!(...)` inside a `#[workflow]`,
+/// in PACKAGED mode (CLOACI-T-0832). A packaged cdylib cannot link the WASM
+/// constructor loader, so instead of building the node it DECLARES it: the
+/// `package!()` shell walks `inventory::iter::<ConstructorEntry>` to project each
+/// into a [`crate::ConstructorPackageMetadata`] returned by
+/// `get_constructor_metadata()`, and the server (which links wasmtime) resolves
+/// each via `load_constructor_node(.., GrantSpec::from_pairs(grants))` and injects
+/// the resulting task node into the rebuilt workflow DAG.
+///
+/// `config` / `grants` / `dependencies` are deferred (`fn() -> ..`) because they
+/// carry owned `String`/`Value` data that can't be `const`. `grants` is the raw
+/// `(kind, patterns)` shape the cross-surface lowering already produces.
+pub struct ConstructorEntry {
+    /// The workflow this constructor node belongs to.
+    pub workflow: &'static str,
+    /// The DAG node id (what dependents reference).
+    pub id: &'static str,
+    /// Provider package reference, `"name[@version]"` (the `from = ` field).
+    pub from: &'static str,
+    /// The constructor's `constructor.json` name inside the provider.
+    pub constructor: &'static str,
+    /// Author config as `(name, value)` pairs in written order; bound by name.
+    pub config: fn() -> Vec<(String, serde_json::Value)>,
+    /// Tenant capability grants as raw `(kind, patterns)` pairs (CLOACI-T-0834).
+    pub grants: fn() -> Vec<(String, Vec<String>)>,
+    /// Upstream DAG node ids this constructor depends on.
+    pub dependencies: fn() -> Vec<String>,
+}
+inventory::collect!(ConstructorEntry);
+
 /// Task entry emitted by `#[task]`. The `package!()` shell walks
 /// `inventory::iter::<TaskEntry>` to build the per-task metadata in
 /// `get_task_metadata` and to dispatch task execution by name in

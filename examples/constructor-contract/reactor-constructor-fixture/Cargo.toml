@@ -43,8 +43,8 @@ constructor-contract = { path = "../constructor-contract" }
 # guest glue is `#[cfg(target_arch = "wasm32")]`). Target-gating it keeps the
 # host build (the `emit_manifest` bin) free of wasm-only deps.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-fidius-guest = "0.5.4"
-fidius-macro = "0.5.4"
+fidius-guest = "0.5.5"
+fidius-macro = "0.5.5"
 wit-bindgen = "0.44"
 
 [profile.release]

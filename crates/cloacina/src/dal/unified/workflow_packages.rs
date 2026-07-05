@@ -892,6 +892,169 @@ impl<'a> WorkflowPackagesDAL<'a> {
         )
     }
 
+    /// CLOACI-T-0836: upsert one bundled constructor provider for a consumer
+    /// package. `provider_data` is the provider's packed `.cloacina` archive
+    /// (arch-neutral WASM) that the reconciler unpacks into a `providers/` tree at
+    /// load. Delete+insert in a transaction (mirrors [`Self::upsert_artifact`]) so
+    /// a rebuild replaces the previous bundle for the same (package, provider).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn upsert_provider(
+        &self,
+        package_name: &str,
+        version: &str,
+        tenant_id: Option<&str>,
+        provider_name: &str,
+        provider_version: &str,
+        content_hash: &str,
+        provider_data: Vec<u8>,
+    ) -> Result<(), RegistryError> {
+        use crate::database::schema::unified::package_providers;
+        use crate::database::universal_types::{
+            UniversalBinary, UniversalTimestamp, UniversalUuid,
+        };
+        let new = crate::dal::unified::models::NewPackageProvider {
+            id: UniversalUuid::new_v4(),
+            package_name: package_name.to_string(),
+            version: version.to_string(),
+            tenant_id: tenant_id.map(|s| s.to_string()),
+            provider_name: provider_name.to_string(),
+            provider_version: provider_version.to_string(),
+            content_hash: content_hash.to_string(),
+            provider_data: UniversalBinary::new(provider_data),
+            created_at: UniversalTimestamp::now(),
+        };
+        let (pn, ver, prov) = (
+            package_name.to_string(),
+            version.to_string(),
+            provider_name.to_string(),
+        );
+        let tid = tenant_id.map(|s| s.to_string());
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                        let mut del = diesel::delete(package_providers::table)
+                            .filter(package_providers::package_name.eq(&pn))
+                            .filter(package_providers::version.eq(&ver))
+                            .filter(package_providers::provider_name.eq(&prov))
+                            .into_boxed();
+                        del = match &tid {
+                            Some(t) => del.filter(package_providers::tenant_id.eq(t.clone())),
+                            None => del.filter(package_providers::tenant_id.is_null()),
+                        };
+                        del.execute(conn)?;
+                        diesel::insert_into(package_providers::table)
+                            .values(&new)
+                            .execute(conn)?;
+                        Ok(())
+                    })
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                        let mut del = diesel::delete(package_providers::table)
+                            .filter(package_providers::package_name.eq(&pn))
+                            .filter(package_providers::version.eq(&ver))
+                            .filter(package_providers::provider_name.eq(&prov))
+                            .into_boxed();
+                        del = match &tid {
+                            Some(t) => del.filter(package_providers::tenant_id.eq(t.clone())),
+                            None => del.filter(package_providers::tenant_id.is_null()),
+                        };
+                        del.execute(conn)?;
+                        diesel::insert_into(package_providers::table)
+                            .values(&new)
+                            .execute(conn)?;
+                        Ok(())
+                    })
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            }
+        )
+    }
+
+    /// CLOACI-T-0836: every bundled provider row for a consumer package (the set
+    /// the reconciler unpacks into `providers/` before resolving `constructor!`
+    /// nodes). Empty for packages that use no constructors.
+    pub async fn get_providers_for_package(
+        &self,
+        package_name: &str,
+        version: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<crate::dal::unified::models::PackageProvider>, RegistryError> {
+        use crate::database::schema::unified::package_providers;
+        let (pn, ver) = (package_name.to_string(), version.to_string());
+        let tid = tenant_id.map(|s| s.to_string());
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    let mut q = package_providers::table
+                        .filter(package_providers::package_name.eq(&pn))
+                        .filter(package_providers::version.eq(&ver))
+                        .into_boxed();
+                    q = match &tid {
+                        Some(t) => q.filter(package_providers::tenant_id.eq(t.clone())),
+                        None => q.filter(package_providers::tenant_id.is_null()),
+                    };
+                    q.select(crate::dal::unified::models::PackageProvider::as_select())
+                        .load(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    let mut q = package_providers::table
+                        .filter(package_providers::package_name.eq(&pn))
+                        .filter(package_providers::version.eq(&ver))
+                        .into_boxed();
+                    q = match &tid {
+                        Some(t) => q.filter(package_providers::tenant_id.eq(t.clone())),
+                        None => q.filter(package_providers::tenant_id.is_null()),
+                    };
+                    q.select(crate::dal::unified::models::PackageProvider::as_select())
+                        .load(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            }
+        )
+    }
+
     /// CLOACI-T-0780 (producer): active (success, non-superseded) packages in this
     /// tenant scope that LACK a per-target artifact for `target_triple` — the set a
     /// `--build-target` compiler scan-and-fills. `name_filter` limits the scan to a

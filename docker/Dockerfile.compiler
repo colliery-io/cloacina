@@ -44,6 +44,11 @@ RUN apt-get update \
         python3-dev \
  && rm -rf /var/lib/apt/lists/*
 
+# CLOACI-T-0836: constructor providers are built to WASM components at package
+# build time (`pack_providers` shells `cargo build --target wasm32-wasip2`), so
+# the compiler image needs the target installed.
+RUN rustup target add wasm32-wasip2
+
 # Bake the full workspace at /workspace so uploaded packages' `__WORKSPACE__`
 # path-deps resolve here, and so building the compiler warms cloacina + its
 # ~100 transitive deps into the shared target dir + the image's cargo registry.

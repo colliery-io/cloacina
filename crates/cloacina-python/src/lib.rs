@@ -28,6 +28,7 @@ pub mod computation_graph;
 mod computation_graph_tests;
 
 // Concrete PyO3 bindings
+pub mod constructor;
 pub mod context;
 pub mod loader;
 pub mod namespace;
@@ -105,6 +106,11 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(task::task, m)?)?;
     m.add_class::<task::PyTaskHandle>()?;
+
+    // CLOACI-T-0831: packaged constructor-provider consumption (mirrors Rust's
+    // `constructor!`). NOTE: also registered in the synthetic module
+    // (`loader.rs::ensure_cloaca_module`) — keep BOTH in sync.
+    m.add_function(wrap_pyfunction!(constructor::constructor, m)?)?;
 
     // CLOACI-T-0763: Python trigger-rule builders (parity with Rust's DSL).
     m.add_function(wrap_pyfunction!(trigger_rules::context_value, m)?)?;

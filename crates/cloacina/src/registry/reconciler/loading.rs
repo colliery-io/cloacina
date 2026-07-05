@@ -349,6 +349,14 @@ impl RegistryReconciler {
                     &library_data,
                 )
                 .await?;
+            // Step 5b: packaged `constructor!` nodes (CLOACI-T-0832/T-0836).
+            // Resolve each declared constructor node against the package's
+            // BUNDLED providers and register it into the runtime registry,
+            // BEFORE step 6 builds the workflow — the DAG builder
+            // (`create_workflow_from_host_registry_static`) enumerates the
+            // registry, so resolved nodes join the topology automatically.
+            self.step_load_constructor_nodes(&metadata, &library_data)
+                .await?;
             // Step 6: workflows (tasks + workflow + trigger-subscription
             // validation).
             let (task_namespaces, workflow_name) =
@@ -394,6 +402,13 @@ impl RegistryReconciler {
                         metadata.package_name
                     ),
                     })?;
+
+            // CLOACI-T-0831: stage the package's bundled constructor providers
+            // BEFORE the module import — `cloaca.constructor(...)` calls resolve
+            // against the provider search path DURING import. Packages that
+            // bundle none stage nothing (Ok(0)).
+            self.stage_bundled_providers(&metadata).await?;
+
             let loaded = {
                 let archive_data = loaded_workflow.package_data.clone();
                 let runtime = runtime.clone();
@@ -2016,6 +2031,242 @@ impl RegistryReconciler {
 
     /// Pipeline step 6: workflows. Registers tasks + workflow + validates
     /// `#[workflow(triggers = [...])]` subscriptions against the runtime.
+    /// Step 5b (CLOACI-T-0832/T-0836): resolve packaged `constructor!` nodes
+    /// against the package's BUNDLED providers and register each as a task in the
+    /// runtime registry, so step 6's DAG builder picks them up like any other task.
+    ///
+    /// Flow: extract the cdylib's `ConstructorPackageMetadata` declarations (FFI
+    /// method 10; empty for constructor-free packages — the fast path costs one
+    /// FFI call). If any exist: fetch the provider archives stored for this
+    /// package (`package_providers`, written by the compiler's bundle step),
+    /// unpack them into a `providers/` tree, point the loader's provider search
+    /// path at it, and resolve each declaration via `load_constructor_node`
+    /// (name-in-configure member select + tenant capability grants), registering
+    /// the resolved node under `TaskNamespace(tenant, package, workflow, id)`.
+    ///
+    /// Fails closed: a package that declares constructor nodes but has no bundled
+    /// providers (or an unresolvable member/grant/config) does not load.
+    ///
+    /// Known v1 caveats (documented in CLOACI-T-0836): the provider search path is
+    /// process-global (fine under today's sequential reconciler; concurrent loads
+    /// of different packages would race it), and constructor nodes registered here
+    /// are dropped with the runtime rather than per-package unload.
+    /// Stage a package's bundled constructor providers (CLOACI-T-0836/T-0831):
+    /// fetch the `package_providers` rows, unpack each archive into a fresh
+    /// `providers/` tree, and point the loader's provider search path at it.
+    /// Returns how many providers were staged (0 = the package bundles none).
+    ///
+    /// Shared by BOTH load paths: the Rust branch's Step 5b (before resolving FFI
+    /// constructor declarations) and the Python branch (BEFORE the module import,
+    /// so `cloaca.constructor(...)` calls resolve against the bundle during load).
+    ///
+    /// The unpacked dir must outlive the process' use of the search path (wasm
+    /// components are re-read on every node load), so it is deliberately leaked —
+    /// one small dir per loaded package version, reclaimed on process exit
+    /// (mirrors the dlopen temp-dir lifecycle above).
+    ///
+    /// Fails closed: a package WITH bundled providers on a host built without
+    /// `constructors-wasm` cannot resolve them — hard error rather than a
+    /// mystery failure at import/execute.
+    pub(super) async fn stage_bundled_providers(
+        &self,
+        metadata: &WorkflowMetadata,
+    ) -> Result<usize, RegistryError> {
+        let providers = self
+            .registry
+            .get_package_providers(&metadata.package_name, &metadata.version)
+            .await?;
+        if providers.is_empty() {
+            // Hermeticity: the search path is process-global, so without this a
+            // package that bundles NOTHING would silently resolve constructor
+            // refs against whatever bundle the PREVIOUS load staged
+            // (load-order-dependent imports). Clear it so undeclared refs fail
+            // closed for the current package. Already-loaded nodes are
+            // unaffected — they hold their wasm handles.
+            #[cfg(feature = "constructors-wasm")]
+            crate::registry::loader::clear_provider_search_path();
+            return Ok(0);
+        }
+
+        #[cfg(not(feature = "constructors-wasm"))]
+        {
+            Err(RegistryError::RegistrationFailed {
+                message: format!(
+                    "package {} v{} bundles {} constructor provider(s), but this host was \
+                     built without the `constructors-wasm` feature — it cannot resolve WASM \
+                     constructor providers (fail closed)",
+                    metadata.package_name,
+                    metadata.version,
+                    providers.len()
+                ),
+            })
+        }
+
+        #[cfg(feature = "constructors-wasm")]
+        {
+            use crate::registry::loader::{set_provider_search_path, unpack_provider_archive};
+
+            let providers_root = tempfile::TempDir::new()
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!("create providers dir: {e}"),
+                })?
+                .keep();
+            for (provider_name, archive_bytes) in &providers {
+                let archive_path = providers_root.join(format!("{provider_name}.cloacina"));
+                std::fs::write(&archive_path, archive_bytes).map_err(|e| {
+                    RegistryError::RegistrationFailed {
+                        message: format!("stage provider archive '{provider_name}': {e}"),
+                    }
+                })?;
+                unpack_provider_archive(&archive_path, &providers_root, &[]).map_err(|e| {
+                    RegistryError::RegistrationFailed {
+                        message: format!("unpack bundled provider '{provider_name}': {e}"),
+                    }
+                })?;
+            }
+            set_provider_search_path(&providers_root);
+            info!(
+                "Unpacked {} bundled provider(s) for {} v{} into {}",
+                providers.len(),
+                metadata.package_name,
+                metadata.version,
+                providers_root.display()
+            );
+            Ok(providers.len())
+        }
+    }
+
+    pub(super) async fn step_load_constructor_nodes(
+        &self,
+        metadata: &WorkflowMetadata,
+        library_data: &[u8],
+    ) -> Result<(), RegistryError> {
+        let declarations = self
+            .package_loader
+            .extract_constructor_metadata(library_data)
+            .await
+            .map_err(RegistryError::Loader)?;
+        if declarations.is_empty() {
+            return Ok(());
+        }
+
+        #[cfg(not(feature = "constructors-wasm"))]
+        {
+            return Err(RegistryError::RegistrationFailed {
+                message: format!(
+                    "package {} v{} declares {} constructor node(s), but this host was built \
+                     without the `constructors-wasm` feature — it cannot resolve WASM \
+                     constructor providers (fail closed)",
+                    metadata.package_name,
+                    metadata.version,
+                    declarations.len()
+                ),
+            });
+        }
+
+        #[cfg(feature = "constructors-wasm")]
+        {
+            use crate::registry::loader::grants::GrantSpec;
+            use crate::registry::loader::load_constructor_node;
+
+            // Stage this package's bundled providers (fail closed: decls with no
+            // bundle refuse to load — the hermetic guarantee).
+            let staged = self.stage_bundled_providers(metadata).await?;
+            if staged == 0 {
+                return Err(RegistryError::RegistrationFailed {
+                    message: format!(
+                        "package {} v{} declares {} constructor node(s) but has NO bundled \
+                         providers — the build step must bundle each `from` provider \
+                         (CLOACI-T-0836) before the reconciler can resolve them",
+                        metadata.package_name,
+                        metadata.version,
+                        declarations.len()
+                    ),
+                });
+            }
+
+            let runtime =
+                self.runtime
+                    .as_ref()
+                    .ok_or_else(|| RegistryError::RegistrationFailed {
+                        message: format!(
+                            "package {} declares constructor nodes but the reconciler has no \
+                         Runtime attached",
+                            metadata.package_name
+                        ),
+                    })?;
+            let tenant = self.config.default_tenant_id.as_str();
+
+            // Resolve + register each declared node. wasmtime compilation is
+            // blocking work; hop off the async executor per node.
+            for decl in declarations {
+                let namespace =
+                    TaskNamespace::new(tenant, &metadata.package_name, &decl.workflow, &decl.id);
+                let dependencies: Vec<TaskNamespace> = decl
+                    .dependencies
+                    .iter()
+                    .map(|dep| {
+                        TaskNamespace::new(tenant, &metadata.package_name, &decl.workflow, dep)
+                    })
+                    .collect();
+                let grants = GrantSpec::from_pairs(decl.grants.clone());
+
+                let (node_id, from, constructor) =
+                    (decl.id.clone(), decl.from.clone(), decl.constructor.clone());
+                // Config values crossed the FFI wire JSON-encoded (bincode can't
+                // carry `serde_json::Value`); parse each back before binding.
+                let config: Vec<(String, serde_json::Value)> = decl
+                    .config
+                    .iter()
+                    .map(|(k, raw)| {
+                        serde_json::from_str(raw)
+                            .map(|v| (k.clone(), v))
+                            .map_err(|e| RegistryError::RegistrationFailed {
+                                message: format!(
+                                    "constructor node '{}': config value for '{}' is not \
+                                     valid JSON ({raw}): {e}",
+                                    decl.id, k
+                                ),
+                            })
+                    })
+                    .collect::<Result<_, _>>()?;
+                let node = tokio::task::spawn_blocking(move || {
+                    load_constructor_node(
+                        &node_id,
+                        &from,
+                        &constructor,
+                        config,
+                        dependencies,
+                        grants,
+                    )
+                })
+                .await
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!("constructor node '{}' load join: {e}", decl.id),
+                })?
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!(
+                        "resolve constructor node '{}' (from = '{}', constructor = '{}') for \
+                         package {} v{}: {e}",
+                        decl.id,
+                        decl.from,
+                        decl.constructor,
+                        metadata.package_name,
+                        metadata.version
+                    ),
+                })?;
+
+                runtime.register_task(namespace.clone(), move || node.clone());
+                info!(
+                    "Registered packaged constructor node {} (from = '{}', constructor = '{}')",
+                    namespace, decl.from, decl.constructor
+                );
+            }
+
+            Ok(())
+        }
+    }
+
     pub(super) async fn step_load_workflows(
         &self,
         metadata: &WorkflowMetadata,
@@ -2112,6 +2363,7 @@ mod tests {
             reaction_mode: None,
             input_strategy: None,
             accumulators: Vec::new(),
+            providers: Default::default(),
         }
     }
 
@@ -2844,5 +3096,233 @@ mod tests {
         );
 
         scheduler.shutdown_all().await;
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0836 / T-0832: Step 5b — packaged constructor-node resolution
+    // against bundled providers. Gated on `constructors-wasm` (wasmtime); builds
+    // the packaged consumer fixture cdylib + the provider wasm archive in-test.
+    // -----------------------------------------------------------------------
+    #[cfg(feature = "constructors-wasm")]
+    mod constructor_nodes {
+        use super::*;
+        use crate::registry::types::LoadedWorkflow;
+        use crate::registry::WorkflowRegistry;
+        use async_trait::async_trait;
+        use std::path::PathBuf;
+        use std::sync::OnceLock;
+
+        fn workspace_root() -> PathBuf {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+        }
+
+        /// Build the packaged consumer fixture (a cdylib whose `constructor!` node
+        /// lowers to a ConstructorEntry declaration) once; return its bytes.
+        fn consumer_cdylib() -> &'static [u8] {
+            static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+            BYTES.get_or_init(|| {
+                let root = workspace_root().canonicalize().unwrap();
+                let fixture = root.join("examples/constructor-contract/packaged-consumer-fixture");
+
+                // Stage a temp copy with `__WORKSPACE__` rewritten to the absolute
+                // workspace root (same template scheme as compiler-happy-rust).
+                let stage = tempfile::TempDir::new().unwrap().keep();
+                std::fs::create_dir_all(stage.join("src")).unwrap();
+                let cargo = std::fs::read_to_string(fixture.join("Cargo.toml"))
+                    .unwrap()
+                    .replace("__WORKSPACE__", &root.display().to_string());
+                std::fs::write(stage.join("Cargo.toml"), cargo).unwrap();
+                for f in ["build.rs", "package.toml"] {
+                    std::fs::copy(fixture.join(f), stage.join(f)).unwrap();
+                }
+                std::fs::copy(fixture.join("src/lib.rs"), stage.join("src/lib.rs")).unwrap();
+
+                let status = std::process::Command::new("cargo")
+                    .args(["build", "--lib"])
+                    .current_dir(&stage)
+                    .status()
+                    .expect("spawn cargo build for packaged-consumer-fixture");
+                assert!(status.success(), "packaged-consumer-fixture build failed");
+
+                let ext = if cfg!(target_os = "macos") {
+                    "dylib"
+                } else {
+                    "so"
+                };
+                std::fs::read(
+                    stage
+                        .join("target/debug")
+                        .join(format!("libpackaged_consumer_fixture.{ext}")),
+                )
+                .expect("read built consumer cdylib")
+            })
+        }
+
+        /// Build + pack the `cloacina-provider-fs` provider archive once (what the
+        /// compiler's bundle step would store in `package_providers`).
+        fn provider_archive() -> &'static [u8] {
+            static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+            BYTES.get_or_init(|| {
+                let out = tempfile::TempDir::new().unwrap().keep();
+                let archive = out.join("cloacina-provider-fs.cloacina");
+                let opts = crate::packaging::constructor_provider::ProviderPackageOptions {
+                    crate_dir: workspace_root()
+                        .join("examples/constructor-contract/cloacina-provider-fs"),
+                    output: Some(archive.clone()),
+                    sign_key: None,
+                    manifest_bin: "emit_manifest".to_string(),
+                    release: false,
+                };
+                crate::packaging::constructor_provider::package_constructor_provider(&opts)
+                    .expect("package cloacina-provider-fs");
+                std::fs::read(&archive).expect("read provider archive")
+            })
+        }
+
+        /// A registry stub whose only real behavior is returning the bundled
+        /// provider archives — the seam `step_load_constructor_nodes` consumes.
+        struct ProviderStubRegistry {
+            providers: Vec<(String, Vec<u8>)>,
+        }
+
+        #[async_trait]
+        impl WorkflowRegistry for ProviderStubRegistry {
+            async fn register_workflow(
+                &mut self,
+                _package_data: Vec<u8>,
+            ) -> Result<WorkflowPackageId, RegistryError> {
+                unimplemented!("stub")
+            }
+            async fn get_workflow(
+                &self,
+                _package_name: &str,
+                _version: &str,
+            ) -> Result<Option<LoadedWorkflow>, RegistryError> {
+                Ok(None)
+            }
+            async fn list_workflows(&self) -> Result<Vec<WorkflowMetadata>, RegistryError> {
+                Ok(vec![])
+            }
+            async fn unregister_workflow(
+                &mut self,
+                _package_name: &str,
+                _version: &str,
+            ) -> Result<(), RegistryError> {
+                Ok(())
+            }
+            async fn get_package_providers(
+                &self,
+                _package_name: &str,
+                _version: &str,
+            ) -> Result<Vec<(String, Vec<u8>)>, RegistryError> {
+                Ok(self.providers.clone())
+            }
+        }
+
+        fn make_reconciler_with_providers(providers: Vec<(String, Vec<u8>)>) -> RegistryReconciler {
+            let registry = Arc::new(ProviderStubRegistry { providers });
+            let config = ReconcilerConfig::default();
+            let (_tx, rx) = tokio::sync::watch::channel(false);
+            RegistryReconciler::new(registry, config, rx)
+                .expect("create reconciler")
+                .with_runtime(Arc::new(Runtime::empty()))
+        }
+
+        fn consumer_metadata() -> WorkflowMetadata {
+            WorkflowMetadata {
+                package_name: "packaged-consumer-fixture".to_string(),
+                version: "0.1.0".to_string(),
+                workflow_name: "provider_consumer".to_string(),
+                ..make_test_metadata()
+            }
+        }
+
+        /// The full Step 5b happy path: bundled provider archive → unpack →
+        /// resolve the declared `constructor!` node by name → register → the node
+        /// RUNS (reads the granted file through the sandbox) and the DAG builder
+        /// picks it up.
+        #[tokio::test]
+        #[serial]
+        async fn resolves_and_runs_packaged_constructor_node_from_bundled_provider() {
+            // The fixture's compile-time config path.
+            let data_dir = std::path::Path::new("/tmp/cloacina-packaged-consumer-fixture");
+            std::fs::create_dir_all(data_dir).unwrap();
+            std::fs::write(data_dir.join("secret.txt"), "bundled secret").unwrap();
+
+            let reconciler = make_reconciler_with_providers(vec![(
+                "cloacina-provider-fs".to_string(),
+                provider_archive().to_vec(),
+            )]);
+            let metadata = consumer_metadata();
+
+            reconciler
+                .step_load_constructor_nodes(&metadata, consumer_cdylib())
+                .await
+                .expect("Step 5b resolves the declared constructor node");
+
+            // Registered under (tenant, package, workflow, id) — where the DAG
+            // builder looks.
+            let runtime = runtime_of(&reconciler);
+            let ns = TaskNamespace::new(
+                &reconciler.config.default_tenant_id,
+                "packaged-consumer-fixture",
+                "provider_consumer",
+                "reader",
+            );
+            let task = runtime
+                .get_task(&ns)
+                .expect("constructor node registered in the runtime registry");
+
+            // The DAG builder assembles a workflow containing the node.
+            let workflow = RegistryReconciler::create_workflow_from_host_registry_static(
+                &runtime,
+                "packaged-consumer-fixture",
+                "provider_consumer",
+                &reconciler.config.default_tenant_id,
+            )
+            .expect("workflow builds from the registry");
+            assert!(
+                workflow
+                    .get_task_ids()
+                    .iter()
+                    .any(|t| t.task_id == "reader"),
+                "the resolved constructor node joins the workflow DAG"
+            );
+
+            // And the node actually RUNS: the sandboxed read succeeds through the
+            // fixture's fs grant.
+            let out = task
+                .execute(crate::Context::new())
+                .await
+                .expect("packaged constructor node executes");
+            assert_eq!(
+                out.get("contents"),
+                Some(&serde_json::json!("bundled secret")),
+                "read_file resolved from the BUNDLED provider read the granted file"
+            );
+        }
+
+        /// Fail closed: constructor declarations with NO bundled providers refuse
+        /// to load (the hermetic guarantee — no fallback to ambient dirs).
+        #[tokio::test]
+        #[serial]
+        async fn constructor_decls_without_bundled_providers_fail_closed() {
+            let reconciler = make_reconciler_with_providers(vec![]);
+            let metadata = consumer_metadata();
+
+            let err = reconciler
+                .step_load_constructor_nodes(&metadata, consumer_cdylib())
+                .await
+                .expect_err("decls without bundled providers must fail closed");
+            let msg = format!("{err:?}");
+            assert!(
+                msg.contains("NO bundled providers"),
+                "error should say the bundle is missing, got: {msg}"
+            );
+        }
+
+        // (The constructor-free fast path — empty declarations → immediate Ok —
+        // is covered implicitly by every existing reconciler test that loads a
+        // constructor-free package through load_package unchanged.)
     }
 }

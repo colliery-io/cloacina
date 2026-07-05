@@ -21,8 +21,8 @@
 
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
-    key_trust_acls, package_artifacts, package_signatures, reactor_state, recovery_events,
-    schedule_executions, schedules, signing_keys, state_accumulator_buffers,
+    key_trust_acls, package_artifacts, package_providers, package_signatures, reactor_state,
+    recovery_events, schedule_executions, schedules, signing_keys, state_accumulator_buffers,
     task_execution_metadata, task_executions, task_outbox, trusted_keys, workflow_executions,
     workflow_packages, workflow_registry,
 };
@@ -482,6 +482,38 @@ pub struct NewPackageArtifact {
     pub target_triple: String,
     pub content_hash: String,
     pub compiled_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Bundled constructor providers (CLOACI-T-0836, hermetic packaged workflows)
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = package_providers)]
+pub struct PackageProvider {
+    pub id: UniversalUuid,
+    pub package_name: String,
+    pub version: String,
+    pub tenant_id: Option<String>,
+    pub provider_name: String,
+    pub provider_version: String,
+    pub content_hash: String,
+    pub provider_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = package_providers)]
+pub struct NewPackageProvider {
+    pub id: UniversalUuid,
+    pub package_name: String,
+    pub version: String,
+    pub tenant_id: Option<String>,
+    pub provider_name: String,
+    pub provider_version: String,
+    pub content_hash: String,
+    pub provider_data: UniversalBinary,
     pub created_at: UniversalTimestamp,
 }
 

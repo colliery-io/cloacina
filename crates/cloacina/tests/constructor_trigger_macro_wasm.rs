@@ -43,7 +43,7 @@ use std::time::Duration;
 
 use cloacina::registry::loader::constructor_loader::{load_trigger_constructor, TriggerBinding};
 use cloacina::trigger::TriggerResult;
-use cloacina_constructor_contract::{ConstructorManifest, PrimitiveKind};
+use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 use serde::Serialize;
 
 /// Per-instance config the loader binds once at load (mirrors the fixture's
@@ -116,7 +116,7 @@ fn stage(root: &Path) {
          [wasm]\ncomponent = \"trigger_constructor_macro_fixture.wasm\"\n",
     )
     .unwrap();
-    std::fs::write(dir.join("constructor.json"), macro_manifest_json()).unwrap();
+    std::fs::write(dir.join("provider.json"), macro_manifest_json()).unwrap();
 }
 
 #[tokio::test]
@@ -124,8 +124,11 @@ async fn macro_authored_trigger_manifest_carries_the_declared_surface() {
     // The macro-generated `__constructor_manifest()` describes the trigger: a
     // Trigger named "heartbeat", interface v1, no params (a trigger's poll has no
     // task-context inputs).
-    let manifest = ConstructorManifest::from_json(macro_manifest_json())
-        .expect("macro manifest parses against the real contract crate");
+    let provider = ProviderManifest::from_json(macro_manifest_json())
+        .expect("macro provider manifest parses against the real contract crate");
+    let manifest = provider
+        .constructor("heartbeat")
+        .expect("suite carries the  member");
 
     assert_eq!(manifest.name, "heartbeat");
     assert_eq!(manifest.version, "0.1.0");
@@ -143,6 +146,7 @@ async fn macro_authored_wasm_trigger_constructor_fires_when_configured() {
     let trigger = load_trigger_constructor(
         tmp.path(),
         "trigger-constructor-macro-pkg",
+        "heartbeat",
         &Config {
             should_fire: true,
             message: "boundary crossed".into(),
@@ -153,6 +157,7 @@ async fn macro_authored_wasm_trigger_constructor_fires_when_configured() {
             workflow_name: "my_workflow".into(),
             cron_expression: None,
         },
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_trigger_constructor");
 
@@ -177,11 +182,13 @@ async fn macro_authored_wasm_trigger_constructor_skips_when_configured_off() {
     let trigger = load_trigger_constructor(
         tmp.path(),
         "trigger-constructor-macro-pkg",
+        "heartbeat",
         &Config {
             should_fire: false,
             message: "unused".into(),
         },
         TriggerBinding::default(),
+        &cloacina::registry::loader::grants::ResolvedGrants::deny_all(),
     )
     .expect("load_trigger_constructor");
 

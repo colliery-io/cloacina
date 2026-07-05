@@ -4,14 +4,14 @@ level: initiative
 title: "cloacina-server OIDC authentication — bring-your-own-IdP login, server-side refresh, minted scoped keys"
 short_code: "CLOACI-I-0118"
 created_at: 2026-06-11T01:59:15.243679+00:00
-updated_at: 2026-06-23T01:55:13.060633+00:00
+updated_at: 2026-07-04T03:39:25.681916+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
