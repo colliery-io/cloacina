@@ -4,14 +4,14 @@ level: task
 title: "Kubernetes-first deployment — configure and assign agents to tenant workloads from the UI"
 short_code: "CLOACI-T-0748"
 created_at: 2026-06-20T02:26:30.274166+00:00
-updated_at: 2026-06-20T02:26:30.274166+00:00
+updated_at: 2026-07-05T23:51:47.498623+00:00
 parent: CLOACI-I-0127
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -82,17 +82,28 @@ tenant compute can be shaped and isolated without editing manifests by hand.
 - Embedded-first remains a permanent, production-legitimate end-state; K8s-first
   is the *scaled* deployment target, not a replacement for embedded.
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria (initiative-level — refine on decomposition)
 
-- [ ] Promoted to / folded into an initiative and decomposed into tasks before
+- [x] Promoted to / folded into an initiative and decomposed into tasks before
       implementation.
-- [ ] Supported Kubernetes deployment path for server + agent fleet (Helm/operator).
-- [ ] UI can configure agents and view fleet status.
-- [ ] UI can assign agents (pools) to tenants / tenant workloads with enforced
+- [x] Supported Kubernetes deployment path for server + agent fleet (Helm/operator).
+- [x] UI can configure agents and view fleet status.
+- [x] UI can assign agents (pools) to tenants / tenant workloads with enforced
       isolation.
-- [ ] UI-driven agent/tenant config reconciles with declarative K8s state without
+- [x] UI-driven agent/tenant config reconciles with declarative K8s state without
       drift.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-07-05 — CLOSED: superseded and fully delivered by CLOACI-I-0127
+This task was the demo-finding capture that became [[CLOACI-I-0127]] (the initiative doc explicitly marks T-0748 "superseded by T-0808–T-0814; fold/archive once populated"). I-0127 is COMPLETED with all children done; verified AC coverage:
+- **Promoted + decomposed** → I-0127 with design decision (control-plane / pluggable-actuator split) and 12 completed child tasks (T-0808–T-0819).
+- **K8s deployment path** → T-0814 (K8s actuator + Helm RBAC + per-tenant namespace), T-0815 (k3s functional e2e), T-0819 (production hardening: securityContext/probes/NetworkPolicy/PDB).
+- **UI agent config + fleet status** → T-0813 (tenant agent management, role-gated) + T-0786 (agent roster).
+- **Tenant↔agent assignment with isolation** → T-0808 (limits), T-0809 (desired-count/provision API with cross-scope denial), T-0812 (auto-provision); the security boundary is server-side ABAC per NFR-004, substrate isolation is defense-in-depth.
+- **UI↔K8s reconciliation** → server-as-authority actuator model (desired→actual reconcile loop, REQ-008 substrate guard).
+Related fleet execution model (T-0722, CG whole-graph dispatch to agents) also shipped 2026-07-05 with Python parity (T-0841). Nothing of this capture remains undelivered. COMPLETE.
