@@ -80,3 +80,4 @@ clients/python/dist/
 
 # Soak run artifacts (durable logs; not source)
 .angreal/test/soak/runs/
+stress-env
