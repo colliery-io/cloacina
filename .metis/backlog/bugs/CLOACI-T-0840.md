@@ -4,15 +4,15 @@ level: task
 title: "In-place Python package version upgrade silently loses tasks (module re-import is a no-op in the live interpreter)"
 short_code: "CLOACI-T-0840"
 created_at: 2026-07-05T20:00:01.551787+00:00
-updated_at: 2026-07-05T20:00:01.551787+00:00
+updated_at: 2026-07-05T21:12:13.160762+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -65,6 +65,12 @@ The agent already knows this trap — `cloacina-agent/src/main.rs` (process_work
   2. Upload the same package as 0.1.1 (any change).
   3. After build+reconcile: `GET /v1/tenants/public/workflows/demo-py-workflow` → `tasks: []`; executes fail/no-op.
 - **Expected vs Actual**: expected the new version to load with its tasks; actual silent empty workflow until a server restart.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -136,4 +142,9 @@ The agent already knows this trap — `cloacina-agent/src/main.rs` (process_work
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-05 — FIXED via option (1) + LIVE-PROVEN, no restart (branch fix/t0840-py-module-reimport)
+`import_and_register_python_workflow` now, before the import: (a) evicts the entry module's TOP-LEVEL package subtree from `sys.modules` so the new version's source actually executes; (b) prunes stale `sys.path` roots that can still resolve the top-level module (an old staging dir earlier in sys.path would otherwise win the fresh import and load the previous version's source). In-flight tasks from the old version are unaffected (Arc'd PyObjects live independent of sys.modules).
+
+**Regression test** `python_reimport_after_upgrade_registers_new_tasks`: v1 (task `v1_task`) loads, then v2 at the SAME module path with a DIFFERENT task must register `v2_task` and not leak `v1_task` — fails without the eviction. Both import tests in the binary serialized on a shared key (the process-global workflow-context stack makes concurrent imports interfere; runtime load paths are already sequential).
+
+**LIVE PROOF (demo stack, rebuilt server):** boot loaded 0.1.1 with tasks → uploaded 0.1.2 with a marked docstring → built → reconciled **without any restart** → API serves `version: 0.1.2`, all 4 tasks, and `doc_what: "Stage the demo batch (v0.1.2 upgraded IN PLACE) — …"` — the marker proves the NEW source executed, not a cached module. (Contrast: the identical 0.1.0→0.1.1 upgrade the day before loaded "0 tasks / reactor library" until a restart.) All ACs met; hard fix landed, no stopgap needed. COMPLETE.
