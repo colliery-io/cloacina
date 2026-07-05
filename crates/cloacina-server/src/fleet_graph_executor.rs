@@ -91,18 +91,33 @@ impl FleetGraphExecutor {
     /// Attempt fleet dispatch. `Err(reason)` = pre-dispatch failure — the
     /// caller falls back to in-process execution.
     async fn try_dispatch(&self, fire: &GraphFireEvent) -> Result<GraphResult, String> {
-        // 1. Resolve the graph's owning package by its reactor surface name.
-        let package_name = self
+        // 1. Resolve the graph's owning package: by its reactor surface name
+        //    first, then by any of the firing's accumulator sources (some
+        //    packages — notably Python CGs — declare accumulator surfaces but
+        //    not a reactor surface; same fallback the health API uses).
+        let mut package = self
             .registry
             .find_package_for_surface("reactor", &fire.graph_name)
             .await
-            .map_err(|e| format!("surface→package lookup failed: {e}"))?
-            .ok_or_else(|| {
-                format!(
-                    "graph '{}' has no owning package (embedded graph)",
-                    fire.graph_name
-                )
-            })?;
+            .map_err(|e| format!("surface→package lookup failed: {e}"))?;
+        if package.is_none() {
+            for source in fire.snapshot.sources() {
+                if let Ok(Some(p)) = self
+                    .registry
+                    .find_package_for_surface("accumulator", source.as_str())
+                    .await
+                {
+                    package = Some(p);
+                    break;
+                }
+            }
+        }
+        let package_name = package.ok_or_else(|| {
+            format!(
+                "graph '{}' has no owning package (embedded graph)",
+                fire.graph_name
+            )
+        })?;
 
         // 2. Resolve the active artifact. Interpreted (Python) CGs stay
         //    in-process in v1 — their compiled graph fn is a live PyObject,

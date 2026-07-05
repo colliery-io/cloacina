@@ -4,7 +4,7 @@ level: task
 title: "Python computation graphs on the agent fleet — agent-side graph-fn assembly from source (T-0722 follow-on)"
 short_code: "CLOACI-T-0841"
 created_at: 2026-07-05T21:54:59.701905+00:00
-updated_at: 2026-07-05T22:01:18.287986+00:00
+updated_at: 2026-07-05T22:24:11.174335+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -61,6 +61,8 @@ The model is the same source-shipping approach Python TASKS already use on the f
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -141,3 +143,10 @@ The feared "scheduler-coupled assembly" mostly didn't exist: a py CG's graph fn 
 - **Server**: python early-fallback removed; interpreted packages get `runnable_triples = None` (any arch, same as tasks) + primary/source digest; `language` stamped into the packet.
 - **Agent**: `execute_python_graph` — one import per digest (`imported_py_graph_digests`; executors are global, upgrades arrive as new digests where the T-0840 eviction re-executes the module), then `get_graph_executor(packet.graph_name)` and execute with the packet cache REBUILT into the exact in-process wire shape (`bincode(Vec<u8>)` of the raw JSON per entry — byte-identical to server-side accumulator frames, so executor behavior matches a local firing exactly). Outputs reported empty (parity: in-process py graph outputs are discarded). Executor-not-found after import → Refused → server falls back in-process.
 Remaining: tests, live verify demo_py_graph firing on an agent, PR.
+
+### 2026-07-05 — 🎯 LIVE-PROVEN, two real fixes found by the live loop — CLOSING
+The live verification loop caught two design gaps unit checks wouldn't have (each time the T-0722 fallback correctly ran the firing in-process — the safety policy proving itself):
+1. **Package resolution**: py CG packages don't declare a findable REACTOR surface — added the accumulator-surface fallback (resolve via the firing's own snapshot sources), mirroring the health API's `source_package` logic.
+2. **Reactor≠graph naming**: the packet carries the REACTOR name; `GRAPH_EXECUTORS` keys by CG name (reactors fan to subscriber graphs — Rust worked only because FFI `execute_graph` ignores the name). Added `get_graph_executors_for_reactor` (cloacina-python) + agent-side fan-out executing every subscriber graph (any error fails the firing, matching the in-process dispatcher's aggregate).
+
+**LIVE PROOF**: inject `{"value": 7.5}` into `py_alpha` → `demo_py_graph_rx` fired → **"fleet: graph firing completed on agent agent_id=08a8642e… duration_ms=140"** (including first-time source import) → fires log `ok: true`, inputs decodable. CG suite 45/45 unchanged. CG fleet dispatch is now language-complete: Rust ships the cdylib, Python ships the source. COMPLETE.

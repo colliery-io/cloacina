@@ -618,6 +618,21 @@ pub fn get_graph_executor(name: &str) -> Option<PythonGraphExecutor> {
     GRAPH_EXECUTORS.lock().unwrap().get(name).cloned()
 }
 
+/// All registered graph executors subscribed to `reactor` (CLOACI-T-0841).
+/// A reactor firing fans out to its subscriber graphs; the fleet agent
+/// receives the REACTOR name in the packet and uses this to find the
+/// graph(s) to execute — the agent-side analog of the scheduler's
+/// subscriber dispatcher.
+pub fn get_graph_executors_for_reactor(reactor: &str) -> Vec<PythonGraphExecutor> {
+    GRAPH_EXECUTORS
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|ex| ex.has_reactor && ex.reactor_name.as_deref() == Some(reactor))
+        .cloned()
+        .collect()
+}
+
 #[pyclass]
 pub struct PythonGraphExecutor {
     pub name: String,

@@ -696,17 +696,27 @@ async fn execute_python_graph(
         }
     }
 
-    let Some(executor) = cloacina_python::computation_graph::get_graph_executor(&packet.graph_name)
-    else {
+    // The packet's graph_name is the REACTOR name (the reactor is the firing
+    // unit); executors register under their CG name. Try a direct CG-name hit
+    // (self-reactor graphs), then fan out to all subscriber graphs of the
+    // reactor — the agent-side analog of the scheduler's subscriber dispatcher.
+    let executors = match cloacina_python::computation_graph::get_graph_executor(&packet.graph_name)
+    {
+        Some(ex) => vec![ex],
+        None => {
+            cloacina_python::computation_graph::get_graph_executors_for_reactor(&packet.graph_name)
+        }
+    };
+    if executors.is_empty() {
         return cloacina::fleet::AgentOutcome::Refused {
             reason: RefusalReason::RuntimeLoadFailed,
             message: format!(
-                "graph '{}' not registered after importing digest {} — \
-                 package/graph mismatch",
+                "no graph executor registered for '{}' (as CG name or reactor) after \
+                 importing digest {} — package/graph mismatch",
                 packet.graph_name, digest
             ),
         };
-    };
+    }
 
     // Rebuild the InputCache in the exact in-process wire shape: each entry
     // is bincode(Vec<u8>) of the raw event JSON — byte-identical to what the
@@ -729,23 +739,32 @@ async fn execute_python_graph(
         );
     }
 
-    // The Python executor holds the GIL inside its own spawn_blocking.
-    let result = executor.execute(&cache).await;
-    match result {
-        cloacina::cloacina_computation_graph::GraphResult::Completed { .. } => {
-            debug!(graph = %packet.graph_name, "python graph firing executed on agent");
-            // Python graph outputs are PyObjects the reactor discards —
-            // report success with no outputs (parity with in-process).
-            cloacina::fleet::AgentOutcome::Success {
-                context: serde_json::json!({ "outputs": [] }),
+    // Execute every subscriber graph (usually one). Any error fails the
+    // firing — the same aggregate the in-process subscriber dispatcher
+    // reports. The Python executor holds the GIL inside its own
+    // spawn_blocking.
+    for executor in executors {
+        let graph_name = executor.name.clone();
+        match executor.execute(&cache).await {
+            cloacina::cloacina_computation_graph::GraphResult::Completed { .. } => {
+                debug!(
+                    graph = %graph_name,
+                    reactor = %packet.graph_name,
+                    "python graph firing executed on agent"
+                );
+            }
+            cloacina::cloacina_computation_graph::GraphResult::Error(e) => {
+                return cloacina::fleet::AgentOutcome::Failure {
+                    message: format!("python graph '{}' execution failed: {}", graph_name, e),
+                    classification: cloacina::fleet::FailureClassification::TaskError,
+                };
             }
         }
-        cloacina::cloacina_computation_graph::GraphResult::Error(e) => {
-            cloacina::fleet::AgentOutcome::Failure {
-                message: format!("python graph execution failed: {}", e),
-                classification: cloacina::fleet::FailureClassification::TaskError,
-            }
-        }
+    }
+    // Python graph outputs are PyObjects the reactor discards — report
+    // success with no outputs (parity with in-process).
+    cloacina::fleet::AgentOutcome::Success {
+        context: serde_json::json!({ "outputs": [] }),
     }
 }
 
