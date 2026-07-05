@@ -1054,6 +1054,20 @@ impl<T: Serialize + DeserializeOwned + Send + Clone + 'static> StateAccumulator<
 /// evicts if over capacity, persists to DAL, and emits the full list as boundary.
 ///
 /// On startup: loads from DAL and emits current list to reactor.
+/// Encode a state window for the boundary wire (CLOACI-T-0842).
+///
+/// The window ships in the SAME shape passthrough events use —
+/// `bincode(Vec<u8>)` of JSON bytes (here, a JSON array) — because the
+/// previous `bincode(Vec<T>)` encoding was WRITE-ONLY for the
+/// `serde_json::Value` instantiation the factory uses: `Value` can't
+/// deserialize from bincode (non-self-describing, `deserialize_any`), so the
+/// fires log rendered `null`, the FFI cache conversion errored, and no
+/// consumer could read the window. One wire shape for every boundary means
+/// every existing decoder just works.
+fn state_window_frame<T: Serialize>(list: &[T]) -> Result<Vec<u8>, String> {
+    serde_json::to_vec(list).map_err(|e| e.to_string())
+}
+
 pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + Clone + 'static>(
     mut acc: StateAccumulator<T>,
     ctx: AccumulatorContext,
@@ -1086,8 +1100,15 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
         // Emit current list to reactor immediately (so reactor has state on startup)
         if !acc.buffer.is_empty() && acc.capacity != 0 {
             let list: Vec<T> = acc.buffer.iter().cloned().collect();
-            if let Err(e) = ctx.output.send(&list).await {
-                tracing::error!(name = %ctx.name, "state accumulator initial emit failed: {}", e);
+            match state_window_frame(&list) {
+                Ok(frame) => {
+                    if let Err(e) = ctx.output.send(&frame).await {
+                        tracing::error!(name = %ctx.name, "state accumulator initial emit failed: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(name = %ctx.name, "state window encode failed: {}", e)
+                }
             }
         }
     }
@@ -1149,10 +1170,17 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
                         // Emit full list as boundary (unless write-only mode)
                         if acc.capacity != 0 {
                             let list: Vec<T> = acc.buffer.iter().cloned().collect();
-                            if let Err(e) = ctx.output.send(&list).await {
-                                tracing::error!(name = %ctx.name, "state accumulator emit failed: {}", e);
-                            } else {
-                                persist_boundary(&ctx, &list).await;
+                            match state_window_frame(&list) {
+                                Ok(frame) => {
+                                    if let Err(e) = ctx.output.send(&frame).await {
+                                        tracing::error!(name = %ctx.name, "state accumulator emit failed: {}", e);
+                                    } else {
+                                        persist_boundary(&ctx, &list).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!(name = %ctx.name, "state window encode failed: {}", e)
+                                }
                             }
                         }
                     }
@@ -1886,7 +1914,11 @@ mod tests {
                     .expect("boundary should arrive within 2s")
                     .expect("boundary channel open");
             assert_eq!(name, SourceName::new("state_bounded"));
-            let list: Vec<i64> = types::deserialize(&bytes).unwrap();
+            // CLOACI-T-0842: the window ships as JSON-array bytes in the
+            // passthrough bincode(Vec<u8>) wrapper (one wire shape for every
+            // boundary) — decode accordingly.
+            let json_bytes: Vec<u8> = types::deserialize(&bytes).unwrap();
+            let list: Vec<i64> = serde_json::from_slice(&json_bytes).unwrap();
             assert_eq!(
                 list, exp,
                 "bounded history mismatch (capacity={})",
