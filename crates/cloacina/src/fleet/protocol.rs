@@ -56,6 +56,10 @@ pub const AGENT_PROTOCOL_VERSION: u32 = 1;
 /// a [`WorkPacket`]. Constants here keep the magic string out of call sites.
 pub const WORK_PACKET_KIND: &str = "agent_work";
 
+/// Substrate push `kind` for a whole-graph firing dispatched to an agent
+/// (CLOACI-T-0722). Payload = a serialized [`GraphWorkPacket`].
+pub const GRAPH_PACKET_KIND: &str = "agent_graph";
+
 /// Substrate recipient prefix for agent connections. The full recipient
 /// string for an agent is `format!("{}{}", AGENT_RECIPIENT_PREFIX, agent_id)`.
 pub const AGENT_RECIPIENT_PREFIX: &str = "agent:";
@@ -165,6 +169,38 @@ pub struct WorkPacket {
     /// `"python"` → fetch the source archive and import it via PyO3. Defaults
     /// to `"rust"` when missing so a packet from a pre-CLOACI-T-0716 server is
     /// still handled as before. (CLOACI-T-0716)
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+/// One reactor firing shipped to an agent for whole-graph execution
+/// (CLOACI-T-0722). The server pre-converts the reactor's `InputCache`
+/// snapshot into the FFI cache shape (source name → JSON string), so the
+/// agent's job is: fetch the cdylib by digest, `execute_graph(cache)`,
+/// report the outcome via the standard `/v1/agent/result` rendezvous keyed
+/// by `firing_id`. Accumulators + reactor state never leave the server —
+/// only the compute does.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphWorkPacket {
+    pub protocol_version: u32,
+    /// Rendezvous key: a fresh UUID per firing. The agent reports it back as
+    /// the `task_execution_id` of its `AgentResultRequest` (the coordinator
+    /// is a plain uuid→result rendezvous; graph firings reuse it).
+    pub firing_id: String,
+    /// The graph (== reactor) name inside the package.
+    pub graph_name: String,
+    /// The firing's input snapshot in FFI shape: source name → UTF-8 JSON.
+    pub cache: std::collections::HashMap<String, String>,
+    /// Pointer to the cdylib artifact the agent must `dlopen`.
+    pub artifact: ArtifactRef,
+    /// Per-firing execution timeout.
+    pub timeout_seconds: u32,
+    /// Tenant scope (same semantics as [`WorkPacket::tenant_id`]).
+    pub tenant_id: Option<String>,
+    /// Package language (CLOACI-T-0841): `"rust"`/absent → dlopen the cdylib
+    /// and FFI `execute_graph`; `"python"` → fetch the SOURCE archive, import
+    /// it (registering the graph executors), and execute via the Python
+    /// graph executor. Mirrors [`WorkPacket::language`].
     #[serde(default)]
     pub language: Option<String>,
 }

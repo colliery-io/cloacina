@@ -483,6 +483,10 @@ pub struct Reactor {
     /// criteria on the `Latest` path — this is the seam a WASM reactor
     /// constructor's `evaluate` plugs into.
     evaluator: Option<Arc<dyn ReactorFireDecider>>,
+    /// Where firings execute (CLOACI-T-0722): in-process by default, or the
+    /// server's fleet executor (whole-graph dispatch to an agent). Every fire
+    /// event carries the compiled closure as the executor's fallback.
+    graph_executor: Arc<dyn super::graph_executor::GraphExecutor>,
 }
 
 impl Reactor {
@@ -512,7 +516,19 @@ impl Reactor {
             batch_flush_senders: Vec::new(),
             stats: Arc::new(ReactorStats::default()),
             evaluator: None,
+            graph_executor: super::graph_executor::in_process_graph_executor(),
         }
+    }
+
+    /// Set where firings execute (CLOACI-T-0722): the server injects its
+    /// fleet executor here when `--default-executor fleet`; embedded and
+    /// default paths keep the in-process executor.
+    pub fn with_graph_executor(
+        mut self,
+        executor: Arc<dyn super::graph_executor::GraphExecutor>,
+    ) -> Self {
+        self.graph_executor = executor;
+        self
     }
 
     /// Set a pluggable firing-decision hook (CLOACI-T-0828).
@@ -861,6 +877,9 @@ impl Reactor {
         // CLOACI-T-0828: when set, replaces the WhenAny/WhenAll criteria on the
         // Latest path with an external firing decision (a WASM reactor `evaluate`).
         let evaluator = self.evaluator.clone();
+        // CLOACI-T-0722: firings run through the pluggable executor (in-process
+        // by default; the fleet executor ships them to an agent).
+        let graph_executor = self.graph_executor.clone();
 
         loop {
             tokio::select! {
@@ -900,7 +919,14 @@ impl Reactor {
                                 // CLOACI-T-0775: capture the triggering inputs before
                                 // the snapshot is moved into the graph call.
                                 let fire_inputs = capture_fire_inputs(&snapshot);
-                                let result = (graph)(snapshot).await;
+                                let result = graph_executor
+                                    .execute(super::graph_executor::GraphFireEvent {
+                                        graph_name: graph_name_exec.clone(),
+                                        tenant_id: tenant_id_exec.clone(),
+                                        snapshot,
+                                        in_process: graph.clone(),
+                                    })
+                                    .await;
                                 metrics::counter!(
                                     "cloacina_reactor_fires_total",
                                     "graph" => graph_name_exec.clone(),
@@ -966,7 +992,14 @@ impl Reactor {
                                         ).await;
                                         // CLOACI-T-0775: capture inputs before the move.
                                         let fire_inputs = capture_fire_inputs(&snapshot);
-                                        let result = (graph)(snapshot).await;
+                                        let result = graph_executor
+                                            .execute(super::graph_executor::GraphFireEvent {
+                                                graph_name: graph_name_exec.clone(),
+                                                tenant_id: tenant_id_exec.clone(),
+                                                snapshot,
+                                                in_process: graph.clone(),
+                                            })
+                                            .await;
                                         metrics::counter!(
                                             "cloacina_reactor_fires_total",
                                             "graph" => graph_name_exec.clone(),
@@ -1225,6 +1258,48 @@ fn record_reactor_persist_failure(
 
 #[cfg(test)]
 mod tests {
+    /// CLOACI-T-0842: the fires log must render BOTH boundary wire shapes —
+    /// passthrough frames (bincode(Vec<u8>) of raw event JSON) and state
+    /// windows (bincode(Vec<Value>) of the bounded history). State windows
+    /// previously fell through every decode branch and rendered `null`.
+    #[test]
+    fn capture_fire_inputs_decodes_state_windows_and_passthrough() {
+        let mut cache = cloacina_computation_graph::InputCache::new();
+
+        // Passthrough shape: raw JSON bytes wrapped as bincode(Vec<u8>).
+        let event = br#"{"value": 42.0}"#.to_vec();
+        cache.update(
+            cloacina_computation_graph::SourceName::new("passthrough_src"),
+            bincode::serialize(&event).unwrap(),
+        );
+
+        // State-window shape (CLOACI-T-0842): the window ships as JSON-array
+        // bytes in the SAME bincode(Vec<u8>) wrapper passthrough uses — the
+        // old bincode(Vec<Value>) encoding was write-only (Value can't
+        // deserialize from bincode) and rendered null everywhere.
+        let window = vec![
+            serde_json::json!({"value": 1.0}),
+            serde_json::json!({"value": 2.0}),
+        ];
+        cache.update(
+            cloacina_computation_graph::SourceName::new("state_src"),
+            bincode::serialize(&serde_json::to_vec(&window).unwrap()).unwrap(),
+        );
+
+        let inputs = super::capture_fire_inputs(&cache);
+
+        assert_eq!(
+            inputs["passthrough_src"],
+            serde_json::json!({"value": 42.0}),
+            "passthrough frame must decode to the raw event"
+        );
+        assert_eq!(
+            inputs["state_src"],
+            serde_json::json!([{"value": 1.0}, {"value": 2.0}]),
+            "state window must decode to the JSON array, not null"
+        );
+    }
+
     use super::*;
 
     #[test]
