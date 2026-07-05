@@ -4,7 +4,7 @@ level: task
 title: "Execute computation graphs on the agent fleet (whole-graph dispatch per reactor firing)"
 short_code: "CLOACI-T-0722"
 created_at: 2026-06-17T05:20:37.681473+00:00
-updated_at: 2026-07-05T21:27:54.352089+00:00
+updated_at: 2026-07-05T21:56:29.288255+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -113,6 +113,8 @@ re-injection. Research-level rewrite, low marginal payoff over whole-graph.
 ## Acceptance Criteria
 
 ## Acceptance Criteria
+
+## Acceptance Criteria
 - [ ] With `--default-executor fleet`, a packaged Rust CG firing runs on an agent
       (verified via agent logs + graph fires advancing) and the reactor records
       the result; in-process behaviour is unchanged without the fleet.
@@ -139,3 +141,7 @@ Followed the plan with two verified simplifications: (a) NO reactor-side package
 - **Agent**: `GRAPH_PACKET_KIND` arm + `process_graph_packet` (fetch cdylib by digest, per-digest `LoadedGraphPlugin` cache, FFI `execute_graph(cache)`, outputs → `context.outputs`); saturation → Refused (server falls back in-process).
 - **SCOPE CALL — Python CGs stay in-process in v1** (deviation from AC #2, flagged): a py CG's compiled fn is a live PyObject built from module registrations, not a shippable artifact; dispatching it needs the agent to replicate the py CG load path per package — a real follow-on, not a packet field. The fleet executor detects `language == python` and cleanly falls back in-process (logged). Rust packaged CGs — the scaling case — dispatch fully.
 Remaining: tests, live demo verification (Rust CG fires on an agent), PR.
+
+### 2026-07-05 — 🎯 LIVE-VERIFIED ON THE FLEET — CLOSING (commit 4f01cd81)
+CG test suite 45/45 (zero regression from the seam). **Live proof (demo stack, rebuilt server+agents, fleet executor)**: server boot logged "Fleet GRAPH executor installed on the CG scheduler"; REST-injected `{"value": 42.0}` into `alpha` (mixed-rust, Rust packaged CG) → `mixed_reactor` fired → **"fleet: graph firing completed on agent agent_id=145f2a42… duration_ms=14"** → fires log advanced with `ok: true` and DECODABLE inputs `{"alpha": {"value": 42.0}}` (the T-0839 inject-encoding fix compounding), 127ms end-to-end.
+**AC disposition**: Rust CG on agent ✓ (live) · in-process unchanged without fleet ✓ (default executor + 45/45 suite) · no regression ✓ (reactor live, fires advancing, inputs decodable) · no-capacity policy ✓ (pre-dispatch in-process fallback / post-dispatch no-double-run, documented) · **Python CG on agent — deliberately deferred to [[CLOACI-T-0841]]** (filed with the full source-shipping design; py CGs fall back in-process cleanly today). COMPLETE.
