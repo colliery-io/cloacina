@@ -1,0 +1,43 @@
+# CLOACI-T-0825 — seed TRIGGER (file-presence sensor) constructor provider.
+#
+# Same author-crate shape as `cloacina-provider-fs`: the clean constructor form
+# built to a wasm32-wasip2 component; the host build only serves `emit_manifest`.
+# Standalone crate, EXCLUDED from the cloacina workspace (under examples/* plus the
+# empty [workspace] table) so the wasm build stays self-contained.
+[workspace]
+
+[package]
+name = "cloacina-provider-sensor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+# cdylib → the wasm component; rlib → so `emit_manifest` (host) can link it.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "emit_manifest"
+path = "src/bin/emit_manifest.rs"
+
+[dependencies]
+# The `#[constructor]` authoring macro under test (path dep; proc-macro runs on host).
+cloacina-macros = { path = "../../../crates/cloacina-macros" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Shared, language-neutral contract types (wire structs + manifest + ConstructorError).
+# serde-only → wasm-safe AND host-safe.
+constructor-contract = { path = "../constructor-contract" }
+
+# fidius guest SDK is needed ONLY for the wasm32 component build (the macro's
+# guest glue is `#[cfg(target_arch = "wasm32")]`). Target-gating it keeps the
+# host build (the `emit_manifest` bin) free of wasm-only deps.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+fidius-guest = "0.5.5"
+fidius-macro = "0.5.5"
+wit-bindgen = "0.44"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
