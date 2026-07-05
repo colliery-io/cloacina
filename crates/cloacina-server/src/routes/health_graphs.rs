@@ -117,6 +117,10 @@ pub async fn list_accumulators(
                     .unwrap_or_default()
             });
         let events_total = freshness.as_ref().map(|f| f.events_total());
+        // CLOACI-T-0744: buffer fill for buffering kinds (batch/state), from the
+        // same shared probe — the health API mirrors the Prometheus gauge.
+        let buffer_depth = freshness.as_ref().and_then(|f| f.buffer_depth());
+        let buffer_capacity = freshness.as_ref().and_then(|f| f.buffer_capacity());
         // CLOACI-T-0776: operator-inject count + last-inject time, so the UI can
         // mark accumulators that a human has manually injected into.
         let (operator_injects, last_operator_inject_at) =
@@ -135,6 +139,8 @@ pub async fn list_accumulators(
             tenant_id: descriptor.and_then(|d| d.tenant_id),
             last_event_at,
             events_total,
+            buffer_depth,
+            buffer_capacity,
             error: None,
             operator_injects,
             last_operator_inject_at,

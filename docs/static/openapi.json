@@ -3410,6 +3410,24 @@
           "status"
         ],
         "properties": {
+          "buffer_capacity": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Declared buffer capacity for bounded kinds — state `capacity = N`, batch\n`max_buffer_size`. `None` when unbounded or not applicable. The UI\nrenders `buffer_depth/buffer_capacity` as fill (CLOACI-T-0744).",
+            "minimum": 0
+          },
+          "buffer_depth": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Buffered-event count for buffering kinds — batch (events awaiting flush)\nand state (window entries). `None` for kinds that don't buffer\n(passthrough/stream/polling) or runtimes predating the gauge\n(CLOACI-T-0744).",
+            "minimum": 0
+          },
           "error": {
             "type": [
               "string",
@@ -4356,6 +4374,24 @@
                 "status"
               ],
               "properties": {
+                "buffer_capacity": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "description": "Declared buffer capacity for bounded kinds — state `capacity = N`, batch\n`max_buffer_size`. `None` when unbounded or not applicable. The UI\nrenders `buffer_depth/buffer_capacity` as fill (CLOACI-T-0744).",
+                  "minimum": 0
+                },
+                "buffer_depth": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "description": "Buffered-event count for buffering kinds — batch (events awaiting flush)\nand state (window entries). `None` for kinds that don't buffer\n(passthrough/stream/polling) or runtimes predating the gauge\n(CLOACI-T-0744).",
+                  "minimum": 0
+                },
                 "error": {
                   "type": [
                     "string",

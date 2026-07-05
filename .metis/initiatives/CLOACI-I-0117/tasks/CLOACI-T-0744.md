@@ -4,14 +4,14 @@ level: task
 title: "Enrich accumulator-card operational metrics — lift buffer-depth/fires gauges into the health API"
 short_code: "CLOACI-T-0744"
 created_at: 2026-06-17T22:44:24.570660+00:00
-updated_at: 2026-06-17T22:44:24.570660+00:00
+updated_at: 2026-07-05T15:36:24.102412+00:00
 parent: CLOACI-I-0117
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -62,6 +62,8 @@ never sees.
 ### Priority
 - [x] P3 - Low (when time permits)
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] Accumulator rows show buffer/fill (capacity for state accumulators),
@@ -76,7 +78,7 @@ never sees.
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -88,7 +90,7 @@ never sees.
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -117,7 +119,7 @@ never sees.
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -128,7 +130,7 @@ never sees.
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}
@@ -173,4 +175,11 @@ never sees.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-05 — implementation (branch feat/t0744-accumulator-gauges)
+**Design:** ride the T-0765 freshness-probe seam — `BoundarySender` + `FreshnessHandle` (shared Arc atomics, `accumulator.rs`) gained `buffer_depth` (−1 = kind doesn't buffer → API None) and `buffer_capacity` (≤0 = unbounded/N-A → None). `set_accumulator_buffer_depth` (the existing Prometheus funnel) now ALSO stores into the probe, so every existing gauge call site feeds the polled health API for free.
+- **batch runtime**: reports `max_buffer_size` as capacity at start.
+- **state runtime**: was invisible to BOTH the Prometheus gauge and the API — now reports depth (incl. DAL-restored buffer) + bounded `capacity` (the `demo-py-state` N/5 case), and updates depth per ingest/evict.
+- **API**: `AccumulatorStatus` += `buffer_depth`/`buffer_capacity` (serde-default, utoipa); `list_accumulators` samples them from the probe.
+- **UI** (`Graphs.tsx` accumulators card): buffer fill (`buf N` / `buf N/cap`), events total, last-event via the library's `formatAgo` — the card previously showed NONE of the freshness fields despite the API carrying them since T-0765.
+Rust checks clean (cloacina + api-types + server); `tsc -b` clean. Remaining: openapi.json regen (in flight) + TS API types + live demo-stack check of py_window N/5 + commit/PR.
+NOTE on "fires" in the title: reactor fire counts already ship on `ReactorStatus` (T-0766 fires log + timeseries); the accumulator-side gap was buffer/fill, which this closes.
