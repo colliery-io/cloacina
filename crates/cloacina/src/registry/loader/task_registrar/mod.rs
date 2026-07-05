@@ -315,6 +315,7 @@ mod tests {
             workflow_triggers: Vec::new(),
             declared_params: Vec::new(),
             declared_surfaces: Vec::new(),
+            task_docs: Default::default(),
         }
     }
 

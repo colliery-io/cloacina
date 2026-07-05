@@ -83,6 +83,15 @@ pub struct PackageMetadata {
     /// or the package predates the entrypoint.
     #[serde(default)]
     pub declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
+    /// CLOACI-T-0754: the compiler's raw build-time doc parse (`what`/`why` per
+    /// local task id), preserved verbatim so load paths that rebuild the task
+    /// list AFTER build — the Python path has no cdylib, so its `tasks` are
+    /// written by the reconciler at load — can re-merge docs instead of losing
+    /// them. Rust packages get their docs overlaid onto `tasks` at build; this
+    /// map is the durable source either way. Empty for undocumented packages
+    /// and metadata predating the field.
+    #[serde(default)]
+    pub task_docs: std::collections::HashMap<String, TaskDocs>,
 }
 
 /// Individual task metadata.
@@ -403,6 +412,8 @@ impl PackageLoader {
             // (extract_metadata_from_so); empty here.
             declared_params: Vec::new(),
             declared_surfaces: Vec::new(),
+            // Docs come from the compiler parse at build success (T-0754).
+            task_docs: Default::default(),
         })
     }
 

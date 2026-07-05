@@ -1465,8 +1465,13 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             // Pure-Python packages have no cdylib to extract from. CLOACI-T-0760:
             // if the compiler parsed declared params from the Python source,
             // persist them onto the stored (manifest-derived) metadata — this is
-            // the Python parity carry path. Nothing else to merge.
-            if source_declared_params.is_empty() && source_declared_surfaces.is_empty() {
+            // the Python parity carry path. CLOACI-T-0754: the docstring
+            // what/why parse rides the same carry (persist_task_graph_db
+            // re-merges it when it writes the task list at load).
+            if source_declared_params.is_empty()
+                && source_declared_surfaces.is_empty()
+                && task_docs.is_empty()
+            {
                 return Ok(None);
             }
             let pid = UniversalUuid(package_id);
@@ -1516,6 +1521,10 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             merged.declared_params = source_declared_params.to_vec();
             // CLOACI-T-0770: carry source-parsed CG boundary surfaces too.
             merged.declared_surfaces = source_declared_surfaces.to_vec();
+            // CLOACI-T-0754: preserve the raw docstring parse — the Python
+            // task list doesn't exist yet (written at load by
+            // persist_task_graph_db, which merges docs from this map).
+            merged.task_docs = task_docs.clone();
             let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
             return Ok(Some(json));
         }
@@ -1602,6 +1611,10 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 }
             }
         }
+        // CLOACI-T-0754: also persist the RAW doc map. Python packages have no
+        // tasks at build time (no cdylib) — their task list is written later by
+        // persist_task_graph_db, which re-merges docs from this map.
+        merged.task_docs = task_docs.clone();
 
         let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
         Ok(Some(json))
@@ -1688,9 +1701,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 dependencies: deps.clone(),
                 description: String::new(),
                 source_location: String::new(),
-                // Python doc carry is a deferred follow-up (CLOACI-T-0752).
-                doc_what: None,
-                doc_why: None,
+                // CLOACI-T-0754: re-merge the compiler's build-time doc parse
+                // (stored on the metadata by mark_build_success_with_docs) so
+                // Python docstring what/why survive the load-time task rewrite.
+                doc_what: merged.task_docs.get(id).and_then(|d| d.what.clone()),
+                doc_why: merged.task_docs.get(id).and_then(|d| d.why.clone()),
             })
             .collect();
 
@@ -2349,6 +2364,7 @@ mod tests {
             workflow_triggers: vec![],
             declared_params: vec![],
             declared_surfaces: vec![],
+            task_docs: Default::default(),
         }
     }
 
@@ -2381,6 +2397,74 @@ mod tests {
         assert_eq!(reg_id, registry_id);
         assert_eq!(retrieved.package_name, "reg-pkg");
         assert_eq!(retrieved.version, "1.0.0");
+    }
+
+    /// CLOACI-T-0754: Python packages have NO tasks at build time (no cdylib) —
+    /// their task list is written later by persist_task_graph_db. The compiler's
+    /// docstring parse must survive that rewrite: mark_build_success_with_docs
+    /// stores the raw docs map on the metadata, and the load-time task rewrite
+    /// re-merges it. Mirrors the real py flow: upload (tasks empty) → build with
+    /// docs → reconciler persists the task graph → docs surface per task.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_python_task_docs_survive_load_time_task_rewrite() {
+        use crate::registry::loader::package_loader::TaskDocs;
+
+        let registry = create_test_registry().await;
+        let registry_id = Uuid::new_v4().to_string();
+        // Python-style row: no tasks at upload/build time.
+        let mut meta = sample_metadata("py-docs-pkg", "1.0.0");
+        meta.tasks = vec![];
+        let pkg_id = registry
+            .store_package_metadata(&registry_id, &meta)
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+
+        let mut docs = std::collections::HashMap::new();
+        docs.insert(
+            "prepare".to_string(),
+            TaskDocs {
+                what: Some("Stage the batch".to_string()),
+                why: Some("Bad seeds fail the run".to_string()),
+            },
+        );
+        registry
+            .mark_build_success_with_docs(pkg_id, Vec::new(), docs, Vec::new(), Vec::new())
+            .await
+            .unwrap();
+
+        // The reconciler writes the task graph at load (the step that previously
+        // clobbered docs with None).
+        registry
+            .persist_task_graph_db(
+                pkg_id.into(),
+                vec![
+                    ("prepare".to_string(), vec![]),
+                    ("undocumented".to_string(), vec!["prepare".to_string()]),
+                ],
+            )
+            .await
+            .unwrap();
+
+        let (_, retrieved, _) = registry
+            .get_package_metadata("py-docs-pkg", "1.0.0")
+            .await
+            .unwrap()
+            .unwrap();
+        let prepare = retrieved
+            .tasks
+            .iter()
+            .find(|t| t.local_id == "prepare")
+            .expect("prepare task persisted");
+        assert_eq!(prepare.doc_what.as_deref(), Some("Stage the batch"));
+        assert_eq!(prepare.doc_why.as_deref(), Some("Bad seeds fail the run"));
+        let undoc = retrieved
+            .tasks
+            .iter()
+            .find(|t| t.local_id == "undocumented")
+            .unwrap();
+        assert!(undoc.doc_what.is_none() && undoc.doc_why.is_none());
     }
 
     #[cfg(feature = "sqlite")]

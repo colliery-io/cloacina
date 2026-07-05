@@ -3,16 +3,16 @@ id: seed-demo-harness-exercise-every
 level: task
 title: "Seed/demo harness: exercise every UI surface — triggers, computation graphs/reactors, and Python packages"
 short_code: "CLOACI-T-0664"
-created_at: 2026-06-12T02:18:00.000000+00:00
-updated_at: 2026-06-12T02:18:00.000000+00:00
-parent: 
+created_at: 2026-06-12T02:18:00+00:00
+updated_at: 2026-07-05T18:00:18.465618+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -42,6 +42,12 @@ demo compose), not host processes.
 - **User Value**: A demo where you can actually *see* triggers firing on a
   schedule, a computation graph + its accumulators, and both Rust and Python
   packages — the full control plane, not just task workflows.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -117,3 +123,9 @@ register *and* fire through the server, not only the daemon.
 4. `docker compose -f docker/docker-compose.demo.yml up --build` → verify
    Workflows + Executions + Triggers + Graphs + Accumulators populate (Rust +
    Python); file any view that doesn't.
+
+### 2026-07-05 — CLOSING: the plan was delivered incrementally across weeks; the two residual gaps closed today (branch feat/t0664-demo-surface-gaps, commit 396c0208)
+The fixture set grew far past the original ask — the demo now packs and seeds: cron trigger (demo-cron-rust), branch/skip (demo-branch-rust), mixed reactor+accumulator+CG+trigger (mixed-rust), manual-trigger fan-out across two packages (demo-fanout-rust/-sub), acme multi-tenant, kafka stream CG, routing CG, complex DAG, Python task/CG/state/cron packages, and both constructor demos (Rust + Python) — all in Docker via pack-demo-fixtures.sh + the compose stack. A verification sweep (2026-07-05) found exactly two residual gaps, both closed today:
+1. **Poll-trigger kind absent from the demo** — `demo-poll-rust` existed but was never packed. Added to pack-demo-fixtures.sh; verified live: `demo_poll_trigger` registered with `poll_interval_ms=30000` in `/v1/tenants/public/triggers`.
+2. **The harness never FIRED the manual trigger** — seed mode now fires `settlement_close` once with a typed event (best-effort on cold stacks); verified live: `settle_ledger` execution Completed with `trigger_origin: "manual"` (the gold manual pill).
+All five ACs met: trigger fixture(s) across all three kinds ✓ · CG fixtures (Rust + Python + kafka + routing) ✓ · Python packages (task/CG/state/cron) ✓ · Docker-native packing/upload ✓ · live-verified per view, with gaps filed separately as they surfaced (T-0744 gauges, T-0839 state-accumulator degradation — both since fixed). COMPLETE.

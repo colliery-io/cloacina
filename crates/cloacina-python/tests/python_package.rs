@@ -301,6 +301,7 @@ def e2e_task(context):
 }
 
 #[test]
+#[serial_test::serial(python_import)]
 fn python_e2e_pack_extract_load_register() {
     // 1. Create source dir and pack to archive
     let tmp = TempDir::new().unwrap();
@@ -432,4 +433,76 @@ mod postgres_bindings {
         assert!(result.is_ok());
         assert_eq!(result.unwrap().__repr__(), "DatabaseAdmin()");
     }
+}
+
+/// CLOACI-T-0840: upgrading a Python package IN PLACE (same module name, new
+/// staging dir) must re-execute the module — a bare re-import is a sys.modules
+/// no-op that registers NOTHING (the live bug: an upgrade silently produced an
+/// empty workflow until a server restart). The loader now evicts the package's
+/// cached module subtree and prunes stale sys.path roots before importing.
+#[test]
+#[serial_test::serial(python_import)]
+fn python_reimport_after_upgrade_registers_new_tasks() {
+    pyo3::prepare_freethreaded_python();
+
+    let make_version = |task_id: &str| -> TempDir {
+        let staging = TempDir::new().unwrap();
+        let module_dir = staging.path().join("workflow").join("upgrade_pkg");
+        std::fs::create_dir_all(&module_dir).unwrap();
+        std::fs::write(module_dir.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            module_dir.join("tasks.py"),
+            format!(
+                r#"import cloaca
+
+@cloaca.task(id="{task_id}", dependencies=[])
+def {task_id}(context):
+    return context
+"#
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(staging.path().join("vendor")).unwrap();
+        staging
+    };
+
+    // v1: task "v1_task".
+    let v1 = make_version("v1_task");
+    let rt1 = std::sync::Arc::new(cloacina::Runtime::empty());
+    let ns1 = cloacina_python::import_and_register_python_workflow(
+        &v1.path().join("workflow"),
+        &v1.path().join("vendor"),
+        "upgrade_pkg.tasks",
+        "upgrade-pkg",
+        "public",
+        rt1.clone(),
+    )
+    .expect("v1 load");
+    assert!(
+        ns1.iter().any(|n| n.to_string().contains("v1_task")),
+        "v1 task registered"
+    );
+
+    // v2: SAME module path, DIFFERENT task — the upgrade. Without the
+    // T-0840 eviction this registers zero tasks (module cached from v1).
+    let v2 = make_version("v2_task");
+    let rt2 = std::sync::Arc::new(cloacina::Runtime::empty());
+    let ns2 = cloacina_python::import_and_register_python_workflow(
+        &v2.path().join("workflow"),
+        &v2.path().join("vendor"),
+        "upgrade_pkg.tasks",
+        "upgrade-pkg",
+        "public",
+        rt2.clone(),
+    )
+    .expect("v2 load must not be a silent no-op");
+    assert!(
+        ns2.iter().any(|n| n.to_string().contains("v2_task")),
+        "v2's task must register after the upgrade (got: {:?})",
+        ns2.iter().map(|n| n.to_string()).collect::<Vec<_>>()
+    );
+    assert!(
+        !ns2.iter().any(|n| n.to_string().contains("v1_task")),
+        "v1's task must NOT leak into the v2 load"
+    );
 }

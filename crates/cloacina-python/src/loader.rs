@@ -307,6 +307,64 @@ pub fn import_and_register_python_workflow_named(
             // 2. Add paths to sys.path (append, not insert — avoid shadowing stdlib)
             let sys = py.import("sys")?;
             let path = sys.getattr("path")?;
+
+            // CLOACI-T-0840: a PREVIOUS version of this package may have
+            // imported the same module tree in this interpreter — a bare
+            // re-import would be a sys.modules no-op and register NOTHING
+            // (the decorators never re-run), silently loading an empty
+            // workflow. Evict the package's module subtree and prune stale
+            // sys.path roots that can still resolve it, so THIS version's
+            // source actually executes. In-flight tasks from the old version
+            // are unaffected — their Arc'd PyObjects stay alive independent
+            // of sys.modules.
+            let top_level = entry_module
+                .split('.')
+                .next()
+                .unwrap_or(entry_module.as_str())
+                .to_string();
+            {
+                let modules = sys.getattr("modules")?;
+                let keys: Vec<String> = modules
+                    .call_method0("keys")?
+                    .try_iter()?
+                    .filter_map(|k| k.ok().and_then(|k| k.extract::<String>().ok()))
+                    .collect();
+                let prefix = format!("{top_level}.");
+                for key in keys {
+                    if key == top_level || key.starts_with(&prefix) {
+                        tracing::debug!(
+                            module = %key,
+                            "evicting cached module before package (re)import (CLOACI-T-0840)"
+                        );
+                        modules.call_method1("__delitem__", (key,))?;
+                    }
+                }
+
+                // Prune sys.path roots (other than this load's dirs) that can
+                // resolve the top-level module — without this, an OLD staging
+                // dir earlier in sys.path would win the fresh import and load
+                // the previous version's source.
+                let entries: Vec<String> = path
+                    .try_iter()?
+                    .filter_map(|e| e.ok().and_then(|e| e.extract::<String>().ok()))
+                    .collect();
+                for entry in entries {
+                    let entry_path = std::path::Path::new(&entry);
+                    if entry_path == workflow_dir.as_path() || entry_path == vendor_dir.as_path() {
+                        continue;
+                    }
+                    let resolves = entry_path.join(&top_level).join("__init__.py").exists()
+                        || entry_path.join(format!("{top_level}.py")).exists();
+                    if resolves {
+                        tracing::debug!(
+                            path = %entry,
+                            "pruning stale sys.path root for package (CLOACI-T-0840)"
+                        );
+                        path.call_method1("remove", (entry,))?;
+                    }
+                }
+            }
+
             path.call_method1(
                 "append",
                 (workflow_dir

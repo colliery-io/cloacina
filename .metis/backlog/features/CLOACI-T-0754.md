@@ -4,15 +4,15 @@ level: task
 title: "Pure-Python what/why doc persistence — carry parsed docs through the reconciler path"
 short_code: "CLOACI-T-0754"
 created_at: 2026-06-20T15:20:28.309039+00:00
-updated_at: 2026-06-20T15:20:28.309039+00:00
+updated_at: 2026-07-05T20:01:28.640977+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,12 @@ available at reconcile time.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] A pure-Python package's `@task` docstrings (what:/why:) surface on
       `WorkflowTaskNode.doc_what` / `doc_why` via the API, matching Rust behavior.
 - [ ] Undocumented Python tasks remain typed `None` (no regression).
@@ -78,4 +84,11 @@ available at reconcile time.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-07-05 — DONE via option (1), LIVE-VERIFIED (branch fix/t0754-py-task-docs, commit d032165a)
+Option (1) won over the sketched option (2): no re-parse, no crate lift — the build already has the docs; they just needed a durable home. `PackageMetadata` gains a raw `task_docs: HashMap<String, TaskDocs>` (serde-default), persisted by `mark_build_success_with_docs` on BOTH merge branches (the Python `compiled.is_empty()` branch previously early-returned unless params/surfaces existed — the regression test caught that on its first run); `persist_task_graph_db` re-merges docs per task id when it writes the Python task list at load (previously hardcoded `doc_what/doc_why: None`). Rust behavior unchanged.
+
+**Tests**: `test_python_task_docs_survive_load_time_task_rewrite` (sqlite in-memory, mirrors the real py flow: empty tasks at build → docs stored → load-time rewrite → docs surface per task; undocumented stays None). All crates + test tree compile clean.
+
+**LIVE PROOF (demo stack)**: `demo-py-workflow` gained what:/why: docstrings on `prepare`/`transform`; uploaded as 0.1.1 → built → loaded → `GET /v1/tenants/public/workflows/demo-py-workflow` task_graph node: `"id":"prepare","doc_what":"Stage the demo batch — seed the context the downstream fan-out reads.","doc_why":"Every branch keys off the prepared flags; ..."` — Python parity with Rust achieved.
+
+**Bonus find**: the live verification exposed [[CLOACI-T-0840]] (P1): in-place Python package version upgrades silently lose their tasks (module re-import is a no-op in the live interpreter — the trap the AGENT guards against but the server reconciler doesn't); worked around via server restart for the proof, filed with full evidence + fix directions. COMPLETE.
