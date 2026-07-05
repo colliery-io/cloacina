@@ -529,6 +529,8 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             // entrypoint (CLOACI-I-0128); empty at upload.
             declared_params: vec![],
             declared_surfaces: vec![],
+            // Filled at build success from the compiler doc parse (CLOACI-T-0754).
+            task_docs: Default::default(),
         };
 
         let registry_id = self.storage.store_binary(package_data).await?;

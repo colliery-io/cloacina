@@ -1181,6 +1181,7 @@ fn synthetic_package_metadata(
         // interface here (CLOACI-I-0128).
         declared_params: vec![],
         declared_surfaces: vec![],
+        task_docs: Default::default(),
     }
 }
 

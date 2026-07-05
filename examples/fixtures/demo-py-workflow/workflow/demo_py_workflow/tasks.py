@@ -22,12 +22,22 @@ import cloaca
 )
 @cloaca.task(dependencies=[])
 def prepare(context):
+    """what: Stage the demo batch — seed the context the downstream fan-out reads.
+
+    why: Every branch keys off the prepared flags; a bad seed fails the whole run,
+    so preparation is its own observable step. (CLOACI-T-0754: demonstrates Python
+    what/why docstrings surfacing in the UI like Rust doc comments.)
+    """
     context.set("demo_py_prepare", True)
     return context
 
 
 @cloaca.task(dependencies=["prepare"])
 def transform(context):
+    """what: Apply the demo transformation to the prepared batch.
+
+    why: Runs in parallel with validate to demonstrate the fan-out shape.
+    """
     context.set("demo_py_transform", True)
     return context
 

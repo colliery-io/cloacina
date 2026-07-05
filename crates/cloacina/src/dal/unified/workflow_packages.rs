@@ -1562,6 +1562,7 @@ mod tests {
             workflow_triggers: vec![],
             declared_params: vec![],
             declared_surfaces: vec![],
+            task_docs: Default::default(),
         }
     }
 
