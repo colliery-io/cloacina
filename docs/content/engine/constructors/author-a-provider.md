@@ -2,7 +2,6 @@
 title: "Author a Constructor Provider"
 description: "How to write a provider crate that ships N constructor members in one WASM component, and consume them by name with capability grants."
 weight: 10
-draft: true
 ---
 
 # Author a Constructor Provider
@@ -90,7 +89,16 @@ The crate is a standalone `crate-type = ["cdylib", "rlib"]` package with a small
 `emit_manifest` host bin that prints `__provider_manifest()` — the packaging step
 reads it to write `provider.json`.
 
-## 3. Package the provider
+## 3. Distribute the provider
+
+**You usually don't package anything by hand.** A provider is distributed as an
+ordinary Cargo crate (crates.io, git, or a path). When a packaged workflow
+depends on it and references a member, the **compiler** resolves it from the
+dependency graph, builds it to `wasm32-wasip2`, and bundles it into the
+workflow package automatically — see
+[Consume a Constructor Provider]({{< ref "consume-a-provider.md" >}}).
+
+For the **embedded** path (no server/compiler), package it explicitly:
 
 ```bash
 cloacinactl constructor package ./cloacina-provider-fs --sign-key key.secret
@@ -98,7 +106,8 @@ cloacinactl constructor package ./cloacina-provider-fs --sign-key key.secret
 
 This builds the crate to `wasm32-wasip2`, emits `provider.json` (both members),
 assembles a `runtime = "wasm"` package, optionally Ed25519-signs it, and packs a
-`cloacina-provider-fs-0.1.0.cloacina` archive.
+`cloacina-provider-fs-0.1.0.cloacina` archive you can stage on a provider
+search path.
 
 ## 4. Consume a member with grants
 
@@ -138,6 +147,10 @@ constructor!(
 Both `read_file` and `write_file` resolve from the **same** provider package and
 component — one download, two members, coexisting independently.
 
+The `@0.1.0` suffix is an enforced version pin (exact or segment-prefix — `@0.1`
+matches 0.1.x but not 0.10.x); a mismatch fails at build and at load naming both
+versions.
+
 ## Worked example
 
 A complete, runnable example lives at
@@ -145,3 +158,8 @@ A complete, runnable example lives at
 suite) and `examples/constructor-contract/fs-grant-demo` (three workflows: a
 granted read, a denied read, and a granted write via the second member). Run it
 with `cargo run` in the demo crate.
+
+The [Seed Providers]({{< ref "seed-providers.md" >}}) — one canonical provider
+per primitive kind — are the reference implementations for authoring each kind
+(trigger: `cloacina-provider-sensor`, accumulator: `cloacina-provider-extract`,
+reactor: `cloacina-provider-quorum`).
