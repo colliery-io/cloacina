@@ -1225,6 +1225,48 @@ fn record_reactor_persist_failure(
 
 #[cfg(test)]
 mod tests {
+    /// CLOACI-T-0842: the fires log must render BOTH boundary wire shapes —
+    /// passthrough frames (bincode(Vec<u8>) of raw event JSON) and state
+    /// windows (bincode(Vec<Value>) of the bounded history). State windows
+    /// previously fell through every decode branch and rendered `null`.
+    #[test]
+    fn capture_fire_inputs_decodes_state_windows_and_passthrough() {
+        let mut cache = cloacina_computation_graph::InputCache::new();
+
+        // Passthrough shape: raw JSON bytes wrapped as bincode(Vec<u8>).
+        let event = br#"{"value": 42.0}"#.to_vec();
+        cache.update(
+            cloacina_computation_graph::SourceName::new("passthrough_src"),
+            bincode::serialize(&event).unwrap(),
+        );
+
+        // State-window shape (CLOACI-T-0842): the window ships as JSON-array
+        // bytes in the SAME bincode(Vec<u8>) wrapper passthrough uses — the
+        // old bincode(Vec<Value>) encoding was write-only (Value can't
+        // deserialize from bincode) and rendered null everywhere.
+        let window = vec![
+            serde_json::json!({"value": 1.0}),
+            serde_json::json!({"value": 2.0}),
+        ];
+        cache.update(
+            cloacina_computation_graph::SourceName::new("state_src"),
+            bincode::serialize(&serde_json::to_vec(&window).unwrap()).unwrap(),
+        );
+
+        let inputs = super::capture_fire_inputs(&cache);
+
+        assert_eq!(
+            inputs["passthrough_src"],
+            serde_json::json!({"value": 42.0}),
+            "passthrough frame must decode to the raw event"
+        );
+        assert_eq!(
+            inputs["state_src"],
+            serde_json::json!([{"value": 1.0}, {"value": 2.0}]),
+            "state window must decode to the JSON array, not null"
+        );
+    }
+
     use super::*;
 
     #[test]

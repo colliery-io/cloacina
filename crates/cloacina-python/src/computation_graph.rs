@@ -713,11 +713,18 @@ impl PythonGraphExecutor {
     ) -> GraphResult {
         let executor = self.clone();
 
-        // Deserialize cache inputs
+        // Deserialize cache inputs. Boundary frames are bincode(Vec<u8>) of
+        // raw JSON (passthrough events AND — since CLOACI-T-0842 — state
+        // windows). The old `cache.get::<serde_json::Value>` could NEVER
+        // decode either shape (`Value` can't deserialize from bincode —
+        // deserialize_any), so node inputs were silently empty; decode the
+        // real wire shape.
         let mut cache_values: HashMap<String, serde_json::Value> = HashMap::new();
         for acc_name in &executor.accumulators {
-            if let Some(Ok(val)) = cache.get::<serde_json::Value>(acc_name) {
-                cache_values.insert(acc_name.clone(), val);
+            if let Some(Ok(json_bytes)) = cache.get::<Vec<u8>>(acc_name) {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&json_bytes) {
+                    cache_values.insert(acc_name.clone(), val);
+                }
             }
         }
 
