@@ -4,15 +4,15 @@ level: task
 title: "Python (cloaca) constructor consumption surface"
 short_code: "CLOACI-T-0831"
 created_at: 2026-06-29T14:00:00.846110+00:00
-updated_at: 2026-06-29T14:00:00.846110+00:00
+updated_at: 2026-07-05T02:24:36.661698+00:00
 parent: CLOACI-I-0132
-blocked_by: ["CLOACI-T-0829"]
+blocked_by: [CLOACI-T-0829]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -68,6 +68,12 @@ NOTE: execution is ALREADY language-agnostic — the Rust runtime runs the WASM 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -163,3 +169,6 @@ Recon: the Python import happens in `loading.rs` Python branch via `runtime.load
 (1) `pack_providers_from_specs` ✅ (synthesized scratch project, specs verbatim — version/path/git uniform). (2) `CloacinaMetadata.providers: HashMap<String, ProviderDep>` ✅ (untagged Version|Detailed{version/path/git/tag/branch/rev} + `to_toml_value()`; re-exported; all struct literals patched). (3) compiler python arm ✅ (reads `[metadata.providers]` from the untyped manifest via serde → packs → `store_package_providers`; unbundleable fails the build). (4) reconciler ✅ — step-5b's fetch/unpack/set extracted into shared `stage_bundled_providers()` (returns count; fail-closed when bundled-but-no-feature); the PYTHON branch stages providers BEFORE `load_workflow_package` so `cloaca.constructor()` resolves during import. (5) tests ✅: provider_bundle 7/7 (new: from-specs path resolution + unknown-spec fail-closed), reconciler 25/25 (Step 5b through the shared helper), cloaca 3/3.
 
 **REMAINING for full T-0831 close:** the LIVE packaged-Python demo through a real server (docker demo lane: compiler image needs the wasm32-wasip2 target; a Python `.cloacina` with `[metadata.providers]` + `cloaca.constructor` → compile → load → execute). Same live-verification bucket as the Rust compiler-service check in T-0836. Everything below it is code-complete + test-verified.
+
+### 2026-07-04 — 🏁 LIVE PACKAGED-PYTHON DEMO VERIFIED — CLOSING (branch feat/i0132-completion, commit 9d44c461)
+New demo fixture `examples/fixtures/demo-constructor-py` (package.toml with `[metadata.providers] cloacina-provider-fs = { path = __WORKSPACE__/... }` + module-level `cloaca.constructor(id="py_reader", from_="cloacina-provider-fs@0.1.0", ...grants={"fs":["ro:/etc"]})` + downstream `@cloaca.task py_summarize`); `pack_python_ws` pack-script variant rewrites the placeholder. **Verified on a VIRGIN demo stack (fresh images, stock fleet executor):** build `success` + `package_providers` row (85KB) → server Python load ("Unpacked 1 bundled provider(s)" → "Python workflow imported: 2 tasks") → execution `Completed` **on an agent** (T-0838's Python path staged the bundle before the import) with final context `{"py_sandbox_read_hostname":"f0be3e01f257","py_sandbox_read_bytes":13}` — the AGENT container's hostname read inside the WASM sandbox through the grant. AC fully met: a Python workflow references a packaged constructor (name-keyed config + deps) and runs end-to-end, embedded AND packaged, server AND fleet. COMPLETE.

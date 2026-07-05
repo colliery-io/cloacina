@@ -4,15 +4,15 @@ level: task
 title: "Version pinning for constructor provider resolution (from = name@version)"
 short_code: "CLOACI-T-0833"
 created_at: 2026-06-29T14:00:01.127657+00:00
-updated_at: 2026-06-29T14:00:01.127657+00:00
+updated_at: 2026-07-05T01:25:29.541513+00:00
 parent: CLOACI-I-0132
-blocked_by: ["CLOACI-T-0829"]
+blocked_by: [CLOACI-T-0829]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -41,7 +41,7 @@ The Rust consumer surface ([[CLOACI-T-0829]]) resolves `from` against one provid
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -53,7 +53,7 @@ The Rust consumer surface ([[CLOACI-T-0829]]) resolves `from` against one provid
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -69,6 +69,12 @@ The Rust consumer surface ([[CLOACI-T-0829]]) resolves `from` against one provid
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] {Specific, testable requirement 1}
@@ -82,7 +88,7 @@ The Rust consumer surface ([[CLOACI-T-0829]]) resolves `from` against one provid
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -93,7 +99,7 @@ The Rust consumer surface ([[CLOACI-T-0829]]) resolves `from` against one provid
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}
@@ -138,4 +144,5 @@ The Rust consumer surface ([[CLOACI-T-0829]]) resolves `from` against one provid
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-04 — DONE (branch feat/i0132-completion, commit 9170c1a8)
+`@version` pins are now ENFORCED at load at both consumer entry points (`load_constructor_node` + `load_reactor_constructor_node`): after `find_wasm_package` resolves the provider dir, `enforce_version_pin` compares the pin against the resolved `provider.json` version — exact or SEGMENT-prefix match ("0.1" matches 0.1.x, NOT 0.10.x; same semantics as the build-side bundle filter in `provider_bundle::resolve_provider_crate`, so a ref that bundled also loads). Mismatch fails closed naming BOTH versions. Unit tests (parse + boundary) + wasm-lane behavioral test (`version_pin_is_enforced_at_load` in constructor_workflow_node_wasm: exact/prefix/unpinned load, mismatch + 0.10-vs-0.1.x fail) — 4/4 green through wasmtime. Full semver-req operators (`^`, `~`, ranges) remain out of scope (segment-prefix covers the cargo-habit pins).

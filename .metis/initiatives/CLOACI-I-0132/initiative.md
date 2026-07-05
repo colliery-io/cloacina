@@ -4,14 +4,14 @@ level: initiative
 title: "Constructors — reusable polyglot configured-instance factories for cloacina primitives (task/trigger/accumulator/reactor)"
 short_code: "CLOACI-I-0132"
 created_at: 2026-06-28T23:53:34.203685+00:00
-updated_at: 2026-07-04T03:34:53.522551+00:00
+updated_at: 2026-07-05T02:29:13.556221+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -157,3 +157,12 @@ constructor). Sketch:
 **Landmark:** the full packaged chain verified LIVE on the demo stack 7/7 — author → compile-time provider discovery+bundling → hermetic store → server resolution → grant-gated sandboxed execution (`constructor_demo` Completed). Both Rust (`constructor!`) and Python (`cloaca.constructor()`) consumer surfaces shipped. All on branch `feat/i0132-constructors` (~35 commits, in review).
 **REMAINING:** T-0825 (seed built-in provider library) · T-0831 (packaged-Python live demo; embedded surface DONE) · T-0833 (semver version pinning) · T-0835 (post-ABI-bump recompile signal — freshly motivated by the live stale-artifact episode) · **T-0838** (fleet/agent constructor execution — live finding #4).
 **ADRs decided:** A-0009 (capabilities) · A-0010 (Cargo distribution) · A-0011 (suites). Spec S-0015 drafting → should advance with T-0836 done.
+
+## Status (2026-07-04 — INITIATIVE COMPLETE: the last five tasks landed on feat/i0132-completion)
+- **T-0833** — `@version` pins ENFORCED at load (segment-prefix semantics matching the build side).
+- **T-0825** — seed provider library: fs (task) · sensor/file_present (trigger, grant-gated) · extract (accumulator) · quorum (reactor); wasm lane test 3/3.
+- **T-0835** — stale-artifact recompile signal: the reconciler flips ABI/interface-mismatched packages back to `pending` for the compiler to rebuild from retained source (self-healing; once-per-package-per-process guard).
+- **T-0831** — packaged-Python LIVE: `demo-constructor-py` (`[metadata.providers]` + module-level `cloaca.constructor`) built, bundled, loaded, and **Completed on the fleet**.
+- **T-0838** — agents execute constructor nodes: `GET /v1/agent/providers/{digest}` + agent-side Step-5b twin (Rust + Python paths, fail-closed both ways).
+
+**FINAL LIVE PROOF (virgin stack, fresh images, STOCK fleet executor):** all 17 packages built clean; `constructor_demo` (Rust) AND `constructor_demo_py` both **Completed with execution on agents** — both final contexts carry the AGENT container's own hostname read inside the WASM sandbox through the `ro:/etc` grant. Every REQ (001–007) and NFR (001–004) is implemented, tested, and live-verified in both languages, embedded + server + fleet. All child tasks completed.

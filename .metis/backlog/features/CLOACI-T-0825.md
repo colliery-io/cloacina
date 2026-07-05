@@ -1,18 +1,18 @@
 ---
-id: seed-built-in-operators-one-per
+id: seed-built-in-constructors-one-per
 level: task
 title: "Seed built-in constructors (one per primitive: task/trigger/accumulator/reactor)"
 short_code: "CLOACI-T-0825"
 created_at: 2026-06-28T23:57:44.661370+00:00
-updated_at: 2026-06-28T23:57:44.661370+00:00
+updated_at: 2026-07-05T01:26:06.416792+00:00
 parent: CLOACI-I-0132
-blocked_by: ["CLOACI-T-0834"]
+blocked_by: [CLOACI-T-0834]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,7 +39,7 @@ Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -51,7 +51,7 @@ Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -67,6 +67,12 @@ Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] {Specific, testable requirement 1}
@@ -80,7 +86,7 @@ Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -91,7 +97,7 @@ Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}
@@ -136,4 +142,13 @@ Ship a **seed built-in library**: >=1 constructor per primitive — e.g. an http
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-04 — DONE (branch feat/i0132-completion, commit 3ede7654)
+Seed library shipped under `examples/constructor-contract/` — one provider per primitive, each a single-member A-0011 suite (multi-kind-per-component stays the noted fidius unknown):
+- **task**: `cloacina-provider-fs` (`read_file`/`write_file`) — pre-existing from T-0834, counts as the task seed; e2e-proven by `constructor_provider_package_wasm` + fs-grant-demo + the live stack.
+- **trigger**: `cloacina-provider-sensor` / `file_present` — the Airflow-FileSensor analog; fires when a configured path exists INSIDE the sandbox, so it's grant-gated (no `fs` grant → the path is invisible → fails closed by never firing).
+- **accumulator**: `cloacina-provider-extract` / `extract` — projects a configured field from each event into the boundary; buffers events without it.
+- **reactor**: `cloacina-provider-quorum` / `quorum` — fires when ≥ `required` boundaries are held (N-of-M criteria).
+
+**Design constraint discovered**: the authoring model REBUILDS the instance from bound config per call (config_binds in the macro), so seed accumulators must be STATELESS transforms — cross-event windowing (count windows etc.) needs runtime-held state and is a follow-on. The originally-sketched "http-poll trigger / shell task" need wasi-http/exec surfaces — the fs/file-based seeds exercise the same grant machinery without new host surface.
+
+**Tests**: `constructor_seed_library_wasm.rs` packages all three via the real `package_constructor_provider` path and drives poll/ingest/evaluate through wasmtime — 3/3 green, including the sensor's default-closed no-grant case. AC met: loadable, config-instantiable, end-to-end runnable, tested (the task member additionally runs in real workflows via fs-grant-demo + the demo stack).
