@@ -197,6 +197,12 @@ pub struct GraphWorkPacket {
     pub timeout_seconds: u32,
     /// Tenant scope (same semantics as [`WorkPacket::tenant_id`]).
     pub tenant_id: Option<String>,
+    /// Package language (CLOACI-T-0841): `"rust"`/absent → dlopen the cdylib
+    /// and FFI `execute_graph`; `"python"` → fetch the SOURCE archive, import
+    /// it (registering the graph executors), and execute via the Python
+    /// graph executor. Mirrors [`WorkPacket::language`].
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 /// Reference to a workflow artifact (cdylib) the agent must fetch + load.

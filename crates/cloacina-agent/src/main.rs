@@ -606,6 +606,149 @@ fn spawn_packet_worker(
     });
 }
 
+/// CLOACI-T-0841: digests whose Python source has been imported in this
+/// process — the import's side effect (graph executors in the process-global
+/// registry) persists, so one import per digest suffices. A version upgrade
+/// arrives as a NEW digest; the loader's T-0840 eviction makes its re-import
+/// actually re-execute the module.
+fn imported_py_graph_digests() -> &'static tokio::sync::Mutex<std::collections::HashSet<String>> {
+    static CACHE: std::sync::OnceLock<tokio::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+/// Execute one PYTHON whole-graph firing (CLOACI-T-0841): fetch the source
+/// archive by digest, stage + import it via the agent's Python runtime (the
+/// same path Python task packets use — providers staged, T-0840 module
+/// eviction applied), then look up the named graph executor and run it with
+/// the packet's cache rebuilt into the in-process `InputCache` wire shape.
+async fn execute_python_graph(
+    packet: &GraphWorkPacket,
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    cache_dir: &std::path::Path,
+) -> cloacina::fleet::AgentOutcome {
+    let digest = packet.artifact.digest.clone();
+
+    // One import per digest; the graph executors it registers are global.
+    {
+        let mut imported = imported_py_graph_digests().lock().await;
+        if !imported.contains(&digest) {
+            let archive = match fetch_source_archive(http, server, api_key, &digest).await {
+                Ok(a) => a,
+                Err(e) => {
+                    return cloacina::fleet::AgentOutcome::Refused {
+                        reason: RefusalReason::ArtifactFetchFailed,
+                        message: format!("python graph source fetch failed: {}", e),
+                    };
+                }
+            };
+            if let Err(e) = stage_agent_providers(http, server, api_key, &digest, cache_dir).await {
+                return cloacina::fleet::AgentOutcome::Refused {
+                    reason: RefusalReason::RuntimeLoadFailed,
+                    message: e,
+                };
+            }
+            let staging = cache_dir.join(format!("pysrc-{}", digest));
+            if let Err(e) = std::fs::create_dir_all(&staging) {
+                return cloacina::fleet::AgentOutcome::Refused {
+                    reason: RefusalReason::RuntimeLoadFailed,
+                    message: format!("create python staging dir {:?}: {}", staging, e),
+                };
+            }
+            let Some(py) = cloacina::python_runtime::python_runtime() else {
+                return cloacina::fleet::AgentOutcome::Refused {
+                    reason: RefusalReason::RuntimeLoadFailed,
+                    message: "no Python runtime installed in agent".to_string(),
+                };
+            };
+            let tenant = packet
+                .tenant_id
+                .clone()
+                .unwrap_or_else(|| "public".to_string());
+            // Throwaway Runtime: we only need the import's registration side
+            // effects (graph executors land in the process-global registry).
+            let runtime_for_load = Arc::new(cloacina::Runtime::empty());
+            let result = tokio::task::spawn_blocking(move || {
+                py.load_workflow_package(&archive, &staging, &tenant, &runtime_for_load)
+                    .map(|_| ())
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => {
+                    imported.insert(digest.clone());
+                    debug!(digest = %digest, "python graph package imported");
+                }
+                Ok(Err(e)) => {
+                    return cloacina::fleet::AgentOutcome::Refused {
+                        reason: RefusalReason::RuntimeLoadFailed,
+                        message: format!("python graph load: {}", e),
+                    };
+                }
+                Err(e) => {
+                    return cloacina::fleet::AgentOutcome::Refused {
+                        reason: RefusalReason::RuntimeLoadFailed,
+                        message: format!("python graph load panicked: {}", e),
+                    };
+                }
+            }
+        }
+    }
+
+    let Some(executor) = cloacina_python::computation_graph::get_graph_executor(&packet.graph_name)
+    else {
+        return cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: format!(
+                "graph '{}' not registered after importing digest {} — \
+                 package/graph mismatch",
+                packet.graph_name, digest
+            ),
+        };
+    };
+
+    // Rebuild the InputCache in the exact in-process wire shape: each entry
+    // is bincode(Vec<u8>) of the raw event JSON — byte-identical to what the
+    // server-side accumulators store, so executor behavior matches a local
+    // firing exactly.
+    let mut cache = cloacina::computation_graph::types::InputCache::new();
+    for (source, json_str) in &packet.cache {
+        let frame = match bincode::serialize(&json_str.clone().into_bytes()) {
+            Ok(f) => f,
+            Err(e) => {
+                return cloacina::fleet::AgentOutcome::Failure {
+                    message: format!("rebuild cache entry '{}': {}", source, e),
+                    classification: cloacina::fleet::FailureClassification::TaskError,
+                };
+            }
+        };
+        cache.update(
+            cloacina::cloacina_computation_graph::SourceName::new(source.clone()),
+            frame,
+        );
+    }
+
+    // The Python executor holds the GIL inside its own spawn_blocking.
+    let result = executor.execute(&cache).await;
+    match result {
+        cloacina::cloacina_computation_graph::GraphResult::Completed { .. } => {
+            debug!(graph = %packet.graph_name, "python graph firing executed on agent");
+            // Python graph outputs are PyObjects the reactor discards —
+            // report success with no outputs (parity with in-process).
+            cloacina::fleet::AgentOutcome::Success {
+                context: serde_json::json!({ "outputs": [] }),
+            }
+        }
+        cloacina::cloacina_computation_graph::GraphResult::Error(e) => {
+            cloacina::fleet::AgentOutcome::Failure {
+                message: format!("python graph execution failed: {}", e),
+                classification: cloacina::fleet::FailureClassification::TaskError,
+            }
+        }
+    }
+}
+
 /// CLOACI-T-0722: per-digest cache of loaded GRAPH plugins, mirroring the
 /// task-side `loaded_runtimes()` — one dlopen per package, reused across
 /// firings for the process lifetime.
@@ -706,6 +849,11 @@ async fn process_graph_packet(
     api_key: &str,
     cache_dir: &std::path::Path,
 ) -> cloacina::fleet::AgentOutcome {
+    // CLOACI-T-0841: a Python-packaged CG executes from SOURCE — import the
+    // module (registering its graph executors) and run the named executor.
+    if packet.language.as_deref() == Some("python") {
+        return execute_python_graph(packet, http, server, api_key, cache_dir).await;
+    }
     let digest = packet.artifact.digest.clone();
 
     let plugin = {

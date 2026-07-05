@@ -114,15 +114,15 @@ impl FleetGraphExecutor {
             .await
             .map_err(|e| format!("artifact digest lookup failed: {e}"))?
             .ok_or_else(|| format!("no active artifact for package '{package_name}'"))?;
-        if language.eq_ignore_ascii_case("python") {
-            return Err(format!(
-                "package '{package_name}' is Python — CG fleet dispatch is Rust-only in v1"
-            ));
-        }
 
-        // 3. Select a live agent with capacity + a runnable arch (host primary
-        //    ∪ this package's per-target builds) in the graph's tenant.
-        let runnable_triples: Option<Vec<String>> = {
+        // 3. Select a live agent with capacity + a runnable arch in the
+        //    graph's tenant. An interpreted (Python) package runs from source
+        //    on ANY arch (CLOACI-T-0841); a compiled one needs the host
+        //    primary ∪ this package's per-target builds.
+        let interpreted = language.eq_ignore_ascii_case("python");
+        let runnable_triples: Option<Vec<String>> = if interpreted {
+            None
+        } else {
             let mut t = self
                 .dal
                 .workflow_packages()
@@ -144,15 +144,20 @@ impl FleetGraphExecutor {
         let agent_triple = agent.target_triple.clone();
 
         // Per-target artifact when one exists for the agent's arch, else the
-        // primary/host build (selection already guaranteed runnability).
-        let (digest, _triple) = match self
-            .dal
-            .workflow_packages()
-            .get_artifact_digest_for_target(&package_name, &agent_triple)
-            .await
-        {
-            Ok(Some(arch_digest)) => (arch_digest, agent_triple),
-            _ => (primary_digest, host_target_triple().to_string()),
+        // primary/host build (selection already guaranteed runnability). An
+        // interpreted package always ships its primary (source) digest.
+        let (digest, _triple) = if interpreted {
+            (primary_digest, agent_triple)
+        } else {
+            match self
+                .dal
+                .workflow_packages()
+                .get_artifact_digest_for_target(&package_name, &agent_triple)
+                .await
+            {
+                Ok(Some(arch_digest)) => (arch_digest, agent_triple),
+                _ => (primary_digest, host_target_triple().to_string()),
+            }
         };
 
         // 4. Convert the snapshot into the FFI/wire cache shape — the same
@@ -176,6 +181,7 @@ impl FleetGraphExecutor {
             },
             timeout_seconds: 300,
             tenant_id: fire.tenant_id.clone(),
+            language: Some(language),
         };
         let payload = serde_json::to_vec(&packet).map_err(|e| {
             self.coordinator.cancel(firing_id);

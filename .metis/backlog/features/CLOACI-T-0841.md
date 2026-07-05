@@ -4,15 +4,15 @@ level: task
 title: "Python computation graphs on the agent fleet — agent-side graph-fn assembly from source (T-0722 follow-on)"
 short_code: "CLOACI-T-0841"
 created_at: 2026-07-05T21:54:59.701905+00:00
-updated_at: 2026-07-05T21:54:59.701905+00:00
+updated_at: 2026-07-05T22:01:18.287986+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -61,6 +61,10 @@ The model is the same source-shipping approach Python TASKS already use on the f
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -131,4 +135,9 @@ The model is the same source-shipping approach Python TASKS already use on the f
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-05 — implementation (branch feat/t0841-py-cg-fleet); code-complete
+The feared "scheduler-coupled assembly" mostly didn't exist: a py CG's graph fn is `get_graph_executor(name)` (a process-global registry populated as an import side effect) + `PythonGraphExecutor::execute(&InputCache)` — no factoring needed. The agent's existing Python-task load path (`fetch_source_archive` + `stage_agent_providers` + `python_runtime().load_workflow_package`, so T-0716/T-0838/T-0840 all apply) provides the import verbatim.
+- **Protocol**: `GraphWorkPacket.language` (serde-default, mirrors `WorkPacket.language`).
+- **Server**: python early-fallback removed; interpreted packages get `runnable_triples = None` (any arch, same as tasks) + primary/source digest; `language` stamped into the packet.
+- **Agent**: `execute_python_graph` — one import per digest (`imported_py_graph_digests`; executors are global, upgrades arrive as new digests where the T-0840 eviction re-executes the module), then `get_graph_executor(packet.graph_name)` and execute with the packet cache REBUILT into the exact in-process wire shape (`bincode(Vec<u8>)` of the raw JSON per entry — byte-identical to server-side accumulator frames, so executor behavior matches a local firing exactly). Outputs reported empty (parity: in-process py graph outputs are discarded). Executor-not-found after import → Refused → server falls back in-process.
+Remaining: tests, live verify demo_py_graph firing on an agent, PR.

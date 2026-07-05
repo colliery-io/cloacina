@@ -15,6 +15,7 @@ name = "cloacina-agent"
 path = "src/main.rs"
 
 [dependencies]
+bincode = "1.3"
 # Protocol DTOs + substrate envelope. `cloacina` requires at least one
 # backend feature to compile (AnyPool/AnyConnection types are backend-typed
 # even though the agent never touches the DAL); `sqlite` is the smallest.
