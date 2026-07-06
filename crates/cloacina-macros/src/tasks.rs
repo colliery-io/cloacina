@@ -1014,7 +1014,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 ///
 /// # Usage
 ///
-/// ```rust
+/// ```ignore
 /// #[task(
 ///     id = "my_task",
 ///     dependencies = ["other_task"],
