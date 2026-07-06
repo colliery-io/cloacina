@@ -183,17 +183,20 @@ impl Parse for ReactorArgs {
                             ));
                         }
                     };
-                    let paren;
-                    syn::parenthesized!(paren in input);
-                    let idents: Punctuated<Ident, Token![,]> =
-                        paren.parse_terminated(Ident::parse, Token![,])?;
-                    let list: Vec<Ident> = idents.into_iter().collect();
-                    if list.is_empty() {
-                        return Err(syn::Error::new(
-                            mode_ident.span(),
-                            "criteria accumulator list cannot be empty",
-                        ));
-                    }
+                    // CLOACI-T-0740: the accumulator list is OPTIONAL —
+                    // `criteria = when_any` (or `when_any()`) means "all
+                    // declared accumulators", killing the restatement the
+                    // subset validation used to police. Explicit subsets
+                    // still work.
+                    let list: Vec<Ident> = if input.peek(syn::token::Paren) {
+                        let paren;
+                        syn::parenthesized!(paren in input);
+                        let idents: Punctuated<Ident, Token![,]> =
+                            paren.parse_terminated(Ident::parse, Token![,])?;
+                        idents.into_iter().collect()
+                    } else {
+                        Vec::new()
+                    };
                     criteria = Some((mode, list, mode_span));
                 }
                 "from" => {
@@ -275,6 +278,13 @@ impl Parse for ReactorArgs {
                 "#[reactor] requires a 'criteria' field (e.g. criteria = when_any(alpha, beta))",
             )
         })?;
+
+        // CLOACI-T-0740: an empty criteria list = ALL declared accumulators.
+        let criteria_accumulators = if criteria_accumulators.is_empty() {
+            accumulators.clone()
+        } else {
+            criteria_accumulators
+        };
 
         // Validate: every criteria accumulator must be in the accumulators list.
         let acc_names: std::collections::HashSet<String> =
