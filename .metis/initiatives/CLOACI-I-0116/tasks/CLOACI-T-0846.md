@@ -28,7 +28,15 @@ initiative_id: CLOACI-I-0116
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+Finish I-0116: name-resolved lifecycle over the T-0843 DAL finder (OQ-7 delegation), the pyo3 instance API, Diataxis docs, and the angreal integration proof that a registered instance fires with its bound params.
+
+## Status Updates (working)
+
+### 2026-07-05 — code surface SHIPPED (commit 157ad24c, PR #181); docs + integration proof remain
+- Name-resolved lifecycle on the runner: `get_workflow_instance(workflow, name)` + `unregister_workflow_instance` — OQ-7 as designed (name → schedule UUID → delegate to existing cron primitives; enable/disable ride the UUID ops). DAL `find_by_instance_name` landed with T-0843.
+- `WorkflowInstance::from_resolved` for dynamic surfaces (no declared slots at hand).
+- **Python**: `runner.register_workflow_instance(workflow_name, instance_name, cron, timezone, params: cloaca.Context)` — new RuntimeMessage variant + handler; the Context's JSON is the persisted fully-resolved param set.
+- **REMAINING before this task closes**: Diataxis docs (declare → instantiate → schedule → manage) and the angreal integration proof (register a named instance → cron fire delivers bound params, sqlite + postgres). PR #181 is open for the initiative; these ride follow-up commits on that branch.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
