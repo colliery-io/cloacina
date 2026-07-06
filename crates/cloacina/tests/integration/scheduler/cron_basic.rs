@@ -289,3 +289,89 @@ async fn test_completed_schedule_executions_excluded_from_lost_recovery() {
          cron_recovery will reschedule it on every tick"
     );
 }
+
+/// CLOACI-I-0116: named parameterized instances — full persistence round-trip
+/// through the runner API: register (params + name persisted on the schedule
+/// row), look up by name, uniqueness enforced, unregister by name. The
+/// fire-time delivery of the bound params is covered by the
+/// `workflow_instance` merge unit tests + the cron/trigger path wiring.
+#[tokio::test]
+#[serial]
+async fn test_workflow_instance_register_roundtrip() {
+    use cloacina::workflow_instance::WorkflowInstance;
+    use cloacina_api_types::InputSlot;
+
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+    let database_url = fixture.get_database_url();
+    drop(fixture);
+
+    let config = DefaultRunnerConfig::builder()
+        .enable_cron_scheduling(true)
+        .build()
+        .unwrap();
+    let runner = DefaultRunner::with_config(&database_url, config)
+        .await
+        .unwrap();
+
+    // Build a validated instance: required param supplied, default snapshotted.
+    let declared = vec![
+        InputSlot::required("source", serde_json::json!({"type": "string"})),
+        InputSlot {
+            name: "mode".into(),
+            schema: serde_json::json!({"type": "string"}),
+            required: false,
+            default: Some(serde_json::json!("copy")),
+        },
+    ];
+    let instance = WorkflowInstance::builder("sync-file")
+        .param("source", "/prod")
+        .unwrap()
+        .build(&declared)
+        .unwrap();
+
+    // Register under a human name.
+    runner
+        .register_cron_workflow_instance(&instance, "sync_prod", "0 * * * *", "UTC")
+        .await
+        .expect("instance registration");
+
+    // Round-trip by name: params + instance_name persisted on the row.
+    let row = runner
+        .get_workflow_instance("sync-file", "sync_prod")
+        .await
+        .unwrap()
+        .expect("instance row exists");
+    assert_eq!(row.instance_name.as_deref(), Some("sync_prod"));
+    let params: serde_json::Value =
+        serde_json::from_str(row.params.as_deref().unwrap()).unwrap();
+    assert_eq!(params["source"], serde_json::json!("/prod"));
+    assert_eq!(params["mode"], serde_json::json!("copy")); // default snapshotted
+
+    // Uniqueness: same (workflow, instance_name) again must fail.
+    let dup = runner
+        .register_cron_workflow_instance(&instance, "sync_prod", "0 * * * *", "UTC")
+        .await;
+    assert!(dup.is_err(), "duplicate instance name must be rejected");
+
+    // A second DIFFERENT name is fine (stamp out many copies).
+    runner
+        .register_cron_workflow_instance(&instance, "sync_staging", "0 3 * * *", "UTC")
+        .await
+        .expect("second named instance");
+
+    // Unregister by name; lookup then misses.
+    assert!(runner
+        .unregister_workflow_instance("sync-file", "sync_prod")
+        .await
+        .unwrap());
+    assert!(runner
+        .get_workflow_instance("sync-file", "sync_prod")
+        .await
+        .unwrap()
+        .is_none());
+
+    runner.shutdown().await.unwrap();
+}

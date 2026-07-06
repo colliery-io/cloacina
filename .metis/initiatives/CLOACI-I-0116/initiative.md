@@ -4,14 +4,14 @@ level: initiative
 title: "Parameterized workflow instances — declared params, partials, and configurable execute/schedule"
 short_code: "CLOACI-I-0116"
 created_at: 2026-06-01T14:48:51.749236+00:00
-updated_at: 2026-07-06T00:12:38.444316+00:00
+updated_at: 2026-07-06T00:45:06.158739+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

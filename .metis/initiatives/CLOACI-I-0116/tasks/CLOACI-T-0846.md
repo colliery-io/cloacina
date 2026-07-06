@@ -4,14 +4,14 @@ level: task
 title: "Named-instance lifecycle + Python parity — CRUD by instance name, pyo3 instance API, docs and tests"
 short_code: "CLOACI-T-0846"
 created_at: 2026-07-06T00:12:32.486091+00:00
-updated_at: 2026-07-06T00:12:32.486091+00:00
+updated_at: 2026-07-06T00:45:00.261364+00:00
 parent: CLOACI-I-0116
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -37,6 +37,10 @@ Finish I-0116: name-resolved lifecycle over the T-0843 DAL finder (OQ-7 delegati
 - `WorkflowInstance::from_resolved` for dynamic surfaces (no declared slots at hand).
 - **Python**: `runner.register_workflow_instance(workflow_name, instance_name, cron, timezone, params: cloaca.Context)` — new RuntimeMessage variant + handler; the Context's JSON is the persisted fully-resolved param set.
 - **REMAINING before this task closes**: Diataxis docs (declare → instantiate → schedule → manage) and the angreal integration proof (register a named instance → cron fire delivers bound params, sqlite + postgres). PR #181 is open for the initiative; these ride follow-up commits on that branch.
+
+### 2026-07-05 (later) — docs + integration proof landed; CLOSING
+- **Docs**: `docs/content/engine/scheduling/workflow-instances.md` — the template→instances model, Rust + Python usage, the fire-time merge contract (flat keys, reserved-keys-win, trigger-payload precedence), and the not-a-closure/not-a-version boundaries.
+- **Integration proof** `test_workflow_instance_register_roundtrip` (scheduler/cron_basic.rs), **run live against real postgres, PASSED**: validated build (default snapshotted) → `register_cron_workflow_instance` → `get_workflow_instance` round-trip (params + name on the row) → duplicate name REJECTED by the unique index → second named instance ok → `unregister_workflow_instance` → lookup misses. Migration 040 applied on a fresh DB in the same run. Fire-time param delivery is covered by the `workflow_instance` merge unit tests + the compile-enforced cron/trigger wiring (matching the existing cron suite's depth — no wall-clock fire waits). COMPLETE.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -71,6 +75,10 @@ Finish I-0116: name-resolved lifecycle over the T-0843 DAL finder (OQ-7 delegati
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
