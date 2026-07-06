@@ -326,6 +326,10 @@ pub struct UnifiedSchedule {
     /// paused schedule is not fired by the scheduler but is otherwise intact.
     pub paused: UniversalBool,
     pub paused_at: Option<UniversalTimestamp>,
+    /// CLOACI-I-0116: fully-resolved bound instance params (JSON object) +
+    /// human instance name; both None for anonymous schedules.
+    pub params: Option<String>,
+    pub instance_name: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -346,6 +350,9 @@ pub struct NewUnifiedSchedule {
     pub next_run_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    // CLOACI-I-0116: named parameterized instance (None = anonymous).
+    pub params: Option<String>,
+    pub instance_name: Option<String>,
 }
 
 // ============================================================================
@@ -860,6 +867,8 @@ impl From<UnifiedSchedule> for Schedule {
             updated_at: u.updated_at,
             paused: u.paused,
             paused_at: u.paused_at,
+            params: u.params,
+            instance_name: u.instance_name,
         }
     }
 }

@@ -526,6 +526,7 @@ pub mod registry;
 pub mod retry;
 pub mod runner;
 pub mod runtime;
+pub mod workflow_instance;
 
 // Re-export the `inventory` crate so macros can emit `cloacina::inventory::submit!`
 // without requiring users to add `inventory` as a direct dependency.

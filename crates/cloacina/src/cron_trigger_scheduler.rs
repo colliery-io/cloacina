@@ -620,6 +620,16 @@ impl Scheduler {
         scheduled_time: DateTime<Utc>,
     ) -> Result<UniversalUuid, WorkflowExecutionError> {
         let mut context = Context::new();
+        // CLOACI-I-0116: a named instance's bound params are delivered as
+        // flat context keys; the reserved scheduler keys below are stamped
+        // AFTER (merge skips them), so a binding can never spoof them.
+        if let Some(ref params_json) = schedule.params {
+            crate::workflow_instance::merge_instance_params(&mut context, params_json).map_err(
+                |e| WorkflowExecutionError::ExecutionFailed {
+                    message: format!("instance params merge: {}", e),
+                },
+            )?;
+        }
         context
             .insert(
                 "scheduled_time",
@@ -913,6 +923,16 @@ impl Scheduler {
         mut context: Context<serde_json::Value>,
     ) -> Result<UniversalUuid, WorkflowExecutionError> {
         let trigger_name = schedule.trigger_name.as_deref().unwrap_or("unknown");
+
+        // CLOACI-I-0116: bound instance params override same-named keys in
+        // the trigger-produced payload (OQ-3); reserved keys stamped after.
+        if let Some(ref params_json) = schedule.params {
+            crate::workflow_instance::merge_instance_params(&mut context, params_json).map_err(
+                |e| WorkflowExecutionError::ExecutionFailed {
+                    message: format!("instance params merge: {}", e),
+                },
+            )?;
+        }
 
         context
             .insert("trigger_name", serde_json::json!(trigger_name))
@@ -1418,6 +1438,8 @@ mod tests {
             updated_at: now,
             paused: UniversalBool::new(false),
             paused_at: None,
+            params: None,
+            instance_name: None,
         }
     }
 
@@ -1443,6 +1465,8 @@ mod tests {
             updated_at: now,
             paused: UniversalBool::new(false),
             paused_at: None,
+            params: None,
+            instance_name: None,
         }
     }
 

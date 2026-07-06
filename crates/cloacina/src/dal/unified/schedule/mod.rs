@@ -51,6 +51,22 @@ impl<'a> ScheduleDAL<'a> {
     }
 
     /// Retrieves a schedule by its ID.
+    /// Look up a NAMED instance schedule by `(workflow_name, instance_name)`
+    /// (CLOACI-I-0116). `Ok(None)` when no such instance exists.
+    pub async fn find_by_instance_name(
+        &self,
+        workflow_name: &str,
+        instance_name: &str,
+    ) -> Result<Option<Schedule>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.find_by_instance_name_postgres(workflow_name, instance_name)
+                .await,
+            self.find_by_instance_name_sqlite(workflow_name, instance_name)
+                .await
+        )
+    }
+
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<Schedule, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),

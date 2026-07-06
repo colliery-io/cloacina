@@ -37,6 +37,75 @@ impl DefaultRunner {
     ///
     /// # Returns
     /// * `Result<UniversalUuid, WorkflowExecutionError>` - The ID of the created schedule or an error
+    /// Register a NAMED, PARAMETERIZED cron instance (CLOACI-I-0116): like
+    /// [`register_cron_workflow`](Self::register_cron_workflow) but the
+    /// schedule row persists the instance's fully-resolved bound params
+    /// (merged into the context at every fire) under a human instance name
+    /// (unique per workflow; tenant isolation is the schema boundary).
+    pub async fn register_cron_workflow_instance(
+        &self,
+        instance: &crate::workflow_instance::WorkflowInstance,
+        instance_name: &str,
+        cron_expression: &str,
+        timezone: &str,
+    ) -> Result<UniversalUuid, WorkflowExecutionError> {
+        if !self.config.enable_cron_scheduling() {
+            return Err(WorkflowExecutionError::Configuration {
+                message: "Cron scheduling not enabled. Use enable_cron_scheduling(true) in config."
+                    .to_string(),
+            });
+        }
+        let dal = DAL::new(self.database.clone());
+
+        use crate::CronEvaluator;
+        CronEvaluator::validate(cron_expression, timezone).map_err(|e| {
+            WorkflowExecutionError::Configuration {
+                message: format!("Invalid cron expression or timezone: {}", e),
+            }
+        })?;
+        let evaluator = CronEvaluator::new(cron_expression, timezone).map_err(|e| {
+            WorkflowExecutionError::Configuration {
+                message: format!("Failed to create cron evaluator: {}", e),
+            }
+        })?;
+        let next_run = evaluator.next_execution(chrono::Utc::now()).map_err(|e| {
+            WorkflowExecutionError::Configuration {
+                message: format!("Failed to calculate next execution: {}", e),
+            }
+        })?;
+
+        use crate::database::universal_types::UniversalTimestamp;
+        use crate::models::schedule::NewSchedule;
+        let mut new_schedule = NewSchedule::cron(
+            &instance.workflow_name,
+            cron_expression,
+            UniversalTimestamp(next_run),
+        );
+        new_schedule.timezone = Some(timezone.to_string());
+        new_schedule.params =
+            Some(
+                instance
+                    .params_json()
+                    .map_err(|e| WorkflowExecutionError::Configuration {
+                        message: format!("instance params: {}", e),
+                    })?,
+            );
+        new_schedule.instance_name = Some(instance_name.to_string());
+
+        let schedule = dal.schedule().create(new_schedule).await.map_err(|e| {
+            WorkflowExecutionError::ExecutionFailed {
+                message: format!("Failed to create instance schedule: {}", e),
+            }
+        })?;
+        tracing::info!(
+            "Registered workflow instance '{}' of '{}' on cron '{}'",
+            instance_name,
+            instance.workflow_name,
+            cron_expression
+        );
+        Ok(schedule.id)
+    }
+
     pub async fn register_cron_workflow(
         &self,
         workflow_name: &str,

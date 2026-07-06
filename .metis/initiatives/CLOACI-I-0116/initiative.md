@@ -4,14 +4,14 @@ level: initiative
 title: "Parameterized workflow instances — declared params, partials, and configurable execute/schedule"
 short_code: "CLOACI-I-0116"
 created_at: 2026-06-01T14:48:51.749236+00:00
-updated_at: 2026-06-01T14:48:51.749236+00:00
+updated_at: 2026-07-06T00:12:38.444316+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -232,9 +232,21 @@ In `cron_trigger_scheduler.rs`, after the time-context is built and before `sche
 - **OQ-6 — `update` semantics.** Does updating an instance's params mutate the row in place or create a new version? Lean: in-place update of the resolved params + `updated_at`, treated as an explicit re-snapshot.
 - **OQ-7 — instance lifecycle vs raw cron API.** How do the new named-instance ops coexist with the existing `delete_cron_schedule(uuid)` / `set_cron_schedule_enabled` — do those become the primitives the named ops delegate to? Lean: yes, name ops resolve to UUID and delegate.
 
+## 2026-07-05 audit — what I-0128/I-0117 already delivered (maintainer-directed scope reduction)
+
+Verified in code before resuming this initiative:
+- **Phase 1 DONE** (via I-0128 T-0756): `workflow(params(...))` + schemars JSON-Schema `declared_params` in `PackageTasksMetadata` (`package_loader.rs:77`) — the exact descriptor revision anticipated above.
+- **Phase 6 DONE** (I-0128): descriptor surfaces through load + API; validated at execute (`validate_declared_params`, executions.rs).
+- **Execute-now DONE** (I-0128 T-0757 + I-0117 T-0747): validated execute-with-params + UI config form — Use Case 2 ships today.
+- **Python declaration parity DONE** (T-0760).
+- **OQ-1 resolved de facto**: the shipped execute path validates params as **flat top-level context keys** — fire-time merge must match (flat), with the cron/trigger **reserved keys stamped after params** so `scheduled_time`/`schedule_id` can't be spoofed by a binding.
+- **OQ-3 resolved (maintainer lean confirmed)**: bound instance params override trigger-produced payload keys on conflict; reserved time keys win over both.
+
+**Residual scope (the gap, M not L)**: schedules carry no configuration (no `params`/`instance_name` columns — a params-requiring workflow is effectively un-schedulable), no `WorkflowInstance` partial, no fire-time merge, no named lifecycle, no Python instance API. Phases 2–5 + 7 below; phases 1/6 dropped as done; phase 8 (sugar) deferred out of v1.
+
 ## Implementation Plan **[REQUIRED]**
 
-Phased; each phase is a candidate task batch at decomposition. **Not yet decomposed — pending phase transitions and maintainer sign-off.** One PR per this initiative ([[feedback_pr_is_initiative]]).
+Phased; each phase is a candidate task batch at decomposition. **Decomposed 2026-07-05 per maintainer "close the gaps"** into 4 tasks (spine order): [[CLOACI-T-0843]] schedule persistence, [[CLOACI-T-0844]] WorkflowInstance core, [[CLOACI-T-0845]] fire-time merge, [[CLOACI-T-0846]] named lifecycle + Python parity + docs/tests. One PR per this initiative ([[feedback_pr_is_initiative]]).
 
 1. **Declared-params foundation (macro + descriptor).** Extend `#[workflow]` to parse `params(...)`; emit the `ParamSpec` descriptor into `WorkflowDescriptorEntry` and `PackageTasksMetadata`; generate typed Rust accessors. Exit: a workflow declares params; descriptor is enumerable in both embedded and packaged metadata; no-params workflows unchanged.
 2. **`WorkflowInstance` + generic builder (core).** `Workflow::instance(name).param(..).build()` with validation + default snapshot; `Clone`/serde; `params_to_context` mapping (OQ-1); `execute(&runner)`. Exit: embedded Rust can build a partial and `.execute()` with params reaching tasks via context.
