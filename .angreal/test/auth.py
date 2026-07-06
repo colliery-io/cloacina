@@ -39,17 +39,12 @@ def start_postgres():
         ["docker", "compose", "-f", ".angreal/docker-compose.yaml", "up", "-d"],
         check=True,
     )
-    for _ in range(30):
-        result = subprocess.run(
-            ["docker", "compose", "-f", ".angreal/docker-compose.yaml", "exec", "-T",
-             "postgres", "pg_isready", "-U", "cloacina"],
-            capture_output=True,
-        )
-        if result.returncode == 0:
-            print("  Postgres is ready.")
-            return
-        time.sleep(1)
-    raise RuntimeError("Postgres failed to start")
+    # CLOACI-T-0806: consecutive-success readiness — a single pg_isready pass
+    # can land inside the init-restart bounce (exit 56).
+    from ._utils import wait_for_postgres_stable
+
+    wait_for_postgres_stable()
+    print("  Postgres is ready.")
 
 
 def stop_postgres():

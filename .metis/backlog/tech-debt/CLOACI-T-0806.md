@@ -4,15 +4,15 @@ level: task
 title: "CI robustness — harden the remaining docker-compose test lanes against the postgres readiness race (exit 56)"
 short_code: "CLOACI-T-0806"
 created_at: 2026-06-25T12:03:18.070555+00:00
-updated_at: 2026-06-25T12:03:18.070555+00:00
+updated_at: 2026-07-06T00:04:37.972075+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -75,6 +75,12 @@ Multiple docker-compose-based test lanes intermittently fail with **exit code 56
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -150,3 +156,8 @@ Multiple docker-compose-based test lanes intermittently fail with **exit code 56
 ## Status Updates **[REQUIRED]**
 
 **2026-06-25 — filed** during the v0.9.0 release recovery. Reference fix already landed: **PR #145** added a 10×/2s retry to `_fresh_database` in `.angreal/test/e2e/ui_e2e.py`. Exit-56 occurrences this session: UI Acceptance E2E `_fresh_database` psql (fixed), Integration Tests (sqlite, ubuntu) in run 28125071912 (RuntimeError/exit 56; the tests themselves passed). Strengthening `cli.py:_start_postgres` is the highest-leverage single change since it's the shared entrypoint. (Note: a *separate* nightly-harness gap — the UI e2e server not seeding the `acme` tenant-admin key — was fixed in PR #146; that's not this task.)
+
+### 2026-07-05 — DONE + LIVE-PROVEN (branch fix/t0806-pg-readiness-race)
+Two shared helpers in `.angreal/test/_utils.py`: `wait_for_postgres_stable` (requires N **consecutive** `pg_isready` successes, 1s apart — a single pass can land inside the init-restart bounce) and `psql_retry` (idempotent-DDL retry, the PR #145 pattern lifted out of its one copy). Rewired **eight** call sites — the AC's five (`e2e/cli.py _start_postgres` [shared entrypoint], `integration.py` [blind `sleep(30)` → stable wait, also faster], `e2e/compiler.py`, `e2e/sdk_contract.py _fresh_database` [was raw `check=True`], `e2e/ui_e2e.py` [deduped onto the helper]) **plus three more single-success loops the audit list missed**: `auth.py`, `metrics_format.py`, `e2e/ws.py`. No remaining "compose up → immediate psql check=True" sites (swept).
+
+**LIVE PROOF**: 3 complete fresh-volume init cycles (`down -v` → `up` → stable-wait → IMMEDIATE DROP/CREATE — the exact window where the bounce lives): stable at ~3.8s each (vs the 30s blind sleep), DROP/CREATE ok every time, zero exit-56. All 9 touched files parse; imports match each file's conventions. COMPLETE.

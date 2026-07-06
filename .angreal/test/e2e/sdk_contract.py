@@ -45,18 +45,15 @@ PROJECT_ROOT = Path(angreal.get_root()).parent
 def _fresh_database():
     """Drop + recreate the `cloacina` database so prior state can't leak
     into contract assertions (the server currently hardcodes the dbname —
-    CLOACI-T-0649 — so isolation has to happen at this level)."""
-    subprocess.run(
-        [
-            "docker", "compose", "-f", ".angreal/docker-compose.yaml",
-            "exec", "-T", "postgres",
-            "psql", "-U", "cloacina", "-d", "postgres",
-            "-c", "DROP DATABASE IF EXISTS cloacina WITH (FORCE);",
-            "-c", "CREATE DATABASE cloacina OWNER cloacina;",
-        ],
-        check=True,
-        capture_output=True,
-    )
+    CLOACI-T-0649 — so isolation has to happen at this level). Retried via
+    the shared helper — the raw check=True call raced Postgres's
+    init-restart bounce (exit 56, CLOACI-T-0806)."""
+    from .._utils import psql_retry
+
+    psql_retry([
+        "-c", "DROP DATABASE IF EXISTS cloacina WITH (FORCE);",
+        "-c", "CREATE DATABASE cloacina OWNER cloacina;",
+    ])
 
 
 @contextlib.contextmanager

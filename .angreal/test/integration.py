@@ -193,9 +193,14 @@ def integration(
         exit_code = docker_up()
         if exit_code != 0:
             raise RuntimeError("Docker setup failed")
-        # Wait for services to be ready
-        print("Waiting for PostgreSQL to be ready...")
-        time.sleep(30)
+        # Wait for services to be ready. CLOACI-T-0806: a blind sleep(30)
+        # let one lane fire psql inside Postgres's init-restart bounce (exit
+        # 56, run 28125071912) — require consecutive pg_isready successes
+        # instead (also usually much faster than 30s).
+        print("Waiting for PostgreSQL to be stably ready...")
+        from ._utils import wait_for_postgres_stable
+
+        wait_for_postgres_stable()
 
     try:
         # Build feature flags - use --no-default-features for non-default feature sets
