@@ -815,7 +815,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                 let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
                     message: format!("post_invocation callback failed: {:?}", post_err),
                     task_id: #task_id.to_string(),
-                    timestamp: chrono::Utc::now(),
+                    timestamp: ::cloacina_workflow::__private::chrono::Utc::now(),
                 };
                 #on_failure_call
                 return Err(task_error);
@@ -862,7 +862,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                                     #graph_name_lit,
                                 ),
                                 task_id: #task_id.to_string(),
-                                timestamp: chrono::Utc::now(),
+                                timestamp: ::cloacina_workflow::__private::chrono::Utc::now(),
                             };
                             #on_failure_call
                             return Err(task_error);
@@ -896,7 +896,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                                     graph_err,
                                 ),
                                 task_id: #task_id.to_string(),
-                                timestamp: chrono::Utc::now(),
+                                timestamp: ::cloacina_workflow::__private::chrono::Utc::now(),
                             };
                             #on_failure_call
                             return Err(task_error);
@@ -951,7 +951,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         }
 
 
-        #[async_trait::async_trait]
+        #[::cloacina_workflow::__private::async_trait::async_trait]
         impl ::cloacina_workflow::Task for #task_struct_name {
             async fn execute(&self, mut context: ::cloacina_workflow::Context<serde_json::Value>)
                 -> Result<::cloacina_workflow::Context<serde_json::Value>, ::cloacina_workflow::TaskError> {
@@ -970,7 +970,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                         let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
                             message: format!("{:?}", e),
                             task_id: #task_id.to_string(),
-                            timestamp: chrono::Utc::now(),
+                            timestamp: ::cloacina_workflow::__private::chrono::Utc::now(),
                         };
                         #on_failure_call
                         Err(task_error)

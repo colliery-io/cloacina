@@ -581,12 +581,69 @@ fn classify_offline_failure(stderr: &str) -> Option<String> {
     None
 }
 
+/// CLOACI-T-0737: inject the byte-identical build wiring when a minimal
+/// package omits it — `[lib] crate-type = ["cdylib","rlib"]` (the compiler
+/// NEEDS a cdylib) and the `packaged` feature the macro expansions cfg on.
+/// Explicit values are never touched; errors are non-fatal (cargo then
+/// reports the real problem with full context).
+fn ensure_build_wiring(source_dir: &Path) {
+    let manifest_path = source_dir.join("Cargo.toml");
+    let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
+        return;
+    };
+    let Ok(mut doc) = raw.parse::<toml::Value>() else {
+        return;
+    };
+    let Some(root) = doc.as_table_mut() else {
+        return;
+    };
+    let mut changed = false;
+
+    let lib = root
+        .entry("lib")
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    if let Some(lib) = lib.as_table_mut() {
+        if !lib.contains_key("crate-type") {
+            lib.insert(
+                "crate-type".into(),
+                toml::Value::Array(vec![
+                    toml::Value::String("cdylib".into()),
+                    toml::Value::String("rlib".into()),
+                ]),
+            );
+            changed = true;
+        }
+    }
+
+    let features = root
+        .entry("features")
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    if let Some(features) = features.as_table_mut() {
+        if !features.contains_key("packaged") {
+            features.insert("packaged".into(), toml::Value::Array(vec![]));
+            changed = true;
+        }
+    }
+
+    if changed {
+        if let Ok(out) = toml::to_string(&doc) {
+            let _ = std::fs::write(&manifest_path, out);
+            tracing::info!(
+                dir = %source_dir.display(),
+                "injected minimal-package build wiring (crate-type/packaged feature) — CLOACI-T-0737"
+            );
+        }
+    }
+}
+
 async fn cargo_build(
     package_id: uuid::Uuid,
     source_dir: &Path,
     config: &CompilerConfig,
 ) -> Result<CargoBuildSuccess, BuildError> {
     const MAX_ERR: usize = 64 * 1024;
+
+    ensure_build_wiring(source_dir);
 
     let mut cmd = tokio::process::Command::new("cargo");
     cmd.args(&config.cargo_flags)

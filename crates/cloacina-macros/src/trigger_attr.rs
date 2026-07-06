@@ -224,7 +224,7 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
         #[derive(Debug, Clone)]
         struct #struct_name;
 
-        #[async_trait::async_trait]
+        #[::cloacina_workflow::__private::async_trait::async_trait]
         impl cloacina_workflow::Trigger for #struct_name {
             fn name(&self) -> &str {
                 #trigger_name
@@ -316,7 +316,7 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
         #[derive(Debug, Clone)]
         struct #struct_name {
             evaluator: cloacina_workflow::cron_evaluator::CronEvaluator,
-            last_fire: std::sync::Arc<std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>>>,
+            last_fire: std::sync::Arc<std::sync::Mutex<Option<::cloacina_workflow::__private::chrono::DateTime<::cloacina_workflow::__private::chrono::Utc>>>>,
         }
 
         impl #struct_name {
@@ -333,7 +333,7 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
             }
         }
 
-        #[async_trait::async_trait]
+        #[::cloacina_workflow::__private::async_trait::async_trait]
         impl cloacina_workflow::Trigger for #struct_name {
             fn name(&self) -> &str {
                 #trigger_name
@@ -356,10 +356,10 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
             }
 
             async fn poll(&self) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
-                let now = chrono::Utc::now();
+                let now = ::cloacina_workflow::__private::chrono::Utc::now();
                 let mut last_fire = self.last_fire.lock().unwrap();
 
-                let check_from = last_fire.unwrap_or(now - chrono::Duration::seconds(1));
+                let check_from = last_fire.unwrap_or(now - ::cloacina_workflow::__private::chrono::Duration::seconds(1));
                 match self.evaluator.next_execution(check_from) {
                     Ok(next_run) => {
                         if next_run <= now {

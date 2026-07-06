@@ -89,7 +89,13 @@ pub use cloacina_macros::{task, trigger, workflow};
 
 /// Private re-exports used by generated macro code. Not part of the public API.
 #[doc(hidden)]
-#[cfg(feature = "macros")]
 pub mod __private {
+    // CLOACI-T-0737: generated PACKAGED-branch code routes its runtime
+    // companions through here, so package authors stop hand-adding deps the
+    // macros (not their code) need. async-trait/chrono are unconditional
+    // deps of this crate; tokio stays behind the macros feature.
+    pub use async_trait;
+    pub use chrono;
+    #[cfg(feature = "macros")]
     pub use tokio;
 }

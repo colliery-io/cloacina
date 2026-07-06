@@ -282,10 +282,6 @@ with cloaca.ComputationGraphBuilder(
 
 fn scaffold_rust(dir: &Path, name: &str, module: &str, kind: ScaffoldKind) -> Result<(), CliError> {
     write(&dir.join("Cargo.toml"), &rust_cargo_toml(name))?;
-    write(
-        &dir.join("build.rs"),
-        "fn main() {\n    cloacina_build::configure();\n}\n",
-    )?;
     match kind {
         ScaffoldKind::Workflow => {
             write(
@@ -319,25 +315,15 @@ name = "{name}"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = ["packaged"]
-packaged = []
-
+# CLOACI-T-0737: this is the WHOLE shell. The compiler injects the cdylib
+# crate-type + `packaged` feature at build; the macros route their runtime
+# companions (async-trait, chrono, computation-graph) through the crates
+# below — no build.rs, no cloacina-build, no four-crate ceremony.
 [dependencies]
-cloacina-macros = "{ver}"
-cloacina-computation-graph = "{ver}"
-cloacina-workflow = {{ version = "{ver}", features = ["packaged"] }}
+cloacina-workflow = {{ version = "{ver}", features = ["packaged", "macros"] }}
 cloacina-workflow-plugin = "{ver}"
 serde = {{ version = "1.0", features = ["derive"] }}
 serde_json = "1.0"
-async-trait = "0.1"
-futures = "0.3"
-
-[build-dependencies]
-cloacina-build = "{ver}"
 "#,
         ver = CLOACINA_CRATE_VERSION
     )
@@ -379,7 +365,7 @@ input_strategy = "latest"
 
 fn rust_workflow_lib(name: &str, module: &str) -> String {
     format!(
-        r#"use cloacina_macros::{{task, workflow}};
+        r#"use cloacina_workflow::{{task, workflow}};
 use cloacina_workflow::{{Context, TaskError}};
 
 cloacina_workflow_plugin::package!();
@@ -409,7 +395,7 @@ fn rust_cron_lib(name: &str, module: &str) -> String {
     // scheduler — it is NOT listed in `#[workflow(triggers = [...])]` (that list
     // is for poll-trigger subscriptions). `package validate` enforces this.
     format!(
-        r#"use cloacina_macros::{{task, trigger, workflow}};
+        r#"use cloacina_workflow::{{task, trigger, workflow}};
 use cloacina_workflow::{{Context, TaskError}};
 
 cloacina_workflow_plugin::package!();

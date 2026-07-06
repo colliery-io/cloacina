@@ -140,13 +140,8 @@ pub fn validate_rust_layout(dir: &Path) -> Result<(), CliError> {
             dir.join("src/lib.rs").display()
         )));
     }
-    if !dir.join("build.rs").exists() {
-        eprintln!(
-            "warning: {} has no build.rs — packaged Rust workflows normally call \
-             cloacina_build::configure() from build.rs",
-            dir.display()
-        );
-    }
+    // CLOACI-T-0737: build.rs is no longer part of the package shell — the
+    // compiler injects the build wiring; no warning for its absence.
     Ok(())
 }
 

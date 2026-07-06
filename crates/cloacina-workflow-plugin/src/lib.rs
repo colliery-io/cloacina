@@ -114,6 +114,12 @@ pub use fidius::fidius_plugin_registry;
 /// `#[workflow]` would emit two `fidius_plugin_registry!()` calls →
 /// linker conflict. T-C strips the per-macro emission so the shell
 /// becomes the only path.
+/// CLOACI-T-0737: `package!()` expansion routes computation-graph types
+/// through this re-export via `$crate::`, so package authors don't need a
+/// direct `cloacina-computation-graph` dependency for the shell.
+#[doc(hidden)]
+pub use cloacina_computation_graph as __cg;
+
 #[macro_export]
 macro_rules! package {
     () => {
@@ -371,7 +377,7 @@ macro_rules! package {
                     };
                     let reg = (entry.constructor)();
 
-                    let mut cache = cloacina_computation_graph::InputCache::new();
+                    let mut cache = $crate::__cg::InputCache::new();
                     for (source_name, json_str) in &request.cache {
                         let value: ::serde_json::Value =
                             ::serde_json::from_str(json_str).map_err(|e| $crate::PluginError {
@@ -382,7 +388,7 @@ macro_rules! package {
                                 ),
                                 details: None,
                             })?;
-                        let bytes = cloacina_computation_graph::serialize(&value).map_err(|e| {
+                        let bytes = $crate::__cg::serialize(&value).map_err(|e| {
                             $crate::PluginError {
                                 code: "SERIALIZATION_ERROR".to_string(),
                                 message: format!(
@@ -393,7 +399,7 @@ macro_rules! package {
                             }
                         })?;
                         cache.update(
-                            cloacina_computation_graph::SourceName::new(source_name),
+                            $crate::__cg::SourceName::new(source_name),
                             bytes,
                         );
                     }
@@ -401,7 +407,7 @@ macro_rules! package {
                     let result = rt.block_on(async { (reg.graph_fn)(cache).await });
 
                     match result {
-                        cloacina_computation_graph::GraphResult::Completed { outputs, .. } => {
+                        $crate::__cg::GraphResult::Completed { outputs, .. } => {
                             let terminal_json: ::std::vec::Vec<::std::string::String> = outputs
                                 .iter()
                                 .filter_map(|o| {
@@ -419,7 +425,7 @@ macro_rules! package {
                                 error: None,
                             })
                         }
-                        cloacina_computation_graph::GraphResult::Error(e) => {
+                        $crate::__cg::GraphResult::Error(e) => {
                             Ok($crate::GraphExecutionResult {
                                 success: false,
                                 terminal_outputs_json: None,
@@ -638,7 +644,7 @@ macro_rules! package {
                     let result = rt.block_on(async move { graph_fn(context).await });
 
                     match result {
-                        ::cloacina_computation_graph::GraphResult::Completed { outputs, .. } => {
+                        $crate::__cg::GraphResult::Completed { outputs, .. } => {
                             let mut json_outputs: ::std::vec::Vec<::serde_json::Value> =
                                 ::std::vec::Vec::with_capacity(outputs.len());
                             for boxed in outputs.iter() {
@@ -670,7 +676,7 @@ macro_rules! package {
                                 error: None,
                             })
                         }
-                        ::cloacina_computation_graph::GraphResult::Error(err) => {
+                        $crate::__cg::GraphResult::Error(err) => {
                             Ok($crate::TriggerlessGraphInvokeResult {
                                 success: false,
                                 terminal_outputs_json: None,
