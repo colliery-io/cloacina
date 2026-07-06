@@ -106,6 +106,45 @@ impl DefaultRunner {
         Ok(schedule.id)
     }
 
+    /// Resolve a named instance to its schedule row (CLOACI-I-0116 OQ-7:
+    /// name ops resolve to the schedule UUID and delegate to the existing
+    /// cron primitives — enable/disable/delete by the returned `id`).
+    pub async fn get_workflow_instance(
+        &self,
+        workflow_name: &str,
+        instance_name: &str,
+    ) -> Result<Option<crate::models::schedule::Schedule>, WorkflowExecutionError> {
+        let dal = DAL::new(self.database.clone());
+        dal.schedule()
+            .find_by_instance_name(workflow_name, instance_name)
+            .await
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+                message: format!("instance lookup: {}", e),
+            })
+    }
+
+    /// Unregister (delete) a named instance's schedule. Returns true if an
+    /// instance existed and was removed.
+    pub async fn unregister_workflow_instance(
+        &self,
+        workflow_name: &str,
+        instance_name: &str,
+    ) -> Result<bool, WorkflowExecutionError> {
+        let Some(schedule) = self
+            .get_workflow_instance(workflow_name, instance_name)
+            .await?
+        else {
+            return Ok(false);
+        };
+        let dal = DAL::new(self.database.clone());
+        dal.schedule().delete(schedule.id).await.map_err(|e| {
+            WorkflowExecutionError::ExecutionFailed {
+                message: format!("instance delete: {}", e),
+            }
+        })?;
+        Ok(true)
+    }
+
     pub async fn register_cron_workflow(
         &self,
         workflow_name: &str,

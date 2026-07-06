@@ -79,6 +79,19 @@ impl WorkflowInstance {
         }
     }
 
+    /// Construct from an ALREADY-RESOLVED param map, trusting the caller
+    /// (dynamic surfaces — e.g. the Python bindings — where the declared
+    /// slots aren't at hand; the validated path is [`Self::builder`]).
+    pub fn from_resolved(
+        workflow_name: impl Into<String>,
+        params: serde_json::Map<String, serde_json::Value>,
+    ) -> Self {
+        Self {
+            workflow_name: workflow_name.into(),
+            params,
+        }
+    }
+
     /// The instance's params as a `Context`-ready JSON object string
     /// (persisted on the schedule row at register time).
     pub fn params_json(&self) -> Result<String, WorkflowInstanceError> {
