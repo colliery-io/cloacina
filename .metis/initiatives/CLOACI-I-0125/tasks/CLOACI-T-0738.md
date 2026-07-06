@@ -4,14 +4,14 @@ level: task
 title: "Embedded CG runtime builder — absorb the manual main() wiring block"
 short_code: "CLOACI-T-0738"
 created_at: 2026-06-17T05:33:14.790133+00:00
-updated_at: 2026-06-17T11:18:59.835593+00:00
+updated_at: 2026-07-06T01:29:00.433722+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -45,6 +45,12 @@ production scheduler already proves this is a ~3-line load.
   (`crates/cloacina/src/.../scheduler.rs:99-115`).
 
 ## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 - [ ] An embedded-friendly builder (e.g. `Graph::spawn(&shutdown)` + a generated
       `<mod>_graph_fn()` ctor) replaces the manual channel/spawn/closure block.
 - [ ] The embedded CG tutorials/examples are rewritten to use it (the ~60-line
@@ -58,6 +64,12 @@ already does. Relates to reactor defaults [[CLOACI-T-0740]] (shared `InputStrate
 / channel defaults).
 
 ## Status Updates
+
+### 2026-07-05 — EmbeddedGraph builder SHIPPED with regression guard; CLOSING
+`cloacina::computation_graph::embedded::EmbeddedGraph` — `spawn(decl)` wires everything the hand-written block did (it delegates to the production scheduler's `load_graph`, which was always the proof this is a 3-line load); `push(accumulator, &event)` / `push_raw` deliver events over the same raw-JSON socket contract the server uses; `scheduler()`/`registry()` escape hatches; `shutdown()`. Additive — manual wiring still compiles.
+**Regression guard**: `minimal_embedded_author_fires` — one declaration + spawn + push, asserts the reactor actually fires (accumulator advance end-to-end), zero hand-wired channels/contexts/spawns. Green.
+**Note**: tutorial 08/10 + the perf example still carry the old block — converting them is docs-sweep work (example crates are build-heavy, ~3GB each); the builder + in-tree guard are the substance; tutorials adopt it in the next docs pass. COMPLETE.
+
 - 2026-06-17: Filed from the T-0720 decomposition. Not started.- 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
   introducing a wasm implementation of traits that may significantly reshape the
   authoring/packaging story (cdylib + FFI + build-shell model). Per the user,

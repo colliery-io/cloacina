@@ -24,6 +24,7 @@
 //! - [`SourceName`] — identifies an accumulator source
 
 pub mod accumulator;
+pub mod embedded;
 pub mod global_registry;
 pub mod graph_executor;
 pub mod packaging_bridge;

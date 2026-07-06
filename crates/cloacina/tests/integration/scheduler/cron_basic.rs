@@ -345,8 +345,7 @@ async fn test_workflow_instance_register_roundtrip() {
         .unwrap()
         .expect("instance row exists");
     assert_eq!(row.instance_name.as_deref(), Some("sync_prod"));
-    let params: serde_json::Value =
-        serde_json::from_str(row.params.as_deref().unwrap()).unwrap();
+    let params: serde_json::Value = serde_json::from_str(row.params.as_deref().unwrap()).unwrap();
     assert_eq!(params["source"], serde_json::json!("/prod"));
     assert_eq!(params["mode"], serde_json::json!("copy")); // default snapshotted
 

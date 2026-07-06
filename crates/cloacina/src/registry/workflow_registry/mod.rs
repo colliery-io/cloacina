@@ -482,12 +482,10 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
                 reason: format!("Failed to unpack source archive: {}", e),
             })?;
 
-        let manifest = fidius_core::package::load_manifest::<
-            cloacina_workflow_plugin::CloacinaMetadata,
-        >(&source_dir)
-        .map_err(|e| RegistryError::ValidationError {
-            reason: format!("Failed to load package.toml: {}", e),
-        })?;
+        let manifest = cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir)
+            .map_err(|e| RegistryError::ValidationError {
+                reason: format!("Failed to load package.toml: {}", e),
+            })?;
 
         let pkg_name = manifest.package.name.clone();
         let pkg_version = manifest.package.version.clone();

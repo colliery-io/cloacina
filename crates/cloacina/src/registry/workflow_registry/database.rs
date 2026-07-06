@@ -1587,6 +1587,22 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let mut merged: crate::registry::loader::package_loader::PackageMetadata =
             serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
 
+        // CLOACI-T-0736: the COMPILED CODE is authoritative for
+        // workflow_name — the manifest value is at most a pre-build hint.
+        // A disagreement is the T-0666 drift class: never silently prefer
+        // the manifest; adopt the code value and warn loudly so the author
+        // fixes (or deletes) the stale manifest line.
+        if !merged.workflow_name.is_empty()
+            && !extracted.workflow_name.is_empty()
+            && merged.workflow_name != extracted.workflow_name
+        {
+            tracing::warn!(
+                manifest = %merged.workflow_name,
+                code = %extracted.workflow_name,
+                package = %record.package_name,
+                "package.toml workflow_name disagrees with the compiled code —                  the code value wins (drop the manifest line; it is optional)"
+            );
+        }
         merged.workflow_name = extracted.workflow_name;
         merged.tasks = extracted.tasks;
         merged.graph_data = extracted.graph_data;

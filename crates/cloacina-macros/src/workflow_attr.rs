@@ -793,7 +793,7 @@ fn generate_embedded_registration(
                         rewritten_trigger_rules: serde_json::Value,
                     }
 
-                    #[async_trait::async_trait]
+                    #[::cloacina_workflow::__private::async_trait::async_trait]
                     impl<T: cloacina_workflow::Task> cloacina_workflow::Task for TaskWithNamespacedTriggers<T> {
                         async fn execute(&self, context: cloacina_workflow::Context<serde_json::Value>)
                             -> Result<cloacina_workflow::Context<serde_json::Value>, cloacina_workflow::TaskError> {
@@ -1080,7 +1080,7 @@ fn build_task_inventory_entries(
                             rewritten_trigger_rules: serde_json::Value,
                         }
 
-                        #[async_trait::async_trait]
+                        #[::cloacina_workflow::__private::async_trait::async_trait]
                         impl<T: cloacina_workflow::Task> cloacina_workflow::Task for TaskWithNamespacedTriggers<T> {
                             async fn execute(
                                 &self,

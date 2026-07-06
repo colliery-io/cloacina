@@ -51,8 +51,10 @@ pub fn read_manifest(
             dir.display()
         )));
     }
-    fidius_core::package::load_manifest::<CloacinaMetadata>(dir)
-        .map_err(|e| CliError::UserError(format!("invalid package.toml: {e}")))
+    // CLOACI-T-0735: the shared resolver defaults the constant fidius header
+    // triple and infers language/entry_module from layout — a minimal
+    // manifest (name + version + workflow_name) is valid from here on.
+    cloacina_workflow_plugin::manifest::load_resolved_manifest(dir).map_err(CliError::UserError)
 }
 
 /// Read just the `[metadata]` table. See [`read_manifest`].
@@ -138,13 +140,8 @@ pub fn validate_rust_layout(dir: &Path) -> Result<(), CliError> {
             dir.join("src/lib.rs").display()
         )));
     }
-    if !dir.join("build.rs").exists() {
-        eprintln!(
-            "warning: {} has no build.rs — packaged Rust workflows normally call \
-             cloacina_build::configure() from build.rs",
-            dir.display()
-        );
-    }
+    // CLOACI-T-0737: build.rs is no longer part of the package shell — the
+    // compiler injects the build wiring; no warning for its absence.
     Ok(())
 }
 

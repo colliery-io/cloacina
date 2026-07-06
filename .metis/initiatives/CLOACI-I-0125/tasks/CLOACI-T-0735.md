@@ -4,14 +4,14 @@ level: task
 title: "package.toml minimization — default the constant fields, infer language/entry_module"
 short_code: "CLOACI-T-0735"
 created_at: 2026-06-17T05:33:09.700128+00:00
-updated_at: 2026-06-17T11:18:29.211763+00:00
+updated_at: 2026-07-06T01:15:42.077455+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -45,6 +45,12 @@ infer `language`/`entry_module`, so a minimal Python `package.toml` can shrink t
   This field already caused a costly drift bug ([[CLOACI-T-0666]]).
 - `entry_module` is conventionally `<module>.tasks`/`.graph` (`new.rs:176,217`).
 - `requires_python` is unused at build (`crates/cloacina-compiler/src/build.rs:217-223`).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 - [ ] Omitting `interface`/`interface_version`/`extension` loads with the correct
@@ -85,6 +91,19 @@ deriving `workflow_name`/`description` from code is the separate, larger
   the demo fixtures, and `package validate` is clean.
 
 ## Status Updates
+
+### 2026-07-05 (later) — resolver SHIPPED (commit c0d07f4c); tail remains
+`cloacina_workflow_plugin::manifest` — `load_resolved_manifest(dir)` + `resolve_manifest_str(raw, dir)`: defaults the constant fidius triple (interface/interface_version=1/extension="cloacina"), infers `[metadata].language` from layout (ambiguity ERRORS, never guessed — T-0666), defaults python `entry_module` to `<name>.tasks`; explicit values always win. **ALL parse sites swapped onto it**: cloacinactl `read_manifest` (validate/pack/publish), reconciler loading.rs, workflow_registry upload (mod.rs) + filesystem loaders (×2), and the compiler's `load_manifest` (build.rs — new cloacina-workflow-plugin dep). 4 resolver unit tests green (minimal py / minimal rust / explicit-wins / ambiguous-errors); plugin+cloacina+cloacinactl+compiler all check clean.
+**Remaining tail**: (1) `package new` templates still emit the full ceremony — minimize them to the minimal form; (2) live proof: minimal-manifest fixture through `cloacinactl package validate` + `pack` (both langs) as the regression guard; (3) confirm `requires_python` stays optional end-to-end. Then complete.
+
+### 2026-07-05 (later still) — tail DONE + LIVE-PROVEN; CLOSING
+- Templates minimized (py workflow / py graph / rust — graph keeps explicit `entry_module` since `.graph` differs from the resolver's `.tasks` convention).
+- **Staged pack**: fidius's `pack_package` re-parses the manifest strictly AND archives it verbatim — so when the on-disk manifest is minimal, `pack_to` stages a copy (excluding target/.git/node_modules/__pycache__/old archives) with the RESOLVED manifest written in. Every produced archive carries the fully-resolved form; consumers never depend on resolution having happened (belt on top of the resolver-everywhere suspenders).
+- **LIVE PROOF**: `package new py-mini` scaffolds the 8-line minimal manifest → `validate` ok "(python)" (inferred) → `pack` succeeds → archive manifest fully resolved (entry_module=py_mini.tasks, language, interface triple). Rust: `new`+`validate` ok "(rust)" (inferred from crate layout). `requires_python` optional confirmed (was already `#[serde(default)]`; unused at build). All ACs met. COMPLETE.
+
+### 2026-07-05 — UNBLOCKED + resumed (branch feat/i0125-authoring-cruft-2); parser located
+The missing piece from the 06-17 investigation is found: the constant triple (`interface`/`interface_version`/`extension`) lives in **fidius's** `PackageManifest` `[package]` header, parsed by `fidius_core::package::load_manifest::<CloacinaMetadata>` (entry: `cloacinactl/src/nouns/package/manifest.rs::read_manifest`). Defaulting it therefore means either (a) serde defaults upstream in fidius (we're on 0.5.4 now — CHECK whether newer fidius already made them optional), or (b) **cloacina-side pre-parse (recommended, additive)**: read the TOML, inject the constant triple when absent, hand to `load_manifest` — no fidius change. `language` inference (layout: `Cargo.toml`+`src/lib.rs` vs `workflow/` — reuse the validators' classification) + `entry_module` convention default go in the SHARED read path; verify `cloacina-compiler/src/build.rs` uses the same parse (both paths must resolve identically or we recreate the T-0666 drift class). Then the minimal-manifest fixture as regression guard. Implementation order: (b) → inference → compiler-path parity → fixture + validate.
+
 - 2026-06-17: Filed from the T-0720 decomposition. Not started.
 - 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
   introducing a wasm implementation of traits that may significantly reshape the

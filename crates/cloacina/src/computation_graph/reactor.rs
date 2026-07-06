@@ -88,22 +88,13 @@ pub fn reactor_health_channel() -> (watch::Sender<ReactorHealth>, watch::Receive
 }
 
 /// Reaction criteria — when to fire the graph.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReactionCriteria {
-    /// Fire if any dirty flag is set.
-    WhenAny,
-    /// Fire if all dirty flags are set.
-    WhenAll,
-}
-
-impl From<cloacina_computation_graph::ReactionMode> for ReactionCriteria {
-    fn from(mode: cloacina_computation_graph::ReactionMode) -> Self {
-        match mode {
-            cloacina_computation_graph::ReactionMode::WhenAny => ReactionCriteria::WhenAny,
-            cloacina_computation_graph::ReactionMode::WhenAll => ReactionCriteria::WhenAll,
-        }
-    }
-}
+///
+/// CLOACI-T-0740 (BREAKING): this is now the SAME type as the authoring-side
+/// [`cloacina_computation_graph::ReactionMode`] — the two enums restated each
+/// other (identical variants, bridged by a `From`) and have been collapsed.
+/// Migration: `ReactionCriteria::from(mode)` / `.into()` calls become the
+/// value itself; matches on `WhenAny`/`WhenAll` are unchanged.
+pub use cloacina_computation_graph::ReactionMode as ReactionCriteria;
 
 /// Input strategy — how the reactor handles data between executions.
 #[derive(Debug, Clone, PartialEq, Eq)]

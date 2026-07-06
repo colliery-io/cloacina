@@ -1,17 +1,17 @@
 ---
 id: authoring-surface-cruft-removal
 level: initiative
-title: 'Authoring-surface cruft removal — "just types + functions" (act on the T-0720 sweep)'
+title: "Authoring-surface cruft removal — 'just types + functions' (act on the T-0720 sweep)"
 short_code: "CLOACI-I-0125"
 created_at: 2026-06-17T05:31:01.766970+00:00
-updated_at: 2026-06-17T05:31:01.766970+00:00
+updated_at: 2026-07-06T02:14:41.752929+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -148,6 +148,7 @@ Each child starts by writing its "minimal author" example as the regression guar
   its doc) but not yet implemented — `[metadata]` is already mostly optional, the
   real win is inferring `language` from layout; deferred. Checkpoint: remaining 5
   (0735/0736/0737/0738/0740) are the heavy packaging/compiler/CG + breaking tier.
+- 2026-07-05: **UNBLOCKED (maintainer call) — the deferral condition settled.** Audit: fidius 0.5.4 shipped + adopted (T-0820); WASM's role is decided — it is the CONSTRUCTOR substrate (I-0132, completed end-to-end incl. capability model + fleet execution); the workflow package model (cdylib + FFI + package.toml) was REAFFIRMED by I-0128/I-0132/T-0722/T-0841 all building further on the cdylib-by-digest artifact. Packaging-cluster ergonomics no longer risk throwaway work. Also verified: the 4-task slice (T-0732/0733/0734/0739) IS merged to main (stale "awaiting PR" note below); and T-0738/T-0740 were never packaging-coupled (swept into the blanket deferral). All 5 → todo; build order per plan: 0735 → 0736 → 0737 → 0738 → 0740 (breaking, last).
 - 2026-06-17: **Remaining 5 tasks BLOCKED — deferred pending fidius wasm traits.**
   Per the user: fidius is introducing a wasm implementation of traits that may
   significantly reshape the authoring/packaging story (cdylib + FFI + build-shell
