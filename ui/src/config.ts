@@ -34,7 +34,11 @@ export const runtimeConfig = {
    *  dev default when it's blank. */
   defaultServerUrl:
     (window.__CLOACINA_CONFIG__?.defaultServerUrl || "") ||
-    (DEV ? "http://localhost:8080" : ""),
+    // CLOACI-I-0130 (T-0848): when served EMBEDDED from cloacina-server
+    // (no injected config, not the Vite dev server), the API is this same
+    // origin — prefill it so the connect gate only asks for key + tenant.
+    // The field stays editable for pointing at a remote server.
+    (DEV ? "http://localhost:8080" : window.location.origin),
   /** Dev-only demo API key prefill (empty in production). */
   demoApiKey: DEV ? "clk_demo_bootstrap_key_0001" : "",
   /** Dev-only demo tenant prefill. */

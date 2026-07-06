@@ -50,6 +50,8 @@ RUN apt-get update \
         ca-certificates \
         python3 \
         python3-dev \
+        nodejs \
+        npm \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -64,7 +66,13 @@ COPY . .
 # and operators expect `cloacina-server` to handle workflows that use it
 # without re-rolling the image. Builder above installs the rdkafka
 # build chain (cmake, c++, libsasl2-dev, libssl-dev) accordingly.
-RUN cargo build --release --locked --bin cloacina-server
+# CLOACI-I-0130: build the @cloacina/ui SPA deps first, then compile with the
+# embedded-ui feature — the released image serves engine + REST API + web
+# control plane from ONE binary/origin (no Nginx container, no CORS for the
+# bundled UI). The standalone Nginx path (docker-compose.ui.yml) stays
+# supported for split-origin deployments.
+RUN npm --prefix ui ci
+RUN cargo build --release --locked --features embedded-ui --bin cloacina-server
 
 # ---------------------------------------------------------------------------
 # Stage 2: runtime

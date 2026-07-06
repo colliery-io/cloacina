@@ -24,8 +24,14 @@ postgres = ["cloacina/postgres", "diesel/postgres"]
 sqlite = ["cloacina/sqlite"]
 kafka = ["cloacina/kafka"]
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
+# CLOACI-I-0130: serve the @cloacina/ui SPA from this binary (single-origin,
+# no Nginx/CORS). Feature-on builds REQUIRE a Node toolchain (build.rs runs
+# `npm --prefix ui run build`); the default build stays Node-free.
+embedded-ui = ["dep:rust-embed", "dep:mime_guess"]
 
 [dependencies]
+rust-embed = { version = "8", optional = true, features = ["compression"] }
+mime_guess = { version = "2", optional = true }
 # `constructors-wasm` is explicit (not just transitive via cloacina-python) so the
 # server can always resolve packaged constructor providers (reconciler Step 5b,
 # CLOACI-T-0836) — packaged workflows are the primary consumer window.
