@@ -4,14 +4,14 @@ level: initiative
 title: "Embedded UI — serve the @cloacina/ui SPA from the cloacina-server binary"
 short_code: "CLOACI-I-0130"
 created_at: 2026-06-21T13:40:31.071091+00:00
-updated_at: 2026-07-06T10:06:53.233230+00:00
+updated_at: 2026-07-06T10:18:35.332192+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

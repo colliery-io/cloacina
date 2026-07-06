@@ -4,14 +4,14 @@ level: task
 title: "Same-origin UI defaults — serverUrl defaults to window.location.origin, Connect gate stays editable"
 short_code: "CLOACI-T-0848"
 created_at: 2026-07-06T10:06:32.351081+00:00
-updated_at: 2026-07-06T10:06:32.351081+00:00
+updated_at: 2026-07-06T10:18:00.852168+00:00
 parent: CLOACI-I-0130
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0130
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
