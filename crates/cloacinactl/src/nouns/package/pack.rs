@@ -55,8 +55,72 @@ pub fn pack_to(dir: &Path, out: Option<&Path>) -> Result<PathBuf, CliError> {
     }
     manifest::lint_footguns(dir, lang, &meta)?;
 
-    let produced = fidius_core::package::pack_package(dir, out)
-        .map_err(|e| CliError::UserError(format!("pack_package failed: {e}")))?;
+    // CLOACI-T-0735: fidius's pack re-parses the manifest with its strict
+    // header schema, and the archive carries package.toml verbatim. When the
+    // on-disk manifest is MINIMAL (resolver-defaulted), stage a copy with the
+    // RESOLVED manifest so (a) fidius accepts it and (b) every produced
+    // archive carries the fully-resolved form — consumers never depend on
+    // resolution having happened.
+    let raw = std::fs::read_to_string(dir.join("package.toml"))
+        .map_err(|e| CliError::UserError(format!("read package.toml: {e}")))?;
+    let resolved = cloacina_workflow_plugin::manifest::resolve_manifest_str(&raw, dir)
+        .map_err(CliError::UserError)?;
+    let raw_value: toml::Value = toml::from_str(&raw)
+        .map_err(|e| CliError::UserError(format!("invalid package.toml: {e}")))?;
+
+    let produced = if raw_value == resolved {
+        fidius_core::package::pack_package(dir, out)
+            .map_err(|e| CliError::UserError(format!("pack_package failed: {e}")))?
+    } else {
+        let stage =
+            tempfile::tempdir().map_err(|e| CliError::UserError(format!("staging dir: {e}")))?;
+        let stage_dir = stage.path().join(
+            dir.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "package".to_string()),
+        );
+        copy_package_tree(dir, &stage_dir)?;
+        std::fs::write(
+            stage_dir.join("package.toml"),
+            toml::to_string_pretty(&resolved)
+                .map_err(|e| CliError::UserError(format!("serialize manifest: {e}")))?,
+        )
+        .map_err(|e| CliError::UserError(format!("write resolved manifest: {e}")))?;
+        // Default output is the CURRENT directory (same as the unstaged
+        // path), so staging doesn't change where the archive lands.
+        fidius_core::package::pack_package(&stage_dir, out)
+            .map_err(|e| CliError::UserError(format!("pack_package failed: {e}")))?
+    };
 
     Ok(produced.path)
+}
+
+/// Recursive copy of a package source tree into `dst`, skipping build
+/// output/VCS dirs that don't belong in an archive (`target`, `.git`,
+/// `node_modules`, `__pycache__`) and any prior archives.
+fn copy_package_tree(src: &Path, dst: &Path) -> Result<(), CliError> {
+    std::fs::create_dir_all(dst).map_err(|e| CliError::UserError(format!("staging copy: {e}")))?;
+    for entry in
+        std::fs::read_dir(src).map_err(|e| CliError::UserError(format!("staging copy: {e}")))?
+    {
+        let entry = entry.map_err(|e| CliError::UserError(format!("staging copy: {e}")))?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if matches!(
+            name_str.as_ref(),
+            "target" | ".git" | "node_modules" | "__pycache__"
+        ) || name_str.ends_with(".cloacina")
+        {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(&name);
+        if from.is_dir() {
+            copy_package_tree(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)
+                .map_err(|e| CliError::UserError(format!("staging copy {name_str}: {e}")))?;
+        }
+    }
+    Ok(())
 }

@@ -162,19 +162,16 @@ fn scaffold_python(
 
 fn scaffold_python_workflow(dir: &Path, name: &str, module: &str) -> Result<(), CliError> {
     let package_toml = format!(
+        // CLOACI-T-0735: the shared resolver defaults the fidius header
+        // triple and infers language/entry_module from the layout — scaffold
+        // the MINIMAL manifest so authors learn the real contract.
         r#"[package]
 name = "{name}"
 version = "0.1.0"
-interface = "cloacina-workflow-plugin"
-interface_version = 1
-extension = "cloacina"
 
 [metadata]
-language = "python"
 workflow_name = "{module}"
-entry_module = "{module}.tasks"
 description = "{name} workflow"
-requires_python = ">=3.10"
 "#
     );
 
@@ -204,19 +201,18 @@ def goodbye(context):
 
 fn scaffold_python_graph(dir: &Path, name: &str, module: &str) -> Result<(), CliError> {
     let package_toml = format!(
+        // CLOACI-T-0735: minimal manifest — the resolver defaults the header
+        // triple + language. `entry_module` stays explicit here because the
+        // graph convention (`.graph`) differs from the resolver's `.tasks`
+        // default.
         r#"[package]
 name = "{name}"
 version = "0.1.0"
-interface = "cloacina-workflow-plugin"
-interface_version = 1
-extension = "cloacina"
 
 [metadata]
-language = "python"
 graph_name = "{module}"
 entry_module = "{module}.graph"
 description = "{name} computation graph"
-requires_python = ">=3.10"
 reaction_mode = "when_any"
 input_strategy = "latest"
 "#
@@ -349,15 +345,13 @@ cloacina-build = "{ver}"
 
 fn rust_package_toml(name: &str, module: &str, _graph: bool) -> String {
     format!(
+        // CLOACI-T-0735: minimal manifest — the resolver defaults the header
+        // triple and infers language from the crate layout.
         r#"[package]
 name = "{name}"
 version = "0.1.0"
-interface = "cloacina-workflow-plugin"
-interface_version = 1
-extension = "cloacina"
 
 [metadata]
-language = "rust"
 workflow_name = "{module}"
 description = "{name} workflow"
 "#
