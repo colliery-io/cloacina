@@ -259,3 +259,10 @@ Phased; each phase is a candidate task batch at decomposition. **Decomposed 2026
 9. **Hardening: docs + tests.** Diataxis docs (declare params, instantiate, schedule instances, manage them); `angreal` integration (sqlite + Postgres), packaged, and live-server/Python coverage. Exit: docs published; suites green.
 
 Sequencing: 1→2→3→4 is the spine. 5 follows 4. 6 and 7 can proceed in parallel once 4 lands. 8 needs 1+2 (+6 for packaged sugar). 9 trails the surfaces it documents.
+
+### 2026-07-05 — spine SHIPPED (T-0843/0844/0845 completed; commit 065756d2, branch feat/i0116-workflow-instances)
+- **T-0843**: additive migration 040 (both backends): `schedules.params` (JSON, fully-resolved) + `schedules.instance_name` + partial unique index `(workflow_name, instance_name)`; Schedule/NewSchedule/UnifiedSchedule + all literal sites; DAL `find_by_instance_name` (dispatch_backend). Anonymous schedules unchanged (NULLs).
+- **T-0844**: `cloacina::workflow_instance` — `WorkflowInstance` (Clone + serde, REQ-004) + builder validating against `Vec<InputSlot>` (unknown/required/reserved-name errors; defaults snapshotted at build, decision #3); `params_json()`; runner `register_cron_workflow_instance(instance, name, cron, tz)` persists the resolved set (REQ-006/007). Reserved-key guard both at build AND at merge.
+- **T-0845**: `merge_instance_params` shared by BOTH fire paths — cron (params merged before the reserved stamps) and trigger (bound params override trigger payload via update-or-insert per OQ-3; reserved stamped after). Flat top-level keys matching the validated execute path (OQ-1 as audited).
+- Tests: builder validation/default-snapshot/serde + merge precedence green; schedule suite 72/72 (no regression).
+- **Remaining**: [[CLOACI-T-0846]] — named CRUD by name over the DAL finder, pyo3 instance API, Diataxis docs, angreal integration coverage incl. a live register→fire proof. PR opens when 0846 lands (one PR per initiative).
