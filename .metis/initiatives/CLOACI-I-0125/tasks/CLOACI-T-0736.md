@@ -4,14 +4,14 @@ level: task
 title: "FFI-derive manifest metadata (workflow_name/description/reaction_mode/input_strategy) from code — kill the T-0666 drift class"
 short_code: "CLOACI-T-0736"
 created_at: 2026-06-17T05:33:11.481213+00:00
-updated_at: 2026-07-06T00:54:35.847892+00:00
+updated_at: 2026-07-06T01:23:28.693212+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -46,6 +46,10 @@ manifest-vs-code disagreement that caused T-0666.
 ## Acceptance Criteria
 
 ## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 - [ ] These fields are derived from compiled code at pack time; manifest values
       become optional overrides (or are dropped).
 - [ ] A package that omits them packs correctly with the code-derived values.
@@ -60,6 +64,12 @@ minimization and the code-derivation land coherently. Larger than T-0735 —
 touches the build/packaging FFI path.
 
 ## Status Updates
+
+### 2026-07-05 — audit + residual shipped; CLOSING
+Audit first (the I-0116 lesson): **most of this task's objective already existed.** The Rust build-success path has ALWAYS overwritten `workflow_name`/tasks/graph_data/triggers from the compiled cdylib's FFI metadata (`database.rs:1590` merge in `extract_and_merge_build_metadata`); CG `reaction_mode`/`input_strategy` flow from `get_graph_metadata`/`get_reactor_metadata` at load; Python has no code counterpart (the manifest IS the declaration — no drift class by construction); and T-0666's actual field (`language`) was killed by T-0735's inference (ambiguity errors, tested).
+**Residual shipped**: the disagreement behavior is now DEFINED and loud — code wins, and a manifest `workflow_name` that disagrees with the compiled value logs a `tracing::warn!` naming both values and telling the author to drop the (now-optional) manifest line. `description` stays manifest-owned deliberately (package-level prose; code has no better source).
+**AC disposition**: derive-from-code ✓ (pre-existing, verified); omitted-fields pack ✓ (T-0735 minimal manifests); disagreement behavior ✓ (code-wins + warn, documented in-code); T-0666 regression ✓ via T-0735's resolver tests (language) + the packaged-workflow e2e lane (FFI extraction needs a real cdylib — not unit-fixturable). COMPLETE.
+
 - 2026-06-17: Filed from the T-0720 decomposition. Not started.- 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
   introducing a wasm implementation of traits that may significantly reshape the
   authoring/packaging story (cdylib + FFI + build-shell model). Per the user,
