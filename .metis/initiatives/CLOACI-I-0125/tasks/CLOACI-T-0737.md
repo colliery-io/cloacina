@@ -4,14 +4,14 @@ level: task
 title: "Rust package-shell elimination — cloacina-workflow-sdk umbrella crate + compiler-injected build.rs/crate-type"
 short_code: "CLOACI-T-0737"
 created_at: 2026-06-17T05:33:12.893535+00:00
-updated_at: 2026-07-06T00:54:43.150413+00:00
+updated_at: 2026-07-06T02:12:17.878987+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -50,6 +50,10 @@ plus compiler-supplied build wiring.
 ## Acceptance Criteria
 
 ## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 - [ ] A `cloacina-workflow-sdk` umbrella crate re-exports the needed `cloacina-*`
       crates so a package `Cargo.toml` needs ~1 dep line.
 - [ ] The compiler injects `build.rs` + `crate-type` when absent (package builds
@@ -75,6 +79,11 @@ Current ceremony to kill (new.rs:319-348): 4 cloacina crates + serde/serde_json/
 3. **The real design, confirmed**: per-profile path routing in the macros — either `proc-macro-crate` crate-name resolution, or a profile switch the macros already know (packaged vs embedded emission branches) choosing `::cloacina::__private::…` vs `::cloacina_workflow::__private::…` per branch, with matching `__private` modules in both crates. ~13 straggler sites + the 3-crate main paths; must be verified with fresh consumer builds for embedded, packaged-lean, and packaged-minimal.
 4. Independent sub-items still open: compiler injection of `build.rs`/`crate-type`/`packaged` feature (interacts with the dep story — do together), `__WORKSPACE__` fixture lint.
 Tree reverted clean; nothing half-shipped. This remains the ONE open I-0125 task.
+
+### 2026-07-05 (final) — DONE (commit 977bcae6); the shell is 4 dep lines
+The spike's disproofs pointed at the tractable fix: all 13 stragglers sit in packaged-branch code that ALREADY requires `::cloacina_workflow` (verified per-site — that's why existing fixtures carry chrono/async-trait as deps), so routing them through a new UNGATED `cloacina_workflow::__private` is exactly as safe as the code beside them. `package!()`'s CG references route via `$crate::__cg` (macro_rules — native resolution). Compiler `ensure_build_wiring` injects `[lib] crate-type` + the `packaged` feature when absent. `build.rs` proven unnecessary for pure-Rust packages (pyo3 rpath only) — scaffold stops writing it, validator warning dropped. `cloacina-workflow` re-exports all authoring attrs.
+**Template**: `cloacina-workflow(packaged,macros)` + `cloacina-workflow-plugin` + `serde` + `serde_json` — nothing else. Killed: cloacina-macros, cloacina-computation-graph, async-trait, futures, cloacina-build, build.rs, `[lib]`, `[features]`.
+**Verified across all three profiles**: workspace clean; embedded tutorial compiles (the profile the naive approach broke); lean-form fixtures unaffected; mini-pkg (4 deps, no build.rs) builds a cdylib; live `new`→`validate` green with the minimal shell. `__WORKSPACE__` lint pre-existed (AC4 ✓). ALL ACs MET. COMPLETE — closes I-0125 at 9/9.
 
 - 2026-06-17: Filed from the T-0720 decomposition. Not started.- 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
   introducing a wasm implementation of traits that may significantly reshape the

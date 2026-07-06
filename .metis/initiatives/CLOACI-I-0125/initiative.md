@@ -1,17 +1,17 @@
 ---
 id: authoring-surface-cruft-removal
 level: initiative
-title: 'Authoring-surface cruft removal — "just types + functions" (act on the T-0720 sweep)'
+title: "Authoring-surface cruft removal — 'just types + functions' (act on the T-0720 sweep)"
 short_code: "CLOACI-I-0125"
 created_at: 2026-06-17T05:31:01.766970+00:00
-updated_at: 2026-06-17T05:31:01.766970+00:00
+updated_at: 2026-07-06T02:14:41.752929+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
