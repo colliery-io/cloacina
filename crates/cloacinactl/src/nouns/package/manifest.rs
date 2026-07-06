@@ -51,8 +51,10 @@ pub fn read_manifest(
             dir.display()
         )));
     }
-    fidius_core::package::load_manifest::<CloacinaMetadata>(dir)
-        .map_err(|e| CliError::UserError(format!("invalid package.toml: {e}")))
+    // CLOACI-T-0735: the shared resolver defaults the constant fidius header
+    // triple and infers language/entry_module from layout — a minimal
+    // manifest (name + version + workflow_name) is valid from here on.
+    cloacina_workflow_plugin::manifest::load_resolved_manifest(dir).map_err(CliError::UserError)
 }
 
 /// Read just the `[metadata]` table. See [`read_manifest`].

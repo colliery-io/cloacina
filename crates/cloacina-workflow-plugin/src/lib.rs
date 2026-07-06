@@ -39,6 +39,7 @@
 #![allow(unexpected_cfgs, clippy::too_many_arguments)]
 
 pub mod inventory_entries;
+pub mod manifest;
 pub mod types;
 
 pub use inventory_entries::{

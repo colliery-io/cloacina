@@ -221,30 +221,29 @@ impl RegistryReconciler {
         let source_dir_clone = source_dir.clone();
         let pkg_name_for_err = metadata.package_name.clone();
         let cloacina_manifest = tokio::task::spawn_blocking(move || {
-            fidius_core::package::load_manifest::<cloacina_workflow_plugin::CloacinaMetadata>(
-                &source_dir_clone,
-            )
-            .map_err(|e| {
-                let raw = e.to_string();
-                let migration_hint = if raw.contains("package_type") {
-                    " — `package_type` was removed in CLOACI-I-0102; primitives are now \
+            cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir_clone).map_err(
+                |e| {
+                    let raw = e.to_string();
+                    let migration_hint = if raw.contains("package_type") {
+                        " — `package_type` was removed in CLOACI-I-0102; primitives are now \
                      self-declared via the unified `cloacina::package!()` shell macro and \
                      per-primitive macros (`#[workflow]`, `#[reactor]`, `#[trigger]`, \
                      `#[computation_graph]`)"
-                } else if raw.contains("triggers") {
-                    " — `[[triggers]]` in package.toml was removed in CLOACI-I-0102; declare \
+                    } else if raw.contains("triggers") {
+                        " — `[[triggers]]` in package.toml was removed in CLOACI-I-0102; declare \
                      workflow → trigger subscriptions via `#[workflow(triggers = [...])]` on \
                      the workflow module instead"
-                } else {
-                    ""
-                };
-                RegistryError::RegistrationFailed {
-                    message: format!(
-                        "Failed to load package.toml for {}: {}{}",
-                        pkg_name_for_err, raw, migration_hint
-                    ),
-                }
-            })
+                    } else {
+                        ""
+                    };
+                    RegistryError::RegistrationFailed {
+                        message: format!(
+                            "Failed to load package.toml for {}: {}{}",
+                            pkg_name_for_err, raw, migration_hint
+                        ),
+                    }
+                },
+            )
         })
         .await
         .map_err(|e| RegistryError::RegistrationFailed {

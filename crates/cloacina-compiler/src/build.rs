@@ -488,9 +488,12 @@ fn load_manifest(source_dir: &Path) -> Result<toml::Value, String> {
     let manifest_path = source_dir.join("package.toml");
     let raw = std::fs::read_to_string(&manifest_path)
         .map_err(|e| format!("failed to read {}: {e}", manifest_path.display()))?;
-    let value: toml::Value = toml::from_str(&raw)
-        .map_err(|e| format!("failed to parse {}: {e}", manifest_path.display()))?;
-    Ok(value)
+    // CLOACI-T-0735: resolve through the ONE shared resolver so the compiler
+    // sees the same defaulted/inferred manifest every other site does — a
+    // minimal manifest (no `language`) must branch correctly here too, or we
+    // recreate the T-0666 drift class.
+    cloacina_workflow_plugin::manifest::resolve_manifest_str(&raw, source_dir)
+        .map_err(|e| format!("failed to parse {}: {e}", manifest_path.display()))
 }
 
 fn manifest_language(manifest: &toml::Value) -> String {

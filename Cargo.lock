@@ -833,6 +833,7 @@ dependencies = [
  "clap",
  "cloacina",
  "cloacina-api-types",
+ "cloacina-workflow-plugin",
  "dirs 6.0.0",
  "fidius-core",
  "hex",
@@ -1010,6 +1011,7 @@ dependencies = [
  "inventory",
  "serde",
  "serde_json",
+ "tempfile",
  "toml 0.8.23",
 ]
 

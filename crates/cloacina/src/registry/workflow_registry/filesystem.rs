@@ -115,10 +115,7 @@ impl FilesystemWorkflowRegistry {
                     }
                 };
 
-                match fidius_core::package::load_manifest::<
-                    cloacina_workflow_plugin::CloacinaMetadata,
-                >(&source_dir)
-                {
+                match cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir) {
                     Ok(manifest) => {
                         let package_name = manifest.package.name.clone();
                         let version = manifest.package.version.clone();
@@ -204,12 +201,10 @@ impl WorkflowRegistry for FilesystemWorkflowRegistry {
             .map_err(|e| {
                 RegistryError::Internal(format!("Failed to read manifest from package data: {}", e))
             })?;
-        let manifest = fidius_core::package::load_manifest::<
-            cloacina_workflow_plugin::CloacinaMetadata,
-        >(&source_dir)
-        .map_err(|e| {
-            RegistryError::Internal(format!("Failed to read manifest from package data: {}", e))
-        })?;
+        let manifest = cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir)
+            .map_err(|e| {
+                RegistryError::Internal(format!("Failed to read manifest from package data: {}", e))
+            })?;
 
         let filename = format!(
             "{}-{}.cloacina",
