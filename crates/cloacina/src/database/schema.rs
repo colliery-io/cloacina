@@ -282,6 +282,8 @@ mod unified_schema {
             updated_at -> DbTimestamp,
             paused -> DbBool,
             paused_at -> Nullable<DbTimestamp>,
+            params -> Nullable<Text>,
+            instance_name -> Nullable<Text>,
         }
     }
 

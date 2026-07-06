@@ -63,6 +63,14 @@ enum RuntimeMessage {
         timezone: String,
         response_tx: oneshot::Sender<Result<String, cloacina::executor::WorkflowExecutionError>>,
     },
+    RegisterWorkflowInstance {
+        workflow_name: String,
+        instance_name: String,
+        cron_expression: String,
+        timezone: String,
+        params_json: String,
+        response_tx: oneshot::Sender<Result<String, cloacina::executor::WorkflowExecutionError>>,
+    },
     ListCronSchedules {
         enabled_only: bool,
         limit: i64,
@@ -461,6 +469,43 @@ async fn run_event_loop(
                         .register_cron_workflow(&workflow_name, &cron_expression, &timezone)
                         .await
                         .map(|uuid| uuid.to_string());
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::RegisterWorkflowInstance {
+                workflow_name,
+                instance_name,
+                cron_expression,
+                timezone,
+                params_json,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = match serde_json::from_str::<
+                        serde_json::Map<String, serde_json::Value>,
+                    >(&params_json)
+                    {
+                        Ok(map) => {
+                            let instance =
+                                cloacina::workflow_instance::WorkflowInstance::from_resolved(
+                                    workflow_name,
+                                    map,
+                                );
+                            runner
+                                .register_cron_workflow_instance(
+                                    &instance,
+                                    &instance_name,
+                                    &cron_expression,
+                                    &timezone,
+                                )
+                                .await
+                                .map(|uuid| uuid.to_string())
+                        }
+                        Err(e) => Err(cloacina::executor::WorkflowExecutionError::Configuration {
+                            message: format!("params must be a JSON object: {}", e),
+                        }),
+                    };
                     let _ = response_tx.send(result);
                 });
             }
@@ -960,6 +1005,39 @@ impl PyDefaultRunner {
     ///
     /// # Returns
     /// * Schedule ID as a string
+    /// Register a NAMED, PARAMETERIZED cron instance (CLOACI-I-0116):
+    /// `params` (a dict) is the instance's fully-resolved bound parameters,
+    /// merged into the context at every fire under flat top-level keys.
+    #[pyo3(signature = (workflow_name, instance_name, cron_expression, timezone, params))]
+    pub fn register_workflow_instance(
+        &self,
+        workflow_name: String,
+        instance_name: String,
+        cron_expression: String,
+        timezone: String,
+        params: &crate::context::PyContext,
+        py: Python,
+    ) -> PyResult<String> {
+        // A cloaca Context carries the params dict; its JSON form is the
+        // fully-resolved instance param object persisted on the schedule.
+        let params_json = params.to_json()?;
+        let (response_tx, response_rx) = oneshot::channel();
+        let message = RuntimeMessage::RegisterWorkflowInstance {
+            workflow_name,
+            instance_name,
+            cron_expression,
+            timezone,
+            params_json,
+            response_tx,
+        };
+        self.send_and_recv(
+            message,
+            response_rx,
+            py,
+            "Failed to register workflow instance",
+        )
+    }
+
     pub fn register_cron_workflow(
         &self,
         workflow_name: String,

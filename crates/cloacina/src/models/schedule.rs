@@ -121,6 +121,14 @@ pub struct Schedule {
     /// not fire this schedule. Distinct from `enabled` (deliberate on/off).
     pub paused: UniversalBool,
     pub paused_at: Option<UniversalTimestamp>,
+
+    // CLOACI-I-0116: named parameterized instance (both NULL for anonymous
+    // schedules). `params` = the instance's FULLY-RESOLVED bound parameters
+    // (JSON object, defaults snapshotted at instantiation); merged into the
+    // context at every fire. `instance_name` = human management identity,
+    // unique per workflow.
+    pub params: Option<String>,
+    pub instance_name: Option<String>,
 }
 
 impl Schedule {
@@ -192,6 +200,10 @@ pub struct NewSchedule {
 
     // Shared
     pub next_run_at: Option<UniversalTimestamp>,
+
+    // CLOACI-I-0116: named parameterized instance (None = anonymous schedule).
+    pub params: Option<String>,
+    pub instance_name: Option<String>,
 }
 
 impl NewSchedule {
@@ -214,6 +226,8 @@ impl NewSchedule {
             poll_interval_ms: None,
             allow_concurrent: None,
             next_run_at: Some(next_run_at),
+            params: None,
+            instance_name: None,
         }
     }
 
@@ -232,6 +246,8 @@ impl NewSchedule {
             poll_interval_ms: Some(poll_interval.as_millis() as i32),
             allow_concurrent: Some(UniversalBool::new(false)),
             next_run_at: None,
+            params: None,
+            instance_name: None,
         }
     }
 }
@@ -324,6 +340,8 @@ mod tests {
             updated_at: now,
             paused: UniversalBool::new(false),
             paused_at: None,
+            params: None,
+            instance_name: None,
         };
 
         assert!(schedule.is_trigger());

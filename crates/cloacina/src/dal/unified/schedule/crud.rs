@@ -64,6 +64,8 @@ impl<'a> ScheduleDAL<'a> {
             next_run_at: new_schedule.next_run_at,
             created_at: now,
             updated_at: now,
+            params: new_schedule.params,
+            instance_name: new_schedule.instance_name,
         };
 
         conn.interact(move |conn| {
@@ -80,6 +82,60 @@ impl<'a> ScheduleDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(result.into())
+    }
+
+    #[cfg(feature = "postgres")]
+    pub(super) async fn find_by_instance_name_postgres(
+        &self,
+        workflow_name: &str,
+        instance_name: &str,
+    ) -> Result<Option<Schedule>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let wf = workflow_name.to_string();
+        let inst = instance_name.to_string();
+        let result: Option<UnifiedSchedule> = conn
+            .interact(move |conn| {
+                schedules::table
+                    .filter(schedules::workflow_name.eq(wf))
+                    .filter(schedules::instance_name.eq(inst))
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(result.map(Into::into))
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn find_by_instance_name_sqlite(
+        &self,
+        workflow_name: &str,
+        instance_name: &str,
+    ) -> Result<Option<Schedule>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let wf = workflow_name.to_string();
+        let inst = instance_name.to_string();
+        let result: Option<UnifiedSchedule> = conn
+            .interact(move |conn| {
+                schedules::table
+                    .filter(schedules::workflow_name.eq(wf))
+                    .filter(schedules::instance_name.eq(inst))
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(result.map(Into::into))
     }
 
     #[cfg(feature = "sqlite")]
@@ -115,6 +171,8 @@ impl<'a> ScheduleDAL<'a> {
             next_run_at: new_schedule.next_run_at,
             created_at: now,
             updated_at: now,
+            params: new_schedule.params,
+            instance_name: new_schedule.instance_name,
         };
 
         conn.interact(move |conn| {
@@ -985,6 +1043,8 @@ impl<'a> ScheduleDAL<'a> {
                 next_run_at: new_schedule.next_run_at,
                 created_at: now,
                 updated_at: now,
+                params: new_schedule.params,
+                instance_name: new_schedule.instance_name,
             };
 
             conn.interact(move |conn| {
@@ -1092,6 +1152,8 @@ impl<'a> ScheduleDAL<'a> {
                 next_run_at: new_schedule.next_run_at,
                 created_at: now,
                 updated_at: now,
+                params: new_schedule.params,
+                instance_name: new_schedule.instance_name,
             };
 
             conn.interact(move |conn| {
@@ -1203,6 +1265,8 @@ impl<'a> ScheduleDAL<'a> {
                 next_run_at: new_schedule.next_run_at,
                 created_at: now,
                 updated_at: now,
+                params: new_schedule.params,
+                instance_name: new_schedule.instance_name,
             };
             conn.interact(move |conn| {
                 diesel::insert_into(schedules::table)
@@ -1309,6 +1373,8 @@ impl<'a> ScheduleDAL<'a> {
                 next_run_at: new_schedule.next_run_at,
                 created_at: now,
                 updated_at: now,
+                params: new_schedule.params,
+                instance_name: new_schedule.instance_name,
             };
             conn.interact(move |conn| {
                 diesel::insert_into(schedules::table)
