@@ -63,6 +63,12 @@ New umbrella crate + compiler injection in `cloacina-compiler/src/build.rs` +
 `package new` template update. Keep explicit `build.rs`/multi-dep setups working.
 
 ## Status Updates
+
+### 2026-07-05 — design analysis (unblocked; the ONE I-0125 task still open)
+The umbrella is NOT a plain re-export crate: macro-generated code emits literal `::cloacina_workflow::…` / `::cloacina_workflow_plugin::…` paths (T-0734's signature rewrite, the `package!()` shell), so a consumer depending ONLY on `cloacina-workflow-sdk` has the wrong extern prelude and every expansion fails — exactly [[feedback_macro_generated_deps_invisible]] ("re-export from a crate the consumer already has; route per dep-profile lean vs umbrella; verify both").
+**Design route**: (1) macros resolve the emission path via `proc-macro-crate` (direct `cloacina-workflow` OR `cloacina-workflow-sdk` → emit `::cloacina_workflow_sdk::workflow::…`), sdk re-exports the full tree under stable module names + the proc-macros (`pub use cloacina_macros::*` works for attrs); (2) INDEPENDENT sub-item, do first: compiler injects `build.rs` + `crate-type=["cdylib","rlib"]` when absent (build.rs drives cargo already — patch the staged source before invoking); (3) `__WORKSPACE__` fixture lint; (4) minimal-package regression (one dep line, no build.rs), gated on (1)+(2).
+Current ceremony to kill (new.rs:319-348): 4 cloacina crates + serde/serde_json/async-trait/futures + build-dep cloacina-build + crate-type + `[features] packaged`. Effort confirmed M — the macro path-routing must be verified for BOTH dep profiles across task/workflow/CG/reactor/`package!` expansions before shipping.
+
 - 2026-06-17: Filed from the T-0720 decomposition. Not started.- 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
   introducing a wasm implementation of traits that may significantly reshape the
   authoring/packaging story (cdylib + FFI + build-shell model). Per the user,
