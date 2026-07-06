@@ -68,16 +68,13 @@ def metrics_format():
         print("Failed to start Postgres.")
         return up.returncode
 
-    for _ in range(30):
-        ready = subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "exec", "-T",
-             "postgres", "pg_isready", "-U", "cloacina"],
-            capture_output=True,
-        )
-        if ready.returncode == 0:
-            break
-        time.sleep(1)
-    else:
+    # CLOACI-T-0806: consecutive-success readiness — a single pg_isready pass
+    # can land inside the init-restart bounce (exit 56).
+    from ._utils import wait_for_postgres_stable
+
+    try:
+        wait_for_postgres_stable(compose_file=str(compose_file))
+    except RuntimeError:
         subprocess.run(["docker", "compose", "-f", str(compose_file), "down", "-v"])
         print("Postgres never became ready.")
         return 1

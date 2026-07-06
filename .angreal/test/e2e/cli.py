@@ -40,18 +40,13 @@ def _start_postgres():
         ["docker", "compose", "-f", ".angreal/docker-compose.yaml", "up", "-d"],
         check=True,
     )
-    for _ in range(30):
-        r = subprocess.run(
-            [
-                "docker", "compose", "-f", ".angreal/docker-compose.yaml",
-                "exec", "-T", "postgres", "pg_isready", "-U", "cloacina",
-            ],
-            capture_output=True,
-        )
-        if r.returncode == 0:
-            return
-        time.sleep(1)
-    raise RuntimeError("Postgres not ready")
+    # CLOACI-T-0806: require CONSECUTIVE pg_isready successes — a single pass
+    # can land inside Postgres's init-restart window, and the next psql then
+    # races the bounce (exit 56). This is the shared entrypoint for the e2e
+    # lanes, so hardening here covers every caller.
+    from .._utils import wait_for_postgres_stable
+
+    wait_for_postgres_stable()
 
 
 def _wait_for_health(base_url: str, timeout_s: float = 30.0, server_proc=None):

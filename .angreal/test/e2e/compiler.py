@@ -67,19 +67,11 @@ def _start_postgres():
         cwd=REPO_ROOT,
         check=True,
     )
-    for _ in range(30):
-        r = subprocess.run(
-            [
-                "docker", "compose", "-f", ".angreal/docker-compose.yaml",
-                "exec", "-T", "postgres", "pg_isready", "-U", "cloacina",
-            ],
-            cwd=REPO_ROOT,
-            capture_output=True,
-        )
-        if r.returncode == 0:
-            return
-        time.sleep(1)
-    raise RuntimeError("Postgres not ready after 30s")
+    # CLOACI-T-0806: consecutive-success readiness so the follow-on psql
+    # can't race the init-restart bounce (exit 56).
+    from .._utils import wait_for_postgres_stable
+
+    wait_for_postgres_stable(cwd=REPO_ROOT)
 
 
 def _wait_http(

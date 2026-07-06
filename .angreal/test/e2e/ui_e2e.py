@@ -70,25 +70,18 @@ def _run(cmd, cwd=PROJECT_ROOT, env=None):
 
 
 def _fresh_database():
-    # `_start_postgres` waits on `pg_isready`, but Postgres can still bounce
-    # during its init-restart window right after that passes — so a single
-    # DROP/CREATE can race a not-yet-stable server and fail with a transient
-    # connection error (exit 56). Retry a few times rather than killing the
-    # whole UI e2e run on a flake; the SQL is idempotent so re-running is safe.
-    last = None
-    for _ in range(10):
-        last = subprocess.run(
-            ["docker", "compose", "-f", str(COMPOSE_FILE), "exec", "-T", "postgres",
-             "psql", "-U", "cloacina", "-d", "postgres",
-             "-c", "DROP DATABASE IF EXISTS cloacina WITH (FORCE);",
-             "-c", "CREATE DATABASE cloacina OWNER cloacina;"],
-            capture_output=True,
-        )
-        if last.returncode == 0:
-            return
-        time.sleep(2)
-    raise subprocess.CalledProcessError(
-        last.returncode, last.args, output=last.stdout, stderr=last.stderr
+    # Postgres can bounce during its init-restart window even after
+    # `pg_isready` passes, so the DROP/CREATE retries transient failures
+    # (exit 56). PR #145 hardened this copy first; CLOACI-T-0806 lifted the
+    # pattern into the shared helper every lane now uses.
+    from .._utils import psql_retry
+
+    psql_retry(
+        [
+            "-c", "DROP DATABASE IF EXISTS cloacina WITH (FORCE);",
+            "-c", "CREATE DATABASE cloacina OWNER cloacina;",
+        ],
+        compose_file=str(COMPOSE_FILE),
     )
 
 
