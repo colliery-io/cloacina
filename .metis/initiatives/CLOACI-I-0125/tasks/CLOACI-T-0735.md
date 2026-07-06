@@ -4,14 +4,14 @@ level: task
 title: "package.toml minimization — default the constant fields, infer language/entry_module"
 short_code: "CLOACI-T-0735"
 created_at: 2026-06-17T05:33:09.700128+00:00
-updated_at: 2026-07-06T00:54:29.038025+00:00
+updated_at: 2026-07-06T00:55:37.348126+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -45,6 +45,8 @@ infer `language`/`entry_module`, so a minimal Python `package.toml` can shrink t
   This field already caused a costly drift bug ([[CLOACI-T-0666]]).
 - `entry_module` is conventionally `<module>.tasks`/`.graph` (`new.rs:176,217`).
 - `requires_python` is unused at build (`crates/cloacina-compiler/src/build.rs:217-223`).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -87,6 +89,10 @@ deriving `workflow_name`/`description` from code is the separate, larger
   the demo fixtures, and `package validate` is clean.
 
 ## Status Updates
+
+### 2026-07-05 — UNBLOCKED + resumed (branch feat/i0125-authoring-cruft-2); parser located
+The missing piece from the 06-17 investigation is found: the constant triple (`interface`/`interface_version`/`extension`) lives in **fidius's** `PackageManifest` `[package]` header, parsed by `fidius_core::package::load_manifest::<CloacinaMetadata>` (entry: `cloacinactl/src/nouns/package/manifest.rs::read_manifest`). Defaulting it therefore means either (a) serde defaults upstream in fidius (we're on 0.5.4 now — CHECK whether newer fidius already made them optional), or (b) **cloacina-side pre-parse (recommended, additive)**: read the TOML, inject the constant triple when absent, hand to `load_manifest` — no fidius change. `language` inference (layout: `Cargo.toml`+`src/lib.rs` vs `workflow/` — reuse the validators' classification) + `entry_module` convention default go in the SHARED read path; verify `cloacina-compiler/src/build.rs` uses the same parse (both paths must resolve identically or we recreate the T-0666 drift class). Then the minimal-manifest fixture as regression guard. Implementation order: (b) → inference → compiler-path parity → fixture + validate.
+
 - 2026-06-17: Filed from the T-0720 decomposition. Not started.
 - 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
   introducing a wasm implementation of traits that may significantly reshape the
