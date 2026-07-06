@@ -4,14 +4,14 @@ level: task
 title: "Rust package-shell elimination — cloacina-workflow-sdk umbrella crate + compiler-injected build.rs/crate-type"
 short_code: "CLOACI-T-0737"
 created_at: 2026-06-17T05:33:12.893535+00:00
-updated_at: 2026-06-17T11:18:59.365166+00:00
+updated_at: 2026-07-06T00:54:43.150413+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/todo"
 
 
 exit_criteria_met: false
@@ -46,6 +46,8 @@ plus compiler-supplied build wiring.
   `build.rs`/`crate-type` when absent.
 - Stray `__WORKSPACE__` path-dep templates remain in some fixtures
   (`examples/fixtures/demo-pipeline-rust/Cargo.toml:1-2`) — lint them out.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 - [ ] A `cloacina-workflow-sdk` umbrella crate re-exports the needed `cloacina-*`

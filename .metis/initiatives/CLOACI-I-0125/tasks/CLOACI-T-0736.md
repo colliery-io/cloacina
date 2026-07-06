@@ -4,14 +4,14 @@ level: task
 title: "FFI-derive manifest metadata (workflow_name/description/reaction_mode/input_strategy) from code — kill the T-0666 drift class"
 short_code: "CLOACI-T-0736"
 created_at: 2026-06-17T05:33:11.481213+00:00
-updated_at: 2026-06-17T11:18:58.673710+00:00
+updated_at: 2026-07-06T00:54:35.847892+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/todo"
 
 
 exit_criteria_met: false
@@ -42,6 +42,8 @@ manifest-vs-code disagreement that caused T-0666.
   + `package!()`'s `get_task_metadata`, `crates/cloacina-workflow-plugin/src/lib.rs:128-159`).
 - Today these are restated in the manifest, so the manifest can disagree with the
   code — the [[CLOACI-T-0666]] failure mode.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 - [ ] These fields are derived from compiled code at pack time; manifest values

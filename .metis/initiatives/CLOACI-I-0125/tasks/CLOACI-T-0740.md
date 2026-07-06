@@ -4,14 +4,14 @@ level: task
 title: "Reactor declaration defaults (criteria=all-declared, optional manual_rx, default InputStrategy) + collapse ReactionMode/ReactionCriteria [breaking]"
 short_code: "CLOACI-T-0740"
 created_at: 2026-06-17T05:33:17.504047+00:00
-updated_at: 2026-06-17T11:19:00.264806+00:00
+updated_at: 2026-07-06T00:54:58.194663+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/todo"
 
 
 exit_criteria_met: false
@@ -43,6 +43,8 @@ the enum collapse is breaking and must be sequenced/announced.
   `Reactor` builder (shared with [[CLOACI-T-0738]]).
 - Two parallel enums `ReactionMode` (macro) vs `ReactionCriteria` (runtime) are
   bridged by `From` — collapsing them is the **breaking** item.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 - [ ] `criteria=when_any`/`when_all` with no args defaults to all declared

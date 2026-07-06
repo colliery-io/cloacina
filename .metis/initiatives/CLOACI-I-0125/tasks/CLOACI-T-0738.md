@@ -4,14 +4,14 @@ level: task
 title: "Embedded CG runtime builder — absorb the manual main() wiring block"
 short_code: "CLOACI-T-0738"
 created_at: 2026-06-17T05:33:14.790133+00:00
-updated_at: 2026-06-17T11:18:59.835593+00:00
+updated_at: 2026-07-06T00:54:50.580335+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/todo"
 
 
 exit_criteria_met: false
@@ -43,6 +43,8 @@ production scheduler already proves this is a ~3-line load.
   (`crates/cloacina-computation-graph` codegen `:290-294`).
 - The production scheduler does this in ~3 lines via `load_graph(decl)`
   (`crates/cloacina/src/.../scheduler.rs:99-115`).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 - [ ] An embedded-friendly builder (e.g. `Graph::spawn(&shutdown)` + a generated
