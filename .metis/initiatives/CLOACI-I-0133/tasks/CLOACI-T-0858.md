@@ -4,14 +4,14 @@ level: task
 title: "Secrets accessor + no-leak resolution (embedded path) + NFR-001 leak test"
 short_code: "CLOACI-T-0858"
 created_at: 2026-07-07T11:52:21.227332+00:00
-updated_at: 2026-07-07T11:52:21.227332+00:00
+updated_at: 2026-07-07T16:46:02.344869+00:00
 parent: CLOACI-I-0133
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,6 +67,10 @@ The `Secrets` accessor (D-1) and the no-leak resolution path for the **embedded 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -139,4 +143,6 @@ The `Secrets` accessor (D-1) and the no-leak resolution path for the **embedded 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-07 — DONE (branch feat/i0133-secrets)
+Accessor lives on `Context` (cloacina-workflow): new `secret.rs` (`SecretResolver` trait + errors); `Context` gains `secrets: Option<Arc<dyn SecretResolver>>` (Context serializes ONLY `data`, so the resolver is structurally unserializable — the `#[serde(skip)]` equivalent), manual `Debug` redacts it, async `context.secret(name)`/`secret_field(name,field)`. Backend: `security/secret_resolver.rs::SecretStoreResolver` over `SecretStore`+org_id+KEK; KEK from **`CLOACINA_SECRET_KEK`** (base64/hex, 32 bytes) or `new(store,org_id,kek)`. Threaded embedded/runner→executor→context via `DefaultRunnerBuilder::secret_resolver(...)`; unconfigured → `NotConfigured`, missing name → `NotFound`.
+**Verified (re-run myself): angreal check both crates clean; workflow secret tests 4/0; cloacina resolver+workflow 15/0; NFR-001 leak test 1/0** (plaintext absent from serialized Context, durable `contexts` rows, `schedules.params`; task confirmed it DID resolve). Gaps for later: cloacina-server doesn't yet construct a per-tenant `SecretStoreResolver` (needs tenant→org_id map + KEK read + `.secret_resolver()` per runner); stdout/stderr covered structurally; no zeroize on KEK Vec.

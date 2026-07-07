@@ -28,7 +28,10 @@
 //! them from the locally-loaded `Task::dependencies()`; the fleet executor
 //! from the same server-side `Runtime`).
 
+use std::sync::Arc;
 use tracing::{debug, error};
+
+use cloacina_workflow::secret::SecretResolver;
 
 use crate::context::Context;
 use crate::dal::DAL;
@@ -41,11 +44,26 @@ use crate::task::TaskNamespace;
 #[derive(Clone)]
 pub struct TaskContextBuilder {
     dal: DAL,
+    /// Optional secret resolution side channel (CLOACI-T-0858). When set, every
+    /// context this builder produces carries the resolver so a task body can
+    /// call `context.secret(...)`. It is attached to the runtime-only,
+    /// never-serialized handle on `Context`, so it cannot leak into the durable
+    /// context. `None` on paths that don't configure secrets.
+    secret_resolver: Option<Arc<dyn SecretResolver>>,
 }
 
 impl TaskContextBuilder {
     pub fn new(dal: DAL) -> Self {
-        Self { dal }
+        Self {
+            dal,
+            secret_resolver: None,
+        }
+    }
+
+    /// Attach the secret resolver every built context should carry (T-0858).
+    pub fn with_secret_resolver(mut self, resolver: Option<Arc<dyn SecretResolver>>) -> Self {
+        self.secret_resolver = resolver;
+        self
     }
 
     /// Build the execution context for `claimed_task` given its `dependencies`.
@@ -68,6 +86,14 @@ impl TaskContextBuilder {
         );
 
         let mut context = Context::new();
+
+        // Attach the secret resolution side channel (T-0858) to whichever
+        // context we return below. This is the runtime-only, never-serialized
+        // handle — resolved secrets are returned to the task, never written into
+        // `data`.
+        if let Some(resolver) = &self.secret_resolver {
+            context.set_secret_resolver(resolver.clone());
+        }
 
         // Load initial workflow context if task has no dependencies.
         if dependencies.is_empty() {

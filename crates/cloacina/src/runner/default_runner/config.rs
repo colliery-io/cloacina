@@ -615,6 +615,11 @@ pub struct DefaultRunnerBuilder {
     pub(super) config: DefaultRunnerConfig,
     pub(super) runtime: Option<Runtime>,
     pub(super) runtime_arc: Option<Arc<Runtime>>,
+    /// Optional secret resolution side channel (CLOACI-T-0858). Kept on the
+    /// builder (not the `Clone`/`Debug` config) so the server KEK it carries is
+    /// never printed. When set, the thread executor attaches it to every task
+    /// context so `context.secret(...)` resolves.
+    pub(super) secret_resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
 }
 
 impl Default for DefaultRunnerBuilder {
@@ -632,7 +637,24 @@ impl DefaultRunnerBuilder {
             config: DefaultRunnerConfig::default(),
             runtime: None,
             runtime_arc: None,
+            secret_resolver: None,
         }
+    }
+
+    /// Wire a secret resolution side channel (CLOACI-T-0858 / I-0133 D-1).
+    ///
+    /// On the embedded / in-process path the host configures this so packaged
+    /// tasks can resolve tenant secrets via `context.secret("name")`. Construct
+    /// one from [`crate::security::SecretStoreResolver`] — e.g.
+    /// `SecretStoreResolver::from_env(store, org_id)` to source the server KEK
+    /// from `CLOACINA_SECRET_KEK`. When unset, `context.secret(...)` returns a
+    /// clear "secrets backend not configured" error.
+    pub fn secret_resolver(
+        mut self,
+        resolver: Arc<dyn cloacina_workflow::secret::SecretResolver>,
+    ) -> Self {
+        self.secret_resolver = Some(resolver);
+        self
     }
 
     /// Sets the database URL
@@ -777,7 +799,10 @@ impl DefaultRunnerBuilder {
             Arc::new(crate::TaskRegistry::new()),
             runtime.clone(),
             executor_config,
-        );
+        )
+        // CLOACI-T-0858: thread the secret resolution side channel to the
+        // executor so task contexts can resolve secrets in-process.
+        .with_secret_resolver(self.secret_resolver.clone());
 
         // Configure dispatcher for push-based task execution. Every task is sent
         // to the one configured executor key (CLOACI-T-0640).

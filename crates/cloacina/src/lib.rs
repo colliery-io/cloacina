@@ -562,6 +562,9 @@ pub use cloacina_computation_graph::{
 pub use computation_graph::ComputationGraphRegistration;
 pub use computation_graph::{TriggerlessGraph, TriggerlessGraphFn, TriggerlessGraphRegistration};
 pub use context::Context;
+// CLOACI-T-0858: the secret resolution side channel (D-1). The trait + error
+// types live in cloacina-workflow (authoring surface); re-export for consumers.
+pub use cloacina_workflow::{SecretAccessError, SecretResolver, SecretResolverError};
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};
 pub use cron_trigger_scheduler::{Scheduler, SchedulerConfig};

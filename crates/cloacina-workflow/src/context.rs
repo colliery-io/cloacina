@@ -21,9 +21,11 @@
 //! like database persistence or dependency loading.
 
 use crate::error::ContextError;
+use crate::secret::{SecretAccessError, SecretResolver, SecretResolverError};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
+use std::sync::Arc;
 use tracing::{debug, warn};
 
 /// A context that holds data for pipeline execution.
@@ -49,12 +51,39 @@ use tracing::{debug, warn};
 /// context.insert("user_id", serde_json::json!(123)).unwrap();
 /// let user_id = context.get("user_id").unwrap();
 /// ```
-#[derive(Debug)]
 pub struct Context<T = serde_json::Value>
 where
     T: Serialize + for<'de> Deserialize<'de> + Debug,
 {
     data: HashMap<String, T>,
+
+    /// Secret resolution side channel (CLOACI-I-0133 / T-0858, design D-1).
+    ///
+    /// A runtime-only handle used by [`Context::secret`]. It is **never**
+    /// serialized: [`Context::to_json`] writes only `data`, and this field has
+    /// no `Serialize`/`Deserialize` — the moral equivalent of `#[serde(skip)]`.
+    /// That structural exclusion is exactly what keeps a resolved secret out of
+    /// the durable context / `schedules.params` / fires log (NFR-001). It is
+    /// likewise redacted from [`Debug`] below so it cannot leak through logs.
+    secrets: Option<Arc<dyn SecretResolver>>,
+}
+
+// Manual `Debug` (the struct can no longer derive it because
+// `Arc<dyn SecretResolver>` is not `Debug`). The resolver handle is redacted so
+// neither its address nor any backend state can leak through a `{:?}` render.
+impl<T> Debug for Context<T>
+where
+    T: Serialize + for<'de> Deserialize<'de> + Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Context")
+            .field("data", &self.data)
+            .field(
+                "secrets",
+                &self.secrets.as_ref().map(|_| "<redacted resolver>"),
+            )
+            .finish()
+    }
 }
 
 impl<T> Context<T>
@@ -75,6 +104,7 @@ where
         debug!("Creating new empty context");
         Self {
             data: HashMap::new(),
+            secrets: None,
         }
     }
 
@@ -91,6 +121,9 @@ where
         debug!("Cloning context data");
         Self {
             data: self.data.clone(),
+            // Carry the resolver handle (cheap Arc clone) so a cloned execution
+            // scope can still resolve secrets.
+            secrets: self.secrets.clone(),
         }
     }
 
@@ -268,7 +301,10 @@ where
     ///
     /// A new Context with the provided data
     pub fn from_data(data: HashMap<String, T>) -> Self {
-        Self { data }
+        Self {
+            data,
+            secrets: None,
+        }
     }
 
     /// Serializes the context to a JSON string.
@@ -298,7 +334,67 @@ where
         debug!("Deserializing context from JSON");
         let data = serde_json::from_str(&json)?;
         debug!("Context deserialized successfully");
-        Ok(Self { data })
+        // A deserialized context is a durable snapshot: it never carries a
+        // resolver. The runtime re-attaches one at fire time if needed.
+        Ok(Self {
+            data,
+            secrets: None,
+        })
+    }
+
+    // ── Secret resolution side channel (CLOACI-I-0133 / T-0858, D-1) ─────────
+
+    /// Attach a secret resolver, builder-style.
+    ///
+    /// The resolver is a runtime-only side channel: it is NEVER serialized (see
+    /// [`Context::to_json`], which writes only `data`), which is what keeps a
+    /// resolved secret structurally out of the durable context.
+    pub fn with_secret_resolver(mut self, resolver: Arc<dyn SecretResolver>) -> Self {
+        self.secrets = Some(resolver);
+        self
+    }
+
+    /// Attach (or replace) the secret resolver on this scope.
+    pub fn set_secret_resolver(&mut self, resolver: Arc<dyn SecretResolver>) {
+        self.secrets = Some(resolver);
+    }
+
+    /// Whether a secret resolver is configured on this execution scope.
+    pub fn has_secret_resolver(&self) -> bool {
+        self.secrets.is_some()
+    }
+
+    /// Resolve a named secret into its decrypted `{field: value}` map.
+    ///
+    /// The returned map is handed to the task and is NEVER inserted into the
+    /// context's serialized `data`. Errors clearly when no resolver is
+    /// configured ([`SecretAccessError::NotConfigured`]) or the name is absent
+    /// ([`SecretAccessError::NotFound`]).
+    pub async fn secret(&self, name: &str) -> Result<BTreeMap<String, String>, SecretAccessError> {
+        let resolver = self
+            .secrets
+            .as_ref()
+            .ok_or(SecretAccessError::NotConfigured)?;
+        resolver.resolve(name).await.map_err(|e| match e {
+            SecretResolverError::NotFound(n) => SecretAccessError::NotFound(n),
+            SecretResolverError::Backend(m) => SecretAccessError::Backend(m),
+        })
+    }
+
+    /// Resolve one field of a named secret.
+    ///
+    /// Convenience over [`Context::secret`]; errors with
+    /// [`SecretAccessError::FieldNotFound`] when the secret exists but lacks the
+    /// requested field.
+    pub async fn secret_field(&self, name: &str, field: &str) -> Result<String, SecretAccessError> {
+        let fields = self.secret(name).await?;
+        fields
+            .get(field)
+            .cloned()
+            .ok_or_else(|| SecretAccessError::FieldNotFound {
+                secret: name.to_string(),
+                field: field.to_string(),
+            })
     }
 }
 
@@ -527,6 +623,108 @@ mod tests {
         // insert_as upserts (overwrites) without erroring
         ctx.insert_as("count", 100u32).unwrap();
         assert_eq!(ctx.get_as::<u32>("count").unwrap(), Some(100));
+    }
+
+    // CLOACI-T-0858: secret resolution side channel.
+    // (`SecretResolver`, `SecretResolverError`, `SecretAccessError`, `Arc`,
+    // `BTreeMap`, `HashMap` all come in via `use super::*`.)
+    use async_trait::async_trait;
+
+    /// A stub resolver holding an in-memory `{name -> {field: value}}` map.
+    struct StubResolver {
+        secrets: HashMap<String, BTreeMap<String, String>>,
+    }
+
+    #[async_trait]
+    impl SecretResolver for StubResolver {
+        async fn resolve(
+            &self,
+            name: &str,
+        ) -> Result<BTreeMap<String, String>, SecretResolverError> {
+            self.secrets
+                .get(name)
+                .cloned()
+                .ok_or_else(|| SecretResolverError::NotFound(name.to_string()))
+        }
+    }
+
+    fn stub_resolver() -> Arc<dyn SecretResolver> {
+        let mut db = BTreeMap::new();
+        db.insert("host".to_string(), "db.internal".to_string());
+        db.insert("password".to_string(), "s3cr3t-p@ss".to_string());
+        let mut secrets = HashMap::new();
+        secrets.insert("db_prod".to_string(), db);
+        Arc::new(StubResolver { secrets })
+    }
+
+    #[test]
+    fn test_secret_resolver_field_is_not_serialized() {
+        // A Context carrying a resolver must serialize to exactly the same JSON
+        // as one without: the resolver is structurally outside `data`.
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.insert("visible", serde_json::json!("in-context"))
+            .unwrap();
+        ctx.set_secret_resolver(stub_resolver());
+        assert!(ctx.has_secret_resolver());
+
+        let json = ctx.to_json().unwrap();
+        // The serialized form is just the data map — no resolver, no plaintext.
+        assert!(json.contains("visible"));
+        assert!(
+            !json.contains("s3cr3t-p@ss"),
+            "secret leaked into serialized Context: {json}"
+        );
+        assert!(!json.contains("secrets"));
+        assert!(!json.contains("resolver"));
+
+        // Round-tripping drops the resolver (a durable snapshot never carries one).
+        let restored = Context::<serde_json::Value>::from_json(json).unwrap();
+        assert!(!restored.has_secret_resolver());
+    }
+
+    #[test]
+    fn test_debug_redacts_resolver_and_never_prints_plaintext() {
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.set_secret_resolver(stub_resolver());
+        let dbg = format!("{:?}", ctx);
+        assert!(dbg.contains("<redacted resolver>"), "debug: {dbg}");
+        assert!(
+            !dbg.contains("s3cr3t-p@ss"),
+            "secret leaked into Debug: {dbg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_secret_accessor_not_configured_errors_clearly() {
+        let ctx = Context::<serde_json::Value>::new();
+        let err = ctx.secret("db_prod").await.unwrap_err();
+        assert!(matches!(err, SecretAccessError::NotConfigured));
+    }
+
+    #[tokio::test]
+    async fn test_secret_accessor_happy_path() {
+        let ctx = Context::<serde_json::Value>::new().with_secret_resolver(stub_resolver());
+        let fields = ctx.secret("db_prod").await.unwrap();
+        assert_eq!(fields.get("password").unwrap(), "s3cr3t-p@ss");
+        assert_eq!(
+            ctx.secret_field("db_prod", "host").await.unwrap(),
+            "db.internal"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_secret_accessor_missing_name_and_field() {
+        let ctx = Context::<serde_json::Value>::new().with_secret_resolver(stub_resolver());
+        assert!(matches!(
+            ctx.secret("absent").await.unwrap_err(),
+            SecretAccessError::NotFound(_)
+        ));
+        assert!(matches!(
+            ctx.secret_field("db_prod", "absent_field")
+                .await
+                .unwrap_err(),
+            SecretAccessError::FieldNotFound { .. }
+        ));
     }
 
     #[test]

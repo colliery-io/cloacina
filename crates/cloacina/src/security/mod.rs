@@ -27,6 +27,7 @@ pub mod audit;
 mod db_key_manager;
 mod key_manager;
 mod package_signer;
+mod secret_resolver;
 mod secret_store;
 mod verification;
 
@@ -35,6 +36,7 @@ pub use key_manager::{KeyError, KeyManager, PublicKeyExport, SigningKeyInfo, Tru
 pub use package_signer::{
     DbPackageSigner, DetachedSignature, PackageSignError, PackageSignatureInfo, PackageSigner,
 };
+pub use secret_resolver::{SecretResolverConfigError, SecretStoreResolver, KEK_ENV_VAR};
 pub use secret_store::{SecretError, SecretMetadata, SecretStore};
 pub use verification::{
     verify_package, verify_package_bytes, verify_package_offline, SecurityConfig, SignatureSource,
