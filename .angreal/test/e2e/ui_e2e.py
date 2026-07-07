@@ -99,9 +99,13 @@ def _wait_http(url, timeout_s=60, proc=None):
 
 
 def _build():
-    print("Building cloacina-server + cloacina-compiler + cloacinactl…")
-    _run(["cargo", "build", "-p", "cloacina-server", "-p", "cloacina-compiler",
-          "-p", "cloacinactl"])
+    print("Building cloacina-server (embedded-ui) + cloacina-compiler + cloacinactl…")
+    # CLOACI-I-0130: the embedded UI is THE deployment path — the harness runs
+    # the SPA from the server binary itself (no vite preview, one origin).
+    _run(["cargo", "build", "-p", "cloacina-server", "--features", "embedded-ui"])
+    # Separate invocation: the trio + embedded-ui in ONE cargo call trips a
+    # feature-unification clash in cloacina-python (both pass individually).
+    _run(["cargo", "build", "-p", "cloacina-compiler", "-p", "cloacinactl"])
 
 
 def _pack_fixtures(home: Path):
@@ -170,7 +174,7 @@ def _run_playwright(summary_file: Path, bad_pkg: Path, smoke: bool):
     summary = json.loads(summary_file.read_text())
     env = {
         **os.environ,
-        "E2E_BASE_URL": PREVIEW_URL,
+        "E2E_BASE_URL": SERVER_URL,  # embedded UI: SPA served by the server itself
         "E2E_SERVER_URL": SERVER_URL,
         "E2E_API_KEY": BOOTSTRAP_KEY,
         "E2E_TENANT": "public",
@@ -183,7 +187,12 @@ def _run_playwright(summary_file: Path, bad_pkg: Path, smoke: bool):
     # The @visual suite (CLOACI-T-0771) is a pixel gate with its own committed
     # baselines + environment (the demo stack), run by the `ui-visual` workflow —
     # exclude it here so the functional e2e isn't coupled to screenshot baselines.
-    cmd = ["npx", "playwright", "test", "--reporter=list", "--grep-invert", "@visual"]
+    # CLOACI-I-0130: CLOACINA_E2E_VISUAL=1 runs the @visual pixel-baseline
+    # suite instead of the functional one — same seeded embedded-server stack.
+    if os.environ.get("CLOACINA_E2E_VISUAL") == "1":
+        cmd = ["npx", "playwright", "test", "visual.spec.ts", "--reporter=list"]
+    else:
+        cmd = ["npx", "playwright", "test", "--reporter=list", "--grep-invert", "@visual"]
     if smoke:
         cmd += ["--grep", "@smoke"]
     _run(cmd, cwd=UI_DIR, env=env)
@@ -209,7 +218,7 @@ def _create_tenant(name: str):
         with urllib.request.urlopen(req) as resp:
             resp.read()
     except urllib.error.HTTPError as e:
-        if e.code != 409:  # already-exists is fine (re-run against a live DB)
+        if e.code not in (400, 409):  # already-exists (either shape) is fine on re-runs
             raise
 
 
@@ -231,7 +240,6 @@ def _ui_e2e(smoke: bool) -> int:
             "--database-url", DB_URL,
             "--bind", SERVER_BIND,
             "--bootstrap-key", BOOTSTRAP_KEY,
-            "--cors-allowed-origins", PREVIEW_URL,
         ]
         # Compiler is started AFTER the server has migrated the fresh DB —
         # racing migrations collides. `build --lib` drops the default --frozen
@@ -246,7 +254,6 @@ def _ui_e2e(smoke: bool) -> int:
             "--cargo-target-dir", TARGET_DIR,
             "--cargo-flag=build", "--cargo-flag=--lib",
         ]
-        preview_cmd = ["npx", "vite", "preview", "--port", str(PREVIEW_PORT), "--strictPort"]
 
         # Seed the demo tenants/keys the auth specs connect with — the acme
         # tenant-admin (clk_demo_acme_key_0002) + public — matching
@@ -266,9 +273,8 @@ def _ui_e2e(smoke: bool) -> int:
             # Create the `acme` tenant schema the auth specs connect into (the
             # scoped key is seeded above, but the tenant itself is not).
             _create_tenant("acme")
-            with _process(compiler_cmd, home / "compiler.log"), \
-                 _process(preview_cmd, home / "preview.log", cwd=UI_DIR) as preview:
-                _wait_http(PREVIEW_URL, proc=preview)
+            with _process(compiler_cmd, home / "compiler.log"):
+                _wait_http(SERVER_URL, proc=server)  # SPA at the server origin
 
                 summary_file = home / "seed-summary.json"
                 # ~40s in-flight window so Playwright reliably opens the slow

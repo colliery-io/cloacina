@@ -38,8 +38,9 @@ construction. The default `cargo build` remains Node-free and serves no UI.
   server URL stays editable for pointing the bundled UI at a *different*
   server (configure CORS on that server as usual).
 
-## Split-origin deployments
+## Remote servers
 
-The standalone Nginx container path (`docker/docker-compose.ui.yml`) remains
-fully supported for setups that want the UI and API on separate origins or
-scaled independently — set `CLOACINA_CORS_ALLOWED_ORIGINS` as before.
+The embedded UI can still target a *different* cloacina-server: edit the
+server URL on the connect gate and set `CLOACINA_CORS_ALLOWED_ORIGINS` on
+that server. (The separate Nginx UI container was retired in CLOACI-I-0130 —
+the embedded UI is the deployment path.)

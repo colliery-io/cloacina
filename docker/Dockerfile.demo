@@ -23,6 +23,15 @@ ARG RUST_VERSION=1.93
 # ---------------------------------------------------------------------------
 # Shared builder — ONE workspace compile produces all three binaries.
 # ---------------------------------------------------------------------------
+# CLOACI-I-0130: the SPA builds in a proper node:20 stage (Debian's apt node
+# is v18; the UI requires >=20); the Rust stage embeds the prebuilt dist.
+FROM node:20-slim AS ui-builder
+WORKDIR /workspace
+COPY clients/typescript clients/typescript
+COPY ui ui
+RUN cd clients/typescript && npm ci && npm run build
+RUN cd ui && npm ci && npm run build
+
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -45,10 +54,14 @@ COPY . /workspace
 # cloacina-server (axum/tower/tungstenite server stack) it never runs — which is
 # the long pole under arch emulation.
 ARG CARGO_BINS="cloacina-server cloacina-compiler cloacinactl"
+COPY --from=ui-builder /workspace/ui/dist ui/dist
+ENV CLOACINA_EMBEDDED_UI_SKIP_NPM=1
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/workspace/target \
-    cargo build --release --locked $(for b in $CARGO_BINS; do echo --bin "$b"; done) \
+    cargo build --release --locked \
+        $(echo "$CARGO_BINS" | grep -q cloacina-server && echo --features cloacina-server/embedded-ui) \
+        $(for b in $CARGO_BINS; do echo --bin "$b"; done) \
  && for b in $CARGO_BINS; do cp "target/release/$b" /usr/local/bin/; done
 
 # ---------------------------------------------------------------------------
