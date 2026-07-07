@@ -69,7 +69,19 @@ The compiler image must include `bubblewrap` (the demo image does).
 
 ## Verifying
 
-The adversarial test `bwrap_build_cannot_escape_to_host_or_network` builds a
-package whose `build.rs` tries to read a host file and open a socket; both must
-fail (the build succeeds only because the escapes were blocked). It skips where
-bwrap is unusable — the assertion means something only at level 1.
+`cargo test -p cloacina-compiler --lib sandbox` proves the contract at two
+levels:
+
+- **Deterministic (runs everywhere):** the bwrap command composition carries
+  `--unshare-all` / `--clearenv`, binds the curated registry read-only, binds
+  **only** the staged source writable (no other writable host path), and
+  launches cargo inside the sandbox; and `build_env` is an *allowlist* — a
+  secret set in the parent process never crosses into the build.
+- **End-to-end (runs where bwrap works):** `bwrap_denies_host_write` executes a
+  real sandboxed command that attempts to write outside its staged directory
+  and asserts the write is denied and leaves no host trace. It **skips** (not
+  fails) where bwrap is unusable — so the suite is green on macOS/dev while CI
+  proves the enforcement on Linux.
+
+The compiler also logs its probed level at boot and stamps `sandbox_level` on
+every build audit event.
