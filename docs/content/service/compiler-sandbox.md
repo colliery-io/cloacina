@@ -59,8 +59,21 @@ services:
       CLOACINA_COMPILER_SANDBOX: preferred   # or `required` for multi-tenant
 ```
 
-On Kubernetes, set `securityContext.seccompProfile.type: Unconfined` on the
-compiler pod. This is defensible: bwrap's **per-build** namespace isolation is
+On Kubernetes, the `cloacina-server` Helm chart templates a compiler
+Deployment (`compiler.enabled=true`) that sets
+`securityContext.seccompProfile.type: Unconfined` for you whenever the sandbox
+is active, and defaults `CLOACINA_COMPILER_SANDBOX` to `required`:
+
+```yaml
+# values.yaml
+compiler:
+  enabled: true
+  sandbox:
+    mode: required          # fail-closed; or preferred / off
+    seccompProfile: Unconfined
+```
+
+Relaxing seccomp is defensible: bwrap's **per-build** namespace isolation is
 stronger than default-seccomp with no build sandbox at all. A container that
 still can't run bwrap (no userns even with seccomp relaxed) correctly
 downgrades to landlock under `preferred`, or fails to boot under `required`.
