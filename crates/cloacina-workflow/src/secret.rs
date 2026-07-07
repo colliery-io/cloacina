@@ -32,6 +32,18 @@ use async_trait::async_trait;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
+/// Reserved `Context` data key holding the instance's `{"$secret": name}` binding
+/// map (CLOACI-I-0133 / T-0859, design D-4).
+///
+/// At fire time `merge_instance_params` recognizes a `{"$secret": "name"}` param
+/// value, keeps the **resolved value** out of the context entirely, and records
+/// only the non-sensitive `local_binding_name -> secret_name` alias here. The map
+/// carries NAMES ONLY (never values), so it is safe to serialize into the durable
+/// context; it survives the fire → persist → execute boundary and lets
+/// [`Context::secret`](crate::Context::secret) resolve a task's declared local
+/// binding name to the concrete secret the instance chose.
+pub const SECRET_REFS_KEY: &str = "__cloacina_secret_refs__";
+
 /// Error returned by a [`SecretResolver`] backend implementation.
 #[derive(Debug, Error)]
 pub enum SecretResolverError {

@@ -120,6 +120,52 @@ pub mod parallel_execution {
     }
 }
 
+// CLOACI-T-0859: a workflow declaring secrets via `#[workflow(secrets(...))]`.
+// The declared secrets ride alongside params as encrypted `InputSlot`s in the
+// `WorkflowDescriptorEntry.params` JSON the manifest/FFI metadata carries.
+#[workflow(
+    name = "secret_declaring_workflow",
+    params(region: String = "us-east-1".to_string()),
+    secrets(db_prod, stripe_key)
+)]
+pub mod secret_declaring_workflow {
+    use super::*;
+
+    #[task(id = "reach_out", dependencies = [])]
+    pub async fn reach_out(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_workflow_secrets_ride_manifest_metadata_as_encrypted_slots() {
+    use cloacina::input_interface::InputSlot;
+
+    let params_json =
+        inventory::iter::<cloacina::cloacina_workflow_plugin::WorkflowDescriptorEntry>
+            .into_iter()
+            .find(|e| e.name == "secret_declaring_workflow")
+            .map(|e| (e.params)())
+            .expect("descriptor entry for secret_declaring_workflow should exist");
+
+    let slots: Vec<InputSlot> =
+        serde_json::from_str(&params_json).expect("params JSON should parse into InputSlots");
+
+    // The plaintext param is present and unmarked.
+    let region = slots.iter().find(|s| s.name == "region").unwrap();
+    assert!(!region.encrypted);
+
+    // Both declared secrets are present, marked encrypted + required.
+    for name in ["db_prod", "stripe_key"] {
+        let s = slots
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("secret slot '{name}' missing; got {slots:?}"));
+        assert!(s.encrypted, "secret '{name}' should be marked encrypted");
+        assert!(s.required, "secret '{name}' should be required");
+    }
+}
+
 #[test]
 fn test_workflow_macro_emits_inventory_entries() {
     // Smoke test for T-0505: confirm that `#[workflow]` and `#[task]` emit

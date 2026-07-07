@@ -226,7 +226,16 @@ async fn run_build(
     // CLOACI-T-0760: parse declared workflow params from the source too. For
     // Python this is the *only* source of declared params (no cdylib FFI); for
     // Rust it's empty (the FFI input-interface entrypoint is authoritative).
-    let declared_params = crate::param_parse::parse_workflow_params(&source_dir, &language);
+    let mut declared_params = crate::param_parse::parse_workflow_params(&source_dir, &language);
+
+    // CLOACI-T-0859: parse declared workflow SECRETS (Python
+    // `cloaca.workflow_secrets(...)`) and carry them as encrypted slots in the
+    // same declared-params list, so the manifest records which secrets the
+    // workflow requires. Empty for Rust (its secrets ride the FFI interface).
+    declared_params.extend(crate::param_parse::parse_workflow_secrets(
+        &source_dir,
+        &language,
+    ));
 
     // CLOACI-T-0770: parse declared CG boundary surfaces (Python
     // `cloaca.boundary_schema(...)`) from the same source. Empty for Rust.

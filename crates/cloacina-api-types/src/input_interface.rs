@@ -46,20 +46,30 @@ pub struct InputSlot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Object, nullable))]
     pub default: Option<serde_json::Value>,
+
+    /// CLOACI-I-0133 / T-0859: marks this slot as an **encrypted secret** rather
+    /// than a plaintext param. A secret slot is bound via a `{"$secret": name}`
+    /// reference (never a literal value), resolved encrypted at fire time, and
+    /// its resolved value never enters the durable `Context` (NFR-001). Defaults
+    /// to `false` so pre-existing serialized slots (which omit the field)
+    /// deserialize as ordinary params.
+    #[serde(default)]
+    pub encrypted: bool,
 }
 
 impl InputSlot {
-    /// Construct a required slot with no default.
+    /// Construct a required (plaintext) slot with no default.
     pub fn required(name: impl Into<String>, schema: serde_json::Value) -> Self {
         Self {
             name: name.into(),
             schema,
             required: true,
             default: None,
+            encrypted: false,
         }
     }
 
-    /// Construct an optional slot with an optional default.
+    /// Construct an optional (plaintext) slot with an optional default.
     pub fn optional(
         name: impl Into<String>,
         schema: serde_json::Value,
@@ -70,6 +80,23 @@ impl InputSlot {
             schema,
             required: false,
             default,
+            encrypted: false,
+        }
+    }
+
+    /// Construct a required **encrypted secret** slot (CLOACI-I-0133 / T-0859).
+    ///
+    /// A secret is an opaque `{field: value}` map declared by name; its schema is
+    /// permissive (`{}`) because the fields are resolved at fire time, never
+    /// validated as a plaintext param. It is `required` (a declared-but-unbound
+    /// secret is a register-time error) and carries no default.
+    pub fn secret(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            schema: serde_json::json!({}),
+            required: true,
+            default: None,
+            encrypted: true,
         }
     }
 }

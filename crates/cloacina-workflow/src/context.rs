@@ -366,6 +366,15 @@ where
 
     /// Resolve a named secret into its decrypted `{field: value}` map.
     ///
+    /// `name` may be either the concrete secret name OR a **declared local
+    /// binding name** that an instance mapped to a secret via a
+    /// `{"$secret": "..."}` reference (CLOACI-I-0133 / T-0859). When the
+    /// context carries a `{"$secret"}` alias map (under
+    /// [`secret::SECRET_REFS_KEY`](crate::secret::SECRET_REFS_KEY)) and `name`
+    /// appears as a local binding there, the mapped secret name is resolved
+    /// instead — so a task can read either the declared name it authored against
+    /// or the concrete secret the instance chose.
+    ///
     /// The returned map is handed to the task and is NEVER inserted into the
     /// context's serialized `data`. Errors clearly when no resolver is
     /// configured ([`SecretAccessError::NotConfigured`]) or the name is absent
@@ -375,10 +384,31 @@ where
             .secrets
             .as_ref()
             .ok_or(SecretAccessError::NotConfigured)?;
-        resolver.resolve(name).await.map_err(|e| match e {
+        let effective = self.resolve_secret_alias(name);
+        resolver.resolve(&effective).await.map_err(|e| match e {
             SecretResolverError::NotFound(n) => SecretAccessError::NotFound(n),
             SecretResolverError::Backend(m) => SecretAccessError::Backend(m),
         })
+    }
+
+    /// Map a task-supplied secret name through the instance's `{"$secret"}` alias
+    /// map (if any), returning the concrete secret name to resolve.
+    ///
+    /// The alias map lives under [`secret::SECRET_REFS_KEY`] as a NAME→NAME
+    /// object of `local_binding_name -> secret_name`. It carries no secret
+    /// values, so reading it here cannot leak plaintext. A name absent from the
+    /// map (or the absence of a map) passes through unchanged.
+    fn resolve_secret_alias(&self, name: &str) -> String {
+        if let Some(v) = self.data.get(crate::secret::SECRET_REFS_KEY) {
+            // `T: Serialize`, so any backing value can be viewed as JSON; the map
+            // is a plain `{local: secret}` object of strings.
+            if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(v) {
+                if let Some(serde_json::Value::String(target)) = map.get(name) {
+                    return target.clone();
+                }
+            }
+        }
+        name.to_string()
     }
 
     /// Resolve one field of a named secret.
@@ -710,6 +740,47 @@ mod tests {
             ctx.secret_field("db_prod", "host").await.unwrap(),
             "db.internal"
         );
+    }
+
+    // CLOACI-T-0859: the `{"$secret"}` alias map redirects a task's declared
+    // local binding name to the concrete secret the instance chose.
+    #[tokio::test]
+    async fn test_secret_accessor_resolves_through_alias_map() {
+        let mut ctx = Context::<serde_json::Value>::new().with_secret_resolver(stub_resolver());
+        // The instance mapped the declared name `dst` → concrete secret `db_prod`.
+        ctx.insert(
+            crate::secret::SECRET_REFS_KEY,
+            serde_json::json!({"dst": "db_prod"}),
+        )
+        .unwrap();
+
+        // Reading via the DECLARED local binding name resolves the mapped secret.
+        let fields = ctx.secret("dst").await.unwrap();
+        assert_eq!(fields.get("password").unwrap(), "s3cr3t-p@ss");
+        assert_eq!(
+            ctx.secret_field("dst", "host").await.unwrap(),
+            "db.internal"
+        );
+
+        // Reading via the concrete secret name still works (no alias → passthrough).
+        assert_eq!(
+            ctx.secret("db_prod")
+                .await
+                .unwrap()
+                .get("password")
+                .unwrap(),
+            "s3cr3t-p@ss"
+        );
+
+        // A name with no alias and no matching secret is NotFound.
+        assert!(matches!(
+            ctx.secret("unmapped").await.unwrap_err(),
+            SecretAccessError::NotFound(_)
+        ));
+
+        // The resolved plaintext never entered the serialized context.
+        let json = ctx.to_json().unwrap();
+        assert!(!json.contains("s3cr3t-p@ss"), "secret leaked: {json}");
     }
 
     #[tokio::test]
