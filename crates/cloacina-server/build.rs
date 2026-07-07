@@ -25,7 +25,9 @@ fn main() {
         // Containerized builds prebuild ui/dist in a node:20 stage and set
         // this to skip the npm step (the Rust stage then needs no Node).
         if std::env::var_os("CLOACINA_EMBEDDED_UI_SKIP_NPM").is_some() {
-            println!("cargo:warning=embedded-ui: using prebuilt ui/dist (CLOACINA_EMBEDDED_UI_SKIP_NPM)");
+            println!(
+                "cargo:warning=embedded-ui: using prebuilt ui/dist (CLOACINA_EMBEDDED_UI_SKIP_NPM)"
+            );
             return;
         }
         let ui_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

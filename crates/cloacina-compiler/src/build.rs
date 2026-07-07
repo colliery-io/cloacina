@@ -645,7 +645,40 @@ async fn cargo_build(
 
     ensure_build_wiring(source_dir);
 
-    let mut cmd = tokio::process::Command::new("cargo");
+    // CLOACI-I-0105: run the build at the boot-probed sandbox level. The
+    // level was decided once at startup (fail-closed under `required`);
+    // here we only compose the command for it.
+    let mounts = crate::sandbox::BuildMounts {
+        source_dir,
+        target_dir: config.cargo_target_dir.as_deref(),
+        vendor_dir: config.vendor_dir.as_deref(),
+    };
+    let level = config.sandbox_level;
+    let (program, pre_args) = crate::sandbox::wrap_command(level, &mounts);
+    let sandbox_hash = crate::sandbox::config_hash(level, &mounts);
+    tracing::info!(
+        sandbox = level.as_str(),
+        config_hash = %sandbox_hash,
+        package_id = %package_id,
+        "spawning build"
+    );
+
+    let mut cmd = tokio::process::Command::new(&program);
+    cmd.args(&pre_args);
+    if level == crate::sandbox::SandboxLevel::Landlock {
+        // Level 2: env is scrubbed by the parent (no clearenv available) and
+        // the FS ruleset is applied in pre_exec.
+        cmd.env_clear();
+        for (k, v) in crate::sandbox::build_env(&mounts) {
+            cmd.env(k, v);
+        }
+        crate::sandbox::apply_landlock(
+            &mut cmd,
+            source_dir.to_path_buf(),
+            config.cargo_target_dir.clone(),
+            config.vendor_dir.clone(),
+        );
+    }
     cmd.args(&config.cargo_flags)
         .current_dir(source_dir)
         .stdout(Stdio::piped())
@@ -955,6 +988,7 @@ mod tests {
 
     fn test_config(home: &Path, build_timeout: Duration) -> CompilerConfig {
         CompilerConfig {
+            sandbox_level: crate::sandbox::SandboxLevel::None,
             home: home.to_path_buf(),
             bind: "127.0.0.1:0".parse::<SocketAddr>().expect("parse bind"),
             database_url: "unused-in-this-test".to_string(),
