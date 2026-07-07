@@ -4,14 +4,14 @@ level: task
 title: "Fleet secret resolution — per-execution HPKE envelope wrap to agent ephemeral key"
 short_code: "CLOACI-T-0861"
 created_at: 2026-07-07T11:52:26.213065+00:00
-updated_at: 2026-07-07T23:27:47.490315+00:00
+updated_at: 2026-07-07T23:58:30.422084+00:00
 parent: CLOACI-I-0133
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,6 +67,8 @@ The fleet execution path (D-2/D-5/D-6) — the riskiest task. A packaged task ru
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -156,3 +158,8 @@ The fleet execution path (D-2/D-5/D-6) — the riskiest task. A packaged task ru
 - No live end-to-end fleet test; NFR-001 fleet-wire assertion is unit-level (fleet_secret) not a live dispatch.
 
 **DESIGN DEVIATION from D-5 (needs maintainer decision):** live fleet is PUSH not CLAIM → the ephemeral key is currently per-CONNECTION (advertised at register) not per-EXECUTION. True per-execution forward secrecy needs a protocol change (pre-dispatch handshake or pre-advertised key pool). Crypto/resolver unaffected — only WHEN the key is minted. **Awaiting decision before finishing the wiring.**
+
+### 2026-07-07 (part 2) — MECHANISM COMPLETE (commit 06c113f9)
+Maintainer chose TRUE per-execution → implemented the **one-time key pool** (refined D-5). Agent pre-registers a pool of one-time X25519 keys (key-id'd, `EphemeralKeyEntry`/`ephemeral_key_pool`), replenishes via heartbeat signal + `POST /v1/agent/keys`; server `ServerKeyPool` on the `AgentRecord` consumes exactly one key per secret-bearing dispatch (never reused), HPKE-wraps granted secrets to it, stamps `secret_key_id` on the WorkPacket; agent `take`s the private key, unwraps ONCE, discards. `FleetExecutor` extracts `$secret` names, consumes a key, wraps via a gated `FleetSecretResolverFactory` seam — **fail-closed** on no-grant/exhausted-pool (never plaintext, never key reuse).
+**Verified (re-run myself): all 3 crates compile clean (E0063 diagnostics were stale mid-edit again); 35 cloacina-lib + 17 server tests green** incl. `two_dispatches_use_two_different_one_time_keys`, `a_key_cannot_be_consumed_twice`, `pool_exhaustion_then_replenish`, `consume_secret_key_is_one_time_then_exhausts_and_replenishes`, `fleet_pool_wrap_unwrap_end_to_end_and_exhaustion` (plaintext absent from wire, only ciphertext+key_id). **True per-execution forward secrecy proven.**
+**Seams handed to T-0862** (server secrets subsystem prerequisite): no concrete `FleetSecretResolverFactory` wired into the running server — needs tenant→org_id map + package `ResolvedGrants` + the CRUD subsystem T-0862 builds. Until then a `$secret` fleet task fails CLOSED at dispatch (safe). Graph-FFI secret path needs an agent-side graph accessor (separate follow-up). **The D-2/D-5/D-6 delivery MECHANISM is done + proven; activation-in-running-server folds into T-0862.**
