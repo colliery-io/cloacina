@@ -197,13 +197,16 @@ impl FleetGraphExecutor {
             timeout_seconds: 300,
             tenant_id: fire.tenant_id.clone(),
             language: Some(language),
-            // CLOACI-T-0861 SEAM: same as the per-task path in `fleet_executor.rs`
-            // — populate via `cloacina::security::resolve_and_wrap_secrets(...)`
-            // once the graph's declared secret names, the agent's advertised
-            // `ephemeral_public_key`, and a grant-gated `SecretStoreResolver` are
-            // plumbed here (`agent` is in scope but carries no pubkey yet). AAD
-            // uses `firing_id` as the execution id. Empty ⇒ no secrets wrapped.
+            // CLOACI-T-0861 / D-5 — DOCUMENTED SEAM (graph-FFI path). Unlike the
+            // per-task path (fully wired in `fleet_executor.rs` step 3d), a
+            // whole-graph firing has no per-task `Context` seam on the agent
+            // (`process_graph_packet` executes via FFI `execute_graph(cache)` with
+            // no `Context::secret` accessor to attach a resolver to). The one-time
+            // key POOL, consume, and wrap mechanism are all in place — wiring this
+            // path needs an agent-side graph secrets accessor first. Until then a
+            // graph firing carries no secrets. AAD would use `firing_id`.
             wrapped_secrets: Vec::new(),
+            secret_key_id: None,
         };
         let payload = serde_json::to_vec(&packet).map_err(|e| {
             self.coordinator.cancel(firing_id);

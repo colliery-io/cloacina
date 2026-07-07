@@ -239,6 +239,7 @@ mod tests {
             capabilities: vec![],
             last_heartbeat: Instant::now(),
             tenant_id: tenant.map(|s| s.to_string()),
+            key_pool: cloacina::security::ServerKeyPool::new(),
         }
     }
 

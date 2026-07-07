@@ -4,14 +4,14 @@ level: task
 title: "Fleet secret resolution — per-execution HPKE envelope wrap to agent ephemeral key"
 short_code: "CLOACI-T-0861"
 created_at: 2026-07-07T11:52:26.213065+00:00
-updated_at: 2026-07-07T11:52:26.213065+00:00
+updated_at: 2026-07-07T23:27:47.490315+00:00
 parent: CLOACI-I-0133
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -67,6 +67,8 @@ The fleet execution path (D-2/D-5/D-6) — the riskiest task. A packaged task ru
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -141,4 +143,16 @@ The fleet execution path (D-2/D-5/D-6) — the riskiest task. A packaged task ru
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-07 — PARTIAL / foundation landed (commit f97638bf), NOT complete
+**Done + verified (branch compiles clean; 7+5+4 tests green):**
+- `crypto/envelope.rs` — RFC 9180 HPKE (`hpke` 0.12, X25519-HKDF-SHA256/HKDF-SHA256/ChaCha20Poly1305), ephemeral keygen, wrap/unwrap+AAD. 7 tests (round-trip, A≠B, tamper×2, replay/AAD, invalid key). SPIKE AC ✅.
+- `security/fleet_secret.rs` — `InMemorySecretResolver` (serves `Context::secret` from an unwrapped in-mem map; no DB/KEK/persistence) + `resolve_and_wrap_secrets` (reuses T-0860 grant gate, then HPKE-wraps; AAD=execution_id/name). 5 tests incl. wire-isolation, execution-id replay reject, un-granted denied at wrap, plaintext∉ciphertext.
+- `fleet/protocol.rs` — `WrappedSecret` + `wrapped_secrets` on WorkPacket/GraphWorkPacket + `ephemeral_public_key` on register (serde(default), back-compat). 4 tests.
+- `cloacina-agent` — per-session ephemeral keypair, advertised at register, threaded to worker, unwraps → `set_secret_resolver` on Context before execute. Compiles (agent test binary can't LOAD locally due to a pre-existing PyO3 Python3.framework rpath issue, unrelated).
+
+**NOT done (remaining AC — end-to-end fleet delivery does not work yet):**
+- Server dispatch leaves `wrapped_secrets` empty (seams at fleet_executor.rs + fleet_graph_executor.rs). Needs the executor to have: the task's declared (`InputSlot.encrypted`)+`$secret` names, the agent's advertised pubkey (register route must persist it; `select_fleet_agent` return it), and a gated `SecretStoreResolver` (store+KEK+ResolvedGrants).
+- Register route ignores `ephemeral_public_key`; graph-FFI path unwired (no Context seam there).
+- No live end-to-end fleet test; NFR-001 fleet-wire assertion is unit-level (fleet_secret) not a live dispatch.
+
+**DESIGN DEVIATION from D-5 (needs maintainer decision):** live fleet is PUSH not CLAIM → the ephemeral key is currently per-CONNECTION (advertised at register) not per-EXECUTION. True per-execution forward secrecy needs a protocol change (pre-dispatch handshake or pre-advertised key pool). Crypto/resolver unaffected — only WHEN the key is minted. **Awaiting decision before finishing the wiring.**

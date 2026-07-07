@@ -1803,6 +1803,10 @@ fn build_router(state: AppState) -> Router {
             axum::routing::post(crate::routes::agent::heartbeat_agent),
         )
         .route(
+            "/agent/keys",
+            axum::routing::post(crate::routes::agent::replenish_keys),
+        )
+        .route(
             "/agent/result",
             axum::routing::post(crate::routes::agent::report_result),
         )

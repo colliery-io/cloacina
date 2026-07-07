@@ -133,7 +133,7 @@ Maintainer decisions on the four critical forks (grounded in code: `workflow_ins
 
 ## Design Decisions — second tier (2026-07-07, all resolved) **[REQUIRED]**
 
-- **D-5 (OQ-2a) — Ephemeral per-execution keypair.** The agent generates a fresh X25519 keypair per task claim and sends the public key with the claim; the server wraps to it. Forward secrecy per execution; keygen is microseconds. (Not per-lease — a leaked lease key would expose every secret resolved in the lease window.)
+- **D-5 (OQ-2a) — Per-execution key via a ONE-TIME KEY POOL (refined 2026-07-07, maintainer).** Original: fresh X25519 keypair per task *claim*. But the live fleet is PUSH, not claim (no per-dispatch round-trip to carry a key). Maintainer chose TRUE per-execution: the agent pre-registers a POOL of one-time ephemeral public keys (each key-id'd) at register + replenishes via heartbeat when low; the server CONSUMES one key-id per secret-bearing dispatch (wraps to it, puts the key-id in the WorkPacket); the agent looks up the matching private key, unwraps ONCE, discards it. Preserves push (no dispatch latency) AND gives each execution a fresh single-use key = true per-execution forward secrecy. Pool exhaustion → top-up signal / clean dispatch failure; never reuse a key. NOT per-connection.
 - **D-6 (OQ-2b) — HPKE (RFC 9180).** Standardized hybrid public-key encryption for the wrap-to-pubkey step; crypto agility. (Not sealed-box/age.)
 - **D-7 (OQ-6) — Per-tenant data keys (envelope at rest).** Each tenant's secrets encrypted under a tenant DEK; DEKs wrapped by a server KEK. Aligns with tenant-as-isolation-boundary; enables per-tenant rotation; per-tenant compromise blast-radius. (Not a single all-tenant server key.)
 - **D-8 (OQ-5/7/8 defaults, accepted):**

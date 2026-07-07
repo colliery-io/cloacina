@@ -34,7 +34,8 @@ mod verification;
 
 pub use db_key_manager::DbKeyManager;
 pub use fleet_secret::{
-    resolve_and_wrap_secrets, secret_aad, wrap_field_map, FleetSecretError, InMemorySecretResolver,
+    decode_pool_public_key, resolve_and_wrap_secrets, secret_aad, secret_ref_names, wrap_field_map,
+    AgentKeyPool, FleetSecretError, InMemorySecretResolver, ServerKeyPool,
 };
 pub use key_manager::{KeyError, KeyManager, PublicKeyExport, SigningKeyInfo, TrustedKeyInfo};
 pub use package_signer::{
