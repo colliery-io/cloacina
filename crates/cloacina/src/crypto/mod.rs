@@ -24,7 +24,9 @@
 mod key_encryption;
 mod signing;
 
-pub use key_encryption::{decrypt_private_key, encrypt_private_key, KeyEncryptionError};
+pub use key_encryption::{
+    decrypt_bytes, decrypt_private_key, encrypt_bytes, encrypt_private_key, KeyEncryptionError,
+};
 pub use signing::{
     compute_key_fingerprint, generate_signing_keypair, sign_package, verify_signature,
     GeneratedKeypair, SigningError,

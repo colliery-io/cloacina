@@ -22,9 +22,9 @@
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
     key_trust_acls, package_artifacts, package_providers, package_signatures, reactor_state,
-    recovery_events, schedule_executions, schedules, signing_keys, state_accumulator_buffers,
-    task_execution_metadata, task_executions, task_outbox, trusted_keys, workflow_executions,
-    workflow_packages, workflow_registry,
+    recovery_events, schedule_executions, schedules, secrets, signing_keys,
+    state_accumulator_buffers, task_execution_metadata, task_executions, task_outbox,
+    tenant_data_keys, trusted_keys, workflow_executions, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -551,6 +551,63 @@ pub struct NewUnifiedSigningKey {
     pub public_key: UniversalBinary,
     pub key_fingerprint: String,
     pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Secrets Models (CLOACI-I-0133 / T-0857)
+// ============================================================================
+
+/// Per-tenant data key (DEK) wrapped by the server KEK (envelope encryption, D-7).
+///
+/// `wrapped_dek` is the 32-byte DEK encrypted under the server KEK via
+/// AES-256-GCM (`nonce || ciphertext || tag`). It is only ever unwrapped
+/// server-side; the plaintext DEK never leaves memory.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = tenant_data_keys)]
+pub struct TenantDataKey {
+    pub id: UniversalUuid,
+    pub org_id: UniversalUuid,
+    pub wrapped_dek: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = tenant_data_keys)]
+pub struct NewTenantDataKey {
+    pub id: UniversalUuid,
+    pub org_id: UniversalUuid,
+    pub wrapped_dek: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+/// An encrypted, tenant-scoped named-field secret.
+///
+/// `field_names` is plaintext metadata (a JSON array of the field names only —
+/// never the values). `encrypted_fields` is the `{field: value}` JSON encrypted
+/// under the tenant DEK (`nonce || ciphertext || tag`). Plaintext field values
+/// exist only transiently in memory during an internal resolve.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = secrets)]
+pub struct Secret {
+    pub id: UniversalUuid,
+    pub org_id: UniversalUuid,
+    pub name: String,
+    pub field_names: String,
+    pub encrypted_fields: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = secrets)]
+pub struct NewSecret {
+    pub id: UniversalUuid,
+    pub org_id: UniversalUuid,
+    pub name: String,
+    pub field_names: String,
+    pub encrypted_fields: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
 }
 
 // ============================================================================
