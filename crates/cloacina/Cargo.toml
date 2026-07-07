@@ -100,6 +100,10 @@ regex = { version = "1.10" }
 semver = { version = "1.0" }
 sha2 = { version = "0.10" }
 aes-gcm = { version = "0.10" }
+# CLOACI-T-0861 — HPKE (RFC 9180) hybrid public-key encryption for per-execution
+# fleet secret envelope wrap. Suite: X25519-HKDF-SHA256 / HKDF-SHA256 /
+# ChaCha20Poly1305. `hpke` pulls its own `rand_core` 0.6-compatible RNG surface.
+hpke = { version = "0.12", default-features = false, features = ["alloc", "x25519"] }
 argon2 = { version = "0.5", features = ["std"] }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = { version = "0.4" }

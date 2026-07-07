@@ -461,6 +461,26 @@ impl TaskExecutor for FleetExecutor {
                 timeout_seconds: 300,
                 tenant_id: tenant_id.clone(),
                 language: Some(language),
+                // CLOACI-T-0861 SEAM: populate via
+                // `cloacina::security::resolve_and_wrap_secrets(&gated_resolver,
+                //  &secret_names, &packet.task_execution_id, &agent_pubkey)`.
+                // Three inputs must be plumbed into `FleetExecutor` first, none of
+                // which are reachable here today:
+                //   1. `secret_names` — the task's declared (`InputSlot.encrypted`)
+                //      + `$secret`-referenced secret names. Extract from the loaded
+                //      runtime task's input interface + the instance params
+                //      (T-0859 surface) at dependency-resolution time above.
+                //   2. `agent_pubkey` — the agent's ephemeral X25519 public key
+                //      advertised in `AgentRegisterRequest.ephemeral_public_key`.
+                //      The register route must persist it on the fleet-agent row;
+                //      selection (`select_fleet_agent`) must return it alongside
+                //      `agent_id`.
+                //   3. a grant-gated `SecretStoreResolver` (T-0858/T-0860) built
+                //      from a `SecretStore` + KEK + the package's `ResolvedGrants`.
+                //      `FleetExecutor` holds neither the store nor the KEK yet.
+                // The wrap/unwrap crypto + resolver are done and tested; only this
+                // call-site plumbing remains. Empty ⇒ no secrets wrapped (safe).
+                wrapped_secrets: Vec::new(),
             };
             let payload_bytes = match serde_json::to_vec(&packet) {
                 Ok(b) => b,

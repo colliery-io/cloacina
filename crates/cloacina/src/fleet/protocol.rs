@@ -99,6 +99,18 @@ pub struct AgentRegisterRequest {
     /// (e.g. `gpu`, `large_memory`).
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// CLOACI-T-0861 — the agent's ephemeral X25519 **public** key (base64
+    /// standard), used by the server to HPKE-wrap resolved secrets addressed to
+    /// this agent (I-0133 D-2/D-6). The agent holds the paired private key in
+    /// memory only and never sends it.
+    ///
+    /// Granularity note: advertising the key at registration binds it to one
+    /// agent *connection*, not to one execution (D-5's ideal). Per-execution
+    /// forward secrecy needs a pre-dispatch handshake the current push protocol
+    /// lacks; see `security::fleet_secret` docs. `None` ⇒ the agent did not
+    /// advertise a key and the server MUST NOT wrap secrets to it.
+    #[serde(default)]
+    pub ephemeral_public_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +183,32 @@ pub struct WorkPacket {
     /// still handled as before. (CLOACI-T-0716)
     #[serde(default)]
     pub language: Option<String>,
+    /// CLOACI-T-0861 — secrets this task needs, each HPKE-wrapped to the target
+    /// agent's advertised ephemeral public key. ONLY ciphertext crosses the wire
+    /// (NFR-001/NFR-003); the agent unwraps with its ephemeral private key into
+    /// the in-memory `Secrets` accessor. Empty/absent ⇒ no secrets for this task.
+    #[serde(default)]
+    pub wrapped_secrets: Vec<WrappedSecret>,
+}
+
+/// One at-rest secret resolved by the server and HPKE-wrapped to a single
+/// agent's ephemeral public key for one dispatch (CLOACI-T-0861).
+///
+/// The plaintext field-map is serialized to JSON then sealed; only `enc_b64`
+/// (the HPKE encapsulated key) and `ciphertext_b64` (the AEAD ciphertext) travel
+/// on the wire. The wrap is bound via AEAD associated data to the execution id +
+/// secret name (see `security::fleet_secret::secret_aad`), so a captured blob
+/// cannot be replayed against a different execution or secret even to the same
+/// agent key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WrappedSecret {
+    /// The secret name (the lookup key the task resolves via `ctx.secret(name)`).
+    /// A NAME only — never a value.
+    pub name: String,
+    /// HPKE encapsulated key, base64 (standard).
+    pub enc_b64: String,
+    /// HPKE AEAD ciphertext of the JSON `{field: value}` map, base64 (standard).
+    pub ciphertext_b64: String,
 }
 
 /// One reactor firing shipped to an agent for whole-graph execution
@@ -203,6 +241,11 @@ pub struct GraphWorkPacket {
     /// graph executor. Mirrors [`WorkPacket::language`].
     #[serde(default)]
     pub language: Option<String>,
+    /// CLOACI-T-0861 — secrets the graph needs, HPKE-wrapped to the agent's
+    /// ephemeral public key. Same semantics as [`WorkPacket::wrapped_secrets`];
+    /// the AAD binds each blob to `firing_id` + secret name.
+    #[serde(default)]
+    pub wrapped_secrets: Vec<WrappedSecret>,
 }
 
 /// Reference to a workflow artifact (cdylib) the agent must fetch + load.
@@ -318,6 +361,7 @@ mod tests {
             timeout_seconds: 60,
             tenant_id: Some("t1".into()),
             language: Some("rust".into()),
+            wrapped_secrets: Vec::new(),
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: WorkPacket = serde_json::from_str(&json).unwrap();

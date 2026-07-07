@@ -197,6 +197,13 @@ impl FleetGraphExecutor {
             timeout_seconds: 300,
             tenant_id: fire.tenant_id.clone(),
             language: Some(language),
+            // CLOACI-T-0861 SEAM: same as the per-task path in `fleet_executor.rs`
+            // — populate via `cloacina::security::resolve_and_wrap_secrets(...)`
+            // once the graph's declared secret names, the agent's advertised
+            // `ephemeral_public_key`, and a grant-gated `SecretStoreResolver` are
+            // plumbed here (`agent` is in scope but carries no pubkey yet). AAD
+            // uses `firing_id` as the execution id. Empty ⇒ no secrets wrapped.
+            wrapped_secrets: Vec::new(),
         };
         let payload = serde_json::to_vec(&packet).map_err(|e| {
             self.coordinator.cancel(firing_id);

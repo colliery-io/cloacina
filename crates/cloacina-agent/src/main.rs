@@ -41,11 +41,13 @@ use anyhow::{anyhow, bail, Context as _, Result};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use clap::Parser;
+use cloacina::crypto::envelope::{generate_ephemeral_keypair, EphemeralKeypair};
 use cloacina::fleet::{
     host_target_triple, AgentHeartbeatRequest, AgentRegisterRequest, AgentRegisterResponse,
     AgentResultRequest, AgentResultResponse, GraphWorkPacket, RefusalReason, WorkPacket,
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, GRAPH_PACKET_KIND, WORK_PACKET_KIND,
 };
+use cloacina::security::InMemorySecretResolver;
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use tokio::sync::mpsc;
@@ -183,6 +185,15 @@ async fn connect_and_serve(
     in_flight: Arc<AtomicU32>,
     cache_dir: Arc<std::path::PathBuf>,
 ) -> Result<()> {
+    // ── 0. CLOACI-T-0861 — mint a fresh ephemeral X25519 keypair for THIS
+    //       session. The public key is advertised at register; the private key is
+    //       held (in an Arc, shared across per-packet workers) to unwrap the
+    //       server's HPKE-wrapped secrets. Regenerated on every session/reconnect,
+    //       so a leaked key exposes at most one connection's secret resolutions.
+    //       (Granularity caveat vs. D-5 per-execution: see `security::fleet_secret`.)
+    let keypair = Arc::new(generate_ephemeral_keypair());
+    let ephemeral_public_key = Some(BASE64.encode(&keypair.public_key_bytes));
+
     // ── 1. Register (fresh each session — the server may have restarted and
     //       forgotten us, in which case a stale agent_id would be unroutable).
     let register_resp = register(
@@ -193,6 +204,7 @@ async fn connect_and_serve(
         args.max_concurrency,
         target_triple,
         &args.capabilities,
+        ephemeral_public_key,
     )
     .await
     .context("agent register failed")?;
@@ -238,6 +250,7 @@ async fn connect_and_serve(
             args.max_concurrency,
             in_flight.clone(),
             cache_dir.clone(),
+            keypair.clone(),
         )
         .await
     }
@@ -251,6 +264,7 @@ async fn connect_and_serve(
 // HTTP helpers
 // ────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn register(
     http: &reqwest::Client,
     server: &str,
@@ -259,6 +273,7 @@ async fn register(
     max_concurrency: u32,
     target_triple: &str,
     capabilities: &[String],
+    ephemeral_public_key: Option<String>,
 ) -> Result<AgentRegisterResponse> {
     let body = AgentRegisterRequest {
         protocol_version: AGENT_PROTOCOL_VERSION,
@@ -266,6 +281,10 @@ async fn register(
         max_concurrency,
         target_triple: target_triple.to_string(),
         capabilities: capabilities.to_vec(),
+        // CLOACI-T-0861 — advertise the ephemeral X25519 public key so the server
+        // can HPKE-wrap secrets to this agent. The private half stays in memory
+        // for the session (`keypair` in `run_session`) and never leaves.
+        ephemeral_public_key,
     };
     let resp = http
         .post(format!("{}/v1/agent/register", server))
@@ -362,6 +381,7 @@ async fn receive_loop<S>(
     max_concurrency: u32,
     in_flight: Arc<AtomicU32>,
     cache_dir: Arc<std::path::PathBuf>,
+    keypair: Arc<EphemeralKeypair>,
 ) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -397,6 +417,7 @@ where
                         max_concurrency,
                         &ack_tx,
                         &cache_dir,
+                        &keypair,
                     ).await {
                         warn!(error = ?e, "frame handling error");
                     }
@@ -429,6 +450,7 @@ async fn handle_text_frame(
     max_concurrency: u32,
     ack_tx: &mpsc::UnboundedSender<Message>,
     cache_dir: &Arc<std::path::PathBuf>,
+    keypair: &Arc<EphemeralKeypair>,
 ) -> Result<()> {
     let env: serde_json::Value = serde_json::from_str(&text)
         .with_context(|| format!("envelope JSON parse: {}", truncate(&text, 256)))?;
@@ -520,6 +542,7 @@ async fn handle_text_frame(
                 ack_tx.clone(),
                 push_id,
                 cache_dir.clone(),
+                keypair.clone(),
             );
         }
         other => {
@@ -576,6 +599,7 @@ fn spawn_packet_worker(
     ack_tx: mpsc::UnboundedSender<Message>,
     push_id: i64,
     cache_dir: Arc<std::path::PathBuf>,
+    keypair: Arc<EphemeralKeypair>,
 ) {
     in_flight.fetch_add(1, Ordering::SeqCst);
     tokio::spawn(async move {
@@ -587,6 +611,7 @@ fn spawn_packet_worker(
             &server,
             &api_key,
             cache_dir.as_path(),
+            &keypair,
         )
         .await;
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -1385,6 +1410,7 @@ async fn load_python_package(
 /// 5. **Build a `Context<serde_json::Value>`** from the inlined `WorkPacket.context`.
 /// 6. **Execute the task** under the packet's timeout. Map the outcome onto
 ///    `AgentOutcome::Success { context }` / `Failure {..}` / timeout.
+#[allow(clippy::too_many_arguments)]
 async fn process_work_packet(
     packet: &WorkPacket,
     agent_triple: &str,
@@ -1392,6 +1418,7 @@ async fn process_work_packet(
     server: &str,
     api_key: &str,
     cache_dir: &std::path::Path,
+    keypair: &EphemeralKeypair,
 ) -> cloacina::fleet::AgentOutcome {
     // 1-3. Resolve (or build) the per-package runtime, cached by digest.
     //
@@ -1462,7 +1489,7 @@ async fn process_work_packet(
     };
 
     // 5. Build context from the work packet.
-    let context = match build_context(&packet.context) {
+    let mut context = match build_context(&packet.context) {
         Ok(c) => c,
         Err(e) => {
             return cloacina::fleet::AgentOutcome::Failure {
@@ -1471,6 +1498,29 @@ async fn process_work_packet(
             };
         }
     };
+
+    // 5b. CLOACI-T-0861 — unwrap the HPKE-wrapped secrets with our ephemeral
+    //     private key into an in-memory resolver and attach it to the Context, so
+    //     the task body reads them via `ctx.secret(name)`. The plaintext lives
+    //     only in this resolver, only for the run; it is never persisted or logged
+    //     by the agent (NFR-001/NFR-003). The AAD is keyed by the packet's
+    //     `task_execution_id`, matching how the server wrapped it.
+    if !packet.wrapped_secrets.is_empty() {
+        match InMemorySecretResolver::from_wrapped(
+            &keypair.private,
+            &packet.wrapped_secrets,
+            &packet.task_execution_id,
+        ) {
+            Ok(resolver) => context.set_secret_resolver(resolver.into_arc()),
+            Err(e) => {
+                // Names only — `FleetSecretError` never renders a secret value.
+                return cloacina::fleet::AgentOutcome::Failure {
+                    message: format!("unwrap secrets: {}", e),
+                    classification: cloacina::fleet::FailureClassification::Validation,
+                };
+            }
+        }
+    }
 
     // 6. Execute under the packet's timeout.
     let timeout = std::time::Duration::from_secs(packet.timeout_seconds.max(1) as u64);
@@ -1687,6 +1737,7 @@ mod tests {
             timeout_seconds: 60,
             tenant_id: None,
             language: Some("rust".into()),
+            wrapped_secrets: Vec::new(),
         }
     }
 
@@ -1710,6 +1761,7 @@ mod tests {
             "http://nowhere.invalid:1",
             "ignored-key",
             tmp.as_path(),
+            &generate_ephemeral_keypair(),
         )
         .await;
         assert!(matches!(
@@ -1735,6 +1787,7 @@ mod tests {
             "http://127.0.0.1:1",
             "ignored",
             tmp.as_path(),
+            &generate_ephemeral_keypair(),
         )
         .await;
         assert!(matches!(

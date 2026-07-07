@@ -25,6 +25,7 @@
 pub mod api_keys;
 pub mod audit;
 mod db_key_manager;
+pub mod fleet_secret;
 mod key_manager;
 mod package_signer;
 mod secret_resolver;
@@ -32,6 +33,9 @@ mod secret_store;
 mod verification;
 
 pub use db_key_manager::DbKeyManager;
+pub use fleet_secret::{
+    resolve_and_wrap_secrets, secret_aad, wrap_field_map, FleetSecretError, InMemorySecretResolver,
+};
 pub use key_manager::{KeyError, KeyManager, PublicKeyExport, SigningKeyInfo, TrustedKeyInfo};
 pub use package_signer::{
     DbPackageSigner, DetachedSignature, PackageSignError, PackageSignatureInfo, PackageSigner,
