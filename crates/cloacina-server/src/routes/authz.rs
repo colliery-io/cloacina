@@ -826,7 +826,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            58,
+            59,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
