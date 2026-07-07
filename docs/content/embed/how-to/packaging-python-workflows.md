@@ -45,8 +45,12 @@ Key requirements:
   `Missing workflow source directory`.
 - `entry_module` in `package.toml` is the dotted path **relative to `workflow/`**
   (here, `data_pipeline.tasks`).
-- Tasks/triggers must register at import time (module level, inside a
-  `WorkflowBuilder` context).
+- Tasks/triggers must register at **import time** (module level) with **bare
+  `@cloaca.task` / `@cloaca.trigger` decorators** — do **not** wrap them in a
+  `WorkflowBuilder` context. The loader establishes the workflow context (from
+  `workflow_name`) before importing your module; a `WorkflowBuilder` here would
+  shadow it and the package would load with zero tasks. (`WorkflowBuilder` is only
+  for the in-process test path in Step 4.)
 
 ## Step 1: Write `package.toml`
 
@@ -320,10 +324,15 @@ initialization into task functions; the package is rejected with
 Remove or rename any vendored module that conflicts with the Python standard
 library (see the blocked list above).
 
-### "no tasks registered"
+### "no tasks registered" (or "Empty package: registered no tasks")
 
-Tasks must be defined inside a `WorkflowBuilder` context at module level. Tasks
-defined inside a function or behind a conditional won't be discovered on import.
+Tasks must register at **import time** with **bare `@cloaca.task` decorators at
+module level** — the loader builds the workflow context from `workflow_name`, so
+you do *not* wrap them in a `WorkflowBuilder` (wrapping shadows the loader's
+context and the package loads with zero tasks). Tasks defined inside a function or
+behind an `if __name__ == "__main__"` guard also won't be discovered on import.
+The `WorkflowBuilder` in Step 4 is strictly for running the module in-process; it
+is not part of the package.
 
 ## See Also
 

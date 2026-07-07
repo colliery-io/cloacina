@@ -42,10 +42,10 @@ If none of these are set, the command exits with an error message listing all th
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_BOOTSTRAP_KEY` | Pre-defined API key used as the initial admin key on first server startup. If set and no API keys exist in the database, this value is registered as the admin key instead of auto-generating one. | None (auto-generated) | `sk-my-secret-bootstrap-key-abc123` | Server | No |
-| `CLOACINA_REQUIRE_SIGNATURES` | When set (any value), the server enforces package signature verification at upload time. Requires `CLOACINA_VERIFICATION_ORG_ID` to also be set; startup fails fast otherwise. CLOACI-I-0103. | `false` (off) | `true` | Server | No |
-| `CLOACINA_VERIFICATION_ORG_ID` | Trusted organization UUID used to verify package signatures. **Required when `CLOACINA_REQUIRE_SIGNATURES` is set**. CLOACI-I-0103 / T-0567. | None | `12345678-1234-1234-1234-123456789abc` | Server | Conditional |
-| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB pool. Bump for high-cardinality SaaS; drop for memory-tight deployments. CLOACI-T-0580. | `256` | `1024` | Server | No |
-| `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; tasks ignoring cooperative cancellation will error on next DB write. CLOACI-T-0581. | `30` | `60` | Server | No |
+| `CLOACINA_REQUIRE_SIGNATURES` | When set (any value), the server enforces package signature verification at upload time. Requires `CLOACINA_VERIFICATION_ORG_ID` to also be set; startup fails fast otherwise. | `false` (off) | `true` | Server | No |
+| `CLOACINA_VERIFICATION_ORG_ID` | Trusted organization UUID used to verify package signatures. **Required when `CLOACINA_REQUIRE_SIGNATURES` is set**. | None | `12345678-1234-1234-1234-123456789abc` | Server | Conditional |
+| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB pool. Bump for high-cardinality SaaS; drop for memory-tight deployments. | `256` | `1024` | Server | No |
+| `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; tasks ignoring cooperative cancellation will error on next DB write. | `30` | `60` | Server | No |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins. **CORS is disabled by default** — set this to opt in (REQ-009). Use `*` to allow any origin. Needed when a browser app (e.g. the web UI on a different origin) calls the API. | None (CORS off) | `http://localhost:8082,https://app.example.com` | Server | No |
 | `CLOACINA_CORS_ALLOWED_METHODS` | Comma-separated CORS allowed methods. Only applies once origins are set. | `GET,POST,DELETE,OPTIONS` | `GET,POST` | Server | No |
 | `CLOACINA_CORS_ALLOWED_HEADERS` | Comma-separated CORS allowed request headers. Only applies once origins are set. | `authorization,content-type` | `authorization,content-type,x-tenant` | Server | No |
@@ -62,9 +62,9 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner cache cap |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |
-| `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to (CLOACI-T-0640). `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
-| `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. CLOACI-T-0639. |
-| `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). CLOACI-T-0639. |
+| `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
+| `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. |
+| `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
 | `CLOACINA_CORS_ALLOWED_METHODS` | `--cors-allowed-methods` | `GET,POST,DELETE,OPTIONS` | Comma-separated allowed methods. |
 | `CLOACINA_CORS_ALLOWED_HEADERS` | `--cors-allowed-headers` | `authorization,content-type` | Comma-separated allowed request headers. |
@@ -77,6 +77,22 @@ directly (and via the env vars above); the wrapper does **not** forward them,
 so set them on `cloacina-server` itself or through the environment.
 
 The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents.
+
+---
+
+## Authentication (OIDC / SSO)
+
+The server can federate login to an external OpenID Connect identity provider (single sign-on). OIDC is **opt-in**: if `CLOACINA_OIDC_ISSUER`, `CLOACINA_OIDC_CLIENT_ID`, and `CLOACINA_OIDC_REDIRECT_URI` are not all set, the OIDC login routes are simply not mounted and only local accounts / API keys are available. A validated OIDC identity is mapped to a cloacina principal by the god-owned allowlist in `CLOACINA_OIDC_MAP`; an identity matching no rule is **denied** (there is no implicit access). See [Configure OIDC / SSO login]({{< ref "/service/how-to/configure-oidc-sso" >}}) for the full setup.
+
+| Variable | Purpose | Default | Component | Required |
+|----------|---------|---------|-----------|----------|
+| `CLOACINA_OIDC_ISSUER` | OIDC issuer URL used for discovery + JWKS. Presence of this (with client id + redirect) is what mounts the OIDC login routes. | None (OIDC off) | Server | Conditional (all three of issuer/client-id/redirect to enable) |
+| `CLOACINA_OIDC_CLIENT_ID` | Relying-party client ID registered with the IdP. | None | Server | Conditional |
+| `CLOACINA_OIDC_CLIENT_SECRET` | Relying-party client secret. Empty when the IdP treats the client as public (PKCE). | Empty | Server | No |
+| `CLOACINA_OIDC_REDIRECT_URI` | Callback URL the IdP redirects to after login. Must match the server's `/v1/auth/callback` route as registered with the IdP. | None | Server | Conditional |
+| `CLOACINA_OIDC_SCOPES` | Comma-separated scopes requested at login. | `openid,email,profile,groups` | Server | No |
+| `CLOACINA_OIDC_MAP` | God-owned allowlist mapping IdP claims to `{tenant, role}`. `;`-separated rules `<match>=<tenant>:<role>`, where `<match>` is `group:NAME` / `domain:NAME` / `sub:NAME` and `<tenant>` may be `_` for a global principal. First matching rule wins; an unmatched identity is denied. Example: `group:acme-admins=acme:admin;domain:acme.com=acme:write`. | Empty (all identities denied) | Server | No (but empty = no OIDC access granted) |
+| `CLOACINA_OIDC_SUCCESS_REDIRECT` | When set, the browser login flow redirects here on success, handing the minted membership set to the SPA via the URL fragment. Unset = the callback returns the memberships as JSON. | None (JSON response) | Server | No |
 
 ---
 
@@ -96,7 +112,7 @@ The remaining agent options — `--agent-id`, `--max-concurrency` (default `4`),
 
 ## Fleet actuator & autoscaler
 
-These server-side variables drive the **agent self-management control plane** (CLOACI-I-0127): the server can hold a per-tenant agent-capacity limit, provision a per-tenant pool of `cloacina-agent` workloads on a pluggable substrate (the *actuator*), and autoscale that pool from observed utilization. The actuator and autoscaler only run when an actuator is selected — with `CLOACINA_FLEET_ACTUATOR=none` (the default) no pool is provisioned and the control loop does not start. A provisioned pool only does useful work when the server's [default executor]({{< ref "/service/explanation/execution-agent-fleet" >}}) is `fleet` (otherwise tasks run in-process and the agents sit idle).
+These server-side variables drive the **agent self-management control plane**: the server can hold a per-tenant agent-capacity limit, provision a per-tenant pool of `cloacina-agent` workloads on a pluggable substrate (the *actuator*), and autoscale that pool from observed utilization. The actuator and autoscaler only run when an actuator is selected — with `CLOACINA_FLEET_ACTUATOR=none` (the default) no pool is provisioned and the control loop does not start. A provisioned pool only does useful work when the server's [default executor]({{< ref "/service/explanation/execution-agent-fleet" >}}) is `fleet` (otherwise tasks run in-process and the agents sit idle).
 
 > **Fail-closed substrate guard.** `CLOACINA_FLEET_ACTUATOR` is validated against the detected host at boot. `docker` **refuses to start** when Kubernetes is detected (service-account token mount or `KUBERNETES_SERVICE_HOST`) or when no Docker socket is reachable; `kubernetes` refuses to start when the server is not running in-cluster. A misconfigured actuator is a fatal boot error, never a silent wrong-scaling.
 
@@ -104,19 +120,19 @@ These server-side variables drive the **agent self-management control plane** (C
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `CLOACINA_DEFAULT_MAX_AGENTS` | Platform-wide default ceiling on a tenant's agent count. The per-tenant *effective limit* is this value unless an admin sets a per-tenant override via `POST /v1/tenants/{id}/limits`. Provisioning and the autoscaler both clamp to the effective limit. CLOACI-T-0808. | `4` | `8` | Server | No |
-| `CLOACINA_INITIAL_AGENTS` | Agent(s) auto-provisioned (as `desired_count`) when a tenant is created, clamped to `min(initial_agents, default_max_agents)`. `0` disables auto-provision. Best-effort: a failure logs a warning but still returns tenant-created success. CLOACI-T-0812. | `1` | `2` | Server | No |
+| `CLOACINA_DEFAULT_MAX_AGENTS` | Platform-wide default ceiling on a tenant's agent count. The per-tenant *effective limit* is this value unless an admin sets a per-tenant override via `POST /v1/tenants/{id}/limits`. Provisioning and the autoscaler both clamp to the effective limit. | `4` | `8` | Server | No |
+| `CLOACINA_INITIAL_AGENTS` | Agent(s) auto-provisioned (as `desired_count`) when a tenant is created, clamped to `min(initial_agents, default_max_agents)`. `0` disables auto-provision. Best-effort: a failure logs a warning but still returns tenant-created success. | `1` | `2` | Server | No |
 
 ### Actuator selection
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `CLOACINA_FLEET_ACTUATOR` | Substrate the fleet actuator reconciles each tenant's running agent count on: `none` (actuation off), `docker` (dev-only — spawns labelled `cloacina-agent` containers), or `kubernetes` (scales a per-tenant `cloacina-agent` Deployment in the tenant's own namespace). Validated fail-closed against the host at boot. CLOACI-T-0810 / T-0814. | `none` | `kubernetes` | Server | No |
+| `CLOACINA_FLEET_ACTUATOR` | Substrate the fleet actuator reconciles each tenant's running agent count on: `none` (actuation off), `docker` (dev-only — spawns labelled `cloacina-agent` containers), or `kubernetes` (scales a per-tenant `cloacina-agent` Deployment in the tenant's own namespace). Validated fail-closed against the host at boot. | `none` | `kubernetes` | Server | No |
 | `CLOACINA_AGENT_IMAGE` | Agent image the actuator runs for each tenant. | `cloacina-agent:latest` | `ghcr.io/colliery-software/cloacina-agent:latest` | Server (actuator) | No |
 | `CLOACINA_AGENT_SERVER_URL` | Server URL injected into each spawned agent as `CLOACINA_SERVER` (the agent's registration target). | `http://server:8080` | `http://cloacina-server:8080` | Server (actuator) | No |
 | `CLOACINA_AGENT_NETWORK` | **Docker actuator only.** Docker network attached to each spawned agent container so it can reach the server (e.g. the compose network). Unset = the daemon default. Ignored by the Kubernetes actuator (in-cluster pods reach the server by Service DNS). | None | `cloacina_net` | Server (docker actuator) | No |
 
-#### Kubernetes agent-pod hardening (CLOACI-T-0819)
+#### Kubernetes agent-pod hardening
 
 These are read by the **Kubernetes actuator** and applied to every `cloacina-agent` pod it creates. The chart renders them from `fleet.agentResources` / `fleet.networkPolicy` when `fleet.actuator=kubernetes`; defaults are sane if unset. Agent pods are created non-root (uid/gid `10001`) with `readOnlyRootFilesystem`, dropped capabilities, and `seccompProfile: RuntimeDefault`, so they pass PodSecurity `restricted`. They carry **no httpGet probes** — the agent is a WebSocket client with no health endpoint; the server tracks liveness via heartbeat/eviction (`CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` × `CLOACINA_AGENT_LIVENESS_MISSES`).
 
@@ -140,7 +156,7 @@ The autoscaler is a single leader-gated control loop (one replica drives the fle
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `CLOACINA_AUTOSCALE` | Kill-switch for **only** the autoscale step. Off-values (`0`, `false`, `off`, `no`) freeze `desired_count` so operators drive it by hand (provision API); reconciliation keeps running. Defaults **on** whenever an actuator is active. CLOACI-T-0811. | on (when actuator ≠ `none`) | `false` | Server | No |
+| `CLOACINA_AUTOSCALE` | Kill-switch for **only** the autoscale step. Off-values (`0`, `false`, `off`, `no`) freeze `desired_count` so operators drive it by hand (provision API); reconciliation keeps running. Defaults **on** whenever an actuator is active. | on (when actuator ≠ `none`) | `false` | Server | No |
 | `CLOACINA_AUTOSCALE_UP_THRESHOLD` | Scale **up** by one when a tenant's utilization is strictly greater than this. | `0.8` | `0.75` | Server | No |
 | `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` | Scale **down** by one when utilization is strictly less than this. The gap to the up-threshold is the hysteresis band that prevents thrash. | `0.2` | `0.1` | Server | No |
 | `CLOACINA_AUTOSCALE_COOLDOWN_S` | Minimum wall-clock seconds between consecutive scale changes for a tenant. | `60` | `120` | Server | No |
@@ -220,6 +236,16 @@ These are examples only. You can define any `CLOACINA_VAR_*` name your workflows
 
 ---
 
+## Constructor Providers
+
+| Variable | Purpose | Default | Component | Required |
+|----------|---------|---------|-----------|----------|
+| `CLOACINA_PROVIDER_PATH` | Directory of unpacked provider packages that a `constructor!(from = "name[@version]")` reference resolves against. Resolution precedence is: a process-wide override set in code, then this variable, then the `providers` directory relative to the process CWD. Read by the Rust engine, the computation-graph loader, and the Python bindings alike. | `./providers` (relative to CWD) | Library, Computation Graph, Python | No |
+
+See [Consume a provider]({{< ref "/engine/constructors/consume-a-provider" >}}) for how providers are packaged and resolved.
+
+---
+
 ## Observability
 
 ### Logging
@@ -243,7 +269,7 @@ When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, no OpenTelemetry overhead is 
 
 ### Prometheus Metrics
 
-The server (and `cloacina-compiler`, per CLOACI-I-0109) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}).
+The server (and `cloacina-compiler`) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}).
 
 The top-of-mind metrics for operators:
 
@@ -252,8 +278,8 @@ The top-of-mind metrics for operators:
 - `cloacina_api_requests_total` (counter, by `method` + `status`).
 - `cloacina_workflow_duration_seconds` (histogram).
 - `cloacina_task_duration_seconds` (histogram).
-- `cloacina_active_workflows` (gauge, SQL-derived re-seed per CLOACI-I-0108).
-- `cloacina_active_tasks` (gauge, SQL-derived re-seed per CLOACI-I-0108).
+- `cloacina_active_workflows` (gauge, SQL-derived re-seed).
+- `cloacina_active_tasks` (gauge, SQL-derived re-seed).
 
 The legacy `cloacina_pipeline*` names (used in pre-2026 docs) are gone — emission was renamed to `workflow*` to match the user-facing primitive. See the metrics catalog for the full namespace.
 
@@ -355,9 +381,20 @@ Exposed on `localhost:9092`.
 
 | Variable | Purpose | Default | Component | Notes |
 |----------|---------|---------|-----------|-------|
-| `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Wall-clock cap on a single cargo build, per CLOACI-I-0104 OPS-10. | (binary default) | Compiler | Past timeout, the build row is marked `timed_out`; the stale-build sweeper reclaims it. |
-| `CLOACINA_COMPILER_VENDOR_DIR` | Path to the curated pre-vendored cargo registry. Defaults to a directory under `CLOACINA_HOME`. | (binary default) | Compiler | Builds run with `--frozen --offline` against this directory. CLOACI-I-0104. |
-| `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. CLOACI-I-0104. |
+| `CLOACINA_COMPILER_SANDBOX` | Process-isolation posture for the build sandbox. `required` = builds run under the bwrap namespace sandbox (level 1) or the compiler **refuses to start**; `preferred` = use the best available level, logging any downgrade loudly; `off` = no process sandbox (dev laptops only). Validated **fail-closed at boot** — an invalid value or a `required` selection with no bwrap available is a fatal boot error, never a silent downgrade. See [Compiler Build Sandbox]({{< ref "/service/compiler-sandbox" >}}). | `preferred` | Compiler | The achieved level (bwrap / landlock / none) is recorded on every build's audit row. |
+| `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Wall-clock cap on a single cargo build (seconds). | `600` | Compiler | Past timeout, the build is killed and the row is left for the stale-build sweeper to reclaim. |
+| `CLOACINA_COMPILER_VENDOR_DIR` | `CARGO_HOME` for the cargo subprocess — point it at a curated pre-vendored source tree. | (cargo's usual `~/.cargo` when unset) | Compiler | Combined with `--frozen --offline` so package builds resolve only what the operator has allowed. |
+| `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. |
+
+### Compiler tenant / target scoping (also accept env vars)
+
+These `cloacina-compiler` CLI flags accept env-var equivalents (via `clap`'s `env = "..."`). They partition build work across dedicated compiler processes.
+
+| Variable | CLI Flag | Default | Description |
+|----------|----------|---------|-------------|
+| `CLOACINA_TENANT_SCHEMA` | `--tenant-schema` | None (public schema) | Scope this compiler to one tenant's Postgres schema for build isolation. When set, it claims and builds **only** that tenant's pending packages (separate source, logs, and target dir per tenant). Run one compiler per tenant, mirroring the tenant-scoped agent fleet. |
+| `CLOACINA_BUILD_TARGET` | `--build-target` | None (primary host compiler) | Run as a **per-target** compiler producing cdylibs for this triple (e.g. `x86_64-linux`). Scan-and-fills `package_artifacts` for success packages lacking this arch, building natively — run the container on that arch. Omit for the primary host compiler that claims pending rows. |
+| `CLOACINA_BUILD_TARGET_PACKAGE` | `--build-target-package` | None | Restrict the per-target scan to a single package name (keeps an emulated build cheap). Only meaningful alongside `CLOACINA_BUILD_TARGET`. |
 
 ## Install script (`install.sh`)
 
@@ -403,10 +440,22 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_SERVER` | Agent | Server base URL the agent registers with |
 | `CLOACINA_API_KEY` | Agent | Agent API key (tenant scope) |
 | `CLOACINA_AGENT_CACHE_DIR` | Agent | Fetched-cdylib cache directory |
-| `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap |
-| `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | Curated vendored cargo registry path |
+| `CLOACINA_COMPILER_SANDBOX` | Compiler | Build sandbox posture `required` / `preferred` / `off` (default `preferred`; fail-closed at boot) |
+| `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap (default `600`) |
+| `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | `CARGO_HOME` pointed at a curated vendored source tree |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Compiler | Per-build setrlimit caps |
+| `CLOACINA_TENANT_SCHEMA` | Compiler | Scope the compiler to one tenant's schema for build isolation |
+| `CLOACINA_BUILD_TARGET` | Compiler | Run as a per-target compiler for this triple (e.g. `x86_64-linux`) |
+| `CLOACINA_BUILD_TARGET_PACKAGE` | Compiler | Restrict the per-target scan to one package name |
+| `CLOACINA_OIDC_ISSUER` | Server | OIDC issuer URL (enables SSO login when set with client-id + redirect) |
+| `CLOACINA_OIDC_CLIENT_ID` | Server | OIDC relying-party client ID |
+| `CLOACINA_OIDC_CLIENT_SECRET` | Server | OIDC relying-party client secret (empty for public/PKCE clients) |
+| `CLOACINA_OIDC_REDIRECT_URI` | Server | OIDC callback URL (matches `/v1/auth/callback`) |
+| `CLOACINA_OIDC_SCOPES` | Server | Requested scopes (default `openid,email,profile,groups`) |
+| `CLOACINA_OIDC_MAP` | Server | God-owned claim→`{tenant, role}` allowlist; unmatched identities denied |
+| `CLOACINA_OIDC_SUCCESS_REDIRECT` | Server | Browser success-redirect URL; unset returns memberships as JSON |
 | `CLOACINA_VAR_*` | Library, Python | User-defined runtime variables |
+| `CLOACINA_PROVIDER_PATH` | Library, Computation Graph, Python | Provider search-path directory `constructor!(from = …)` resolves against (default `./providers`) |
 | `RUST_LOG` | All | Log/trace filter level |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Server (telemetry) | OTLP collector endpoint |
 | `OTEL_SERVICE_NAME` | Server (telemetry) | Service name in traces |

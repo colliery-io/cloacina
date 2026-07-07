@@ -55,7 +55,7 @@ middleware honours it (enables end-to-end trace propagation).
 ### Live event streaming (WebSocket)
 
 Live execution-event streaming is delivered over the WebSocket delivery
-substrate (CLOACI-I-0115), not SSE. The CLI's `execution events --follow` mints a
+substrate, not SSE. The CLI's `execution events --follow` mints a
 single-use WebSocket ticket (`POST /v1/auth/ws-ticket`), connects to the
 delivery endpoint addressed at `exec_events:<execution_id>`, and tails events
 live until interrupted. For a historical snapshot, poll
@@ -149,6 +149,31 @@ Prometheus metrics endpoint.
 # TYPE cloacina_up gauge
 cloacina_up 1
 ```
+
+### GET /openapi.json
+
+Machine-readable OpenAPI contract for the server. This is the same document the `cloacinactl server emit-openapi` subcommand writes to disk.
+
+**Response:** `200 OK` with `Content-Type: application/json` — the OpenAPI spec.
+
+## Login and Sessions
+
+These endpoints establish and manage an interactive login session. The
+**login** endpoints are **public** (the caller has no bearer key yet — they
+mint one), while the **session-lifecycle** endpoints act on the caller's own
+key and require authentication.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/v1/auth/local/login` | Public | Exchange local-account credentials for API key(s). Returns the membership set (one scoped key per tenant the account belongs to). |
+| `GET`  | `/v1/auth/oidc/login` | Public | Begin the OIDC authorization-code flow — redirects the browser to the configured identity provider. Only mounted when OIDC is configured (`CLOACINA_OIDC_ISSUER` et al.). |
+| `GET`  | `/v1/auth/callback` | Public | OIDC redirect target. Validates the ID token, maps claims to principals via `CLOACINA_OIDC_MAP`, and mints one scoped key per matched tenant. On success it returns the membership set as JSON, or (when `CLOACINA_OIDC_SUCCESS_REDIRECT` is set) redirects to the SPA with the memberships in the URL fragment. |
+| `POST` | `/v1/auth/refresh` | Authenticated (any role) | Refresh the caller's own login session. |
+| `POST` | `/v1/auth/logout` | Authenticated (any role) | End the caller's own login session. |
+| `GET`  | `/v1/auth/whoami` | Authenticated (any role) | Return the caller's own tenant scope and role, so a UI can gate write/admin controls. |
+
+See [Configure OIDC / SSO login]({{< ref "/service/how-to/configure-oidc-sso" >}})
+for the identity-provider setup and claim-mapping policy.
 
 ## Key Management
 
@@ -322,6 +347,71 @@ Create an API key scoped to a specific tenant. Only `is_admin` (god-mode) keys c
 | `403` | `{"error": "admin access required"}` | Caller is not an `is_admin` (god-mode) key |
 | `500` | `{"error": "failed to create API key"}` | Database error |
 
+### GET /v1/tenants/{tenant_id}/keys
+
+List the API keys scoped to a tenant. **Tenant-admin** — a caller with the
+`admin` role within `{tenant_id}` may list its own tenant's keys; a god-mode
+(`is_admin`) key may list any tenant's. No hashes or plaintext are returned.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `tenant_id` | string | Tenant identifier (schema name) |
+
+**Response:** `200 OK` — same key-listing shape as `GET /v1/auth/keys`, filtered to the tenant.
+
+**Errors:**
+
+| Status | Body | Cause |
+|---|---|---|
+| `403` | `{"error": "insufficient permissions"}` | Caller is not a tenant-admin for `{tenant_id}` (and not god-mode) |
+| `500` | `{"error": "failed to list API keys"}` | Database error |
+
+### DELETE /v1/tenants/{tenant_id}/keys/{key_id}
+
+Revoke a tenant-scoped API key. **Tenant-admin.** The handler additionally
+verifies the target key belongs to `{tenant_id}`, so a tenant-admin cannot
+revoke another tenant's keys.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `tenant_id` | string | Tenant identifier (schema name) |
+| `key_id` | UUID | The key's unique identifier |
+
+**Response:** `200 OK`
+
+```json
+{"status": "revoked", "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"}
+```
+
+**Errors:**
+
+| Status | Body | Cause |
+|---|---|---|
+| `403` | `{"error": "insufficient permissions"}` | Caller is not a tenant-admin for `{tenant_id}`, or the key belongs to a different tenant |
+| `404` | `{"error": "key not found or already revoked"}` | Key does not exist or was already revoked |
+
+## Local Accounts
+
+Local accounts are username/password identities scoped to a tenant. They log in
+via `POST /v1/auth/local/login` (see [Login and Sessions](#login-and-sessions)) to
+mint API keys. All management endpoints are **tenant-admin** — a caller with the
+`admin` role within `{tenant_id}` manages that tenant's accounts; god-mode
+(`is_admin`) may manage any tenant's.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/v1/tenants/{tenant_id}/accounts` | Tenant-admin | Create a local account in the tenant. |
+| `GET`  | `/v1/tenants/{tenant_id}/accounts` | Tenant-admin | List the tenant's local accounts. |
+| `DELETE` | `/v1/tenants/{tenant_id}/accounts/{account_id}` | Tenant-admin | Disable a local account. |
+| `POST` | `/v1/tenants/{tenant_id}/accounts/{account_id}/password` | Tenant-admin | Reset an account's password. |
+
+**Errors** (all four): `403` `{"error": "insufficient permissions"}` when the
+caller is not a tenant-admin for `{tenant_id}` (and not god-mode).
+
 ## Tenant Management
 
 Tenants are isolated PostgreSQL schemas. Each tenant gets its own schema, database user, permissions, and migrations.
@@ -348,7 +438,7 @@ Create a new tenant. **Admin-only** (requires an `is_admin` key).
 | `description` | string | no | Operator-facing metadata; surfaced in audit logs and listing responses. |
 | `password` | string | no | Optional password. Omit or set `null` to trigger auto-generation (32 chars, ~202 bits entropy). |
 
-> **Breaking change (CLOACI-T-0594 / API-01):** the previous body
+> **Breaking change:** the previous body
 > shape `{schema_name, username, password}` is no longer accepted.
 > Direct API consumers must migrate to `{name, description?, password?}`.
 > The schema name and database username are both derived from `name`
@@ -396,8 +486,7 @@ List all tenant schemas.
 
 ### DELETE /v1/tenants/{schema_name}
 
-Remove a tenant via the **4-step teardown orchestration** introduced
-in CLOACI-T-0581. **Admin-only** (requires an `is_admin` key).
+Remove a tenant via the **4-step teardown orchestration**. **Admin-only** (requires an `is_admin` key).
 
 The steps are top-down and each emits a structured audit event with
 duration:
@@ -553,12 +642,12 @@ Get details for a specific workflow by package name.
 
 | Field | Type | Description |
 |---|---|---|
-| `workflow_name` | string | Executable workflow name (the identifier to execute by). Differs from `package_name` under the standard convention (package `demo-slow-rust` → workflow `demo_slow_workflow`); falls back to `package_name` for packages predating workflow-name persistence (CLOACI-T-0671). |
+| `workflow_name` | string | Executable workflow name (the identifier to execute by). Differs from `package_name` under the standard convention (package `demo-slow-rust` → workflow `demo_slow_workflow`); falls back to `package_name` for packages predating workflow-name persistence. |
 | `build_status` | string | Real build state: `pending` / `building` / `failed` / `success`. |
 | `build_error` | string \| null | Build failure detail when `build_status` is `failed`. |
-| `paused` | boolean | Whether this workflow is paused (CLOACI-T-0749). A paused workflow refuses new executions until resumed. |
-| `declared_params` | array | Declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time (CLOACI-I-0128). Empty when undeclared; same slot shape as the `/interface` surfaces. The execute endpoint validates the submitted `context` against these. |
-| `task_graph` | array | Task dependency graph (nodes + upstream deps) for rendering the DAG. Empty for packages predating task-graph persistence (CLOACI-T-0663). |
+| `paused` | boolean | Whether this workflow is paused. A paused workflow refuses new executions until resumed. |
+| `declared_params` | array | Declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time. Empty when undeclared; same slot shape as the `/interface` surfaces. The execute endpoint validates the submitted `context` against these. |
+| `task_graph` | array | Task dependency graph (nodes + upstream deps) for rendering the DAG. Empty for packages predating task-graph persistence. |
 
 **Errors:**
 
@@ -569,7 +658,7 @@ Get details for a specific workflow by package name.
 ### GET /v1/tenants/{tenant_id}/workflows/{name}/source
 
 Return the original source files retained in the package's `.cloacina`
-archive, surfaced **read-only** for display (CLOACI-T-0750). Source is
+archive, surfaced **read-only** for display. Source is
 independent of build state, so it's available even while a package is
 building or after a failed build. `name` may be a package name or a
 package UUID (matching `GET .../workflows/{name}`).
@@ -619,7 +708,7 @@ package UUID (matching `GET .../workflows/{name}`).
 
 ### POST /v1/tenants/{tenant_id}/workflows/{name}/pause
 
-Pause a workflow (CLOACI-T-0749). Blocks new executions of the workflow
+Pause a workflow. Blocks new executions of the workflow
 (manual **and** triggered) until resumed. In-flight executions are
 unaffected. `name` may be the workflow name or package name. Requires a
 `write`-or-better key.
@@ -648,7 +737,7 @@ surfaces on `GET .../workflows/{name}`.
 
 ### POST /v1/tenants/{tenant_id}/workflows/{name}/resume
 
-Resume a paused workflow (CLOACI-T-0749). New executions are accepted
+Resume a paused workflow. New executions are accepted
 again. Same response shape as `/pause` with `status: "resumed"` and
 `paused: false`. Requires a `write`-or-better key.
 
@@ -716,14 +805,14 @@ Execute a workflow. Returns immediately with a scheduled execution ID.
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `workflow_input_invalid` | The submitted `context` failed validation against the workflow's `declared_params` (CLOACI-T-0757). Undeclared workflows accept free-form context and never raise this. |
+| `400` | `workflow_input_invalid` | The submitted `context` failed validation against the workflow's `declared_params`. Undeclared workflows accept free-form context and never raise this. |
 | `400` | (other) | Generic execution failure (`{"error": "<detail>"}`). |
-| `409` | `workflow_paused` | The workflow is paused (CLOACI-T-0749); resume it before executing. |
+| `409` | `workflow_paused` | The workflow is paused; resume it before executing. |
 
 ### GET /v1/tenants/{tenant_id}/executions
 
 List workflow executions for a tenant. Supports filtering and
-pagination (CLOACI-T-0594 / API-02; previously these query params
+pagination (previously these query params
 were silently discarded).
 
 **Query parameters:**
@@ -822,6 +911,27 @@ Get the execution event log for a specific execution.
 | `400` | `{"error": "invalid execution ID"}` |
 | `500` | `{"error": "<detail>"}` |
 
+### GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks
+
+List the per-task status rows for a single execution — the task-level breakdown
+of an execution's progress. **Tenant-scoped read.**
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `tenant_id` | string | Tenant identifier |
+| `exec_id` | UUID | Execution identifier |
+
+**Response:** `200 OK` — the execution's tasks with their individual statuses.
+
+**Errors:**
+
+| Status | Body |
+|---|---|
+| `400` | `{"error": "invalid execution ID"}` |
+| `404` | `{"error": "<detail>"}` |
+
 ## Triggers
 
 Read-only listing of cron and trigger schedules.
@@ -829,7 +939,7 @@ Read-only listing of cron and trigger schedules.
 ### GET /v1/tenants/{tenant_id}/triggers
 
 List all schedules (cron and trigger) for a tenant. Supports
-pagination per CLOACI-T-0596 / API-10.
+pagination.
 
 **Query parameters:**
 
@@ -922,11 +1032,11 @@ Get trigger details and recent executions. Matches by trigger name or workflow n
 ### POST /v1/tenants/{tenant_id}/triggers/{name}/fire
 
 Manually fire a trigger, **fanning out to every subscribed workflow**
-(CLOACI-T-0777). One operator action instead of running each workflow by
+. One operator action instead of running each workflow by
 hand. An optional `event` is merged into each fired workflow's context
 (alongside the trigger metadata) and validated against the trigger's
 declared pass-through schema (see `/interface` below). The started
-executions are marked `manual` (CLOACI-T-0776). `name` resolves by
+executions are marked `manual`. `name` resolves by
 trigger name or workflow name.
 
 **Request:**
@@ -969,7 +1079,7 @@ started); `executions` lists each `(workflow_name, execution_id)`.
 
 ### GET /v1/tenants/{tenant_id}/triggers/{name}/interface
 
-The trigger's declared pass-through schema (CLOACI-T-0777): the union of
+The trigger's declared pass-through schema: the union of
 the declared params of every workflow subscribed to this trigger. Empty
 `slots` means an untyped trigger (free-form event). Read-only discovery
 — the same slots back the validation in `/fire`, and the web UI builds a
@@ -997,7 +1107,7 @@ with an optional `default`).
 
 ### POST /v1/tenants/{tenant_id}/triggers/{name}/pause
 
-Pause a schedule (CLOACI-T-0749). Resolves the schedule by trigger name
+Pause a schedule. Resolves the schedule by trigger name
 or workflow name (same as `GET .../triggers/{name}`) and sets it paused
 so the scheduler stops firing it. Works for **both** `trigger` and
 `cron` schedules. In-flight executions are unaffected; this only gates
@@ -1026,7 +1136,7 @@ addressed by; `paused` reflects the resulting state.
 
 ### POST /v1/tenants/{tenant_id}/triggers/{name}/resume
 
-Resume a paused schedule (CLOACI-T-0749). Re-arms it on the normal
+Resume a paused schedule. Re-arms it on the normal
 schedule; missed fires are **not** caught up (skip policy). Same
 response shape as `/pause` with `status: "resumed"` and `paused: false`.
 Requires a `write`-or-better key.
@@ -1038,7 +1148,7 @@ Health endpoints for the computation graph system. These endpoints require authe
 ### GET /v1/health/accumulators
 
 List accumulators visible to the caller, with health **and freshness**
-(CLOACI-T-0765). Results are filtered by each accumulator's authorization policy.
+. Results are filtered by each accumulator's authorization policy.
 
 **Response:** `200 OK` — unified `{items, total}` envelope.
 
@@ -1120,7 +1230,7 @@ Get health details for a specific computation graph.
 
 ### GET /v1/health/reactors
 
-List loaded reactors visible to the caller (CLOACI-T-0742).
+List loaded reactors visible to the caller.
 **Reactor-first:** reactors are standalone (a graph binds to a reactor,
 not vice versa), so a reactor with no graph bound appears here even
 though `GET /v1/health/graphs` omits it. Visibility reuses the same
@@ -1159,7 +1269,7 @@ tenant gate as graphs.
 
 ### GET /v1/health/reactors/{name}/fires
 
-Recent fires for a reactor, newest first (CLOACI-T-0766). Makes the reactive
+Recent fires for a reactor, newest first. Makes the reactive
 layer observable: what fired, whether it completed, how long it took, and why it
 failed.
 
@@ -1179,7 +1289,7 @@ failed.
 
 ### GET /v1/health/reactors/{name}/fires/timeseries
 
-Fire counts per minute for the last 60 minutes (CLOACI-T-0766), oldest → newest,
+Fire counts per minute for the last 60 minutes, oldest → newest,
 gaps filled with `0`; the last entry is the current minute. Backs the
 fire-activity heatmap in the web UI.
 
@@ -1194,7 +1304,7 @@ fire-activity heatmap in the web UI.
 
 ### POST /v1/health/reactors/{name}/fire
 
-Manually fire a reactor (CLOACI-T-0751). `force_fire` fires with the reactor's
+Manually fire a reactor. `force_fire` fires with the reactor's
 current cache; `fire_with` injects typed per-source `inputs` first, then fires.
 
 **Request body:**
@@ -1209,14 +1319,14 @@ current cache; `fire_with` injects typed per-source `inputs` first, then fires.
 
 ### POST /v1/health/accumulators/{name}/inject
 
-Push a single typed event into a running accumulator (CLOACI-T-0753) — the REST
+Push a single typed event into a running accumulator — the REST
 analogue of the accumulator WebSocket push.
 
 **Request body:** `{ "event": { "best_bid": 100.1, "best_ask": 100.4 } }`
 
 ### GET /v1/health/{reactors|accumulators}/{name}/interface
 
-The declared input interface (CLOACI-I-0128 / T-0758): the typed slots an
+The declared input interface: the typed slots an
 operator supplies to `fire_with` / `inject`. Slot schemas are derived from the
 boundary type **when it derives `schemars::JsonSchema`** — otherwise `schema` is
 an empty/permissive `{}`. The web UI renders these as typed forms.
@@ -1236,7 +1346,7 @@ an empty/permissive `{}`. The web UI renders these as typed forms.
 ## Tenant agent fleet
 
 These endpoints manage a tenant's **agent-capacity limit** and **self-service
-fleet scaling** — the per-tenant control plane introduced in CLOACI-I-0127. They
+fleet scaling** — the per-tenant control plane. They
 set a `desired_count` (the operational target the
 [fleet actuator]({{< ref "/service/explanation/execution-agent-fleet" >}}#pluggable-actuators--substrate-guard)
 and autoscaler reconcile toward); they do **not** themselves start containers.
@@ -1392,9 +1502,47 @@ limit/provision surface that decides how many agents a tenant runs, see
 | `POST` | `/v1/agent/heartbeat` | Liveness heartbeat; missing heartbeats let the sweeper evict the agent and reassign its in-flight work. |
 | `POST` | `/v1/agent/result` | An agent returns the outcome of a dispatched unit of work. |
 | `GET`  | `/v1/agent/artifact/{digest}` | An agent fetches a content-addressed package artifact by digest. |
+| `GET`  | `/v1/agent/source/{digest}` | An agent fetches a content-addressed **source** bundle by digest (for build-on-agent flows). |
+| `GET`  | `/v1/agent/providers/{digest}` | An agent fetches a content-addressed **provider** bundle by digest. |
+
+All of these require an authenticated key (any role); the roster/liveness
+handlers scope work to the caller's tenant.
 
 See [Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}})
 for how the fleet coordinates, and [Deploy an Execution-Agent Fleet]({{< ref "/service/how-to/deploy-an-execution-agent-fleet" >}}) to run one.
+
+## Admin & Operations
+
+Operator-facing read endpoints for observing the fleet and build pipeline.
+These are distinct from the agent-consumed `/v1/agent/*` endpoints above.
+
+### GET /v1/agents
+
+The execution-agent roster: the agents currently registered with this server
+replica, with their advertised capacity and liveness. **Tenant-admin** — the
+handler filters the roster to the caller's own tenant; a god-mode (`is_admin`)
+key sees every tenant's agents.
+
+**Response:** `200 OK` — the list of registered agents.
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `403` | `insufficient_permissions` | Caller lacks the `admin` role. |
+
+### GET /v1/compiler/status
+
+Build-pipeline status from the compiler service (queue depth, recent build
+outcomes). **Platform-admin only** (god-mode `is_admin` key).
+
+**Response:** `200 OK` — the compiler / build-pipeline status.
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `403` | `admin_required` | Caller is not an `is_admin` (god-mode) key. |
 
 ## WebSocket Endpoints
 
@@ -1448,7 +1596,7 @@ them.
 
 ### Tenant database isolation
 
-The following caveats were **closed by the CLOACI-I-0106 multi-tenant
+The following caveats were **closed by the multi-tenant
 abstraction** (T-0579, T-0580, T-0581) — they are described here in
 their current resolved state. The earlier "isolation gap" framing has
 been removed.
@@ -1456,13 +1604,13 @@ been removed.
 - **Per-tenant runner instances.** Each tenant has its own
   `DefaultRunner` (with its own scheduler loop, executor pool, and
   per-tenant DB pool), cached in `TenantRunnerCache` up to the
-  `--tenant-runner-cache-size` cap (default 256, CLOACI-T-0580).
+  `--tenant-runner-cache-size` cap (default 256).
   Workflow execution lands in the tenant's schema, not in `public`.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers`
   routes through the tenant-scoped `Database` from
-  `TenantDatabaseCache` (CLOACI-T-0579), so the underlying SQL hits
+  `TenantDatabaseCache`, so the underlying SQL hits
   the tenant's `schedules` table, not a shared global table.
-- **Cache eviction on tenant delete** (CLOACI-T-0581). The
+- **Cache eviction on tenant delete**. The
   `DELETE /v1/tenants/{name}` route runs the 4-step teardown
   orchestration (revoke keys → evict runner cache → evict DB cache →
   drop schema); both `TenantRunnerCache` and `TenantDatabaseCache`
@@ -1470,7 +1618,7 @@ been removed.
   is no longer required** — subsequent requests to a deleted tenant
   return `404`, not stale-pool errors.
 - **Fail-closed `SET search_path`.** Per-tenant connection
-  acquisition (CLOACI-I-0106) sets `search_path` strictly to the
+  acquisition sets `search_path` strictly to the
   tenant's schema; a failed `SET search_path` is a hard, fail-closed
   error rather than a silent fall-through to `public`. This closes
   the cross-tenant data-leak risk that existed pre-I-0106.

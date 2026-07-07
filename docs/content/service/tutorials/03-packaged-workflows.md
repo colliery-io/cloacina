@@ -61,7 +61,9 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina-workflow = "0.7.0"  # Includes macros by default
+# The "packaged" feature emits the FFI exports a server loads at runtime;
+# "macros" pulls in the #[workflow]/#[task] attribute macros.
+cloacina-workflow = { version = "0.7.0", features = ["packaged", "macros"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -76,7 +78,7 @@ Workflow packages have different requirements:
 
 1. **Library crate**: Use `lib.rs` instead of `main.rs`
 2. **Crate type**: Must include `"cdylib"` for shared library generation
-3. **`features = ["packaged"]`**: Enable the `packaged` feature on `cloacina-workflow` for FFI export generation
+3. **`features = ["packaged", "macros"]`**: Enable `packaged` on `cloacina-workflow` for FFI export generation, plus `macros` for the `#[workflow]`/`#[task]` attribute macros
 
 This configuration allows the workflow to be compiled as both a regular library (`rlib`) and a shared library (`cdylib`) for dynamic loading. The database backend (PostgreSQL or SQLite) is detected automatically at runtime based on the connection URL.
 {{< /hint >}}
@@ -253,7 +255,7 @@ Step 3: Executing workflow...
 
 ## Variations
 
-- **Package it by hand** instead of via the demo: `cloacinactl package . -o simple-demo.cloacina`, then `cloacinactl inspect simple-demo.cloacina` to see the bundled metadata, tasks, and platform target. See the [CLI Reference]({{< ref "/reference/cli" >}}).
+- **Package it by hand** instead of via the demo: `cloacinactl package pack . --out simple-demo.cloacina`, then `cloacinactl package validate simple-demo.cloacina` to check the archive against the canonical format without uploading. See the [CLI Reference]({{< ref "/reference/cli" >}}).
 - **Run the unit tests** for the workflow logic alone: `cargo test`.
 
 ## Next Steps

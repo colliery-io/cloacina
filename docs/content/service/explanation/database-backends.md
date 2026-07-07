@@ -122,6 +122,7 @@ let runner = DefaultRunner::new("sqlite://:memory:").await?;
 
 | Feature | PostgreSQL | SQLite |
 |---------|------------|---------|
+| Setup complexity | Moderate (requires a server) | Minimal (zero external dependencies) |
 | ACID Compliance | Full | Full |
 | Triggers | Yes | No (handled in application) |
 | Default Timestamps | Yes | No (handled in application) |
@@ -129,6 +130,14 @@ let runner = DefaultRunner::new("sqlite://:memory:").await?;
 | JSON Validation | Native | Via CHECK constraints |
 | Performance | High for concurrent loads | High for single-user loads |
 | Deployment | Requires server | Embedded, no server needed |
+| Multi-tenancy (schema isolation) | Full support (`with_schema`) | Not supported |
+| Per-tenant credentials / `DatabaseAdmin` | Available | Not available |
+| Production readiness | Yes | Development / single-tenant / embedded only |
+
+Multi-tenancy and the per-tenant credential Admin API are the two decision axes
+that hard-gate the choice: any deployment that needs isolated tenants, or the
+`DatabaseAdmin` provisioning surface, must use PostgreSQL. SQLite remains a
+first-class choice for development, single-tenant, and embedded deployments.
 
 ## SQLite Configuration
 

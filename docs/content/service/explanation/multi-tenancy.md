@@ -34,18 +34,18 @@ Multi-tenancy in Cloacina is **not** a security feature - it's a data organizati
 Multi-tenancy lives at two different layers depending on how Cloacina is deployed; the differences are non-trivial and worth getting straight.
 
 - **Embedded library (`DefaultRunner::with_schema`)** — the host application is the trust boundary. Schema scoping is enforced at the connection pool layer; the application chooses which schema to address per-runner. Cloacina provides the isolation primitives; the host owns enforcement.
-- **Server (`cloacina-server`)** — the server itself enforces multi-tenancy. Per CLOACI-I-0106 / T-0579 / T-0580 / T-0581, every authenticated request runs through a tenant-access check, executes against a per-tenant cached `DefaultRunner`, and uses fail-closed `SET search_path` enforcement at connection acquisition. The server is the trust boundary.
+- **Server (`cloacina-server`)** — the server itself enforces multi-tenancy. Every authenticated request runs through a tenant-access check, executes against a per-tenant cached `DefaultRunner`, and uses fail-closed `SET search_path` enforcement at connection acquisition. The server is the trust boundary.
 
 The rest of this document discusses both. Where the two diverge, sections are tagged accordingly.
 
-### Post-I-0106 server-mode guarantees (the current state)
+### Server-mode guarantees (the current state)
 
-The historical "isolation gaps" framing that pre-2026 versions of this document used has been closed by CLOACI-I-0106 and its rollout tasks (T-0579, T-0580, T-0581). The current state in server mode:
+Earlier server releases had known "isolation gaps"; current releases have closed them. The current state in server mode:
 
-- **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, **not** a silent fall-through to `public`. Closes the cross-tenant data-leak risk that existed before I-0106.
+- **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, **not** a silent fall-through to `public`. Closes the cross-tenant data-leak risk that existed in earlier releases.
 - **Per-tenant `DefaultRunner` instances.** Each tenant has its own runner — its own scheduler loop, executor pool, and per-tenant DB connection pool — cached in `TenantRunnerCache` (LRU, default 256 entries, controlled by `--tenant-runner-cache-size`). Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger / graph / accumulator filtering.** `GET /v1/tenants/{id}/triggers` (and the graph/accumulator health endpoints) route through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
-- **4-step teardown orchestration on `DELETE /v1/tenants/{name}`** (CLOACI-T-0581):
+- **4-step teardown orchestration on `DELETE /v1/tenants/{name}`:**
   1. Revoke every still-active API key for the tenant (close the auth surface).
   2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`, awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s`, default 30s). Past the timeout the runner is **hard-evicted** — tasks that ignore cooperative cancellation error on their next DB write once step 4 lands.
   3. Evict the tenant's `Database` from `TenantDatabaseCache` (releases the connection pool).
@@ -53,16 +53,16 @@ The historical "isolation gaps" framing that pre-2026 versions of this document 
 
   Each step emits a structured audit event with duration. Per-step failures bail out; earlier steps stay committed and are idempotent, so a retry resumes from the failure point.
 
-The "restart `cloacina-server` to reclaim the cache after a tenant delete" workaround documented in pre-I-0106 versions of this page is **gone** — both `TenantRunnerCache` and `TenantDatabaseCache` are evicted as part of the teardown.
+The "restart `cloacina-server` to reclaim the cache after a tenant delete" workaround documented in earlier releases is **gone** — both `TenantRunnerCache` and `TenantDatabaseCache` are evicted as part of the teardown.
 
 For the operational mechanics (how to actually decommission a tenant), see [Decommission a Tenant]({{< ref "/service/how-to/decommission-a-tenant" >}}). For the trust-model implications of multi-tenancy and what it does *not* protect against (CPU side-channels, privileged-key compromise, Postgres-level RLS), see [Security Model]({{< ref "security-model" >}}).
 
-### 0.9.0 per-tenant isolation layers (CLOACI-T-0779 / T-0781)
+### Per-tenant isolation layers (0.9.0)
 
-I-0106 isolated tenant **data** (schema, runner, connection pool). 0.9.0 carries
-that isolation through the rest of the tenant lifecycle — build, execution, and
-operational visibility — so a tenant's packages build, run, and report entirely
-within the tenant's own realm.
+Earlier releases isolated tenant **data** (schema, runner, connection pool).
+Version 0.9.0 carries that isolation through the rest of the tenant lifecycle —
+build, execution, and operational visibility — so a tenant's packages build, run,
+and report entirely within the tenant's own realm.
 
 - **Build isolation (per-tenant compiler).** A `cloacina-compiler` can be scoped
   to a single tenant via `tenant_schema`: when set, it claims and builds only
@@ -88,7 +88,7 @@ within the tenant's own realm.
   its own operational state, never another tenant's. (Public/null-tenant items —
   `tenant_id = None` — are surfaced under the `"public"` view.)
 
-### Fleet resource limits & per-tenant namespace (CLOACI-I-0127)
+### Fleet resource limits & per-tenant namespace
 
 The agent self-management control plane adds a **per-tenant agent-capacity
 limit**: a tenant scales its execution-agent fleet only within an *effective
@@ -114,14 +114,14 @@ let tenant = DefaultRunner::with_schema(db_url, "tenant_acme").await?;
 Cloacina performs these operations:
 
 1. **Schema Creation**: `CREATE SCHEMA IF NOT EXISTS tenant_acme`
-2. **Connection Pool Setup**: Each connection automatically runs `SET search_path TO tenant_acme, public` (the *strict* form post-I-0106 also rejects fall-through to `public` if the tenant schema is unreachable).
+2. **Connection Pool Setup**: Each connection automatically runs `SET search_path TO tenant_acme, public` (the *strict* form also rejects fall-through to `public` if the tenant schema is unreachable).
 3. **Migration Execution**: All tables are created within the tenant schema.
 4. **Isolated Operations**: All queries operate within the schema namespace.
 
 The connection pool ensures every database operation is scoped:
 
 ```rust
-// From Cloacina's connection.rs (post-I-0106 fail-closed form)
+// From Cloacina's connection.rs (fail-closed form)
 impl CustomizeConnection<PgConnection, R2D2Error> for SchemaCustomizer {
     fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), R2D2Error> {
         if let Some(ref schema) = self.schema {
@@ -279,32 +279,11 @@ While the default multi-tenancy implementation uses shared database credentials 
 4. **Credential Rotation**: Independent password rotation per tenant
 5. **Compliance**: Meet regulations requiring database-level user separation
 
-### Using DatabaseAdmin for Tenant Provisioning
-
-```rust
-use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
-
-// Admin connection with privileges to create users/schemas
-let admin_db = Database::new(
-    "postgresql://admin:admin_pass@localhost/cloacina",
-    "cloacina",
-    10
-);
-let admin = DatabaseAdmin::new(admin_db);
-
-// Create a tenant with auto-generated secure password
-let tenant_creds = admin.create_tenant(TenantConfig {
-    schema_name: "tenant_acme".to_string(),
-    username: "acme_user".to_string(),
-    password: "".to_string(), // Empty = auto-generate 32-char password
-})?;
-
-// Returns ready-to-use credentials
-println!("Username: {}", tenant_creds.username);
-println!("Password: {}", tenant_creds.password); // Secure 32-char password
-println!("Schema: {}", tenant_creds.schema_name);
-println!("Connection: {}", tenant_creds.connection_string);
-```
+Provisioning a tenant with its own credentials is done through `DatabaseAdmin::create_tenant`,
+which creates the schema, the database user, the grants, and runs migrations in a
+single transaction. The step-by-step recipe is in
+[Configure PostgreSQL Schema-Based Multi-Tenancy]({{< ref "/service/how-to/multi-tenant-setup" >}}#2-provision-tenants-with-databaseadmin);
+the API surface is in the [DatabaseAdmin API Reference]({{< ref "/reference/database-admin" >}}).
 
 ### Password Security
 
@@ -313,29 +292,6 @@ println!("Connection: {}", tenant_creds.connection_string);
 - **Entropy**: ~202 bits of entropy for auto-generated passwords
 - **PostgreSQL Hashing**: All passwords are hashed with SCRAM-SHA-256 by PostgreSQL
 - **No Storage**: Cloacina never stores passwords - they're passed to PostgreSQL and returned to admin
-
-### Complete Tenant Lifecycle
-
-```rust
-// 1. Create tenant with all database objects
-let creds = admin.create_tenant(TenantConfig {
-    schema_name: "tenant_xyz".to_string(),
-    username: "xyz_user".to_string(),
-    password: "custom_password".to_string(), // Or "" for auto-generation
-})?;
-
-// 2. Distribute credentials to tenant (via secure channel)
-send_credentials_to_tenant(&creds);
-
-// 3. Tenant application uses their specific credentials
-let executor = DefaultRunner::with_schema(
-    &creds.connection_string,
-    &creds.schema_name
-).await?;
-
-// 4. Later: Remove tenant when needed
-admin.remove_tenant("tenant_xyz", "xyz_user")?;
-```
 
 ### What DatabaseAdmin Does
 
@@ -370,22 +326,12 @@ let executor = DefaultRunner::with_schema(
 
 ### Migration Path
 
-You can migrate from shared to per-tenant credentials progressively:
-
-```rust
-// Phase 1: Some tenants still use shared credentials
-let legacy = DefaultRunner::with_schema(shared_url, "old_tenant").await?;
-
-// Phase 2: New tenants get their own credentials
-let new_creds = admin.create_tenant(TenantConfig { /* ... */ })?;
-let new_tenant = DefaultRunner::with_schema(
-    &new_creds.connection_string,
-    "new_tenant"
-).await?;
-
-// Phase 3: Gradually migrate existing tenants
-// Create new credentials, update connection strings, remove shared access
-```
+Because the API surface is identical, migration from shared to per-tenant
+credentials can be progressive: existing tenants keep using the shared
+connection string while new tenants are provisioned with their own credentials
+via `DatabaseAdmin`, and existing tenants are cut over one at a time (mint new
+credentials, update the connection string, revoke shared access). No code changes
+are required beyond the connection string each runner is given.
 
 ### Requirements and Limitations
 
@@ -408,163 +354,42 @@ PostgreSQL schema-based multi-tenancy provides the strongest isolation guarantee
 - **Performance** - No overhead from filtering every query
 - **Clean separation** - Each tenant can even have different schema versions
 
-### Basic Usage
+### Automatic schema management
 
-```rust
-use cloacina::runner::DefaultRunner;
+Each tenant runner is created with `DefaultRunner::with_schema(db_url, schema)`.
+On first use, the schema is created if it does not exist, all migrations are run
+inside it, and the connection pool is configured with the correct `search_path`
+so that every subsequent query is scoped to that tenant. Because scoping happens
+at the connection layer, existing DAL code needs no query changes — the same
+runner API serves single-tenant and multi-tenant deployments alike. Schemas can
+also be used to isolate distinct *services* (an `api_service` schema separate
+from a `batch_processor` schema), not only tenants.
 
-// Create tenant-specific runners
-let tenant_a = DefaultRunner::with_schema(
-    "postgresql://user:pass@localhost/cloacina",
-    "tenant_a"
-).await?;
-
-let tenant_b = DefaultRunner::with_schema(
-    "postgresql://user:pass@localhost/cloacina",
-    "tenant_b"
-).await?;
-
-// Each executor operates in complete isolation
-let result_a = tenant_a.execute("my_workflow", context_a).await?;
-let result_b = tenant_b.execute("my_workflow", context_b).await?;
-```
-
-### Builder Pattern
-
-For more complex configurations, use the builder pattern:
-
-```rust
-let executor = DefaultRunner::builder()
-    .database_url("postgresql://user:pass@localhost/cloacina")
-    .schema("production_tenant_123")
-    .max_concurrent_tasks(8)
-    .task_timeout(Duration::from_secs(600))
-    .build()
-    .await?;
-```
-
-### Schema Management
-
-Schemas are automatically created and migrated on first use:
-
-```rust
-// First time accessing a schema
-let executor = DefaultRunner::with_schema(db_url, "new_tenant").await?;
-// This will:
-// 1. Create the 'new_tenant' schema if it doesn't exist
-// 2. Run all migrations in that schema
-// 3. Set up connection pool with correct search_path
-```
-
-### Environment-Based Configuration
-
-```rust
-use std::env;
-
-let tenant_id = env::var("TENANT_ID")?;
-let database_url = env::var("DATABASE_URL")?;
-
-let executor = DefaultRunner::with_schema(&database_url, &tenant_id).await?;
-```
-
-### Service-Based Isolation
-
-```rust
-// Different services can use different schemas for isolation
-let api_executor = DefaultRunner::with_schema(db_url, "api_service").await?;
-let batch_executor = DefaultRunner::with_schema(db_url, "batch_processor").await?;
-let analytics_executor = DefaultRunner::with_schema(db_url, "analytics").await?;
-```
+For the concrete provisioning steps — including the builder pattern for custom
+runner configuration and driving the schema from an environment variable — see
+[Configure PostgreSQL Schema-Based Multi-Tenancy]({{< ref "/service/how-to/multi-tenant-setup" >}}).
 
 ## SQLite File-Based Multi-Tenancy
 
-For SQLite deployments, multi-tenancy is achieved through separate database files.
-
-### Basic Usage
-
-```rust
-// Each tenant gets their own database file
-let tenant_a = DefaultRunner::new("sqlite://./data/tenant_a.db").await?;
-let tenant_b = DefaultRunner::new("sqlite://./data/tenant_b.db").await?;
-let tenant_c = DefaultRunner::new("sqlite://./data/tenant_c.db").await?;
-```
-
-### Dynamic File Paths
-
-```rust
-let tenant_id = env::var("TENANT_ID")?;
-let db_path = format!("sqlite://./data/{}.db", tenant_id);
-let executor = DefaultRunner::new(&db_path).await?;
-```
+For SQLite deployments, isolation is achieved through separate database files:
+each tenant gets its own file (`DefaultRunner::new("sqlite://./data/<tenant>.db")`),
+so isolation is guaranteed by the file system. `DatabaseAdmin` and per-tenant
+credentials are not available for SQLite. The setup steps are in the
+[multi-tenant setup guide]({{< ref "/service/how-to/multi-tenant-setup" >}}#alternative-sqlite-file-based-tenancy).
 
 ## Schema Naming Rules
 
-When using PostgreSQL schemas, names must follow these rules:
+Schema names are validated before use in SQL to prevent injection: 1–63
+characters, starting with a letter or underscore, alphanumeric-and-underscore
+only, and not a reserved PostgreSQL name. The full rule table lives in the
+[Configuration Reference]({{< ref "/reference/configuration" >}}#schema-naming-rules).
 
-- **Alphanumeric characters only**: a-z, A-Z, 0-9
-- **Underscores allowed**: `_`
-- **No special characters**: hyphens, spaces, symbols not allowed
+## Migrating from a single-tenant deployment
 
-### Valid Examples
-- ✅ `tenant_123`
-- ✅ `acme_corp`
-- ✅ `production_api`
-- ✅ `customer_abc123`
-
-### Invalid Examples
-- ❌ `tenant-123` (hyphens not allowed)
-- ❌ `tenant 123` (spaces not allowed)
-- ❌ `tenant@123` (special characters not allowed)
-- ❌ `tenant.123` (dots not allowed)
-
-## Migration Strategies
-
-### For New Deployments
-
-Simply start using schemas from the beginning:
-
-```rust
-let executor = DefaultRunner::with_schema(db_url, "my_tenant").await?;
-```
-
-### For Existing Single-Tenant Deployments
-
-#### Option 1: Move Existing Data to a Schema
-
-```sql
-BEGIN;
--- Create new schema for existing data
-CREATE SCHEMA legacy_tenant;
-
--- Move all tables to the schema
-ALTER TABLE pipeline_executions SET SCHEMA legacy_tenant;
-ALTER TABLE task_executions SET SCHEMA legacy_tenant;
-ALTER TABLE contexts SET SCHEMA legacy_tenant;
--- ... repeat for all tables
-
-COMMIT;
-```
-
-Then update your application:
-
-```rust
-// Existing data now in 'legacy_tenant' schema
-let legacy_executor = DefaultRunner::with_schema(db_url, "legacy_tenant").await?;
-
-// New tenants use their own schemas
-let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
-```
-
-#### Option 2: Run Side-by-Side
-
-```rust
-// Existing single-tenant runner (uses public schema)
-let legacy_executor = DefaultRunner::new(db_url).await?;
-
-// New multi-tenant runners use schemas
-let tenant_a = DefaultRunner::with_schema(db_url, "tenant_a").await?;
-let tenant_b = DefaultRunner::with_schema(db_url, "tenant_b").await?;
-```
+Moving an existing single-tenant deployment to schema-based tenancy — either by
+relocating the existing tables into a named schema or by running schema-based
+tenants side-by-side with the legacy `public`-schema runner — is a procedure, not
+a concept. See [Configure PostgreSQL Schema-Based Multi-Tenancy]({{< ref "/service/how-to/multi-tenant-setup" >}}#migrate-an-existing-single-tenant-deployment).
 
 ## Performance Considerations
 
@@ -584,46 +409,25 @@ let tenant_b = DefaultRunner::with_schema(db_url, "tenant_b").await?;
 
 ## Practical Considerations
 
-### Production Deployment
-
-```rust
-// Production setup with proper error handling
-async fn create_tenant_runner(
-    db_url: &str,
-    tenant_id: &str
-) -> Result<DefaultRunner, AppError> {
-    // Validate tenant ID comes from trusted source
-    validate_tenant_id(tenant_id)?;
-
-    // Create runner with monitoring
-    let runner = DefaultRunner::with_schema(db_url, tenant_id)
-        .await
-        .map_err(|e| AppError::TenantSetup(tenant_id.to_string(), e))?;
-
-    // Log tenant creation for audit trail
-    audit_log!("Tenant runner created: {}", tenant_id);
-
-    Ok(runner)
-}
-```
-
 ### Monitoring and Observability
 
-Track tenant-specific metrics:
+Because each tenant occupies its own schema, the metrics worth watching are
+tenant-scoped rather than global:
+
 - Schema sizes and growth rates
 - Query performance per tenant
 - Connection pool usage
 - Migration status
 
-### Backup and Recovery
+### Provisioning, backup, and decommissioning
 
-```bash
-# Backup specific tenant
-pg_dump -h host -d cloacina --schema=tenant_acme -f tenant_acme.sql
+The operational procedures live in the how-to guides:
 
-# Restore specific tenant
-psql -h host -d cloacina -f tenant_acme.sql
-```
+- **Provisioning** — [Configure PostgreSQL Schema-Based Multi-Tenancy]({{< ref "/service/how-to/multi-tenant-setup" >}}).
+- **Backup and restore** — each tenant is an isolated schema, so it can be backed
+  up and restored independently with `pg_dump --schema`; see
+  [Back Up and Restore]({{< ref "/service/how-to/backup-and-restore" >}}).
+- **Decommissioning** — [Decommission a Tenant]({{< ref "/service/how-to/decommission-a-tenant" >}}).
 
 ## Summary
 

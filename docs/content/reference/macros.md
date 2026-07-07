@@ -1,6 +1,6 @@
 ---
 title: "Macro Reference"
-description: "Complete reference for #[task], #[workflow], and #[trigger] attribute macros"
+description: "Complete reference for the #[task], #[workflow], #[trigger], #[computation_graph], and #[reactor] attribute macros"
 weight: 8
 aliases:
   - "/workflows/reference/macros/"
@@ -9,7 +9,12 @@ aliases:
 
 # Macro Reference
 
-Cloacina provides three procedural attribute macros for defining tasks, workflows, and triggers. These macros generate trait implementations, registration code, and compile-time validation.
+Cloacina provides five procedural attribute macros for authoring workflows and reactive computation graphs. These macros generate trait implementations, registration code, and compile-time validation.
+
+- **`#[task]`**, **`#[workflow]`**, and **`#[trigger]`** define the workflow-authoring surface and are documented in full below.
+- **`#[computation_graph]`** and **`#[reactor]`** define the reactive computation-graph layer. They are summarized under [Computation-graph macros](#computation-graph-macros) and documented in full in the [Computation Graph Reference]({{< ref "computation-graphs" >}}).
+
+(The crate also ships accumulator and constructor attribute macros used to build computation-graph sources and WASM providers; those are covered in the [Computation Graph Reference]({{< ref "computation-graphs" >}}) and the constructor guides.)
 
 ```rust
 use cloacina::{task, workflow, Context, TaskError};
@@ -56,8 +61,8 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 | `trigger_rules` | expression | no | `always` | Trigger rule expression controlling when the task should execute. See [Trigger Rules](#trigger-rules). |
 | `on_success` | expression (path) | no | -- | Async callback on success. Signature: `async fn(&str, &Context<Value>) -> Result<(), E>` |
 | `on_failure` | expression (path) | no | -- | Async callback on failure. Signature: `async fn(&str, &TaskError, &Context<Value>) -> Result<(), E>` |
-| `invokes` | call-expression | no | -- | **CLOACI-I-0101.** Embed a computation graph as this task. Form: `invokes = computation_graph("name")`. The graph runs once per task invocation with the task's context as input; terminal-node outputs merge back into the context. See [Invoke a computation graph from a workflow task]({{< ref "/embed/how-to/invoke-computation-graph-from-workflow" >}}) for the full recipe. |
-| `post_invocation` | expression (path) | no | -- | **CLOACI-I-0101.** Only valid alongside `invokes`. Async callback to run after the embedded graph completes, receives the merged output context. Signature: `async fn(&mut Context<Value>) -> Result<(), TaskError>` |
+| `invokes` | call-expression | no | -- | Embed a computation graph as this task. Form: `invokes = computation_graph("name")`. The graph runs once per task invocation with the task's context as input; terminal-node outputs merge back into the context. See [Invoke a computation graph from a workflow task]({{< ref "/embed/how-to/invoke-computation-graph-from-workflow" >}}) for the full recipe. |
+| `post_invocation` | expression (path) | no | -- | Only valid alongside `invokes`. Async callback to run after the embedded graph completes, receives the merged output context. Signature: `async fn(&mut Context<Value>) -> Result<(), TaskError>` |
 
 ### Backoff Strategies
 
@@ -296,7 +301,7 @@ pub async fn nightly_report() {}
 | `on` | string literal | yes (unless `upstream`) | -- | Name of the workflow to trigger. |
 | `poll_interval` | string literal | one of the firing-source attributes | -- | Poll frequency. Format: `100ms`, `5s`, `2m`, `1h`. |
 | `cron` | string literal | one of the firing-source attributes | -- | Cron expression (5-7 fields). Validated at compile time. |
-| `upstream` | call-expression | one of the firing-source attributes | -- | **CLOACI-I-0100.** Declare a reactor as this trigger's upstream. Form: `upstream = reactor("name")`. The workflow fires durably (at-least-once) on every reactor firing, via the DB-backed subscription fan-out. See [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}) for the recipe. |
+| `upstream` | call-expression | one of the firing-source attributes | -- | Declare a reactor as this trigger's upstream. Form: `upstream = reactor("name")`. The workflow fires durably (at-least-once) on every reactor firing, via the DB-backed subscription fan-out. See [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}) for the recipe. |
 | `timezone` | string literal | no | `"UTC"` | IANA timezone for cron evaluation (e.g., `"America/New_York"`). Only applies to cron triggers. |
 | `allow_concurrent` | boolean | no | `false` | Whether multiple trigger firings can overlap. |
 | `name` | string literal | no | function name | Override the trigger name (used for registration and schedule records). |
@@ -316,6 +321,25 @@ pub async fn nightly_report() {}
 | `s` | Seconds | `5s` |
 | `m` | Minutes | `2m` |
 | `h` | Hours | `1h` |
+
+## Computation-graph macros
+
+Two further attribute macros author Cloacina's **reactive computation-graph**
+layer — the event-driven primitive that fires node DAGs when upstream data
+arrives. They are represented here for completeness; their attributes,
+generated code, and delivery-mode behavior are documented in full in the
+[Computation Graph Reference]({{< ref "computation-graphs" >}}).
+
+| Macro | Applied to | Purpose |
+|---|---|---|
+| `#[reactor]` | a unit struct | Declares a named firing primitive: the accumulator sources it consumes plus a `criteria = when_any(...) \| when_all(...)` firing rule. Graphs bind to it by string name. |
+| `#[computation_graph]` | a `mod` of async node functions | Compiles the module's node functions into a single async graph function, declares its topology, and subscribes it to a reactor via `trigger = reactor("name")`. |
+
+A workflow task can embed a computation graph with the `#[task]`
+`invokes = computation_graph("name")` attribute, and a `#[trigger]` can declare
+a reactor as its `upstream = reactor("name")` — see those sections above. For
+the full macro syntax, the accumulator source macros, node-function rules, and
+runtime types, see the [Computation Graph Reference]({{< ref "computation-graphs" >}}).
 
 ## Code Fingerprinting
 
