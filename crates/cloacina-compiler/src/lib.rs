@@ -23,6 +23,7 @@ mod doc_parse;
 mod health;
 mod loopp;
 mod param_parse;
+pub mod sandbox;
 
 pub use config::{BuildRlimits, CompilerConfig};
 

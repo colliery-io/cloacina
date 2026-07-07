@@ -406,6 +406,7 @@ async fn run_build(
                     None,
                     wall_clock_ms,
                     Some(&reason),
+                    config.sandbox_level.as_str(),
                 );
                 return Err(err);
             }
@@ -422,6 +423,7 @@ async fn run_build(
                 None,
                 wall_clock_ms,
                 None,
+                config.sandbox_level.as_str(),
             );
             info!(
                 %package_id,
@@ -454,6 +456,7 @@ async fn run_build(
                 exit_signal.as_deref(),
                 wall_clock_ms,
                 Some(&reason),
+                config.sandbox_level.as_str(),
             );
             Err(BuildError::Failed {
                 reason,
@@ -477,6 +480,7 @@ async fn run_build(
                     "cargo build exceeded build_timeout after {}s",
                     elapsed.as_secs()
                 )),
+                config.sandbox_level.as_str(),
             );
             Err(BuildError::TimedOut { elapsed })
         }
@@ -645,7 +649,40 @@ async fn cargo_build(
 
     ensure_build_wiring(source_dir);
 
-    let mut cmd = tokio::process::Command::new("cargo");
+    // CLOACI-I-0105: run the build at the boot-probed sandbox level. The
+    // level was decided once at startup (fail-closed under `required`);
+    // here we only compose the command for it.
+    let mounts = crate::sandbox::BuildMounts {
+        source_dir,
+        target_dir: config.cargo_target_dir.as_deref(),
+        vendor_dir: config.vendor_dir.as_deref(),
+    };
+    let level = config.sandbox_level;
+    let (program, pre_args) = crate::sandbox::wrap_command(level, &mounts);
+    let sandbox_hash = crate::sandbox::config_hash(level, &mounts);
+    tracing::info!(
+        sandbox = level.as_str(),
+        config_hash = %sandbox_hash,
+        package_id = %package_id,
+        "spawning build"
+    );
+
+    let mut cmd = tokio::process::Command::new(&program);
+    cmd.args(&pre_args);
+    if level == crate::sandbox::SandboxLevel::Landlock {
+        // Level 2: env is scrubbed by the parent (no clearenv available) and
+        // the FS ruleset is applied in pre_exec.
+        cmd.env_clear();
+        for (k, v) in crate::sandbox::build_env(&mounts) {
+            cmd.env(k, v);
+        }
+        crate::sandbox::apply_landlock(
+            &mut cmd,
+            source_dir.to_path_buf(),
+            config.cargo_target_dir.clone(),
+            config.vendor_dir.clone(),
+        );
+    }
     cmd.args(&config.cargo_flags)
         .current_dir(source_dir)
         .stdout(Stdio::piped())
@@ -953,8 +990,74 @@ mod tests {
         pkg
     }
 
+    /// A build.rs that TRIES to read a host file + open a network socket and
+    /// records what it managed. Under bwrap both must fail (no host FS beyond
+    /// the mounts, no network).
+    fn synthetic_escape_package(work: &Path) -> PathBuf {
+        let pkg = work.join("t0855-escape");
+        std::fs::create_dir_all(pkg.join("src")).expect("mkdir src");
+        std::fs::write(
+            pkg.join("Cargo.toml"),
+            "[package]\nname = \"t0855-escape\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[lib]\ncrate-type = [\"cdylib\"]\n",
+        )
+        .expect("Cargo.toml");
+        std::fs::write(pkg.join("src/lib.rs"), "").expect("lib.rs");
+        // Escape attempts fail the BUILD (panic) so a leak is a loud red test,
+        // not a silently-ignored success.
+        std::fs::write(
+            pkg.join("build.rs"),
+            r#"fn main() {
+    // Host filesystem: /etc/hostname exists on every Linux host but must NOT
+    // be reachable from inside the sandbox (only curated RO mounts are).
+    if std::fs::read_to_string("/etc/machine-id").is_ok() {
+        panic!("SANDBOX ESCAPE: build.rs read /etc/machine-id");
+    }
+    // Network: a connect() must fail with the network namespace unshared.
+    if std::net::TcpStream::connect_timeout(
+        &"1.1.1.1:53".parse().unwrap(),
+        std::time::Duration::from_millis(500),
+    ).is_ok() {
+        panic!("SANDBOX ESCAPE: build.rs opened a network socket");
+    }
+}
+"#,
+        )
+        .expect("build.rs");
+        pkg
+    }
+
+    /// CLOACI-T-0855: adversarial proof that a bwrap build cannot read host
+    /// paths or open the network. SKIPS where bwrap is unusable (macOS dev,
+    /// CI without userns) — the assertion only means something at level 1.
+    #[tokio::test]
+    async fn bwrap_build_cannot_escape_to_host_or_network() {
+        if crate::sandbox::probe(crate::sandbox::SandboxMode::Preferred)
+            .map(|p| p.level)
+            .unwrap_or(crate::sandbox::SandboxLevel::None)
+            != crate::sandbox::SandboxLevel::Bwrap
+        {
+            eprintln!("skipping: bwrap not usable here (dev/CI without userns)");
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let package = synthetic_escape_package(tmp.path());
+        let mut config = test_config(tmp.path(), Duration::from_secs(120));
+        config.sandbox_level = crate::sandbox::SandboxLevel::Bwrap;
+
+        let result = cargo_build(uuid::Uuid::new_v4(), &package, &config).await;
+        // The build must SUCCEED (both escape attempts failed, so build.rs
+        // didn't panic). A sandbox escape would have panicked build.rs →
+        // BuildError, failing this test loudly.
+        assert!(
+            result.is_ok(),
+            "escape build.rs failed — a sandbox escape (panic) or a bwrap \
+             misconfiguration: {result:?}"
+        );
+    }
+
     fn test_config(home: &Path, build_timeout: Duration) -> CompilerConfig {
         CompilerConfig {
+            sandbox_level: crate::sandbox::SandboxLevel::None,
             home: home.to_path_buf(),
             bind: "127.0.0.1:0".parse::<SocketAddr>().expect("parse bind"),
             database_url: "unused-in-this-test".to_string(),

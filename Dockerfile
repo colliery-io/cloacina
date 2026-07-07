@@ -59,6 +59,7 @@ RUN apt-get update \
         ca-certificates \
         python3 \
         python3-dev \
+        bubblewrap \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

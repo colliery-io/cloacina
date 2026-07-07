@@ -368,9 +368,13 @@ pub fn log_compiler_build_finished(
     exit_signal: Option<&str>,
     wall_clock_ms: u64,
     failure_reason: Option<&str>,
+    // CLOACI-I-0105 (T-0854): the isolation level this build ACTUALLY ran
+    // under — forensics can prove what contained a given build.
+    sandbox_level: &str,
 ) {
     tracing::info!(
         event_type = events::COMPILER_BUILD_FINISHED,
+        sandbox_level = %sandbox_level,
         build_claim_id = %build_claim_id,
         package_name = %package_name,
         package_version = %package_version,
@@ -774,6 +778,7 @@ mod tests {
                 None,
                 4250,
                 None,
+                "bwrap",
             );
         });
         assert!(output.contains(events::COMPILER_BUILD_FINISHED));
@@ -804,6 +809,7 @@ mod tests {
                 Some("SIGKILL"),
                 600_000,
                 Some("cargo build exceeded build_timeout"),
+                "landlock",
             );
         });
         assert!(output.contains(events::COMPILER_BUILD_FINISHED));
@@ -865,6 +871,7 @@ mod tests {
                 None,
                 2500,
                 Some("dependencies not available offline: unobtanium"),
+                "none",
             );
         });
         assert!(output.contains(events::COMPILER_BUILD_FINISHED));

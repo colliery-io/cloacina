@@ -4,14 +4,14 @@ level: initiative
 title: "Compiler hardening Phase 2 — process sandbox for cargo build"
 short_code: "CLOACI-I-0105"
 created_at: 2026-05-06T11:05:32.632631+00:00
-updated_at: 2026-05-06T11:05:32.632631+00:00
+updated_at: 2026-07-07T04:29:37.471281+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -74,6 +74,28 @@ The primitive choice is deliberately deferred to discovery — it is the central
 - Network policy: closed by default; document workflow for in-house registries.
 - Audit log includes sandbox configuration hash, exit signal/status, peak memory.
 - Integration test that submits a build whose `build.rs` attempts to read `/etc/hostname`, expects failure.
+
+## Design (2026-07-07, maintainer check-in) — isolation ladder, fail-closed
+
+**`CLOACINA_COMPILER_SANDBOX = required | preferred | off`** (the REQ-008 pattern: explicit selection, boot-time probe, loud failure):
+- **Level 1 — bwrap**: full namespaces (`--unshare-all`), tmpfs build root (size-capped, configurable), RO binds for the toolchain + curated cargo registry, **network fully closed** (Phase 1 `--offline` covers the registry; no audit-logged egress — resolved).
+- **Level 2 — landlock + rlimits**: kernel FS ACLs applied via `pre_exec` on the spawned cargo; works unprivileged in containers (kernel ≥5.13).
+- **off**: dev laptops (macOS); logged loudly.
+`required` refuses to build below level 1 (multi-tenant posture). Every build's audit row records the ACHIEVED level + sandbox config hash + exit/signal/peak-RSS (rusage-level forensics — no eBPF, resolved).
+
+**Container posture (maintainer decision)**: the containerized compiler gets level 1 by relaxing the container's seccomp for user namespaces — compose/Helm set the documented `security_opt`; defensible because bwrap's per-build isolation is stronger than default-seccomp-with-no-sandbox. Discovery Qs resolved: tmpfs default 4GiB configurable; registry RO-bind; dev unsandboxed mode = `off`.
+
+**Decomposition**: [[CLOACI-T-0852]] ladder/probe/config seam · [[CLOACI-T-0853]] bwrap level · [[CLOACI-T-0854]] landlock+rlimits+forensics · [[CLOACI-T-0855]] adversarial test + compose/Helm/docs.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

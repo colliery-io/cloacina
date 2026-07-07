@@ -58,6 +58,7 @@ metrics-exporter-prometheus = { version = "0.18", default-features = false }
 # Linux-only: setrlimit on the cargo subprocess via pre_exec. Closes
 # CLOACI-T-0575 / SEC-06 (kernel-bounded resource ceiling).
 [target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
 libc = "0.2"
 
 [dev-dependencies]
