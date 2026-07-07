@@ -51,6 +51,14 @@ pub enum SecretResolverError {
     #[error("secret not found: {0}")]
     NotFound(String),
 
+    /// The name is not in this scope's granted secret allow-list
+    /// (CLOACI-I-0133 / T-0860, design D-3). Returned **before** any decryption —
+    /// the holder was never authorized to resolve this secret, regardless of
+    /// whether it exists. Distinct from [`NotFound`](Self::NotFound) so a denial
+    /// is not confusable with a missing secret in audit/logs.
+    #[error("secret not granted: {0}")]
+    NotGranted(String),
+
     /// The backend failed to resolve (decrypt failure, DB error, misconfigured
     /// KEK, …). The message is a redacted, non-plaintext description.
     #[error("secret backend error: {0}")]
@@ -70,6 +78,12 @@ pub enum SecretAccessError {
     /// The named secret does not exist (or is not visible to this tenant).
     #[error("secret not found: {0}")]
     NotFound(String),
+
+    /// The execution scope's grant does not include this secret name
+    /// (CLOACI-I-0133 / T-0860, D-3). The resolver denied it **before** any
+    /// decrypt; add the name to the constructor's `secrets` grant to allow it.
+    #[error("secret not granted: {0}")]
+    NotGranted(String),
 
     /// The secret exists but has no field of that name.
     #[error("secret '{secret}' has no field '{field}'")]

@@ -387,6 +387,7 @@ where
         let effective = self.resolve_secret_alias(name);
         resolver.resolve(&effective).await.map_err(|e| match e {
             SecretResolverError::NotFound(n) => SecretAccessError::NotFound(n),
+            SecretResolverError::NotGranted(n) => SecretAccessError::NotGranted(n),
             SecretResolverError::Backend(m) => SecretAccessError::Backend(m),
         })
     }

@@ -107,11 +107,13 @@ struct ConstructorNodeDecl {
     grants: Vec<(String, Vec<String>)>,
 }
 
-/// Parse a `grants = { http=[..], tcp=[..], fs=[..], env=[..] }` block into raw
-/// `(kind, patterns)` pairs — the tenant capability-grant grammar shared verbatim by
-/// every consumer surface (`constructor!`, `#[reactor]`) so it looks/feels identical
-/// everywhere (CLOACI-T-0834 / [[CLOACI-S-0014]]). The caller has already consumed
-/// the `grants` ident + `=`. Unknown grant kinds are a compile error.
+/// Parse a `grants = { http=[..], tcp=[..], fs=[..], env=[..], secrets=[..] }` block
+/// into raw `(kind, patterns)` pairs — the tenant capability-grant grammar shared
+/// verbatim by every consumer surface (`constructor!`, `#[reactor]`) so it looks/feels
+/// identical everywhere (CLOACI-T-0834 / [[CLOACI-S-0014]]). The `secrets` kind is the
+/// named secret allow-list (CLOACI-T-0860, design D-3): each entry is a secret NAME the
+/// constructor may resolve, fail-closed. The caller has already consumed the `grants`
+/// ident + `=`. Unknown grant kinds are a compile error.
 pub(crate) fn parse_grants_block(input: ParseStream) -> SynResult<Vec<(String, Vec<String>)>> {
     let content;
     syn::braced!(content in input);
@@ -119,10 +121,10 @@ pub(crate) fn parse_grants_block(input: ParseStream) -> SynResult<Vec<(String, V
     while !content.is_empty() {
         let gkey: Ident = content.parse()?;
         let kind = gkey.to_string();
-        if !matches!(kind.as_str(), "http" | "tcp" | "fs" | "env") {
+        if !matches!(kind.as_str(), "http" | "tcp" | "fs" | "env" | "secrets") {
             return Err(syn::Error::new(
                 gkey.span(),
-                format!("unknown grant kind '{kind}'. Valid kinds: http, tcp, fs, env"),
+                format!("unknown grant kind '{kind}'. Valid kinds: http, tcp, fs, env, secrets"),
             ));
         }
         content.parse::<Token![=]>()?;
