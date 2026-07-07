@@ -23,6 +23,15 @@ ARG RUST_VERSION=1.93
 # ---------------------------------------------------------------------------
 # Stage 1: builder
 # ---------------------------------------------------------------------------
+# CLOACI-I-0130: the SPA builds in a node:20 stage (the UI requires node>=20);
+# the Rust stage embeds the prebuilt dist and needs no Node toolchain.
+FROM node:20-slim AS ui-builder
+WORKDIR /build
+COPY clients/typescript clients/typescript
+COPY ui ui
+RUN cd clients/typescript && npm ci && npm run build
+RUN cd ui && npm ci && npm run build
+
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
 # Build deps:
@@ -64,7 +73,14 @@ COPY . .
 # and operators expect `cloacina-server` to handle workflows that use it
 # without re-rolling the image. Builder above installs the rdkafka
 # build chain (cmake, c++, libsasl2-dev, libssl-dev) accordingly.
-RUN cargo build --release --locked --bin cloacina-server
+# CLOACI-I-0130: build the @cloacina/ui SPA deps first, then compile with the
+# embedded-ui feature — the released image serves engine + REST API + web
+# control plane from ONE binary/origin (no Nginx container, no CORS for the
+# bundled UI). The standalone Nginx path (docker-compose.ui.yml) stays
+# supported for split-origin deployments.
+COPY --from=ui-builder /build/ui/dist ui/dist
+ENV CLOACINA_EMBEDDED_UI_SKIP_NPM=1
+RUN cargo build --release --locked --features embedded-ui --bin cloacina-server
 
 # ---------------------------------------------------------------------------
 # Stage 2: runtime

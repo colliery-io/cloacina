@@ -16,4 +16,40 @@
 
 fn main() {
     cloacina_build::configure();
+
+    // CLOACI-I-0130 (T-0847): with `embedded-ui` on, build the SPA so
+    // rust-embed has a fresh `ui/dist` to embed — staleness is impossible by
+    // construction (every feature-on build rebuilds when UI inputs changed).
+    // Feature-off builds never touch Node.
+    if std::env::var_os("CARGO_FEATURE_EMBEDDED_UI").is_some() {
+        // Containerized builds prebuild ui/dist in a node:20 stage and set
+        // this to skip the npm step (the Rust stage then needs no Node).
+        if std::env::var_os("CLOACINA_EMBEDDED_UI_SKIP_NPM").is_some() {
+            println!("cargo:warning=embedded-ui: using prebuilt ui/dist (CLOACINA_EMBEDDED_UI_SKIP_NPM)");
+            return;
+        }
+        let ui_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../ui")
+            .canonicalize()
+            .expect("ui/ directory not found — embedded-ui requires the UI sources");
+        for input in [
+            "src",
+            "index.html",
+            "package.json",
+            "package-lock.json",
+            "vite.config.ts",
+        ] {
+            println!("cargo:rerun-if-changed={}", ui_dir.join(input).display());
+        }
+        let status = std::process::Command::new("npm")
+            .arg("--prefix")
+            .arg(&ui_dir)
+            .args(["run", "build"])
+            .status()
+            .expect("embedded-ui: failed to run npm — a Node toolchain is required for feature-on builds");
+        assert!(
+            status.success(),
+            "embedded-ui: `npm run build` failed (see output above)"
+        );
+    }
 }

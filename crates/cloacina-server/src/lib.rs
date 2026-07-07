@@ -1412,6 +1412,125 @@ async fn request_id_middleware(
     response
 }
 
+/// CLOACI-I-0130 (T-0847): the embedded @cloacina/ui SPA, served from this
+/// binary under the `embedded-ui` feature. One origin — engine, REST API,
+/// and control plane — no Nginx container, no CORS for the bundled UI.
+#[cfg(feature = "embedded-ui")]
+mod embedded_ui {
+    use axum::http::{header, StatusCode, Uri};
+    use axum::response::{IntoResponse, Response};
+
+    #[derive(rust_embed::RustEmbed)]
+    #[folder = "../../ui/dist"]
+    pub(crate) struct UiAssets;
+
+    /// Path prefixes that must NEVER fall through to the SPA — unknown API
+    /// paths keep their JSON 404 shape.
+    const API_PREFIXES: &[&str] = &["/v1", "/health", "/ready", "/metrics", "/openapi.json"];
+
+    pub(crate) async fn ui_fallback(uri: Uri) -> Response {
+        let path = uri.path();
+        if API_PREFIXES.iter().any(|p| path.starts_with(p)) {
+            return super::fallback_404().await.into_response();
+        }
+
+        let asset_path = path.trim_start_matches('/');
+        // Exact asset hit (hashed /assets/* etc.) → long-lived immutable cache.
+        if !asset_path.is_empty() && asset_path != "index.html" {
+            if let Some(file) = UiAssets::get(asset_path) {
+                let mime = mime_guess::from_path(asset_path).first_or_octet_stream();
+                return (
+                    [
+                        (header::CONTENT_TYPE, mime.as_ref().to_string()),
+                        (
+                            header::CACHE_CONTROL,
+                            "public, max-age=31536000, immutable".to_string(),
+                        ),
+                    ],
+                    file.data,
+                )
+                    .into_response();
+            }
+        }
+
+        // SPA fallback: any other (client-routed) path serves index.html,
+        // never cached so deploys take effect immediately.
+        match UiAssets::get("index.html") {
+            Some(index) => (
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+                    (header::CACHE_CONTROL, "no-store".to_string()),
+                ],
+                index.data,
+            )
+                .into_response(),
+            None => (
+                StatusCode::NOT_FOUND,
+                "embedded UI bundle missing index.html",
+            )
+                .into_response(),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "embedded-ui"))]
+mod embedded_ui_tests {
+    use axum::http::{header, StatusCode, Uri};
+    use axum::response::IntoResponse;
+
+    /// CLOACI-I-0130 (T-0850): the fallback's three contracts — SPA paths
+    /// serve index.html (no-store), real assets serve immutable, API
+    /// prefixes keep the JSON 404 (never the SPA).
+    #[tokio::test]
+    async fn ui_fallback_contracts() {
+        // Deep client route → index.html, no-store.
+        let resp = super::embedded_ui::ui_fallback(Uri::from_static("/executions/abc"))
+            .await
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(header::CACHE_CONTROL).unwrap(),
+            "no-store"
+        );
+        assert!(resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("text/html"));
+
+        // Root → index.html too.
+        let resp = super::embedded_ui::ui_fallback(Uri::from_static("/"))
+            .await
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Unknown API path → JSON 404, NOT the SPA.
+        let resp = super::embedded_ui::ui_fallback(Uri::from_static("/v1/nope"))
+            .await
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert!(resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .map(|v| v.to_str().unwrap_or("").contains("json"))
+            .unwrap_or(false));
+
+        // A real hashed asset → immutable cache. Find one from the bundle.
+        let asset = <super::embedded_ui::UiAssets as rust_embed::RustEmbed>::iter()
+            .find(|p| p.starts_with("assets/"))
+            .expect("bundle has hashed assets");
+        let uri: Uri = format!("/{}", asset).parse().unwrap();
+        let resp = super::embedded_ui::ui_fallback(uri).await.into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(header::CACHE_CONTROL).unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+    }
+}
+
 fn build_router(state: AppState) -> Router {
     use axum::{extract::DefaultBodyLimit, middleware, routing::delete, routing::post};
 
@@ -1758,7 +1877,19 @@ fn build_router(state: AppState) -> Router {
         )
         // All v1 routes (auth + graph health + ws) under one nest.
         .nest("/v1", v1)
-        .fallback(fallback_404)
+        // CLOACI-I-0130: with the UI embedded, unmatched non-API paths serve
+        // the SPA (assets immutable, index.html no-store); API prefixes keep
+        // the JSON 404. Feature-off = today's JSON 404 for everything.
+        .fallback({
+            #[cfg(feature = "embedded-ui")]
+            {
+                embedded_ui::ui_fallback
+            }
+            #[cfg(not(feature = "embedded-ui"))]
+            {
+                fallback_404
+            }
+        })
         // Body size limit: 100MB (matches PackageValidator)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
         // API request metrics (counts by method and status)

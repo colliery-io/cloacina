@@ -4,7 +4,7 @@
 #   postgres + server + compiler + (one-shot) fixtures-packer + harness + UI.
 #
 #   docker compose -f docker/docker-compose.demo.yml up --build
-#   → UI at  http://localhost:8082   (connects to the server at :8080)
+#   → UI at  http://localhost:8080   (embedded — served by the server itself)
 #     The harness fires a mix of fast / slow / failing runs every few seconds,
 #     so the dashboard and live execution view always have something moving.
 #
@@ -18,8 +18,8 @@
 # fixtures services even share the same `workspace` image). First build is still
 # sizeable but no longer triples the compile.
 #
-# CORS: the browser loads the SPA from :8082 and calls the server at :8080
-# cross-origin, so the server allows that origin (REQ-009).
+# CLOACI-I-0130: the SPA is EMBEDDED in cloacina-server — one origin
+# (http://localhost:8080), no separate UI container, no CORS needed.
 
 # Project name: containers become cloacina-demo-<service>-1 instead of docker-*
 # (the default project name came from the docker/ directory).
@@ -106,7 +106,6 @@ services:
       - "--bootstrap-key"
       - *bootstrap_key
     environment:
-      CLOACINA_CORS_ALLOWED_ORIGINS: "http://localhost:8082"
       # Resolves the `{{ KAFKA_BROKER }}` token in Kafka-stream accumulator
       # configs (e.g. demo-kafka-stream-rust) to the in-network broker.
       CLOACINA_VAR_KAFKA_BROKER: "kafka:9092"
@@ -133,7 +132,7 @@ services:
       CLOACINA_OIDC_MAP: "group:acme-admins=acme:admin;domain:acme.com=acme:admin;domain:acme.com=public:read"
       # On success the server hands the minted key to the SPA via the URL
       # fragment at this address (the demo UI origin).
-      CLOACINA_OIDC_SUCCESS_REDIRECT: "http://localhost:8082/connect"
+      CLOACINA_OIDC_SUCCESS_REDIRECT: "http://localhost:8080/connect"
     depends_on:
       postgres:
         condition: service_healthy
@@ -285,17 +284,6 @@ services:
     entrypoint: ["/usr/local/bin/pack-demo-fixtures.sh"]
     volumes:
       - fixtures-pkgs:/out
-
-  ui:
-    build:
-      context: ..
-      dockerfile: ui/Dockerfile
-    environment:
-      CLOACINA_SERVER_URL: "http://localhost:8080"
-    depends_on:
-      - server
-    ports:
-      - "8082:80"
 
   harness:
     build:
