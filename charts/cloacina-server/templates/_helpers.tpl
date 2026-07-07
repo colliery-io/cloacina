@@ -60,6 +60,16 @@ Image reference. Defaults image.tag to .Chart.AppVersion when unset.
 {{- end -}}
 
 {{/*
+Compiler image reference (CLOACI-I-0105). Defaults the repository to the
+server repo with `-compiler` swapped in, and the tag to .Chart.AppVersion.
+*/}}
+{{- define "cloacina-server.compilerImage" -}}
+{{- $repo := .Values.compiler.image.repository | default (.Values.image.repository | replace "cloacina-server" "cloacina-compiler") -}}
+{{- $tag := default .Chart.AppVersion .Values.compiler.image.tag -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+
+{{/*
 Fleet-actuator ServiceAccount name. Defaults to "<fullname>-fleet".
 */}}
 {{- define "cloacina-server.fleetServiceAccountName" -}}

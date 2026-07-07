@@ -279,6 +279,55 @@ podAnnotations: {}
 podLabels: {}
 
 # ---------------------------------------------------------------------------
+# Compiler (CLOACI-I-0105 / I-0111)
+#
+# The cloacina-compiler builds uploaded Rust packages, running attacker-
+# controlled build.rs / proc-macros. It sandboxes each `cargo build` with
+# bubblewrap (see docs/service/compiler-sandbox.md). Enable it to compile
+# packages in-cluster; without it, uploaded Rust packages stay `pending`.
+# ---------------------------------------------------------------------------
+compiler:
+  enabled: false
+  replicaCount: 1
+  image:
+    # Defaults to the server repo with `-compiler` swapped in, tag = AppVersion.
+    repository: ""
+    tag: ""
+  bind: "0.0.0.0:9000"
+  pollIntervalMs: 1000
+  # Extra CLI args, e.g. ["--cargo-flag=build", "--cargo-flag=--lib"] or
+  # ["--tenant-schema", "acme"] for a per-tenant build-isolation compiler.
+  extraArgs:
+    - "--cargo-flag=build"
+    - "--cargo-flag=--lib"
+  extraEnv: []
+  sandbox:
+    # required | preferred | off. `required` (the multi-tenant default) refuses
+    # to boot when bwrap is unusable, rather than build untrusted code
+    # unsandboxed. `preferred` downgrades to landlock. `off` disables it.
+    mode: required
+    # bwrap needs unprivileged user namespaces, which the default seccomp
+    # profile blocks; Unconfined grants them. Applied only when mode != off.
+    seccompProfile: Unconfined
+  # emptyDir size limit for the shared cargo target cache.
+  buildCacheSize: 8Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  # Mirrors the server container hardening; seccompProfile is layered in by the
+  # template when the sandbox is active.
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+# ---------------------------------------------------------------------------
 # ServiceMonitor (Prometheus operator)
 # ---------------------------------------------------------------------------
 serviceMonitor:

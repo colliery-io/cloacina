@@ -1,0 +1,119 @@
+{{- if .Values.compiler.enabled }}
+{{- include "cloacina-server.validateDatabase" . -}}
+# CLOACI-I-0105: the cloacina-compiler builds uploaded packages, running
+# attacker-controlled build.rs / proc-macros. It runs each `cargo build` inside
+# a bwrap sandbox (see docs/service/compiler-sandbox.md) — which needs
+# unprivileged user namespaces, blocked by the default seccomp profile. The
+# securityContext below sets seccompProfile: Unconfined so bwrap works
+# in-cluster; CLOACINA_COMPILER_SANDBOX gates the fail-closed posture.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloacina-server.fullname" . }}-compiler
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: compiler
+spec:
+  # A single compiler claims pending builds; scale per-tenant compilers by
+  # running additional releases with --tenant-schema (see values.compiler.args).
+  replicas: {{ .Values.compiler.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cloacina-server.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: compiler
+  template:
+    metadata:
+      labels:
+        {{- include "cloacina-server.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: compiler
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cloacina-compiler
+          image: {{ include "cloacina-server.compilerImage" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--bind"
+            - {{ .Values.compiler.bind | quote }}
+            - "--database-url"
+            # Kubernetes expands $(DATABASE_URL) from the env below, so a
+            # secret-sourced URL never appears literally in the manifest/argv.
+            - "$(DATABASE_URL)"
+            - "--poll-interval-ms"
+            - {{ .Values.compiler.pollIntervalMs | quote }}
+            {{- range .Values.compiler.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- if .Values.postgresql.enabled }}
+            - name: DATABASE_URL
+              value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}"
+            {{- else if .Values.databaseUrlSecretRef.name }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.databaseUrlSecretRef.name }}
+                  key: {{ .Values.databaseUrlSecretRef.key }}
+            {{- else }}
+            - name: DATABASE_URL
+              value: {{ .Values.database.url | quote }}
+            {{- end }}
+            # CLOACI-I-0105: fail-closed sandbox posture. `required` refuses to
+            # boot if bwrap is unusable (multi-tenant default here); `preferred`
+            # downgrades to landlock; `off` disables the process sandbox.
+            - name: CLOACINA_COMPILER_SANDBOX
+              value: {{ .Values.compiler.sandbox.mode | quote }}
+            {{- with .Values.compiler.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.compiler.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.compiler.securityContext | nindent 12 }}
+            {{- if ne .Values.compiler.sandbox.mode "off" }}
+            # bwrap's unprivileged user namespaces need the default seccomp
+            # profile relaxed. A NET security gain: bwrap's per-build isolation
+            # is stronger than default-seccomp with NO build sandbox.
+            seccompProfile:
+              type: {{ .Values.compiler.sandbox.seccompProfile }}
+            {{- end }}
+          volumeMounts:
+            # readOnlyRootFilesystem requires emptyDirs for cargo's writable
+            # paths — the build target cache, tmp, and the cargo/rustup homes.
+            - name: target
+              mountPath: /workspace/target
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/cloacina
+      volumes:
+        - name: target
+          emptyDir:
+            sizeLimit: {{ .Values.compiler.buildCacheSize }}
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
