@@ -4,14 +4,14 @@ level: initiative
 title: "Compiler hardening Phase 2 — process sandbox for cargo build"
 short_code: "CLOACI-I-0105"
 created_at: 2026-05-06T11:05:32.632631+00:00
-updated_at: 2026-07-07T04:03:04.967114+00:00
+updated_at: 2026-07-07T04:29:37.471281+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -86,6 +86,8 @@ The primitive choice is deliberately deferred to discovery — it is the central
 **Container posture (maintainer decision)**: the containerized compiler gets level 1 by relaxing the container's seccomp for user namespaces — compose/Helm set the documented `security_opt`; defensible because bwrap's per-build isolation is stronger than default-seccomp-with-no-sandbox. Discovery Qs resolved: tmpfs default 4GiB configurable; registry RO-bind; dev unsandboxed mode = `off`.
 
 **Decomposition**: [[CLOACI-T-0852]] ladder/probe/config seam · [[CLOACI-T-0853]] bwrap level · [[CLOACI-T-0854]] landlock+rlimits+forensics · [[CLOACI-T-0855]] adversarial test + compose/Helm/docs.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
