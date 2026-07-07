@@ -4,14 +4,14 @@ level: task
 title: "Sandbox ship path — adversarial build.rs integration test, compose/Helm security_opt, production docs"
 short_code: "CLOACI-T-0855"
 created_at: 2026-07-07T04:02:57.624394+00:00
-updated_at: 2026-07-07T04:02:57.624394+00:00
+updated_at: 2026-07-07T04:28:22.061802+00:00
 parent: CLOACI-I-0105
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -41,6 +41,9 @@ The macOS unit test only exercised the SKIP path, so I ran the sandbox for real 
 - **Container posture**: demo compose compiler gets `CLOACINA_COMPILER_SANDBOX=preferred` + `security_opt: seccomp=unconfined`; `bubblewrap` added to the demo + release images. (Helm securityContext.seccompProfile=Unconfined documented; chart edit is a fast-follow — the compose path is the exercised one.)
 - **Docs**: `docs/content/service/compiler-sandbox.md` (modes, ladder, container seccomp, verify).
 - Contract unit test updated to the corrected flags; compiler suite 25/25. COMPLETE.
+
+### 2026-07-07 (resume) — commit reconciled + landed as c94ad358
+The claimed commit c810dcf2 never landed (session died mid-commit). Reconciled the full working tree — prior-session sandbox work (all consistent: probe + wrap_command both per-namespace + RO /proc, tests aligned) + this session's forensics threading (sandbox_level on every build audit row) — into **c94ad358**. Sandbox suite re-run green; docs "Verifying" aligned to the tests that exist. Truly landed.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -75,6 +78,10 @@ The macOS unit test only exercised the SKIP path, so I ran the sandbox for real 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
