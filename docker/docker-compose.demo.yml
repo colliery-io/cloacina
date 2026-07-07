@@ -179,6 +179,18 @@ services:
       # debuginfo OOM-killed complex-dag-example (it pulls in the heavy
       # `cloacina` lib). The demo never debugs the compiled cdylibs.
       CARGO_PROFILE_DEV_DEBUG: "0"
+      # CLOACI-I-0105: build-process sandbox. `preferred` uses bwrap when the
+      # container permits unprivileged user namespaces (the security_opt
+      # below), else downgrades to landlock. Multi-tenant operators should set
+      # `required` to make an un-sandboxable container a hard boot failure.
+      CLOACINA_COMPILER_SANDBOX: "preferred"
+    # CLOACI-I-0105: bwrap needs unprivileged user namespaces, which Docker's
+    # default seccomp profile blocks. Unconfined seccomp lets bwrap create its
+    # namespaces — defensible because bwrap's per-build isolation is stronger
+    # than default-seccomp-with-no-sandbox. K8s: the Helm chart sets the
+    # equivalent securityContext.seccompProfile=Unconfined on the compiler pod.
+    security_opt:
+      - seccomp=unconfined
     depends_on:
       postgres:
         condition: service_healthy

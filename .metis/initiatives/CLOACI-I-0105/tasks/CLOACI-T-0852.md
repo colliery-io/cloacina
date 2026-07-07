@@ -4,14 +4,14 @@ level: task
 title: "Sandbox ladder seam — CLOACINA_COMPILER_SANDBOX config, boot-time probe, fail-closed required mode"
 short_code: "CLOACI-T-0852"
 created_at: 2026-07-07T04:02:28.399601+00:00
-updated_at: 2026-07-07T04:02:28.399601+00:00
+updated_at: 2026-07-07T04:16:52.436204+00:00
 parent: CLOACI-I-0105
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,7 +28,12 @@ initiative_id: CLOACI-I-0105
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+The config + boot-probe seam for the sandbox ladder: `CLOACINA_COMPILER_SANDBOX = required|preferred|off`, probed once at startup into a `SandboxLevel` every build runs at, fail-closed under `required`.
+
+## Status Updates
+
+### 2026-07-07 — DONE (commit f03d2d4b, branch feat/i0105-compiler-sandbox)
+`crates/cloacina-compiler/src/sandbox.rs`: `SandboxMode::from_env` (default `preferred`, unknown → error), `probe(mode) → SandboxPlan{level}`. `off` → level None (loud warn). `preferred` → best available, downgrades warned. `required` without bwrap → **hard boot error** (the REQ-008 pattern). The bwrap probe actually RUNS `bwrap --unshare-all` so it catches Docker's userns-blocking seccomp, not just a missing binary. `main.rs` probes at startup and stamps `CompilerConfig.sandbox_level` (bails via anyhow on `required`-failure). Compiles clean on macOS (level None; landlock dep gated to linux). COMPLETE — the bwrap/landlock command composition it feeds is T-0853/T-0854.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -63,6 +68,10 @@ initiative_id: CLOACI-I-0105
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

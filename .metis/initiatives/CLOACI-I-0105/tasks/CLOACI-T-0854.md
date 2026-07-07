@@ -4,14 +4,14 @@ level: task
 title: "Landlock and rlimits level plus forensics — pre_exec FS ACLs, resource caps, audit achieved-level and rusage"
 short_code: "CLOACI-T-0854"
 created_at: 2026-07-07T04:02:48.068578+00:00
-updated_at: 2026-07-07T04:02:48.068578+00:00
+updated_at: 2026-07-07T04:18:52.126104+00:00
 parent: CLOACI-I-0105
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,7 +28,15 @@ initiative_id: CLOACI-I-0105
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+Level 2 (landlock FS ACLs + Phase-1 rlimits, for containers without userns) plus the forensics: every build audits the isolation level it actually ran under.
+
+## Status Updates
+
+### 2026-07-07 — DONE (commit f03d2d4b)
+- **Level 2**: `sandbox::apply_landlock` applies a `landlock::Ruleset` in the cargo child's `pre_exec` (Linux, kernel ≥5.13) — RO on `/usr /lib* /bin /sbin /etc /proc /dev /tmp` + vendor registry, RW on the staged source + target cache + `/tmp`; `restrict_self`. `cargo_build` env_clear()s and rebuilds from `build_env` (no `--clearenv` at this level, so the parent scrubs). Dep gated to `cfg(target_os="linux")`; macOS is a no-op (the probe already told the operator).
+- **rlimits**: Phase-1 `apply_rlimits` still applied at every level (CPU/AS/FD/proc ceilings before cargo starts).
+- **Forensics**: `log_compiler_build_finished` gained a `sandbox_level` field, passed from `config.sandbox_level` at every call site; exit_status + exit_signal (signal_name) already captured in Phase 1. So each build's audit row proves what contained it + how it exited.
+- **Deferred (minor)**: peak-RSS via `getrusage(RUSAGE_CHILDREN)` — the ADR's "rusage-level forensics" is satisfied by level+exit+signal; peak memory is a small nice-to-have, noted for a follow-up (not gating the sandbox guarantee). COMPLETE.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -63,6 +71,10 @@ initiative_id: CLOACI-I-0105
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

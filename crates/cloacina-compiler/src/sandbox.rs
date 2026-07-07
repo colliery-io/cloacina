@@ -156,8 +156,33 @@ pub fn probe(mode: SandboxMode) -> Result<SandboxPlan, String> {
 /// namespaces here (Docker's default seccomp blocks unprivileged userns —
 /// the probe catches that, not just missing binaries).
 fn bwrap_usable() -> bool {
+    // REPRESENTATIVE probe (CLOACI-T-0855): exercise the SAME namespace +
+    // mount shape a real build uses — a bare `--ro-bind / /` passes in
+    // containers where `--proc` mounting or `--unshare-net` actually fails,
+    // giving a false-positive that would then break every build. This runs
+    // the exact critical bits: unshare net/user/ipc/uts/cgroup, RO-bind
+    // /proc (a fresh --proc mount needs a new PID ns + caps a default
+    // container lacks), tmpfs, --clearenv.
     std::process::Command::new("bwrap")
-        .args(["--unshare-all", "--ro-bind", "/", "/", "true"])
+        .args([
+            "--unshare-user",
+            "--unshare-net",
+            "--unshare-ipc",
+            "--unshare-uts",
+            "--unshare-cgroup",
+            "--clearenv",
+            "--ro-bind",
+            "/proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "true",
+        ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -239,11 +264,21 @@ pub fn build_env(mounts: &BuildMounts<'_>) -> Vec<(String, String)> {
 pub fn wrap_command(level: SandboxLevel, mounts: &BuildMounts<'_>) -> (String, Vec<String>) {
     match level {
         SandboxLevel::Bwrap => {
+            // Per-namespace unshares (NOT --unshare-all): a fresh --proc mount
+            // needs a new PID ns + caps a default container lacks (CLOACI-T-0855
+            // real-container proof). --unshare-net is the security-critical
+            // one; the container's /proc is already PID-isolated by Docker, so
+            // RO-bind it rather than mounting a new procfs.
             let mut args: Vec<String> = vec![
-                "--unshare-all".into(),
+                "--unshare-user".into(),
+                "--unshare-net".into(),
+                "--unshare-ipc".into(),
+                "--unshare-uts".into(),
+                "--unshare-cgroup".into(),
                 "--die-with-parent".into(),
                 "--clearenv".into(),
-                "--proc".into(),
+                "--ro-bind".into(),
+                "/proc".into(),
                 "/proc".into(),
                 "--dev".into(),
                 "/dev".into(),
@@ -366,4 +401,143 @@ pub fn config_hash(level: SandboxLevel, mounts: &BuildMounts<'_>) -> String {
     mounts.target_dir.hash(&mut h);
     mounts.vendor_dir.hash(&mut h);
     format!("{:016x}", h.finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn mounts<'a>(src: &'a Path, vendor: &'a Path) -> BuildMounts<'a> {
+        BuildMounts {
+            source_dir: src,
+            target_dir: None,
+            vendor_dir: Some(vendor),
+        }
+    }
+
+    /// The bwrap composition is the isolation contract (CLOACI-T-0853): full
+    /// namespaces, cleared env, and the curated mount set — proven without
+    /// needing bwrap installed.
+    #[test]
+    fn bwrap_command_enforces_isolation_contract() {
+        let src = PathBuf::from("/staged/pkg");
+        let vendor = PathBuf::from("/curated/registry");
+        let (prog, args) = wrap_command(SandboxLevel::Bwrap, &mounts(&src, &vendor));
+        assert_eq!(prog, "bwrap");
+
+        // No network (the security-critical unshare) + per-namespace
+        // isolation + die-with-parent. (CLOACI-T-0855: --unshare-all + a
+        // fresh --proc mount fails unprivileged in containers; the real
+        // config unshares per-namespace and RO-binds /proc.)
+        assert!(args.iter().any(|a| a == "--unshare-net"));
+        assert!(args.iter().any(|a| a == "--unshare-user"));
+        assert!(args.iter().any(|a| a == "--die-with-parent"));
+        // /proc is RO-bound, not a fresh mount.
+        assert!(args.join(" ").contains("--ro-bind /proc /proc"));
+        // Env is CLEARED before the explicit rebuild — a build.rs cannot read
+        // DATABASE_URL et al.
+        assert!(args.iter().any(|a| a == "--clearenv"));
+
+        let joined = args.join(" ");
+        // The staged source is bound WRITABLE; the curated registry RO.
+        assert!(joined.contains("--bind /staged/pkg /staged/pkg"));
+        assert!(joined.contains("--ro-bind /curated/registry /curated/registry"));
+        // The command ends by launching cargo INSIDE the sandbox.
+        assert_eq!(args.last().map(String::as_str), Some("cargo"));
+
+        // ADVERSARIAL: no host path outside the staged source is writable —
+        // scan every `--bind` (RW) target and assert it's the source (or the
+        // target cache, absent here).
+        for w in args.windows(2) {
+            if w[0] == "--bind" {
+                assert_eq!(
+                    w[1], "/staged/pkg",
+                    "unexpected writable host bind: {}",
+                    w[1]
+                );
+            }
+        }
+    }
+
+    /// The sandboxed env is an ALLOWLIST (CLOACI-T-0853): even with a secret
+    /// in the parent process, only the curated keys cross the boundary.
+    #[test]
+    fn build_env_is_an_allowlist_not_a_denylist() {
+        unsafe {
+            std::env::set_var("CLOACINA_TEST_SECRET_DATABASE_URL", "postgres://leak");
+        }
+        let src = PathBuf::from("/staged/pkg");
+        let vendor = PathBuf::from("/curated/registry");
+        let env = build_env(&mounts(&src, &vendor));
+        let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(!keys.contains(&"CLOACINA_TEST_SECRET_DATABASE_URL"));
+        // HOME is redirected into the contained build dir so build.rs writes
+        // to $HOME stay inside the sandbox.
+        let home = env
+            .iter()
+            .find(|(k, _)| k == "HOME")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(home, Some("/staged/pkg"));
+        // The vendored registry wins CARGO_HOME (Phase 1 curation).
+        let cargo_home = env
+            .iter()
+            .find(|(k, _)| k == "CARGO_HOME")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(cargo_home, Some("/curated/registry"));
+        unsafe {
+            std::env::remove_var("CLOACINA_TEST_SECRET_DATABASE_URL");
+        }
+    }
+
+    /// non-bwrap levels do not wrap the command.
+    #[test]
+    fn non_bwrap_levels_run_cargo_directly() {
+        let src = PathBuf::from("/s");
+        let vendor = PathBuf::from("/v");
+        for level in [SandboxLevel::Landlock, SandboxLevel::None] {
+            let (prog, args) = wrap_command(level, &mounts(&src, &vendor));
+            assert_eq!(prog, "cargo");
+            assert!(args.is_empty());
+        }
+    }
+
+    /// END-TO-END ADVERSARIAL (CLOACI-T-0855): where bwrap actually works
+    /// (Linux CI with userns), a build attempting to WRITE outside its staged
+    /// dir is denied — the RO host mount holds. Skips (not fails) where bwrap
+    /// is unusable (macOS dev, userns-blocked containers) so the suite stays
+    /// green everywhere; CI runs it for real.
+    #[test]
+    fn bwrap_denies_host_write() {
+        let plan = probe(SandboxMode::Preferred).expect("probe");
+        if plan.level != SandboxLevel::Bwrap {
+            eprintln!(
+                "skipping: bwrap not usable here (level={})",
+                plan.level.as_str()
+            );
+            return;
+        }
+        let tmp = std::env::temp_dir().join("cloacina-sbx-adv");
+        let _ = std::fs::create_dir_all(&tmp);
+        let (prog, mut args) = wrap_command(SandboxLevel::Bwrap, &mounts(&tmp, &tmp));
+        // Replace the trailing `cargo` with a shell that tries to write /etc.
+        assert_eq!(args.pop().as_deref(), Some("cargo"));
+        args.extend([
+            "/bin/sh".into(),
+            "-c".into(),
+            "echo x > /etc/cloacina_probe".into(),
+        ]);
+        let status = std::process::Command::new(prog)
+            .args(&args)
+            .status()
+            .expect("run bwrap");
+        assert!(
+            !status.success(),
+            "write to /etc must be denied inside the sandbox"
+        );
+        assert!(
+            !std::path::Path::new("/etc/cloacina_probe").exists(),
+            "the probe file must not exist on the host"
+        );
+    }
 }

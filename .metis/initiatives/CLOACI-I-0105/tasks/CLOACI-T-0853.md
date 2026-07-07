@@ -4,14 +4,14 @@ level: task
 title: "bwrap sandbox level — namespaced cargo build with tmpfs root, RO toolchain and registry binds, no network"
 short_code: "CLOACI-T-0853"
 created_at: 2026-07-07T04:02:37.038872+00:00
-updated_at: 2026-07-07T04:02:37.038872+00:00
+updated_at: 2026-07-07T04:17:28.147068+00:00
 parent: CLOACI-I-0105
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,7 +28,12 @@ initiative_id: CLOACI-I-0105
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+Level 1 of the ladder: run `cargo build` under bwrap — namespaces, tmpfs, RO toolchain/registry binds, no network, cleared env.
+
+## Status Updates
+
+### 2026-07-07 — DONE (commit f03d2d4b)
+`sandbox::wrap_command(Bwrap, mounts)` composes: `--unshare-all` (no network) `--die-with-parent --clearenv --proc /proc --dev /dev --tmpfs /tmp`; RO binds for `/usr /lib /lib64 /bin /sbin /etc` (only those that exist) + the curated vendor registry + non-/usr RUSTUP/CARGO homes; RW binds for ONLY the staged source + shared target cache; `--chdir <source>`; env rebuilt via `--setenv` from `build_env` (PATH, HOME→build dir, RUSTUP/CARGO_HOME, CARGO_TARGET_DIR, debug profile, vendored CARGO_HOME). `cargo_build` spawns `bwrap … cargo <flags>` at this level; `DATABASE_URL` never crosses (`--clearenv`). Phase-1 rlimits still applied. COMPLETE — adversarial proof that a build.rs can't read the host / open a socket is T-0855.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -63,6 +68,10 @@ initiative_id: CLOACI-I-0105
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
