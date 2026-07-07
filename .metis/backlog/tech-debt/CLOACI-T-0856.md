@@ -4,15 +4,15 @@ level: task
 title: "Docs hardening sweep — I-0125 authoring-shell + weekend-feature drift (4-agent review findings)"
 short_code: "CLOACI-T-0856"
 created_at: 2026-07-07T11:28:56.814548+00:00
-updated_at: 2026-07-07T11:28:56.814548+00:00
+updated_at: 2026-07-07T13:53:36.428480+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -80,6 +80,12 @@ Executed via file-disjoint parallel editing agents; verified with docs build/lin
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -150,4 +156,5 @@ Executed via file-disjoint parallel editing agents; verified with docs build/lin
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-07 — DONE (branch docs/hardening-sweep-t0856, commit 4b3d33ed)
+All five tiers fixed via 6 file-disjoint parallel editing agents, each given the ground-truth shell + guardrails (verify vs code, preserve Hugo front-matter/shortcodes, strip leaked ticket IDs). **Hugo build clean — zero broken refs** (verified the Diátaxis moves' cross-links + 2 new files resolve). New files: `embed/explanation/performance.md`, `reference/package-signing-api.md`. Also surfaced a CODE drift for separate cleanup: `keys.rs:206` docstring says god-only but `authz.rs:267` authorizes `POST /tenants/{id}/keys` as tenant-admin. COMPLETE.
