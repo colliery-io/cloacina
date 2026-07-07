@@ -45,6 +45,9 @@ The macOS unit test only exercised the SKIP path, so I ran the sandbox for real 
 ### 2026-07-07 (resume) — commit reconciled + landed as c94ad358
 The claimed commit c810dcf2 never landed (session died mid-commit). Reconciled the full working tree — prior-session sandbox work (all consistent: probe + wrap_command both per-namespace + RO /proc, tests aligned) + this session's forensics threading (sandbox_level on every build audit row) — into **c94ad358**. Sandbox suite re-run green; docs "Verifying" aligned to the tests that exist. Truly landed.
 
+### 2026-07-07 (resume, cont.) — Helm gap CLOSED (not documented-as-follow-up)
+Per maintainer ("close it, don't just document for follow-up"): the `charts/cloacina-server` chart now templates a **compiler Deployment** (`compiler.enabled`) — `templates/compiler-deployment.yaml`, a `compilerImage` helper, and a full `compiler:` values section. When the sandbox is active the container gets `securityContext.seccompProfile.type: Unconfined` (bwrap userns in-cluster), `CLOACINA_COMPILER_SANDBOX` defaults to `required` (fail-closed), DATABASE_URL flows from the same secret/postgresql/plain resolution via `$(DATABASE_URL)` expansion (never in argv), and the writable cargo paths are emptyDir mounts so `readOnlyRootFilesystem` holds. **`helm lint` clean; renders correctly with compiler on (Deployment present) and off (zero compiler resources).** Commits ab46e4ee (chart) + f0fc2b19 (docs de-gapped). No remaining follow-up.
+
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
 {Delete this section when task is assigned to an initiative}
