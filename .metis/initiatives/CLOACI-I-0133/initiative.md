@@ -4,14 +4,14 @@ level: initiative
 title: "Tenant credential store — encrypted, named connection/secret references for packaged-workflow egress"
 short_code: "CLOACI-I-0133"
 created_at: 2026-07-07T11:11:32.196262+00:00
-updated_at: 2026-07-07T11:11:32.196262+00:00
+updated_at: 2026-07-07T11:52:01.769477+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -21,7 +21,7 @@ initiative_id: tenant-credential-store-encrypted
 
 # Secrets — encrypted, named-field objects for workflows and constructors (the encrypted sibling of parameters)
 
-> **Phase: discovery.** This document captures the problem, the maintainer-chosen shape, and the open questions. Design decisions, requirements freezing, and task decomposition are DEFERRED to a design check-in (initiative human-in-the-loop rule). Nothing here is committed to implementation.
+> **Phase: design.** Problem + shape captured; the four critical forks are decided (see Design Decisions). Second-tier forks (OQ-2a/2b/6) remain before task decomposition. Not yet committed to implementation.
 
 ## Context **[REQUIRED]**
 
@@ -80,7 +80,7 @@ Params land in the `Context` in plaintext and appear in the fires log. A secret'
 - REQ-006: Access is grant-gated — a package/constructor resolves only the secrets its tenant granted it.
 - NFR-001 (**the load-bearing one**): plaintext appears ONLY transiently in the execution scope; a leak test proves no plaintext in DB rows, logs, audit events, or the fires log.
 - NFR-002: rotation of a secret's value takes effect on the next fire with no code/instance edit.
-- NFR-003: fleet-agent parity — a secret resolves for a packaged task running on a remote agent (the agent receives the resolved value over the existing authenticated delivery channel, not the ciphertext-at-rest key).
+- NFR-003: fleet-agent parity — a secret resolves for a packaged task on a remote agent via per-execution envelope wrap (D-2): the value is wrapped to the agent's ephemeral public key, bound to one agent + one execution; the agent never holds the at-rest key and never persists the plaintext.
 
 ## Use Cases **[CONDITIONAL: User-Facing]**
 
@@ -119,16 +119,29 @@ Params: authored → stored plaintext (`schedules.params`) → merged into `Cont
 - **External secrets-manager only (Vault/AWS SM), no native store.** Deferred, not rejected — a pluggable external backend is a candidate follow-on, but a native encrypted store is needed for the embedded/self-contained posture and as the default.
 - **Bake credentials into packages / pass via params.** The status quo footgun this initiative closes.
 
-## Open Questions (resolve in discovery/design) **[REQUIRED]**
+## Design Decisions (2026-07-07 design check-in) **[REQUIRED]**
 
-- **OQ-1 — the delivery side channel.** How does a task/constructor READ a resolved secret without it being in `Context`? A `Secrets`/credential accessor injected into the execution scope? What's the Rust + Python + packaged-FFI surface?
-- **OQ-2 — fleet parity + key custody.** The agent must get the *resolved* value, not the at-rest key. Resolve server-side and ship over the (authenticated, TLS) delivery channel? Implications for the agent never persisting it.
-- **OQ-3 — grant model.** Is "may resolve secret X" a new grant kind alongside capability/egress, or does it ride the existing egress grant (the credential behind an endpoint)? Named-secret grants vs. wildcard.
-- **OQ-4 — declaration + reference surface.** How does a workflow/task/constructor DECLARE required secrets, and reference fields? Reuse I-0128 declared inputs with an `encrypted: true` marker? The `{"$secret": name}` param-reference form.
-- **OQ-5 — rotation + versioning.** In-place value update vs. versioned secrets; what a mid-flight execution sees during rotation.
-- **OQ-6 — encryption key management.** Per-tenant data keys vs. a single server key; envelope encryption; interaction with the existing `db_key_manager` / key-encryption scheme.
-- **OQ-7 — pluggable external backend** (Vault/AWS SM/GCP SM) as a resolution provider behind the same named-Secret interface — in scope for v1 or explicit follow-on?
-- **OQ-8 — UI/CLI surface** for create/rotate/list (metadata-only). Ties into the embedded UI + cloacinactl.
+Maintainer decisions on the four critical forks (grounded in code: `workflow_instance.rs::merge_instance_params`, `registry/loader/grants.rs::GrantSpec`, `crypto/key_encryption.rs`, I-0116/I-0128 surfaces):
+
+- **D-1 (OQ-1) — Separate `Secrets` accessor.** A task/constructor reads resolved fields via a dedicated accessor on the execution scope (e.g. `ctx.secret("db_prod")`), structurally distinct from `Context` so a secret is NEVER serialized into the durable context / `schedules.params` / fires log. NOT env-var injection (leaks to /proc/environ, children, crash dumps). Surface spans Rust + Python + packaged FFI.
+
+- **D-2 (OQ-2) — Per-execution envelope wrap (the strongest option).** For fleet execution, the server resolves the at-rest secret and RE-WRAPS it to the target agent's ephemeral public key, per execution; the agent unwraps with its ephemeral private key and holds plaintext in memory for the run only. Agents never hold the at-rest key; the on-wire ciphertext is bound to one agent + one execution (a channel compromise or a different agent cannot reuse it). Stronger than plain server-side-resolve-over-TLS. **The embedded/in-process path needs no envelope** — the server IS the executor and resolves directly into the accessor.
+
+- **D-3 (OQ-3) — New named grant kind.** `secrets = ["db_prod", ...]` allow-list alongside `capabilities`/`egress` in `GrantSpec`, fail-closed (empty = none), with tenant-scope as the outer boundary. Explicit + auditable. NOT riding the egress grant (breaks for non-network secrets like a passphrase; makes authz implicit).
+
+- **D-4 (OQ-4) — Reuse I-0128 + `$secret` refs.** Declare required secrets through the existing declared-input machinery with an `encrypted`/`secret` marker (params and secrets declared side by side); bind via the `{"$secret": "name"}` reference form inside instance params so it composes with I-0116 instance binding and resolves encrypted at fire time.
+
+## Design Decisions — second tier (2026-07-07, all resolved) **[REQUIRED]**
+
+- **D-5 (OQ-2a) — Ephemeral per-execution keypair.** The agent generates a fresh X25519 keypair per task claim and sends the public key with the claim; the server wraps to it. Forward secrecy per execution; keygen is microseconds. (Not per-lease — a leaked lease key would expose every secret resolved in the lease window.)
+- **D-6 (OQ-2b) — HPKE (RFC 9180).** Standardized hybrid public-key encryption for the wrap-to-pubkey step; crypto agility. (Not sealed-box/age.)
+- **D-7 (OQ-6) — Per-tenant data keys (envelope at rest).** Each tenant's secrets encrypted under a tenant DEK; DEKs wrapped by a server KEK. Aligns with tenant-as-isolation-boundary; enables per-tenant rotation; per-tenant compromise blast-radius. (Not a single all-tenant server key.)
+- **D-8 (OQ-5/7/8 defaults, accepted):**
+  - OQ-5 rotation: in-place update; the next fire sees the new value; an in-flight execution keeps the copy it already resolved; NO versioning in v1.
+  - OQ-7 external backends: native encrypted store ONLY in v1; the resolver is a trait so Vault/AWS-SM/GCP-SM is a clean follow-on.
+  - OQ-8 UI/CLI: metadata-only create/rotate/list is its OWN task, not blocking the core.
+
+**Design is FROZEN. All OQs resolved (D-1..D-8). Ready to decompose pending maintainer go-ahead on the task breakdown.**
 
 ## Implementation Plan (PLACEHOLDER — decompose after design sign-off) **[REQUIRED]**
 
