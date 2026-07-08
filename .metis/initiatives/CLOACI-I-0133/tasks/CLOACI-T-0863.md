@@ -4,14 +4,14 @@ level: task
 title: "Secrets docs — authoring, operating, and the security model"
 short_code: "CLOACI-T-0863"
 created_at: 2026-07-07T11:52:28.588026+00:00
-updated_at: 2026-07-07T11:52:28.588026+00:00
+updated_at: 2026-07-08T01:10:12.654308+00:00
 parent: CLOACI-I-0133
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,6 +67,10 @@ The Secrets documentation: authoring (declare + `$secret` refs), operating (crea
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -139,4 +143,7 @@ The Secrets documentation: authoring (declare + `$secret` refs), operating (crea
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-07 — DONE (branch feat/i0133-secrets)
+3 new pages: `service/explanation/secrets.md` (what a Secret is + security model: per-tenant DEK envelope at rest, no-leak guarantee, per-execution HPKE one-time-key-pool fleet delivery, **authorization = tenant scope per refined D-3**, per-package grant framed as defense-in-depth NOT a boundary), `service/how-to/manage-secrets.md` (cloacinactl + UI + CLOACINA_SECRET_KEK), `engine/workflows/how-to/use-secrets.md` (authoring: declare/read/`$secret` bind). Reference: environment-variables.md (+CLOACINA_SECRET_KEK), http-api.md (+5 Tenant Secrets routes), cli.md (+secret noun). Verified against source; no ticket IDs.
+**Verified (re-run myself): angreal docs build clean, zero broken refs (exit 0).**
+**ACCURACY CAVEAT flagged by the doc pass:** NO Python task-body read accessor — Python has the declaration decorator + `$secret` instance binding, but `cloacina-python` exposes no `context.secret()`/`secret_field()`; reading resolved values is a Rust `Context` API only. Documented as a limitation, not claimed as parity. Python is a core capability → flagged to maintainer for a close-now-vs-follow-up decision.

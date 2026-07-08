@@ -42,15 +42,27 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use clap::Parser;
 use cloacina::fleet::{
-    host_target_triple, AgentHeartbeatRequest, AgentRegisterRequest, AgentRegisterResponse,
-    AgentResultRequest, AgentResultResponse, GraphWorkPacket, RefusalReason, WorkPacket,
+    host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentKeyReplenishRequest,
+    AgentKeyReplenishResponse, AgentRegisterRequest, AgentRegisterResponse, AgentResultRequest,
+    AgentResultResponse, EphemeralKeyEntry, GraphWorkPacket, RefusalReason, WorkPacket,
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, GRAPH_PACKET_KIND, WORK_PACKET_KIND,
 };
+use cloacina::security::{AgentKeyPool, InMemorySecretResolver};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
+
+/// CLOACI-T-0861 / D-5 — how many one-time ephemeral keys the agent advertises at
+/// registration, and the low-water mark below which it proactively tops up. The
+/// server consumes one key per secret-bearing dispatch, so this bounds how many
+/// secret dispatches can be served before a replenish is needed.
+const KEY_POOL_TARGET: usize = 32;
+/// Proactively replenish when the local pool drops to (or below) this many keys,
+/// independent of the server's own replenish signal.
+const KEY_POOL_LOW_WATER: usize = 8;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -135,6 +147,12 @@ async fn run(args: Args) -> Result<()> {
     // task still running when the WS drops is still counted on reconnect.
     let in_flight = Arc::new(AtomicU32::new(0));
 
+    // CLOACI-T-0861 / D-5 — process-wide one-time ephemeral key pool. Shared
+    // across reconnect sessions and per-packet workers: a task still unwrapping
+    // secrets when the WS drops must keep the private key it needs, and each
+    // register/replenish mints fresh keys into this same pool.
+    let key_pool = Arc::new(AsyncMutex::new(AgentKeyPool::new()));
+
     // ── Reconnect loop ─────────────────────────────────────────────
     // A WS drop (or a server restart, which also forgets our registration) must
     // NOT take the agent down — it re-registers and reconnects with capped
@@ -149,6 +167,7 @@ async fn run(args: Args) -> Result<()> {
             &target_triple,
             in_flight.clone(),
             cache_dir.clone(),
+            key_pool.clone(),
         )
         .await
         {
@@ -182,7 +201,16 @@ async fn connect_and_serve(
     target_triple: &str,
     in_flight: Arc<AtomicU32>,
     cache_dir: Arc<std::path::PathBuf>,
+    key_pool: Arc<AsyncMutex<AgentKeyPool>>,
 ) -> Result<()> {
+    // ── 0. CLOACI-T-0861 / D-5 — mint a fresh batch of one-time ephemeral keys
+    //       for this registration and advertise their PUBLIC halves as a pool. The
+    //       private halves stay in `key_pool` (shared across workers + reconnects);
+    //       the server consumes one key per secret-bearing dispatch and stamps its
+    //       `key_id` on the WorkPacket. A leaked key exposes at most ONE execution.
+    let ephemeral_key_pool: Vec<EphemeralKeyEntry> =
+        { key_pool.lock().await.mint(KEY_POOL_TARGET) };
+
     // ── 1. Register (fresh each session — the server may have restarted and
     //       forgotten us, in which case a stale agent_id would be unroutable).
     let register_resp = register(
@@ -193,6 +221,7 @@ async fn connect_and_serve(
         args.max_concurrency,
         target_triple,
         &args.capabilities,
+        ephemeral_key_pool,
     )
     .await
     .context("agent register failed")?;
@@ -205,7 +234,10 @@ async fn connect_and_serve(
         "agent registered with server"
     );
 
-    // ── 2. Spawn the heartbeat task for THIS session.
+    // ── 2. Spawn the heartbeat task for THIS session. It also carries the D-5
+    //       key-pool top-up: each heartbeat response may ask the agent to
+    //       replenish, and the loop proactively tops up when the local pool runs
+    //       low.
     let heartbeat = spawn_heartbeat_loop(
         http.clone(),
         server_base.to_string(),
@@ -214,6 +246,7 @@ async fn connect_and_serve(
         args.max_concurrency,
         in_flight.clone(),
         Duration::from_secs(register_resp.heartbeat_interval_seconds.max(1) as u64),
+        key_pool.clone(),
     );
 
     // ── 3+4. Mint a ticket, connect, and serve. Bundled so the heartbeat is
@@ -238,6 +271,7 @@ async fn connect_and_serve(
             args.max_concurrency,
             in_flight.clone(),
             cache_dir.clone(),
+            key_pool.clone(),
         )
         .await
     }
@@ -251,6 +285,7 @@ async fn connect_and_serve(
 // HTTP helpers
 // ────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn register(
     http: &reqwest::Client,
     server: &str,
@@ -259,6 +294,7 @@ async fn register(
     max_concurrency: u32,
     target_triple: &str,
     capabilities: &[String],
+    ephemeral_key_pool: Vec<EphemeralKeyEntry>,
 ) -> Result<AgentRegisterResponse> {
     let body = AgentRegisterRequest {
         protocol_version: AGENT_PROTOCOL_VERSION,
@@ -266,6 +302,11 @@ async fn register(
         max_concurrency,
         target_triple: target_triple.to_string(),
         capabilities: capabilities.to_vec(),
+        // CLOACI-T-0861 / D-5 — advertise the one-time key POOL. The private
+        // halves stay in the process `key_pool` and never leave. The single-key
+        // field is retired in favor of the pool.
+        ephemeral_public_key: None,
+        ephemeral_key_pool,
     };
     let resp = http
         .post(format!("{}/v1/agent/register", server))
@@ -309,6 +350,7 @@ async fn post_result(
     Ok(resp.json().await?)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_heartbeat_loop(
     http: reqwest::Client,
     server: String,
@@ -317,6 +359,7 @@ fn spawn_heartbeat_loop(
     max_concurrency: u32,
     in_flight: Arc<AtomicU32>,
     interval: Duration,
+    key_pool: Arc<AsyncMutex<AgentKeyPool>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
@@ -339,12 +382,67 @@ fn spawn_heartbeat_loop(
             {
                 Ok(resp) if resp.status().is_success() => {
                     debug!(in_flight = n, "heartbeat ok");
+                    // CLOACI-T-0861 / D-5 — honor the server's replenish signal AND
+                    // proactively top up when the local pool runs low.
+                    let requested = resp
+                        .json::<AgentHeartbeatResponse>()
+                        .await
+                        .map(|r| r.replenish_keys as usize)
+                        .unwrap_or(0);
+                    let local = { key_pool.lock().await.len() };
+                    if requested > 0 || local <= KEY_POOL_LOW_WATER {
+                        maybe_replenish_keys(&http, &server, &api_key, &agent_id, &key_pool).await;
+                    }
                 }
                 Ok(resp) => warn!(status = %resp.status(), "heartbeat non-success"),
                 Err(e) => warn!(error = %e, "heartbeat request failed"),
             }
         }
     })
+}
+
+/// CLOACI-T-0861 / D-5 — mint enough fresh one-time keys to bring the local pool
+/// back up to [`KEY_POOL_TARGET`] and POST them to the server's key-pool top-up
+/// endpoint. Best-effort: a failed top-up is retried on the next heartbeat.
+async fn maybe_replenish_keys(
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    agent_id: &str,
+    key_pool: &Arc<AsyncMutex<AgentKeyPool>>,
+) {
+    let fresh: Vec<EphemeralKeyEntry> = {
+        let mut pool = key_pool.lock().await;
+        let deficit = KEY_POOL_TARGET.saturating_sub(pool.len());
+        if deficit == 0 {
+            return;
+        }
+        pool.mint(deficit)
+    };
+    let n = fresh.len();
+    let body = AgentKeyReplenishRequest {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+        agent_id: agent_id.to_string(),
+        keys: fresh,
+    };
+    match http
+        .post(format!("{}/v1/agent/keys", server))
+        .bearer_auth(api_key)
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let accepted = resp
+                .json::<AgentKeyReplenishResponse>()
+                .await
+                .map(|r| r.accepted)
+                .unwrap_or(0);
+            debug!(minted = n, accepted, "key pool replenished");
+        }
+        Ok(resp) => warn!(status = %resp.status(), "key replenish non-success"),
+        Err(e) => warn!(error = %e, "key replenish request failed"),
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -362,6 +460,7 @@ async fn receive_loop<S>(
     max_concurrency: u32,
     in_flight: Arc<AtomicU32>,
     cache_dir: Arc<std::path::PathBuf>,
+    key_pool: Arc<AsyncMutex<AgentKeyPool>>,
 ) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -397,6 +496,7 @@ where
                         max_concurrency,
                         &ack_tx,
                         &cache_dir,
+                        &key_pool,
                     ).await {
                         warn!(error = ?e, "frame handling error");
                     }
@@ -429,6 +529,7 @@ async fn handle_text_frame(
     max_concurrency: u32,
     ack_tx: &mpsc::UnboundedSender<Message>,
     cache_dir: &Arc<std::path::PathBuf>,
+    key_pool: &Arc<AsyncMutex<AgentKeyPool>>,
 ) -> Result<()> {
     let env: serde_json::Value = serde_json::from_str(&text)
         .with_context(|| format!("envelope JSON parse: {}", truncate(&text, 256)))?;
@@ -520,6 +621,7 @@ async fn handle_text_frame(
                 ack_tx.clone(),
                 push_id,
                 cache_dir.clone(),
+                key_pool.clone(),
             );
         }
         other => {
@@ -576,6 +678,7 @@ fn spawn_packet_worker(
     ack_tx: mpsc::UnboundedSender<Message>,
     push_id: i64,
     cache_dir: Arc<std::path::PathBuf>,
+    key_pool: Arc<AsyncMutex<AgentKeyPool>>,
 ) {
     in_flight.fetch_add(1, Ordering::SeqCst);
     tokio::spawn(async move {
@@ -587,6 +690,7 @@ fn spawn_packet_worker(
             &server,
             &api_key,
             cache_dir.as_path(),
+            &key_pool,
         )
         .await;
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -1385,6 +1489,7 @@ async fn load_python_package(
 /// 5. **Build a `Context<serde_json::Value>`** from the inlined `WorkPacket.context`.
 /// 6. **Execute the task** under the packet's timeout. Map the outcome onto
 ///    `AgentOutcome::Success { context }` / `Failure {..}` / timeout.
+#[allow(clippy::too_many_arguments)]
 async fn process_work_packet(
     packet: &WorkPacket,
     agent_triple: &str,
@@ -1392,6 +1497,7 @@ async fn process_work_packet(
     server: &str,
     api_key: &str,
     cache_dir: &std::path::Path,
+    key_pool: &Arc<AsyncMutex<AgentKeyPool>>,
 ) -> cloacina::fleet::AgentOutcome {
     // 1-3. Resolve (or build) the per-package runtime, cached by digest.
     //
@@ -1462,7 +1568,7 @@ async fn process_work_packet(
     };
 
     // 5. Build context from the work packet.
-    let context = match build_context(&packet.context) {
+    let mut context = match build_context(&packet.context) {
         Ok(c) => c,
         Err(e) => {
             return cloacina::fleet::AgentOutcome::Failure {
@@ -1471,6 +1577,52 @@ async fn process_work_packet(
             };
         }
     };
+
+    // 5b. CLOACI-T-0861 / D-5 — unwrap the HPKE-wrapped secrets with the ONE-TIME
+    //     pooled private key the server named in `secret_key_id`. We `take` that
+    //     key out of the pool (one-time use → discarded after this) and unwrap
+    //     into an in-memory resolver attached to the Context, so the task body
+    //     reads them via `ctx.secret(name)`. The plaintext lives only in this
+    //     resolver, only for the run; it is never persisted or logged (NFR-001/
+    //     NFR-003). The AAD is keyed by `task_execution_id`, matching the wrap.
+    if !packet.wrapped_secrets.is_empty() {
+        let Some(key_id) = packet.secret_key_id.as_deref() else {
+            // Secrets present but no key id — a malformed dispatch. Fail closed
+            // rather than run with missing secrets.
+            return cloacina::fleet::AgentOutcome::Failure {
+                message: "work packet carries wrapped_secrets but no secret_key_id".to_string(),
+                classification: cloacina::fleet::FailureClassification::Validation,
+            };
+        };
+        // One-time discard: remove the key from the pool. An unknown key_id (e.g.
+        // the agent restarted after the server consumed the key) is a clean
+        // failure — never an execution with missing secrets.
+        let private_key = { key_pool.lock().await.take(key_id) };
+        let Some(private_key) = private_key else {
+            return cloacina::fleet::AgentOutcome::Failure {
+                message: format!(
+                    "unknown or already-used one-time secret key '{}' — cannot unwrap secrets \
+                     (agent may have restarted since the key was advertised)",
+                    key_id
+                ),
+                classification: cloacina::fleet::FailureClassification::Validation,
+            };
+        };
+        match InMemorySecretResolver::from_wrapped(
+            &private_key,
+            &packet.wrapped_secrets,
+            &packet.task_execution_id,
+        ) {
+            Ok(resolver) => context.set_secret_resolver(resolver.into_arc()),
+            Err(e) => {
+                // Names only — `FleetSecretError` never renders a secret value.
+                return cloacina::fleet::AgentOutcome::Failure {
+                    message: format!("unwrap secrets: {}", e),
+                    classification: cloacina::fleet::FailureClassification::Validation,
+                };
+            }
+        }
+    }
 
     // 6. Execute under the packet's timeout.
     let timeout = std::time::Duration::from_secs(packet.timeout_seconds.max(1) as u64);
@@ -1687,7 +1839,13 @@ mod tests {
             timeout_seconds: 60,
             tenant_id: None,
             language: Some("rust".into()),
+            wrapped_secrets: Vec::new(),
+            secret_key_id: None,
         }
+    }
+
+    fn empty_key_pool() -> Arc<AsyncMutex<AgentKeyPool>> {
+        Arc::new(AsyncMutex::new(AgentKeyPool::new()))
     }
 
     // The target_triple mismatch path is tested at the helper level — the
@@ -1710,6 +1868,7 @@ mod tests {
             "http://nowhere.invalid:1",
             "ignored-key",
             tmp.as_path(),
+            &empty_key_pool(),
         )
         .await;
         assert!(matches!(
@@ -1735,6 +1894,7 @@ mod tests {
             "http://127.0.0.1:1",
             "ignored",
             tmp.as_path(),
+            &empty_key_pool(),
         )
         .await;
         assert!(matches!(

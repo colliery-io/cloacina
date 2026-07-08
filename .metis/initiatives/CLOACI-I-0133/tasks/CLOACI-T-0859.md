@@ -4,14 +4,14 @@ level: task
 title: "Secrets declaration + $secret reference surface (Rust + Python + packaged FFI)"
 short_code: "CLOACI-T-0859"
 created_at: 2026-07-07T11:52:22.792722+00:00
-updated_at: 2026-07-07T11:52:22.792722+00:00
+updated_at: 2026-07-07T20:27:08.298711+00:00
 parent: CLOACI-I-0133
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,6 +67,10 @@ The author-facing declaration + reference surface (D-4). A workflow/task/constru
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -139,4 +143,8 @@ The author-facing declaration + reference surface (D-4). A workflow/task/constru
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-07 — DONE (branch feat/i0133-secrets)
+**Declaration:** `InputSlot` (cloacina-api-types) gains `encrypted: bool` (`#[serde(default)]`) + `InputSlot::secret(name)`. Rust macro `#[workflow(secrets(a,b))]` emits encrypted slots into the same slot list the FFI `get_input_interface` carries (marker rides the packaged manifest for free). Python `@cloaca.workflow_secrets(...)` + compiler `parse_workflow_secrets`.
+**`$secret` routing:** in `merge_instance_params`, a param valued `{"$secret":"name"}` routes AWAY from the plaintext merge — only a `local→secret` NAME alias (never a value) is recorded in reserved key `__cloacina_secret_refs__`. `Context::secret(name)` is alias-aware. Resolved value never enters `data` (NFR-001 preserved). Errors: MissingParam/SecretRequiresRef/UnexpectedSecretRef/MalformedSecretRef/NotFound + reserved-key guard.
+**Verified (re-run myself): angreal check clean (api-types/workflow/macros/cloacina/compiler); workflow-lib 61/0; cloacina sqlite 22/0; compiler param_parse 9/0; integration secrets-manifest + NFR-001 leak 2/0** (integration target COMPILED → rust-analyzer "expected =" / "Duplicate task ID" are FALSE POSITIVES). Not touched: grants (T-0860), fleet HPKE (T-0861).
+Gaps carried forward: Python cloaca-wheel/pytest lane NOT run (Rust-side extraction unit-tested only; no e2e wheel→manifest test); no full-DefaultRunner `$secret`-bound-fire test (merge+accessor unit-covered).

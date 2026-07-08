@@ -32,6 +32,7 @@ pub mod oidc;
 pub mod openapi;
 pub mod ops_metrics;
 pub mod routes;
+pub mod secrets;
 pub mod tenant_runner_cache;
 
 /// CORS configuration (CLOACI-T-0643 / REQ-009). Disabled unless at least
@@ -735,6 +736,23 @@ pub async fn run(
     let agent_registry = Arc::new(crate::agent_registry::AgentRegistry::new());
     let fleet_coordinator = Arc::new(crate::fleet_coordinator::FleetCoordinator::new());
 
+    // CLOACI-T-0862: the per-tenant schema-scoped `Database` cache. Hoisted here
+    // (was inline in the AppState literal) so BOTH the routes (via AppState) and
+    // the fleet secret resolver factory share ONE instance — they must resolve
+    // the same tenant schemas so a secret written over HTTP is the one a fleet
+    // task resolves.
+    let tenant_database_cache = Arc::new(TenantDatabaseCache::new(database_url.clone()));
+
+    // CLOACI-T-0862 / T-0861 handoff: the concrete fleet secret resolver factory.
+    // Activates the `FleetExecutor` secret seam so a `$secret`-referencing fleet
+    // task actually resolves (it failed closed while the factory was `None`).
+    // Built once and shared by the global + per-tenant fleet executors.
+    let secret_resolver_factory: Arc<dyn crate::fleet_executor::FleetSecretResolverFactory> =
+        Arc::new(crate::secrets::ServerFleetSecretResolverFactory::new(
+            runner.database().clone(),
+            tenant_database_cache.clone(),
+        ));
+
     // CLOACI-T-0634: per-tenant runner cache. Build it here (rather than inline
     // in the struct literal) so we can attach a fleet registrar — each per-tenant
     // runner needs its OWN FleetExecutor on its OWN dispatcher (tenant workflows
@@ -760,6 +778,7 @@ pub async fn run(
             // outbox — a tenant runner's WorkPackets enqueue here so the global
             // relay drains them and they reach the agents.
             let reg_outbox_dal = unified_dal.clone();
+            let reg_secret_factory = secret_resolver_factory.clone();
             let registrar: crate::tenant_runner_cache::FleetRegistrar =
                 Arc::new(move |runner: &cloacina::DefaultRunner| {
                     let dal = cloacina::dal::unified::DAL::new(runner.database().clone());
@@ -777,7 +796,8 @@ pub async fn run(
                         reg_wake.clone(),
                         result_handler,
                         runner.runtime(),
-                    );
+                    )
+                    .with_secret_resolver_factory(reg_secret_factory.clone());
                     if runner.register_executor("fleet", Arc::new(fleet_executor)) {
                         info!("Fleet executor registered on per-tenant runner dispatcher");
                     } else {
@@ -877,7 +897,7 @@ pub async fn run(
             std::time::Duration::from_secs(60),
         )),
         metrics_handle,
-        tenant_databases: Arc::new(TenantDatabaseCache::new(database_url.clone())),
+        tenant_databases: tenant_database_cache.clone(),
         // CLOACI-T-0580: per-tenant runner cache. Capacity is operator-
         // tunable; 256 default. If the configured cap is zero we fall
         // back to 1 (LruCache requires NonZeroUsize) so misconfiguration
@@ -934,7 +954,9 @@ pub async fn run(
             delivery_wake.clone(),
             fleet_result_handler,
             state.runner.runtime(),
-        );
+        )
+        // CLOACI-T-0862: activate the secret resolver seam on the global executor.
+        .with_secret_resolver_factory(secret_resolver_factory.clone());
         if state
             .runner
             .register_executor("fleet", Arc::new(fleet_executor))
@@ -1532,7 +1554,9 @@ mod embedded_ui_tests {
 }
 
 fn build_router(state: AppState) -> Router {
-    use axum::{extract::DefaultBodyLimit, middleware, routing::delete, routing::post};
+    use axum::{
+        extract::DefaultBodyLimit, middleware, routing::delete, routing::post, routing::put,
+    };
 
     // Authenticated routes — behind auth middleware
     let auth_routes = Router::new()
@@ -1597,6 +1621,28 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/accounts/{account_id}/password",
             post(crate::routes::local_auth::reset_password),
+        )
+        // CLOACI-T-0862: tenant secrets CRUD (metadata-only reads). Values are
+        // write-only (create/rotate body); list/get never return a value.
+        .route(
+            "/tenants/{tenant_id}/secrets",
+            post(crate::routes::secrets::create_secret),
+        )
+        .route(
+            "/tenants/{tenant_id}/secrets",
+            get(crate::routes::secrets::list_secrets),
+        )
+        .route(
+            "/tenants/{tenant_id}/secrets/{name}",
+            get(crate::routes::secrets::get_secret),
+        )
+        .route(
+            "/tenants/{tenant_id}/secrets/{name}",
+            put(crate::routes::secrets::rotate_secret),
+        )
+        .route(
+            "/tenants/{tenant_id}/secrets/{name}",
+            delete(crate::routes::secrets::delete_secret),
         )
         // CLOACI-T-0808: agent-capacity limits (admin default + per-tenant exceptions).
         .route(
@@ -1801,6 +1847,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/agent/heartbeat",
             axum::routing::post(crate::routes::agent::heartbeat_agent),
+        )
+        .route(
+            "/agent/keys",
+            axum::routing::post(crate::routes::agent::replenish_keys),
         )
         .route(
             "/agent/result",
@@ -2277,6 +2327,73 @@ mod tests {
             .await
             .expect("Failed to create test API key");
         plaintext
+    }
+
+    // CLOACI-T-0862: the fleet secret resolver factory (T-0861 activation).
+    // Proves it yields a WORKING, tenant-scoped resolver over a secret written
+    // the way the CRUD route writes it — and fails closed with no KEK.
+    #[tokio::test]
+    #[serial]
+    async fn secret_factory_resolves_stored_secret_end_to_end() {
+        use crate::fleet_executor::FleetSecretResolverFactory;
+        use crate::secrets::{tenant_org_id, ServerFleetSecretResolverFactory};
+        use base64::Engine;
+        use cloacina::security::{SecretStore, KEK_ENV_VAR};
+
+        let state = test_state().await;
+        let kek_bytes = [5u8; 32];
+        std::env::set_var(
+            KEK_ENV_VAR,
+            base64::engine::general_purpose::STANDARD.encode(kek_bytes),
+        );
+
+        // Write a secret into the public tenant the way create_secret does.
+        let store = SecretStore::new(cloacina::dal::DAL::new(state.database.clone()));
+        let name = format!("factory_test_{}", uuid::Uuid::new_v4().simple());
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert("password".to_string(), "fleet-e2e-secret".to_string());
+        store
+            .create_secret(tenant_org_id("public"), &name, &fields, &kek_bytes)
+            .await
+            .expect("create secret");
+
+        let factory = ServerFleetSecretResolverFactory::new(
+            state.database.clone(),
+            state.tenant_databases.clone(),
+        );
+
+        // The factory yields a resolver that resolves the granted-tenant secret.
+        let resolver = factory
+            .resolver_for("public", "any_pkg")
+            .await
+            .expect("factory yields a resolver when the KEK is configured");
+        let resolved = resolver.resolve(&name).await.expect("resolve");
+        assert_eq!(resolved.get("password").unwrap(), "fleet-e2e-secret");
+
+        // An absent name is NotFound (never a silent empty).
+        assert!(matches!(
+            resolver.resolve("does_not_exist").await.unwrap_err(),
+            cloacina::SecretResolverError::NotFound(_)
+        ));
+
+        // Fail closed: with the KEK unset the factory yields NO resolver, so a
+        // secret-referencing dispatch cannot proceed (never a plaintext leak).
+        std::env::remove_var(KEK_ENV_VAR);
+        assert!(
+            factory.resolver_for("public", "any_pkg").await.is_none(),
+            "factory must fail closed (None) when CLOACINA_SECRET_KEK is unset"
+        );
+
+        // Cleanup.
+        std::env::set_var(
+            KEK_ENV_VAR,
+            base64::engine::general_purpose::STANDARD.encode(kek_bytes),
+        );
+        store
+            .delete_secret(tenant_org_id("public"), &name)
+            .await
+            .expect("cleanup delete");
+        std::env::remove_var(KEK_ENV_VAR);
     }
 
     /// Create a tenant-scoped (non-admin) API key and return the plaintext

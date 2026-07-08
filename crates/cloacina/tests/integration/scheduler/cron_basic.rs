@@ -324,6 +324,7 @@ async fn test_workflow_instance_register_roundtrip() {
             schema: serde_json::json!({"type": "string"}),
             required: false,
             default: Some(serde_json::json!("copy")),
+            encrypted: false,
         },
     ];
     let instance = WorkflowInstance::builder("sync-file")

@@ -25,15 +25,26 @@
 pub mod api_keys;
 pub mod audit;
 mod db_key_manager;
+pub mod fleet_secret;
 mod key_manager;
 mod package_signer;
+mod secret_resolver;
+mod secret_store;
 mod verification;
 
 pub use db_key_manager::DbKeyManager;
+pub use fleet_secret::{
+    decode_pool_public_key, resolve_and_wrap_secrets, secret_aad, secret_ref_names, wrap_field_map,
+    AgentKeyPool, FleetSecretError, InMemorySecretResolver, ServerKeyPool,
+};
 pub use key_manager::{KeyError, KeyManager, PublicKeyExport, SigningKeyInfo, TrustedKeyInfo};
 pub use package_signer::{
     DbPackageSigner, DetachedSignature, PackageSignError, PackageSignatureInfo, PackageSigner,
 };
+pub use secret_resolver::{
+    SecretAllow, SecretResolverConfigError, SecretStoreResolver, KEK_ENV_VAR,
+};
+pub use secret_store::{SecretError, SecretMetadata, SecretStore};
 pub use verification::{
     verify_package, verify_package_bytes, verify_package_offline, SecurityConfig, SignatureSource,
     VerificationError, VerificationResult,

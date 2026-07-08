@@ -4,14 +4,14 @@ level: task
 title: "Secrets store — encrypted tenant table, per-tenant DEK, metadata-only CRUD"
 short_code: "CLOACI-T-0857"
 created_at: 2026-07-07T11:52:19.726122+00:00
-updated_at: 2026-07-07T11:52:19.726122+00:00
+updated_at: 2026-07-07T14:24:14.305812+00:00
 parent: CLOACI-I-0133
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,6 +67,10 @@ Foundation task (D-1/D-7). The encrypted `secrets` store: a tenant-scoped table 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -140,4 +144,5 @@ Foundation task (D-1/D-7). The encrypted `secrets` store: a tenant-scoped table 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-07 — DONE (branch feat/i0133-secrets)
+Implemented mirroring `db_key_manager.rs`. New: `security/secret_store.rs` (`SecretStore` + `SecretError` + `SecretMetadata`, 10 sqlite tests), migration `041_create_secrets` (postgres + sqlite, `tenant_data_keys` + `secrets`, CREATE-only), schema.rs + `dal/unified/models.rs` (`TenantDataKey`/`Secret`), `crypto` `encrypt_bytes`/`decrypt_bytes` aliases. Per-tenant DEK wrapped by a caller-supplied 32-byte server KEK; secret field-map JSON encrypted under the DEK; list/get return metadata only. **Verified: angreal check clean; `angreal test unit secret_store` = 10 passed/0 failed** (no-plaintext-in-metadata AND raw-ciphertext-column ≠ plaintext; resolve round-trip; rotate; wrong-KEK fails; tenant isolation; delete; dup-name). rust-analyzer "second test attribute" warnings are FALSE POSITIVES (angreal green). Gap for T-0858+: no server config sources the KEK into a `SecretStore` yet. `resolve_secret` is the internal decrypt primitive later tasks call.

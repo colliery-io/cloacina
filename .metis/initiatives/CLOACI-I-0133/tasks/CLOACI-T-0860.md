@@ -4,14 +4,14 @@ level: task
 title: "Secrets grant integration — named allow-list in GrantSpec, fail-closed enforcement"
 short_code: "CLOACI-T-0860"
 created_at: 2026-07-07T11:52:24.269469+00:00
-updated_at: 2026-07-07T11:52:24.269469+00:00
+updated_at: 2026-07-07T22:54:53.348058+00:00
 parent: CLOACI-I-0133
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,6 +67,10 @@ Grant-gated access (D-3). Add a `secrets = [...]` named allow-list to `GrantSpec
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -139,4 +143,7 @@ Grant-gated access (D-3). Add a `secrets = [...]` named allow-list to `GrantSpec
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-07 — DONE (branch feat/i0133-secrets)
+`secrets: Vec<String>` added to `GrantSpec` + `ResolvedGrants` (through `from_lists` [now 5-arg], `from_pairs` "secrets" kind, `translate`, fail-closed). Enforced in `SecretStoreResolver::resolve` BEFORE decrypt via a `SecretAllow` gate: `All` (trusted host — ONLY via explicit `new`/`from_env`) vs `List(HashSet)` (fail-closed, from `ResolvedGrants.secrets` via `from_grants`, `#[cfg(constructors-wasm)]`). Denials/allows log the secret NAME + org_id only. Macro authoring: `secrets(...)` accepted by `constructor!` + `#[reactor]`. tenant/org_id = outer boundary.
+**Verified (re-run myself): cargo check clean both feature sets (the stale rust-analyzer E0061/E0004/E0425 diagnostics were captured mid-edit, NOT real); grants 18/0; secret_resolver 10/0 (gated allow/deny, empty=deny-all, from_grants, trusted-any, tenant-scope); NFR-001 leak 1/0.**
+Deferred (→ T-0861): `constructor_loader.rs` doesn't yet attach a `SecretStoreResolver` into WASM/packaged constructor execution — the `from_grants` seam is ready.

@@ -153,7 +153,10 @@ mod tests {
 
     #[test]
     fn probe_typed_boundary_yields_real_schema() {
-        use super::{ProbeFallback as _, ProbeTyped as _};
+        // Only the typed arm is exercised here (SampleBoundary: JsonSchema), so
+        // just `ProbeTyped` is imported — importing `ProbeFallback` too would be
+        // an unused import.
+        use super::ProbeTyped as _;
         // SampleBoundary derives JsonSchema → the typed arm wins.
         let schema = (&SchemaProbe::<SampleBoundary>::new()).probe_input_schema();
         assert!(
@@ -164,7 +167,9 @@ mod tests {
 
     #[test]
     fn probe_untyped_boundary_falls_back_to_any() {
-        use super::{ProbeFallback as _, ProbeTyped as _};
+        // UntypedBoundary does NOT derive JsonSchema, so only the fallback arm
+        // applies; importing `ProbeTyped` too would be an unused import.
+        use super::ProbeFallback as _;
         // UntypedBoundary does NOT derive JsonSchema → fallback arm → permissive {}.
         let schema = (&SchemaProbe::<UntypedBoundary>::new()).probe_input_schema();
         assert_eq!(
@@ -176,7 +181,9 @@ mod tests {
 
     #[test]
     fn probe_scalar_typed_yields_schema() {
-        use super::{ProbeFallback as _, ProbeTyped as _};
+        // `String: JsonSchema`, so the typed arm wins; `ProbeFallback` would be
+        // an unused import here.
+        use super::ProbeTyped as _;
         let schema = (&SchemaProbe::<String>::new()).probe_input_schema();
         assert_eq!(schema.get("type").and_then(|t| t.as_str()), Some("string"));
     }
@@ -192,8 +199,47 @@ mod tests {
         assert_eq!(back.len(), 2);
         assert_eq!(back[0].name, "order_id");
         assert!(back[0].required);
+        // Plaintext params carry the `encrypted: false` marker.
+        assert!(!back[0].encrypted);
         assert_eq!(back[1].name, "limit");
         assert!(!back[1].required);
         assert_eq!(back[1].default, Some(serde_json::json!(100)));
+    }
+
+    // CLOACI-T-0859: an encrypted secret slot round-trips through the same
+    // slots-JSON the FFI/manifest metadata carries, with the marker preserved.
+    #[test]
+    fn secret_slot_round_trips_with_encrypted_marker() {
+        let slots = vec![
+            InputSlot::required("order_id", schema_for::<String>()),
+            InputSlot::secret("db_prod"),
+        ];
+        let json = slots_to_json(&slots);
+        // The marker is visible in the serialized manifest form.
+        assert!(json.contains("\"encrypted\":true"), "json: {json}");
+
+        let back: Vec<InputSlot> = serde_json::from_str(&json).expect("parse slots_json");
+        let secret = back.iter().find(|s| s.name == "db_prod").unwrap();
+        assert!(secret.encrypted);
+        assert!(secret.required);
+        assert!(secret.default.is_none());
+        // A plaintext param stays unmarked.
+        assert!(
+            !back
+                .iter()
+                .find(|s| s.name == "order_id")
+                .unwrap()
+                .encrypted
+        );
+    }
+
+    // A pre-existing serialized slot (no `encrypted` field) still deserializes,
+    // defaulting to a plaintext param.
+    #[test]
+    fn legacy_slot_json_without_encrypted_field_defaults_to_plaintext() {
+        let legacy = r#"[{"name":"x","schema":{"type":"string"},"required":true}]"#;
+        let back: Vec<InputSlot> = serde_json::from_str(legacy).expect("parse legacy slots");
+        assert_eq!(back.len(), 1);
+        assert!(!back[0].encrypted);
     }
 }

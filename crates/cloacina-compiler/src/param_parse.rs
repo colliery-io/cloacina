@@ -60,6 +60,80 @@ pub fn parse_workflow_params(source_dir: &Path, language: &str) -> Vec<InputSlot
     out
 }
 
+/// Parse declared workflow SECRETS from the unpacked package `source_dir`
+/// (CLOACI-I-0133 / T-0859) — the Python parity of Rust's
+/// `#[workflow(secrets(...))]`. Each `@cloaca.workflow_secrets("a", "b")` name
+/// becomes a required **encrypted** [`InputSlot`] (`encrypted: true`) so the
+/// manifest carries which secrets the workflow requires. Only `"python"` parses
+/// source; Rust gets its secrets from the FFI input-interface entrypoint. Never
+/// errors (best-effort, mirroring [`parse_workflow_params`]).
+pub fn parse_workflow_secrets(source_dir: &Path, language: &str) -> Vec<InputSlot> {
+    if !language.eq_ignore_ascii_case("python") {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    walk_py_secrets(source_dir, &mut out);
+    out
+}
+
+fn walk_py_secrets(dir: &Path, out: &mut Vec<InputSlot>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(ft) = entry.file_type() else { continue };
+        if ft.is_dir() {
+            if path.file_name().map(|n| n == "target").unwrap_or(false) {
+                continue;
+            }
+            walk_py_secrets(&path, out);
+        } else if ft.is_file() && path.extension().and_then(|e| e.to_str()) == Some("py") {
+            if entry
+                .metadata()
+                .map(|m| m.len() > MAX_SOURCE_BYTES)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            if let Ok(contents) = std::fs::read_to_string(&path) {
+                parse_file_secrets(&contents, out);
+            }
+        }
+    }
+}
+
+/// Find every `workflow_secrets(...)` call and turn each string-literal name into
+/// a required encrypted slot (first decl per name wins).
+fn parse_file_secrets(contents: &str, out: &mut Vec<InputSlot>) {
+    let needle = "workflow_secrets(";
+    let mut rest = contents;
+    while let Some(pos) = rest.find(needle) {
+        let after = &rest[pos + needle.len()..];
+        match take_balanced(after) {
+            Some((args, consumed)) => {
+                for part in split_top_level(args, ',') {
+                    let part = part.trim();
+                    // Accept only quoted string-literal names.
+                    let name = if (part.starts_with('"') && part.ends_with('"') && part.len() >= 2)
+                        || (part.starts_with('\'') && part.ends_with('\'') && part.len() >= 2)
+                    {
+                        &part[1..part.len() - 1]
+                    } else {
+                        continue;
+                    };
+                    if name.is_empty() || out.iter().any(|s: &InputSlot| s.name == name) {
+                        continue;
+                    }
+                    out.push(InputSlot::secret(name));
+                }
+                rest = &after[consumed..];
+            }
+            None => break,
+        }
+    }
+}
+
 /// Parse `@cloaca.boundary_schema(field=type, ...)` accumulator boundary
 /// declarations from Python source (CLOACI-T-0770) — the parity of deriving
 /// `schemars::JsonSchema` on a Rust boundary type. Each decorated accumulator
@@ -488,6 +562,39 @@ def prepare(context):
     #[test]
     fn no_decl_yields_empty() {
         assert!(slots("def prepare(context): return context").is_empty());
+    }
+
+    // CLOACI-T-0859: `workflow_secrets("a", "b")` → required encrypted slots.
+    fn secret_slots(src: &str) -> Vec<InputSlot> {
+        let mut out = Vec::new();
+        parse_file_secrets(src, &mut out);
+        out
+    }
+
+    #[test]
+    fn parses_workflow_secrets_as_encrypted_slots() {
+        let src = r#"
+@cloaca.workflow_secrets("db_prod", 'stripe_key')
+@cloaca.task(id="reach")
+def reach(context):
+    return context
+"#;
+        let s = secret_slots(src);
+        assert_eq!(s.len(), 2);
+        for slot in &s {
+            assert!(slot.encrypted, "secret slot should be encrypted: {slot:?}");
+            assert!(slot.required);
+            assert!(slot.default.is_none());
+        }
+        assert!(s.iter().any(|x| x.name == "db_prod"));
+        assert!(s.iter().any(|x| x.name == "stripe_key"));
+    }
+
+    #[test]
+    fn workflow_secrets_dedups_and_skips_non_python() {
+        let s = secret_slots(r#"cloaca.workflow_secrets("a", "a", "b")"#);
+        assert_eq!(s.len(), 2);
+        assert!(parse_workflow_secrets(Path::new("/nonexistent"), "rust").is_empty());
     }
 
     #[test]

@@ -199,6 +199,86 @@ impl PyContext {
             ))),
         }
     }
+
+    /// Read a resolved secret by name, returning a dict of its `{field: value}`
+    /// pairs (CLOACI-I-0133 / T-0864 — the Python read accessor).
+    ///
+    /// Calls through to the SAME Rust [`cloacina::Context::secret`] accessor and
+    /// the SAME `SecretResolver` the runtime attached to this context at
+    /// execution time, so it is alias-aware through the instance's `{"$secret"}`
+    /// map (T-0859): `name` may be either the declared local binding name or the
+    /// concrete secret name.
+    ///
+    /// No-leak: the resolved value is returned to the caller ONLY. It is never
+    /// written back into the context's serialized `data`, so it cannot reach
+    /// `schedules.params`, the fires log, or execution history.
+    ///
+    /// Raises `RuntimeError` when no resolver is configured on this execution
+    /// scope (`CLOACINA_SECRET_KEK` unset) or the backend fails, `KeyError` when
+    /// the secret is not found, `PermissionError` when the name is not granted.
+    pub fn secret(&self, py: Python<'_>, name: &str) -> PyResult<PyObject> {
+        let fields = block_on_secret_access(py, self.inner.secret(name))
+            .map_err(secret_access_error_to_pyerr)?;
+        let dict = PyDict::new(py);
+        for (field, value) in fields {
+            dict.set_item(field, value)?;
+        }
+        Ok(dict.into())
+    }
+
+    /// Read a single field of a named secret (convenience over [`Self::secret`]).
+    ///
+    /// Same resolver, alias-awareness, no-leak, and error mapping as
+    /// [`Self::secret`]; additionally raises `KeyError` when the secret exists but
+    /// has no field of that name.
+    pub fn secret_field(&self, py: Python<'_>, name: &str, field: &str) -> PyResult<String> {
+        block_on_secret_access(py, self.inner.secret_field(name, field))
+            .map_err(secret_access_error_to_pyerr)
+    }
+}
+
+/// Async→sync bridge for the Python secret read path (CLOACI-T-0864).
+///
+/// The Rust `Context::secret*` accessors are `async` but Python task bodies are
+/// sync, so we must drive the resolver future to completion from a sync PyO3
+/// method. GIL-safety (see the scenario-30/32/33 PyO3↔tokio history): the GIL is
+/// RELEASED via `py.allow_threads` BEFORE we block, so we never hold the GIL
+/// while awaiting resolver I/O on the executor's runtime — the exact footgun
+/// that deadlocked those scenarios. We drive the future on the ambient runtime
+/// via `Handle::current().block_on` when a task body calls this (the same
+/// pattern `PyTaskHandle::defer_until` already uses — task bodies run on the
+/// executor's `spawn_blocking` pool, where a `Handle` is available and blocking
+/// is legal); outside any runtime (Rust binding unit tests) we fall back to a
+/// transient current-thread runtime.
+fn block_on_secret_access<F, T>(py: Python<'_>, fut: F) -> T
+where
+    F: std::future::Future<Output = T> + Send,
+    T: Send,
+{
+    py.allow_threads(|| match tokio::runtime::Handle::try_current() {
+        Ok(handle) => handle.block_on(fut),
+        Err(_) => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build fallback current-thread runtime for secret resolution")
+            .block_on(fut),
+    })
+}
+
+/// Map a Rust [`cloacina::SecretAccessError`] onto a clear Python exception.
+///
+/// `NotConfigured`/`Backend` → `RuntimeError` (environment/backend faults),
+/// `NotFound`/`FieldNotFound` → `KeyError` (a missing name/field), `NotGranted`
+/// → `PermissionError` (the grant gate denied it). The `Display` message is
+/// non-plaintext by construction (it names the secret/field, never a value).
+fn secret_access_error_to_pyerr(err: cloacina::SecretAccessError) -> PyErr {
+    use cloacina::SecretAccessError as E;
+    let msg = err.to_string();
+    match err {
+        E::NotConfigured | E::Backend(_) => pyo3::exceptions::PyRuntimeError::new_err(msg),
+        E::NotFound(_) | E::FieldNotFound { .. } => pyo3::exceptions::PyKeyError::new_err(msg),
+        E::NotGranted(_) => pyo3::exceptions::PyPermissionError::new_err(msg),
+    }
 }
 
 impl PyContext {
@@ -223,17 +303,20 @@ impl PyContext {
     }
 }
 
-/// Manual implementation of Clone since Context<T> doesn't implement Clone
+/// Manual implementation of Clone since Context<T> doesn't implement Clone.
+///
+/// Delegates to `Context::clone_data`, which clones the data map AND carries the
+/// (Arc) secret-resolver handle. This preservation is load-bearing (CLOACI-T-0864):
+/// the executor attaches the resolver to the Rust `Context` before running a
+/// Python body, and the body is handed `py_context.clone()` (see
+/// `PythonTaskWrapper::execute`). A rebuild via `Context::new()` here would drop
+/// the resolver, so `context.secret(...)` inside the task body would fail with
+/// `NotConfigured` even though the runtime configured one.
 impl Clone for PyContext {
     fn clone(&self) -> Self {
-        let data = self.inner.data();
-        let mut new_context = cloacina::Context::new();
-        for (key, value) in data.iter() {
-            // Insert should never fail when cloning existing valid data,
-            // but silently skip rather than panic if it does.
-            let _ = new_context.insert(key.clone(), value.clone());
+        PyContext {
+            inner: self.inner.clone_data(),
         }
-        PyContext { inner: new_context }
     }
 }
 
@@ -428,6 +511,187 @@ mod tests {
             let cloned = ctx.clone();
             assert_eq!(cloned.__len__(), 1);
             assert!(cloned.__contains__("key"));
+        });
+    }
+
+    // ── Secret read accessor (CLOACI-I-0133 / T-0864) ───────────────────────
+    //
+    // These drive the Python `secret`/`secret_field` bindings through the SAME
+    // Rust `Context::secret` accessor a task body would, using an in-memory test
+    // `SecretResolver` (no DB/KEK), and assert read parity, the no-leak
+    // guarantee, alias-awareness, and the Python exception mapping.
+
+    use async_trait::async_trait;
+    use cloacina::{SecretResolver, SecretResolverError};
+    use std::collections::{BTreeMap, HashMap};
+    use std::sync::Arc;
+
+    /// In-memory resolver: returns preloaded fields, `NotFound` otherwise.
+    struct MapResolver {
+        secrets: HashMap<String, BTreeMap<String, String>>,
+    }
+
+    #[async_trait]
+    impl SecretResolver for MapResolver {
+        async fn resolve(
+            &self,
+            name: &str,
+        ) -> Result<BTreeMap<String, String>, SecretResolverError> {
+            self.secrets
+                .get(name)
+                .cloned()
+                .ok_or_else(|| SecretResolverError::NotFound(name.to_string()))
+        }
+    }
+
+    fn ctx_with_secret(name: &str, fields: &[(&str, &str)]) -> PyContext {
+        let mut field_map = BTreeMap::new();
+        for (k, v) in fields {
+            field_map.insert(k.to_string(), v.to_string());
+        }
+        let mut secrets = HashMap::new();
+        secrets.insert(name.to_string(), field_map);
+        let resolver: Arc<dyn SecretResolver> = Arc::new(MapResolver { secrets });
+        let rust_ctx = cloacina::Context::<serde_json::Value>::new().with_secret_resolver(resolver);
+        PyContext::from_rust_context(rust_ctx)
+    }
+
+    #[test]
+    fn test_secret_returns_resolved_fields() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let ctx = ctx_with_secret(
+                "db_prod",
+                &[("password", "hunter2"), ("host", "db.internal")],
+            );
+
+            let result = ctx.secret(py, "db_prod").unwrap();
+            let dict = result.downcast_bound::<PyDict>(py).unwrap();
+            let pw: String = dict
+                .get_item("password")
+                .unwrap()
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(pw, "hunter2");
+            let host: String = dict.get_item("host").unwrap().unwrap().extract().unwrap();
+            assert_eq!(host, "db.internal");
+        });
+    }
+
+    #[test]
+    fn test_secret_field_returns_single_value() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let ctx = ctx_with_secret("db_prod", &[("password", "hunter2")]);
+            let pw = ctx.secret_field(py, "db_prod", "password").unwrap();
+            assert_eq!(pw, "hunter2");
+        });
+    }
+
+    #[test]
+    fn test_secret_is_alias_aware_through_secret_refs_map() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            // Build a context whose data carries the T-0859 `{"$secret"}` alias
+            // map (name→name, no values) mapping local binding `creds` → `db_prod`.
+            let mut field_map = BTreeMap::new();
+            field_map.insert("token".to_string(), "abc123".to_string());
+            let mut secrets = HashMap::new();
+            secrets.insert("db_prod".to_string(), field_map);
+            let resolver: Arc<dyn SecretResolver> = Arc::new(MapResolver { secrets });
+
+            let mut rust_ctx =
+                cloacina::Context::<serde_json::Value>::new().with_secret_resolver(resolver);
+            // The alias map key is the crate-internal SECRET_REFS_KEY constant.
+            rust_ctx
+                .insert(
+                    "__cloacina_secret_refs__".to_string(),
+                    serde_json::json!({"creds": "db_prod"}),
+                )
+                .unwrap();
+            let ctx = PyContext::from_rust_context(rust_ctx);
+
+            // Read by the LOCAL binding name; alias map routes it to `db_prod`.
+            let token = ctx.secret_field(py, "creds", "token").unwrap();
+            assert_eq!(token, "abc123");
+        });
+    }
+
+    #[test]
+    fn test_secret_value_not_leaked_into_serialized_data() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let ctx = ctx_with_secret(
+                "db_prod",
+                &[("password", "hunter2"), ("host", "db.internal")],
+            );
+
+            // Read the secret, then confirm no plaintext entered the context.
+            let _ = ctx.secret(py, "db_prod").unwrap();
+            let _ = ctx.secret_field(py, "db_prod", "password").unwrap();
+
+            let json = ctx.to_json().unwrap();
+            assert!(!json.contains("hunter2"), "secret leaked into json: {json}");
+            assert!(
+                !json.contains("db.internal"),
+                "secret leaked into json: {json}"
+            );
+            // Nothing was stashed back into the context data at all.
+            assert_eq!(ctx.__len__(), 0);
+        });
+    }
+
+    #[test]
+    fn test_secret_not_configured_raises_runtime_error() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            // A context with NO resolver attached.
+            let ctx = PyContext::new(None).unwrap();
+            let err = ctx.secret(py, "db_prod").unwrap_err();
+            assert!(err.is_instance_of::<pyo3::exceptions::PyRuntimeError>(py));
+        });
+    }
+
+    #[test]
+    fn test_secret_not_found_raises_key_error() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let ctx = ctx_with_secret("db_prod", &[("password", "hunter2")]);
+            let err = ctx.secret(py, "does_not_exist").unwrap_err();
+            assert!(err.is_instance_of::<pyo3::exceptions::PyKeyError>(py));
+        });
+    }
+
+    #[test]
+    fn test_secret_field_missing_field_raises_key_error() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let ctx = ctx_with_secret("db_prod", &[("password", "hunter2")]);
+            let err = ctx
+                .secret_field(py, "db_prod", "no_such_field")
+                .unwrap_err();
+            assert!(err.is_instance_of::<pyo3::exceptions::PyKeyError>(py));
+        });
+    }
+
+    /// The Python task body is handed `py_context.clone()` (see
+    /// `PythonTaskWrapper::execute`), so `clone()` MUST carry the resolver — a
+    /// rebuild would make `context.secret(...)` fail with NotConfigured in real
+    /// execution even though the runtime configured a resolver. This exercises
+    /// exactly that path.
+    #[test]
+    fn test_clone_preserves_secret_resolver() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let ctx = ctx_with_secret("db_prod", &[("password", "hunter2")]);
+            let cloned = ctx.clone();
+            assert!(
+                cloned.inner.has_secret_resolver(),
+                "clone dropped the secret resolver handle"
+            );
+            let pw = cloned.secret_field(py, "db_prod", "password").unwrap();
+            assert_eq!(pw, "hunter2");
         });
     }
 }

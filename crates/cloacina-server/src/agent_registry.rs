@@ -25,6 +25,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use cloacina::fleet::EphemeralKeyEntry;
+use cloacina::security::ServerKeyPool;
+
 /// Snapshot of a registered agent.
 #[derive(Debug, Clone)]
 pub struct AgentRecord {
@@ -38,6 +41,12 @@ pub struct AgentRecord {
     /// Tenant scope inherited from the authenticated API key that registered
     /// this agent. The `FleetExecutor` only assigns work whose tenant matches.
     pub tenant_id: Option<String>,
+    /// CLOACI-T-0861 / D-5 — the agent's unused one-time ephemeral key pool. The
+    /// `FleetExecutor` consumes exactly one key per secret-bearing dispatch (via
+    /// [`AgentRegistry::consume_secret_key`], which mutates the LIVE record — a
+    /// `snapshot()` clone is read-only and never the consumption source). The
+    /// agent tops it up via `POST /v1/agent/keys` when the pool runs low.
+    pub key_pool: ServerKeyPool,
 }
 
 #[derive(Default)]
@@ -84,6 +93,36 @@ impl AgentRegistry {
     pub fn agent_tenant(&self, agent_id: &str) -> Option<Option<String>> {
         let g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
         g.get(agent_id).map(|r| r.tenant_id.clone())
+    }
+
+    /// CLOACI-T-0861 / D-5 — consume exactly ONE unused one-time key from the
+    /// agent's pool (FIFO), removing it so it can never be handed out again.
+    /// Returns `None` if the agent is unknown OR its pool is exhausted — the
+    /// caller MUST then fail the dispatch cleanly (never plaintext, never reuse).
+    pub fn consume_secret_key(&self, agent_id: &str) -> Option<EphemeralKeyEntry> {
+        let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        g.get_mut(agent_id)?.key_pool.consume()
+    }
+
+    /// CLOACI-T-0861 / D-5 — append fresh one-time keys to the agent's pool (a
+    /// replenish top-up). Returns the number accepted (de-duped by key_id), or
+    /// `None` if the agent is unknown (it should re-register).
+    pub fn replenish_secret_keys(
+        &self,
+        agent_id: &str,
+        entries: Vec<EphemeralKeyEntry>,
+    ) -> Option<usize> {
+        let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        g.get_mut(agent_id).map(|r| r.key_pool.replenish(entries))
+    }
+
+    /// CLOACI-T-0861 / D-5 — how many more keys the agent should top up to reach
+    /// `target` (0 if healthy / unknown). Backs the heartbeat replenish signal.
+    pub fn key_pool_deficit(&self, agent_id: &str, target: usize) -> usize {
+        let g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        g.get(agent_id)
+            .map(|r| r.key_pool.replenish_deficit(target))
+            .unwrap_or(0)
     }
 
     /// Remove an entry. Idempotent.
@@ -148,7 +187,62 @@ mod tests {
             capabilities: vec![],
             last_heartbeat: Instant::now(),
             tenant_id: tenant.map(|s| s.to_string()),
+            key_pool: ServerKeyPool::new(),
         }
+    }
+
+    fn rec_with_pool(id: &str, keys: &[&str]) -> AgentRecord {
+        let mut r = rec(id, 4, Some("public"));
+        r.key_pool = ServerKeyPool::from_entries(
+            keys.iter()
+                .map(|k| EphemeralKeyEntry {
+                    key_id: k.to_string(),
+                    public_key_b64: "AAAA".to_string(),
+                })
+                .collect(),
+        );
+        r
+    }
+
+    /// D-5: each dispatch consumes a distinct key; exhaustion yields None; a
+    /// replenish restores capacity. Consumption mutates the LIVE record.
+    #[test]
+    fn consume_secret_key_is_one_time_then_exhausts_and_replenishes() {
+        let r = AgentRegistry::new();
+        r.register(rec_with_pool("a1", &["k1", "k2"]));
+
+        let first = r.consume_secret_key("a1").expect("k1");
+        let second = r.consume_secret_key("a1").expect("k2");
+        assert_ne!(
+            first.key_id, second.key_id,
+            "each dispatch spends a fresh key"
+        );
+        assert!(
+            r.consume_secret_key("a1").is_none(),
+            "exhausted pool yields no key"
+        );
+        assert_eq!(r.key_pool_deficit("a1", 4), 4);
+
+        // Top up; consumption works again.
+        let added = r
+            .replenish_secret_keys(
+                "a1",
+                vec![EphemeralKeyEntry {
+                    key_id: "k3".into(),
+                    public_key_b64: "AAAA".into(),
+                }],
+            )
+            .expect("known agent");
+        assert_eq!(added, 1);
+        assert_eq!(r.consume_secret_key("a1").unwrap().key_id, "k3");
+    }
+
+    #[test]
+    fn consume_and_replenish_on_unknown_agent() {
+        let r = AgentRegistry::new();
+        assert!(r.consume_secret_key("ghost").is_none());
+        assert!(r.replenish_secret_keys("ghost", vec![]).is_none());
+        assert_eq!(r.key_pool_deficit("ghost", 8), 0);
     }
 
     #[test]

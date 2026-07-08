@@ -4,14 +4,14 @@ level: initiative
 title: "Tenant credential store — encrypted, named connection/secret references for packaged-workflow egress"
 short_code: "CLOACI-I-0133"
 created_at: 2026-07-07T11:11:32.196262+00:00
-updated_at: 2026-07-07T11:52:01.769477+00:00
+updated_at: 2026-07-08T01:47:25.453163+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -127,13 +127,13 @@ Maintainer decisions on the four critical forks (grounded in code: `workflow_ins
 
 - **D-2 (OQ-2) — Per-execution envelope wrap (the strongest option).** For fleet execution, the server resolves the at-rest secret and RE-WRAPS it to the target agent's ephemeral public key, per execution; the agent unwraps with its ephemeral private key and holds plaintext in memory for the run only. Agents never hold the at-rest key; the on-wire ciphertext is bound to one agent + one execution (a channel compromise or a different agent cannot reuse it). Stronger than plain server-side-resolve-over-TLS. **The embedded/in-process path needs no envelope** — the server IS the executor and resolves directly into the accessor.
 
-- **D-3 (OQ-3) — New named grant kind.** `secrets = ["db_prod", ...]` allow-list alongside `capabilities`/`egress` in `GrantSpec`, fail-closed (empty = none), with tenant-scope as the outer boundary. Explicit + auditable. NOT riding the egress grant (breaks for non-network secrets like a passphrase; makes authz implicit).
+- **D-3 (OQ-3) — New named grant kind + TENANT-SCOPE IS THE BOUNDARY (refined 2026-07-07).** `secrets = ["db_prod", ...]` allow-list on `GrantSpec` (fail-closed, auditable, not riding egress). **Refinement after implementation surfaced the tension:** per-*package* secret gating is a form of intra-tenant authZ, which the project treats as a PERMANENT non-goal ([[project_tenant_is_isolation_boundary]] — tenant is THE isolation boundary; isolate by spinning up a new tenant). Maintainer call: **tenant-scope (org_id) is the authorization boundary for secrets everywhere.** The per-package `secrets` allow-list is DEFENSE-IN-DEPTH where cheap (enforced on the embedded/constructor path via `from_grants`), NOT a hard guarantee. The FLEET path is tenant-scoped only (per-package grants aren't persisted server-side, and gating them would be intra-tenant authZ we don't do). Cross-tenant resolution is impossible on all paths. Docs say "secrets are tenant-scoped."
 
 - **D-4 (OQ-4) — Reuse I-0128 + `$secret` refs.** Declare required secrets through the existing declared-input machinery with an `encrypted`/`secret` marker (params and secrets declared side by side); bind via the `{"$secret": "name"}` reference form inside instance params so it composes with I-0116 instance binding and resolves encrypted at fire time.
 
 ## Design Decisions — second tier (2026-07-07, all resolved) **[REQUIRED]**
 
-- **D-5 (OQ-2a) — Ephemeral per-execution keypair.** The agent generates a fresh X25519 keypair per task claim and sends the public key with the claim; the server wraps to it. Forward secrecy per execution; keygen is microseconds. (Not per-lease — a leaked lease key would expose every secret resolved in the lease window.)
+- **D-5 (OQ-2a) — Per-execution key via a ONE-TIME KEY POOL (refined 2026-07-07, maintainer).** Original: fresh X25519 keypair per task *claim*. But the live fleet is PUSH, not claim (no per-dispatch round-trip to carry a key). Maintainer chose TRUE per-execution: the agent pre-registers a POOL of one-time ephemeral public keys (each key-id'd) at register + replenishes via heartbeat when low; the server CONSUMES one key-id per secret-bearing dispatch (wraps to it, puts the key-id in the WorkPacket); the agent looks up the matching private key, unwraps ONCE, discards it. Preserves push (no dispatch latency) AND gives each execution a fresh single-use key = true per-execution forward secrecy. Pool exhaustion → top-up signal / clean dispatch failure; never reuse a key. NOT per-connection.
 - **D-6 (OQ-2b) — HPKE (RFC 9180).** Standardized hybrid public-key encryption for the wrap-to-pubkey step; crypto agility. (Not sealed-box/age.)
 - **D-7 (OQ-6) — Per-tenant data keys (envelope at rest).** Each tenant's secrets encrypted under a tenant DEK; DEKs wrapped by a server KEK. Aligns with tenant-as-isolation-boundary; enables per-tenant rotation; per-tenant compromise blast-radius. (Not a single all-tenant server key.)
 - **D-8 (OQ-5/7/8 defaults, accepted):**

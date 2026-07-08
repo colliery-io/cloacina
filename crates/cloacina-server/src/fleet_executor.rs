@@ -44,12 +44,14 @@ use cloacina::error::{ExecutorError, TaskError};
 use cloacina::executor::types::ClaimedTask;
 use cloacina::executor::{TaskContextBuilder, TaskResultHandler};
 use cloacina::fleet::{
-    host_target_triple, AgentOutcome, AgentResultRequest, ArtifactRef, WorkPacket,
+    host_target_triple, AgentOutcome, AgentResultRequest, ArtifactRef, WorkPacket, WrappedSecret,
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, WORK_PACKET_KIND,
 };
 use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::retry::RetryPolicy;
-use cloacina::Context;
+use cloacina::security::{decode_pool_public_key, resolve_and_wrap_secrets, secret_ref_names};
+use cloacina::task::TaskNamespace;
+use cloacina::{Context, SecretResolver};
 use tracing::{debug, info, warn};
 
 use crate::agent_registry::{AgentRecord, AgentRegistry};
@@ -69,6 +71,23 @@ const MIN_ADVERTISED_CAPACITY: usize = 0;
 /// to report. Must stay well under the stale-claim sweeper threshold (60s) so a
 /// long-running fleet task isn't reclaimed mid-flight and re-dispatched.
 const FLEET_CLAIM_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
+
+/// CLOACI-T-0861 / I-0133 (D-2/D-5) — builds the grant-gated secret resolver a
+/// fleet dispatch uses to resolve + HPKE-wrap a task's secrets.
+///
+/// This is the seam between the fleet dispatch path (which is fully wired: extract
+/// the task's `$secret` names, consume a one-time pooled key, wrap, attach) and
+/// the tenant secrets subsystem (the tenant→`org_id` mapping, the server KEK, and
+/// the package's `ResolvedGrants` → `SecretAllow`). A concrete impl belongs to
+/// the (not-yet-built) server secrets subsystem; when absent, secret-referencing
+/// fleet tasks fail closed at dispatch (never a plaintext leak).
+#[async_trait]
+pub trait FleetSecretResolverFactory: Send + Sync {
+    /// Build a fail-closed, grant-gated [`SecretResolver`] scoped to `tenant` +
+    /// `package`. `None` ⇒ this deployment cannot resolve secrets for that scope
+    /// (secrets not configured, or no grants) — the dispatch then fails closed.
+    async fn resolver_for(&self, tenant: &str, package: &str) -> Option<Arc<dyn SecretResolver>>;
+}
 
 pub struct FleetExecutor {
     dal: cloacina::dal::DAL,
@@ -100,6 +119,12 @@ pub struct FleetExecutor {
     /// dedupe via `claim_for_runner` — the same mechanism ThreadTaskExecutor
     /// uses. Without it a fleet task outliving one poll is re-dispatched.
     instance_id: UniversalUuid,
+    /// CLOACI-T-0861 / D-5 — builds the grant-gated resolver used to resolve +
+    /// HPKE-wrap a task's secrets to a one-time pooled agent key. `None` on a
+    /// deployment with no secrets subsystem wired (the common case today): a task
+    /// that references secrets then fails closed at dispatch. See
+    /// [`FleetSecretResolverFactory`].
+    secret_resolver_factory: Option<Arc<dyn FleetSecretResolverFactory>>,
 }
 
 impl FleetExecutor {
@@ -124,7 +149,72 @@ impl FleetExecutor {
             context_builder,
             name: "fleet".to_string(),
             instance_id: UniversalUuid::new_v4(),
+            secret_resolver_factory: None,
         }
+    }
+
+    /// CLOACI-T-0861 / D-5 — attach the grant-gated secret resolver factory used
+    /// to deliver per-execution fleet secrets. Wire this once the server secrets
+    /// subsystem (tenant→`org_id`, KEK, grants) exists; until then the executor
+    /// runs with `None` and secret-referencing fleet tasks fail closed.
+    pub fn with_secret_resolver_factory(
+        mut self,
+        factory: Arc<dyn FleetSecretResolverFactory>,
+    ) -> Self {
+        self.secret_resolver_factory = Some(factory);
+        self
+    }
+
+    /// CLOACI-T-0861 / D-5 — resolve + HPKE-wrap this task's `$secret`-referenced
+    /// secrets to a ONE-TIME pooled key consumed from the selected agent.
+    ///
+    /// Returns `(wrapped_secrets, Some(key_id))` on success. Fails closed (Err,
+    /// which the caller turns into a clean dispatch failure — NEVER plaintext,
+    /// NEVER a reused key) when: no resolver factory is configured, no
+    /// grant/resolver exists for the scope, or the agent's one-time key pool is
+    /// exhausted. All secrets in one dispatch wrap to the SAME key.
+    async fn wrap_task_secrets(
+        &self,
+        namespace: &TaskNamespace,
+        agent_id: &str,
+        execution_id: &str,
+        secret_names: &[String],
+    ) -> Result<(Vec<WrappedSecret>, Option<String>), String> {
+        let Some(factory) = self.secret_resolver_factory.as_ref() else {
+            return Err(format!(
+                "task references {} secret(s) {:?} but this server has no secret \
+                 resolver configured (CLOACINA_SECRET_KEK unset / secrets subsystem \
+                 not wired) — refusing to dispatch (no plaintext fallback)",
+                secret_names.len(),
+                secret_names
+            ));
+        };
+        let Some(resolver) = factory
+            .resolver_for(&namespace.tenant_id, &namespace.package_name)
+            .await
+        else {
+            return Err(format!(
+                "no secret grants/resolver for tenant '{}' package '{}'",
+                namespace.tenant_id, namespace.package_name
+            ));
+        };
+        // Consume a ONE-TIME pooled key from the selected agent (D-5). Exhaustion
+        // fails the dispatch cleanly — the server never reuses a key or sends
+        // plaintext. The heartbeat replenish signal refills the pool for next time.
+        let Some(key) = self.agent_registry.consume_secret_key(agent_id) else {
+            return Err(format!(
+                "agent '{}' one-time secret-key pool is exhausted — refusing to \
+                 dispatch secrets (never reuse a key, never send plaintext)",
+                agent_id
+            ));
+        };
+        let pubkey = decode_pool_public_key(&key)
+            .map_err(|e| format!("decode consumed pool public key: {e}"))?;
+        let wrapped =
+            resolve_and_wrap_secrets(resolver.as_ref(), secret_names, execution_id, &pubkey)
+                .await
+                .map_err(|e| format!("resolve+wrap secrets: {e}"))?;
+        Ok((wrapped, Some(key.key_id)))
     }
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
@@ -445,6 +535,40 @@ impl TaskExecutor for FleetExecutor {
                 }
             };
 
+            // ── 3d. CLOACI-T-0861 / D-5 — if the task references secrets (via the
+            //        T-0859 `{"$secret"}` alias map carried in the merged context),
+            //        resolve + HPKE-wrap them to a ONE-TIME pooled key consumed
+            //        from the selected agent. Fail the dispatch CLEANLY on any
+            //        problem (no resolver, no grant, exhausted pool) — never a
+            //        plaintext fallback, never a reused key.
+            let secret_names = secret_ref_names(&context_value);
+            let (wrapped_secrets, secret_key_id) = if secret_names.is_empty() {
+                (Vec::new(), None)
+            } else {
+                match self
+                    .wrap_task_secrets(
+                        &namespace,
+                        &agent_id,
+                        &event.task_execution_id.0.to_string(),
+                        &secret_names,
+                    )
+                    .await
+                {
+                    Ok(pair) => pair,
+                    Err(msg) => {
+                        return Ok(self
+                            .reconcile_error(
+                                &event,
+                                &claimed_task,
+                                &retry_policy,
+                                start.elapsed(),
+                                format!("fleet secret delivery failed: {msg}"),
+                            )
+                            .await);
+                    }
+                }
+            };
+
             // ── 4. Build the work packet with real context + real artifact ref.
             let packet = WorkPacket {
                 protocol_version: AGENT_PROTOCOL_VERSION,
@@ -461,6 +585,12 @@ impl TaskExecutor for FleetExecutor {
                 timeout_seconds: 300,
                 tenant_id: tenant_id.clone(),
                 language: Some(language),
+                // CLOACI-T-0861 / D-5 — secrets resolved + HPKE-wrapped to a
+                // one-time pooled key (see step 3d). `secret_key_id` names the
+                // consumed pool key the agent unwraps ONCE with, then discards.
+                // Both empty/None when the task references no secrets.
+                wrapped_secrets,
+                secret_key_id,
             };
             let payload_bytes = match serde_json::to_vec(&packet) {
                 Ok(b) => b,
@@ -794,7 +924,65 @@ mod tests {
             capabilities: vec![],
             last_heartbeat: std::time::Instant::now(),
             tenant_id: tenant.map(str::to_string),
+            key_pool: cloacina::security::ServerKeyPool::new(),
         }
+    }
+
+    // ── D-5 one-time key pool: registry consume → wrap → agent unwrap ────────
+
+    /// End-to-end at the SERVER boundary: the server consumes a one-time pooled
+    /// key from the agent's registry record, HPKE-wraps a secret to it, and the
+    /// agent unwraps with the matching pooled private key into `Context::secret`.
+    /// Only ciphertext + key_id cross the wire; the pool is one-time (a second
+    /// dispatch spends a different key; exhaustion then fails cleanly).
+    #[tokio::test]
+    async fn fleet_pool_wrap_unwrap_end_to_end_and_exhaustion() {
+        use cloacina::security::{
+            resolve_and_wrap_secrets, AgentKeyPool, InMemorySecretResolver, ServerKeyPool,
+        };
+        use std::collections::BTreeMap;
+
+        // Agent mints a 1-key pool; server persists the public entries.
+        let mut agent_pool = AgentKeyPool::new();
+        let entries = agent_pool.mint(1);
+        let registry = AgentRegistry::new();
+        let mut record = agent("a1", 4, Some("public"));
+        record.key_pool = ServerKeyPool::from_entries(entries);
+        registry.register(record);
+
+        // The "gated resolver" the factory would return — here an in-memory one
+        // holding the resolved plaintext (stands in for SecretStoreResolver).
+        let mut fields = BTreeMap::new();
+        fields.insert("password".to_string(), "hunter2".to_string());
+        let resolver = InMemorySecretResolver::new(std::collections::HashMap::from([(
+            "db".to_string(),
+            fields,
+        )]));
+
+        // Server side: consume ONE pooled key, wrap to it.
+        let key = registry
+            .consume_secret_key("a1")
+            .expect("a pooled key to consume");
+        let pubkey = cloacina::security::decode_pool_public_key(&key).unwrap();
+        let wrapped = resolve_and_wrap_secrets(&resolver, &["db".to_string()], "exec-7", &pubkey)
+            .await
+            .unwrap();
+        assert!(!wrapped[0].ciphertext_b64.contains("hunter2"));
+
+        // Agent side: take the matching one-time private key, unwrap, serve.
+        let priv_key = agent_pool.take(&key.key_id).expect("agent holds the key");
+        let agent_resolver =
+            InMemorySecretResolver::from_wrapped(&priv_key, &wrapped, "exec-7").unwrap();
+        let ctx =
+            Context::<serde_json::Value>::new().with_secret_resolver(agent_resolver.into_arc());
+        assert_eq!(
+            ctx.secret("db").await.unwrap().get("password").unwrap(),
+            "hunter2"
+        );
+
+        // One-time: the pool is now exhausted — a second dispatch gets no key
+        // (the executor would fail closed, never reuse/plaintext).
+        assert!(registry.consume_secret_key("a1").is_none());
     }
 
     /// CLOACI-T-0817: public-namespace work (`task_tenant = Some("public")`,

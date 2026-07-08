@@ -32,6 +32,40 @@ export type ListTriggersQuery = NonNullable<
   paths["/v1/tenants/{tenant_id}/triggers"]["get"]["parameters"]["query"]
 >;
 
+// ---- secrets (CLOACI-I-0133 / T-0862) ----
+//
+// Hand-typed rather than sourced from `schemas` because the generated
+// `../generated/types.js` is regenerated from a live server's OpenAPI doc
+// (which now includes the secret routes) as a separate step; until that regen
+// runs these local shapes keep the UI type-safe. Metadata-only: a read NEVER
+// carries a value.
+
+/** Metadata view of a secret — names + timestamps only, never a value. */
+export interface SecretMetadata {
+  id: string;
+  name: string;
+  field_names: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create body: name + the `{field: value}` map (values are write-only). */
+export interface CreateSecretBody {
+  name: string;
+  fields: Record<string, string>;
+}
+
+/** Rotate body: the new `{field: value}` map (values are write-only). */
+export interface RotateSecretBody {
+  fields: Record<string, string>;
+}
+
+/** `{items, total}` envelope for the secret metadata list. */
+export interface SecretListResponse {
+  items: SecretMetadata[];
+  total: number;
+}
+
 /** Error thrown by the ergonomic helpers when the server returns non-2xx. */
 export class CloacinaApiError extends Error {
   readonly status: number;
@@ -273,6 +307,94 @@ export class CloacinaClient {
           body,
         },
       ),
+    );
+  }
+
+  // ---- secrets (CLOACI-I-0133 / T-0862) ----
+  //
+  // Raw authed fetch (not the typed `this.api`) because the secret paths are
+  // not yet in the generated `paths`. Reads return metadata ONLY.
+
+  /** Raw JSON request carrying the same Bearer auth as `this.api`. */
+  async #secretRequest<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    const headers: Record<string, string> = { accept: "application/json" };
+    if (this.#apiKey !== undefined) {
+      headers.authorization = `Bearer ${this.#apiKey}`;
+    }
+    if (body !== undefined) {
+      headers["content-type"] = "application/json";
+    }
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!response.ok) {
+      let errBody: ErrorBody | undefined;
+      try {
+        errBody = (await response.json()) as ErrorBody;
+      } catch {
+        errBody = undefined;
+      }
+      throw new CloacinaApiError(response.status, errBody);
+    }
+    // DELETE returns a small JSON body; every secret endpoint is JSON.
+    return (await response.json()) as T;
+  }
+
+  /** List secret metadata for the tenant. Never returns values. */
+  async listSecrets(tenant?: string): Promise<SecretListResponse> {
+    return this.#secretRequest(
+      "GET",
+      `/v1/tenants/${this.#tenant(tenant)}/secrets`,
+    );
+  }
+
+  /** One secret's metadata. Never returns a value. */
+  async getSecret(name: string, tenant?: string): Promise<SecretMetadata> {
+    return this.#secretRequest(
+      "GET",
+      `/v1/tenants/${this.#tenant(tenant)}/secrets/${encodeURIComponent(name)}`,
+    );
+  }
+
+  /** Create a secret from a `{field: value}` map. Returns metadata only. */
+  async createSecret(
+    body: CreateSecretBody,
+    tenant?: string,
+  ): Promise<SecretMetadata> {
+    return this.#secretRequest(
+      "POST",
+      `/v1/tenants/${this.#tenant(tenant)}/secrets`,
+      body,
+    );
+  }
+
+  /** Rotate a secret's values in place. Returns metadata only. */
+  async rotateSecret(
+    name: string,
+    body: RotateSecretBody,
+    tenant?: string,
+  ): Promise<SecretMetadata> {
+    return this.#secretRequest(
+      "PUT",
+      `/v1/tenants/${this.#tenant(tenant)}/secrets/${encodeURIComponent(name)}`,
+      body,
+    );
+  }
+
+  /** Delete a secret. */
+  async deleteSecret(
+    name: string,
+    tenant?: string,
+  ): Promise<{ status: string; name: string }> {
+    return this.#secretRequest(
+      "DELETE",
+      `/v1/tenants/${this.#tenant(tenant)}/secrets/${encodeURIComponent(name)}`,
     );
   }
 
