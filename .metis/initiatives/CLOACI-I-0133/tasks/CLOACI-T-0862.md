@@ -28,11 +28,17 @@ initiative_id: CLOACI-I-0133
 
 ## Objective **[REQUIRED]**
 
-Operator surface (D-8/OQ-8). `cloacinactl secret` + embedded-UI screens for **metadata-only** create / rotate / list / delete. Never displays or returns secret values. Not on the critical path — can land after the core.
+Operator surface (D-8/OQ-8) — EXPANDED to include the SERVER secrets subsystem (T-0857 built the store DAL but no server HTTP routes / tenant→org_id mapping exist yet; T-0861 handed off the `FleetSecretResolverFactory` activation which depends on exactly this).
 
-**Dependencies:** T-0857 (store + CRUD API). Independent of the resolution/fleet tasks.
+Scope:
+1. **Server secrets subsystem (prereq):** tenant-scoped HTTP CRUD routes (create / rotate / list-metadata / delete) over T-0857's `SecretStore`, in cloacina-server (mirror the keys/accounts route+authz pattern; add to `build_authz_table` + bump the authz tripwire count test). Establish the **tenant(schema-name)→`UniversalUuid` org_id** mapping the store needs. **Reads return metadata only, never values.**
+2. **Activate the fleet factory (from T-0861):** implement the concrete `FleetSecretResolverFactory` (KEK via `SecretStoreResolver::kek_from_env`, `SecretStore::new(dal)`, org_id from the mapping, `ResolvedGrants.secrets`→`SecretAllow`) and wire it into `FleetExecutor` so `$secret` fleet tasks actually resolve (they currently fail closed). Extend `build_secret_resolver` on the embedded/runner path too if applicable.
+3. **`cloacinactl secret`** create/rotate/list/delete (values via stdin/file/prompt, never echoed / never in argv).
+4. **Embedded-UI** Secrets view (metadata list + create/rotate/delete; value inputs write-only).
 
-**Design refs:** [[CLOACI-I-0133]] D-8. cloacinactl noun pattern under `crates/cloacinactl/src/nouns/`; embedded UI ([[CLOACI-I-0130]]). Reuses the metadata-only HTTP routes from T-0857.
+**Dependencies:** T-0857 (store), T-0861 (factory seam + fleet delivery). This is now the SERVER-INTEGRATION task, not just UI/CLI.
+
+**Design refs:** [[CLOACI-I-0133]] D-8; T-0861 `FleetSecretResolverFactory`. cloacinactl `crates/cloacinactl/src/nouns/`; embedded UI ([[CLOACI-I-0130]]); route+authz pattern in cloacina-server `routes/`.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 

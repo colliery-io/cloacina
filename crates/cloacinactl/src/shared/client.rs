@@ -93,6 +93,18 @@ impl CliClient {
             .map_err(CliError::from)
     }
 
+    /// Typed PUT (JSON body).
+    pub async fn put<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, CliError> {
+        self.inner
+            .put_json(path, body)
+            .await
+            .map_err(CliError::from)
+    }
+
     /// DELETE without a response body.
     pub async fn delete(&self, path: &str) -> Result<(), CliError> {
         self.inner.delete_path(path).await.map_err(CliError::from)

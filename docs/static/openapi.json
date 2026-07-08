@@ -2190,6 +2190,422 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/secrets": {
+      "get": {
+        "tags": [
+          "secrets"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/secrets` — list secret metadata. **No values.**",
+        "operationId": "list_secrets",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Secret metadata (names + timestamps only)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_SecretMetadataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Secrets not configured on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "secrets"
+        ],
+        "summary": "`POST /v1/tenants/{tenant_id}/secrets` — create a secret from a field map.\nReturns metadata only.",
+        "operationId": "create_secret",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Secret created — metadata only (no values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretMetadataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A secret of that name already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Secrets not configured on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/secrets/{name}": {
+      "get": {
+        "tags": [
+          "secrets"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/secrets/{name}` — one secret's metadata. **No values.**",
+        "operationId": "get_secret",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Secret name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Secret metadata (names + timestamps only)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretMetadataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Secret not found in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Secrets not configured on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "secrets"
+        ],
+        "summary": "`PUT /v1/tenants/{tenant_id}/secrets/{name}` — rotate a secret's values in\nplace (D-8/OQ-5). Returns metadata only; the next fire sees the new value.",
+        "operationId": "rotate_secret",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Secret name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Secret rotated — metadata only (no values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretMetadataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Secret not found in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Secrets not configured on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "secrets"
+        ],
+        "summary": "`DELETE /v1/tenants/{tenant_id}/secrets/{name}` — delete a secret.",
+        "operationId": "delete_secret",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Secret name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Secret deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretDeletedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Secret not found in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Secrets not configured on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/triggers": {
       "get": {
         "tags": [
@@ -3633,6 +4049,30 @@
           }
         }
       },
+      "CreateSecretRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/tenants/{tenant_id}/secrets` — create a secret.\n\n`fields` is the `{field_name: value}` map. The values are write-only: they\nare encrypted at rest and never returned by any read endpoint.",
+        "required": [
+          "name",
+          "fields"
+        ],
+        "properties": {
+          "fields": {
+            "type": "object",
+            "description": "The `{field: value}` map. Values are write-only.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "The secret's name (unique within the tenant)."
+          }
+        }
+      },
       "CreateTenantRequest": {
         "type": "object",
         "description": "Request body for `POST /tenants`.",
@@ -4187,6 +4627,10 @@
               "null"
             ],
             "description": "Optional default applied when the slot is omitted."
+          },
+          "encrypted": {
+            "type": "boolean",
+            "description": "CLOACI-I-0133 / T-0859: marks this slot as an **encrypted secret** rather\nthan a plaintext param. A secret slot is bound via a `{\"$secret\": name}`\nreference (never a literal value), resolved encrypted at fire time, and\nits resolved value never enters the durable `Context` (NFR-001). Defaults\nto `false` so pre-existing serialized slots (which omit the field)\ndeserialize as ordinary params."
           },
           "name": {
             "type": "string",
@@ -4839,6 +5283,59 @@
           }
         }
       },
+      "ListResponse_SecretMetadataResponse": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Metadata view of a secret — the ONLY shape a read returns. Carries names +\ntimestamps; **never** a plaintext or ciphertext value.",
+              "required": [
+                "id",
+                "name",
+                "field_names",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                },
+                "field_names": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The declared field names (no values)."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Secret UUID."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The secret's name."
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "ListResponse_TenantSummary": {
         "type": "object",
         "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
@@ -5083,6 +5580,79 @@
         "properties": {
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "RotateSecretRequest": {
+        "type": "object",
+        "description": "Request body for `PUT|POST /v1/tenants/{tenant_id}/secrets/{name}` — rotate.\n\nReplaces the secret's field map in place (D-8/OQ-5: in-place, no versioning).",
+        "required": [
+          "fields"
+        ],
+        "properties": {
+          "fields": {
+            "type": "object",
+            "description": "The new `{field: value}` map. Values are write-only.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SecretDeletedResponse": {
+        "type": "object",
+        "description": "`DELETE /v1/tenants/{tenant_id}/secrets/{name}` response.",
+        "required": [
+          "status",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The deleted secret's name."
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"deleted\"`."
+          }
+        }
+      },
+      "SecretMetadataResponse": {
+        "type": "object",
+        "description": "Metadata view of a secret — the ONLY shape a read returns. Carries names +\ntimestamps; **never** a plaintext or ciphertext value.",
+        "required": [
+          "id",
+          "name",
+          "field_names",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "field_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The declared field names (no values)."
+          },
+          "id": {
+            "type": "string",
+            "description": "Secret UUID."
+          },
+          "name": {
+            "type": "string",
+            "description": "The secret's name."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
           }
         }
       },

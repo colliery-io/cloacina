@@ -42,6 +42,7 @@ pub mod input_interface;
 pub mod keys;
 pub mod operations;
 pub mod reactor;
+pub mod secrets;
 pub mod tenants;
 pub mod triggers;
 pub mod workflows;
@@ -67,6 +68,9 @@ pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
 pub use reactor::{
     FireMode, FireReactorRequest, FireReactorResponse, InjectAccumulatorRequest,
     InjectAccumulatorResponse, ReactorCommand, ReactorResponse,
+};
+pub use secrets::{
+    CreateSecretRequest, RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse,
 };
 pub use tenants::{
     CreateTenantRequest, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,

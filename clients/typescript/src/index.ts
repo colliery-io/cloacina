@@ -18,8 +18,12 @@ export {
   CloacinaApiError,
   CloacinaClient,
   type CloacinaClientOptions,
+  type CreateSecretBody,
   type ErrorBody,
+  type RotateSecretBody,
   type schemas,
+  type SecretListResponse,
+  type SecretMetadata,
 } from "./client.js";
 
 export {

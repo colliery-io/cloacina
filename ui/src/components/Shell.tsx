@@ -21,6 +21,7 @@ import {
   IconGauge,
   IconHeartbeat,
   IconKey,
+  IconLock,
   IconServer,
   IconSettings,
   IconUsers,
@@ -226,6 +227,7 @@ export function Shell() {
           <NavItem def={{ to: "/operations", label: "Operations", icon: IconHeartbeat }} />
           <NavItem def={{ to: "/fleet", label: "Agent fleet", icon: IconServer }} />
           <NavItem def={{ to: "/keys", label: "API Keys", icon: IconKey }} />
+          <NavItem def={{ to: "/secrets", label: "Secrets", icon: IconLock }} />
           <NavItem def={{ to: "/accounts", label: "Accounts", icon: IconUsers }} />
           <NavItem def={{ to: "/settings", label: "Settings", icon: IconSettings }} />
         </Box>
