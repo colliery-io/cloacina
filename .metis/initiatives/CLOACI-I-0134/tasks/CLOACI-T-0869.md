@@ -4,14 +4,14 @@ level: task
 title: "Scaffold-pin spike + decision — does a 0.7-scaffolded package build against current injected deps"
 short_code: "CLOACI-T-0869"
 created_at: 2026-07-08T11:36:26.546877+00:00
-updated_at: 2026-07-08T11:36:26.546877+00:00
+updated_at: 2026-07-08T11:47:49.208714+00:00
 parent: CLOACI-I-0134
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,7 +28,13 @@ initiative_id: CLOACI-I-0134
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+Spike (D-5): decide whether `CLOACINA_CRATE_VERSION` (scaffold pin for generated packages' `cloacina-*` deps) should TRACK the release or stay deliberately pinned, by finding out if it actually binds resolution.
+
+## Status Updates **[REQUIRED]**
+
+### 2026-07-08 — DONE — verdict: TRACK the release (it's load-bearing + a real bug)
+`crates/cloacinactl/src/nouns/package/new.rs:39` `CLOACINA_CRATE_VERSION = "0.7"` (comment: "Version pin for the generated Rust package's cloacina-* dependencies"), set at I-0119 (2026-06-14, commit da3f4e3f) and NEVER bumped for 0.8/0.9. The compiler does NOT patch/override the dep version — `build.rs` just runs cargo (optionally with a `--vendor-dir` CARGO_HOME + `--frozen`) against the generated `Cargo.toml`. So `cloacina-workflow = { version = "0.7" }` is a real `^0.7` requirement (`>=0.7.0,<0.8.0`) that WON'T resolve against a 0.9/0.10 crate (0.x minors are semver-incompatible) — offline it fails "not available", online it pulls a stale incompatible 0.7.x. Internal tests miss it because fixtures use `path` deps, not `cloacinactl package new` output; it bites real users only.
+**Decision:** the pin must TRACK the release. The bump command (T-0867) sets it to the release's `major.minor` (style stays minor-precision, e.g. `"0.10"`). The drift guard (T-0868) asserts `CLOACINA_CRATE_VERSION`'s minor == the workspace version's minor. (NOT deliberately pinned; no whitelist.)
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -63,6 +69,10 @@ initiative_id: CLOACI-I-0134
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
