@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - UNRELEASED
+
+### Added
+
+- **Secrets — encrypted named-field objects** (CLOACI-I-0133) — the encrypted sibling of parameters. A tenant-scoped `Secret` is a named object of named fields (`db_prod = { host, user, password }`), encrypted at rest under a per-tenant data key. A workflow declares required secrets (`#[workflow(secrets(...))]` / `@cloaca.workflow_secrets`) and reads them at run time via `context.secret(name)` / `secret_field(name, field)` (Rust **and** Python); an instance param binds one with the `{"$secret":"name"}` reference form. The resolved value **never** enters the durable `Context`, `schedules.params`, or the fires log (a leak test gates it). On the execution-agent fleet, secrets are delivered per-execution via RFC 9180 HPKE envelope wrap to a one-time agent key (true per-execution forward secrecy). Managed with `cloacinactl secret create/rotate/list/delete` and the embedded-UI Secrets view; the server reads its key encryption key from `CLOACINA_SECRET_KEK`. Authorization is by tenant scope. See [Secrets]({{< ref "/service/explanation/secrets" >}}).
+- **Compiler build sandbox** (CLOACI-I-0105) — `cargo build` runs attacker-controlled `build.rs` / proc-macros, so each build now runs under a fail-closed isolation ladder selected by `CLOACINA_COMPILER_SANDBOX = required|preferred|off`: bubblewrap namespaces (no network, cleared env, RO toolchain) or a landlock fallback. `required` refuses to boot when it can't sandbox. Templated into the Helm chart (`compiler.enabled`, `seccompProfile: Unconfined`). See [Compiler Build Sandbox]({{< ref "/service/compiler-sandbox" >}}).
+- **Embedded web UI** (CLOACI-I-0130) — a single `cloacina-server` binary now serves the engine, API, and the web UI (the `embedded-ui` feature; SPA embedded via `rust-embed`, same-origin by default). One container, no separate UI service.
+- **Constructors — reusable polyglot configured-instance factories** (CLOACI-I-0132) — author a WASM operator (task / trigger / accumulator / reactor) once, distribute it as a signed, independently-versioned **provider package** (rides Cargo's dependency model, ADR A-0010/A-0011), and instantiate it with bound config via `constructor!(from = "name@version", …)` (Rust and Python, embedded and packaged, including on the fleet). Capabilities/egress are tenant-granted at construction time, default-closed (ADR A-0009).
+- **Parameterized workflow instances** (CLOACI-I-0116) — register named, scheduled, param-bound instances of a workflow; the instance's declared params are snapshot at registration (immutable) and merged into each fire's context (reserved scheduler keys win).
+- **Computation graphs on the execution-agent fleet** (CLOACI-T-0722 / T-0841) — a whole-graph firing can dispatch to the fleet (Rust and Python), not just run in-process.
+- **Graph operational instrumentation & health API** (CLOACI-I-0117 / I-0131) — accumulator buffer/fill + events-rate, reactor fires log + per-minute cadence, surfaced in the health API and the graph view.
+- **Kubernetes-first execution-agent fleet** (CLOACI-I-0127) — UI-driven agent/tenant assignment, a pluggable `FleetActuator` (K8s + Docker), per-tenant autoscaling within limits, and K8s production-hardening (agent pod securityContext/probes, per-tenant NetworkPolicy, server PDB + anti-affinity).
+
+### Changed (breaking)
+
+- **Authoring-surface minimization** (CLOACI-I-0125) — a Rust package is now a 4-dependency shell (`cloacina-workflow` + `cloacina-workflow-plugin` + serde) with `cloacina_workflow_plugin::package!()`; the compiler injects the cdylib crate-type + `packaged` feature. **No more `build.rs`, `[lib] crate-type`, `[features]`, or `cloacina-build` in a package.** `package.toml` is minimized (name + version + `workflow_name`; the rest is defaulted/inferred). **Migration:** re-scaffold with `cloacinactl package new` or delete the retired ceremony.
+- **`ReactionMode` / `ReactionCriteria` collapsed** (CLOACI-T-0740) — the two enums merged; `criteria = when_any` with no accumulator list now means "all declared". Reactor declarations built against the split enums must update.
+- **Standalone Nginx UI container retired** (CLOACI-I-0130) — the web UI is served by the server (embedded). The separate `ui/Dockerfile` + `docker-compose.ui.yml` path is gone; deploy the embedded UI (or the `charts/cloacina-ui` chart for a standalone SPA).
+
+### Changed
+
+- **Single source of version truth** (CLOACI-I-0134) — the whole workspace version now lives in the root `Cargo.toml` `[workspace.package]` + `[workspace.dependencies]` (crates inherit via `{ workspace = true }`); `angreal release bump <version>` sets every core touchpoint (Rust / npm / python / scaffold) from one input, and a `version-lockstep` pre-commit hook fails CI on any drift. Providers version independently (ADR A-0010).
+
+### Fixed
+
+- Scaffold dependency pin (`cloacinactl package new`) tracked `cloacina-workflow = "0.7"`, three minors stale — generated packages couldn't resolve against the current toolchain. Now tracks the release (CLOACI-T-0869 / I-0134).
+- Web UI displayed a hardcoded, drifted version (shell showed `v0.8.0` while the release was 0.9.0); the version is now injected from `package.json` at build time (CLOACI-I-0134).
+
 ## [0.9.0] - 2026-06-24
 
 ### Added
