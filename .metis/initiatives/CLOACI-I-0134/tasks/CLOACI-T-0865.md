@@ -4,14 +4,14 @@ level: task
 title: "Rust version inheritance collapse — workspace-inherited path-dep versions, fix the CG straggler"
 short_code: "CLOACI-T-0865"
 created_at: 2026-07-08T11:36:20.337600+00:00
-updated_at: 2026-07-08T11:36:20.337600+00:00
+updated_at: 2026-07-08T14:24:35.862728+00:00
 parent: CLOACI-I-0134
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0134
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,6 @@ initiative_id: CLOACI-I-0134
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-08 — DONE (branch feat/i0134-version-single-source)
+Added 5 more internal crates to root `[workspace.dependencies]` (now 10: +cloacina, cloacina-build, cloacina-computation-graph, cloacina-python, cloacina-workflow-plugin); converted every per-crate internal path-dep across 9 crate Cargo.tomls to `{ workspace = true }` (features/default-features preserved exactly); fixed the `cloacina-computation-graph` straggler `[package] version = "0.9.0"` → `version.workspace = true`. `examples/` untouched (providers keep independent versions, D-6). Version stays 0.9.0.
+**Verified (re-run myself): `cargo metadata` OK; `grep 'version = "0.9.0"' crates/*/Cargo.toml` → nothing (all inherit); cargo check clean for cloacina-server/-compiler/-python/cloacinactl/-agent (proves the `{ workspace = true }` conversion didn't drop features). Only Rust `0.9.0` literals left: root Cargo.toml `[workspace.package]` + the 10 internal `[workspace.dependencies]` entries → Rust now bumps at 2 points in one file.**

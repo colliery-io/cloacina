@@ -24,12 +24,12 @@ postgres = ["cloacina/postgres"]
 sqlite = ["cloacina/sqlite"]
 
 [dependencies]
-cloacina-workflow-plugin = { version = "0.9.0", path = "../cloacina-workflow-plugin" }
+cloacina-workflow-plugin = { workspace = true }
 # `constructor-packaging` (serde-only, no wasmtime): the build step discovers a
 # package's `constructor!` provider refs and bundles each provider into
 # `package_providers` (CLOACI-T-0836).
-cloacina = { version = "0.9.0", path = "../cloacina", default-features = false, features = ["constructor-packaging"] }
-cloacina-api-types = { version = "0.9.0", path = "../cloacina-api-types" }
+cloacina = { workspace = true, default-features = false, features = ["constructor-packaging"] }
+cloacina-api-types = { workspace = true }
 clap.workspace = true
 anyhow.workspace = true
 dirs = "6"
