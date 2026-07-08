@@ -4,14 +4,14 @@ level: task
 title: "Dogfood — cut 0.10.0 through the bump command + guard, draft CHANGELOG 0.10.0"
 short_code: "CLOACI-T-0870"
 created_at: 2026-07-08T11:36:27.545977+00:00
-updated_at: 2026-07-08T11:36:27.545977+00:00
+updated_at: 2026-07-08T22:16:11.070183+00:00
 parent: CLOACI-I-0134
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0134
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,6 @@ initiative_id: CLOACI-I-0134
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-08 — DONE (branch feat/i0134-version-single-source, commit bb635d48)
+Dogfooded the new machinery: `angreal release bump 0.10.0` set ALL 16 core touchpoints (Rust workspace version + 10 internal dep pins, npm×3, python×2, scaffold pin) from ONE input in one command, plus a CHANGELOG stub which I filled with the [0.10.0] release notes for the 18 feature merges since v0.9.0 (Secrets I-0133, compiler sandbox I-0105, embedded UI I-0130, constructors I-0132, parameterized instances I-0116, CG fleet dispatch, K8s fleet I-0127; breaking: authoring-shell minimization I-0125, ReactionMode/ReactionCriteria collapse, retired standalone Nginx UI container).
+**Verified: `version-lockstep` guard → 16 touchpoints all at 0.10.0 (exit 0); Cargo.lock synced (cargo check clean).** Proves the single-source works end to end: one command, whole repo at 0.10.0, no drift. The `git tag v0.10.0` stays a human step (I-0134 non-goal).

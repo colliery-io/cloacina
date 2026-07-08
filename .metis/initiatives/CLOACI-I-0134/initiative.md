@@ -4,14 +4,14 @@ level: initiative
 title: "Single source of version truth — collapse the ~30-way version drift, one-command bump, CI drift guard"
 short_code: "CLOACI-I-0134"
 created_at: 2026-07-08T11:30:59.278344+00:00
-updated_at: 2026-07-08T11:36:14.476107+00:00
+updated_at: 2026-07-08T22:16:25.155333+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
