@@ -693,6 +693,10 @@ mod tests {
         ));
     }
 
+    // DB-backed: uses a sqlite in-memory store, so gate to the sqlite backend
+    // (matches the db_key_manager.rs convention — the postgres-only lane has no
+    // sqlite backend compiled in and would panic in Database::new).
+    #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn resolve_and_wrap_through_store_and_grant_gate() {
         use crate::dal::unified::DAL;
