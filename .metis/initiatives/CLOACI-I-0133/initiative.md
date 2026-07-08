@@ -4,14 +4,14 @@ level: initiative
 title: "Tenant credential store — encrypted, named connection/secret references for packaged-workflow egress"
 short_code: "CLOACI-I-0133"
 created_at: 2026-07-07T11:11:32.196262+00:00
-updated_at: 2026-07-07T11:52:01.769477+00:00
+updated_at: 2026-07-08T01:47:25.453163+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
