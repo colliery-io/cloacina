@@ -36,7 +36,7 @@ use clap::ValueEnum;
 use crate::shared::error::CliError;
 
 /// Version pin for the generated Rust package's `cloacina-*` dependencies.
-const CLOACINA_CRATE_VERSION: &str = "0.7";
+const CLOACINA_CRATE_VERSION: &str = "0.9";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ScaffoldLang {
