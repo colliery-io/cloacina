@@ -187,7 +187,7 @@ export function Shell() {
             }}
           >
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: serverDot }} />
-            server {serverWord} · v0.8.0
+            server {serverWord} · v{__APP_VERSION__}
           </Box>
         </Box>
 

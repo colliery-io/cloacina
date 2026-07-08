@@ -4,14 +4,14 @@ level: task
 title: "UI build-time version injection — Vite define from package.json, delete the two literals"
 short_code: "CLOACI-T-0866"
 created_at: 2026-07-08T11:36:21.538151+00:00
-updated_at: 2026-07-08T11:36:21.538151+00:00
+updated_at: 2026-07-08T11:50:23.175461+00:00
 parent: CLOACI-I-0134
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0134
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,6 @@ initiative_id: CLOACI-I-0134
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-08 — DONE (branch feat/i0134-version-single-source)
+D-2 build-time inject: `ui/vite.config.ts` reads `ui/package.json` via native JSON import + `define: { __APP_VERSION__: JSON.stringify(pkg.version) }`; `resolveJsonModule` enabled in `tsconfig.node.json`; ambient `declare const __APP_VERSION__: string` in `ui/src/vite-env.d.ts`. Both hand-typed literals replaced: `Shell.tsx:190` (`v0.8.0`→`v{__APP_VERSION__}`) and `Connect.tsx:382` (`v0.9.0`→`v{__APP_VERSION__}`). Harness displays no version — left untouched. package.json stays 0.9.0 (bump is T-0870).
+**Verified (re-run myself): grep ui/src for version literals → CLEAN (none); vite define + both edits + ambient decl confirmed in place. Agent ran `npm run build` (tsc -b && vite build) → PASS, dist bundle contains the injected `0.9.0` in both strings.** No literal can drift again.
