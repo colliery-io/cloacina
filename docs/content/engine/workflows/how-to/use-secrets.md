@@ -73,9 +73,29 @@ let host = &db["host"];
 let password = context.secret_field("db_prod", "password").await?;
 ```
 
+**Python** — the `cloaca` `Context` exposes the same two accessors. They call
+through to the same resolver, so reads have full parity with Rust (including
+`$secret` alias-awareness):
+
+```python
+@cloaca.task(id="call_api")
+def call_api(context):
+    # Whole secret: a { field: value } dict.
+    db = context.secret("db_prod")
+    host = db["host"]
+
+    # A single field directly.
+    password = context.secret_field("db_prod", "password")
+```
+
+The resolved value is returned to the task only; like the Rust accessor, it is
+never written into the context's serialized data.
+
 `secret(...)` errors clearly when no resolver is configured on the deployment
 (`CLOACINA_SECRET_KEK` unset), when the name is not found or not granted, and
-`secret_field(...)` when the secret exists but lacks the requested field.
+`secret_field(...)` when the secret exists but lacks the requested field. In
+Python these surface as `RuntimeError` (not configured / backend error),
+`KeyError` (secret or field not found), and `PermissionError` (name not granted).
 
 On the embedded / in-process path, the host wires the resolver into the runner —
 for example from `CLOACINA_SECRET_KEK`:
@@ -92,12 +112,6 @@ if let Some(resolver) = SecretStoreResolver::from_env(store, org_id)? {
 On the service path, the server attaches the resolver for you (directly for
 in-process execution, or via the per-execution envelope wrap for the
 [fleet]({{< ref "/service/explanation/execution-agent-fleet" >}})).
-
-> The reading accessor (`context.secret` / `context.secret_field`) is a Rust
-> `Context` API. Python workflows can **declare** required secrets with
-> `@cloaca.workflow_secrets(...)`, and instance binding works identically, but a
-> Python task-body accessor for reading resolved values is not yet part of the
-> `cloaca` `Context`.
 
 ## Bind a secret to an instance
 
