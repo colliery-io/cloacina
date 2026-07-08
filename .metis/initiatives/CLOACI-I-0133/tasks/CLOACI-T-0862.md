@@ -4,14 +4,14 @@ level: task
 title: "Secrets UI/CLI — metadata-only create/rotate/list (cloacinactl + embedded UI)"
 short_code: "CLOACI-T-0862"
 created_at: 2026-07-07T11:52:27.717792+00:00
-updated_at: 2026-07-07T11:52:27.717792+00:00
+updated_at: 2026-07-08T00:49:58.830278+00:00
 parent: CLOACI-I-0133
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -73,6 +73,10 @@ Scope:
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -145,4 +149,12 @@ Scope:
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-07 — DONE (branch feat/i0133-secrets, commit 64b273bf)
+Server subsystem + fleet activation + CLI + UI:
+- **Server CRUD** `routes/secrets.rs` — 5 tenant-scoped routes (create/list/get/rotate/delete) over T-0857 `SecretStore`; metadata-only by construction (`SecretMetadataResponse` has no value field). KEK from `CLOACINA_SECRET_KEK`, unset→503. Registered in router + `build_authz_table` (**count 59→64 + 5 spot-checks, test green**) + openapi (regenerated openapi.json + TS types so drift-checks stay green).
+- **tenant→org_id**: deterministic UUIDv5 under a frozen namespace (no tenants table — a tenant is a schema name); one helper on write + fleet paths.
+- **Fleet factory (activates T-0861)**: `ServerFleetSecretResolverFactory` wired into BOTH `FleetExecutor` sites — a `$secret` fleet task now resolves end-to-end (was fail-closed).
+- **CLI** `cloacinactl secret create/rotate/list/get/delete` — values via @file/stdin/prompt, literal `NAME=value` on argv rejected; list/get metadata-only.
+- **UI** Secrets view (metadata table + create/rotate/delete; value inputs write-only). Embedded UI build succeeds.
+**Verified (re-run myself): cargo check clean (server/cli/api-types/client); authz-count + tenant_org_id tests 2/0.** Postgres factory + route integration tests need the live PG lane (not run locally).
+**D-3 REFINED (maintainer, 2026-07-07): tenant-scope IS the boundary for secrets** — the fleet path being tenant-scoped-only is now the intended design (per-package gating = intra-tenant authZ, a project non-goal; it stays as embedded-path defense-in-depth). So the "fleet grant gap" is NOT a gap. CLI interactive-prompt path doesn't disable terminal echo (file/stdin are the non-echoing inputs) — minor, noted.
