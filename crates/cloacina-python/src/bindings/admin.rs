@@ -164,33 +164,42 @@ impl PyDatabaseAdmin {
         Ok(Self { inner: admin })
     }
 
-    pub fn create_tenant(&self, config: &PyTenantConfig) -> PyResult<PyTenantCredentials> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
-
+    pub fn create_tenant(
+        &self,
+        py: Python<'_>,
+        config: &PyTenantConfig,
+    ) -> PyResult<PyTenantCredentials> {
         let tenant_config = TenantConfig {
             schema_name: config.inner.schema_name.clone(),
             username: config.inner.username.clone(),
             password: config.inner.password.clone(),
         };
 
-        let credentials = rt
-            .block_on(async { self.inner.create_tenant(tenant_config).await })
-            .map_err(|e: AdminError| {
-                PyRuntimeError::new_err(format!("Failed to create tenant: {}", e))
-            })?;
+        // CLOACI-I-0136: drive the async admin call through the one GIL-safe
+        // bridge (releases the GIL before blocking) — previously this held the
+        // GIL across the await on a fresh runtime.
+        let credentials =
+            crate::gil::py_block_on(py, async { self.inner.create_tenant(tenant_config).await })
+                .map_err(|e: AdminError| {
+                    PyRuntimeError::new_err(format!("Failed to create tenant: {}", e))
+                })?;
 
         Ok(PyTenantCredentials { inner: credentials })
     }
 
-    pub fn remove_tenant(&self, schema_name: String, username: String) -> PyResult<()> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
-
-        rt.block_on(async { self.inner.remove_tenant(&schema_name, &username).await })
-            .map_err(|e: AdminError| {
-                PyRuntimeError::new_err(format!("Failed to remove tenant: {}", e))
-            })?;
+    pub fn remove_tenant(
+        &self,
+        py: Python<'_>,
+        schema_name: String,
+        username: String,
+    ) -> PyResult<()> {
+        // CLOACI-I-0136: GIL-safe bridge (see create_tenant).
+        crate::gil::py_block_on(py, async {
+            self.inner.remove_tenant(&schema_name, &username).await
+        })
+        .map_err(|e: AdminError| {
+            PyRuntimeError::new_err(format!("Failed to remove tenant: {}", e))
+        })?;
 
         Ok(())
     }
