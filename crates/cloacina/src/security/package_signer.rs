@@ -383,25 +383,12 @@ impl PackageSigner for DbPackageSigner {
             org_id: None,
         };
 
-        #[cfg(all(feature = "postgres", feature = "sqlite"))]
-        {
-            match self.dal.backend() {
-                crate::database::BackendType::Postgres => {
-                    self.store_signature_postgres(new_sig).await?
-                }
-                crate::database::BackendType::Sqlite => {
-                    self.store_signature_sqlite(new_sig).await?
-                }
-            }
-        }
-        #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-        {
-            self.store_signature_postgres(new_sig).await?
-        }
-        #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-        {
-            self.store_signature_sqlite(new_sig).await?
-        }
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::insert_into(package_signatures::table)
+                .values(&new_sig)
+                .execute(conn)
+        })
+        .map_err(|e| PackageSignError::Database(e.to_string()))?;
 
         Ok(id)
     }
@@ -410,22 +397,33 @@ impl PackageSigner for DbPackageSigner {
         &self,
         package_hash: &str,
     ) -> Result<Option<PackageSignatureInfo>, PackageSignError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.find_signature_postgres(package_hash).await,
-            self.find_signature_sqlite(package_hash).await
-        )
+        let hash = package_hash.to_string();
+
+        let sig: Option<UnifiedPackageSignature> = crate::interact_on_backend!(self.dal, |conn| {
+            package_signatures::table
+                .filter(package_signatures::package_hash.eq(&hash))
+                .first(conn)
+                .optional()
+        })
+        .map_err(|e| PackageSignError::Database(e.to_string()))?;
+
+        Ok(sig.map(Self::to_signature_info))
     }
 
     async fn find_signatures(
         &self,
         package_hash: &str,
     ) -> Result<Vec<PackageSignatureInfo>, PackageSignError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.find_signatures_postgres(package_hash).await,
-            self.find_signatures_sqlite(package_hash).await
-        )
+        let hash = package_hash.to_string();
+
+        let sigs: Vec<UnifiedPackageSignature> = crate::interact_on_backend!(self.dal, |conn| {
+            package_signatures::table
+                .filter(package_signatures::package_hash.eq(&hash))
+                .load(conn)
+        })
+        .map_err(|e| PackageSignError::Database(e.to_string()))?;
+
+        Ok(sigs.into_iter().map(Self::to_signature_info).collect())
     }
 
     async fn verify_package(
@@ -509,166 +507,6 @@ impl PackageSigner for DbPackageSigner {
             .map_err(|_| PackageSignError::VerificationFailed("Invalid signature".to_string()))?;
 
         Ok(())
-    }
-}
-
-// PostgreSQL implementation
-#[cfg(feature = "postgres")]
-impl DbPackageSigner {
-    async fn store_signature_postgres(
-        &self,
-        new_sig: NewUnifiedPackageSignature,
-    ) -> Result<(), PackageSignError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::insert_into(package_signatures::table)
-                .values(&new_sig)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| PackageSignError::Database(e.to_string()))?
-        .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        Ok(())
-    }
-
-    async fn find_signature_postgres(
-        &self,
-        package_hash: &str,
-    ) -> Result<Option<PackageSignatureInfo>, PackageSignError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        let hash = package_hash.to_string();
-
-        let sig: Option<UnifiedPackageSignature> = conn
-            .interact(move |conn| {
-                package_signatures::table
-                    .filter(package_signatures::package_hash.eq(&hash))
-                    .first(conn)
-                    .optional()
-            })
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        Ok(sig.map(Self::to_signature_info))
-    }
-
-    async fn find_signatures_postgres(
-        &self,
-        package_hash: &str,
-    ) -> Result<Vec<PackageSignatureInfo>, PackageSignError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        let hash = package_hash.to_string();
-
-        let sigs: Vec<UnifiedPackageSignature> = conn
-            .interact(move |conn| {
-                package_signatures::table
-                    .filter(package_signatures::package_hash.eq(&hash))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        Ok(sigs.into_iter().map(Self::to_signature_info).collect())
-    }
-}
-
-// SQLite implementation
-#[cfg(feature = "sqlite")]
-impl DbPackageSigner {
-    async fn store_signature_sqlite(
-        &self,
-        new_sig: NewUnifiedPackageSignature,
-    ) -> Result<(), PackageSignError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::insert_into(package_signatures::table)
-                .values(&new_sig)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| PackageSignError::Database(e.to_string()))?
-        .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        Ok(())
-    }
-
-    async fn find_signature_sqlite(
-        &self,
-        package_hash: &str,
-    ) -> Result<Option<PackageSignatureInfo>, PackageSignError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        let hash = package_hash.to_string();
-
-        let sig: Option<UnifiedPackageSignature> = conn
-            .interact(move |conn| {
-                package_signatures::table
-                    .filter(package_signatures::package_hash.eq(&hash))
-                    .first(conn)
-                    .optional()
-            })
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        Ok(sig.map(Self::to_signature_info))
-    }
-
-    async fn find_signatures_sqlite(
-        &self,
-        package_hash: &str,
-    ) -> Result<Vec<PackageSignatureInfo>, PackageSignError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        let hash = package_hash.to_string();
-
-        let sigs: Vec<UnifiedPackageSignature> = conn
-            .interact(move |conn| {
-                package_signatures::table
-                    .filter(package_signatures::package_hash.eq(&hash))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| PackageSignError::Database(e.to_string()))?
-            .map_err(|e| PackageSignError::Database(e.to_string()))?;
-
-        Ok(sigs.into_iter().map(Self::to_signature_info).collect())
     }
 }
 

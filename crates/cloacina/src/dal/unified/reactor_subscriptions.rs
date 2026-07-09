@@ -95,35 +95,12 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         payload: Option<Vec<u8>>,
         fired_at: UniversalTimestamp,
     ) -> Result<Uuid, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.insert_firing_postgres(reactor, tenant, payload, fired_at)
-                .await,
-            self.insert_firing_sqlite(reactor, tenant, payload, fired_at)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn insert_firing_postgres(
-        &self,
-        reactor: &str,
-        tenant: &str,
-        payload: Option<Vec<u8>>,
-        fired_at: UniversalTimestamp,
-    ) -> Result<Uuid, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
         let reactor = reactor.to_string();
         let tenant = tenant.to_string();
         let id_for_move = id;
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::insert_into(reactor_firings::table)
                 .values((
                     reactor_firings::id.eq(id_for_move),
@@ -134,45 +111,7 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
                     reactor_firings::created_at.eq(now),
                 ))
                 .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(id.0)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn insert_firing_sqlite(
-        &self,
-        reactor: &str,
-        tenant: &str,
-        payload: Option<Vec<u8>>,
-        fired_at: UniversalTimestamp,
-    ) -> Result<Uuid, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let id = UniversalUuid::new_v4();
-        let now = UniversalTimestamp::now();
-        let reactor = reactor.to_string();
-        let tenant = tenant.to_string();
-        let id_for_move = id;
-        conn.interact(move |conn| {
-            diesel::insert_into(reactor_firings::table)
-                .values((
-                    reactor_firings::id.eq(id_for_move),
-                    reactor_firings::reactor_name.eq(reactor),
-                    reactor_firings::tenant_id.eq(tenant),
-                    reactor_firings::payload.eq(payload.map(UniversalBinary::new)),
-                    reactor_firings::fired_at.eq(fired_at),
-                    reactor_firings::created_at.eq(now),
-                ))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
         Ok(id.0)
     }
 
@@ -186,80 +125,20 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         after: Option<UniversalTimestamp>,
         limit: i64,
     ) -> Result<Vec<ReactorFiring>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.poll_unconsumed_postgres(tenant, reactor, after, limit)
-                .await,
-            self.poll_unconsumed_sqlite(tenant, reactor, after, limit)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn poll_unconsumed_postgres(
-        &self,
-        tenant: &str,
-        reactor: &str,
-        after: Option<UniversalTimestamp>,
-        limit: i64,
-    ) -> Result<Vec<ReactorFiring>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let tenant = tenant.to_string();
         let reactor = reactor.to_string();
-        let rows: Vec<ReactorFiring> = conn
-            .interact(move |conn| {
-                let mut q = reactor_firings::table
-                    .filter(reactor_firings::tenant_id.eq(tenant))
-                    .filter(reactor_firings::reactor_name.eq(reactor))
-                    .into_boxed();
-                if let Some(after) = after {
-                    q = q.filter(reactor_firings::fired_at.gt(after));
-                }
-                q.order(reactor_firings::fired_at.asc())
-                    .limit(limit)
-                    .load::<ReactorFiring>(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(rows)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn poll_unconsumed_sqlite(
-        &self,
-        tenant: &str,
-        reactor: &str,
-        after: Option<UniversalTimestamp>,
-        limit: i64,
-    ) -> Result<Vec<ReactorFiring>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let tenant = tenant.to_string();
-        let reactor = reactor.to_string();
-        let rows: Vec<ReactorFiring> = conn
-            .interact(move |conn| {
-                let mut q = reactor_firings::table
-                    .filter(reactor_firings::tenant_id.eq(tenant))
-                    .filter(reactor_firings::reactor_name.eq(reactor))
-                    .into_boxed();
-                if let Some(after) = after {
-                    q = q.filter(reactor_firings::fired_at.gt(after));
-                }
-                q.order(reactor_firings::fired_at.asc())
-                    .limit(limit)
-                    .load::<ReactorFiring>(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let rows: Vec<ReactorFiring> = crate::interact_on_backend!(self.dal, |conn| {
+            let mut q = reactor_firings::table
+                .filter(reactor_firings::tenant_id.eq(tenant))
+                .filter(reactor_firings::reactor_name.eq(reactor))
+                .into_boxed();
+            if let Some(after) = after {
+                q = q.filter(reactor_firings::fired_at.gt(after));
+            }
+            q.order(reactor_firings::fired_at.asc())
+                .limit(limit)
+                .load::<ReactorFiring>(conn)
+        })?;
         Ok(rows)
     }
 
@@ -269,52 +148,10 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         &self,
         cutoff: UniversalTimestamp,
     ) -> Result<usize, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.prune_firings_older_than_postgres(cutoff).await,
-            self.prune_firings_older_than_sqlite(cutoff).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn prune_firings_older_than_postgres(
-        &self,
-        cutoff: UniversalTimestamp,
-    ) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let n = conn
-            .interact(move |conn| {
-                diesel::delete(reactor_firings::table.filter(reactor_firings::fired_at.lt(cutoff)))
-                    .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(n)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn prune_firings_older_than_sqlite(
-        &self,
-        cutoff: UniversalTimestamp,
-    ) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let n = conn
-            .interact(move |conn| {
-                diesel::delete(reactor_firings::table.filter(reactor_firings::fired_at.lt(cutoff)))
-                    .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let n = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::delete(reactor_firings::table.filter(reactor_firings::fired_at.lt(cutoff)))
+                .execute(conn)
+        })?;
         Ok(n)
     }
 
@@ -484,30 +321,9 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         subscription_id: Uuid,
         new_last_seen: UniversalTimestamp,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.advance_watermark_postgres(subscription_id, new_last_seen)
-                .await,
-            self.advance_watermark_sqlite(subscription_id, new_last_seen)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn advance_watermark_postgres(
-        &self,
-        subscription_id: Uuid,
-        new_last_seen: UniversalTimestamp,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let sid = UniversalUuid(subscription_id);
         let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::update(
                 reactor_trigger_subscriptions::table
                     .filter(reactor_trigger_subscriptions::id.eq(sid)),
@@ -517,39 +333,7 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
                 reactor_trigger_subscriptions::updated_at.eq(now),
             ))
             .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn advance_watermark_sqlite(
-        &self,
-        subscription_id: Uuid,
-        new_last_seen: UniversalTimestamp,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let sid = UniversalUuid(subscription_id);
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(
-                reactor_trigger_subscriptions::table
-                    .filter(reactor_trigger_subscriptions::id.eq(sid)),
-            )
-            .set((
-                reactor_trigger_subscriptions::last_seen_fired_at.eq(Some(new_last_seen)),
-                reactor_trigger_subscriptions::updated_at.eq(now),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
         Ok(())
     }
 
@@ -560,120 +344,29 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         workflow: &str,
         tenant: &str,
     ) -> Result<bool, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.unsubscribe_postgres(reactor, workflow, tenant).await,
-            self.unsubscribe_sqlite(reactor, workflow, tenant).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn unsubscribe_postgres(
-        &self,
-        reactor: &str,
-        workflow: &str,
-        tenant: &str,
-    ) -> Result<bool, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let reactor = reactor.to_string();
         let workflow = workflow.to_string();
         let tenant = tenant.to_string();
-        let n = conn
-            .interact(move |conn| {
-                diesel::delete(
-                    reactor_trigger_subscriptions::table
-                        .filter(reactor_trigger_subscriptions::reactor_name.eq(reactor))
-                        .filter(reactor_trigger_subscriptions::workflow_name.eq(workflow))
-                        .filter(reactor_trigger_subscriptions::tenant_id.eq(tenant)),
-                )
-                .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(n > 0)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn unsubscribe_sqlite(
-        &self,
-        reactor: &str,
-        workflow: &str,
-        tenant: &str,
-    ) -> Result<bool, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let reactor = reactor.to_string();
-        let workflow = workflow.to_string();
-        let tenant = tenant.to_string();
-        let n = conn
-            .interact(move |conn| {
-                diesel::delete(
-                    reactor_trigger_subscriptions::table
-                        .filter(reactor_trigger_subscriptions::reactor_name.eq(reactor))
-                        .filter(reactor_trigger_subscriptions::workflow_name.eq(workflow))
-                        .filter(reactor_trigger_subscriptions::tenant_id.eq(tenant)),
-                )
-                .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let n = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::delete(
+                reactor_trigger_subscriptions::table
+                    .filter(reactor_trigger_subscriptions::reactor_name.eq(reactor))
+                    .filter(reactor_trigger_subscriptions::workflow_name.eq(workflow))
+                    .filter(reactor_trigger_subscriptions::tenant_id.eq(tenant)),
+            )
+            .execute(conn)
+        })?;
         Ok(n > 0)
     }
 
     /// List all enabled subscriptions across every tenant. Used by the
     /// unified scheduler's reactor poll tick (CLOACI-I-0100 / T-0599).
     pub async fn list_all_enabled(&self) -> Result<Vec<ReactorSubscription>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_all_enabled_postgres().await,
-            self.list_all_enabled_sqlite().await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_all_enabled_postgres(&self) -> Result<Vec<ReactorSubscription>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let rows = conn
-            .interact(move |conn| {
-                reactor_trigger_subscriptions::table
-                    .filter(reactor_trigger_subscriptions::enabled.eq(UniversalBool::from(true)))
-                    .load::<ReactorSubscription>(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(rows)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_all_enabled_sqlite(&self) -> Result<Vec<ReactorSubscription>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let rows = conn
-            .interact(move |conn| {
-                reactor_trigger_subscriptions::table
-                    .filter(reactor_trigger_subscriptions::enabled.eq(UniversalBool::from(true)))
-                    .load::<ReactorSubscription>(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let rows = crate::interact_on_backend!(self.dal, |conn| {
+            reactor_trigger_subscriptions::table
+                .filter(reactor_trigger_subscriptions::enabled.eq(UniversalBool::from(true)))
+                .load::<ReactorSubscription>(conn)
+        })?;
         Ok(rows)
     }
 
@@ -682,58 +375,13 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         &self,
         tenant: &str,
     ) -> Result<Vec<ReactorSubscription>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_subscriptions_postgres(tenant).await,
-            self.list_subscriptions_sqlite(tenant).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_subscriptions_postgres(
-        &self,
-        tenant: &str,
-    ) -> Result<Vec<ReactorSubscription>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let tenant = tenant.to_string();
-        let rows = conn
-            .interact(move |conn| {
-                reactor_trigger_subscriptions::table
-                    .filter(reactor_trigger_subscriptions::tenant_id.eq(tenant))
-                    .filter(reactor_trigger_subscriptions::enabled.eq(UniversalBool::from(true)))
-                    .load::<ReactorSubscription>(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(rows)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_subscriptions_sqlite(
-        &self,
-        tenant: &str,
-    ) -> Result<Vec<ReactorSubscription>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let tenant = tenant.to_string();
-        let rows = conn
-            .interact(move |conn| {
-                reactor_trigger_subscriptions::table
-                    .filter(reactor_trigger_subscriptions::tenant_id.eq(tenant))
-                    .filter(reactor_trigger_subscriptions::enabled.eq(UniversalBool::from(true)))
-                    .load::<ReactorSubscription>(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let rows = crate::interact_on_backend!(self.dal, |conn| {
+            reactor_trigger_subscriptions::table
+                .filter(reactor_trigger_subscriptions::tenant_id.eq(tenant))
+                .filter(reactor_trigger_subscriptions::enabled.eq(UniversalBool::from(true)))
+                .load::<ReactorSubscription>(conn)
+        })?;
         Ok(rows)
     }
 }

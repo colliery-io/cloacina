@@ -46,153 +46,58 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         runner_id: Option<UniversalUuid>,
     ) -> Result<bool, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_completed_postgres(task_id, runner_id).await,
-            self.mark_completed_sqlite(task_id, runner_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_completed_postgres(
-        &self,
-        task_id: UniversalUuid,
-        runner_id: Option<UniversalUuid>,
-    ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let applied = crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
 
-        let applied = conn
-            .interact(move |conn| {
-                conn.transaction::<bool, diesel::result::Error, _>(|conn| {
-                    let now = UniversalTimestamp::now();
+                // Get task info for event
+                let task: UnifiedTaskExecution =
+                    task_executions::table.find(task_id).first(conn)?;
 
-                    // Get task info for event
-                    let task: UnifiedTaskExecution =
-                        task_executions::table.find(task_id).first(conn)?;
-
-                    // Update task status — guarded by claimed_by when runner_id provided
-                    let set_clause = (
-                        task_executions::status.eq("Completed"),
-                        task_executions::completed_at.eq(Some(now)),
-                        task_executions::updated_at.eq(now),
-                    );
-                    let rows = if let Some(rid) = runner_id {
-                        diesel::update(
-                            task_executions::table
-                                .find(task_id)
-                                .filter(task_executions::claimed_by.eq(Some(rid))),
-                        )
+                // Update task status — guarded by claimed_by when runner_id provided
+                let set_clause = (
+                    task_executions::status.eq("Completed"),
+                    task_executions::completed_at.eq(Some(now)),
+                    task_executions::updated_at.eq(now),
+                );
+                let rows = if let Some(rid) = runner_id {
+                    diesel::update(
+                        task_executions::table
+                            .find(task_id)
+                            .filter(task_executions::claimed_by.eq(Some(rid))),
+                    )
+                    .set(set_clause)
+                    .execute(conn)?
+                } else {
+                    diesel::update(task_executions::table.find(task_id))
                         .set(set_clause)
                         .execute(conn)?
-                    } else {
-                        diesel::update(task_executions::table.find(task_id))
-                            .set(set_clause)
-                            .execute(conn)?
+                };
+
+                // Only insert event if the update was applied
+                if rows > 0 {
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        workflow_execution_id: task.workflow_execution_id,
+                        task_execution_id: Some(task_id),
+                        event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
+                        event_data: None,
+                        worker_id: None,
+                        created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+                }
 
-                    // Only insert event if the update was applied
-                    if rows > 0 {
-                        let event = NewUnifiedExecutionEvent {
-                            id: UniversalUuid::new_v4(),
-                            workflow_execution_id: task.workflow_execution_id,
-                            task_execution_id: Some(task_id),
-                            event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
-                            event_data: None,
-                            worker_id: None,
-                            created_at: now,
-                            request_id: None,
-                            runner_id: None,
-                            tenant_id: None,
-                        };
-                        diesel::insert_into(execution_events::table)
-                            .values(&event)
-                            .execute(conn)?;
-                    }
-
-                    Ok(rows > 0)
-                })
+                Ok(rows > 0)
             })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(applied)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_completed_sqlite(
-        &self,
-        task_id: UniversalUuid,
-        runner_id: Option<UniversalUuid>,
-    ) -> Result<bool, ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let applied = conn
-            .interact(move |conn| {
-                conn.transaction::<bool, diesel::result::Error, _>(|conn| {
-                    let now = UniversalTimestamp::now();
-
-                    // Get task info for event
-                    let task: UnifiedTaskExecution =
-                        task_executions::table.find(task_id).first(conn)?;
-
-                    // Update task status — guarded by claimed_by when runner_id provided
-                    let set_clause = (
-                        task_executions::status.eq("Completed"),
-                        task_executions::completed_at.eq(Some(now)),
-                        task_executions::updated_at.eq(now),
-                    );
-                    let rows = if let Some(rid) = runner_id {
-                        diesel::update(
-                            task_executions::table
-                                .find(task_id)
-                                .filter(task_executions::claimed_by.eq(Some(rid))),
-                        )
-                        .set(set_clause)
-                        .execute(conn)?
-                    } else {
-                        diesel::update(task_executions::table.find(task_id))
-                            .set(set_clause)
-                            .execute(conn)?
-                    };
-
-                    // Only insert event if the update was applied
-                    if rows > 0 {
-                        let event = NewUnifiedExecutionEvent {
-                            id: UniversalUuid::new_v4(),
-                            workflow_execution_id: task.workflow_execution_id,
-                            task_execution_id: Some(task_id),
-                            event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
-                            event_data: None,
-                            worker_id: None,
-                            created_at: now,
-                            request_id: None,
-                            runner_id: None,
-                            tenant_id: None,
-                        };
-                        diesel::insert_into(execution_events::table)
-                            .values(&event)
-                            .execute(conn)?;
-                    }
-
-                    Ok(rows > 0)
-                })
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(applied)
     }
@@ -211,163 +116,61 @@ impl<'a> TaskExecutionDAL<'a> {
         error_message: &str,
         runner_id: Option<UniversalUuid>,
     ) -> Result<bool, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_failed_postgres(task_id, error_message, runner_id)
-                .await,
-            self.mark_failed_sqlite(task_id, error_message, runner_id)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_failed_postgres(
-        &self,
-        task_id: UniversalUuid,
-        error_message: &str,
-        runner_id: Option<UniversalUuid>,
-    ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let error_message = error_message.to_string();
-        let applied = conn
-            .interact(move |conn| {
-                conn.transaction::<bool, diesel::result::Error, _>(|conn| {
-                    let now = UniversalTimestamp::now();
+        let applied = crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
 
-                    // Get task info for event
-                    let task: UnifiedTaskExecution =
-                        task_executions::table.find(task_id).first(conn)?;
+                // Get task info for event
+                let task: UnifiedTaskExecution =
+                    task_executions::table.find(task_id).first(conn)?;
 
-                    // Update task status — guarded by claimed_by when runner_id provided
-                    let set_clause = (
-                        task_executions::status.eq("Failed"),
-                        task_executions::completed_at.eq(Some(now)),
-                        task_executions::last_error.eq(&error_message),
-                        task_executions::updated_at.eq(now),
-                    );
-                    let rows = if let Some(rid) = runner_id {
-                        diesel::update(
-                            task_executions::table
-                                .find(task_id)
-                                .filter(task_executions::claimed_by.eq(Some(rid))),
-                        )
+                // Update task status — guarded by claimed_by when runner_id provided
+                let set_clause = (
+                    task_executions::status.eq("Failed"),
+                    task_executions::completed_at.eq(Some(now)),
+                    task_executions::last_error.eq(&error_message),
+                    task_executions::updated_at.eq(now),
+                );
+                let rows = if let Some(rid) = runner_id {
+                    diesel::update(
+                        task_executions::table
+                            .find(task_id)
+                            .filter(task_executions::claimed_by.eq(Some(rid))),
+                    )
+                    .set(set_clause)
+                    .execute(conn)?
+                } else {
+                    diesel::update(task_executions::table.find(task_id))
                         .set(set_clause)
                         .execute(conn)?
-                    } else {
-                        diesel::update(task_executions::table.find(task_id))
-                            .set(set_clause)
-                            .execute(conn)?
+                };
+
+                // Only insert event if the update was applied
+                if rows > 0 {
+                    let event_data = serde_json::json!({ "error": error_message }).to_string();
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        workflow_execution_id: task.workflow_execution_id,
+                        task_execution_id: Some(task_id),
+                        event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
+                        event_data: Some(event_data),
+                        worker_id: None,
+                        created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+                }
 
-                    // Only insert event if the update was applied
-                    if rows > 0 {
-                        let event_data = serde_json::json!({ "error": error_message }).to_string();
-                        let event = NewUnifiedExecutionEvent {
-                            id: UniversalUuid::new_v4(),
-                            workflow_execution_id: task.workflow_execution_id,
-                            task_execution_id: Some(task_id),
-                            event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
-                            event_data: Some(event_data),
-                            worker_id: None,
-                            created_at: now,
-                            request_id: None,
-                            runner_id: None,
-                            tenant_id: None,
-                        };
-                        diesel::insert_into(execution_events::table)
-                            .values(&event)
-                            .execute(conn)?;
-                    }
-
-                    Ok(rows > 0)
-                })
+                Ok(rows > 0)
             })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(applied)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_failed_sqlite(
-        &self,
-        task_id: UniversalUuid,
-        error_message: &str,
-        runner_id: Option<UniversalUuid>,
-    ) -> Result<bool, ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let error_message = error_message.to_string();
-        let applied = conn
-            .interact(move |conn| {
-                conn.transaction::<bool, diesel::result::Error, _>(|conn| {
-                    let now = UniversalTimestamp::now();
-
-                    // Get task info for event
-                    let task: UnifiedTaskExecution =
-                        task_executions::table.find(task_id).first(conn)?;
-
-                    // Update task status — guarded by claimed_by when runner_id provided
-                    let set_clause = (
-                        task_executions::status.eq("Failed"),
-                        task_executions::completed_at.eq(Some(now)),
-                        task_executions::last_error.eq(&error_message),
-                        task_executions::updated_at.eq(now),
-                    );
-                    let rows = if let Some(rid) = runner_id {
-                        diesel::update(
-                            task_executions::table
-                                .find(task_id)
-                                .filter(task_executions::claimed_by.eq(Some(rid))),
-                        )
-                        .set(set_clause)
-                        .execute(conn)?
-                    } else {
-                        diesel::update(task_executions::table.find(task_id))
-                            .set(set_clause)
-                            .execute(conn)?
-                    };
-
-                    // Only insert event if the update was applied
-                    if rows > 0 {
-                        let event_data = serde_json::json!({ "error": error_message }).to_string();
-                        let event = NewUnifiedExecutionEvent {
-                            id: UniversalUuid::new_v4(),
-                            workflow_execution_id: task.workflow_execution_id,
-                            task_execution_id: Some(task_id),
-                            event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
-                            event_data: Some(event_data),
-                            worker_id: None,
-                            created_at: now,
-                            request_id: None,
-                            runner_id: None,
-                            tenant_id: None,
-                        };
-                        diesel::insert_into(execution_events::table)
-                            .values(&event)
-                            .execute(conn)?;
-                    }
-
-                    Ok(rows > 0)
-                })
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(applied)
     }
@@ -380,6 +183,12 @@ impl<'a> TaskExecutionDAL<'a> {
     /// The outbox entry enables push-based work distribution (Postgres LISTEN/NOTIFY)
     /// or polling-based distribution (SQLite).
     pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        // KEPT AS EXPLICIT TWINS (CLOACI-I-0135): the outbox-insert bodies genuinely
+        // diverge. Postgres lets the DB stamp `created_at` via
+        // `DEFAULT CURRENT_TIMESTAMP` (so the claim filter `created_at <= NOW()` and
+        // the write both source the DB clock, avoiding app/DB clock skew); SQLite
+        // writes `created_at = now` from the app clock. This is not a backend-agnostic
+        // body, so it does not collapse to `interact_on_backend!`.
         crate::dispatch_backend!(
             self.dal.backend(),
             self.mark_ready_postgres(task_id).await,
@@ -530,23 +339,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// already stamped it, so the two paths don't fight. Best-effort: failures
     /// are logged by the caller, not fatal to execution.
     pub async fn mark_started(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_started_postgres(task_id).await,
-            self.mark_started_sqlite(task_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_started_postgres(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             let now = UniversalTimestamp::now();
             diesel::update(
                 task_executions::table
@@ -560,38 +353,6 @@ impl<'a> TaskExecutionDAL<'a> {
             ))
             .execute(conn)
         })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_started_sqlite(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            let now = UniversalTimestamp::now();
-            diesel::update(
-                task_executions::table
-                    .filter(task_executions::id.eq(task_id))
-                    .filter(task_executions::started_at.is_null()),
-            )
-            .set((
-                task_executions::status.eq("Running"),
-                task_executions::started_at.eq(Some(now)),
-                task_executions::updated_at.eq(now),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         Ok(())
@@ -606,31 +367,11 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_skipped_postgres(task_id, reason).await,
-            self.mark_skipped_sqlite(task_id, reason).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_skipped_postgres(
-        &self,
-        task_id: UniversalUuid,
-        reason: &str,
-    ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let reason = reason.to_string();
         let reason_log = reason.clone();
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -667,71 +408,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        tracing::info!(task_id = %task_id, reason = %reason_log, "Task marked as Skipped");
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_skipped_sqlite(
-        &self,
-        task_id: UniversalUuid,
-        reason: &str,
-    ) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let reason = reason.to_string();
-        let reason_log = reason.clone();
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
-
-                // Update task status
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
-                        task_executions::status.eq("Skipped"),
-                        task_executions::error_details.eq(&reason),
-                        task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
-
-                // Insert execution event with skip reason
-                let event_data = serde_json::json!({ "reason": reason }).to_string();
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    workflow_execution_id: task.workflow_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskSkipped.as_str().to_string(),
-                    event_data: Some(event_data),
-                    worker_id: None,
-                    created_at: now,
-                    request_id: None,
-                    runner_id: None,
-                    tenant_id: None,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         tracing::info!(task_id = %task_id, reason = %reason_log, "Task marked as Skipped");
         Ok(())
@@ -746,30 +423,10 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_abandoned_postgres(task_id, reason).await,
-            self.mark_abandoned_sqlite(task_id, reason).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_abandoned_postgres(
-        &self,
-        task_id: UniversalUuid,
-        reason: &str,
-    ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let reason = reason.to_string();
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -807,70 +464,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_abandoned_sqlite(
-        &self,
-        task_id: UniversalUuid,
-        reason: &str,
-    ) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let reason = reason.to_string();
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
-
-                // Update task status
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
-                        task_executions::status.eq("Failed"),
-                        task_executions::completed_at.eq(Some(now)),
-                        task_executions::error_details.eq(format!("ABANDONED: {}", reason)),
-                        task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
-
-                // Insert execution event with abandonment reason
-                let event_data = serde_json::json!({ "reason": reason }).to_string();
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    workflow_execution_id: task.workflow_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskAbandoned.as_str().to_string(),
-                    event_data: Some(event_data),
-                    worker_id: None,
-                    created_at: now,
-                    request_id: None,
-                    runner_id: None,
-                    tenant_id: None,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -885,30 +479,10 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         sub_status: Option<&str>,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.set_sub_status_postgres(task_id, sub_status).await,
-            self.set_sub_status_sqlite(task_id, sub_status).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn set_sub_status_postgres(
-        &self,
-        task_id: UniversalUuid,
-        sub_status: Option<&str>,
-    ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let sub_status_owned = sub_status.map(|s| s.to_string());
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -952,76 +526,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn set_sub_status_sqlite(
-        &self,
-        task_id: UniversalUuid,
-        sub_status: Option<&str>,
-    ) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let sub_status_owned = sub_status.map(|s| s.to_string());
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Get task info for event (need to check previous sub_status)
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
-                let was_deferred = task.sub_status.as_deref() == Some("Deferred");
-
-                // Update task sub_status
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
-                        task_executions::sub_status.eq(&sub_status_owned),
-                        task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
-
-                // Emit event only for deferred/resumed transitions
-                let event_type = match (was_deferred, sub_status_owned.as_deref()) {
-                    (false, Some("Deferred")) => Some(ExecutionEventType::TaskDeferred),
-                    (true, Some("Active") | None) => Some(ExecutionEventType::TaskResumed),
-                    _ => None,
-                };
-
-                if let Some(event_type) = event_type {
-                    let event = NewUnifiedExecutionEvent {
-                        id: UniversalUuid::new_v4(),
-                        workflow_execution_id: task.workflow_execution_id,
-                        task_execution_id: Some(task_id),
-                        event_type: event_type.as_str().to_string(),
-                        event_data: None,
-                        worker_id: None,
-                        created_at: now,
-                        request_id: None,
-                        runner_id: None,
-                        tenant_id: None,
-                    };
-                    diesel::insert_into(execution_events::table)
-                        .values(&event)
-                        .execute(conn)?;
-                }
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -1031,28 +536,9 @@ impl<'a> TaskExecutionDAL<'a> {
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
     pub async fn reset_retry_state(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.reset_retry_state_postgres(task_id).await,
-            self.reset_retry_state_sqlite(task_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn reset_retry_state_postgres(
-        &self,
-        task_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -1092,70 +578,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn reset_retry_state_sqlite(
-        &self,
-        task_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
-
-                // Reset task state
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
-                        task_executions::attempt.eq(1),
-                        task_executions::retry_at.eq(None::<UniversalTimestamp>),
-                        task_executions::started_at.eq(None::<UniversalTimestamp>),
-                        task_executions::completed_at.eq(None::<UniversalTimestamp>),
-                        task_executions::last_error.eq(None::<String>),
-                        task_executions::status.eq("Ready"),
-                        task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
-
-                // Insert execution event
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    workflow_execution_id: task.workflow_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskReset.as_str().to_string(),
-                    event_data: None,
-                    worker_id: None,
-                    created_at: now,
-                    request_id: None,
-                    runner_id: None,
-                    tenant_id: None,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }

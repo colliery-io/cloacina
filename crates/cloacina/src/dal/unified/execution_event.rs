@@ -211,59 +211,12 @@ impl<'a> ExecutionEventDAL<'a> {
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_by_workflow_postgres(workflow_execution_id).await,
-            self.list_by_workflow_sqlite(workflow_execution_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_by_workflow_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedExecutionEvent> = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
-                    .order(execution_events::sequence_num.asc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_by_workflow_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedExecutionEvent> = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
-                    .order(execution_events::sequence_num.asc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedExecutionEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            execution_events::table
+                .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
+                .order(execution_events::sequence_num.asc())
+                .load(conn)
+        })?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -273,59 +226,12 @@ impl<'a> ExecutionEventDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_by_task_postgres(task_execution_id).await,
-            self.list_by_task_sqlite(task_execution_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_by_task_postgres(
-        &self,
-        task_execution_id: UniversalUuid,
-    ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedExecutionEvent> = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::task_execution_id.eq(task_execution_id))
-                    .order(execution_events::sequence_num.asc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_by_task_sqlite(
-        &self,
-        task_execution_id: UniversalUuid,
-    ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedExecutionEvent> = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::task_execution_id.eq(task_execution_id))
-                    .order(execution_events::sequence_num.asc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedExecutionEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            execution_events::table
+                .filter(execution_events::task_execution_id.eq(task_execution_id))
+                .order(execution_events::sequence_num.asc())
+                .load(conn)
+        })?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -336,65 +242,14 @@ impl<'a> ExecutionEventDAL<'a> {
         event_type: ExecutionEventType,
         limit: i64,
     ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_by_type_postgres(event_type, limit).await,
-            self.list_by_type_sqlite(event_type, limit).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_by_type_postgres(
-        &self,
-        event_type: ExecutionEventType,
-        limit: i64,
-    ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let event_type_str = event_type.as_str().to_string();
-        let results: Vec<UnifiedExecutionEvent> = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::event_type.eq(event_type_str))
-                    .order(execution_events::created_at.desc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_by_type_sqlite(
-        &self,
-        event_type: ExecutionEventType,
-        limit: i64,
-    ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let event_type_str = event_type.as_str().to_string();
-        let results: Vec<UnifiedExecutionEvent> = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::event_type.eq(event_type_str))
-                    .order(execution_events::created_at.desc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedExecutionEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            execution_events::table
+                .filter(execution_events::event_type.eq(event_type_str))
+                .order(execution_events::created_at.desc())
+                .limit(limit)
+                .load(conn)
+        })?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -404,56 +259,12 @@ impl<'a> ExecutionEventDAL<'a> {
         &self,
         limit: i64,
     ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_recent_postgres(limit).await,
-            self.get_recent_sqlite(limit).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_recent_postgres(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedExecutionEvent> = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .order(execution_events::created_at.desc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_recent_sqlite(&self, limit: i64) -> Result<Vec<ExecutionEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedExecutionEvent> = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .order(execution_events::created_at.desc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedExecutionEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            execution_events::table
+                .order(execution_events::created_at.desc())
+                .limit(limit)
+                .load(conn)
+        })?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -466,59 +277,10 @@ impl<'a> ExecutionEventDAL<'a> {
         &self,
         cutoff: UniversalTimestamp,
     ) -> Result<usize, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.delete_older_than_postgres(cutoff).await,
-            self.delete_older_than_sqlite(cutoff).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn delete_older_than_postgres(
-        &self,
-        cutoff: UniversalTimestamp,
-    ) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let deleted: usize = conn
-            .interact(move |conn| {
-                diesel::delete(
-                    execution_events::table.filter(execution_events::created_at.lt(cutoff)),
-                )
+        let deleted: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::delete(execution_events::table.filter(execution_events::created_at.lt(cutoff)))
                 .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(deleted)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn delete_older_than_sqlite(
-        &self,
-        cutoff: UniversalTimestamp,
-    ) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let deleted: usize = conn
-            .interact(move |conn| {
-                diesel::delete(
-                    execution_events::table.filter(execution_events::created_at.lt(cutoff)),
-                )
-                .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(deleted)
     }
@@ -528,59 +290,12 @@ impl<'a> ExecutionEventDAL<'a> {
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.count_by_workflow_postgres(workflow_execution_id).await,
-            self.count_by_workflow_sqlite(workflow_execution_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn count_by_workflow_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let count: i64 = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(count)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn count_by_workflow_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let count: i64 = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let count: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            execution_events::table
+                .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
+                .count()
+                .get_result(conn)
+        })?;
 
         Ok(count)
     }
@@ -592,59 +307,12 @@ impl<'a> ExecutionEventDAL<'a> {
         &self,
         cutoff: UniversalTimestamp,
     ) -> Result<i64, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.count_older_than_postgres(cutoff).await,
-            self.count_older_than_sqlite(cutoff).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn count_older_than_postgres(
-        &self,
-        cutoff: UniversalTimestamp,
-    ) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let count: i64 = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::created_at.lt(cutoff))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(count)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn count_older_than_sqlite(
-        &self,
-        cutoff: UniversalTimestamp,
-    ) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let count: i64 = conn
-            .interact(move |conn| {
-                execution_events::table
-                    .filter(execution_events::created_at.lt(cutoff))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let count: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            execution_events::table
+                .filter(execution_events::created_at.lt(cutoff))
+                .count()
+                .get_result(conn)
+        })?;
 
         Ok(count)
     }

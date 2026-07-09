@@ -27,51 +27,12 @@ use diesel::prelude::*;
 impl<'a> TaskExecutionDAL<'a> {
     /// Retrieves tasks that are stuck in "Running" state (orphaned tasks).
     pub async fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_orphaned_tasks_postgres().await,
-            self.get_orphaned_tasks_sqlite().await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_orphaned_tasks_postgres(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let orphaned_tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
+        let orphaned_tasks: Vec<UnifiedTaskExecution> =
+            crate::interact_on_backend!(self.dal, |conn| {
                 task_executions::table
                     .filter(task_executions::status.eq("Running"))
                     .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(orphaned_tasks.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_orphaned_tasks_sqlite(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let orphaned_tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::status.eq("Running"))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            })?;
 
         Ok(orphaned_tasks.into_iter().map(Into::into).collect())
     }
@@ -81,27 +42,8 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.reset_task_for_recovery_postgres(task_id).await,
-            self.reset_task_for_recovery_sqlite(task_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn reset_task_for_recovery_postgres(
-        &self,
-        task_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::update(task_executions::table.find(task_id))
                 .set((
                     task_executions::status.eq("Ready"),
@@ -111,39 +53,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn reset_task_for_recovery_sqlite(
-        &self,
-        task_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
-                .set((
-                    task_executions::status.eq("Ready"),
-                    task_executions::started_at.eq(None::<UniversalTimestamp>),
-                    task_executions::recovery_attempts.eq(task_executions::recovery_attempts + 1),
-                    task_executions::last_recovery_at.eq(Some(now)),
-                    task_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -153,65 +63,14 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.check_workflow_failure_postgres(workflow_execution_id)
-                .await,
-            self.check_workflow_failure_sqlite(workflow_execution_id)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn check_workflow_failure_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<bool, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let failed_count: i64 = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::status.eq("Failed"))
-                    .filter(task_executions::error_details.like("ABANDONED:%"))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(failed_count > 0)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn check_workflow_failure_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<bool, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let failed_count: i64 = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::status.eq("Failed"))
-                    .filter(task_executions::error_details.like("ABANDONED:%"))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let failed_count: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
+                .filter(task_executions::status.eq("Failed"))
+                .filter(task_executions::error_details.like("ABANDONED:%"))
+                .count()
+                .get_result(conn)
+        })?;
 
         Ok(failed_count > 0)
     }

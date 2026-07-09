@@ -66,141 +66,53 @@ impl<'a> WorkflowExecutionDAL<'a> {
         &self,
         new_execution: NewWorkflowExecution,
     ) -> Result<WorkflowExecutionRecord, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.create_postgres(new_execution).await,
-            self.create_sqlite(new_execution).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn create_postgres(
-        &self,
-        new_execution: NewWorkflowExecution,
-    ) -> Result<WorkflowExecutionRecord, ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let execution: UnifiedWorkflowExecution = crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let id = UniversalUuid::new_v4();
+                let now = UniversalTimestamp::now();
 
-        let execution: UnifiedWorkflowExecution = conn
-            .interact(move |conn| {
-                conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                    let id = UniversalUuid::new_v4();
-                    let now = UniversalTimestamp::now();
+                let unified_new = NewUnifiedWorkflowExecution {
+                    id,
+                    workflow_name: new_execution.workflow_name,
+                    workflow_version: new_execution.workflow_version,
+                    status: new_execution.status,
+                    context_id: new_execution.context_id,
+                    started_at: now,
+                    created_at: now,
+                    updated_at: now,
+                };
 
-                    let unified_new = NewUnifiedWorkflowExecution {
-                        id,
-                        workflow_name: new_execution.workflow_name,
-                        workflow_version: new_execution.workflow_version,
-                        status: new_execution.status,
-                        context_id: new_execution.context_id,
-                        started_at: now,
-                        created_at: now,
-                        updated_at: now,
-                    };
+                // Insert workflow record
+                diesel::insert_into(workflow_executions::table)
+                    .values(&unified_new)
+                    .execute(conn)?;
 
-                    // Insert workflow record
-                    diesel::insert_into(workflow_executions::table)
-                        .values(&unified_new)
-                        .execute(conn)?;
+                // Retrieve the created record
+                let execution: UnifiedWorkflowExecution =
+                    workflow_executions::table.find(id).first(conn)?;
 
-                    // Retrieve the created record
-                    let execution: UnifiedWorkflowExecution =
-                        workflow_executions::table.find(id).first(conn)?;
+                // Insert execution event for workflow start
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    workflow_execution_id: execution.id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::WorkflowStarted.as_str().to_string(),
+                    event_data: None,
+                    worker_id: None,
+                    created_at: now,
+                    request_id: None,
+                    runner_id: None,
+                    tenant_id: None,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
 
-                    // Insert execution event for workflow start
-                    let event = NewUnifiedExecutionEvent {
-                        id: UniversalUuid::new_v4(),
-                        workflow_execution_id: execution.id,
-                        task_execution_id: None,
-                        event_type: ExecutionEventType::WorkflowStarted.as_str().to_string(),
-                        event_data: None,
-                        worker_id: None,
-                        created_at: now,
-                        request_id: None,
-                        runner_id: None,
-                        tenant_id: None,
-                    };
-                    diesel::insert_into(execution_events::table)
-                        .values(&event)
-                        .execute(conn)?;
-
-                    Ok(execution)
-                })
+                Ok(execution)
             })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(execution.into())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn create_sqlite(
-        &self,
-        new_execution: NewWorkflowExecution,
-    ) -> Result<WorkflowExecutionRecord, ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let execution: UnifiedWorkflowExecution = conn
-            .interact(move |conn| {
-                conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                    let id = UniversalUuid::new_v4();
-                    let now = UniversalTimestamp::now();
-
-                    let unified_new = NewUnifiedWorkflowExecution {
-                        id,
-                        workflow_name: new_execution.workflow_name,
-                        workflow_version: new_execution.workflow_version,
-                        status: new_execution.status,
-                        context_id: new_execution.context_id,
-                        started_at: now,
-                        created_at: now,
-                        updated_at: now,
-                    };
-
-                    // Insert workflow record
-                    diesel::insert_into(workflow_executions::table)
-                        .values(&unified_new)
-                        .execute(conn)?;
-
-                    // Retrieve the created record
-                    let execution: UnifiedWorkflowExecution =
-                        workflow_executions::table.find(id).first(conn)?;
-
-                    // Insert execution event for workflow start
-                    let event = NewUnifiedExecutionEvent {
-                        id: UniversalUuid::new_v4(),
-                        workflow_execution_id: execution.id,
-                        task_execution_id: None,
-                        event_type: ExecutionEventType::WorkflowStarted.as_str().to_string(),
-                        event_data: None,
-                        worker_id: None,
-                        created_at: now,
-                        request_id: None,
-                        runner_id: None,
-                        tenant_id: None,
-                    };
-                    diesel::insert_into(execution_events::table)
-                        .values(&event)
-                        .execute(conn)?;
-
-                    Ok(execution)
-                })
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(execution.into())
     }
@@ -209,49 +121,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
         &self,
         id: UniversalUuid,
     ) -> Result<WorkflowExecutionRecord, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_by_id_postgres(id).await,
-            self.get_by_id_sqlite(id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_by_id_postgres(
-        &self,
-        id: UniversalUuid,
-    ) -> Result<WorkflowExecutionRecord, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let execution: UnifiedWorkflowExecution = conn
-            .interact(move |conn| workflow_executions::table.find(id).first(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(execution.into())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_by_id_sqlite(
-        &self,
-        id: UniversalUuid,
-    ) -> Result<WorkflowExecutionRecord, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let execution: UnifiedWorkflowExecution = conn
-            .interact(move |conn| workflow_executions::table.find(id).first(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let execution: UnifiedWorkflowExecution = crate::interact_on_backend!(self.dal, |conn| {
+            workflow_executions::table.find(id).first(conn)
+        })?;
 
         Ok(execution.into())
     }
@@ -259,55 +131,12 @@ impl<'a> WorkflowExecutionDAL<'a> {
     pub async fn get_active_executions(
         &self,
     ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_active_executions_postgres().await,
-            self.get_active_executions_sqlite().await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_active_executions_postgres(
-        &self,
-    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let executions: Vec<UnifiedWorkflowExecution> = conn
-            .interact(move |conn| {
+        let executions: Vec<UnifiedWorkflowExecution> =
+            crate::interact_on_backend!(self.dal, |conn| {
                 workflow_executions::table
                     .filter(workflow_executions::status.eq_any(vec!["Pending", "Running"]))
                     .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(executions.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_active_executions_sqlite(
-        &self,
-    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let executions: Vec<UnifiedWorkflowExecution> = conn
-            .interact(move |conn| {
-                workflow_executions::table
-                    .filter(workflow_executions::status.eq_any(vec!["Pending", "Running"]))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            })?;
 
         Ok(executions.into_iter().map(Into::into).collect())
     }
@@ -317,67 +146,16 @@ impl<'a> WorkflowExecutionDAL<'a> {
         id: UniversalUuid,
         status: &str,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.update_status_postgres(id, status).await,
-            self.update_status_sqlite(id, status).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn update_status_postgres(
-        &self,
-        id: UniversalUuid,
-        status: &str,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let status = status.to_string();
         let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::update(workflow_executions::table.find(id))
                 .set((
                     workflow_executions::status.eq(status),
                     workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn update_status_sqlite(
-        &self,
-        id: UniversalUuid,
-        status: &str,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let status = status.to_string();
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(workflow_executions::table.find(id))
-                .set((
-                    workflow_executions::status.eq(status),
-                    workflow_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -391,41 +169,13 @@ impl<'a> WorkflowExecutionDAL<'a> {
         origin: &str,
     ) -> Result<(), ValidationError> {
         let origin = origin.to_string();
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            {
-                let conn = self
-                    .dal
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-                conn.interact(move |conn| {
-                    diesel::update(workflow_executions::table.find(id))
-                        .set(workflow_executions::trigger_origin.eq(origin))
-                        .execute(conn)
-                })
-                .await
-                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-                Ok(())
-            },
-            {
-                let conn = self
-                    .dal
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-                conn.interact(move |conn| {
-                    diesel::update(workflow_executions::table.find(id))
-                        .set(workflow_executions::trigger_origin.eq(origin))
-                        .execute(conn)
-                })
-                .await
-                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-                Ok(())
-            }
-        )
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(workflow_executions::table.find(id))
+                .set(workflow_executions::trigger_origin.eq(origin))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Marks a workflow execution as completed.
@@ -433,25 +183,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
     pub async fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_completed_postgres(id).await,
-            self.mark_completed_sqlite(id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_completed_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -490,66 +224,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_completed_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Only transition from Running to Completed — prevents duplicate
-                // WorkflowCompleted events when two scheduler ticks race.
-                let rows = diesel::update(
-                    workflow_executions::table
-                        .find(id)
-                        .filter(workflow_executions::status.ne_all(vec!["Completed", "Failed"])),
-                )
-                .set((
-                    workflow_executions::status.eq("Completed"),
-                    workflow_executions::completed_at.eq(Some(now)),
-                    workflow_executions::updated_at.eq(now),
-                ))
-                .execute(conn)?;
-
-                // Only insert event if we actually transitioned
-                if rows > 0 {
-                    let event = NewUnifiedExecutionEvent {
-                        id: UniversalUuid::new_v4(),
-                        workflow_execution_id: id,
-                        task_execution_id: None,
-                        event_type: ExecutionEventType::WorkflowCompleted.as_str().to_string(),
-                        event_data: None,
-                        worker_id: None,
-                        created_at: now,
-                        request_id: None,
-                        runner_id: None,
-                        tenant_id: None,
-                    };
-                    diesel::insert_into(execution_events::table)
-                        .values(&event)
-                        .execute(conn)?;
-                }
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -558,65 +233,15 @@ impl<'a> WorkflowExecutionDAL<'a> {
         &self,
         workflow_name: &str,
     ) -> Result<Option<String>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_last_version_postgres(workflow_name).await,
-            self.get_last_version_sqlite(workflow_name).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_last_version_postgres(
-        &self,
-        workflow_name: &str,
-    ) -> Result<Option<String>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let workflow_name = workflow_name.to_string();
-        let version: Option<String> = conn
-            .interact(move |conn| {
-                workflow_executions::table
-                    .filter(workflow_executions::workflow_name.eq(workflow_name))
-                    .order(workflow_executions::started_at.desc())
-                    .select(workflow_executions::workflow_version)
-                    .first(conn)
-                    .optional()
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(version)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_last_version_sqlite(
-        &self,
-        workflow_name: &str,
-    ) -> Result<Option<String>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let workflow_name = workflow_name.to_string();
-        let version: Option<String> = conn
-            .interact(move |conn| {
-                workflow_executions::table
-                    .filter(workflow_executions::workflow_name.eq(workflow_name))
-                    .order(workflow_executions::started_at.desc())
-                    .select(workflow_executions::workflow_version)
-                    .first(conn)
-                    .optional()
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let version: Option<String> = crate::interact_on_backend!(self.dal, |conn| {
+            workflow_executions::table
+                .filter(workflow_executions::workflow_name.eq(workflow_name))
+                .order(workflow_executions::started_at.desc())
+                .select(workflow_executions::workflow_version)
+                .first(conn)
+                .optional()
+        })?;
 
         Ok(version)
     }
@@ -630,30 +255,10 @@ impl<'a> WorkflowExecutionDAL<'a> {
         id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_failed_postgres(id, reason).await,
-            self.mark_failed_sqlite(id, reason).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_failed_postgres(
-        &self,
-        id: UniversalUuid,
-        reason: &str,
-    ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let reason = reason.to_string();
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -694,83 +299,24 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_failed_sqlite(
-        &self,
-        id: UniversalUuid,
-        reason: &str,
-    ) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let reason = reason.to_string();
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Only transition from Running to Failed — prevents duplicate
-                // WorkflowFailed events when two scheduler ticks race.
-                let rows = diesel::update(
-                    workflow_executions::table
-                        .find(id)
-                        .filter(workflow_executions::status.ne_all(vec!["Completed", "Failed"])),
-                )
-                .set((
-                    workflow_executions::status.eq("Failed"),
-                    workflow_executions::completed_at.eq(Some(now)),
-                    workflow_executions::error_details.eq(&reason),
-                    workflow_executions::updated_at.eq(now),
-                ))
-                .execute(conn)?;
-
-                // Only insert event if we actually transitioned
-                if rows > 0 {
-                    let event_data = serde_json::json!({ "reason": reason }).to_string();
-                    let event = NewUnifiedExecutionEvent {
-                        id: UniversalUuid::new_v4(),
-                        workflow_execution_id: id,
-                        task_execution_id: None,
-                        event_type: ExecutionEventType::WorkflowFailed.as_str().to_string(),
-                        event_data: Some(event_data),
-                        worker_id: None,
-                        created_at: now,
-                        request_id: None,
-                        runner_id: None,
-                        tenant_id: None,
-                    };
-                    diesel::insert_into(execution_events::table)
-                        .values(&event)
-                        .execute(conn)?;
-                }
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
 
     pub async fn cancel(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.cancel_postgres(id).await,
-            self.cancel_sqlite(id).await
-        )
+        let now = UniversalTimestamp::now();
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(workflow_executions::table.find(id))
+                .set((
+                    workflow_executions::status.eq("Cancelled"),
+                    workflow_executions::completed_at.eq(Some(now)),
+                    workflow_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Pauses a running workflow execution.
@@ -785,30 +331,10 @@ impl<'a> WorkflowExecutionDAL<'a> {
         id: UniversalUuid,
         reason: Option<&str>,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.pause_postgres(id, reason).await,
-            self.pause_sqlite(id, reason).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn pause_postgres(
-        &self,
-        id: UniversalUuid,
-        reason: Option<&str>,
-    ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let reason = reason.map(|r| r.to_string());
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -842,66 +368,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn pause_sqlite(
-        &self,
-        id: UniversalUuid,
-        reason: Option<&str>,
-    ) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let reason = reason.map(|r| r.to_string());
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Update workflow status
-                diesel::update(workflow_executions::table.find(id))
-                    .set((
-                        workflow_executions::status.eq("Paused"),
-                        workflow_executions::paused_at.eq(Some(now)),
-                        workflow_executions::pause_reason.eq(&reason),
-                        workflow_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
-
-                // Insert execution event with pause reason
-                let event_data = reason.map(|r| serde_json::json!({ "reason": r }).to_string());
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    workflow_execution_id: id,
-                    task_execution_id: None,
-                    event_type: ExecutionEventType::WorkflowPaused.as_str().to_string(),
-                    event_data,
-                    worker_id: None,
-                    created_at: now,
-                    request_id: None,
-                    runner_id: None,
-                    tenant_id: None,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -913,25 +380,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
     pub async fn resume(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.resume_postgres(id).await,
-            self.resume_sqlite(id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn resume_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -964,110 +415,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn resume_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Update workflow status
-                diesel::update(workflow_executions::table.find(id))
-                    .set((
-                        workflow_executions::status.eq("Running"),
-                        workflow_executions::paused_at.eq(None::<UniversalTimestamp>),
-                        workflow_executions::pause_reason.eq(None::<String>),
-                        workflow_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
-
-                // Insert execution event
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    workflow_execution_id: id,
-                    task_execution_id: None,
-                    event_type: ExecutionEventType::WorkflowResumed.as_str().to_string(),
-                    event_data: None,
-                    worker_id: None,
-                    created_at: now,
-                    request_id: None,
-                    runner_id: None,
-                    tenant_id: None,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn cancel_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(workflow_executions::table.find(id))
-                .set((
-                    workflow_executions::status.eq("Cancelled"),
-                    workflow_executions::completed_at.eq(Some(now)),
-                    workflow_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn cancel_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(workflow_executions::table.find(id))
-                .set((
-                    workflow_executions::status.eq("Cancelled"),
-                    workflow_executions::completed_at.eq(Some(now)),
-                    workflow_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -1077,66 +425,15 @@ impl<'a> WorkflowExecutionDAL<'a> {
         id: UniversalUuid,
         final_context_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.update_final_context_postgres(id, final_context_id)
-                .await,
-            self.update_final_context_sqlite(id, final_context_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn update_final_context_postgres(
-        &self,
-        id: UniversalUuid,
-        final_context_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::update(workflow_executions::table.find(id))
                 .set((
                     workflow_executions::context_id.eq(Some(final_context_id)),
                     workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn update_final_context_sqlite(
-        &self,
-        id: UniversalUuid,
-        final_context_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(workflow_executions::table.find(id))
-                .set((
-                    workflow_executions::context_id.eq(Some(final_context_id)),
-                    workflow_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -1145,11 +442,15 @@ impl<'a> WorkflowExecutionDAL<'a> {
         &self,
         limit: i64,
     ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_recent_postgres(limit).await,
-            self.list_recent_sqlite(limit).await
-        )
+        let executions: Vec<UnifiedWorkflowExecution> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                workflow_executions::table
+                    .order(workflow_executions::started_at.desc())
+                    .limit(limit)
+                    .load(conn)
+            })?;
+
+        Ok(executions.into_iter().map(Into::into).collect())
     }
 
     /// CLOACI-T-0594 / API-02: filtered list endpoint. Supports
@@ -1161,27 +462,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
         &self,
         filter: ExecutionListFilter,
     ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_filtered_postgres(filter).await,
-            self.list_filtered_sqlite(filter).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_filtered_postgres(
-        &self,
-        filter: ExecutionListFilter,
-    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let executions: Vec<UnifiedWorkflowExecution> = conn
-            .interact(move |conn| {
+        let executions: Vec<UnifiedWorkflowExecution> =
+            crate::interact_on_backend!(self.dal, |conn| {
                 let mut query = workflow_executions::table.into_boxed();
                 if let Some(ref status) = filter.status {
                     query = query.filter(workflow_executions::status.eq(status.clone()));
@@ -1194,92 +476,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     .limit(filter.limit)
                     .offset(filter.offset)
                     .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(executions.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_filtered_sqlite(
-        &self,
-        filter: ExecutionListFilter,
-    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let executions: Vec<UnifiedWorkflowExecution> = conn
-            .interact(move |conn| {
-                let mut query = workflow_executions::table.into_boxed();
-                if let Some(ref status) = filter.status {
-                    query = query.filter(workflow_executions::status.eq(status.clone()));
-                }
-                if let Some(ref name) = filter.workflow_name {
-                    query = query.filter(workflow_executions::workflow_name.eq(name.clone()));
-                }
-                query
-                    .order(workflow_executions::started_at.desc())
-                    .limit(filter.limit)
-                    .offset(filter.offset)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(executions.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_recent_postgres(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let executions: Vec<UnifiedWorkflowExecution> = conn
-            .interact(move |conn| {
-                workflow_executions::table
-                    .order(workflow_executions::started_at.desc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(executions.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_recent_sqlite(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let executions: Vec<UnifiedWorkflowExecution> = conn
-            .interact(move |conn| {
-                workflow_executions::table
-                    .order(workflow_executions::started_at.desc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            })?;
 
         Ok(executions.into_iter().map(Into::into).collect())
     }

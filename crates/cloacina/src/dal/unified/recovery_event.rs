@@ -55,25 +55,6 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         new_event: NewRecoveryEvent,
     ) -> Result<RecoveryEvent, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.create_postgres(new_event).await,
-            self.create_sqlite(new_event).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn create_postgres(
-        &self,
-        new_event: NewRecoveryEvent,
-    ) -> Result<RecoveryEvent, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
 
@@ -88,60 +69,15 @@ impl<'a> RecoveryEventDAL<'a> {
             updated_at: now,
         };
 
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::insert_into(recovery_events::table)
                 .values(&new_unified)
                 .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
-        let result: UnifiedRecoveryEvent = conn
-            .interact(move |conn| recovery_events::table.find(id).first(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(result.into())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn create_sqlite(
-        &self,
-        new_event: NewRecoveryEvent,
-    ) -> Result<RecoveryEvent, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let id = UniversalUuid::new_v4();
-        let now = UniversalTimestamp::now();
-
-        let new_unified = NewUnifiedRecoveryEvent {
-            id,
-            workflow_execution_id: new_event.workflow_execution_id,
-            task_execution_id: new_event.task_execution_id,
-            recovery_type: new_event.recovery_type,
-            recovered_at: now,
-            details: new_event.details,
-            created_at: now,
-            updated_at: now,
-        };
-
-        conn.interact(move |conn| {
-            diesel::insert_into(recovery_events::table)
-                .values(&new_unified)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        let result: UnifiedRecoveryEvent = conn
-            .interact(move |conn| recovery_events::table.find(id).first(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let result: UnifiedRecoveryEvent = crate::interact_on_backend!(self.dal, |conn| {
+            recovery_events::table.find(id).first(conn)
+        })?;
 
         Ok(result.into())
     }
@@ -151,59 +87,12 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_by_workflow_postgres(workflow_execution_id).await,
-            self.get_by_workflow_sqlite(workflow_execution_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_by_workflow_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedRecoveryEvent> = conn
-            .interact(move |conn| {
-                recovery_events::table
-                    .filter(recovery_events::workflow_execution_id.eq(workflow_execution_id))
-                    .order(recovery_events::recovered_at.desc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_by_workflow_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedRecoveryEvent> = conn
-            .interact(move |conn| {
-                recovery_events::table
-                    .filter(recovery_events::workflow_execution_id.eq(workflow_execution_id))
-                    .order(recovery_events::recovered_at.desc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedRecoveryEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            recovery_events::table
+                .filter(recovery_events::workflow_execution_id.eq(workflow_execution_id))
+                .order(recovery_events::recovered_at.desc())
+                .load(conn)
+        })?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -213,59 +102,12 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_by_task_postgres(task_execution_id).await,
-            self.get_by_task_sqlite(task_execution_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_by_task_postgres(
-        &self,
-        task_execution_id: UniversalUuid,
-    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedRecoveryEvent> = conn
-            .interact(move |conn| {
-                recovery_events::table
-                    .filter(recovery_events::task_execution_id.eq(task_execution_id))
-                    .order(recovery_events::recovered_at.desc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_by_task_sqlite(
-        &self,
-        task_execution_id: UniversalUuid,
-    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedRecoveryEvent> = conn
-            .interact(move |conn| {
-                recovery_events::table
-                    .filter(recovery_events::task_execution_id.eq(task_execution_id))
-                    .order(recovery_events::recovered_at.desc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedRecoveryEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            recovery_events::table
+                .filter(recovery_events::task_execution_id.eq(task_execution_id))
+                .order(recovery_events::recovered_at.desc())
+                .load(conn)
+        })?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -275,61 +117,13 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         recovery_type: &str,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_by_type_postgres(recovery_type).await,
-            self.get_by_type_sqlite(recovery_type).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_by_type_postgres(
-        &self,
-        recovery_type: &str,
-    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let recovery_type = recovery_type.to_string();
-        let results: Vec<UnifiedRecoveryEvent> = conn
-            .interact(move |conn| {
-                recovery_events::table
-                    .filter(recovery_events::recovery_type.eq(recovery_type))
-                    .order(recovery_events::recovered_at.desc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_by_type_sqlite(
-        &self,
-        recovery_type: &str,
-    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let recovery_type = recovery_type.to_string();
-        let results: Vec<UnifiedRecoveryEvent> = conn
-            .interact(move |conn| {
-                recovery_events::table
-                    .filter(recovery_events::recovery_type.eq(recovery_type))
-                    .order(recovery_events::recovered_at.desc())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedRecoveryEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            recovery_events::table
+                .filter(recovery_events::recovery_type.eq(recovery_type))
+                .order(recovery_events::recovered_at.desc())
+                .load(conn)
+        })?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -347,53 +141,12 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         limit: i64,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_recent_postgres(limit).await,
-            self.get_recent_sqlite(limit).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_recent_postgres(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedRecoveryEvent> = conn
-            .interact(move |conn| {
-                recovery_events::table
-                    .order(recovery_events::recovered_at.desc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_recent_sqlite(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedRecoveryEvent> = conn
-            .interact(move |conn| {
-                recovery_events::table
-                    .order(recovery_events::recovered_at.desc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedRecoveryEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            recovery_events::table
+                .order(recovery_events::recovered_at.desc())
+                .limit(limit)
+                .load(conn)
+        })?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }

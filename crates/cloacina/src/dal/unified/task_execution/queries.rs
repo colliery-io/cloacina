@@ -30,59 +30,12 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_pending_tasks_postgres(workflow_execution_id).await,
-            self.get_pending_tasks_sqlite(workflow_execution_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_pending_tasks_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::status.eq("NotStarted"))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(tasks.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_pending_tasks_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::status.eq("NotStarted"))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let tasks: Vec<UnifiedTaskExecution> = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
+                .filter(task_executions::status.eq("NotStarted"))
+                .load(conn)
+        })?;
 
         Ok(tasks.into_iter().map(Into::into).collect())
     }
@@ -92,69 +45,16 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         workflow_execution_ids: Vec<UniversalUuid>,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_pending_tasks_batch_postgres(workflow_execution_ids)
-                .await,
-            self.get_pending_tasks_batch_sqlite(workflow_execution_ids)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_pending_tasks_batch_postgres(
-        &self,
-        workflow_execution_ids: Vec<UniversalUuid>,
-    ) -> Result<Vec<TaskExecution>, ValidationError> {
         if workflow_execution_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq_any(&workflow_execution_ids))
-                    .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(tasks.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_pending_tasks_batch_sqlite(
-        &self,
-        workflow_execution_ids: Vec<UniversalUuid>,
-    ) -> Result<Vec<TaskExecution>, ValidationError> {
-        if workflow_execution_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq_any(&workflow_execution_ids))
-                    .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let tasks: Vec<UnifiedTaskExecution> = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::workflow_execution_id.eq_any(&workflow_execution_ids))
+                .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
+                .load(conn)
+        })?;
 
         Ok(tasks.into_iter().map(Into::into).collect())
     }
@@ -164,53 +64,12 @@ impl<'a> TaskExecutionDAL<'a> {
     /// `cloacina_active_tasks` from SQL, replacing the gauge-leak prone
     /// increment/decrement pattern (CLOACI-T-0589, mirrors T-0534).
     pub async fn count_running_tasks(&self) -> Result<i64, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.count_running_tasks_postgres().await,
-            self.count_running_tasks_sqlite().await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn count_running_tasks_postgres(&self) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let n: i64 = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::status.eq("Running"))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(n)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn count_running_tasks_sqlite(&self) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let n: i64 = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::status.eq("Running"))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let n: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::status.eq("Running"))
+                .count()
+                .get_result(conn)
+        })?;
 
         Ok(n)
     }
@@ -220,63 +79,13 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.check_workflow_completion_postgres(workflow_execution_id)
-                .await,
-            self.check_workflow_completion_sqlite(workflow_execution_id)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn check_workflow_completion_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<bool, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let incomplete_count: i64 = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::status.ne_all(vec!["Completed", "Failed", "Skipped"]))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(incomplete_count == 0)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn check_workflow_completion_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-    ) -> Result<bool, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let incomplete_count: i64 = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::status.ne_all(vec!["Completed", "Failed", "Skipped"]))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let incomplete_count: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
+                .filter(task_executions::status.ne_all(vec!["Completed", "Failed", "Skipped"]))
+                .count()
+                .get_result(conn)
+        })?;
 
         Ok(incomplete_count == 0)
     }
@@ -287,67 +96,14 @@ impl<'a> TaskExecutionDAL<'a> {
         workflow_execution_id: UniversalUuid,
         task_name: &str,
     ) -> Result<String, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_task_status_postgres(workflow_execution_id, task_name)
-                .await,
-            self.get_task_status_sqlite(workflow_execution_id, task_name)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_task_status_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-        task_name: &str,
-    ) -> Result<String, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let task_name_owned = task_name.to_string();
-        let status: String = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::task_name.eq(&task_name_owned))
-                    .select(task_executions::status)
-                    .first(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(status)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_task_status_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-        task_name: &str,
-    ) -> Result<String, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let task_name_owned = task_name.to_string();
-        let status: String = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::task_name.eq(&task_name_owned))
-                    .select(task_executions::status)
-                    .first(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let status: String = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
+                .filter(task_executions::task_name.eq(&task_name_owned))
+                .select(task_executions::status)
+                .first(conn)
+        })?;
 
         Ok(status)
     }
@@ -358,13 +114,21 @@ impl<'a> TaskExecutionDAL<'a> {
         workflow_execution_id: UniversalUuid,
         task_names: Vec<String>,
     ) -> Result<std::collections::HashMap<String, String>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_task_statuses_batch_postgres(workflow_execution_id, task_names)
-                .await,
-            self.get_task_statuses_batch_sqlite(workflow_execution_id, task_names)
-                .await
-        )
+        use std::collections::HashMap;
+
+        if task_names.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let results: Vec<(String, String)> = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
+                .filter(task_executions::task_name.eq_any(&task_names))
+                .select((task_executions::task_name, task_executions::status))
+                .load(conn)
+        })?;
+
+        Ok(results.into_iter().collect())
     }
 
     /// Load every task's status for a set of workflow executions in ONE query,
@@ -381,36 +145,13 @@ impl<'a> TaskExecutionDAL<'a> {
         std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>,
         ValidationError,
     > {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_all_task_statuses_for_executions_postgres(workflow_execution_ids)
-                .await,
-            self.get_all_task_statuses_for_executions_sqlite(workflow_execution_ids)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_all_task_statuses_for_executions_postgres(
-        &self,
-        workflow_execution_ids: Vec<UniversalUuid>,
-    ) -> Result<
-        std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>,
-        ValidationError,
-    > {
         use std::collections::HashMap;
         if workflow_execution_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let rows: Vec<(UniversalUuid, String, String)> = conn
-            .interact(move |conn| {
+        let rows: Vec<(UniversalUuid, String, String)> =
+            crate::interact_on_backend!(self.dal, |conn| {
                 task_executions::table
                     .filter(task_executions::workflow_execution_id.eq_any(&workflow_execution_ids))
                     .select((
@@ -419,120 +160,12 @@ impl<'a> TaskExecutionDAL<'a> {
                         task_executions::status,
                     ))
                     .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            })?;
 
         let mut grouped: HashMap<UniversalUuid, HashMap<String, String>> = HashMap::new();
         for (exec_id, name, status) in rows {
             grouped.entry(exec_id).or_default().insert(name, status);
         }
         Ok(grouped)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_all_task_statuses_for_executions_sqlite(
-        &self,
-        workflow_execution_ids: Vec<UniversalUuid>,
-    ) -> Result<
-        std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>,
-        ValidationError,
-    > {
-        use std::collections::HashMap;
-        if workflow_execution_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let rows: Vec<(UniversalUuid, String, String)> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq_any(&workflow_execution_ids))
-                    .select((
-                        task_executions::workflow_execution_id,
-                        task_executions::task_name,
-                        task_executions::status,
-                    ))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        let mut grouped: HashMap<UniversalUuid, HashMap<String, String>> = HashMap::new();
-        for (exec_id, name, status) in rows {
-            grouped.entry(exec_id).or_default().insert(name, status);
-        }
-        Ok(grouped)
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_task_statuses_batch_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-        task_names: Vec<String>,
-    ) -> Result<std::collections::HashMap<String, String>, ValidationError> {
-        use std::collections::HashMap;
-
-        if task_names.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<(String, String)> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::task_name.eq_any(&task_names))
-                    .select((task_executions::task_name, task_executions::status))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_task_statuses_batch_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-        task_names: Vec<String>,
-    ) -> Result<std::collections::HashMap<String, String>, ValidationError> {
-        use std::collections::HashMap;
-
-        if task_names.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<(String, String)> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
-                    .filter(task_executions::task_name.eq_any(&task_names))
-                    .select((task_executions::task_name, task_executions::status))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results.into_iter().collect())
     }
 }

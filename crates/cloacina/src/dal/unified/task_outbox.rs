@@ -55,70 +55,17 @@ impl<'a> TaskOutboxDAL<'a> {
     /// Note: Prefer using the transactional insertion in `mark_ready()` instead
     /// of calling this directly, to ensure atomicity with status updates.
     pub async fn create(&self, new_entry: NewTaskOutbox) -> Result<TaskOutbox, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.create_postgres(new_entry).await,
-            self.create_sqlite(new_entry).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn create_postgres(
-        &self,
-        new_entry: NewTaskOutbox,
-    ) -> Result<TaskOutbox, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let now = UniversalTimestamp::now();
         let new_unified = NewUnifiedTaskOutbox {
             task_execution_id: new_entry.task_execution_id,
             created_at: now,
         };
 
-        let result: UnifiedTaskOutbox = conn
-            .interact(move |conn| {
-                diesel::insert_into(task_outbox::table)
-                    .values(&new_unified)
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(TaskOutbox {
-            id: result.id,
-            task_execution_id: result.task_execution_id,
-            created_at: result.created_at,
-        })
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn create_sqlite(&self, new_entry: NewTaskOutbox) -> Result<TaskOutbox, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        let new_unified = NewUnifiedTaskOutbox {
-            task_execution_id: new_entry.task_execution_id,
-            created_at: now,
-        };
-
-        let result: UnifiedTaskOutbox = conn
-            .interact(move |conn| {
-                diesel::insert_into(task_outbox::table)
-                    .values(&new_unified)
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let result: UnifiedTaskOutbox = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::insert_into(task_outbox::table)
+                .values(&new_unified)
+                .get_result(conn)
+        })?;
 
         Ok(TaskOutbox {
             id: result.id,
@@ -134,57 +81,12 @@ impl<'a> TaskOutboxDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.delete_by_task_postgres(task_execution_id).await,
-            self.delete_by_task_sqlite(task_execution_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn delete_by_task_postgres(
-        &self,
-        task_execution_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::delete(
                 task_outbox::table.filter(task_outbox::task_execution_id.eq(task_execution_id)),
             )
             .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn delete_by_task_sqlite(
-        &self,
-        task_execution_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::delete(
-                task_outbox::table.filter(task_outbox::task_execution_id.eq(task_execution_id)),
-            )
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -193,60 +95,12 @@ impl<'a> TaskOutboxDAL<'a> {
     ///
     /// Returns entries ordered by creation time (oldest first).
     pub async fn list_pending(&self, limit: i64) -> Result<Vec<TaskOutbox>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_pending_postgres(limit).await,
-            self.list_pending_sqlite(limit).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_pending_postgres(&self, limit: i64) -> Result<Vec<TaskOutbox>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedTaskOutbox> = conn
-            .interact(move |conn| {
-                task_outbox::table
-                    .order(task_outbox::created_at.asc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(results
-            .into_iter()
-            .map(|r| TaskOutbox {
-                id: r.id,
-                task_execution_id: r.task_execution_id,
-                created_at: r.created_at,
-            })
-            .collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_pending_sqlite(&self, limit: i64) -> Result<Vec<TaskOutbox>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let results: Vec<UnifiedTaskOutbox> = conn
-            .interact(move |conn| {
-                task_outbox::table
-                    .order(task_outbox::created_at.asc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results: Vec<UnifiedTaskOutbox> = crate::interact_on_backend!(self.dal, |conn| {
+            task_outbox::table
+                .order(task_outbox::created_at.asc())
+                .limit(limit)
+                .load(conn)
+        })?;
 
         Ok(results
             .into_iter()
@@ -260,43 +114,9 @@ impl<'a> TaskOutboxDAL<'a> {
 
     /// Counts pending outbox entries (for monitoring).
     pub async fn count_pending(&self) -> Result<i64, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.count_pending_postgres().await,
-            self.count_pending_sqlite().await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn count_pending_postgres(&self) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let count: i64 = conn
-            .interact(move |conn| task_outbox::table.count().get_result(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(count)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn count_pending_sqlite(&self) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let count: i64 = conn
-            .interact(move |conn| task_outbox::table.count().get_result(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let count: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            task_outbox::table.count().get_result(conn)
+        })?;
 
         Ok(count)
     }
@@ -309,55 +129,10 @@ impl<'a> TaskOutboxDAL<'a> {
         &self,
         cutoff: UniversalTimestamp,
     ) -> Result<i64, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.delete_older_than_postgres(cutoff).await,
-            self.delete_older_than_sqlite(cutoff).await
-        )
-    }
-
-    #[cfg(all(feature = "postgres", test))]
-    async fn delete_older_than_postgres(
-        &self,
-        cutoff: UniversalTimestamp,
-    ) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let deleted: usize = conn
-            .interact(move |conn| {
-                diesel::delete(task_outbox::table.filter(task_outbox::created_at.lt(cutoff)))
-                    .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(deleted as i64)
-    }
-
-    #[cfg(all(feature = "sqlite", test))]
-    async fn delete_older_than_sqlite(
-        &self,
-        cutoff: UniversalTimestamp,
-    ) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let deleted: usize = conn
-            .interact(move |conn| {
-                diesel::delete(task_outbox::table.filter(task_outbox::created_at.lt(cutoff)))
-                    .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let deleted: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::delete(task_outbox::table.filter(task_outbox::created_at.lt(cutoff)))
+                .execute(conn)
+        })?;
 
         Ok(deleted as i64)
     }

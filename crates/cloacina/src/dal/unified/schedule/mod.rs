@@ -23,8 +23,12 @@
 
 mod crud;
 
+use diesel::prelude::*;
+
 use super::DAL;
-use crate::database::universal_types::UniversalUuid;
+use crate::dal::unified::models::{NewUnifiedSchedule, UnifiedSchedule};
+use crate::database::schema::unified::schedules;
+use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::schedule::{NewSchedule, Schedule};
 use chrono::{DateTime, Utc};
@@ -43,11 +47,41 @@ impl<'a> ScheduleDAL<'a> {
 
     /// Creates a new schedule record in the database.
     pub async fn create(&self, new_schedule: NewSchedule) -> Result<Schedule, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.create_postgres(new_schedule).await,
-            self.create_sqlite(new_schedule).await
-        )
+        let id = UniversalUuid::new_v4();
+        let now = UniversalTimestamp::now();
+
+        let new_unified = NewUnifiedSchedule {
+            id,
+            schedule_type: new_schedule.schedule_type,
+            workflow_name: new_schedule.workflow_name,
+            enabled: new_schedule
+                .enabled
+                .unwrap_or_else(|| UniversalBool::from(true)),
+            cron_expression: new_schedule.cron_expression,
+            timezone: new_schedule.timezone,
+            catchup_policy: new_schedule.catchup_policy,
+            start_date: new_schedule.start_date,
+            end_date: new_schedule.end_date,
+            trigger_name: new_schedule.trigger_name,
+            poll_interval_ms: new_schedule.poll_interval_ms,
+            allow_concurrent: new_schedule.allow_concurrent,
+            next_run_at: new_schedule.next_run_at,
+            created_at: now,
+            updated_at: now,
+            params: new_schedule.params,
+            instance_name: new_schedule.instance_name,
+        };
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::insert_into(schedules::table)
+                .values(&new_unified)
+                .execute(conn)
+        })?;
+
+        let result: UnifiedSchedule =
+            crate::interact_on_backend!(self.dal, |conn| schedules::table.find(id).first(conn))?;
+
+        Ok(result.into())
     }
 
     /// Retrieves a schedule by its ID.
@@ -58,21 +92,22 @@ impl<'a> ScheduleDAL<'a> {
         workflow_name: &str,
         instance_name: &str,
     ) -> Result<Option<Schedule>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.find_by_instance_name_postgres(workflow_name, instance_name)
-                .await,
-            self.find_by_instance_name_sqlite(workflow_name, instance_name)
-                .await
-        )
+        let wf = workflow_name.to_string();
+        let inst = instance_name.to_string();
+        let result: Option<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table
+                .filter(schedules::workflow_name.eq(wf))
+                .filter(schedules::instance_name.eq(inst))
+                .first(conn)
+                .optional()
+        })?;
+        Ok(result.map(Into::into))
     }
 
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<Schedule, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_by_id_postgres(id).await,
-            self.get_by_id_sqlite(id).await
-        )
+        let result: UnifiedSchedule =
+            crate::interact_on_backend!(self.dal, |conn| schedules::table.find(id).first(conn))?;
+        Ok(result.into())
     }
 
     /// Lists schedules with optional filtering by type and enabled status.
@@ -83,62 +118,108 @@ impl<'a> ScheduleDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Schedule>, ValidationError> {
-        let schedule_type_owned = schedule_type.map(|s| s.to_string());
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_postgres(schedule_type_owned.clone(), enabled_only, limit, offset)
-                .await,
-            self.list_sqlite(schedule_type_owned, enabled_only, limit, offset)
-                .await
-        )
+        let schedule_type = schedule_type.map(|s| s.to_string());
+        let enabled_true = UniversalBool::from(true);
+        let results: Vec<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
+            let mut query = schedules::table.into_boxed();
+
+            if let Some(ref stype) = schedule_type {
+                query = query.filter(schedules::schedule_type.eq(stype));
+            }
+
+            if enabled_only {
+                query = query.filter(schedules::enabled.eq(enabled_true));
+            }
+
+            query
+                .order(schedules::created_at.desc())
+                .limit(limit)
+                .offset(offset)
+                .load(conn)
+        })?;
+
+        Ok(results.into_iter().map(|r| r.into()).collect())
     }
 
     /// Enables a schedule.
     pub async fn enable(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.enable_postgres(id).await,
-            self.enable_sqlite(id).await
-        )
+        let now = UniversalTimestamp::now();
+        let enabled_true = UniversalBool::from(true);
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::enabled.eq(enabled_true),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Disables a schedule.
     pub async fn disable(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.disable_postgres(id).await,
-            self.disable_sqlite(id).await
-        )
+        let now = UniversalTimestamp::now();
+        let enabled_false = UniversalBool::from(false);
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::enabled.eq(enabled_false),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Pauses a schedule (CLOACI-T-0749): the scheduler stops firing it until
     /// resumed. Distinct from `disable` — pause is transient operator state.
     pub async fn pause(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.pause_postgres(id).await,
-            self.pause_sqlite(id).await
-        )
+        let now = UniversalTimestamp::now();
+        let paused_true = UniversalBool::from(true);
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::paused.eq(paused_true),
+                    schedules::paused_at.eq(Some(now)),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Resumes a paused schedule (CLOACI-T-0749): clears the paused flag so the
     /// scheduler fires it again on its normal schedule. Missed fires are not
     /// caught up (skip policy).
     pub async fn resume(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.resume_postgres(id).await,
-            self.resume_sqlite(id).await
-        )
+        let now = UniversalTimestamp::now();
+        let paused_false = UniversalBool::from(false);
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::paused.eq(paused_false),
+                    schedules::paused_at.eq(None::<UniversalTimestamp>),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Deletes a schedule from the database.
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.delete_postgres(id).await,
-            self.delete_sqlite(id).await
-        )
+        crate::interact_on_backend!(self.dal, |conn| diesel::delete(schedules::table.find(id))
+            .execute(conn))?;
+
+        Ok(())
     }
 
     /// Retrieves all enabled cron schedules that are due for execution.
@@ -146,11 +227,20 @@ impl<'a> ScheduleDAL<'a> {
         &self,
         now: DateTime<Utc>,
     ) -> Result<Vec<Schedule>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_due_cron_schedules_postgres(now).await,
-            self.get_due_cron_schedules_sqlite(now).await
-        )
+        let now_ts = UniversalTimestamp::from(now);
+        let enabled_true = UniversalBool::from(true);
+
+        let results: Vec<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table
+                .filter(schedules::schedule_type.eq("cron"))
+                .filter(schedules::enabled.eq(enabled_true))
+                .filter(schedules::paused.eq(UniversalBool::from(false)))
+                .filter(schedules::next_run_at.le(Some(now_ts)))
+                .order(schedules::next_run_at.asc())
+                .load(conn)
+        })?;
+
+        Ok(results.into_iter().map(|r| r.into()).collect())
     }
 
     /// Earliest `next_run_at` over all enabled cron schedules, or `None` when
@@ -158,11 +248,22 @@ impl<'a> ScheduleDAL<'a> {
     /// loop (CLOACI-T-0743) — the scheduler sleeps until this instant instead of
     /// polling on a fixed interval.
     pub async fn next_cron_due_time(&self) -> Result<Option<DateTime<Utc>>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.next_cron_due_time_postgres().await,
-            self.next_cron_due_time_sqlite().await
-        )
+        let enabled_true = UniversalBool::from(true);
+
+        let earliest: Option<UniversalTimestamp> = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table
+                .filter(schedules::schedule_type.eq("cron"))
+                .filter(schedules::enabled.eq(enabled_true))
+                .filter(schedules::paused.eq(UniversalBool::from(false)))
+                .filter(schedules::next_run_at.is_not_null())
+                .order(schedules::next_run_at.asc())
+                .select(schedules::next_run_at)
+                .first::<Option<UniversalTimestamp>>(conn)
+                .optional()
+        })?
+        .flatten();
+
+        Ok(earliest.map(DateTime::<Utc>::from))
     }
 
     /// Atomically claims and updates a cron schedule's timing.
@@ -189,22 +290,37 @@ impl<'a> ScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.update_schedule_times_postgres(id, last_run, next_run)
-                .await,
-            self.update_schedule_times_sqlite(id, last_run, next_run)
-                .await
-        )
+        let last_run_ts = UniversalTimestamp::from(last_run);
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::last_run_at.eq(Some(last_run_ts)),
+                    schedules::next_run_at.eq(Some(next_run_ts)),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Retrieves all enabled trigger schedules.
     pub async fn get_enabled_triggers(&self) -> Result<Vec<Schedule>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_enabled_triggers_postgres().await,
-            self.get_enabled_triggers_sqlite().await
-        )
+        let enabled_true = UniversalBool::from(true);
+
+        let results: Vec<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table
+                .filter(schedules::schedule_type.eq("trigger"))
+                .filter(schedules::enabled.eq(enabled_true))
+                .filter(schedules::paused.eq(UniversalBool::from(false)))
+                .order(schedules::created_at.asc())
+                .load(conn)
+        })?;
+
+        Ok(results.into_iter().map(|r| r.into()).collect())
     }
 
     /// Updates the last poll time for a trigger schedule.
@@ -213,11 +329,19 @@ impl<'a> ScheduleDAL<'a> {
         id: UniversalUuid,
         last_poll_at: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.update_last_poll_postgres(id, last_poll_at).await,
-            self.update_last_poll_sqlite(id, last_poll_at).await
-        )
+        let last_poll_ts = UniversalTimestamp::from(last_poll_at);
+        let now = UniversalTimestamp::now();
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::last_poll_at.eq(Some(last_poll_ts)),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Upserts a trigger schedule by trigger_name.
@@ -225,11 +349,93 @@ impl<'a> ScheduleDAL<'a> {
         &self,
         new_schedule: NewSchedule,
     ) -> Result<Schedule, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.upsert_trigger_postgres(new_schedule).await,
-            self.upsert_trigger_sqlite(new_schedule).await
-        )
+        let trigger_name =
+            new_schedule
+                .trigger_name
+                .clone()
+                .ok_or_else(|| ValidationError::DatabaseQuery {
+                    message: "trigger_name is required for upsert_trigger".to_string(),
+                })?;
+
+        let trigger_name_check = trigger_name.clone();
+
+        // Check if a schedule with this trigger_name already exists
+        let existing: Option<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table
+                .filter(schedules::trigger_name.eq(trigger_name_check))
+                .filter(schedules::schedule_type.eq("trigger"))
+                .first(conn)
+                .optional()
+        })?;
+
+        if let Some(existing) = existing {
+            // Update existing schedule
+            let now = UniversalTimestamp::now();
+            let existing_id = existing.id;
+            let workflow_name = new_schedule.workflow_name;
+            let poll_interval_ms = new_schedule.poll_interval_ms;
+            let allow_concurrent = new_schedule.allow_concurrent;
+            let enabled = new_schedule
+                .enabled
+                .unwrap_or_else(|| UniversalBool::from(true));
+
+            crate::interact_on_backend!(self.dal, |conn| {
+                diesel::update(schedules::table.find(existing_id))
+                    .set((
+                        schedules::workflow_name.eq(workflow_name),
+                        schedules::poll_interval_ms.eq(poll_interval_ms),
+                        schedules::allow_concurrent.eq(allow_concurrent),
+                        schedules::enabled.eq(enabled),
+                        schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            })?;
+
+            let result: UnifiedSchedule = crate::interact_on_backend!(self.dal, |conn| {
+                schedules::table.find(existing_id).first(conn)
+            })?;
+
+            Ok(result.into())
+        } else {
+            // Insert new schedule
+            let id = UniversalUuid::new_v4();
+            let now = UniversalTimestamp::now();
+
+            let new_unified = NewUnifiedSchedule {
+                id,
+                schedule_type: new_schedule.schedule_type,
+                workflow_name: new_schedule.workflow_name,
+                enabled: new_schedule
+                    .enabled
+                    .unwrap_or_else(|| UniversalBool::from(true)),
+                cron_expression: new_schedule.cron_expression,
+                timezone: new_schedule.timezone,
+                catchup_policy: new_schedule.catchup_policy,
+                start_date: new_schedule.start_date,
+                end_date: new_schedule.end_date,
+                trigger_name: new_schedule.trigger_name,
+                poll_interval_ms: new_schedule.poll_interval_ms,
+                allow_concurrent: new_schedule.allow_concurrent,
+                next_run_at: new_schedule.next_run_at,
+                created_at: now,
+                updated_at: now,
+                params: new_schedule.params,
+                instance_name: new_schedule.instance_name,
+            };
+
+            crate::interact_on_backend!(self.dal, |conn| {
+                diesel::insert_into(schedules::table)
+                    .values(&new_unified)
+                    .execute(conn)
+            })?;
+
+            let result: UnifiedSchedule =
+                crate::interact_on_backend!(self.dal, |conn| schedules::table
+                    .find(id)
+                    .first(conn))?;
+
+            Ok(result.into())
+        }
     }
 
     /// Upserts a cron schedule by its identity (workflow_name, cron_expression,
@@ -241,11 +447,95 @@ impl<'a> ScheduleDAL<'a> {
         &self,
         new_schedule: NewSchedule,
     ) -> Result<Schedule, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.upsert_cron_postgres(new_schedule).await,
-            self.upsert_cron_sqlite(new_schedule).await
-        )
+        // Identity of a cron schedule: (workflow_name, cron_expression,
+        // timezone). Re-registering the same packaged cron on a reconcile
+        // re-load updates the existing row instead of inserting a duplicate.
+        let cron_expression =
+            new_schedule
+                .cron_expression
+                .clone()
+                .ok_or_else(|| ValidationError::DatabaseQuery {
+                    message: "cron_expression is required for upsert_cron".to_string(),
+                })?;
+        let workflow_name = new_schedule.workflow_name.clone();
+        let timezone = new_schedule.timezone.clone();
+
+        let (wf, cron, tz) = (
+            workflow_name.clone(),
+            cron_expression.clone(),
+            timezone.clone(),
+        );
+        let existing: Option<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
+            let mut q = schedules::table
+                .filter(schedules::schedule_type.eq("cron"))
+                .filter(schedules::workflow_name.eq(wf))
+                .filter(schedules::cron_expression.eq(cron))
+                .into_boxed();
+            q = match tz {
+                Some(t) => q.filter(schedules::timezone.eq(t)),
+                None => q.filter(schedules::timezone.is_null()),
+            };
+            q.first(conn).optional()
+        })?;
+
+        if let Some(existing) = existing {
+            let now = UniversalTimestamp::now();
+            let existing_id = existing.id;
+            let next_run_at = new_schedule.next_run_at;
+            let enabled = new_schedule
+                .enabled
+                .unwrap_or_else(|| UniversalBool::from(true));
+
+            crate::interact_on_backend!(self.dal, |conn| {
+                diesel::update(schedules::table.find(existing_id))
+                    .set((
+                        schedules::next_run_at.eq(next_run_at),
+                        schedules::enabled.eq(enabled),
+                        schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            })?;
+
+            let result: UnifiedSchedule = crate::interact_on_backend!(self.dal, |conn| {
+                schedules::table.find(existing_id).first(conn)
+            })?;
+            Ok(result.into())
+        } else {
+            let id = UniversalUuid::new_v4();
+            let now = UniversalTimestamp::now();
+            let new_unified = NewUnifiedSchedule {
+                id,
+                schedule_type: new_schedule.schedule_type,
+                workflow_name: new_schedule.workflow_name,
+                enabled: new_schedule
+                    .enabled
+                    .unwrap_or_else(|| UniversalBool::from(true)),
+                cron_expression: new_schedule.cron_expression,
+                timezone: new_schedule.timezone,
+                catchup_policy: new_schedule.catchup_policy,
+                start_date: new_schedule.start_date,
+                end_date: new_schedule.end_date,
+                trigger_name: new_schedule.trigger_name,
+                poll_interval_ms: new_schedule.poll_interval_ms,
+                allow_concurrent: new_schedule.allow_concurrent,
+                next_run_at: new_schedule.next_run_at,
+                created_at: now,
+                updated_at: now,
+                params: new_schedule.params,
+                instance_name: new_schedule.instance_name,
+            };
+            crate::interact_on_backend!(self.dal, |conn| {
+                diesel::insert_into(schedules::table)
+                    .values(&new_unified)
+                    .execute(conn)
+            })?;
+
+            let result: UnifiedSchedule =
+                crate::interact_on_backend!(self.dal, |conn| schedules::table
+                    .find(id)
+                    .first(conn))?;
+            Ok(result.into())
+        }
     }
 
     /// Retrieves a schedule by its trigger name.
@@ -254,11 +544,15 @@ impl<'a> ScheduleDAL<'a> {
         name: &str,
     ) -> Result<Option<Schedule>, ValidationError> {
         let name_owned = name.to_string();
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_by_trigger_name_postgres(name_owned.clone()).await,
-            self.get_by_trigger_name_sqlite(name_owned).await
-        )
+        let result: Option<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table
+                .filter(schedules::trigger_name.eq(name_owned))
+                .filter(schedules::schedule_type.eq("trigger"))
+                .first(conn)
+                .optional()
+        })?;
+
+        Ok(result.map(|r| r.into()))
     }
 
     /// Finds schedules by workflow name.
@@ -267,11 +561,14 @@ impl<'a> ScheduleDAL<'a> {
         workflow_name: &str,
     ) -> Result<Vec<Schedule>, ValidationError> {
         let name_owned = workflow_name.to_string();
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.find_by_workflow_postgres(name_owned.clone()).await,
-            self.find_by_workflow_sqlite(name_owned).await
-        )
+        let results: Vec<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table
+                .filter(schedules::workflow_name.eq(name_owned))
+                .order(schedules::created_at.desc())
+                .load(conn)
+        })?;
+
+        Ok(results.into_iter().map(|r| r.into()).collect())
     }
 
     /// Updates the cron expression and timezone for a cron schedule.
@@ -284,23 +581,21 @@ impl<'a> ScheduleDAL<'a> {
     ) -> Result<(), ValidationError> {
         let cron_expression_owned = cron_expression.map(|s| s.to_string());
         let timezone_owned = timezone.map(|s| s.to_string());
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.update_cron_expression_and_timezone_postgres(
-                id,
-                cron_expression_owned.clone(),
-                timezone_owned.clone(),
-                next_run
-            )
-            .await,
-            self.update_cron_expression_and_timezone_sqlite(
-                id,
-                cron_expression_owned,
-                timezone_owned,
-                next_run
-            )
-            .await
-        )
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::cron_expression.eq(cron_expression_owned),
+                    schedules::timezone.eq(timezone_owned),
+                    schedules::next_run_at.eq(Some(next_run_ts)),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 }
 
