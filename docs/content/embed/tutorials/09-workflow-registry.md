@@ -7,17 +7,27 @@ aliases:
 
 ---
 
-In this tutorial you'll register a packaged workflow into Cloacina's **workflow registry** and execute it once from a runner that loads the package at runtime — no recompilation of your application required. The registry stores `.cloacina` packages and lets a `DefaultRunner` reconcile and run them dynamically. For the bigger picture of how versions are tracked, see [Workflow Versioning]({{< ref "/engine/explanation/workflow-versioning" >}}).
+This is an **optional advanced side-track**, not a required step in the main
+01–13 path. Everything before it runs workflows compiled into your own binary;
+here you register a *packaged* workflow into Cloacina's **workflow registry** and
+execute it once from a runner that loads the package at runtime — no recompilation
+of your application required. The registry stores `.cloacina` packages and lets a
+`DefaultRunner` reconcile and run them dynamically. If runtime-loaded packages
+aren't something you need yet, skip ahead to
+[10 — Your First Computation Graph]({{< ref "/embed/tutorials/10-computation-graph" >}})
+and come back later. For the bigger picture of how versions are tracked, see
+[Workflow Versioning]({{< ref "/engine/explanation/workflow-versioning" >}}).
+
+{{< hint type=warning title="Prerequisite: build a package first" >}}
+This side-track assumes you can already produce a `.cloacina` package. Work through
+[Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}})
+first — it covers the `package.toml` format and the build/pack steps end to end.
+This tutorial then picks up from a package you can build.
+{{< /hint >}}
 
 {{< hint type=note title="Shown in Rust" >}}
 This tutorial is shown in Rust only. Registry registration and reconciliation are
 core engine features exercised here through the Rust API.
-{{< /hint >}}
-
-{{< hint type=info title="This is an advanced topic" >}}
-This tutorial assumes you can already build a `.cloacina` package. If you can't yet,
-work through [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}})
-or [14 — Packaged Triggers]({{< ref "/embed/tutorials/14-packaged-triggers" >}}) first.
 {{< /hint >}}
 
 ## What you'll learn
@@ -30,7 +40,8 @@ or [14 — Packaged Triggers]({{< ref "/embed/tutorials/14-packaged-triggers" >}
 ## Prerequisites
 
 - The Cloacina repository checked out, with a Rust toolchain installed
-- The ability to build a `.cloacina` package (see the hint above)
+- The ability to build a `.cloacina` package — see
+  [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}})
 
 ## The complete example
 

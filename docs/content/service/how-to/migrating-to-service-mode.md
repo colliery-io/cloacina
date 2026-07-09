@@ -20,12 +20,12 @@ This guide walks through converting an existing embedded Rust workflow into a pa
 
 | Aspect | Library Mode | Service Mode |
 |--------|-------------|--------------|
-| Macro | `#[workflow]` | `#[workflow]` (same — packaging is handled by `build.rs` and Cargo features) |
-| Crate type | `bin` or `lib` | `cdylib` (shared library) |
-| Dependencies | `cloacina` (full crate) | `cloacina-workflow` + `cloacina-macros` + `cloacina-workflow-plugin` |
-| Registration | `inventory::submit!` entries seeded into `Runtime` at startup via `seed_from_inventory()` | FFI vtable exports (9 methods, indices 0–8) loaded dynamically; the unified [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}}) shell macro emits the entry points |
+| Macro | `#[workflow]` | `#[workflow]` (same) plus a one-line `cloacina_workflow_plugin::package!()` shell in `lib.rs` |
+| Crate type | `bin` or `lib` | `cdylib` — but you don't declare it; the compiler injects the `cdylib` crate-type + `packaged` feature at build time |
+| Dependencies | `cloacina` (full crate) | `cloacina-workflow` (with `packaged`, `macros` features) + `cloacina-workflow-plugin` |
+| Registration | `inventory::submit!` entries seeded into `Runtime` at startup via `seed_from_inventory()` | FFI vtable exports (9 methods, indices 0–8) loaded dynamically; the unified [`cloacina_workflow_plugin::package!()`]({{< ref "/reference/package-shell-macro" >}}) shell macro emits the entry points |
 | Runtime | Your `#[tokio::main]` | Daemon or server loads and runs it |
-| Build | `cargo build` | `cloacina_build::configure()` in `build.rs` |
+| Build | `cargo build` | `cloacinactl package pack` archives the source; the compiler compiles it |
 
 ## Step 1: Restructure as a Library Crate
 
@@ -43,14 +43,16 @@ my-workflow/
 ```
 my-workflow/
 ├── Cargo.toml
-├── build.rs
+├── package.toml    # package manifest (name/version + [metadata])
 └── src/
-    └── lib.rs      # contains #[workflow] only
+    └── lib.rs      # contains package!() + #[workflow]
 ```
+
+There is **no `build.rs`** and no `[lib] crate-type` / `[features]` wiring to add — the compiler injects the `cdylib` crate-type and the `packaged` feature when it builds the package.
 
 ## Step 2: Update Cargo.toml
 
-Change the crate type to `cdylib` and swap dependencies:
+Swap the full `cloacina` crate for the packaged dependencies. This is the **whole** shell — no `[lib] crate-type`, no `[features]` table, no `build.rs`, no `cloacina-build` build-dependency. The compiler adds the `cdylib` crate-type and `packaged` feature at build time, and the shell macro routes its runtime companions (async-trait, chrono, computation-graph) — you hand-add none of them.
 
 **Before:**
 ```toml
@@ -73,49 +75,35 @@ name = "my-workflow"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = ["packaged"]
-packaged = []
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
-cloacina-macros = "0.7.0"
-cloacina-workflow = { version = "0.7.0", features = ["packaged"] }
-cloacina-workflow-plugin = "0.7.0"
-async-trait = "0.1"
+cloacina-workflow = { version = "0.7", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.7"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-[build-dependencies]
-cloacina-build = "0.7.0"
-
-# Optional: keep cloacina for local testing
-[dev-dependencies]
-cloacina = { version = "0.7.0", default-features = false, features = ["macros", "sqlite"] }
 ```
 
 Key changes:
-- **`crate-type = ["cdylib", "rlib"]`** — `cdylib` produces a shared library for dynamic loading; `rlib` allows `cargo test` to work
-- **`cloacina-workflow` with `"packaged"` feature** — enables FFI export generation
-- **`cloacina-build`** — generates the correct linker flags via `build.rs`
-- **Removed** `cloacina` and `tokio` from runtime dependencies (the host provides the runtime)
+- **`cloacina-workflow` with `"packaged"` and `"macros"` features** — the packaged authoring surface plus the workflow/task macros
+- **`cloacina-workflow-plugin`** — provides the `package!()` shell macro
+- **Removed** `cloacina`, `tokio`, `async-trait`, and any `[lib]`/`[features]`/`[build-dependencies]` ceremony — the host provides the runtime and the compiler injects the build wiring
 
-## Step 3: Add build.rs
+## Step 3: Add a package.toml
 
-Create `build.rs` at the crate root:
+Packages carry a `package.toml` manifest alongside `Cargo.toml`. The minimal form is just a name/version and a `[metadata]` block — the resolver defaults the interface header and infers the language from the crate layout:
 
-```rust
-fn main() {
-    cloacina_build::configure();
-}
+```toml
+[package]
+name = "my-workflow"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "data_processing"
+description = "Data processing pipeline"
 ```
-
-This sets the linker flags needed for the shared library to expose FFI entry points.
 
 ## Step 4: Update the Workflow Code
 
-The workflow code itself barely changes. Remove the `main()` function and keep the `#[workflow]` module:
+Add the `cloacina_workflow_plugin::package!()` shell macro at the crate root, remove the `main()` function, and keep the `#[workflow]` module:
 
 **Before** (`main.rs`):
 ```rust
@@ -155,6 +143,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use cloacina_workflow::{task, workflow, Context, TaskError};
 
+// Turns this crate into a fully-formed Cloacina plugin. Un-gated —
+// the compiler injects the `packaged` feature it expands under.
+cloacina_workflow_plugin::package!();
+
 #[workflow(
     name = "data_processing",
     description = "Data processing pipeline"
@@ -178,22 +170,21 @@ pub mod data_processing {
 ```
 
 Key differences:
+- Add `cloacina_workflow_plugin::package!()` at the crate root
 - Import from `cloacina_workflow` instead of `cloacina`
 - Module and functions are `pub` (required for FFI visibility)
 - No `main()` — the daemon/server provides the runtime
 - No `DefaultRunner` — execution is managed by the host
 
-## Step 5: Build the Package
+## Step 5: Package the Source
 
-Compile the shared library:
+Archive the source directory into a `.cloacina` package:
 
 ```bash
-cargo build --release
+cloacinactl package pack ./my-workflow
 ```
 
-This produces a shared library at `target/release/libmy_workflow.so` (Linux) or `target/release/libmy_workflow.dylib` (macOS).
-
-To create a `.cloacina` package from the compiled library, use the packaging tools described in [Packaged Workflows Tutorial]({{< ref "/service/tutorials/03-packaged-workflows" >}}).
+This produces `my-workflow.cloacina` — a source archive carrying the resolved `package.toml`. The compiler compiles it (injecting the `cdylib` crate-type and `packaged` feature) when it is uploaded. See the [Packaged Workflows Tutorial]({{< ref "/service/tutorials/03-packaged-workflows" >}}) for the full flow.
 
 ## Step 6: Deploy
 
@@ -237,12 +228,13 @@ mod tests {
 
 ## Checklist
 
-- [ ] Crate type set to `["cdylib", "rlib"]`
-- [ ] `build.rs` calls `cloacina_build::configure()`
-- [ ] `cloacina-workflow` has `"packaged"` feature enabled
+- [ ] `cloacina` swapped for `cloacina-workflow` (`packaged`, `macros`) + `cloacina-workflow-plugin`
+- [ ] No `build.rs`, no `[lib] crate-type`, no `[features]` table (the compiler injects them)
+- [ ] `cloacina_workflow_plugin::package!()` added at the crate root
+- [ ] `package.toml` present with `[metadata].workflow_name`
 - [ ] Module and functions are `pub`
 - [ ] No `main()` in `lib.rs`
-- [ ] `cargo build --release` produces a shared library
+- [ ] `cloacinactl package pack ./my-workflow` produces a `.cloacina` archive
 - [ ] Integration tests pass with `cargo test`
 
 ## See Also

@@ -1,23 +1,25 @@
 ---
 title: "package! Macro Reference"
-description: "Reference for the cloacina::package!() unified plugin shell macro: where to put it, what it emits, ABI versioning."
+description: "Reference for the cloacina_workflow_plugin::package!() unified plugin shell macro: where to put it, what it emits, ABI versioning."
 weight: 30
 aliases:
   - "/platform/reference/package-shell-macro/"
 
 ---
 
-# `cloacina::package!()` Macro
+# `cloacina_workflow_plugin::package!()` Macro
 
-`cloacina::package!()` is the single-line macro that turns a Rust crate
-into a fully-formed Cloacina plugin (`.cloacina` package). It replaces
-the per-macro `_ffi` emission path used by older packages — authors no
-longer hand-stitch the FFI vtable, the `inventory` walk-and-project
-step, or the trait-impl boilerplate.
+`cloacina_workflow_plugin::package!()` is the single-line macro that
+turns a Rust crate into a fully-formed Cloacina plugin (`.cloacina`
+package). It replaces the per-macro `_ffi` emission path used by older
+packages — authors no longer hand-stitch the FFI vtable, the
+`inventory` walk-and-project step, or the trait-impl boilerplate. The
+macro is `#[macro_export]`ed from `cloacina-workflow-plugin`, so invoke
+it by that path — `cloacina::package!()` does not resolve.
 
 ## Where to put it
 
-At the **crate root** of a packaged cdylib, gated on `feature = "packaged"`:
+At the **crate root**, un-gated:
 
 ```rust
 // src/lib.rs
@@ -26,21 +28,18 @@ mod tasks;
 mod triggers;
 mod graphs;
 
-#[cfg(feature = "packaged")]
-cloacina::package!();
+cloacina_workflow_plugin::package!();
 ```
 
-The crate must:
+You do **not** add any Cargo wiring for it: there is no
+`[lib] crate-type`, no `packaged` Cargo feature to declare, no
+`cloacina-macros` direct dependency, and no `build.rs`. The compiler
+injects the `cdylib` crate-type and the `packaged` feature (which the
+macro's expansion is gated under) when it builds the package, and the
+shell routes its runtime companions (async-trait, chrono,
+computation-graph) so you hand-add none of them.
 
-1. Declare `crate-type = ["cdylib", "rlib"]` in `Cargo.toml`.
-2. Declare a `packaged` Cargo feature.
-3. Depend on `cloacina-workflow`, `cloacina-macros`, and
-   `cloacina-workflow-plugin` (as `default-features = false` is
-   appropriate for slim cdylib builds).
-4. Carry a `cloacina_build::configure()` call in `build.rs` so the
-   linker emits the right symbols for fidius-host to discover.
-
-See the [migration guide]({{< ref "/service/how-to/migrating-to-service-mode" >}}) for the full Cargo.toml wiring.
+See the [migration guide]({{< ref "/service/how-to/migrating-to-service-mode" >}}) for the minimal package shell in context.
 
 ## What it emits
 
@@ -64,7 +63,7 @@ inventory entries — it is pure projection across the FFI boundary.
 
 ## Duplicate-invocation guard
 
-Calling `cloacina::package!()` twice in the same crate is a compile
+Calling `cloacina_workflow_plugin::package!()` twice in the same crate is a compile
 error. The macro emits a sentinel that collides on a duplicate call,
 preventing two `CloacinaPackagePlugin` impls from coexisting.
 
@@ -102,4 +101,4 @@ builds.
 - [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}) — full method-by-method spec.
 - [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}) — why the cdylib boundary matters.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — how the host consumes what `package!()` emits.
-- [Migrating to Service Mode]({{< ref "/service/how-to/migrating-to-service-mode" >}}) — full Cargo.toml setup.
+- [Migrating to Service Mode]({{< ref "/service/how-to/migrating-to-service-mode" >}}) — the minimal package shell in context.

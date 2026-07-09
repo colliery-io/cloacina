@@ -28,14 +28,49 @@ can do — read files the compiler can read, contact endpoints
 reachable from the compiler, exhaust resources the kernel doesn't
 bound — happens on your infrastructure.
 
-Phase 1 mitigations (this guide) bound **what** and **how much**.
-They do not prevent code execution. Phase 2 (CLOACI-I-0105) adds a
-kernel-enforced process sandbox (bubblewrap + landlock) that confines
-the cargo subprocess to a tmpfs root with no host filesystem access
-and no outbound network. Until Phase 2 lands, the operator
-responsibilities below are how you keep blast radius bounded.
+The compiler ships a **kernel-enforced process sandbox** that confines the
+cargo subprocess: no host filesystem access beyond the staged source and
+target cache, no outbound network, and a scrubbed environment. It is probed
+once at boot and applies to every build — see
+[Selecting the sandbox mode](#selecting-the-sandbox-mode) below and the full
+[Compiler Build Sandbox]({{< ref "/service/compiler-sandbox" >}}) posture.
+The sandbox bounds *where* attacker code can reach; the operator
+responsibilities below bound *what* and *how much*. Run both.
 
-## Operator responsibilities (Phase 1)
+## Selecting the sandbox mode
+
+`CLOACINA_COMPILER_SANDBOX` is probed **once at boot** into the isolation
+level every build then runs under:
+
+| Value | Behavior |
+|---|---|
+| `required` | Builds run under **bwrap** (level 1) or the compiler **refuses to start** (hard boot failure). The multi-tenant posture. |
+| `preferred` (default) | Best available level; downgrades are logged loudly. |
+| `off` | No process sandbox (dev laptops / macOS); logged loudly at boot. |
+
+The isolation ladder:
+
+- **Level 1 — bwrap** (namespaced): per-namespace unshares
+  (`--unshare-net` → no network, plus user/ipc/uts/cgroup), `--clearenv`
+  (a `build.rs` cannot read `DATABASE_URL` from the process environment),
+  read-only binds for the toolchain + curated registry, writable binds for
+  **only** the staged source and the shared target cache, tmpfs `/tmp`, and
+  `--die-with-parent`.
+- **Level 2 — landlock** (containers without user namespaces, kernel
+  ≥5.13): kernel filesystem ACLs — read-only everything, read-write only
+  the build dir + target cache. No namespace isolation, but the environment
+  is still scrubbed.
+
+The bwrap probe actually *runs* bwrap with the real namespace + mount shape,
+so a host that can't build the sandbox correctly downgrades (or, under
+`required`, fails) at boot rather than passing the probe and then breaking
+every build. Every build's audit event records the **achieved** isolation
+level. Running in a container needs a relaxed seccomp profile for
+unprivileged user namespaces — see
+[Compiler Build Sandbox]({{< ref "/service/compiler-sandbox" >}}) for the
+full posture (container/seccomp, Helm `compiler.sandbox.mode`, verification).
+
+## Operator responsibilities
 
 The compiler trusts the operator's configuration over the submitter's
 source. Five things you must get right:
@@ -59,10 +94,12 @@ compiler needs:
 ### 2. No outbound network beyond the vendor dir
 
 `--frozen --offline` is the default. The cargo subprocess fails fast
-on any dep that isn't in the vendor dir. Pair that with a network
-namespace (or, until Phase 2, a host firewall) that drops outbound
-connections from the `cloacina-compiler` UID — defense in depth
-against any future cargo flag change.
+on any dep that isn't in the vendor dir. The sandbox's bwrap level
+also unshares the network (`--unshare-net`), so the build has no
+outbound path at all. As belt-and-suspenders — and for the landlock
+fallback level, which does not namespace the network — pair that with
+a host firewall that drops outbound connections from the
+`cloacina-compiler` UID.
 
 ### 3. Configure `--build-timeout-s`
 
@@ -157,18 +194,38 @@ packages can resolve under `--offline`. Curate it explicitly.
 
 All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 
-| Flag | Env | Default | Source |
-|---|---|---|---|
-| `--build-timeout-s` | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | 600 | T-0573 |
-| `--vendor-dir` | `CLOACINA_COMPILER_VENDOR_DIR` | unset (cargo `~/.cargo`) | T-0574 |
-| `--cargo-flag` (repeatable) | — | `build --release --lib --frozen --offline` | T-0574 |
-| `--build-rlimit-cpu` | `CLOACINA_COMPILER_BUILD_RLIMIT_CPU` | = `--build-timeout-s` | T-0575 |
-| `--build-rlimit-mem` | `CLOACINA_COMPILER_BUILD_RLIMIT_MEM` | `4G` | T-0575 |
-| `--build-rlimit-files` | `CLOACINA_COMPILER_BUILD_RLIMIT_FILES` | 1024 | T-0575 |
-| `--build-rlimit-procs` | `CLOACINA_COMPILER_BUILD_RLIMIT_PROCS` | 256 | T-0575 |
-| `--cargo-target-dir` | — | unset (per-build `target/`) | — |
-| `--home` | — | `$HOME/.cloacina` | — |
-| `--database-url` | `DATABASE_URL` | required | — |
+| Flag | Env | Default |
+|---|---|---|
+| _(env only)_ | `CLOACINA_COMPILER_SANDBOX` | `preferred` (`required` / `off`) |
+| `--build-timeout-s` | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | 600 |
+| `--vendor-dir` | `CLOACINA_COMPILER_VENDOR_DIR` | unset (cargo `~/.cargo`) |
+| `--cargo-flag` (repeatable) | — | `build --release --lib --frozen --offline` |
+| `--build-rlimit-cpu` | `CLOACINA_COMPILER_BUILD_RLIMIT_CPU` | = `--build-timeout-s` |
+| `--build-rlimit-mem` | `CLOACINA_COMPILER_BUILD_RLIMIT_MEM` | `4G` |
+| `--build-rlimit-files` | `CLOACINA_COMPILER_BUILD_RLIMIT_FILES` | 1024 |
+| `--build-rlimit-procs` | `CLOACINA_COMPILER_BUILD_RLIMIT_PROCS` | 256 |
+| `--cargo-target-dir` | — | unset (per-build `target/`) |
+| `--tenant-schema` | `CLOACINA_TENANT_SCHEMA` | unset (public schema) |
+| `--build-target` | `CLOACINA_BUILD_TARGET` | unset (native host build) |
+| `--build-target-package` | `CLOACINA_BUILD_TARGET_PACKAGE` | unset (all packages) |
+| `--home` | — | `$HOME/.cloacina` |
+| `--database-url` | `DATABASE_URL` | required |
+
+**Sandbox / tenant / target flags:**
+
+- `CLOACINA_COMPILER_SANDBOX` selects the process-sandbox mode
+  (`required` / `preferred` / `off`); see
+  [Selecting the sandbox mode](#selecting-the-sandbox-mode). Env-only — no
+  matching CLI flag.
+- `--tenant-schema` scopes the compiler to a single tenant's Postgres schema
+  for build isolation: it claims and builds **only** that tenant's pending
+  packages, with separate source, logs, and target dir (no cross-tenant
+  leakage). Run one compiler per tenant. Omit for the default public schema.
+- `--build-target` runs the compiler as a per-target builder producing
+  cdylibs for a given triple (e.g. `x86_64-linux`), backfilling
+  `package_artifacts` for success packages that lack that architecture. Run
+  the container on that arch. `--build-target-package` restricts that scan to
+  a single package name (only meaningful with `--build-target`).
 
 > **Setting `--cargo-flag` replaces the entire default list.** If you
 > override to add a flag, include `--frozen` and `--offline`
@@ -231,8 +288,8 @@ grep '"event_type":"compiler.build.finished"' /var/log/cloacina/compiler.log \
 ```
 
 (`rlimit_killed` collapses into `outcome=failed` with a signal-based
-`exit_signal`. A dedicated outcome bucket is intentionally not added
-in Phase 1 — heuristic on signal alone is fragile across kernels.)
+`exit_signal`. A dedicated outcome bucket is intentionally not added —
+a heuristic on signal alone is fragile across kernels.)
 
 Find every build of a specific package version:
 
@@ -242,26 +299,21 @@ grep '"event_type":"compiler.build.finished"' /var/log/cloacina/compiler.log \
   | grep '"package_version":"1.2.3"'
 ```
 
-## What Phase 2 will add
+## Process sandbox
 
-Phase 1 bounds resources and confines the registry. Phase 2
-(CLOACI-I-0105) closes the gap with a process sandbox:
-
-- **bubblewrap** for namespace isolation: the cargo subprocess sees
-  only a tmpfs build root, the curated vendor dir mounted RO, and
-  the bare minimum of `/usr` for the toolchain. The host filesystem
-  is invisible.
-- **landlock** as defense-in-depth where the kernel supports it
-  (Linux 5.13+).
-- **Network: closed by default** — no outbound connections, period.
-  The vendor dir bind-mount supersedes any registry the build script
-  might attempt to reach.
-
-Until that lands, the Phase 1 posture in this guide is your bound.
+The resource ceilings and vendor curation above bound *what* and *how much*
+attacker code can do. The **process sandbox** bounds *where* it can reach:
+bubblewrap namespace isolation (invisible host filesystem, no outbound
+network, scrubbed environment) with a landlock fallback. It is selected by
+`CLOACINA_COMPILER_SANDBOX` and probed once at boot — see
+[Selecting the sandbox mode](#selecting-the-sandbox-mode) for the summary and
+[Compiler Build Sandbox]({{< ref "/service/compiler-sandbox" >}}) for the full
+posture (container/seccomp requirements, Kubernetes/Helm wiring, and how to
+verify enforcement).
 
 ## Observability
 
-`cloacina-compiler` exposes a `/metrics` Prometheus endpoint on the same port as `/health` and `/v1/status` (default `127.0.0.1:9000`) per CLOACI-I-0109. The relevant counters/histograms/gauges are documented in the [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}#compiler-metrics) — `cloacina_compiler_builds_total{status}`, `cloacina_compiler_queue_depth{state}`, `cloacina_compiler_sweep_resets_total`, `cloacina_compiler_build_duration_seconds`.
+`cloacina-compiler` exposes a `/metrics` Prometheus endpoint on the same port as `/health` and `/v1/status` (default `127.0.0.1:9000`). The relevant counters/histograms/gauges are documented in the [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}#compiler-metrics) — `cloacina_compiler_builds_total{status}`, `cloacina_compiler_queue_depth{state}`, `cloacina_compiler_sweep_resets_total`, `cloacina_compiler_build_duration_seconds`.
 
 Daily-rotated structured logs land in `~/.cloacina/logs/cloacina-compiler.log`. Retention is controlled by `--log-retention-days <N>` (default 14, `0` disables pruning). The same flag is supported on `cloacinactl daemon start` and `cloacinactl server start` for symmetry across the three deployables.
 
@@ -271,7 +323,5 @@ Daily-rotated structured logs land in `~/.cloacina/logs/cloacina-compiler.log`. 
 - [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — TLS termination for the `cloacinactl server start` server. Separate concern from the compiler.
 - [Use cloacina-compiler Locally]({{< ref "/service/how-to/use-cloacina-compiler-locally" >}}) — local laptop / CI path, no service.
 - [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) — the full `cloacina_*` and `cloacina_compiler_*` metric surface.
+- [Compiler Build Sandbox]({{< ref "/service/compiler-sandbox" >}}) — the full process-sandbox posture: mode selection, the bwrap/landlock ladder, container/seccomp requirements, Helm wiring, and verification.
 - **ADR-0005** — Deployment-mode trust model (why the compiler is Linux-only, single-tenant build).
-- **CLOACI-I-0104** — Phase 1 hardening initiative (timeouts, offline, setrlimit).
-- **CLOACI-I-0105** — Phase 2 sandbox initiative (process-level isolation, pending).
-- **CLOACI-I-0109** — `/metrics` endpoint + `--log-retention-days`.

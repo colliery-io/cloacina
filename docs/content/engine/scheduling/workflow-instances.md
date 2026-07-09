@@ -23,12 +23,32 @@ An instance is **data, not code**: a serializable value of
 instance is built — a registered instance never silently changes behavior when
 the workflow's defaults change; re-register to adopt new defaults.
 
+{{< hint type=note title="Prerequisite: declare the params first" >}}
+Instances only make sense for a workflow that declares its inputs. Before you can
+bind params, the `sync_file` workflow must declare them with
+`#[workflow(params(...))]` (Python: `@cloaca.workflow_params(...)`) — see
+[Declare and validate workflow inputs]({{< ref "/embed/how-to/declare-workflow-inputs" >}}).
+That declaration is what produces the `declared` slots the builder validates
+against below.
+{{< /hint >}}
+
 ## Rust
 
 ```rust
 use cloacina::workflow_instance::WorkflowInstance;
+use cloacina::input_interface::{schema_for, InputSlot};
 
-// `declared` is the workflow's declared input slots (its params descriptor).
+// `declared` is the workflow's declared input slots — the `Vec<InputSlot>` the
+// `#[workflow(params(...))]` macro emits for `sync_file`. It's the same schema
+// the execute API validates against. Shown inline here so this example is
+// self-contained; in practice you read it from the registered workflow rather
+// than hand-writing it:
+let declared = vec![
+    InputSlot::required("source", schema_for::<String>()),
+    InputSlot::required("dst", schema_for::<String>()),
+    InputSlot::optional("mode", schema_for::<String>(), Some(serde_json::json!("copy"))),
+];
+
 let instance = WorkflowInstance::builder("sync_file")
     .param("source", "/prod")?
     .param("dst", "/backup/prod")?

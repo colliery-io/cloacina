@@ -29,7 +29,7 @@ Cloacina offers two scheduling models for different workload shapes:
 | **Execution** | One-shot: schedule → run tasks → complete | Continuous: graph fires repeatedly as data flows |
 | **Lifetime** | Short (seconds to hours per execution) | Long (runs indefinitely until shutdown) |
 | **State** | Database-backed context between tasks | In-memory input cache, checkpoint-backed recovery |
-| **Scaling** | Multiple runners claim tasks from database | Single graph scheduler per graph instance |
+| **Scaling** | Multiple runners claim tasks from database | One scheduler supervises each graph; each firing runs in-process or dispatches to the execution-agent fleet |
 | **Use case** | ETL, batch jobs, scheduled reports | Streaming analytics, real-time pricing, monitoring |
 
 Choose workflows when your workload has a clear start and end. Choose computation graphs when you need continuous, low-latency reaction to incoming data.
@@ -106,13 +106,22 @@ The reactor watches accumulator health to gate its own startup and detect degrad
 
 ## Reactor Lifecycle
 
-The reactor is the execution engine — it decides when to fire the graph and calls the compiled function.
+The reactor is the execution engine — it decides *when* to fire the graph and hands each firing off to be run.
 
 ### Three Concerns
 
 1. **Receiver** — accepts serialized boundaries from accumulators, deserializes into the input cache, sets dirty flags
 2. **Strategy** — evaluates reaction criteria (`WhenAny` or `WhenAll`) against dirty flags to decide whether to fire
-3. **Executor** — calls the compiled graph function with a snapshot of the input cache
+3. **Executor** — hands a snapshot of the input cache to a `GraphExecutor`, which runs the firing and returns the result the reactor awaits
+
+### Where a firing runs
+
+The reactor does not hard-code *where* the compute happens. When it decides to fire, it packages the input-cache snapshot into a firing event and hands it to a `GraphExecutor` — a seam that mirrors the task side's executor. Two implementations sit behind it:
+
+- **In-process (embedded, and the default)** — the executor invokes the graph's compiled closure directly in this process. This is byte-for-byte the original behavior: lowest latency, no network hop, no external dependency. Every firing event carries this closure regardless of which executor is installed.
+- **Fleet dispatch (server mode)** — `cloacina-server` installs a fleet executor that resolves the graph's owning package and ships the firing (the input-cache snapshot plus the package's artifact digest) to a live execution agent, then awaits the result over the same agent rendezvous the task path uses. This lets whole-graph compute scale across a fleet of Rust and Python agents while accumulators, dirty flags, reactor state, and the input cache all stay host-side — only the compute leaves.
+
+Because every firing event carries the in-process closure, the fleet executor can always fall back to local execution rather than wedge the reactor's hot path. It falls back *before* dispatch — an embedded graph with no owning package, a Python package (interpreted graphs stay in-process for now), no eligible agent, or an enqueue error — running the closure locally with a warning. It deliberately does **not** fall back *after* dispatch: once an agent has accepted a firing, a timeout or a reported error surfaces as a failed result rather than a local re-run, because double-running one firing is worse than reporting it failed.
 
 ### Health States
 
@@ -195,9 +204,9 @@ Without a DAL (embedded mode), state is lost on restart — accumulators and the
 
 | Feature | Cron Scheduling | Graph Scheduling |
 |---------|----------------|---------------------|
-| Minimum latency | Poll interval (typically seconds) | Event-driven (sub-millisecond within process) |
+| Minimum latency | Poll interval (typically seconds) | Event-driven (sub-millisecond in-process; a network hop when a firing dispatches to the fleet) |
 | Missed execution handling | Catch-up on restart | N/A — continuous processing |
-| Multi-runner support | Yes (database-based claiming) | No (single scheduler per graph) |
+| Multi-runner support | Yes (database-based claiming) | One scheduler supervises each graph, but firings can execute on an execution-agent fleet |
 | Guaranteed execution | Two-phase commit with recovery | Checkpoint-based recovery |
 | Database requirement | Always (execution state) | Optional (checkpoint persistence) |
 

@@ -1,79 +1,49 @@
 ---
 title: "Deploy the Web UI"
-description: "Run the Cloacina web UI as a container against any server: image, runtime config, CORS, compose, and the demo profile."
+description: "Deploy the Cloacina web UI: embedded in cloacina-server (default), the demo stack, and the optional standalone Helm chart."
 weight: 65
 aliases:
   - "/platform/how-to-guides/deploy-the-web-ui/"
 
 ---
 
-The Cloacina web UI ships as a server-agnostic container: one image runs
-against any `cloacina-server`, with the target server URL injected at
-container start. This guide covers running the image, wiring CORS, the
-compose profiles, and the demo profile.
+The Cloacina web UI is **embedded in the `cloacina-server` binary**: one
+binary is the engine, the REST API, **and** the web control plane — same
+origin, no separate Nginx container, no CORS setup for the bundled UI. The
+standalone Nginx-served SPA container was retired; the embedded UI is the
+deployment path.
 
-## The image
+For how the embedded UI works (enabling the `embedded-ui` feature, routing,
+caching, pointing it at a remote server), see
+[Embedded Web UI]({{< ref "/service/embedded-ui" >}}). This guide covers the
+deployment surfaces: the demo stack and the optional standalone Helm chart.
 
-The UI is a Vite-built React SPA served by nginx (`ui/Dockerfile`,
-multi-stage: it builds the `@cloacina/client` SDK then the bundle). Build
-it from the repo root (the build context must be the repo root so the
-sibling SDK is available):
+## The demo stack
 
-```bash
-docker build -t cloacina-ui:dev -f ui/Dockerfile .
-```
-
-## Runtime server-URL config
-
-The bundle is server-agnostic. At container start, an entrypoint renders
-`index.html` from a template, injecting `CLOACINA_SERVER_URL` into
-`window.__CLOACINA_CONFIG__` so the value prefills the Connect form:
+`docker/docker-compose.demo.yml` is a self-contained "stand it up and watch
+it run" profile: postgres + server + **compiler** + a one-shot **fixtures
+packer** + the **seed harness** (loop mode). There is **no separate UI
+service** — the UI is served by the server itself:
 
 ```bash
-docker run --rm -p 8081:80 \
-  -e CLOACINA_SERVER_URL=https://cloacina.example.com \
-  cloacina-ui:dev
+docker compose -f docker/docker-compose.demo.yml up --build
 ```
 
-Leave `CLOACINA_SERVER_URL` unset and the Connect screen simply asks for
-the server URL. Because rendering happens from the template on every
-start, restarting with a different URL just works — nothing is baked in.
+The UI is then at <http://localhost:8080> (embedded — served by the server).
+The harness drives a mix of fast / slow / failing runs continuously, so the
+dashboard and live execution view always have something moving. The first
+build is heavy (the compiler and fixtures images compile the workspace once).
 
-## CORS (required)
+## Optional: standalone UI via Helm
 
-The browser loads the SPA from the UI's origin and calls the server
-**cross-origin**, so the server must allow the UI's origin. CORS is
-disabled on `cloacina-server` unless you opt in:
+The `charts/cloacina-ui` chart deploys the UI as a standalone Deployment +
+Service + (optional) Ingress, using the published `cloacina-ui` image
+(`ghcr.io/colliery-software/cloacina-ui`). This is an optional alternative to
+the embedded UI — use it when you want the UI served from its own origin,
+separate from the server.
 
-```bash
-cloacina-server \
-  --cors-allowed-origins https://ui.example.com \
-  ...
-# or: CLOACINA_CORS_ALLOWED_ORIGINS=https://ui.example.com
-```
-
-The allowed origin is the URL users load the UI from — not the server's
-own address.
-
-## Compose profiles
-
-Two compose files are provided (build context is the repo root):
-
-- **`docker/docker-compose.ui.yml`** — postgres + server (CORS) + UI.
-  `docker compose -f docker/docker-compose.ui.yml up --build` → UI at
-  <http://localhost:8081>, server at <http://localhost:8080>.
-
-- **`docker/docker-compose.demo.yml`** — the self-contained demo:
-  postgres + server + **compiler** + a one-shot **fixtures packer** +
-  the **seed harness** (loop mode) + UI. `up --build` yields a UI with
-  continuous live activity to watch. The first build is heavy (the
-  compiler and fixtures images compile the workspace).
-
-## Helm
-
-An optional chart lives at `charts/cloacina-ui` (deployment + service +
-ingress, mirroring `cloacina-server`). Set the browser-facing server URL
-and remember the CORS requirement:
+Because the browser then loads the SPA from the UI's origin and calls the
+server **cross-origin**, this path requires CORS on the server:
 
 ```bash
 helm install ui charts/cloacina-ui \
@@ -82,13 +52,17 @@ helm install ui charts/cloacina-ui \
   --set ingress.hosts[0].host=ui.example.com
 ```
 
-`serverUrl` is the address the **browser** uses to reach the server (its
-public/ingress URL), not the in-cluster Service DNS. Ensure the server's
-`CLOACINA_CORS_ALLOWED_ORIGINS` includes the UI's public origin.
+- `serverUrl` is the address the **browser** uses to reach the server (its
+  public/ingress URL), not the in-cluster Service DNS. It is injected at
+  container start into `window.__CLOACINA_CONFIG__` and prefills the connect
+  form; leave it empty and the connect screen asks the user for it.
+- Ensure the server's `CLOACINA_CORS_ALLOWED_ORIGINS` (flag
+  `--cors-allowed-origins`) includes the UI's public origin. The allowed
+  origin is the URL users load the UI from — not the server's own address.
 
 ## Version lockstep
 
-The UI is version-matched to the server it talks to (NFR-004): the
-`ui`/`ui-harness` package versions track the workspace version, asserted
-in CI by `scripts/check_sdk_versions.py`. Deploy the UI image whose tag
-matches your server release.
+The UI is version-matched to the server it talks to: the `ui`/`ui-harness`
+package versions track the workspace version, asserted in CI by
+`scripts/check_sdk_versions.py`. For the standalone chart, deploy the
+`cloacina-ui` image whose tag matches your server release.

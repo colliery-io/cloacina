@@ -141,6 +141,28 @@ It's optional because the threat models diverge:
 
 Reach for `--require-signatures` whenever the package author is not the server operator.
 
+### Signing keys and the trust model
+
+Package signing uses **Ed25519** asymmetric cryptography. Each key is a pair:
+
+- **Private key** — used to sign packages. Kept secret and stored encrypted at
+  rest (the 32-byte AES-256 *key encryption key* protects it in the database).
+- **Public key** — used to verify signatures. Distributed to verifiers.
+- **Key fingerprint** — the SHA-256 hash of the public key, used to identify
+  which key signed a package.
+
+Keys are managed **per-organization**, and the trust model has three roles:
+
+- **Signing keys** — owned by an organization and used to sign its packages.
+- **Trusted keys** — public keys an organization accepts signatures from during
+  verification. A key must be trusted before packages signed with it will verify.
+- **Trust ACLs** — a parent organization can be granted trust in a child
+  organization, so it accepts everything the child trusts. This is how
+  organizational trust hierarchies are expressed.
+
+Verification proves the package was signed by a key the verifying organization
+trusts; it does not inspect what the package does. See the next section.
+
 ### What it doesn't protect against
 
 Signature verification proves *who* signed the package, not *what's in the package*. A signed malicious package still runs malicious code; signatures don't sandbox. The sandboxing is the compiler's job (see below). Use both together.
