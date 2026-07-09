@@ -30,6 +30,7 @@ mod computation_graph_tests;
 // Concrete PyO3 bindings
 pub mod constructor;
 pub mod context;
+mod gil;
 pub mod loader;
 pub mod namespace;
 pub mod reactor;

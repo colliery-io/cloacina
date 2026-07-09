@@ -4,14 +4,14 @@ level: initiative
 title: "py_block_on — one GIL-safe async→sync bridge module, retire the per-binding reimplementations"
 short_code: "CLOACI-I-0136"
 created_at: 2026-07-08T14:20:11.787079+00:00
-updated_at: 2026-07-08T14:20:11.787079+00:00
+updated_at: 2026-07-09T00:48:32.335535+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/design"
 
 
 exit_criteria_met: false
@@ -100,7 +100,31 @@ The GIL-correctness invariant lives as tribal knowledge in one file's comment, n
 
 ## Detailed Design **[REQUIRED]**
 
-{Technical approach and implementation details}
+### Grounded site inventory (2026-07-09) — the ACTUAL `.block_on` bridge sites
+Grepping `.block_on(`/`Runtime::new` in cloacina-python narrows the "3 shapes / 8 files" to the real async→sync-blocking bridges:
+- **`context.rs:253 block_on_secret_access`** — CORRECT reference: `py.allow_threads(|| match Handle::try_current() { Ok(h)=>h.block_on(fut), Err(_)=>transient current-thread rt })`.
+- **`admin.rs:168,187` (create_tenant/remove_tenant)** — UNSAFE: `Runtime::new()?.block_on(fut)` with NO `allow_threads` → holds the GIL across the await. THE BUG.
+- **`task.rs:50 defer_until`** — already safe (`py.allow_threads(|| Handle::current().block_on(...))`), just hand-inlined.
+- **`runner.rs:812`** — `rt.block_on(run_event_loop(runner, rx))`: a LONG-RUNNING actor loop on a DEDICATED std::thread (spawned without the GIL, ~line 790). Not a one-shot future.
+- **`runner.rs:890/910/955`** — `rt.block_on(builder.build())` inside `spawn_runtime(|rt| …)` (the runner's dedicated-thread helper). Not GIL-holding sync-method bridges.
+(trigger/constructor/computation_graph have NO `.block_on` — they use `spawn_blocking` + `with_gil`, a different, legitimate pattern; out of scope.)
+
+### Decision (2026-07-09) — SCOPE
+- **Extract `py_block_on(py, fut)` into a new shared module `crates/cloacina-python/src/gil.rs`** — context.rs's helper generalized (renamed off "secret"), `pub(crate)`. Signature: `fn py_block_on<F,T>(py: Python<'_>, fut: F) -> T where F: Future<Output=T> + Send, T: Send`. Body identical to the proven `block_on_secret_access`: `allow_threads` → `Handle::try_current()` (ambient) else transient current-thread runtime.
+- **Route through it:** `context.rs` (the 2 secret sites → call the shared helper, delete the local copy), `admin.rs` (the 2 UNSAFE sites — the bug fix; add the PyO3-injected `py: Python` param, invisible to Python callers), `task.rs:50` (for consistency — already-safe, becomes shared).
+- **LEAVE `runner.rs` (all sites).** The `run_event_loop` actor loop is long-running on its own OS thread and does not hold the GIL — `py_block_on` (one-shot future→value from a GIL-holding sync method) does NOT fit. The `spawn_runtime` builder sites are that same dedicated-thread architecture. This is the initiative's stated non-goal ("don't force runner.rs"). Documented, not forced.
+
+**Net:** one auditable GIL-safety helper; the admin.rs latent deadlock fixed by construction; runner's load-bearing thread architecture untouched.
+
+## Alternatives Considered **[REQUIRED]**
+
+- **Also fold runner.rs onto `py_block_on`.** Rejected: `run_event_loop` is a long-running loop (not a one-shot future) on a dedicated OS thread that intentionally does NOT hold the GIL; `py_block_on`'s `allow_threads`-then-block contract is meaningless there (no GIL to release) and would misrepresent the pattern. Forcing it risks the exact runtime-ownership subtleties [[project_scenario32_cg_invocation_deadlock]] warns about.
+- **A macro instead of a fn.** Rejected: a plain generic fn `py_block_on<F,T>` is sufficient (no per-site token capture needed beyond `py`+`fut`); a macro adds noise for no gain.
+- **Leave admin.rs as-is (it uses a fresh runtime, lower deadlock odds).** Rejected: it still holds the GIL across blocking I/O (stalls every other Python thread) and is the unsafe SHAPE — the whole point is one safe door so drift can't reintroduce it.
+
+## Implementation Plan **[REQUIRED]**
+
+Single task (T-0881): add `gil.rs::py_block_on`, wire context.rs + admin.rs + task.rs, leave runner.rs (with a one-line note at each runner site pointing to why it's exempt). Verify: `cargo check` cloacina-python; the Python test suite incl. the scenario_30/32/33 GIL area (`angreal` python lane) — the admin.rs fix must not regress and the secret/defer paths stay green.
 
 ## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
 

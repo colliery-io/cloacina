@@ -21,13 +21,15 @@
 //! Works with both PostgreSQL and SQLite backends, selecting the appropriate
 //! implementation at runtime based on the database connection type.
 
-mod crud;
+use diesel::prelude::*;
 
 use super::DAL;
-use crate::database::universal_types::UniversalUuid;
+use crate::dal::unified::models::{NewUnifiedScheduleExecution, UnifiedScheduleExecution};
+use crate::database::schema::unified::schedule_executions;
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::schedule::{NewScheduleExecution, ScheduleExecution};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 
 /// Statistics about schedule execution performance
 #[derive(Debug)]
@@ -59,20 +61,41 @@ impl<'a> ScheduleExecutionDAL<'a> {
         &self,
         new_execution: NewScheduleExecution,
     ) -> Result<ScheduleExecution, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.create_postgres(new_execution).await,
-            self.create_sqlite(new_execution).await
-        )
+        let id = UniversalUuid::new_v4();
+        let now = UniversalTimestamp::now();
+
+        let new_unified = NewUnifiedScheduleExecution {
+            id,
+            schedule_id: new_execution.schedule_id,
+            workflow_execution_id: new_execution.workflow_execution_id,
+            scheduled_time: new_execution.scheduled_time,
+            claimed_at: new_execution.claimed_at,
+            context_hash: new_execution.context_hash,
+            started_at: now,
+            created_at: now,
+            updated_at: now,
+        };
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::insert_into(schedule_executions::table)
+                .values(&new_unified)
+                .execute(conn)
+        })?;
+
+        let result: UnifiedScheduleExecution = crate::interact_on_backend!(self.dal, |conn| {
+            schedule_executions::table.find(id).first(conn)
+        })?;
+
+        Ok(result.into())
     }
 
     /// Retrieves a schedule execution by its ID.
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<ScheduleExecution, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_by_id_postgres(id).await,
-            self.get_by_id_sqlite(id).await
-        )
+        let result: UnifiedScheduleExecution = crate::interact_on_backend!(self.dal, |conn| {
+            schedule_executions::table.find(id).first(conn)
+        })?;
+
+        Ok(result.into())
     }
 
     /// Lists schedule executions for a given schedule.
@@ -82,13 +105,17 @@ impl<'a> ScheduleExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<ScheduleExecution>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_by_schedule_postgres(schedule_id, limit, offset)
-                .await,
-            self.list_by_schedule_sqlite(schedule_id, limit, offset)
-                .await
-        )
+        let results: Vec<UnifiedScheduleExecution> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                schedule_executions::table
+                    .filter(schedule_executions::schedule_id.eq(schedule_id))
+                    .order(schedule_executions::created_at.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .load(conn)
+            })?;
+
+        Ok(results.into_iter().map(|r| r.into()).collect())
     }
 
     /// Marks a schedule execution as completed.
@@ -97,11 +124,19 @@ impl<'a> ScheduleExecutionDAL<'a> {
         id: UniversalUuid,
         completed_at: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.complete_postgres(id, completed_at).await,
-            self.complete_sqlite(id, completed_at).await
-        )
+        let completed_ts = UniversalTimestamp::from(completed_at);
+        let now = UniversalTimestamp::now();
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedule_executions::table.find(id))
+                .set((
+                    schedule_executions::completed_at.eq(Some(completed_ts)),
+                    schedule_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Checks if there is an active (uncompleted) execution for a schedule with the given context hash.
@@ -111,13 +146,17 @@ impl<'a> ScheduleExecutionDAL<'a> {
         context_hash: &str,
     ) -> Result<bool, ValidationError> {
         let context_hash_owned = context_hash.to_string();
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.has_active_execution_postgres(schedule_id, context_hash_owned.clone())
-                .await,
-            self.has_active_execution_sqlite(schedule_id, context_hash_owned)
-                .await
-        )
+
+        let count: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            schedule_executions::table
+                .filter(schedule_executions::schedule_id.eq(schedule_id))
+                .filter(schedule_executions::context_hash.eq(context_hash_owned))
+                .filter(schedule_executions::completed_at.is_null())
+                .count()
+                .get_result(conn)
+        })?;
+
+        Ok(count > 0)
     }
 
     /// Updates the workflow execution ID for a schedule execution.
@@ -126,13 +165,18 @@ impl<'a> ScheduleExecutionDAL<'a> {
         id: UniversalUuid,
         workflow_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.update_workflow_execution_id_postgres(id, workflow_execution_id)
-                .await,
-            self.update_workflow_execution_id_sqlite(id, workflow_execution_id)
-                .await
-        )
+        let now = UniversalTimestamp::now();
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedule_executions::table.find(id))
+                .set((
+                    schedule_executions::workflow_execution_id.eq(Some(workflow_execution_id)),
+                    schedule_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Finds lost executions (started but not completed) older than the specified minutes.
@@ -140,11 +184,19 @@ impl<'a> ScheduleExecutionDAL<'a> {
         &self,
         older_than_minutes: i32,
     ) -> Result<Vec<ScheduleExecution>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.find_lost_executions_postgres(older_than_minutes).await,
-            self.find_lost_executions_sqlite(older_than_minutes).await
-        )
+        let cutoff = Utc::now() - Duration::minutes(older_than_minutes as i64);
+        let cutoff_ts = UniversalTimestamp::from(cutoff);
+
+        let results: Vec<UnifiedScheduleExecution> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                schedule_executions::table
+                    .filter(schedule_executions::completed_at.is_null())
+                    .filter(schedule_executions::started_at.lt(cutoff_ts))
+                    .order(schedule_executions::started_at.asc())
+                    .load(conn)
+            })?;
+
+        Ok(results.into_iter().map(|r| r.into()).collect())
     }
 
     /// Gets the latest execution for a given schedule.
@@ -152,11 +204,16 @@ impl<'a> ScheduleExecutionDAL<'a> {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<Option<ScheduleExecution>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_latest_by_schedule_postgres(schedule_id).await,
-            self.get_latest_by_schedule_sqlite(schedule_id).await
-        )
+        let result: Option<UnifiedScheduleExecution> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                schedule_executions::table
+                    .filter(schedule_executions::schedule_id.eq(schedule_id))
+                    .order(schedule_executions::created_at.desc())
+                    .first(conn)
+                    .optional()
+            })?;
+
+        Ok(result.map(|r| r.into()))
     }
 
     /// Gets execution statistics for monitoring and alerting.
@@ -164,11 +221,52 @@ impl<'a> ScheduleExecutionDAL<'a> {
         &self,
         since: DateTime<Utc>,
     ) -> Result<ScheduleExecutionStats, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_execution_stats_postgres(since).await,
-            self.get_execution_stats_sqlite(since).await
-        )
+        use crate::database::schema::unified::workflow_executions;
+
+        let since_ts = UniversalTimestamp::from(since);
+        let lost_cutoff = UniversalTimestamp::from(Utc::now() - Duration::minutes(10));
+
+        let (total_executions, successful_executions, lost_executions) =
+            crate::interact_on_backend!(self.dal, |conn| {
+                let total_executions: i64 = schedule_executions::table
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .count()
+                    .first(conn)?;
+
+                let successful_executions: i64 = schedule_executions::table
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .filter(schedule_executions::workflow_execution_id.is_not_null())
+                    .count()
+                    .first(conn)?;
+
+                let lost_executions: i64 = schedule_executions::table
+                    .left_join(
+                        workflow_executions::table.on(schedule_executions::workflow_execution_id
+                            .eq(workflow_executions::id.nullable())),
+                    )
+                    .filter(workflow_executions::id.is_null())
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .filter(schedule_executions::started_at.lt(lost_cutoff))
+                    .count()
+                    .first(conn)?;
+
+                Ok::<(i64, i64, i64), diesel::result::Error>((
+                    total_executions,
+                    successful_executions,
+                    lost_executions,
+                ))
+            })?;
+
+        Ok(ScheduleExecutionStats {
+            total_executions,
+            successful_executions,
+            lost_executions,
+            success_rate: if total_executions > 0 {
+                (successful_executions as f64 / total_executions as f64) * 100.0
+            } else {
+                0.0
+            },
+        })
     }
 }
 

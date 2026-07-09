@@ -44,26 +44,25 @@ impl PyTaskHandle {
             .ok_or_else(|| PyValueError::new_err("TaskHandle has already been consumed"))?;
 
         let poll_interval = Duration::from_millis(poll_interval_ms);
-        let rt_handle = tokio::runtime::Handle::current();
 
-        py.allow_threads(|| {
-            rt_handle.block_on(async {
-                handle
-                    .defer_until(
-                        move || {
-                            let result = Python::with_gil(|py| match condition.call0(py) {
-                                Ok(r) => r.extract::<bool>(py).unwrap_or(false),
-                                Err(e) => {
-                                    eprintln!("[cloaca] defer_until condition error: {}", e);
-                                    false
-                                }
-                            });
-                            async move { result }
-                        },
-                        poll_interval,
-                    )
-                    .await
-            })
+        // CLOACI-I-0136: one GIL-safe async→sync bridge (was a hand-inlined
+        // allow_threads + Handle::current().block_on).
+        crate::gil::py_block_on(py, async {
+            handle
+                .defer_until(
+                    move || {
+                        let result = Python::with_gil(|py| match condition.call0(py) {
+                            Ok(r) => r.extract::<bool>(py).unwrap_or(false),
+                            Err(e) => {
+                                eprintln!("[cloaca] defer_until condition error: {}", e);
+                                false
+                            }
+                        });
+                        async move { result }
+                    },
+                    poll_interval,
+                )
+                .await
         })
         .map_err(|e| PyValueError::new_err(format!("defer_until failed: {}", e)))
     }

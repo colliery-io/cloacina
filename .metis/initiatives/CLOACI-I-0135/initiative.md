@@ -4,14 +4,14 @@ level: initiative
 title: "DAL twin collapse — one backend-agnostic interact seam, delete ~168 postgres/sqlite method twins"
 short_code: "CLOACI-I-0135"
 created_at: 2026-07-08T14:20:10.497021+00:00
-updated_at: 2026-07-08T14:20:10.497021+00:00
+updated_at: 2026-07-09T00:39:42.891259+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -99,7 +99,26 @@ initiative_id: dal-twin-collapse-one-backend
 
 ## Detailed Design **[REQUIRED]**
 
-{Technical approach and implementation details}
+### Feasibility (grounded 2026-07-08)
+The pieces exist: a diesel `#[derive(MultiConnection)] enum AnyConnection { Postgres(PgConnection), Sqlite(SqliteConnection) }` (`database/connection/backend.rs:120`) and a `dispatch_backend!` macro. BUT the DAL grabs CONCRETE pooled connections — `get_postgres_connection() -> Object<PgManager>` (`PgConnection`), `get_sqlite_connection() -> Object<SqliteManager>` (`SqliteConnection`), from two SEPARATE deadpool pools. `AnyPool` is just an enum holding one concrete pool; nothing pools `AnyConnection` (deadpool-diesel managers are per-connection-type). So the twins exist because each `.interact()` closure receives a different concrete `&mut …Connection`.
+
+### Design Decisions (2026-07-08 check-in)
+- **D-1 — MACRO seam (compile-time monomorphization), chosen.** An `interact_on_backend!(dal, |conn| { …diesel… })` macro writes the closure body ONCE in source and expands (via `dispatch_backend!`) to the pg + sqlite arms — each monomorphized against its concrete connection type. Deletes the source duplication with NO change to pooling or per-backend setup (schema search_path, sqlite pragmas). The ~4 genuinely-divergent ops stay as explicit twins. Rejected: a pooled-`AnyConnection` runtime seam (re-plumbs pooling, must re-home per-backend setup, MultiConnection query-support edge cases) and a generic `for<C: Connection>` fn (a single generic closure won't compile where diesel needs the concrete backend — RETURNING, on_conflict, trait bounds).
+- **KEY INSIGHT that makes D-1 sound:** a `move` closure appearing in BOTH match arms is fine — Rust permits moving the same captured variable in mutually-exclusive `match` arms (only one executes). So `interact_on_backend!` expands under dual-feature to `match dal.backend() { Postgres => { let c = get_postgres_connection…; c.interact(move |conn| { <body> })… }, Sqlite => { …get_sqlite_connection…; c.interact(move |conn| { <body> })… } }` with `<body>` authored once. Under single-feature, only the live arm compiles (cfg).
+- **D-2 — SPIKE one module first, then INCREMENTAL, chosen.** Prove the macro (incl. the error-mapping ergonomics) on ONE representative DAL module end-to-end (compiles + tests green both backends), THEN migrate module-by-module — the macro and the remaining twins coexist during the transition.
+
+### Open detail for the spike to settle
+Error mapping: each twin does `.interact(...).await.map_err(interact_err)?.map_err(diesel_err)?` where the domain error varies per module (KeyError / SecretError / diesel::result::Error). The macro must either return a raw `Result<R, diesel::result::Error>` (caller maps to its domain error) or take an error-map hook. The one-module spike nails the exact ergonomics before the incremental sweep.
+
+## Alternatives Considered **[REQUIRED]**
+
+- **Pooled `AnyConnection` (custom deadpool Manager over the MultiConnection).** The "truest" deep module — one runtime connection type, a plain generic `interact_on_backend(dal, |conn| …)`. Rejected for the initial cut: re-plumbs the pooling layer, must re-home per-backend connection setup (pg schema search_path, sqlite pragmas), and risks diesel MultiConnection query-support edge cases — high risk for marginal gain over the macro, which already achieves the write-once goal. Revisit only if the macro proves ergonomically painful.
+- **Generic `interact<F,R>(f) where F: for<C: Connection> FnOnce(&mut C)`.** No pooling change, but a single generic closure often won't compile where diesel needs the concrete backend (RETURNING, `on_conflict`, backend-specific trait bounds) — would fail for a chunk of the ~330. Rejected (the macro monomorphizes per backend, sidestepping this).
+- **Leave the twins.** The status quo — a 27k-line subtree half-duplicated, and the vestigial reason (no dual-DB abstraction) is long gone.
+
+## Implementation Plan **[REQUIRED]**
+
+Spike → incremental. (1) The `interact_on_backend!` macro + migrate ONE representative module (settle error-mapping) — the de-risking gate. (2) Incremental migration by DAL area (dal/unified core CRUD, its sub-modules, security/), each behavior-preserving + tests green both backends. (3) An audit pass confirming the ~4 genuinely-divergent ops remain explicit twins (and are the ONLY twins left). Decompose into tasks AFTER the spike validates the macro shape.
 
 ## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
 

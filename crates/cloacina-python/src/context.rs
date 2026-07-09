@@ -217,7 +217,7 @@ impl PyContext {
     /// scope (`CLOACINA_SECRET_KEK` unset) or the backend fails, `KeyError` when
     /// the secret is not found, `PermissionError` when the name is not granted.
     pub fn secret(&self, py: Python<'_>, name: &str) -> PyResult<PyObject> {
-        let fields = block_on_secret_access(py, self.inner.secret(name))
+        let fields = crate::gil::py_block_on(py, self.inner.secret(name))
             .map_err(secret_access_error_to_pyerr)?;
         let dict = PyDict::new(py);
         for (field, value) in fields {
@@ -232,37 +232,9 @@ impl PyContext {
     /// [`Self::secret`]; additionally raises `KeyError` when the secret exists but
     /// has no field of that name.
     pub fn secret_field(&self, py: Python<'_>, name: &str, field: &str) -> PyResult<String> {
-        block_on_secret_access(py, self.inner.secret_field(name, field))
+        crate::gil::py_block_on(py, self.inner.secret_field(name, field))
             .map_err(secret_access_error_to_pyerr)
     }
-}
-
-/// Async→sync bridge for the Python secret read path (CLOACI-T-0864).
-///
-/// The Rust `Context::secret*` accessors are `async` but Python task bodies are
-/// sync, so we must drive the resolver future to completion from a sync PyO3
-/// method. GIL-safety (see the scenario-30/32/33 PyO3↔tokio history): the GIL is
-/// RELEASED via `py.allow_threads` BEFORE we block, so we never hold the GIL
-/// while awaiting resolver I/O on the executor's runtime — the exact footgun
-/// that deadlocked those scenarios. We drive the future on the ambient runtime
-/// via `Handle::current().block_on` when a task body calls this (the same
-/// pattern `PyTaskHandle::defer_until` already uses — task bodies run on the
-/// executor's `spawn_blocking` pool, where a `Handle` is available and blocking
-/// is legal); outside any runtime (Rust binding unit tests) we fall back to a
-/// transient current-thread runtime.
-fn block_on_secret_access<F, T>(py: Python<'_>, fut: F) -> T
-where
-    F: std::future::Future<Output = T> + Send,
-    T: Send,
-{
-    py.allow_threads(|| match tokio::runtime::Handle::try_current() {
-        Ok(handle) => handle.block_on(fut),
-        Err(_) => tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("build fallback current-thread runtime for secret resolution")
-            .block_on(fut),
-    })
 }
 
 /// Map a Rust [`cloacina::SecretAccessError`] onto a clear Python exception.

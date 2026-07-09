@@ -56,6 +56,14 @@ pub(super) fn build_task_graph(
 }
 
 impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
+    /// Wrap this registry's `Database` handle in a lightweight `DAL` so the
+    /// `interact_on_backend!` macro (CLOACI-I-0135) can check out the concrete
+    /// pooled connection for whichever backend is live. `DAL::new` only clones
+    /// the `Database` (an `Arc`-backed pool handle), so this is cheap per call.
+    fn dal(&self) -> crate::dal::unified::DAL {
+        crate::dal::unified::DAL::new(self.database.clone())
+    }
+
     /// Store package metadata in the database. Test-only helper; the
     /// production write path is `supersede_and_insert_with_prebuilt`,
     /// which deals with the active/superseded transition correctly.
@@ -65,47 +73,14 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         registry_id: &str,
         package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
     ) -> Result<Uuid, RegistryError> {
-        let registry_uuid = Uuid::parse_str(registry_id).map_err(RegistryError::InvalidUuid)?;
-        let metadata =
-            serde_json::to_string(package_metadata).map_err(RegistryError::Serialization)?;
-        let storage_type = self.storage.storage_type();
-
-        crate::dispatch_backend!(
-            self.database.backend(),
-            self.store_package_metadata_postgres(
-                registry_uuid,
-                package_metadata,
-                metadata,
-                storage_type,
-            )
-            .await,
-            self.store_package_metadata_sqlite(
-                registry_uuid,
-                package_metadata,
-                metadata,
-                storage_type,
-            )
-            .await
-        )
-    }
-
-    #[cfg(all(feature = "postgres", test))]
-    async fn store_package_metadata_postgres(
-        &self,
-        registry_uuid: Uuid,
-        package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
-        metadata: String,
-        storage_type: crate::models::workflow_packages::StorageType,
-    ) -> Result<Uuid, RegistryError> {
         use crate::dal::unified::models::NewUnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
+        let registry_uuid = Uuid::parse_str(registry_id).map_err(RegistryError::InvalidUuid)?;
+        let metadata =
+            serde_json::to_string(package_metadata).map_err(RegistryError::Serialization)?;
+        let storage_type = self.storage.storage_type();
 
         let id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
@@ -133,13 +108,12 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let package_name_for_error = package_metadata.package_name.clone();
         let version_for_error = package_metadata.version.clone();
 
-        conn.interact(move |conn| {
+        let dal = self.dal();
+        crate::interact_on_backend!(dal, |conn| {
             diesel::insert_into(workflow_packages::table)
                 .values(&new_package)
                 .execute(conn)
         })
-        .await
-        .map_err(|e| RegistryError::Database(e.to_string()))?
         .map_err(|e| match e {
             diesel::result::Error::DatabaseError(
                 diesel::result::DatabaseErrorKind::UniqueViolation,
@@ -147,69 +121,6 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             ) => RegistryError::PackageExists {
                 package_name: package_name_for_error.clone(),
                 version: version_for_error.clone(),
-            },
-            _ => RegistryError::Database(format!("Database error: {}", e)),
-        })?;
-
-        Ok(id.0)
-    }
-
-    #[cfg(all(feature = "sqlite", test))]
-    async fn store_package_metadata_sqlite(
-        &self,
-        registry_uuid: Uuid,
-        package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
-        metadata: String,
-        storage_type: crate::models::workflow_packages::StorageType,
-    ) -> Result<Uuid, RegistryError> {
-        use crate::dal::unified::models::NewUnifiedWorkflowPackage;
-        use crate::database::schema::unified::workflow_packages;
-        use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-
-        let conn = self
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
-        let id = UniversalUuid::new_v4();
-        let now = UniversalTimestamp::now();
-
-        let new_package = NewUnifiedWorkflowPackage {
-            id,
-            registry_id: UniversalUuid(registry_uuid),
-            package_name: package_metadata.package_name.clone(),
-            version: package_metadata.version.clone(),
-            description: package_metadata.description.clone(),
-            author: package_metadata.author.clone(),
-            metadata,
-            storage_type: storage_type.as_str().to_string(),
-            created_at: now,
-            updated_at: now,
-            tenant_id: None,
-            content_hash: String::new(),
-            superseded: crate::database::universal_types::UniversalBool(false),
-            compiled_data: None,
-            build_status: "pending".to_string(),
-            build_error: None,
-            build_claimed_at: None,
-            compiled_at: None,
-        };
-
-        conn.interact(move |conn| {
-            diesel::insert_into(workflow_packages::table)
-                .values(&new_package)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| RegistryError::Database(e.to_string()))?
-        .map_err(|e| match e {
-            diesel::result::Error::DatabaseError(
-                diesel::result::DatabaseErrorKind::UniqueViolation,
-                _info,
-            ) => RegistryError::PackageExists {
-                package_name: package_metadata.package_name.clone(),
-                version: package_metadata.version.clone(),
             },
             _ => RegistryError::Database(format!("Database error: {}", e)),
         })?;
@@ -235,42 +146,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         )>,
         RegistryError,
     > {
-        crate::dispatch_backend!(
-            self.database.backend(),
-            self.get_package_metadata_postgres(package_name, version)
-                .await,
-            self.get_package_metadata_sqlite(package_name, version)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_package_metadata_postgres(
-        &self,
-        package_name: &str,
-        version: &str,
-    ) -> Result<
-        Option<(
-            String,
-            crate::registry::loader::package_loader::PackageMetadata,
-            Option<Vec<u8>>,
-        )>,
-        RegistryError,
-    > {
         use crate::dal::unified::models::UnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
-
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
 
         let package_name = package_name.to_string();
         let version = version.to_string();
 
-        let package_record: Option<UnifiedWorkflowPackage> = conn
-            .interact(move |conn| {
+        let dal = self.dal();
+        let package_record: Option<UnifiedWorkflowPackage> =
+            crate::interact_on_backend!(dal, |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::package_name.eq(&package_name))
                     .filter(workflow_packages::version.eq(&version))
@@ -282,60 +166,6 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?
-            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        if let Some(record) = package_record {
-            let metadata: crate::registry::loader::package_loader::PackageMetadata =
-                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-            let compiled = record.compiled_data.map(|b| b.into_inner());
-            Ok(Some((record.registry_id.0.to_string(), metadata, compiled)))
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_package_metadata_sqlite(
-        &self,
-        package_name: &str,
-        version: &str,
-    ) -> Result<
-        Option<(
-            String,
-            crate::registry::loader::package_loader::PackageMetadata,
-            Option<Vec<u8>>,
-        )>,
-        RegistryError,
-    > {
-        use crate::dal::unified::models::UnifiedWorkflowPackage;
-        use crate::database::schema::unified::workflow_packages;
-
-        let conn = self
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
-        let package_name = package_name.to_string();
-        let version = version.to_string();
-
-        let package_record: Option<UnifiedWorkflowPackage> = conn
-            .interact(move |conn| {
-                workflow_packages::table
-                    .filter(workflow_packages::package_name.eq(&package_name))
-                    .filter(workflow_packages::version.eq(&version))
-                    .filter(
-                        workflow_packages::superseded
-                            .eq(crate::database::universal_types::UniversalBool(false)),
-                    )
-                    .filter(workflow_packages::build_status.eq("success"))
-                    .first::<UnifiedWorkflowPackage>(conn)
-                    .optional()
-            })
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         if let Some(record) = package_record {
@@ -350,26 +180,12 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
     /// List all packages in the registry.
     pub(super) async fn list_all_packages(&self) -> Result<Vec<WorkflowMetadata>, RegistryError> {
-        crate::dispatch_backend!(
-            self.database.backend(),
-            self.list_all_packages_postgres().await,
-            self.list_all_packages_sqlite().await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_all_packages_postgres(&self) -> Result<Vec<WorkflowMetadata>, RegistryError> {
         use crate::dal::unified::models::UnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
 
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
-        let package_records: Vec<UnifiedWorkflowPackage> = conn
-            .interact(move |conn| {
+        let dal = self.dal();
+        let package_records: Vec<UnifiedWorkflowPackage> =
+            crate::interact_on_backend!(dal, |conn| {
                 workflow_packages::table
                     .filter(
                         workflow_packages::superseded
@@ -378,69 +194,6 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .filter(workflow_packages::build_status.eq("success"))
                     .load::<UnifiedWorkflowPackage>(conn)
             })
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?
-            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        let mut workflows = Vec::new();
-        for record in package_records {
-            let package_metadata: crate::registry::loader::package_loader::PackageMetadata =
-                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-
-            workflows.push(WorkflowMetadata {
-                id: record.id.0,
-                registry_id: record.registry_id.0,
-                workflow_name: if package_metadata.workflow_name.is_empty() {
-                    record.package_name.clone()
-                } else {
-                    package_metadata.workflow_name.clone()
-                },
-                package_name: record.package_name,
-                version: record.version,
-                description: record.description,
-                author: record.author,
-                tasks: package_metadata
-                    .tasks
-                    .iter()
-                    .map(|t| t.local_id.clone())
-                    .collect(),
-                task_graph: build_task_graph(&package_metadata),
-                schedules: Vec::new(),
-                created_at: record.created_at.0,
-                updated_at: record.updated_at.0,
-                paused: record.paused.is_true(),
-                declared_params: package_metadata.declared_params.clone(),
-                declared_surfaces: package_metadata.declared_surfaces.clone(),
-                workflow_triggers: package_metadata.workflow_triggers.clone(),
-            });
-        }
-
-        Ok(workflows)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_all_packages_sqlite(&self) -> Result<Vec<WorkflowMetadata>, RegistryError> {
-        use crate::dal::unified::models::UnifiedWorkflowPackage;
-        use crate::database::schema::unified::workflow_packages;
-
-        let conn = self
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
-        let package_records: Vec<UnifiedWorkflowPackage> = conn
-            .interact(move |conn| {
-                workflow_packages::table
-                    .filter(
-                        workflow_packages::superseded
-                            .eq(crate::database::universal_types::UniversalBool(false)),
-                    )
-                    .filter(workflow_packages::build_status.eq("success"))
-                    .load::<UnifiedWorkflowPackage>(conn)
-            })
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         let mut workflows = Vec::new();
@@ -485,33 +238,13 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         package_name: &str,
         version: &str,
     ) -> Result<(), RegistryError> {
-        crate::dispatch_backend!(
-            self.database.backend(),
-            self.delete_package_metadata_postgres(package_name, version)
-                .await,
-            self.delete_package_metadata_sqlite(package_name, version)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn delete_package_metadata_postgres(
-        &self,
-        package_name: &str,
-        version: &str,
-    ) -> Result<(), RegistryError> {
         use crate::database::schema::unified::workflow_packages;
-
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
 
         let package_name = package_name.to_string();
         let version = version.to_string();
 
-        conn.interact(move |conn| {
+        let dal = self.dal();
+        crate::interact_on_backend!(dal, |conn| {
             diesel::delete(
                 workflow_packages::table
                     .filter(workflow_packages::package_name.eq(&package_name))
@@ -519,40 +252,6 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             )
             .execute(conn)
         })
-        .await
-        .map_err(|e| RegistryError::Database(e.to_string()))?
-        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn delete_package_metadata_sqlite(
-        &self,
-        package_name: &str,
-        version: &str,
-    ) -> Result<(), RegistryError> {
-        use crate::database::schema::unified::workflow_packages;
-
-        let conn = self
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
-        let package_name = package_name.to_string();
-        let version = version.to_string();
-
-        conn.interact(move |conn| {
-            diesel::delete(
-                workflow_packages::table
-                    .filter(workflow_packages::package_name.eq(&package_name))
-                    .filter(workflow_packages::version.eq(&version)),
-            )
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| RegistryError::Database(e.to_string()))?
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         Ok(())
@@ -567,31 +266,14 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         &self,
         package_id: Uuid,
     ) -> Result<Option<(String, WorkflowMetadata, Option<Vec<u8>>)>, RegistryError> {
-        crate::dispatch_backend!(
-            self.database.backend(),
-            self.get_package_metadata_by_id_postgres(package_id).await,
-            self.get_package_metadata_by_id_sqlite(package_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_package_metadata_by_id_postgres(
-        &self,
-        package_id: Uuid,
-    ) -> Result<Option<(String, WorkflowMetadata, Option<Vec<u8>>)>, RegistryError> {
         use crate::dal::unified::models::UnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::UniversalUuid;
 
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
         let pkg_id = UniversalUuid(package_id);
-        let package_record: Option<UnifiedWorkflowPackage> = conn
-            .interact(move |conn| {
+        let dal = self.dal();
+        let package_record: Option<UnifiedWorkflowPackage> =
+            crate::interact_on_backend!(dal, |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::id.eq(pkg_id))
                     .filter(
@@ -602,83 +284,6 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?
-            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        if let Some(record) = package_record {
-            let package_metadata: crate::registry::loader::package_loader::PackageMetadata =
-                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-
-            let compiled = record.compiled_data.map(|b| b.into_inner());
-            let workflow_metadata = WorkflowMetadata {
-                id: record.id.0,
-                registry_id: record.registry_id.0,
-                workflow_name: if package_metadata.workflow_name.is_empty() {
-                    record.package_name.clone()
-                } else {
-                    package_metadata.workflow_name.clone()
-                },
-                package_name: record.package_name,
-                version: record.version,
-                description: record.description,
-                author: record.author,
-                tasks: package_metadata
-                    .tasks
-                    .iter()
-                    .map(|t| t.local_id.clone())
-                    .collect(),
-                task_graph: build_task_graph(&package_metadata),
-                schedules: Vec::new(),
-                created_at: record.created_at.0,
-                updated_at: record.updated_at.0,
-                paused: record.paused.is_true(),
-                declared_params: package_metadata.declared_params.clone(),
-                declared_surfaces: package_metadata.declared_surfaces.clone(),
-                workflow_triggers: package_metadata.workflow_triggers.clone(),
-            };
-
-            Ok(Some((
-                record.registry_id.0.to_string(),
-                workflow_metadata,
-                compiled,
-            )))
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_package_metadata_by_id_sqlite(
-        &self,
-        package_id: Uuid,
-    ) -> Result<Option<(String, WorkflowMetadata, Option<Vec<u8>>)>, RegistryError> {
-        use crate::dal::unified::models::UnifiedWorkflowPackage;
-        use crate::database::schema::unified::workflow_packages;
-        use crate::database::universal_types::UniversalUuid;
-
-        let conn = self
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
-        let pkg_id = UniversalUuid(package_id);
-
-        let package_record: Option<UnifiedWorkflowPackage> = conn
-            .interact(move |conn| {
-                workflow_packages::table
-                    .filter(workflow_packages::id.eq(pkg_id))
-                    .filter(
-                        workflow_packages::superseded
-                            .eq(crate::database::universal_types::UniversalBool(false)),
-                    )
-                    .filter(workflow_packages::build_status.eq("success"))
-                    .first::<UnifiedWorkflowPackage>(conn)
-                    .optional()
-            })
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         if let Some(record) = package_record {
@@ -734,49 +339,17 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::UniversalBool;
 
-        crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let name = package_name.to_string();
-                let record: Option<UnifiedWorkflowPackage> = conn
-                    .interact(move |conn| {
-                        workflow_packages::table
-                            .filter(workflow_packages::package_name.eq(&name))
-                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                            .first::<UnifiedWorkflowPackage>(conn)
-                            .optional()
-                    })
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(record.map(|r| (r.id.0, r.registry_id.0.to_string(), r.content_hash)))
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let name = package_name.to_string();
-                let record: Option<UnifiedWorkflowPackage> = conn
-                    .interact(move |conn| {
-                        workflow_packages::table
-                            .filter(workflow_packages::package_name.eq(&name))
-                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                            .first::<UnifiedWorkflowPackage>(conn)
-                            .optional()
-                    })
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(record.map(|r| (r.id.0, r.registry_id.0.to_string(), r.content_hash)))
-            }
-        )
+        let name = package_name.to_string();
+        let dal = self.dal();
+        let record: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(dal, |conn| {
+            workflow_packages::table
+                .filter(workflow_packages::package_name.eq(&name))
+                .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                .first::<UnifiedWorkflowPackage>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(record.map(|r| (r.id.0, r.registry_id.0.to_string(), r.content_hash)))
     }
 
     /// Supersede the current active row for `old_id` (if provided) and insert a new
@@ -866,77 +439,30 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let pkg_version = package_metadata.version.clone();
         let old_uuid = old_id.map(UniversalUuid);
 
-        crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    conn.transaction::<_, diesel::result::Error, _>(|tx| {
-                        if let Some(id) = old_uuid {
-                            diesel::update(
-                                workflow_packages::table.filter(workflow_packages::id.eq(id)),
-                            )
-                            .set(workflow_packages::superseded.eq(UniversalBool(true)))
-                            .execute(tx)?;
-                        }
-                        diesel::insert_into(workflow_packages::table)
-                            .values(&new_row)
-                            .execute(tx)?;
-                        Ok(new_id.0)
-                    })
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| match e {
-                    diesel::result::Error::DatabaseError(
-                        diesel::result::DatabaseErrorKind::UniqueViolation,
-                        _,
-                    ) => RegistryError::PackageExists {
-                        package_name: pkg_name.clone(),
-                        version: pkg_version.clone(),
-                    },
-                    _ => RegistryError::Database(format!("Database error: {}", e)),
-                })
+        let dal = self.dal();
+        crate::interact_on_backend!(dal, |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|tx| {
+                if let Some(id) = old_uuid {
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(id)))
+                        .set(workflow_packages::superseded.eq(UniversalBool(true)))
+                        .execute(tx)?;
+                }
+                diesel::insert_into(workflow_packages::table)
+                    .values(&new_row)
+                    .execute(tx)?;
+                Ok(new_id.0)
+            })
+        })
+        .map_err(|e| match e {
+            diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::UniqueViolation,
+                _,
+            ) => RegistryError::PackageExists {
+                package_name: pkg_name.clone(),
+                version: pkg_version.clone(),
             },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    conn.transaction::<_, diesel::result::Error, _>(|tx| {
-                        if let Some(id) = old_uuid {
-                            diesel::update(
-                                workflow_packages::table.filter(workflow_packages::id.eq(id)),
-                            )
-                            .set(workflow_packages::superseded.eq(UniversalBool(true)))
-                            .execute(tx)?;
-                        }
-                        diesel::insert_into(workflow_packages::table)
-                            .values(&new_row)
-                            .execute(tx)?;
-                        Ok(new_id.0)
-                    })
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| match e {
-                    diesel::result::Error::DatabaseError(
-                        diesel::result::DatabaseErrorKind::UniqueViolation,
-                        _,
-                    ) => RegistryError::PackageExists {
-                        package_name: pkg_name.clone(),
-                        version: pkg_version.clone(),
-                    },
-                    _ => RegistryError::Database(format!("Database error: {}", e)),
-                })
-            }
-        )
+            _ => RegistryError::Database(format!("Database error: {}", e)),
+        })
     }
 
     /// Inspect a package by ID — returns metadata plus `build_status` /
@@ -956,43 +482,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
         let pkg_id = UniversalUuid(package_id);
 
-        let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    workflow_packages::table
-                        .filter(workflow_packages::id.eq(pkg_id))
-                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    workflow_packages::table
-                        .filter(workflow_packages::id.eq(pkg_id))
-                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            }
-        );
+        let dal = self.dal();
+        let record: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(dal, |conn| {
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(pkg_id))
+                .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                .first::<UnifiedWorkflowPackage>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         let Some(record) = record else {
             return Ok(None);
@@ -1038,62 +536,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         &self,
         package_id: Uuid,
     ) -> Result<(), RegistryError> {
-        crate::dispatch_backend!(
-            self.database.backend(),
-            self.delete_package_metadata_by_id_postgres(package_id)
-                .await,
-            self.delete_package_metadata_by_id_sqlite(package_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn delete_package_metadata_by_id_postgres(
-        &self,
-        package_id: Uuid,
-    ) -> Result<(), RegistryError> {
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::UniversalUuid;
 
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
         let pkg_id = UniversalUuid(package_id);
-        conn.interact(move |conn| {
+        let dal = self.dal();
+        crate::interact_on_backend!(dal, |conn| {
             diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(pkg_id)))
                 .execute(conn)
         })
-        .await
-        .map_err(|e| RegistryError::Database(e.to_string()))?
-        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn delete_package_metadata_by_id_sqlite(
-        &self,
-        package_id: Uuid,
-    ) -> Result<(), RegistryError> {
-        use crate::database::schema::unified::workflow_packages;
-        use crate::database::universal_types::UniversalUuid;
-
-        let conn = self
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?;
-
-        let pkg_id = UniversalUuid(package_id);
-
-        conn.interact(move |conn| {
-            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(pkg_id)))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| RegistryError::Database(e.to_string()))?
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         Ok(())
@@ -1111,6 +562,12 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         use crate::database::universal_types::{UniversalBool, UniversalTimestamp};
 
         let now = UniversalTimestamp::now();
+        // KEPT AS EXPLICIT TWINS (CLOACI-I-0135): the two arms genuinely
+        // diverge — the Postgres claim uses `FOR UPDATE SKIP LOCKED`
+        // (`.for_update().skip_locked()`) so concurrent compiler instances
+        // don't block on each other's claims; SQLite has no such construct and
+        // relies on its single-writer lock instead. Not a backend-agnostic
+        // body, so it cannot fold into `interact_on_backend!`.
         crate::dispatch_backend!(
             self.database.backend(),
             {
@@ -1290,81 +747,34 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         };
 
         let bytes = UniversalBinary::new(compiled);
-        let updated: usize = crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let meta = merged_metadata_json.clone();
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    let target = workflow_packages::table
-                        .filter(workflow_packages::id.eq(pid))
-                        .filter(workflow_packages::build_status.eq("building"));
-                    match meta {
-                        Some(meta) => diesel::update(target)
-                            .set((
-                                workflow_packages::build_status.eq("success"),
-                                workflow_packages::compiled_data.eq(Some(bytes)),
-                                workflow_packages::compiled_at.eq(Some(now)),
-                                workflow_packages::build_error.eq::<Option<String>>(None),
-                                workflow_packages::metadata.eq(meta),
-                            ))
-                            .execute(conn),
-                        None => diesel::update(target)
-                            .set((
-                                workflow_packages::build_status.eq("success"),
-                                workflow_packages::compiled_data.eq(Some(bytes)),
-                                workflow_packages::compiled_at.eq(Some(now)),
-                                workflow_packages::build_error.eq::<Option<String>>(None),
-                            ))
-                            .execute(conn),
-                    }
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let meta = merged_metadata_json.clone();
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    let target = workflow_packages::table
-                        .filter(workflow_packages::id.eq(pid))
-                        .filter(workflow_packages::build_status.eq("building"));
-                    match meta {
-                        Some(meta) => diesel::update(target)
-                            .set((
-                                workflow_packages::build_status.eq("success"),
-                                workflow_packages::compiled_data.eq(Some(bytes)),
-                                workflow_packages::compiled_at.eq(Some(now)),
-                                workflow_packages::build_error.eq::<Option<String>>(None),
-                                workflow_packages::metadata.eq(meta),
-                            ))
-                            .execute(conn),
-                        None => diesel::update(target)
-                            .set((
-                                workflow_packages::build_status.eq("success"),
-                                workflow_packages::compiled_data.eq(Some(bytes)),
-                                workflow_packages::compiled_at.eq(Some(now)),
-                                workflow_packages::build_error.eq::<Option<String>>(None),
-                            ))
-                            .execute(conn),
-                    }
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+        let meta = merged_metadata_json;
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            let target = workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .filter(workflow_packages::build_status.eq("building"));
+            match meta {
+                Some(meta) => diesel::update(target)
+                    .set((
+                        workflow_packages::build_status.eq("success"),
+                        workflow_packages::compiled_data.eq(Some(bytes)),
+                        workflow_packages::compiled_at.eq(Some(now)),
+                        workflow_packages::build_error.eq::<Option<String>>(None),
+                        workflow_packages::metadata.eq(meta),
+                    ))
+                    .execute(conn),
+                None => diesel::update(target)
+                    .set((
+                        workflow_packages::build_status.eq("success"),
+                        workflow_packages::compiled_data.eq(Some(bytes)),
+                        workflow_packages::compiled_at.eq(Some(now)),
+                        workflow_packages::build_error.eq::<Option<String>>(None),
+                    ))
+                    .execute(conn),
             }
-        );
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         if updated == 0 {
             return Err(RegistryError::Database(format!(
                 "stale build claim on package {pid}: row no longer in 'building' state \
@@ -1390,49 +800,18 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let paused_val = UniversalBool::from(paused);
         let paused_at_val: Option<UniversalTimestamp> = if paused { Some(now) } else { None };
 
-        let updated: usize = crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
-                        .set((
-                            workflow_packages::paused.eq(paused_val),
-                            workflow_packages::paused_at.eq(paused_at_val),
-                            workflow_packages::updated_at.eq(now),
-                        ))
-                        .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
-                        .set((
-                            workflow_packages::paused.eq(paused_val),
-                            workflow_packages::paused_at.eq(paused_at_val),
-                            workflow_packages::updated_at.eq(now),
-                        ))
-                        .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            }
-        );
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set((
+                    workflow_packages::paused.eq(paused_val),
+                    workflow_packages::paused_at.eq(paused_at_val),
+                    workflow_packages::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         Ok(updated > 0)
     }
@@ -1475,43 +854,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 return Ok(None);
             }
             let pid = UniversalUuid(package_id);
-            let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
-                self.database.backend(),
-                {
-                    let conn = self
-                        .database
-                        .get_postgres_connection()
-                        .await
-                        .map_err(|e| RegistryError::Database(e.to_string()))?;
-                    conn.interact(move |conn| {
-                        use diesel::prelude::*;
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .first::<UnifiedWorkflowPackage>(conn)
-                            .optional()
-                    })
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-                },
-                {
-                    let conn = self
-                        .database
-                        .get_sqlite_connection()
-                        .await
-                        .map_err(|e| RegistryError::Database(e.to_string()))?;
-                    conn.interact(move |conn| {
-                        use diesel::prelude::*;
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .first::<UnifiedWorkflowPackage>(conn)
-                            .optional()
-                    })
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-                }
-            );
+            let dal = self.dal();
+            let record: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(dal, |conn| {
+                use diesel::prelude::*;
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .first::<UnifiedWorkflowPackage>(conn)
+                    .optional()
+            })
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
             let record = match record {
                 Some(r) => r,
                 None => return Ok(None),
@@ -1539,43 +890,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
         // Read the row's existing stored metadata so we keep identity fields.
         let pid = UniversalUuid(package_id);
-        let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    workflow_packages::table
-                        .filter(workflow_packages::id.eq(pid))
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    workflow_packages::table
-                        .filter(workflow_packages::id.eq(pid))
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            }
-        );
+        let dal = self.dal();
+        let record: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .first::<UnifiedWorkflowPackage>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         let record = match record {
             Some(r) => r,
@@ -1653,43 +976,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let pid = UniversalUuid(package_id);
 
         // Read the existing metadata so we preserve identity + workflow_name.
-        let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    workflow_packages::table
-                        .filter(workflow_packages::id.eq(pid))
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    workflow_packages::table
-                        .filter(workflow_packages::id.eq(pid))
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            }
-        );
+        let dal = self.dal();
+        let record: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .first::<UnifiedWorkflowPackage>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         let record = match record {
             Some(r) => r,
@@ -1727,43 +1022,14 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
         let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
 
-        let updated: usize = crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let json = json.clone();
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
-                        .set(workflow_packages::metadata.eq(json))
-                        .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let json = json.clone();
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
-                        .set(workflow_packages::metadata.eq(json))
-                        .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            }
-        );
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set(workflow_packages::metadata.eq(json))
+                .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         if updated == 0 {
             tracing::warn!(%package_id, "persist_task_graph_db updated no rows");
@@ -1790,55 +1056,21 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             error.to_string()
         };
         let pid = UniversalUuid(package_id);
-        let updated: usize = crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .filter(workflow_packages::build_status.eq("building")),
-                    )
-                    .set((
-                        workflow_packages::build_status.eq("failed"),
-                        workflow_packages::build_error.eq(Some(truncated)),
-                    ))
-                    .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .filter(workflow_packages::build_status.eq("building")),
-                    )
-                    .set((
-                        workflow_packages::build_status.eq("failed"),
-                        workflow_packages::build_error.eq(Some(truncated)),
-                    ))
-                    .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            }
-        );
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("building")),
+            )
+            .set((
+                workflow_packages::build_status.eq("failed"),
+                workflow_packages::build_error.eq(Some(truncated)),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         if updated == 0 {
             return Err(RegistryError::Database(format!(
                 "stale build claim on package {pid}: row no longer in 'building' state \
@@ -1862,59 +1094,23 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         use crate::database::universal_types::UniversalUuid;
 
         let pid = UniversalUuid(package_id);
-        let updated: usize = crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .filter(workflow_packages::build_status.eq_any(["success", "failed"])),
-                    )
-                    .set((
-                        workflow_packages::build_status.eq("pending"),
-                        workflow_packages::build_error.eq(None::<String>),
-                        workflow_packages::build_claimed_at
-                            .eq(None::<crate::database::universal_types::UniversalTimestamp>),
-                    ))
-                    .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .filter(workflow_packages::build_status.eq_any(["success", "failed"])),
-                    )
-                    .set((
-                        workflow_packages::build_status.eq("pending"),
-                        workflow_packages::build_error.eq(None::<String>),
-                        workflow_packages::build_claimed_at
-                            .eq(None::<crate::database::universal_types::UniversalTimestamp>),
-                    ))
-                    .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
-            }
-        );
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq_any(["success", "failed"])),
+            )
+            .set((
+                workflow_packages::build_status.eq("pending"),
+                workflow_packages::build_error.eq(None::<String>),
+                workflow_packages::build_claimed_at
+                    .eq(None::<crate::database::universal_types::UniversalTimestamp>),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         Ok(updated > 0)
     }
 
@@ -1926,51 +1122,19 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
         let pid = UniversalUuid(package_id);
         let now = UniversalTimestamp::now();
-        crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .filter(workflow_packages::build_status.eq("building")),
-                    )
-                    .set(workflow_packages::build_claimed_at.eq(Some(now)))
-                    .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(())
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                conn.interact(move |conn| {
-                    use diesel::prelude::*;
-                    diesel::update(
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .filter(workflow_packages::build_status.eq("building")),
-                    )
-                    .set(workflow_packages::build_claimed_at.eq(Some(now)))
-                    .execute(conn)
-                })
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(())
-            }
-        )
+        let dal = self.dal();
+        crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("building")),
+            )
+            .set(workflow_packages::build_claimed_at.eq(Some(now)))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(())
     }
 
     /// Reset rows stuck in `building` whose last heartbeat is older than
@@ -1987,65 +1151,24 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 - chrono::Duration::from_std(stale_threshold)
                     .unwrap_or_else(|_| chrono::Duration::seconds(60)),
         );
-        crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let n: usize = conn
-                    .interact(move |conn| {
-                        use diesel::prelude::*;
-                        diesel::update(
-                            workflow_packages::table
-                                .filter(workflow_packages::build_status.eq("building"))
-                                .filter(workflow_packages::build_claimed_at.lt(Some(cutoff))),
-                        )
-                        .set((
-                            workflow_packages::build_status.eq("pending"),
-                            workflow_packages::build_claimed_at
-                                .eq::<Option<UniversalTimestamp>>(None),
-                            workflow_packages::build_error
-                                .eq(Some("(reset after stale heartbeat)".to_string())),
-                        ))
-                        .execute(conn)
-                    })
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(n)
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let n: usize = conn
-                    .interact(move |conn| {
-                        use diesel::prelude::*;
-                        diesel::update(
-                            workflow_packages::table
-                                .filter(workflow_packages::build_status.eq("building"))
-                                .filter(workflow_packages::build_claimed_at.lt(Some(cutoff))),
-                        )
-                        .set((
-                            workflow_packages::build_status.eq("pending"),
-                            workflow_packages::build_claimed_at
-                                .eq::<Option<UniversalTimestamp>>(None),
-                            workflow_packages::build_error
-                                .eq(Some("(reset after stale heartbeat)".to_string())),
-                        ))
-                        .execute(conn)
-                    })
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(n)
-            }
-        )
+        let dal = self.dal();
+        let n: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::build_status.eq("building"))
+                    .filter(workflow_packages::build_claimed_at.lt(Some(cutoff))),
+            )
+            .set((
+                workflow_packages::build_status.eq("pending"),
+                workflow_packages::build_claimed_at.eq::<Option<UniversalTimestamp>>(None),
+                workflow_packages::build_error
+                    .eq(Some("(reset after stale heartbeat)".to_string())),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(n)
     }
 
     /// Look up the most recently-compiled artifact for `content_hash`, across
@@ -2060,55 +1183,19 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         use crate::database::schema::unified::workflow_packages;
 
         let hash = hash.to_string();
-        crate::dispatch_backend!(
-            self.database.backend(),
-            {
-                let conn = self
-                    .database
-                    .get_postgres_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let hash_inner = hash.clone();
-                let record: Option<UnifiedWorkflowPackage> = conn
-                    .interact(move |conn| {
-                        use diesel::prelude::*;
-                        workflow_packages::table
-                            .filter(workflow_packages::content_hash.eq(&hash_inner))
-                            .filter(workflow_packages::build_status.eq("success"))
-                            .filter(workflow_packages::compiled_data.is_not_null())
-                            .order(workflow_packages::compiled_at.desc())
-                            .first::<UnifiedWorkflowPackage>(conn)
-                            .optional()
-                    })
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(record.and_then(|r| r.compiled_data.map(|b| (r.id.0, b.into_inner()))))
-            },
-            {
-                let conn = self
-                    .database
-                    .get_sqlite_connection()
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?;
-                let hash_inner = hash.clone();
-                let record: Option<UnifiedWorkflowPackage> = conn
-                    .interact(move |conn| {
-                        use diesel::prelude::*;
-                        workflow_packages::table
-                            .filter(workflow_packages::content_hash.eq(&hash_inner))
-                            .filter(workflow_packages::build_status.eq("success"))
-                            .filter(workflow_packages::compiled_data.is_not_null())
-                            .order(workflow_packages::compiled_at.desc())
-                            .first::<UnifiedWorkflowPackage>(conn)
-                            .optional()
-                    })
-                    .await
-                    .map_err(|e| RegistryError::Database(e.to_string()))?
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(record.and_then(|r| r.compiled_data.map(|b| (r.id.0, b.into_inner()))))
-            }
-        )
+        let dal = self.dal();
+        let record: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            workflow_packages::table
+                .filter(workflow_packages::content_hash.eq(&hash))
+                .filter(workflow_packages::build_status.eq("success"))
+                .filter(workflow_packages::compiled_data.is_not_null())
+                .order(workflow_packages::compiled_at.desc())
+                .first::<UnifiedWorkflowPackage>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(record.and_then(|r| r.compiled_data.map(|b| (r.id.0, b.into_inner()))))
     }
 
     /// Summary telemetry for the compiler service's `/v1/status` endpoint.
@@ -2135,99 +1222,42 @@ pub async fn build_queue_stats(
     use crate::database::schema::unified::workflow_packages;
     use crate::database::universal_types::UniversalBool;
 
-    crate::dispatch_backend!(
-        database.backend(),
-        {
-            let conn = database
-                .get_postgres_connection()
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?;
-            conn.interact(
-                move |conn| -> Result<BuildQueueStats, diesel::result::Error> {
-                    let pending = workflow_packages::table
-                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                        .filter(workflow_packages::build_status.eq("pending"))
-                        .count()
-                        .get_result::<i64>(conn)?;
-                    let building = workflow_packages::table
-                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                        .filter(workflow_packages::build_status.eq("building"))
-                        .count()
-                        .get_result::<i64>(conn)?;
-                    let last_success: Option<UnifiedWorkflowPackage> = workflow_packages::table
-                        .filter(workflow_packages::build_status.eq("success"))
-                        .order(workflow_packages::compiled_at.desc())
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()?;
-                    let last_failure: Option<UnifiedWorkflowPackage> = workflow_packages::table
-                        .filter(workflow_packages::build_status.eq("failed"))
-                        .order(workflow_packages::updated_at.desc())
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()?;
-                    let heartbeat_row: Option<UnifiedWorkflowPackage> = workflow_packages::table
-                        .filter(workflow_packages::build_status.eq("building"))
-                        .order(workflow_packages::build_claimed_at.desc())
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()?;
-                    Ok(BuildQueueStats {
-                        pending: pending as u64,
-                        building: building as u64,
-                        last_success_at: last_success.and_then(|r| r.compiled_at.map(|t| t.0)),
-                        last_failure_at: last_failure.map(|r| r.updated_at.0),
-                        heartbeat_at: heartbeat_row.and_then(|r| r.build_claimed_at.map(|t| t.0)),
-                    })
-                },
-            )
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?
-            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
-        },
-        {
-            let conn = database
-                .get_sqlite_connection()
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?;
-            conn.interact(
-                move |conn| -> Result<BuildQueueStats, diesel::result::Error> {
-                    let pending = workflow_packages::table
-                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                        .filter(workflow_packages::build_status.eq("pending"))
-                        .count()
-                        .get_result::<i64>(conn)?;
-                    let building = workflow_packages::table
-                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                        .filter(workflow_packages::build_status.eq("building"))
-                        .count()
-                        .get_result::<i64>(conn)?;
-                    let last_success: Option<UnifiedWorkflowPackage> = workflow_packages::table
-                        .filter(workflow_packages::build_status.eq("success"))
-                        .order(workflow_packages::compiled_at.desc())
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()?;
-                    let last_failure: Option<UnifiedWorkflowPackage> = workflow_packages::table
-                        .filter(workflow_packages::build_status.eq("failed"))
-                        .order(workflow_packages::updated_at.desc())
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()?;
-                    let heartbeat_row: Option<UnifiedWorkflowPackage> = workflow_packages::table
-                        .filter(workflow_packages::build_status.eq("building"))
-                        .order(workflow_packages::build_claimed_at.desc())
-                        .first::<UnifiedWorkflowPackage>(conn)
-                        .optional()?;
-                    Ok(BuildQueueStats {
-                        pending: pending as u64,
-                        building: building as u64,
-                        last_success_at: last_success.and_then(|r| r.compiled_at.map(|t| t.0)),
-                        last_failure_at: last_failure.map(|r| r.updated_at.0),
-                        heartbeat_at: heartbeat_row.and_then(|r| r.build_claimed_at.map(|t| t.0)),
-                    })
-                },
-            )
-            .await
-            .map_err(|e| RegistryError::Database(e.to_string()))?
-            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
-        }
-    )
+    let dal = crate::dal::unified::DAL::new(database.clone());
+    crate::interact_on_backend!(dal, |conn| {
+        let pending = workflow_packages::table
+            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+            .filter(workflow_packages::build_status.eq("pending"))
+            .count()
+            .get_result::<i64>(conn)?;
+        let building = workflow_packages::table
+            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+            .filter(workflow_packages::build_status.eq("building"))
+            .count()
+            .get_result::<i64>(conn)?;
+        let last_success: Option<UnifiedWorkflowPackage> = workflow_packages::table
+            .filter(workflow_packages::build_status.eq("success"))
+            .order(workflow_packages::compiled_at.desc())
+            .first::<UnifiedWorkflowPackage>(conn)
+            .optional()?;
+        let last_failure: Option<UnifiedWorkflowPackage> = workflow_packages::table
+            .filter(workflow_packages::build_status.eq("failed"))
+            .order(workflow_packages::updated_at.desc())
+            .first::<UnifiedWorkflowPackage>(conn)
+            .optional()?;
+        let heartbeat_row: Option<UnifiedWorkflowPackage> = workflow_packages::table
+            .filter(workflow_packages::build_status.eq("building"))
+            .order(workflow_packages::build_claimed_at.desc())
+            .first::<UnifiedWorkflowPackage>(conn)
+            .optional()?;
+        Ok::<_, diesel::result::Error>(BuildQueueStats {
+            pending: pending as u64,
+            building: building as u64,
+            last_success_at: last_success.and_then(|r| r.compiled_at.map(|t| t.0)),
+            last_failure_at: last_failure.map(|r| r.updated_at.0),
+            heartbeat_at: heartbeat_row.and_then(|r| r.build_claimed_at.map(|t| t.0)),
+        })
+    })
+    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
 }
 
 /// Snapshot of the build queue for the compiler's status endpoint.
@@ -2260,56 +1290,30 @@ pub async fn reconciler_stats(
     use crate::database::schema::unified::workflow_packages;
     use crate::database::universal_types::UniversalBool;
 
-    macro_rules! query {
-        ($conn:expr) => {{
-            $conn
-                .interact(
-                    move |conn| -> Result<ReconcilerStats, diesel::result::Error> {
-                        let built = workflow_packages::table
-                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                            .filter(workflow_packages::build_status.eq("success"))
-                            .count()
-                            .get_result::<i64>(conn)?;
-                        let failed = workflow_packages::table
-                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                            .filter(workflow_packages::build_status.eq("failed"))
-                            .count()
-                            .get_result::<i64>(conn)?;
-                        let last_built: Option<UnifiedWorkflowPackage> = workflow_packages::table
-                            .filter(workflow_packages::build_status.eq("success"))
-                            .order(workflow_packages::compiled_at.desc())
-                            .first::<UnifiedWorkflowPackage>(conn)
-                            .optional()?;
-                        Ok(ReconcilerStats {
-                            built: built as u64,
-                            failed: failed as u64,
-                            last_built_at: last_built.and_then(|r| r.compiled_at.map(|t| t.0)),
-                        })
-                    },
-                )
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
-        }};
-    }
-
-    crate::dispatch_backend!(
-        database.backend(),
-        {
-            let conn = database
-                .get_postgres_connection()
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?;
-            query!(conn)
-        },
-        {
-            let conn = database
-                .get_sqlite_connection()
-                .await
-                .map_err(|e| RegistryError::Database(e.to_string()))?;
-            query!(conn)
-        }
-    )
+    let dal = crate::dal::unified::DAL::new(database.clone());
+    crate::interact_on_backend!(dal, |conn| {
+        let built = workflow_packages::table
+            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+            .filter(workflow_packages::build_status.eq("success"))
+            .count()
+            .get_result::<i64>(conn)?;
+        let failed = workflow_packages::table
+            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+            .filter(workflow_packages::build_status.eq("failed"))
+            .count()
+            .get_result::<i64>(conn)?;
+        let last_built: Option<UnifiedWorkflowPackage> = workflow_packages::table
+            .filter(workflow_packages::build_status.eq("success"))
+            .order(workflow_packages::compiled_at.desc())
+            .first::<UnifiedWorkflowPackage>(conn)
+            .optional()?;
+        Ok::<_, diesel::result::Error>(ReconcilerStats {
+            built: built as u64,
+            failed: failed as u64,
+            last_built_at: last_built.and_then(|r| r.compiled_at.map(|t| t.0)),
+        })
+    })
+    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
 }
 
 /// A build row claimed by the compiler. Everything the compiler needs to

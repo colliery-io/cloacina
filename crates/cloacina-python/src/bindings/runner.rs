@@ -809,6 +809,9 @@ where
         };
 
         let runner = Arc::new(runner);
+        // CLOACI-I-0136: deliberately NOT crate::gil::py_block_on — this is a
+        // long-running actor loop on this dedicated OS thread that does not hold
+        // the GIL, so the "release GIL then block" bridge does not apply here.
         rt.block_on(run_event_loop(runner, rx));
     });
 

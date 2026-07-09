@@ -288,3 +288,90 @@ macro_rules! dispatch_backend {
         }
     }};
 }
+
+// =============================================================================
+// interact_on_backend! — write the Diesel query body ONCE (CLOACI-I-0135)
+// =============================================================================
+// The DAL grabs CONCRETE pooled connections from two separate deadpool pools:
+// `get_postgres_connection() -> Object<PgManager>` hands the closure a
+// `&mut PgConnection`; `get_sqlite_connection() -> Object<SqliteManager>` hands
+// it a `&mut SqliteConnection`. That concrete-type divergence is the only reason
+// ~330 byte-identical `*_postgres`/`*_sqlite` twin methods exist. This macro
+// authors the Diesel closure body a single time and expands it (via
+// `dispatch_backend!`) into a postgres arm and a sqlite arm — each monomorphized
+// against its concrete connection type. Under single-feature builds only the
+// live arm compiles (cfg); under dual-feature both arms are emitted and the same
+// `move` closure appears in each. That is sound: they are mutually-exclusive
+// `match` arms, so only one ever runs, and Rust permits moving the same captured
+// variable in different arms of one `match`.
+
+/// Runs a Diesel closure against whichever backend `$dal` is using, writing the
+/// query body ONCE.
+///
+/// Expands to `dispatch_backend!($dal.backend(), <pg arm>, <sqlite arm>)` where
+/// each arm checks out its concrete pooled connection and runs
+/// `conn.interact(move |conn| <body>)`.
+///
+/// # Return type & error contract
+///
+/// Evaluates to `Result<R, diesel::result::Error>` (already `.await`ed — do NOT
+/// add `.await` at the call site). The two non-Diesel failure layers
+/// (`deadpool` pool-checkout errors and `deadpool_diesel::InteractError`) are
+/// folded into `diesel::result::Error::QueryBuilderError` so the CALL SITE maps
+/// exactly ONE `diesel::result::Error` to its domain error — the same single
+/// `.map_err(|e| …)?` closure each twin already used for its inner Diesel result,
+/// including `matches!(e, diesel::result::Error::NotFound)` domain mapping.
+///
+/// A genuine `diesel::result::Error::NotFound` (or a UNIQUE/duplicate violation)
+/// is the *inner* Diesel error and passes through UNCHANGED, so existing
+/// NotFound/duplicate-name detection at the call site keeps working.
+///
+/// # Usage
+/// ```ignore
+/// let key: UnifiedSigningKey = interact_on_backend!(self.dal, |conn| {
+///     signing_keys::table
+///         .filter(signing_keys::id.eq(key_id))
+///         .first(conn)
+/// })
+/// .map_err(|e| {
+///     if matches!(e, diesel::result::Error::NotFound) {
+///         KeyError::NotFound(key_id)
+///     } else {
+///         KeyError::Database(e.to_string())
+///     }
+/// })?;
+/// ```
+#[macro_export]
+macro_rules! interact_on_backend {
+    ($dal:expr, |$conn:ident| $body:expr) => {{
+        $crate::dispatch_backend!(
+            $dal.backend(),
+            {
+                async {
+                    let __conn = $dal
+                        .database
+                        .get_postgres_connection()
+                        .await
+                        .map_err(|__e| {
+                            ::diesel::result::Error::QueryBuilderError(__e.to_string().into())
+                        })?;
+                    __conn.interact(move |$conn| $body).await.map_err(|__e| {
+                        ::diesel::result::Error::QueryBuilderError(__e.to_string().into())
+                    })?
+                }
+                .await
+            },
+            {
+                async {
+                    let __conn = $dal.database.get_sqlite_connection().await.map_err(|__e| {
+                        ::diesel::result::Error::QueryBuilderError(__e.to_string().into())
+                    })?;
+                    __conn.interact(move |$conn| $body).await.map_err(|__e| {
+                        ::diesel::result::Error::QueryBuilderError(__e.to_string().into())
+                    })?
+                }
+                .await
+            }
+        )
+    }};
+}

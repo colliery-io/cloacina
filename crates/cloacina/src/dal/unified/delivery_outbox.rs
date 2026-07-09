@@ -79,56 +79,12 @@ impl<'a> DeliveryOutboxDAL<'a> {
     /// the equivalent insert inside its own transaction; this convenience
     /// method opens its own connection and is used standalone and in tests.
     pub async fn enqueue(&self, new: NewDeliveryOutbox) -> Result<DeliveryOutbox, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.enqueue_postgres(new).await,
-            self.enqueue_sqlite(new).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn enqueue_postgres(
-        &self,
-        new: NewDeliveryOutbox,
-    ) -> Result<DeliveryOutbox, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let row = build_insert(new);
-        let result: UnifiedDeliveryOutbox = conn
-            .interact(move |conn| {
-                diesel::insert_into(delivery_outbox::table)
-                    .values(&row)
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(to_domain(result))
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn enqueue_sqlite(
-        &self,
-        new: NewDeliveryOutbox,
-    ) -> Result<DeliveryOutbox, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let row = build_insert(new);
-        let result: UnifiedDeliveryOutbox = conn
-            .interact(move |conn| {
-                diesel::insert_into(delivery_outbox::table)
-                    .values(&row)
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let result: UnifiedDeliveryOutbox = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::insert_into(delivery_outbox::table)
+                .values(&row)
+                .get_result(conn)
+        })?;
         Ok(to_domain(result))
     }
 
@@ -137,66 +93,22 @@ impl<'a> DeliveryOutboxDAL<'a> {
     /// `pending → delivered`: record that the row was pushed to its recipient.
     /// Increments `delivery_attempts` and stamps `delivered_at`.
     pub async fn mark_delivered(&self, id: i64) -> Result<(), ValidationError> {
-        let affected = crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_delivered_postgres(id).await,
-            self.mark_delivered_sqlite(id).await
-        )?;
+        let now = UniversalTimestamp::now();
+        let affected = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                delivery_outbox::table
+                    .filter(delivery_outbox::id.eq(id))
+                    .filter(delivery_outbox::delivery_state.eq(STATE_PENDING)),
+            )
+            .set((
+                delivery_outbox::delivery_state.eq(STATE_DELIVERED),
+                delivery_outbox::delivered_at.eq(Some(now)),
+                delivery_outbox::delivery_attempts.eq(delivery_outbox::delivery_attempts + 1),
+            ))
+            .execute(conn)
+        })
+        .map_err(ValidationError::from)?;
         transition_result(id, STATE_PENDING, STATE_DELIVERED, affected)
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_delivered_postgres(&self, id: i64) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(
-                delivery_outbox::table
-                    .filter(delivery_outbox::id.eq(id))
-                    .filter(delivery_outbox::delivery_state.eq(STATE_PENDING)),
-            )
-            .set((
-                delivery_outbox::delivery_state.eq(STATE_DELIVERED),
-                delivery_outbox::delivered_at.eq(Some(now)),
-                delivery_outbox::delivery_attempts.eq(delivery_outbox::delivery_attempts + 1),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(ValidationError::from)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_delivered_sqlite(&self, id: i64) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(
-                delivery_outbox::table
-                    .filter(delivery_outbox::id.eq(id))
-                    .filter(delivery_outbox::delivery_state.eq(STATE_PENDING)),
-            )
-            .set((
-                delivery_outbox::delivery_state.eq(STATE_DELIVERED),
-                delivery_outbox::delivered_at.eq(Some(now)),
-                delivery_outbox::delivery_attempts.eq(delivery_outbox::delivery_attempts + 1),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(ValidationError::from)
     }
 
     /// `pending|delivered → acked`: recipient confirmed receipt.
@@ -210,118 +122,36 @@ impl<'a> DeliveryOutboxDAL<'a> {
     /// sweeper reclaimed it. Either source state is fine semantically: the
     /// recipient saw the row, whichever bookkeeping order the server reached.
     pub async fn mark_acked(&self, id: i64) -> Result<(), ValidationError> {
-        let affected = crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_acked_postgres(id).await,
-            self.mark_acked_sqlite(id).await
-        )?;
+        let now = UniversalTimestamp::now();
+        let affected = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                delivery_outbox::table
+                    .filter(delivery_outbox::id.eq(id))
+                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED)),
+            )
+            .set((
+                delivery_outbox::delivery_state.eq(STATE_ACKED),
+                delivery_outbox::acked_at.eq(Some(now)),
+            ))
+            .execute(conn)
+        })
+        .map_err(ValidationError::from)?;
         transition_result(id, "pending|delivered", STATE_ACKED, affected)
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_acked_postgres(&self, id: i64) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(
-                delivery_outbox::table
-                    .filter(delivery_outbox::id.eq(id))
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED)),
-            )
-            .set((
-                delivery_outbox::delivery_state.eq(STATE_ACKED),
-                delivery_outbox::acked_at.eq(Some(now)),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(ValidationError::from)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_acked_sqlite(&self, id: i64) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(
-                delivery_outbox::table
-                    .filter(delivery_outbox::id.eq(id))
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED)),
-            )
-            .set((
-                delivery_outbox::delivery_state.eq(STATE_ACKED),
-                delivery_outbox::acked_at.eq(Some(now)),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(ValidationError::from)
     }
 
     /// `delivered → pending`: redelivery path (sweeper reclaim / reconnect resync).
     pub async fn reset_to_pending(&self, id: i64) -> Result<(), ValidationError> {
-        let affected = crate::dispatch_backend!(
-            self.dal.backend(),
-            self.reset_to_pending_postgres(id).await,
-            self.reset_to_pending_sqlite(id).await
-        )?;
+        let affected = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                delivery_outbox::table
+                    .filter(delivery_outbox::id.eq(id))
+                    .filter(delivery_outbox::delivery_state.eq(STATE_DELIVERED)),
+            )
+            .set(delivery_outbox::delivery_state.eq(STATE_PENDING))
+            .execute(conn)
+        })
+        .map_err(ValidationError::from)?;
         transition_result(id, STATE_DELIVERED, STATE_PENDING, affected)
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn reset_to_pending_postgres(&self, id: i64) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        conn.interact(move |conn| {
-            diesel::update(
-                delivery_outbox::table
-                    .filter(delivery_outbox::id.eq(id))
-                    .filter(delivery_outbox::delivery_state.eq(STATE_DELIVERED)),
-            )
-            .set(delivery_outbox::delivery_state.eq(STATE_PENDING))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(ValidationError::from)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn reset_to_pending_sqlite(&self, id: i64) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        conn.interact(move |conn| {
-            diesel::update(
-                delivery_outbox::table
-                    .filter(delivery_outbox::id.eq(id))
-                    .filter(delivery_outbox::delivery_state.eq(STATE_DELIVERED)),
-            )
-            .set(delivery_outbox::delivery_state.eq(STATE_PENDING))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(ValidationError::from)
     }
 
     /// Reset every `delivered`-state row addressed to `(recipient, tenant_id)`
@@ -338,28 +168,7 @@ impl<'a> DeliveryOutboxDAL<'a> {
     ) -> Result<usize, ValidationError> {
         let recipient = recipient.to_string();
         let tenant_id = tenant_id.map(|s| s.to_string());
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.reset_delivered_for_recipient_postgres(recipient, tenant_id)
-                .await,
-            self.reset_delivered_for_recipient_sqlite(recipient, tenant_id)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn reset_delivered_for_recipient_postgres(
-        &self,
-        recipient: String,
-        tenant_id: Option<String>,
-    ) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             // diesel: branch on the tenant filter because Option doesn't auto-map to IS NULL.
             let base = delivery_outbox::table
                 .filter(delivery_outbox::recipient.eq(recipient))
@@ -373,38 +182,6 @@ impl<'a> DeliveryOutboxDAL<'a> {
                     .execute(conn),
             }
         })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(ValidationError::from)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn reset_delivered_for_recipient_sqlite(
-        &self,
-        recipient: String,
-        tenant_id: Option<String>,
-    ) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        conn.interact(move |conn| {
-            let base = delivery_outbox::table
-                .filter(delivery_outbox::recipient.eq(recipient))
-                .filter(delivery_outbox::delivery_state.eq(STATE_DELIVERED));
-            match tenant_id {
-                Some(t) => diesel::update(base.filter(delivery_outbox::tenant_id.eq(t)))
-                    .set(delivery_outbox::delivery_state.eq(STATE_PENDING))
-                    .execute(conn),
-                None => diesel::update(base.filter(delivery_outbox::tenant_id.is_null()))
-                    .set(delivery_outbox::delivery_state.eq(STATE_PENDING))
-                    .execute(conn),
-            }
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
         .map_err(ValidationError::from)
     }
 
@@ -430,28 +207,7 @@ impl<'a> DeliveryOutboxDAL<'a> {
     ) -> Result<usize, ValidationError> {
         let from_recipient = from_recipient.to_string();
         let to_recipient = to_recipient.to_string();
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.reassign_open_rows_postgres(from_recipient, to_recipient)
-                .await,
-            self.reassign_open_rows_sqlite(from_recipient, to_recipient)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn reassign_open_rows_postgres(
-        &self,
-        from_recipient: String,
-        to_recipient: String,
-    ) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::update(
                 delivery_outbox::table
                     .filter(delivery_outbox::recipient.eq(from_recipient))
@@ -465,39 +221,6 @@ impl<'a> DeliveryOutboxDAL<'a> {
             ))
             .execute(conn)
         })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
-        .map_err(ValidationError::from)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn reassign_open_rows_sqlite(
-        &self,
-        from_recipient: String,
-        to_recipient: String,
-    ) -> Result<usize, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        conn.interact(move |conn| {
-            diesel::update(
-                delivery_outbox::table
-                    .filter(delivery_outbox::recipient.eq(from_recipient))
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED)),
-            )
-            .set((
-                delivery_outbox::recipient.eq(to_recipient),
-                delivery_outbox::delivery_state.eq(STATE_PENDING),
-                delivery_outbox::delivered_at
-                    .eq(None::<crate::database::universal_types::UniversalTimestamp>),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
         .map_err(ValidationError::from)
     }
 
@@ -511,63 +234,14 @@ impl<'a> DeliveryOutboxDAL<'a> {
         limit: i64,
     ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
         let recipient = recipient.to_string();
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_open_for_recipient_postgres(recipient, limit)
-                .await,
-            self.list_open_for_recipient_sqlite(recipient, limit).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_open_for_recipient_postgres(
-        &self,
-        recipient: String,
-        limit: i64,
-    ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let rows: Vec<UnifiedDeliveryOutbox> = conn
-            .interact(move |conn| {
-                delivery_outbox::table
-                    .filter(delivery_outbox::recipient.eq(recipient))
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
-                    .order(delivery_outbox::id.asc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(rows.into_iter().map(to_domain).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_open_for_recipient_sqlite(
-        &self,
-        recipient: String,
-        limit: i64,
-    ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let rows: Vec<UnifiedDeliveryOutbox> = conn
-            .interact(move |conn| {
-                delivery_outbox::table
-                    .filter(delivery_outbox::recipient.eq(recipient))
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
-                    .order(delivery_outbox::id.asc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let rows: Vec<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
+            delivery_outbox::table
+                .filter(delivery_outbox::recipient.eq(recipient))
+                .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
+                .order(delivery_outbox::id.asc())
+                .limit(limit)
+                .load(conn)
+        })?;
         Ok(rows.into_iter().map(to_domain).collect())
     }
 
@@ -575,58 +249,13 @@ impl<'a> DeliveryOutboxDAL<'a> {
     /// relay's drain query (T-0626). Delivered-but-unacked rows are excluded
     /// (they await ack or sweeper reclaim, not (re)delivery on a fresh wake).
     pub async fn list_pending(&self, limit: i64) -> Result<Vec<DeliveryOutbox>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_pending_postgres(limit).await,
-            self.list_pending_sqlite(limit).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_pending_postgres(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let rows: Vec<UnifiedDeliveryOutbox> = conn
-            .interact(move |conn| {
-                delivery_outbox::table
-                    .filter(delivery_outbox::delivery_state.eq(STATE_PENDING))
-                    .order(delivery_outbox::id.asc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(rows.into_iter().map(to_domain).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_pending_sqlite(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let rows: Vec<UnifiedDeliveryOutbox> = conn
-            .interact(move |conn| {
-                delivery_outbox::table
-                    .filter(delivery_outbox::delivery_state.eq(STATE_PENDING))
-                    .order(delivery_outbox::id.asc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let rows: Vec<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
+            delivery_outbox::table
+                .filter(delivery_outbox::delivery_state.eq(STATE_PENDING))
+                .order(delivery_outbox::id.asc())
+                .limit(limit)
+                .load(conn)
+        })?;
         Ok(rows.into_iter().map(to_domain).collect())
     }
 
@@ -637,111 +266,25 @@ impl<'a> DeliveryOutboxDAL<'a> {
         cutoff: UniversalTimestamp,
         limit: i64,
     ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_stuck_postgres(cutoff, limit).await,
-            self.list_stuck_sqlite(cutoff, limit).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn list_stuck_postgres(
-        &self,
-        cutoff: UniversalTimestamp,
-        limit: i64,
-    ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let rows: Vec<UnifiedDeliveryOutbox> = conn
-            .interact(move |conn| {
-                delivery_outbox::table
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
-                    .filter(delivery_outbox::created_at.lt(cutoff))
-                    .order(delivery_outbox::created_at.asc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(rows.into_iter().map(to_domain).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn list_stuck_sqlite(
-        &self,
-        cutoff: UniversalTimestamp,
-        limit: i64,
-    ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let rows: Vec<UnifiedDeliveryOutbox> = conn
-            .interact(move |conn| {
-                delivery_outbox::table
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
-                    .filter(delivery_outbox::created_at.lt(cutoff))
-                    .order(delivery_outbox::created_at.asc())
-                    .limit(limit)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let rows: Vec<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
+            delivery_outbox::table
+                .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
+                .filter(delivery_outbox::created_at.lt(cutoff))
+                .order(delivery_outbox::created_at.asc())
+                .limit(limit)
+                .load(conn)
+        })?;
         Ok(rows.into_iter().map(to_domain).collect())
     }
 
     /// Count of open (un-acked) rows — outbox-depth signal for monitoring (T-0628).
     pub async fn count_open(&self) -> Result<i64, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.count_open_postgres().await,
-            self.count_open_sqlite().await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn count_open_postgres(&self) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let count: i64 = conn
-            .interact(move |conn| {
-                delivery_outbox::table
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(count)
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn count_open_sqlite(&self) -> Result<i64, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let count: i64 = conn
-            .interact(move |conn| {
-                delivery_outbox::table
-                    .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
-                    .count()
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let count: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            delivery_outbox::table
+                .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
+                .count()
+                .get_result(conn)
+        })?;
         Ok(count)
     }
 }

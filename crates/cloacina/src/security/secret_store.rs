@@ -311,33 +311,59 @@ impl SecretStore {
         Ok(())
     }
 
-    // ── Backend dispatch ─────────────────────────────────────────────────────
+    // ── Backend-agnostic DAL queries (CLOACI-I-0135) ─────────────────────────
+    // Each former `*_postgres`/`*_sqlite` twin pair is collapsed into ONE inline
+    // `interact_on_backend!` body here; the call-site error mapping (NotFound via
+    // the caller's `.ok_or_else`, UNIQUE-violation via `is_unique_violation`) is
+    // preserved verbatim.
 
     async fn get_tenant_data_key_row(
         &self,
         org_id: UniversalUuid,
     ) -> Result<Option<TenantDataKey>, SecretError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_tenant_data_key_row_postgres(org_id).await,
-            self.get_tenant_data_key_row_sqlite(org_id).await
-        )
+        crate::interact_on_backend!(self.dal, |conn| {
+            tenant_data_keys::table
+                .filter(tenant_data_keys::org_id.eq(org_id))
+                .first(conn)
+                .optional()
+        })
+        .map_err(|e| SecretError::Database(e.to_string()))
     }
 
     async fn insert_tenant_data_key(&self, new_row: NewTenantDataKey) -> Result<(), SecretError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.insert_tenant_data_key_postgres(new_row).await,
-            self.insert_tenant_data_key_sqlite(new_row).await
-        )
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::insert_into(tenant_data_keys::table)
+                .values(&new_row)
+                .execute(conn)
+        })
+        .map_err(|e| {
+            if is_unique_violation(&e) {
+                SecretError::DuplicateName("tenant_data_key".to_string())
+            } else {
+                SecretError::Database(e.to_string())
+            }
+        })?;
+
+        Ok(())
     }
 
     async fn insert_secret(&self, new_secret: NewSecret) -> Result<(), SecretError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.insert_secret_postgres(new_secret).await,
-            self.insert_secret_sqlite(new_secret).await
-        )
+        let name = new_secret.name.clone();
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::insert_into(secrets::table)
+                .values(&new_secret)
+                .execute(conn)
+        })
+        .map_err(|e| {
+            if is_unique_violation(&e) {
+                SecretError::DuplicateName(name.clone())
+            } else {
+                SecretError::Database(e.to_string())
+            }
+        })?;
+
+        Ok(())
     }
 
     async fn update_secret(
@@ -348,19 +374,20 @@ impl SecretStore {
         encrypted_fields: UniversalBinary,
         updated_at: UniversalTimestamp,
     ) -> Result<usize, SecretError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.update_secret_postgres(
-                org_id,
-                name.clone(),
-                field_names.clone(),
-                encrypted_fields.clone(),
-                updated_at
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                secrets::table
+                    .filter(secrets::org_id.eq(org_id))
+                    .filter(secrets::name.eq(name)),
             )
-            .await,
-            self.update_secret_sqlite(org_id, name, field_names, encrypted_fields, updated_at)
-                .await
-        )
+            .set((
+                secrets::field_names.eq(field_names),
+                secrets::encrypted_fields.eq(encrypted_fields),
+                secrets::updated_at.eq(updated_at),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| SecretError::Database(e.to_string()))
     }
 
     async fn get_secret_row(
@@ -368,19 +395,21 @@ impl SecretStore {
         org_id: UniversalUuid,
         name: String,
     ) -> Result<Option<Secret>, SecretError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_secret_row_postgres(org_id, name.clone()).await,
-            self.get_secret_row_sqlite(org_id, name).await
-        )
+        crate::interact_on_backend!(self.dal, |conn| {
+            secrets::table
+                .filter(secrets::org_id.eq(org_id))
+                .filter(secrets::name.eq(name))
+                .first(conn)
+                .optional()
+        })
+        .map_err(|e| SecretError::Database(e.to_string()))
     }
 
     async fn list_secret_rows(&self, org_id: UniversalUuid) -> Result<Vec<Secret>, SecretError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.list_secret_rows_postgres(org_id).await,
-            self.list_secret_rows_sqlite(org_id).await
-        )
+        crate::interact_on_backend!(self.dal, |conn| {
+            secrets::table.filter(secrets::org_id.eq(org_id)).load(conn)
+        })
+        .map_err(|e| SecretError::Database(e.to_string()))
     }
 
     async fn delete_secret_row(
@@ -388,11 +417,15 @@ impl SecretStore {
         org_id: UniversalUuid,
         name: String,
     ) -> Result<usize, SecretError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.delete_secret_row_postgres(org_id, name.clone()).await,
-            self.delete_secret_row_sqlite(org_id, name).await
-        )
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::delete(
+                secrets::table
+                    .filter(secrets::org_id.eq(org_id))
+                    .filter(secrets::name.eq(name)),
+            )
+            .execute(conn)
+        })
+        .map_err(|e| SecretError::Database(e.to_string()))
     }
 }
 
@@ -400,370 +433,6 @@ impl SecretStore {
 fn is_unique_violation(e: &diesel::result::Error) -> bool {
     let s = e.to_string();
     s.contains("duplicate") || s.contains("UNIQUE")
-}
-
-// ── PostgreSQL implementation ────────────────────────────────────────────────
-#[cfg(feature = "postgres")]
-impl SecretStore {
-    async fn get_tenant_data_key_row_postgres(
-        &self,
-        org_id: UniversalUuid,
-    ) -> Result<Option<TenantDataKey>, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            tenant_data_keys::table
-                .filter(tenant_data_keys::org_id.eq(org_id))
-                .first(conn)
-                .optional()
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-
-    async fn insert_tenant_data_key_postgres(
-        &self,
-        new_row: NewTenantDataKey,
-    ) -> Result<(), SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::insert_into(tenant_data_keys::table)
-                .values(&new_row)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                SecretError::DuplicateName("tenant_data_key".to_string())
-            } else {
-                SecretError::Database(e.to_string())
-            }
-        })?;
-
-        Ok(())
-    }
-
-    async fn insert_secret_postgres(&self, new_secret: NewSecret) -> Result<(), SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        let name = new_secret.name.clone();
-
-        conn.interact(move |conn| {
-            diesel::insert_into(secrets::table)
-                .values(&new_secret)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                SecretError::DuplicateName(name.clone())
-            } else {
-                SecretError::Database(e.to_string())
-            }
-        })?;
-
-        Ok(())
-    }
-
-    async fn update_secret_postgres(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-        field_names: String,
-        encrypted_fields: UniversalBinary,
-        updated_at: UniversalTimestamp,
-    ) -> Result<usize, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::update(
-                secrets::table
-                    .filter(secrets::org_id.eq(org_id))
-                    .filter(secrets::name.eq(name)),
-            )
-            .set((
-                secrets::field_names.eq(field_names),
-                secrets::encrypted_fields.eq(encrypted_fields),
-                secrets::updated_at.eq(updated_at),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-
-    async fn get_secret_row_postgres(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-    ) -> Result<Option<Secret>, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            secrets::table
-                .filter(secrets::org_id.eq(org_id))
-                .filter(secrets::name.eq(name))
-                .first(conn)
-                .optional()
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-
-    async fn list_secret_rows_postgres(
-        &self,
-        org_id: UniversalUuid,
-    ) -> Result<Vec<Secret>, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| secrets::table.filter(secrets::org_id.eq(org_id)).load(conn))
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?
-            .map_err(|e| SecretError::Database(e.to_string()))
-    }
-
-    async fn delete_secret_row_postgres(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-    ) -> Result<usize, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::delete(
-                secrets::table
-                    .filter(secrets::org_id.eq(org_id))
-                    .filter(secrets::name.eq(name)),
-            )
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-}
-
-// ── SQLite implementation ────────────────────────────────────────────────────
-#[cfg(feature = "sqlite")]
-impl SecretStore {
-    async fn get_tenant_data_key_row_sqlite(
-        &self,
-        org_id: UniversalUuid,
-    ) -> Result<Option<TenantDataKey>, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            tenant_data_keys::table
-                .filter(tenant_data_keys::org_id.eq(org_id))
-                .first(conn)
-                .optional()
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-
-    async fn insert_tenant_data_key_sqlite(
-        &self,
-        new_row: NewTenantDataKey,
-    ) -> Result<(), SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::insert_into(tenant_data_keys::table)
-                .values(&new_row)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                SecretError::DuplicateName("tenant_data_key".to_string())
-            } else {
-                SecretError::Database(e.to_string())
-            }
-        })?;
-
-        Ok(())
-    }
-
-    async fn insert_secret_sqlite(&self, new_secret: NewSecret) -> Result<(), SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        let name = new_secret.name.clone();
-
-        conn.interact(move |conn| {
-            diesel::insert_into(secrets::table)
-                .values(&new_secret)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                SecretError::DuplicateName(name.clone())
-            } else {
-                SecretError::Database(e.to_string())
-            }
-        })?;
-
-        Ok(())
-    }
-
-    async fn update_secret_sqlite(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-        field_names: String,
-        encrypted_fields: UniversalBinary,
-        updated_at: UniversalTimestamp,
-    ) -> Result<usize, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::update(
-                secrets::table
-                    .filter(secrets::org_id.eq(org_id))
-                    .filter(secrets::name.eq(name)),
-            )
-            .set((
-                secrets::field_names.eq(field_names),
-                secrets::encrypted_fields.eq(encrypted_fields),
-                secrets::updated_at.eq(updated_at),
-            ))
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-
-    async fn get_secret_row_sqlite(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-    ) -> Result<Option<Secret>, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            secrets::table
-                .filter(secrets::org_id.eq(org_id))
-                .filter(secrets::name.eq(name))
-                .first(conn)
-                .optional()
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-
-    async fn list_secret_rows_sqlite(
-        &self,
-        org_id: UniversalUuid,
-    ) -> Result<Vec<Secret>, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| secrets::table.filter(secrets::org_id.eq(org_id)).load(conn))
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?
-            .map_err(|e| SecretError::Database(e.to_string()))
-    }
-
-    async fn delete_secret_row_sqlite(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-    ) -> Result<usize, SecretError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| SecretError::Database(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            diesel::delete(
-                secrets::table
-                    .filter(secrets::org_id.eq(org_id))
-                    .filter(secrets::name.eq(name)),
-            )
-            .execute(conn)
-        })
-        .await
-        .map_err(|e| SecretError::Database(e.to_string()))?
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
 }
 
 #[cfg(test)]

@@ -55,33 +55,10 @@ impl<'a> TaskExecutionDAL<'a> {
         retry_at: UniversalTimestamp,
         new_attempt: i32,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.schedule_retry_postgres(task_id, retry_at, new_attempt)
-                .await,
-            self.schedule_retry_sqlite(task_id, retry_at, new_attempt)
-                .await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn schedule_retry_postgres(
-        &self,
-        task_id: UniversalUuid,
-        retry_at: UniversalTimestamp,
-        new_attempt: i32,
-    ) -> Result<(), ValidationError> {
         use crate::dal::unified::models::NewUnifiedTaskOutbox;
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -135,87 +112,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn schedule_retry_sqlite(
-        &self,
-        task_id: UniversalUuid,
-        retry_at: UniversalTimestamp,
-        new_attempt: i32,
-    ) -> Result<(), ValidationError> {
-        use crate::dal::unified::models::NewUnifiedTaskOutbox;
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
-
-                // Update task retry state
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
-                        task_executions::status.eq("Ready"),
-                        task_executions::attempt.eq(new_attempt),
-                        task_executions::retry_at.eq(Some(retry_at)),
-                        task_executions::started_at.eq(None::<UniversalTimestamp>),
-                        task_executions::completed_at.eq(None::<UniversalTimestamp>),
-                        task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
-
-                // Insert execution event with retry details
-                let event_data = serde_json::json!({
-                    "attempt": new_attempt,
-                    "retry_at": retry_at.to_string()
-                })
-                .to_string();
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    workflow_execution_id: task.workflow_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskRetryScheduled.as_str().to_string(),
-                    event_data: Some(event_data),
-                    worker_id: None,
-                    created_at: now,
-                    request_id: None,
-                    runner_id: None,
-                    tenant_id: None,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
-
-                // Insert outbox entry for work distribution
-                // Use retry_at as created_at so workers won't claim until retry time
-                let outbox_entry = NewUnifiedTaskOutbox {
-                    task_execution_id: task_id,
-                    created_at: retry_at,
-                };
-                diesel::insert_into(task_outbox::table)
-                    .values(&outbox_entry)
-                    .execute(conn)?;
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -228,6 +125,12 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         limit: usize,
     ) -> Result<Vec<ClaimResult>, ValidationError> {
+        // KEPT AS EXPLICIT TWINS (CLOACI-I-0135): the two backends implement
+        // atomic claiming with fundamentally different mechanisms. Postgres uses a
+        // single raw `sql_query` CTE with `FOR UPDATE SKIP LOCKED`; SQLite has no
+        // such primitive and instead runs a `BEGIN IMMEDIATE` transaction wrapped in
+        // a busy-retry loop (CLOACI-T-0622). These bodies are not backend-agnostic
+        // Diesel, so they do not collapse to `interact_on_backend!`.
         crate::dispatch_backend!(
             self.dal.backend(),
             self.claim_ready_task_postgres(limit).await,
@@ -483,81 +386,20 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         runner_id: UniversalUuid,
     ) -> Result<RunnerClaimResult, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.claim_for_runner_postgres(task_id, runner_id).await,
-            self.claim_for_runner_sqlite(task_id, runner_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn claim_for_runner_postgres(
-        &self,
-        task_id: UniversalUuid,
-        runner_id: UniversalUuid,
-    ) -> Result<RunnerClaimResult, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let now = UniversalTimestamp::now();
-        let rows_updated: usize = conn
-            .interact(move |conn| {
-                diesel::update(
-                    task_executions::table
-                        .find(task_id)
-                        .filter(task_executions::claimed_by.is_null()),
-                )
-                .set((
-                    task_executions::claimed_by.eq(Some(runner_id)),
-                    task_executions::heartbeat_at.eq(Some(now)),
-                    task_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(if rows_updated > 0 {
-            RunnerClaimResult::Claimed
-        } else {
-            RunnerClaimResult::AlreadyClaimed
-        })
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn claim_for_runner_sqlite(
-        &self,
-        task_id: UniversalUuid,
-        runner_id: UniversalUuid,
-    ) -> Result<RunnerClaimResult, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        let rows_updated: usize = conn
-            .interact(move |conn| {
-                diesel::update(
-                    task_executions::table
-                        .find(task_id)
-                        .filter(task_executions::claimed_by.is_null()),
-                )
-                .set((
-                    task_executions::claimed_by.eq(Some(runner_id)),
-                    task_executions::heartbeat_at.eq(Some(now)),
-                    task_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let rows_updated: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                task_executions::table
+                    .find(task_id)
+                    .filter(task_executions::claimed_by.is_null()),
+            )
+            .set((
+                task_executions::claimed_by.eq(Some(runner_id)),
+                task_executions::heartbeat_at.eq(Some(now)),
+                task_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
 
         Ok(if rows_updated > 0 {
             RunnerClaimResult::Claimed
@@ -575,79 +417,19 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         runner_id: UniversalUuid,
     ) -> Result<HeartbeatResult, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.heartbeat_postgres(task_id, runner_id).await,
-            self.heartbeat_sqlite(task_id, runner_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn heartbeat_postgres(
-        &self,
-        task_id: UniversalUuid,
-        runner_id: UniversalUuid,
-    ) -> Result<HeartbeatResult, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let now = UniversalTimestamp::now();
-        let rows_updated: usize = conn
-            .interact(move |conn| {
-                diesel::update(
-                    task_executions::table
-                        .find(task_id)
-                        .filter(task_executions::claimed_by.eq(Some(runner_id))),
-                )
-                .set((
-                    task_executions::heartbeat_at.eq(Some(now)),
-                    task_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(if rows_updated > 0 {
-            HeartbeatResult::Ok
-        } else {
-            HeartbeatResult::ClaimLost
-        })
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn heartbeat_sqlite(
-        &self,
-        task_id: UniversalUuid,
-        runner_id: UniversalUuid,
-    ) -> Result<HeartbeatResult, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        let rows_updated: usize = conn
-            .interact(move |conn| {
-                diesel::update(
-                    task_executions::table
-                        .find(task_id)
-                        .filter(task_executions::claimed_by.eq(Some(runner_id))),
-                )
-                .set((
-                    task_executions::heartbeat_at.eq(Some(now)),
-                    task_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let rows_updated: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                task_executions::table
+                    .find(task_id)
+                    .filter(task_executions::claimed_by.eq(Some(runner_id))),
+            )
+            .set((
+                task_executions::heartbeat_at.eq(Some(now)),
+                task_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
 
         Ok(if rows_updated > 0 {
             HeartbeatResult::Ok
@@ -663,27 +445,8 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.release_runner_claim_postgres(task_id).await,
-            self.release_runner_claim_sqlite(task_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn release_runner_claim_postgres(
-        &self,
-        task_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             diesel::update(task_executions::table.find(task_id))
                 .set((
                     task_executions::claimed_by.eq(None::<UniversalUuid>),
@@ -691,37 +454,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn release_runner_claim_sqlite(
-        &self,
-        task_id: UniversalUuid,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
-                .set((
-                    task_executions::claimed_by.eq(None::<UniversalUuid>),
-                    task_executions::heartbeat_at.eq(None::<UniversalTimestamp>),
-                    task_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
         Ok(())
     }
@@ -734,80 +467,18 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         threshold: std::time::Duration,
     ) -> Result<Vec<StaleClaim>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.find_stale_claims_postgres(threshold).await,
-            self.find_stale_claims_sqlite(threshold).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn find_stale_claims_postgres(
-        &self,
-        threshold: std::time::Duration,
-    ) -> Result<Vec<StaleClaim>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let cutoff = UniversalTimestamp(
             chrono::Utc::now()
                 - chrono::Duration::from_std(threshold).unwrap_or(chrono::Duration::seconds(60)),
         );
 
-        let stale: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::claimed_by.is_not_null())
-                    .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
-                    .filter(task_executions::status.eq("Running"))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(stale
-            .into_iter()
-            .filter_map(|t| {
-                Some(StaleClaim {
-                    task_id: t.id,
-                    claimed_by: t.claimed_by?,
-                    heartbeat_at: t.heartbeat_at?.0,
-                })
-            })
-            .collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn find_stale_claims_sqlite(
-        &self,
-        threshold: std::time::Duration,
-    ) -> Result<Vec<StaleClaim>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let cutoff = UniversalTimestamp(
-            chrono::Utc::now()
-                - chrono::Duration::from_std(threshold).unwrap_or(chrono::Duration::seconds(60)),
-        );
-
-        let stale: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::claimed_by.is_not_null())
-                    .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
-                    .filter(task_executions::status.eq("Running"))
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let stale: Vec<UnifiedTaskExecution> = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::claimed_by.is_not_null())
+                .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
+                .filter(task_executions::status.eq("Running"))
+                .load(conn)
+        })?;
 
         Ok(stale
             .into_iter()
@@ -823,25 +494,9 @@ impl<'a> TaskExecutionDAL<'a> {
 
     /// Retrieves tasks that are ready for retry (retry_at time has passed).
     pub async fn get_ready_for_retry(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.get_ready_for_retry_postgres().await,
-            self.get_ready_for_retry_sqlite().await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn get_ready_for_retry_postgres(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
         let now = UniversalTimestamp::now();
-        let ready_tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
+        let ready_tasks: Vec<UnifiedTaskExecution> =
+            crate::interact_on_backend!(self.dal, |conn| {
                 task_executions::table
                     .filter(task_executions::status.eq("Ready"))
                     .filter(
@@ -860,46 +515,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     // CAS remains the exactly-once guard for the residual race.
                     .filter(task_executions::claimed_by.is_null())
                     .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(ready_tasks.into_iter().map(Into::into).collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn get_ready_for_retry_sqlite(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let now = UniversalTimestamp::now();
-        let ready_tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .filter(task_executions::status.eq("Ready"))
-                    .filter(
-                        task_executions::retry_at
-                            .is_null()
-                            .or(task_executions::retry_at.le(now)),
-                    )
-                    // CLOACI-T-0745: exclude already-claimed (in-flight) tasks so
-                    // fire-and-forget dispatch doesn't re-select a task whose
-                    // dispatch is still running. `claim_for_runner` only sets
-                    // claimed_by (status stays Ready until the agent reports), and
-                    // the claim is released (claimed_by -> NULL) on every executor
-                    // exit BEFORE a retry re-marks the task Ready — so fresh and
-                    // retried Ready tasks (claimed_by NULL) are still selected,
-                    // while in-flight ones are skipped. claim_for_runner's atomic
-                    // CAS remains the exactly-once guard for the residual race.
-                    .filter(task_executions::claimed_by.is_null())
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            })?;
 
         Ok(ready_tasks.into_iter().map(Into::into).collect())
     }
