@@ -56,6 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runner = DefaultRunner::with_config("sqlite://cron.db", config).await?;
 
     // Register the workflow against a cron expression + timezone.
+    // "*/2 * * * *" is a 5-field cron: every 2 minutes.
     let schedule_id = runner
         .register_cron_workflow("report_workflow", "*/2 * * * *", "UTC")
         .await?;
@@ -92,6 +93,7 @@ config = cloaca.DefaultRunnerConfig(
 runner = cloaca.DefaultRunner.with_config(":memory:", config)
 
 # Register the workflow against a cron expression + timezone.
+# "*/30 * * * * *" is a 6-field cron (leading seconds): every 30 seconds.
 # Returns the new schedule's id.
 schedule_id = runner.register_cron_workflow("daily_report", "*/30 * * * * *", "UTC")
 print(f"Cron schedule registered (ID: {schedule_id})")
@@ -106,9 +108,19 @@ runner.shutdown()
 Run it. The workflow fires on its own at each interval — you'll see the task's
 log line appear repeatedly without anyone triggering it.
 
-The cron fields are standard: minute, hour, day-of-month, month, day-of-week.
-`*/2 * * * *` is every two minutes; `0 9 * * 1-5` is 9 AM on weekdays. Use `"UTC"`
-unless business logic genuinely requires a local timezone.
+Cloacina cron expressions take an **optional leading seconds field**, so both
+widths are valid:
+
+- **5 fields** — `minute hour day-of-month month day-of-week`. `*/2 * * * *` is
+  every two minutes; `0 9 * * 1-5` is 9 AM on weekdays.
+- **6 fields** — `seconds minute hour day-of-month month day-of-week`, adding the
+  leading seconds field. `*/30 * * * * *` is every 30 seconds.
+
+That is the only difference between the two examples above: the Rust
+`*/2 * * * *` (5-field) fires every two minutes, and the Python `*/30 * * * * *`
+(6-field, leading seconds) fires every 30 seconds — same dialect, one extra
+leading field. Use `"UTC"` unless business logic genuinely requires a local
+timezone.
 
 ## Handling missed executions
 

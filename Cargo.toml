@@ -19,13 +19,18 @@ async-trait = { version = "0.1" }
 inventory = { version = "0.3" }
 once_cell = { version = "1.19.0" }
 serde_json = { version = "1.0" }
-cloacina = { version = "0.10.0", path = "crates/cloacina" }
+# default-features = false: cloacina's defaults include postgres; every internal
+# consumer opts into its own backend. Setting it here (not just in the members)
+# is REQUIRED — Cargo ignores a member's `default-features = false` when the
+# workspace dep omits it, which silently leaks postgres/libpq into sqlite-only
+# builds (CLOACI-I-0134 follow-up).
+cloacina = { version = "0.10.0", path = "crates/cloacina", default-features = false }
 cloacina-api-types = { version = "0.10.0", path = "crates/cloacina-api-types" }
 cloacina-build = { version = "0.10.0", path = "crates/cloacina-build" }
 cloacina-client = { version = "0.10.0", path = "crates/cloacina-client" }
 cloacina-computation-graph = { version = "0.10.0", path = "crates/cloacina-computation-graph" }
 cloacina-macros = { version = "0.10.0", path = "crates/cloacina-macros" }
-cloacina-python = { version = "0.10.0", path = "crates/cloacina-python" }
+cloacina-python = { version = "0.10.0", path = "crates/cloacina-python", default-features = false }
 cloacina-workflow = { version = "0.10.0", path = "crates/cloacina-workflow" }
 cloacina-workflow-plugin = { version = "0.10.0", path = "crates/cloacina-workflow-plugin" }
 cloacina-constructor-contract = { version = "0.10.0", path = "crates/cloacina-constructor-contract" }

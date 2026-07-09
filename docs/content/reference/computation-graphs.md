@@ -14,7 +14,7 @@ Computation graphs are Cloacina's event-driven data processing primitive. A grap
 - **`#[reactor]`** declares a firing criterion as a top-level primitive — a named bundle of accumulators plus a `criteria = when_any(...) | when_all(...)` expression.
 - **`#[computation_graph]`** compiles a module of node functions into a single async function and subscribes it to a reactor via `trigger = reactor("name")`.
 
-As of CLOACI-I-0101 the previously bundled `react = ...` clause on `#[computation_graph]` has been removed: reactors are declared separately and the graph references them by string name.
+The previously bundled `react = ...` clause on `#[computation_graph]` has been removed: reactors are declared separately and the graph references them by string name.
 
 ```rust
 use cloacina::computation_graph::types::{serialize, GraphResult, InputCache, SourceName};
@@ -202,14 +202,14 @@ cloacina_workflow_plugin::inventory::submit! {
 }
 ```
 
-The `inventory` mechanism replaces the pre-I-0096 `#[ctor]`-based path —
+The `inventory` mechanism replaces the earlier `#[ctor]`-based path —
 no `ctor = "0.2"` dependency is required, and the `cloacina_macros`
 crate emits these entries directly. See [Inventory and Runtime
 Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}})
 for the rationale behind the flip.
 
 In packaged mode (`feature = "packaged"`), the same constructor is
-walked at FFI call time by the [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}})
+walked at FFI call time by the [`cloacina_workflow_plugin::package!()`]({{< ref "/reference/package-shell-macro" >}})
 shell macro instead of being seeded into a process-local `Runtime`.
 
 ### Complete Example
@@ -823,7 +823,7 @@ macro emits an `inventory::submit!` entry (`ReactorEntry` /
 `ComputationGraphEntry`; see [Registration & Discovery](#registration--discovery)
 above). At startup the runtime registers each reactor and graph by name from
 those entries — `Runtime::seed_from_inventory()` in embedded mode, or walked at
-FFI-load time via `cloacina::package!()` in packaged mode. Declaring the macros
+FFI-load time via `cloacina_workflow_plugin::package!()` in packaged mode. Declaring the macros
 is sufficient; no manual registration calls are required.
 
 ---
@@ -832,40 +832,38 @@ is sufficient; no manual registration calls are required.
 
 Computation graphs can be compiled into standalone `.cloacina` packages (cdylib shared libraries) for deployment to the Cloacina server without recompilation.
 
-### Feature Flag
+### Package Cargo.toml
 
-Enable the `packaged` feature in your graph crate's `Cargo.toml`:
+A graph package uses the same minimal shell as a workflow package — no `[lib] crate-type`, no `[features]` table, no `build.rs`. The compiler injects the `cdylib` crate-type and the `packaged` feature when it builds the package:
 
 ```toml
-[features]
-default = []
-packaged = ["cloacina-computation-graph", "cloacina-workflow-plugin", "tokio"]
+[package]
+name = "my-market-maker"
+version = "0.1.0"
+edition = "2021"
 
 [dependencies]
-cloacina-computation-graph = { version = "0.7.0" }
-cloacina-workflow-plugin = { version = "0.7.0", optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
+cloacina-workflow = { version = "0.7", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+```
 
-[lib]
-crate-type = ["cdylib"]
+Invoke the shell macro un-gated at the crate root of `src/lib.rs`:
+
+```rust
+cloacina_workflow_plugin::package!();
 ```
 
 ### FFI Exports
 
-When `feature = "packaged"` is active, the `#[computation_graph]` macro generates an FFI module that exposes the graph via the fidius plugin system:
-
-```rust
-// Auto-generated (do not write manually):
-#[cfg(feature = "packaged")]
-pub mod _ffi {
-    // Implements CloacinaPlugin trait with:
-    // - get_graph_metadata() -> GraphPackageMetadata
-    // - execute_graph(request) -> GraphExecutionResult
-    // - fidius_plugin_registry!() for dynamic loading
-}
-```
-
-The generated FFI plugin exposes three methods:
+The graph is exposed to the fidius plugin system by the unified
+[`cloacina_workflow_plugin::package!()`]({{< ref "/reference/package-shell-macro" >}})
+shell macro — **not** by a per-macro `_ffi` module. Older packages had
+each `#[computation_graph]` emit its own `_ffi` module with a
+`fidius_plugin_registry!()`; the single `package!()` invocation now
+replaces that per-macro emission with one `CloacinaPlugin` impl for the
+whole crate. That impl's FFI vtable includes:
 
 | Method | Purpose |
 |--------|---------|
@@ -875,32 +873,30 @@ The generated FFI plugin exposes three methods:
 
 ### Graph Metadata in package.toml
 
+A graph package carries a `package.toml` whose graph configuration lives in the `[metadata]` block. `graph_name` is what distinguishes a computation-graph package from a workflow package; `reaction_mode` and `input_strategy` configure the reactor:
+
 ```toml
 [package]
 name = "my-market-maker"
 version = "0.1.0"
-type = "computation_graph"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
 
-[graph]
-name = "market_maker"
+[metadata]
+language = "rust"
+graph_name = "market_maker"
+description = "Market-maker computation graph"
 reaction_mode = "when_any"
 input_strategy = "latest"
-
-[[graph.accumulators]]
-name = "orderbook"
-type = "passthrough"
-
-[[graph.accumulators]]
-name = "pricing"
-type = "stream"
-topic = "market.pricing"
-group = "mm_pricing_group"
 ```
+
+The manifest schema is validated with `deny_unknown_fields`, so a legacy `[package] type = "computation_graph"` field or `[graph]` / `[[graph.accumulators]]` tables are rejected — accumulator sources are declared in the `#[reactor]` macro, not the manifest.
 
 ### How the Reconciler Loads Packaged Graphs
 
 1. The reconciler discovers `.cloacina` packages in the configured package directory
-2. For `type = "computation_graph"` packages, `build_declaration_from_ffi()` loads the cdylib via fidius and creates a `ComputationGraphDeclaration`
+2. For packages whose `[metadata].graph_name` is set, `build_declaration_from_ffi()` loads the cdylib via fidius and creates a `ComputationGraphDeclaration`
 3. The `ComputationGraphScheduler` spawns accumulators + reactor from the declaration
 4. On each reactor fire, `execute_graph()` is called via FFI on the loaded plugin
 5. The plugin deserializes the cache, runs the compiled graph, and returns serialized terminal outputs

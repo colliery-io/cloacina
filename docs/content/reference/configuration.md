@@ -57,7 +57,7 @@ let config = DefaultRunnerConfig::builder()
 | `task_timeout` | `Duration` | `300s` (5 min) | Maximum time allowed for a single task to execute before it is considered timed out. |
 | `pipeline_timeout` | `Option<Duration>` | `Some(3600s)` (1 hr) | Maximum time for an entire pipeline execution. `None` disables the pipeline-level timeout. |
 | `db_pool_size` | `u32` | `10` | Number of database connections in the connection pool. |
-| `enable_recovery` | `bool` | `true` | Whether the stale-claim sweeper runs to reclaim task executions whose runner heartbeats expired. **Post-CLOACI-T-0502**, the sweeper is the *sole* task-recovery path — the separate `RecoveryManager` was removed; recovery is heartbeat-driven only. Disable only if you're running outside the standard runner loop. |
+| `enable_recovery` | `bool` | `true` | Whether the stale-claim sweeper runs to reclaim task executions whose runner heartbeats expired. The sweeper is the *sole* task-recovery path — recovery is heartbeat-driven only. Disable only if you're running outside the standard runner loop. |
 
 ### Cron Scheduling
 
@@ -277,6 +277,30 @@ Overrides for ad-hoc/direct runs use `cloacina-server --default-executor <key>`,
 | `CLOACINA_BOOTSTRAP_KEY` | Bootstrap API key for `server start` first startup |
 | `CLOACINA_DEFAULT_EXECUTOR` | Executor key every task is dispatched to (overrides `[server].default_executor`; default `default`, set `fleet` for the agent fleet) |
 | `RUST_LOG` | Log filter directive (e.g., `info`, `debug`, `cloacina=trace`) |
+
+## Schema naming rules
+
+PostgreSQL schema names used for multi-tenant isolation (`DefaultRunner::with_schema`,
+`DatabaseAdmin` tenant provisioning) are validated before use in SQL to prevent
+injection. A schema name must satisfy all of the following:
+
+| Rule | Detail |
+|---|---|
+| Length | 1–63 characters (PostgreSQL `NAMEDATALEN` − 1). |
+| First character | A letter (`a`–`z`, `A`–`Z`) or an underscore (`_`). |
+| Remaining characters | Alphanumeric or underscore only. No hyphens, dots, spaces, or other symbols. ASCII only — Unicode letters are rejected. |
+| Reserved names | `public`, `pg_catalog`, `information_schema`, and `pg_temp` are rejected (case-insensitive). |
+
+| Valid | Invalid |
+|---|---|
+| `tenant_123` | `tenant-123` (hyphen) |
+| `acme_corp` | `123abc` (starts with a digit) |
+| `_private` | `tenant.123` (dot) |
+| `production_api` | `public` (reserved) |
+
+An invalid name is rejected with a `SchemaError` (`InvalidLength`, `InvalidStart`,
+`InvalidCharacters`, or `ReservedName`). Tenant usernames follow the same rules,
+with their own reserved list of PostgreSQL role names (`postgres`, `pg_*`).
 
 ## See Also
 

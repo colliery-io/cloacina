@@ -67,6 +67,7 @@ independently from the workflow's task graph:
 ```python
 @cloaca.trigger(
     name="inbox_watcher",
+    on="data_ingest",          # the workflow this trigger fires (its workflow_name)
     poll_interval="5s",
     allow_concurrent=False
 )
@@ -94,16 +95,24 @@ def inbox_watcher():
     return cloaca.TriggerResult.skip()
 ```
 
-Notice the three parameters: `name` identifies the trigger, `poll_interval` controls how often the function is called, and `allow_concurrent=False` prevents overlapping executions. The decorator is the *only* place these are declared — there is no separate manifest entry to keep in sync.
+Notice the parameters: `name` identifies the trigger, **`on` names the workflow
+the trigger fires** (here `data_ingest`, matching `workflow_name` in
+`package.toml`), `poll_interval` controls how often the function is called, and
+`allow_concurrent=False` prevents overlapping executions. The `on` binding is the
+one to get right — if you omit it, the reconciler falls back to the trigger's own
+*name* (`inbox_watcher`) as the target workflow, which won't match `data_ingest`
+and nothing will fire. The decorator is the *only* place these are declared —
+there is no separate manifest entry to keep in sync.
 
 ## Step 3: Triggers Are Declared in Code, Not the Manifest
 
 There is **no trigger section in the package manifest**. The `@cloaca.trigger`
 decorator *is* the declaration: when the reconciler imports your `entry_module`,
-the decorator registers the trigger (name, poll interval, config) and binds it to
-its workflow. The manifest (`package.toml`) carries only package identity +
-`[metadata]`; adding triggers to it (or a `package_type` key) is rejected at
-upload.
+the decorator registers the trigger (name, poll interval, config), and the
+reconciler reads the trigger's `on` value to persist a schedule row binding it to
+that workflow (`data_ingest`). The manifest (`package.toml`) carries only package
+identity + `[metadata]`; adding triggers to it (or a `package_type` key) is
+rejected at upload.
 
 So the only thing to get right for triggers is that the `@cloaca.trigger`
 decorator runs at import time (module level) — same rule as `@cloaca.task`.
@@ -194,7 +203,7 @@ key) is rejected at upload. Just make sure the decorator runs at import time.
 
 ## What You Learned
 
-- `@cloaca.trigger` *is* the declaration — it registers the trigger when the module is imported
+- `@cloaca.trigger` *is* the declaration — it registers the trigger when the module is imported, and its `on=` names the workflow the trigger fires
 - The manifest (`package.toml`) carries package identity + `[metadata]` only; no trigger section
 - Triggers are packaged alongside tasks in the same `.cloacina` archive
 - The reconciler imports your `entry_module` on load, which wires everything together

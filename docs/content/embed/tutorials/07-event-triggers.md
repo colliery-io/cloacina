@@ -85,8 +85,14 @@ static FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 // `#[trigger]` generates the `Trigger` impl plus a zero-arg constructor and
 // submits it to the runtime inventory at compile time, so `Runtime::new()`
-// (inside `DefaultRunner`) auto-registers it — no explicit `register_trigger`
-// call. `on = "..."` names the workflow this trigger fires.
+// (inside `DefaultRunner`) auto-registers the *polling function* — you never
+// hand-construct the trigger. `on = "..."` declares which workflow it fires.
+//
+// Auto-registration only makes the poll loop aware of the trigger. Binding it
+// to `file_processing` as a persisted schedule still takes one explicit
+// `scheduler.register_trigger(trigger, "file_processing")` call (shown below) —
+// pass the same name you put in `on`. Packaged workflows skip even that: the
+// daemon's reconciler reads `on` and creates the schedule row for you.
 #[trigger(
     name = "file_watcher",
     on = "file_processing",
@@ -118,6 +124,7 @@ import random
 
 @cloaca.trigger(
     name="file_watcher",
+    on="file_processing",       # the workflow this trigger fires
     poll_interval="5s",
     allow_concurrent=False
 )
@@ -131,6 +138,11 @@ def file_watcher():
 {{< /tab >}}
 {{< /tabs >}}
 
+In Python, `on=` is what binds the trigger to its workflow — it mirrors the Rust
+`#[trigger(on = "...")]`. If you leave it off, the scheduler falls back to the
+trigger's own *name* as the target workflow (which usually won't match your
+workflow), so always set `on` to the `WorkflowBuilder` name you want to fire.
+
 With `allow_concurrent = false`, the runner hashes the fired context and skips a
 fire whose `(trigger_name, context_hash)` is already running — so the same file
 isn't processed twice. Put identifying data (a filename, an order id) in the context
@@ -139,10 +151,11 @@ so dedup can tell fires apart.
 ## Register and run
 
 Enable trigger scheduling on the runner, then register the trigger so the runner
-polls it. In Rust you bind the trigger to its target workflow explicitly; in
-Python the `@cloaca.trigger` decorator registers `file_watcher` at import time, so
-constructing the runner is enough to start polling — after that you manage the
-trigger at runtime.
+polls it. In Rust you bind the trigger to its target workflow explicitly with
+`scheduler.register_trigger(trigger, "file_processing")`. In Python the
+`@cloaca.trigger` decorator registers `file_watcher` at import time and its `on=`
+already names the target workflow, so constructing the runner is enough to start
+polling and dispatching — after that you manage the trigger at runtime.
 
 {{< tabs "trigger-register" >}}
 {{< tab "Rust" >}}
@@ -214,9 +227,11 @@ runner.shutdown()
 The runner polls `file_watcher` on its interval. In the Rust example the
 `register_trigger` call binds it to `file_processing`, so on the fifth poll the
 trigger fires that workflow with the new filename in context and `validate_file` →
-`process_file` run with it. In Python the decorated `file_watcher` is registered
-the moment the runner starts; `list_trigger_schedules`, `set_trigger_enabled`, and
-`get_trigger_execution_history` then let you inspect and control it at runtime.
+`process_file` run with it. In Python the `on="file_processing"` in the decorator
+supplies that same binding, so the moment the runner starts the trigger both polls
+and dispatches to `file_processing`; `list_trigger_schedules`,
+`set_trigger_enabled`, and `get_trigger_execution_history` then let you inspect and
+control it at runtime.
 
 ## Next
 

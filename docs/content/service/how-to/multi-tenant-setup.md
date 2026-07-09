@@ -104,6 +104,52 @@ let executor = DefaultRunner::new("sqlite:///data/tenant_a.db").await?;
 
 Each file is a self-contained database, so isolation is guaranteed by the file system. `DatabaseAdmin` and per-tenant credentials are not available for SQLite.
 
+## Migrate an existing single-tenant deployment
+
+If you already run a single-tenant deployment against the `public` schema, you
+can move to schema-based tenancy without starting over. Two approaches:
+
+### Option 1: Move existing data into a named schema
+
+Move the existing tables into a dedicated schema, then address that schema as a
+tenant. Run this in a transaction:
+
+```sql
+BEGIN;
+CREATE SCHEMA legacy_tenant;
+
+ALTER TABLE pipeline_executions SET SCHEMA legacy_tenant;
+ALTER TABLE task_executions SET SCHEMA legacy_tenant;
+ALTER TABLE contexts SET SCHEMA legacy_tenant;
+-- ... repeat for all Cloacina tables
+
+COMMIT;
+```
+
+Then point the existing application at the new schema, and give new tenants their
+own schemas:
+
+```rust
+let legacy = DefaultRunner::with_schema(db_url, "legacy_tenant").await?;
+let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
+```
+
+### Option 2: Run side-by-side
+
+Leave the existing single-tenant runner on the `public` schema and add new
+tenants alongside it in their own schemas:
+
+```rust
+// Existing single-tenant runner (public schema)
+let legacy = DefaultRunner::new(db_url).await?;
+
+// New multi-tenant runners
+let tenant_a = DefaultRunner::with_schema(db_url, "tenant_a").await?;
+let tenant_b = DefaultRunner::with_schema(db_url, "tenant_b").await?;
+```
+
+Schema names must follow the [schema naming rules]({{< ref "/reference/configuration" >}}#schema-naming-rules).
+
 ## Related guides
 
 - [Multi-Tenant Recovery]({{< ref "multi-tenant-recovery" >}}) -- automatic recovery and migration in multi-tenant deployments

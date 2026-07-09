@@ -8,9 +8,9 @@ weight: 50
 
 `cloacina-compiler` compiles uploaded packages, which means it runs
 **attacker-controlled code** at build time — `build.rs` and proc-macros
-execute on the build host. Phase 1 (CLOACI-I-0104) capped *cost* (rlimits,
-`--frozen --offline`, a curated vendor registry). Phase 2 (CLOACI-I-0105)
-isolates the *process*.
+execute on the build host. Phase 1 capped *cost* (rlimits,
+`--frozen --offline`, a curated vendor registry). Phase 2 isolates the
+*process*.
 
 ## Selecting the mode
 
@@ -85,11 +85,18 @@ The compiler image must include `bubblewrap` (the demo image does).
 `cargo test -p cloacina-compiler --lib sandbox` proves the contract at two
 levels:
 
-- **Deterministic (runs everywhere):** the bwrap command composition carries
-  `--unshare-all` / `--clearenv`, binds the curated registry read-only, binds
-  **only** the staged source writable (no other writable host path), and
-  launches cargo inside the sandbox; and `build_env` is an *allowlist* — a
-  secret set in the parent process never crosses into the build.
+- **Deterministic (runs everywhere):** `bwrap_command_enforces_isolation_contract`
+  asserts the bwrap command composition carries the per-namespace unshares
+  (`--unshare-net` — the security-critical one, plus `--unshare-user`),
+  `--die-with-parent`, and RO-binds `/proc` rather than mounting a fresh procfs
+  (`--unshare-all` with a fresh `--proc` mount fails unprivileged in a
+  container, so the sandbox deliberately does not emit it); that it `--clearenv`
+  and rebuilds the environment; binds the curated registry read-only; binds
+  **only** the staged source writable (no other writable host path); and
+  launches cargo inside the sandbox. `build_env_is_an_allowlist_not_a_denylist`
+  proves `build_env` is an *allowlist* — a secret set in the parent process
+  never crosses into the build. `non_bwrap_levels_run_cargo_directly` confirms
+  the landlock/none levels invoke cargo unwrapped.
 - **End-to-end (runs where bwrap works):** `bwrap_denies_host_write` executes a
   real sandboxed command that attempts to write outside its staged directory
   and asserts the write is denied and leaves no host trace. It **skips** (not
