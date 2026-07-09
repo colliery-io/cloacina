@@ -62,10 +62,18 @@ pub struct GrantSpec {
     pub fs: Vec<String>,
     /// Environment variables to pass through from the host, by name.
     pub env: Vec<String>,
+    /// Named secret allow-list (CLOACI-T-0860, design D-3). Each entry is a
+    /// secret NAME the constructor may resolve at fire time. **Fail-closed:** an
+    /// absent/empty list means the holder may resolve NO secrets. Tenant-scope is
+    /// the outer boundary — a name here can only resolve within the caller's
+    /// tenant (the resolver carries the `org_id`). NOT ridden on the egress grant
+    /// (D-3): a passphrase-style secret has no network endpoint, and implicit
+    /// authz is exactly what we're avoiding.
+    pub secrets: Vec<String>,
 }
 
 impl GrantSpec {
-    /// Build a [`GrantSpec`] from the four grant lists (the shape the macro lowers
+    /// Build a [`GrantSpec`] from the grant lists (the shape the macro lowers
     /// to). A convenience over the struct literal so generated code is insulated
     /// from field additions.
     pub fn from_lists(
@@ -73,15 +81,24 @@ impl GrantSpec {
         tcp: Vec<String>,
         fs: Vec<String>,
         env: Vec<String>,
+        secrets: Vec<String>,
     ) -> Self {
-        Self { http, tcp, fs, env }
+        Self {
+            http,
+            tcp,
+            fs,
+            env,
+            secrets,
+        }
     }
 
     /// Build a [`GrantSpec`] from raw `(kind, patterns)` pairs — the shape both
     /// consumer macros (`constructor!` and `#[reactor]`) lower the `grants = { .. }`
     /// literal to, mirroring how `config` is carried as raw pairs and bound at load.
-    /// Recognized kinds: `http`, `tcp`, `fs`, `env`; an unrecognized kind is ignored
-    /// here (the macro validates kinds at compile time, so this stays infallible).
+    /// Recognized kinds: `http`, `tcp`, `fs`, `env`, `secrets`; an unrecognized kind
+    /// is ignored here (the macro validates kinds at compile time, so this stays
+    /// infallible). The `secrets` kind lowers the authored `secrets = ["db_prod", ..]`
+    /// allow-list (CLOACI-T-0860, design D-3).
     pub fn from_pairs(pairs: Vec<(String, Vec<String>)>) -> Self {
         let mut spec = Self::default();
         for (kind, patterns) in pairs {
@@ -90,6 +107,7 @@ impl GrantSpec {
                 "tcp" => spec.tcp.extend(patterns),
                 "fs" => spec.fs.extend(patterns),
                 "env" => spec.env.extend(patterns),
+                "secrets" => spec.secrets.extend(patterns),
                 _ => {}
             }
         }
@@ -98,7 +116,11 @@ impl GrantSpec {
 
     /// True when no capability of any kind is granted (the default-closed case).
     pub fn is_empty(&self) -> bool {
-        self.http.is_empty() && self.tcp.is_empty() && self.fs.is_empty() && self.env.is_empty()
+        self.http.is_empty()
+            && self.tcp.is_empty()
+            && self.fs.is_empty()
+            && self.env.is_empty()
+            && self.secrets.is_empty()
     }
 }
 
@@ -125,16 +147,25 @@ pub struct ResolvedGrants {
     /// The egress policy for `http`/`tcp`. `None` ⇒ fidius's deny-all default
     /// (no brokered HTTP/TCP), which is correct when neither is granted.
     pub egress: Option<Arc<dyn EgressPolicy>>,
+    /// The named secret allow-list the holder may resolve (CLOACI-T-0860, D-3).
+    /// Lowered verbatim from [`GrantSpec::secrets`]. **Fail-closed:** empty ⇒ the
+    /// holder may resolve NO secrets. The `cloacina` runtime turns this into the
+    /// [`SecretStoreResolver`](crate::security::SecretStoreResolver)'s gated
+    /// allow-list, which denies any un-granted name BEFORE any decrypt. Carries
+    /// NAMES ONLY (never values), so it is safe to log in an audit line.
+    pub secrets: Vec<String>,
 }
 
 impl ResolvedGrants {
-    /// The fail-closed default: empty allow-list (zero-grant `WasiCtx`) and no
-    /// egress policy. A constructor loaded with this reaches nothing. Used at every
-    /// load site that isn't handed explicit tenant grants.
+    /// The fail-closed default: empty allow-list (zero-grant `WasiCtx`), no
+    /// egress policy, and no granted secrets. A constructor loaded with this
+    /// reaches nothing. Used at every load site that isn't handed explicit tenant
+    /// grants.
     pub fn deny_all() -> Self {
         Self {
             capabilities: Vec::new(),
             egress: None,
+            secrets: Vec::new(),
         }
     }
 }
@@ -205,9 +236,20 @@ pub fn translate(spec: &GrantSpec) -> Result<ResolvedGrants, GrantError> {
         None
     };
 
+    // Secrets (CLOACI-T-0860, D-3): each entry is a secret NAME the holder may
+    // resolve. Names flow verbatim into `ResolvedGrants.secrets`; the resolver
+    // enforces membership before any decrypt. Reject an empty name — it can never
+    // match a real secret and only muddies the audit line (mirrors the env check).
+    for name in &spec.secrets {
+        if name.is_empty() {
+            return Err(GrantError("secrets grant has an empty secret name".into()));
+        }
+    }
+
     Ok(ResolvedGrants {
         capabilities,
         egress,
+        secrets: spec.secrets.clone(),
     })
 }
 
@@ -461,6 +503,7 @@ mod tests {
             vec![],
             vec!["ro:/data".into(), "rw:/out".into()],
             vec![],
+            vec![],
         );
         let r = translate(&spec).unwrap();
         assert_eq!(r.capabilities, vec!["fs:ro:/data", "fs:rw:/out"]);
@@ -469,25 +512,30 @@ mod tests {
 
     #[test]
     fn fs_without_mode_prefix_fails_closed() {
-        let spec = GrantSpec::from_lists(vec![], vec![], vec!["/data".into()], vec![]);
+        let spec = GrantSpec::from_lists(vec![], vec![], vec!["/data".into()], vec![], vec![]);
         assert!(translate(&spec).is_err());
     }
 
     #[test]
     fn env_grants_map_to_scoped_caps_and_reject_literals() {
-        let ok = GrantSpec::from_lists(vec![], vec![], vec![], vec!["STRIPE_KEY".into()]);
+        let ok = GrantSpec::from_lists(vec![], vec![], vec![], vec!["STRIPE_KEY".into()], vec![]);
         assert_eq!(translate(&ok).unwrap().capabilities, vec!["env:STRIPE_KEY"]);
 
-        let literal = GrantSpec::from_lists(vec![], vec![], vec![], vec!["K=v".into()]);
+        let literal = GrantSpec::from_lists(vec![], vec![], vec![], vec!["K=v".into()], vec![]);
         assert!(translate(&literal).is_err());
-        let empty = GrantSpec::from_lists(vec![], vec![], vec![], vec!["".into()]);
+        let empty = GrantSpec::from_lists(vec![], vec![], vec![], vec!["".into()], vec![]);
         assert!(translate(&empty).is_err());
     }
 
     #[test]
     fn http_intent_marker_and_policy_present() {
-        let spec =
-            GrantSpec::from_lists(vec!["api.example.com:443".into()], vec![], vec![], vec![]);
+        let spec = GrantSpec::from_lists(
+            vec!["api.example.com:443".into()],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        );
         let r = translate(&spec).unwrap();
         assert_eq!(r.capabilities, vec!["http"]);
         assert!(r.egress.is_some());
@@ -497,6 +545,7 @@ mod tests {
     fn http_policy_matches_host_port_and_path() {
         let spec = GrantSpec::from_lists(
             vec!["https://api.example.com/v1/*".into()],
+            vec![],
             vec![],
             vec![],
             vec![],
@@ -519,7 +568,13 @@ mod tests {
 
     #[test]
     fn http_host_only_grant_allows_any_path() {
-        let spec = GrantSpec::from_lists(vec!["api.example.com".into()], vec![], vec![], vec![]);
+        let spec = GrantSpec::from_lists(
+            vec!["api.example.com".into()],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        );
         let policy = translate(&spec).unwrap().egress.unwrap();
         assert!(policy
             .authorize(&mut parts("https://api.example.com/anything"))
@@ -531,7 +586,7 @@ mod tests {
 
     #[test]
     fn http_star_allows_all() {
-        let spec = GrantSpec::from_lists(vec!["*".into()], vec![], vec![], vec![]);
+        let spec = GrantSpec::from_lists(vec!["*".into()], vec![], vec![], vec![], vec![]);
         let policy = translate(&spec).unwrap().egress.unwrap();
         assert!(policy
             .authorize(&mut parts("https://anywhere.test/x"))
@@ -540,7 +595,7 @@ mod tests {
 
     #[test]
     fn tcp_star_port_matches_any_host_on_that_port() {
-        let spec = GrantSpec::from_lists(vec![], vec!["*:5432".into()], vec![], vec![]);
+        let spec = GrantSpec::from_lists(vec![], vec!["*:5432".into()], vec![], vec![], vec![]);
         let r = translate(&spec).unwrap();
         assert_eq!(r.capabilities, vec!["tcp"]);
         let policy = r.egress.unwrap();
@@ -551,7 +606,8 @@ mod tests {
 
     #[test]
     fn tcp_literal_ip_port_exact_match() {
-        let spec = GrantSpec::from_lists(vec![], vec!["10.0.0.5:5432".into()], vec![], vec![]);
+        let spec =
+            GrantSpec::from_lists(vec![], vec!["10.0.0.5:5432".into()], vec![], vec![], vec![]);
         let policy = translate(&spec).unwrap().egress.unwrap();
         let ok = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)), 5432);
         let wrong_ip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 6)), 5432);
@@ -563,7 +619,8 @@ mod tests {
 
     #[test]
     fn tcp_without_port_fails_closed() {
-        let spec = GrantSpec::from_lists(vec![], vec!["db.internal".into()], vec![], vec![]);
+        let spec =
+            GrantSpec::from_lists(vec![], vec!["db.internal".into()], vec![], vec![], vec![]);
         assert!(translate(&spec).is_err());
     }
 
@@ -574,6 +631,7 @@ mod tests {
             vec!["*:5432".into()],
             vec!["ro:/data".into()],
             vec!["TOKEN".into()],
+            vec![],
         );
         let r = translate(&spec).unwrap();
         assert!(r.capabilities.contains(&"http".to_string()));
@@ -583,17 +641,67 @@ mod tests {
         assert!(r.egress.is_some());
     }
 
+    // ── Secrets allow-list (CLOACI-T-0860, D-3) ─────────────────────────────
+
+    #[test]
+    fn secrets_flow_into_resolved_grants() {
+        let spec = GrantSpec::from_lists(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["db_prod".into(), "stripe".into()],
+        );
+        let r = translate(&spec).unwrap();
+        assert_eq!(r.secrets, vec!["db_prod", "stripe"]);
+        // Secrets are not a WASI capability and carry no egress policy.
+        assert!(r.capabilities.is_empty());
+        assert!(r.egress.is_none());
+    }
+
+    #[test]
+    fn empty_secrets_grant_is_empty() {
+        // Fail-closed: an absent secrets list ⇒ no secret may be resolved.
+        let r = translate(&GrantSpec::default()).unwrap();
+        assert!(r.secrets.is_empty());
+    }
+
+    #[test]
+    fn secrets_lower_from_raw_pairs() {
+        // The authoring path: the macro lowers `secrets = ["db_prod"]` to a
+        // ("secrets", [..]) pair carried through `from_pairs`.
+        let spec = GrantSpec::from_pairs(vec![(
+            "secrets".to_string(),
+            vec!["db_prod".to_string(), "cache".to_string()],
+        )]);
+        assert_eq!(spec.secrets, vec!["db_prod", "cache"]);
+        assert!(!spec.is_empty());
+        assert_eq!(translate(&spec).unwrap().secrets, vec!["db_prod", "cache"]);
+    }
+
+    #[test]
+    fn empty_secret_name_fails_closed() {
+        let spec = GrantSpec::from_lists(vec![], vec![], vec![], vec![], vec!["".into()]);
+        assert!(translate(&spec).is_err());
+    }
+
     #[test]
     fn lint_flags_unmet_intent_only() {
         let manifest = vec!["http".to_string(), "env:TOKEN".to_string()];
         // Granted http but not env → exactly one warning (the env intent).
-        let spec = GrantSpec::from_lists(vec!["*".into()], vec![], vec![], vec![]);
+        let spec = GrantSpec::from_lists(vec!["*".into()], vec![], vec![], vec![], vec![]);
         let w = lint_unmet_intents(&manifest, &spec);
         assert_eq!(w.len(), 1);
         assert!(w[0].contains("env:TOKEN"));
 
         // Grant both → no warnings.
-        let spec2 = GrantSpec::from_lists(vec!["*".into()], vec![], vec![], vec!["TOKEN".into()]);
+        let spec2 = GrantSpec::from_lists(
+            vec!["*".into()],
+            vec![],
+            vec![],
+            vec!["TOKEN".into()],
+            vec![],
+        );
         assert!(lint_unmet_intents(&manifest, &spec2).is_empty());
     }
 

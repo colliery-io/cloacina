@@ -108,7 +108,14 @@ fn signed_archive(work: &std::path::Path) -> (PathBuf, ed25519_dalek::VerifyingK
 
 /// Build a granting [`ResolvedGrants`] for the given `ro:`/`rw:`-prefixed fs entries.
 fn fs_grant(entries: Vec<String>) -> ResolvedGrants {
-    translate(&GrantSpec::from_lists(vec![], vec![], entries, vec![])).expect("translate fs grant")
+    translate(&GrantSpec::from_lists(
+        vec![],
+        vec![],
+        entries,
+        vec![],
+        vec![],
+    ))
+    .expect("translate fs grant")
 }
 
 #[tokio::test]

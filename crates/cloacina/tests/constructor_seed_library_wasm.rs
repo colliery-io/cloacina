@@ -105,6 +105,7 @@ async fn file_present_trigger_is_grant_gated() {
         vec![],
         vec![format!("ro:{}", watched.path().display())],
         vec![],
+        vec![],
     ))
     .expect("translate ro grant");
 

@@ -227,6 +227,21 @@ impl Client {
         Self::parse(response).await
     }
 
+    /// Typed PUT (JSON body) to an arbitrary path.
+    pub async fn put_json<B: serde::Serialize + ?Sized, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ClientError> {
+        let response = self
+            .request(Method::PUT, path)
+            .json(body)
+            .send()
+            .await
+            .map_err(ClientError::from_reqwest)?;
+        Self::parse(response).await
+    }
+
     /// DELETE an arbitrary path, discarding any response body.
     pub async fn delete_path(&self, path: &str) -> Result<(), ClientError> {
         let response = self

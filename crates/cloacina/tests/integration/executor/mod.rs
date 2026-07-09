@@ -20,4 +20,5 @@ pub mod defer_until;
 pub mod multi_tenant;
 pub mod pause_resume;
 pub mod retry_condition;
+pub mod secret_no_leak;
 pub mod task_execution;

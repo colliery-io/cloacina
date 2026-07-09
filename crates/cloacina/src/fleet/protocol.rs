@@ -99,6 +99,41 @@ pub struct AgentRegisterRequest {
     /// (e.g. `gpu`, `large_memory`).
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// CLOACI-T-0861 (superseded by `ephemeral_key_pool`) — a single ephemeral
+    /// X25519 **public** key (base64 standard). Retained for wire back-compat
+    /// with a pre-pool agent; a modern agent leaves this `None` and advertises
+    /// `ephemeral_key_pool` instead. `None` + empty pool ⇒ the agent advertised
+    /// no key and the server MUST NOT wrap secrets to it.
+    #[serde(default)]
+    pub ephemeral_public_key: Option<String>,
+
+    /// CLOACI-T-0861 / I-0133 **D-5 (one-time key pool)** — a pool of one-time
+    /// ephemeral X25519 public keys, each with a `key_id`. The server persists
+    /// this pool against the agent and CONSUMES exactly one entry per
+    /// secret-bearing dispatch (wrapping that execution's secrets to it, stamping
+    /// the `key_id` on the [`WorkPacket::secret_key_id`]); the agent holds the
+    /// paired private keys and, on receiving the packet, unwraps ONCE with the
+    /// matching key then discards it. This gives true per-execution forward
+    /// secrecy over the push protocol (no per-dispatch round-trip needed). The
+    /// agent tops the pool up via [`AgentKeyReplenishRequest`] when the server
+    /// signals low ([`AgentHeartbeatResponse::replenish_keys`]) or proactively.
+    #[serde(default)]
+    pub ephemeral_key_pool: Vec<EphemeralKeyEntry>,
+}
+
+/// CLOACI-T-0861 / D-5 — one entry in an agent's one-time ephemeral key pool.
+///
+/// The `key_id` is an opaque agent-minted handle (a UUID) the server stamps onto
+/// the dispatch it wraps to that key; the agent uses it to find the matching
+/// private key. `public_key_b64` is the serialized X25519 public key (base64
+/// standard). A pool entry is used AT MOST ONCE end to end: the server consumes
+/// it for a single dispatch, the agent unwraps once and discards the private key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EphemeralKeyEntry {
+    /// Opaque one-time handle (agent-minted UUID).
+    pub key_id: String,
+    /// Serialized X25519 public key, base64 (standard).
+    pub public_key_b64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +167,39 @@ pub struct AgentHeartbeatRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentHeartbeatResponse {
     pub protocol_version: u32,
+    /// CLOACI-T-0861 / D-5 — the server's one-time-key-pool replenish signal:
+    /// how many fresh [`EphemeralKeyEntry`]s it would like the agent to top up
+    /// (because consumption has drawn the persisted pool below its low-water
+    /// mark). `0` (the serde default, so pre-pool servers read as `0`) ⇒ the pool
+    /// is healthy. The agent responds by POSTing an [`AgentKeyReplenishRequest`].
+    #[serde(default)]
+    pub replenish_keys: u32,
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Key-pool top-up: POST /v1/agent/keys (agent → server)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// CLOACI-T-0861 / D-5 — the agent tops up its server-side one-time key pool.
+///
+/// Sent either in response to a [`AgentHeartbeatResponse::replenish_keys`] signal
+/// or proactively when the agent's local pool drops below its own threshold. Each
+/// carried [`EphemeralKeyEntry`] is a fresh one-time public key the server appends
+/// to the agent's unused pool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentKeyReplenishRequest {
+    pub protocol_version: u32,
+    pub agent_id: String,
+    /// Fresh one-time public keys to append to the agent's server-side pool.
+    pub keys: Vec<EphemeralKeyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentKeyReplenishResponse {
+    pub protocol_version: u32,
+    /// How many keys the server accepted into the pool (0 if the agent was
+    /// unknown / needs to re-register).
+    pub accepted: u32,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -171,6 +239,39 @@ pub struct WorkPacket {
     /// still handled as before. (CLOACI-T-0716)
     #[serde(default)]
     pub language: Option<String>,
+    /// CLOACI-T-0861 — secrets this task needs, each HPKE-wrapped to the target
+    /// agent's advertised ephemeral public key. ONLY ciphertext crosses the wire
+    /// (NFR-001/NFR-003); the agent unwraps with its ephemeral private key into
+    /// the in-memory `Secrets` accessor. Empty/absent ⇒ no secrets for this task.
+    #[serde(default)]
+    pub wrapped_secrets: Vec<WrappedSecret>,
+    /// CLOACI-T-0861 / D-5 — which pooled one-time key the `wrapped_secrets` are
+    /// wrapped to (the [`EphemeralKeyEntry::key_id`] the server consumed for this
+    /// dispatch). The agent looks up the matching private key, unwraps ONCE, and
+    /// discards it (one-time use). `None` ⇒ no secrets / pre-pool wrap. ALL
+    /// secrets in one dispatch wrap to the SAME key (this execution's key).
+    #[serde(default)]
+    pub secret_key_id: Option<String>,
+}
+
+/// One at-rest secret resolved by the server and HPKE-wrapped to a single
+/// agent's ephemeral public key for one dispatch (CLOACI-T-0861).
+///
+/// The plaintext field-map is serialized to JSON then sealed; only `enc_b64`
+/// (the HPKE encapsulated key) and `ciphertext_b64` (the AEAD ciphertext) travel
+/// on the wire. The wrap is bound via AEAD associated data to the execution id +
+/// secret name (see `security::fleet_secret::secret_aad`), so a captured blob
+/// cannot be replayed against a different execution or secret even to the same
+/// agent key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WrappedSecret {
+    /// The secret name (the lookup key the task resolves via `ctx.secret(name)`).
+    /// A NAME only — never a value.
+    pub name: String,
+    /// HPKE encapsulated key, base64 (standard).
+    pub enc_b64: String,
+    /// HPKE AEAD ciphertext of the JSON `{field: value}` map, base64 (standard).
+    pub ciphertext_b64: String,
 }
 
 /// One reactor firing shipped to an agent for whole-graph execution
@@ -203,6 +304,16 @@ pub struct GraphWorkPacket {
     /// graph executor. Mirrors [`WorkPacket::language`].
     #[serde(default)]
     pub language: Option<String>,
+    /// CLOACI-T-0861 — secrets the graph needs, HPKE-wrapped to the agent's
+    /// ephemeral public key. Same semantics as [`WorkPacket::wrapped_secrets`];
+    /// the AAD binds each blob to `firing_id` + secret name.
+    #[serde(default)]
+    pub wrapped_secrets: Vec<WrappedSecret>,
+    /// CLOACI-T-0861 / D-5 — which pooled one-time key the `wrapped_secrets` are
+    /// wrapped to. Same semantics as [`WorkPacket::secret_key_id`]; AAD uses
+    /// `firing_id` as the execution id.
+    #[serde(default)]
+    pub secret_key_id: Option<String>,
 }
 
 /// Reference to a workflow artifact (cdylib) the agent must fetch + load.
@@ -318,12 +429,72 @@ mod tests {
             timeout_seconds: 60,
             tenant_id: Some("t1".into()),
             language: Some("rust".into()),
+            wrapped_secrets: Vec::new(),
+            secret_key_id: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: WorkPacket = serde_json::from_str(&json).unwrap();
         assert_eq!(back.task_execution_id, "t1");
         assert_eq!(back.artifact.build_target_triple, "aarch64-apple-darwin");
         assert_eq!(back.context, serde_json::json!({"k": 42}));
+    }
+
+    #[test]
+    fn register_request_advertises_a_key_pool() {
+        // D-5: a modern agent advertises a pool; serde(default) keeps a pre-pool
+        // agent's payload (no `ephemeral_key_pool`) decodable as an empty pool.
+        let pool = vec![
+            EphemeralKeyEntry {
+                key_id: "k1".into(),
+                public_key_b64: "AAAA".into(),
+            },
+            EphemeralKeyEntry {
+                key_id: "k2".into(),
+                public_key_b64: "BBBB".into(),
+            },
+        ];
+        let req = AgentRegisterRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id: Some("a1".into()),
+            max_concurrency: 4,
+            target_triple: "aarch64-apple-darwin".into(),
+            capabilities: vec![],
+            ephemeral_public_key: None,
+            ephemeral_key_pool: pool.clone(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: AgentRegisterRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.ephemeral_key_pool, pool);
+
+        // Pre-pool payload: no `ephemeral_key_pool` field → empty pool.
+        let legacy = r#"{"protocol_version":1,"max_concurrency":4,"target_triple":"x"}"#;
+        let back: AgentRegisterRequest = serde_json::from_str(legacy).unwrap();
+        assert!(back.ephemeral_key_pool.is_empty());
+    }
+
+    #[test]
+    fn work_packet_secret_key_id_round_trips() {
+        let p = WorkPacket {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            task_execution_id: "t1".into(),
+            workflow_execution_id: "w1".into(),
+            task_name: "ns::task".into(),
+            attempt: 1,
+            context: serde_json::json!({}),
+            artifact: ArtifactRef {
+                digest: "d".into(),
+                fetch_url: "/x".into(),
+                build_target_triple: "aarch64-apple-darwin".into(),
+            },
+            timeout_seconds: 60,
+            tenant_id: None,
+            language: None,
+            wrapped_secrets: Vec::new(),
+            secret_key_id: Some("key-42".into()),
+        };
+        let json = serde_json::to_string(&p).unwrap();
+        let back: WorkPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.secret_key_id.as_deref(), Some("key-42"));
     }
 
     #[test]

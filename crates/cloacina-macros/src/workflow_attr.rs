@@ -60,6 +60,12 @@ pub struct UnifiedWorkflowAttributes {
     /// `#[workflow(params( name: Type [= default], … ))]`. Surfaced as
     /// `InputSlot`s (JSON-Schema typed) via the input-interface FFI entrypoint.
     pub params: Vec<WorkflowParam>,
+    /// CLOACI-I-0133 / T-0859: declared required SECRETS from
+    /// `#[workflow(secrets( name1, name2, … ))]`. Each is surfaced as an
+    /// encrypted `InputSlot` (marker `encrypted: true`) alongside the params, so
+    /// the manifest/FFI metadata carries which secrets the workflow requires. A
+    /// secret is bound per-instance via a `{"$secret": "name"}` reference.
+    pub secrets: Vec<String>,
 }
 
 /// One declared workflow parameter (CLOACI-I-0128). `default = None` means the
@@ -101,11 +107,13 @@ struct ConstructorNodeDecl {
     grants: Vec<(String, Vec<String>)>,
 }
 
-/// Parse a `grants = { http=[..], tcp=[..], fs=[..], env=[..] }` block into raw
-/// `(kind, patterns)` pairs — the tenant capability-grant grammar shared verbatim by
-/// every consumer surface (`constructor!`, `#[reactor]`) so it looks/feels identical
-/// everywhere (CLOACI-T-0834 / [[CLOACI-S-0014]]). The caller has already consumed
-/// the `grants` ident + `=`. Unknown grant kinds are a compile error.
+/// Parse a `grants = { http=[..], tcp=[..], fs=[..], env=[..], secrets=[..] }` block
+/// into raw `(kind, patterns)` pairs — the tenant capability-grant grammar shared
+/// verbatim by every consumer surface (`constructor!`, `#[reactor]`) so it looks/feels
+/// identical everywhere (CLOACI-T-0834 / [[CLOACI-S-0014]]). The `secrets` kind is the
+/// named secret allow-list (CLOACI-T-0860, design D-3): each entry is a secret NAME the
+/// constructor may resolve, fail-closed. The caller has already consumed the `grants`
+/// ident + `=`. Unknown grant kinds are a compile error.
 pub(crate) fn parse_grants_block(input: ParseStream) -> SynResult<Vec<(String, Vec<String>)>> {
     let content;
     syn::braced!(content in input);
@@ -113,10 +121,10 @@ pub(crate) fn parse_grants_block(input: ParseStream) -> SynResult<Vec<(String, V
     while !content.is_empty() {
         let gkey: Ident = content.parse()?;
         let kind = gkey.to_string();
-        if !matches!(kind.as_str(), "http" | "tcp" | "fs" | "env") {
+        if !matches!(kind.as_str(), "http" | "tcp" | "fs" | "env" | "secrets") {
             return Err(syn::Error::new(
                 gkey.span(),
-                format!("unknown grant kind '{kind}'. Valid kinds: http, tcp, fs, env"),
+                format!("unknown grant kind '{kind}'. Valid kinds: http, tcp, fs, env, secrets"),
             ));
         }
         content.parse::<Token![=]>()?;
@@ -232,9 +240,41 @@ impl Parse for UnifiedWorkflowAttributes {
         let mut author = None;
         let mut triggers: Vec<String> = Vec::new();
         let mut params: Vec<WorkflowParam> = Vec::new();
+        let mut secrets: Vec<String> = Vec::new();
 
         while !input.is_empty() {
             let field_name: Ident = input.parse()?;
+
+            // CLOACI-I-0133: `secrets( name1, name2, … )` uses call syntax
+            // (parens) like `params`; each name is a required encrypted input.
+            if field_name == "secrets" {
+                let content;
+                syn::parenthesized!(content in input);
+                while !content.is_empty() {
+                    let sname: Ident = content.parse()?;
+                    let sname_str = sname.to_string();
+                    if secrets.contains(&sname_str) {
+                        return Err(syn::Error::new(
+                            sname.span(),
+                            format!("duplicate workflow secret: '{}'", sname_str),
+                        ));
+                    }
+                    if params.iter().any(|p| p.name == sname_str) {
+                        return Err(syn::Error::new(
+                            sname.span(),
+                            format!("secret '{}' collides with a declared param name", sname_str),
+                        ));
+                    }
+                    secrets.push(sname_str);
+                    if !content.is_empty() {
+                        content.parse::<Token![,]>()?;
+                    }
+                }
+                if !input.is_empty() {
+                    input.parse::<Token![,]>()?;
+                }
+                continue;
+            }
 
             // CLOACI-I-0128: `params( name: Type [= default], … )` uses call
             // syntax (parens), not `field = value` — handle it before the `=`.
@@ -256,6 +296,12 @@ impl Parse for UnifiedWorkflowAttributes {
                         return Err(syn::Error::new(
                             pname.span(),
                             format!("duplicate workflow param: '{}'", pname_str),
+                        ));
+                    }
+                    if secrets.contains(&pname_str) {
+                        return Err(syn::Error::new(
+                            pname.span(),
+                            format!("param '{}' collides with a declared secret name", pname_str),
                         ));
                     }
                     params.push(WorkflowParam {
@@ -308,7 +354,7 @@ impl Parse for UnifiedWorkflowAttributes {
                     return Err(syn::Error::new(
                         field_name.span(),
                         format!(
-                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author, triggers, params",
+                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author, triggers, params, secrets",
                             field_name
                         ),
                     ));
@@ -331,6 +377,7 @@ impl Parse for UnifiedWorkflowAttributes {
             author,
             triggers,
             params,
+            secrets,
         })
     }
 }
@@ -540,7 +587,7 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     // `cloacina-workflow` directly. The fn runs at metadata-extraction time and
     // produces a JSON array of `InputSlot` (schemars-typed) for the params.
     let make_params_fn = |prefix: TokenStream2| -> TokenStream2 {
-        let slot_exprs: Vec<TokenStream2> = attrs
+        let mut slot_exprs: Vec<TokenStream2> = attrs
             .params
             .iter()
             .map(|p| {
@@ -560,6 +607,12 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
                 }
             })
             .collect();
+        // CLOACI-T-0859: declared secrets ride alongside params as encrypted
+        // slots (`InputSlot::secret` → `encrypted: true`) in the same slot list,
+        // so the manifest/FFI metadata carries which secrets are required.
+        slot_exprs.extend(attrs.secrets.iter().map(|s| {
+            quote! { #prefix::InputSlot::secret(#s) }
+        }));
         quote! {
             || {
                 let slots: ::std::vec::Vec<#prefix::InputSlot> =

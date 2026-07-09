@@ -368,6 +368,37 @@ mod unified_schema {
     }
 
     // =========================================================================
+    // Secrets Tables (CLOACI-I-0133 / T-0857)
+    // =========================================================================
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        tenant_data_keys (id) {
+            id -> DbUuid,
+            org_id -> DbUuid,
+            wrapped_dek -> DbBinary,
+            created_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        secrets (id) {
+            id -> DbUuid,
+            org_id -> DbUuid,
+            name -> Text,
+            field_names -> Text,
+            encrypted_fields -> DbBinary,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    // =========================================================================
     // Computation Graph State Tables
     // =========================================================================
 
@@ -497,11 +528,13 @@ mod unified_schema {
         recovery_events,
         schedule_executions,
         schedules,
+        secrets,
         signing_keys,
         state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
         task_outbox,
+        tenant_data_keys,
         trusted_keys,
         workflow_packages,
         workflow_registry,

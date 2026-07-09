@@ -454,6 +454,36 @@ pub fn workflow_params(
     PyWorkflowParamsDecorator
 }
 
+/// Pass-through decorator returned by [`workflow_secrets`]. CLOACI-T-0859: like
+/// [`PyWorkflowParamsDecorator`], the declaration is parsed from source by the
+/// compiler at build time into encrypted `InputSlot`s; at runtime it is a no-op
+/// pass-through so importing a package that uses `@cloaca.workflow_secrets(...)`
+/// doesn't fail.
+#[pyclass(name = "WorkflowSecretsDecorator")]
+pub struct PyWorkflowSecretsDecorator;
+
+#[pymethods]
+impl PyWorkflowSecretsDecorator {
+    fn __call__(&self, obj: PyObject) -> PyObject {
+        obj
+    }
+}
+
+/// `@cloaca.workflow_secrets("db_prod", "api_token", ...)` — declares the
+/// SECRETS a packaged Python workflow requires (CLOACI-I-0133 / T-0859), the
+/// parity of Rust's `#[workflow(secrets(...))]`. Each name becomes a required
+/// encrypted `InputSlot` (`encrypted: true`) carried in the package manifest
+/// alongside the declared params; a secret is bound per-instance via a
+/// `{"$secret": "name"}` reference and resolved encrypted at fire time (its
+/// value never enters the durable `Context`). The authoritative extraction
+/// happens at build time (the compiler parses this decorator from source); at
+/// runtime it is a no-op pass-through.
+#[pyfunction]
+#[pyo3(signature = (*_args))]
+pub fn workflow_secrets(_args: Bound<'_, pyo3::types::PyTuple>) -> PyWorkflowSecretsDecorator {
+    PyWorkflowSecretsDecorator
+}
+
 /// Pass-through decorator returned by [`boundary_schema`]. CLOACI-T-0770: like
 /// [`PyWorkflowParamsDecorator`], the declaration is parsed from source by the
 /// compiler at build time; at runtime this just returns the decorated object.

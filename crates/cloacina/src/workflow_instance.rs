@@ -56,8 +56,57 @@ pub enum WorkflowInstanceError {
     ReservedParam(String),
     #[error("param '{name}' failed schema validation: {message}")]
     InvalidParam { name: String, message: String },
+    #[error(
+        "param '{0}' is declared as an encrypted secret and must be bound with a \
+         {{\"$secret\": \"name\"}} reference, not a literal value"
+    )]
+    SecretRequiresRef(String),
+    #[error(
+        "param '{0}' is not declared as a secret but was bound with a \
+         {{\"$secret\": \"name\"}} reference"
+    )]
+    UnexpectedSecretRef(String),
+    #[error("param '{name}' has a malformed secret reference: {message}")]
+    MalformedSecretRef { name: String, message: String },
     #[error("serialization: {0}")]
     Serialization(String),
+}
+
+/// The instance-param marker key for a secret reference (CLOACI-I-0133 / T-0859,
+/// design D-4): an instance binds a declared encrypted input by giving the param
+/// the value `{"$secret": "secret_name"}`.
+pub const SECRET_REF_MARKER: &str = "$secret";
+
+/// Classify an instance-param value as a secret reference.
+///
+/// Returns:
+/// - `Ok(Some(secret_name))` when `value` is exactly `{"$secret": "<name>"}`
+///   (a single `$secret` key mapping to a non-empty string);
+/// - `Ok(None)` for any value that is not a `$secret` marker object (a plain
+///   param);
+/// - `Err(message)` when the value *looks like* a secret reference but is
+///   malformed (`$secret` present but not a lone non-empty string key) — a clear
+///   error rather than a silent mis-route.
+pub fn secret_ref_target(value: &serde_json::Value) -> Result<Option<String>, String> {
+    let serde_json::Value::Object(map) = value else {
+        return Ok(None);
+    };
+    if !map.contains_key(SECRET_REF_MARKER) {
+        return Ok(None);
+    }
+    if map.len() != 1 {
+        return Err(format!(
+            "a '{}' reference object must contain only the '{}' key",
+            SECRET_REF_MARKER, SECRET_REF_MARKER
+        ));
+    }
+    match map.get(SECRET_REF_MARKER) {
+        Some(serde_json::Value::String(name)) if !name.is_empty() => Ok(Some(name.clone())),
+        _ => Err(format!(
+            "'{}' must reference a non-empty secret name string",
+            SECRET_REF_MARKER
+        )),
+    }
 }
 
 /// A fully-resolved, immutable, serializable workflow "partial"
@@ -145,6 +194,24 @@ impl WorkflowInstanceBuilder {
             }
             match self.supplied.get(&slot.name) {
                 Some(v) => {
+                    // CLOACI-T-0859: an encrypted slot must be bound with a
+                    // `{"$secret": name}` reference (never a literal value, which
+                    // would leak into the plaintext context); a plaintext slot
+                    // must NOT be bound with a secret reference.
+                    let is_ref = secret_ref_target(v)
+                        .map_err(|message| WorkflowInstanceError::MalformedSecretRef {
+                            name: slot.name.clone(),
+                            message,
+                        })?
+                        .is_some();
+                    if slot.encrypted && !is_ref {
+                        return Err(WorkflowInstanceError::SecretRequiresRef(slot.name.clone()));
+                    }
+                    if !slot.encrypted && is_ref {
+                        return Err(WorkflowInstanceError::UnexpectedSecretRef(
+                            slot.name.clone(),
+                        ));
+                    }
                     resolved.insert(slot.name.clone(), v.clone());
                 }
                 None => match &slot.default {
@@ -177,18 +244,60 @@ pub fn merge_instance_params(
 ) -> Result<(), String> {
     let params: serde_json::Map<String, serde_json::Value> = serde_json::from_str(params_json)
         .map_err(|e| format!("instance params JSON parse: {}", e))?;
+
+    // CLOACI-T-0859: `{"$secret": name}` bindings are routed AWAY from the
+    // plaintext context. We accumulate only the non-sensitive
+    // `local_binding_name -> secret_name` alias here (NAMES only, never values);
+    // the resolved secret value never touches the context (NFR-001). The alias
+    // map is stored under the reserved `SECRET_REFS_KEY` so the T-0858 accessor
+    // can map a task's declared local name to the concrete secret at fire time.
+    let mut secret_refs = serde_json::Map::new();
+
     for (k, v) in params {
         if RESERVED_FIRE_KEYS.contains(&k.as_str()) {
             continue;
         }
-        // Bound params override any same-named key already in the context
-        // (e.g. a trigger-produced payload key) — update-or-insert.
-        if context.update(&k, v.clone()).is_err() {
-            context
-                .insert(k.as_str(), v)
-                .map_err(|e| format!("instance param '{}' insert: {}", k, e))?;
+        if k == cloacina_workflow::secret::SECRET_REFS_KEY {
+            return Err(format!(
+                "instance param '{}' collides with the reserved secret-reference key",
+                k
+            ));
+        }
+
+        match secret_ref_target(&v).map_err(|m| {
+            format!(
+                "instance param '{}' has a malformed secret reference: {}",
+                k, m
+            )
+        })? {
+            // A `$secret` reference: record the alias, keep the value out of the
+            // plaintext context entirely.
+            Some(secret_name) => {
+                secret_refs.insert(k, serde_json::Value::String(secret_name));
+            }
+            // A plain param: merged as before. Bound params override any
+            // same-named key already in the context (e.g. a trigger-produced
+            // payload key) — update-or-insert.
+            None => {
+                if context.update(&k, v.clone()).is_err() {
+                    context
+                        .insert(k.as_str(), v)
+                        .map_err(|e| format!("instance param '{}' insert: {}", k, e))?;
+                }
+            }
         }
     }
+
+    if !secret_refs.is_empty() {
+        let alias_map = serde_json::Value::Object(secret_refs);
+        let key = cloacina_workflow::secret::SECRET_REFS_KEY;
+        if context.update(key, alias_map.clone()).is_err() {
+            context
+                .insert(key, alias_map)
+                .map_err(|e| format!("secret-reference map insert: {}", e))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -202,6 +311,7 @@ mod tests {
             required,
             default,
             schema: serde_json::json!({"type": "string"}),
+            encrypted: false,
         }
     }
 
@@ -263,5 +373,121 @@ mod tests {
         );
         // reserved key skipped — cannot be spoofed by a binding
         assert!(ctx.get("scheduled_time").is_none());
+    }
+
+    // ── CLOACI-T-0859: `$secret` reference routing ───────────────────────────
+
+    fn secret_slot(name: &str) -> InputSlot {
+        InputSlot::secret(name)
+    }
+
+    #[test]
+    fn secret_ref_target_classifies_values() {
+        // A well-formed reference.
+        assert_eq!(
+            secret_ref_target(&serde_json::json!({"$secret": "db_prod"})).unwrap(),
+            Some("db_prod".to_string())
+        );
+        // Plain values are not references.
+        assert_eq!(
+            secret_ref_target(&serde_json::json!("plain")).unwrap(),
+            None
+        );
+        assert_eq!(
+            secret_ref_target(&serde_json::json!({"host": "x"})).unwrap(),
+            None
+        );
+        // Malformed: extra keys, or non-string / empty target.
+        assert!(secret_ref_target(&serde_json::json!({"$secret": "a", "x": 1})).is_err());
+        assert!(secret_ref_target(&serde_json::json!({"$secret": 5})).is_err());
+        assert!(secret_ref_target(&serde_json::json!({"$secret": ""})).is_err());
+    }
+
+    #[test]
+    fn merge_routes_secret_refs_away_from_plaintext_context() {
+        let mut ctx: crate::Context<serde_json::Value> = crate::Context::new();
+        let params = serde_json::json!({
+            "region": "us-east-1",
+            "dst_credentials": {"$secret": "s3_prod"}
+        })
+        .to_string();
+        merge_instance_params(&mut ctx, &params).unwrap();
+
+        // The plain param is merged normally.
+        assert_eq!(
+            ctx.get("region").cloned().unwrap(),
+            serde_json::json!("us-east-1")
+        );
+        // The `$secret` marker is NOT stored under its own param key.
+        assert!(ctx.get("dst_credentials").is_none());
+        // Only the non-sensitive NAME→NAME alias is recorded (never the value).
+        let refs = ctx
+            .get(cloacina_workflow::secret::SECRET_REFS_KEY)
+            .cloned()
+            .unwrap();
+        assert_eq!(refs, serde_json::json!({"dst_credentials": "s3_prod"}));
+
+        // The serialized context carries no secret VALUE — only names.
+        let json = ctx.to_json().unwrap();
+        assert!(!json.contains("$secret"));
+        assert!(json.contains("s3_prod")); // the alias target (a name) is fine
+    }
+
+    #[test]
+    fn merge_rejects_malformed_secret_ref_and_reserved_key() {
+        let mut ctx: crate::Context<serde_json::Value> = crate::Context::new();
+        let bad = serde_json::json!({"cred": {"$secret": 3}}).to_string();
+        assert!(merge_instance_params(&mut ctx, &bad).is_err());
+
+        let mut ctx2: crate::Context<serde_json::Value> = crate::Context::new();
+        let reserved = serde_json::json!({
+            cloacina_workflow::secret::SECRET_REFS_KEY: {"x": "y"}
+        })
+        .to_string();
+        assert!(merge_instance_params(&mut ctx2, &reserved).is_err());
+    }
+
+    #[test]
+    fn build_requires_secret_slot_bound_with_ref() {
+        let declared = vec![slot("source", true, None), secret_slot("db")];
+
+        // Encrypted slot left unbound → MissingParam (declared-but-unbound).
+        let err = WorkflowInstance::builder("sync")
+            .param("source", "/a")
+            .unwrap()
+            .build(&declared)
+            .unwrap_err();
+        assert!(matches!(err, WorkflowInstanceError::MissingParam(_)));
+
+        // Encrypted slot bound with a literal value → SecretRequiresRef.
+        let err = WorkflowInstance::builder("sync")
+            .param("source", "/a")
+            .unwrap()
+            .param("db", "plaintext-password")
+            .unwrap()
+            .build(&declared)
+            .unwrap_err();
+        assert!(matches!(err, WorkflowInstanceError::SecretRequiresRef(_)));
+
+        // Encrypted slot bound with a `$secret` ref → OK; the marker rides in params.
+        let inst = WorkflowInstance::builder("sync")
+            .param("source", "/a")
+            .unwrap()
+            .param("db", serde_json::json!({"$secret": "db_prod"}))
+            .unwrap()
+            .build(&declared)
+            .unwrap();
+        assert_eq!(inst.params["db"], serde_json::json!({"$secret": "db_prod"}));
+    }
+
+    #[test]
+    fn build_rejects_secret_ref_on_plaintext_slot() {
+        let declared = vec![slot("mode", true, None)];
+        let err = WorkflowInstance::builder("sync")
+            .param("mode", serde_json::json!({"$secret": "leak"}))
+            .unwrap()
+            .build(&declared)
+            .unwrap_err();
+        assert!(matches!(err, WorkflowInstanceError::UnexpectedSecretRef(_)));
     }
 }

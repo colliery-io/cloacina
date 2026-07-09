@@ -302,6 +302,36 @@ pub fn build_authz_table() -> AuthzTable {
         Access::tenant(Level::Admin),
     );
 
+    // CLOACI-T-0862: tenant secrets CRUD. Managing a tenant's secrets is
+    // tenant-admin self-service (the caller is confined to {tenant_id}; god
+    // bypasses). Reads are metadata-only in the handler but still admin-gated —
+    // even a secret's field NAMES are sensitive.
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/secrets",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/secrets",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/secrets/{name}",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::PUT,
+        "/tenants/{tenant_id}/secrets/{name}",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::DELETE,
+        "/tenants/{tenant_id}/secrets/{name}",
+        Access::tenant(Level::Admin),
+    );
+
     // CLOACI-T-0808: agent-capacity limits. Setting/clearing a tenant's exception
     // is god-only (platform + admin); reading the effective limit is tenant-scoped
     // (a caller may read only its own tenant's limit — cross-tenant is denied).
@@ -826,7 +856,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            59,
+            64,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
@@ -883,6 +913,28 @@ mod tests {
         assert_eq!(
             get(Method::GET, "/tenants/{tenant_id}/fleet"),
             Some(Access::tenant(Level::Read))
+        );
+        // CLOACI-T-0862: tenant secrets — all tenant-admin (metadata-only reads
+        // still admin-gated).
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/secrets"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/secrets"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/secrets/{name}"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::PUT, "/tenants/{tenant_id}/secrets/{name}"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::DELETE, "/tenants/{tenant_id}/secrets/{name}"),
+            Some(Access::tenant(Level::Admin))
         );
         assert_eq!(
             get(Method::POST, "/tenants"),

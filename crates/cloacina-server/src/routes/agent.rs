@@ -34,10 +34,11 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use cloacina::fleet::{
-    host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentOutcome,
-    AgentRegisterRequest, AgentRegisterResponse, AgentResultRequest, AgentResultResponse,
-    AGENT_PROTOCOL_VERSION,
+    host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentKeyReplenishRequest,
+    AgentKeyReplenishResponse, AgentOutcome, AgentRegisterRequest, AgentRegisterResponse,
+    AgentResultRequest, AgentResultResponse, EphemeralKeyEntry, AGENT_PROTOCOL_VERSION,
 };
+use cloacina::security::ServerKeyPool;
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -45,6 +46,11 @@ use crate::agent_registry::AgentRecord;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
+
+/// CLOACI-T-0861 / D-5 — target size of an agent's server-side one-time key pool.
+/// The heartbeat response asks the agent to top up toward this whenever
+/// consumption has drawn the pool below it. Matches the agent's own target.
+pub(crate) const AGENT_KEY_POOL_TARGET: usize = 32;
 
 // `server_host_target_triple` moved to `cloacina::fleet::host_target_triple`
 // in T-0632 so server + agent compute it from the same code (the OQ-6
@@ -102,6 +108,22 @@ pub async fn register_agent(
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
+    // CLOACI-T-0861 / D-5 — seed the server-side one-time key pool from the
+    // agent's advertised entries. A pre-pool agent that sent only the single
+    // `ephemeral_public_key` is accommodated by synthesizing one pool entry so
+    // one secret-bearing dispatch can still be served; a modern agent sends a
+    // full pool. Re-registration overwrites the record (and its pool) wholesale.
+    let mut pool_entries = req.ephemeral_key_pool.clone();
+    if pool_entries.is_empty() {
+        if let Some(pk) = req.ephemeral_public_key.clone() {
+            pool_entries.push(EphemeralKeyEntry {
+                key_id: format!("legacy-{}", agent_id),
+                public_key_b64: pk,
+            });
+        }
+    }
+    let pool_size = pool_entries.len();
+
     state.agent_registry.register(AgentRecord {
         agent_id: agent_id.clone(),
         max_concurrency: req.max_concurrency,
@@ -111,6 +133,7 @@ pub async fn register_agent(
         capabilities: req.capabilities.clone(),
         last_heartbeat: Instant::now(),
         tenant_id: auth.tenant_id.clone(),
+        key_pool: ServerKeyPool::from_entries(pool_entries),
     });
 
     info!(
@@ -119,6 +142,7 @@ pub async fn register_agent(
         tenant = ?auth.tenant_id,
         target_triple = %req.target_triple,
         max_concurrency = req.max_concurrency,
+        key_pool = pool_size,
         "agent registered"
     );
 
@@ -150,8 +174,43 @@ pub async fn heartbeat_agent(
             format!("agent not registered: {} (re-register)", req.agent_id),
         ));
     }
+    // CLOACI-T-0861 / D-5 — tell the agent how many one-time keys to top up if
+    // secret-bearing dispatches have drawn the pool below its target.
+    let replenish_keys = state
+        .agent_registry
+        .key_pool_deficit(&req.agent_id, AGENT_KEY_POOL_TARGET) as u32;
     Ok(Json(AgentHeartbeatResponse {
         protocol_version: AGENT_PROTOCOL_VERSION,
+        replenish_keys,
+    }))
+}
+
+/// `POST /v1/agent/keys` — CLOACI-T-0861 / D-5 one-time key-pool top-up.
+///
+/// The agent appends fresh [`EphemeralKeyEntry`]s to its server-side pool, either
+/// in response to the heartbeat replenish signal or proactively. De-duped by
+/// `key_id`; an unknown agent is rejected (it should re-register).
+pub async fn replenish_keys(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Json(req): Json<AgentKeyReplenishRequest>,
+) -> Result<Json<AgentKeyReplenishResponse>, ApiError> {
+    require_protocol_version(req.protocol_version)?;
+    reject_cross_tenant_agent(&state, &auth, &req.agent_id)?;
+
+    let accepted = state
+        .agent_registry
+        .replenish_secret_keys(&req.agent_id, req.keys)
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "agent_not_registered",
+                format!("agent not registered: {} (re-register)", req.agent_id),
+            )
+        })?;
+    debug!(agent_id = %req.agent_id, accepted, "agent key pool topped up");
+    Ok(Json(AgentKeyReplenishResponse {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+        accepted: accepted as u32,
     }))
 }
 

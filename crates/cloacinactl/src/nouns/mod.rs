@@ -30,6 +30,7 @@ pub mod graph;
 pub mod key;
 pub mod package;
 pub mod reactor;
+pub mod secret;
 pub mod server;
 pub mod tenant;
 pub mod trigger;

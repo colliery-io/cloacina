@@ -80,6 +80,7 @@ fn fs_ro_grant(dir: &std::path::Path) -> GrantSpec {
         vec![],
         vec![format!("ro:{}", dir.display())],
         vec![],
+        vec![],
     )
 }
 
@@ -132,7 +133,7 @@ async fn bundled_provider_node_fails_closed_without_a_grant() {
             serde_json::json!(secret.display().to_string()),
         )],
         vec![],
-        GrantSpec::from_lists(vec![], vec![], vec![], vec![]),
+        GrantSpec::from_lists(vec![], vec![], vec![], vec![], vec![]),
     )
     .expect("resolve read_file (load succeeds; the DENIAL is at execute)");
 
@@ -156,7 +157,7 @@ async fn unknown_member_of_bundled_provider_fails_closed() {
         "delete_file", // not a member of this suite
         vec![("path".to_string(), serde_json::json!("/x"))],
         vec![],
-        GrantSpec::from_lists(vec![], vec![], vec![], vec![]),
+        GrantSpec::from_lists(vec![], vec![], vec![], vec![], vec![]),
     )
     .err()
     .expect("an unknown member must fail closed");

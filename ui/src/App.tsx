@@ -32,6 +32,7 @@ import { Graphs } from "./routes/Graphs";
 import { GraphDetail } from "./routes/GraphDetail";
 import { Operations } from "./routes/Operations";
 import { Keys } from "./routes/Keys";
+import { Secrets } from "./routes/Secrets";
 import { Accounts } from "./routes/Accounts";
 import { Fleet } from "./routes/Fleet";
 import { Settings } from "./routes/Settings";
@@ -62,6 +63,7 @@ export function App() {
           <Route path="graphs/:name" element={<GraphDetail />} />
           <Route path="operations" element={<Operations />} />
           <Route path="keys" element={<Keys />} />
+          <Route path="secrets" element={<Secrets />} />
           <Route path="accounts" element={<Accounts />} />
           <Route path="fleet" element={<Fleet />} />
           <Route path="settings" element={<Settings />} />

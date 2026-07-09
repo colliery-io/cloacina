@@ -684,6 +684,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /v1/tenants/{tenant_id}/secrets` — list secret metadata. **No values.** */
+        get: operations["list_secrets"];
+        put?: never;
+        /**
+         * `POST /v1/tenants/{tenant_id}/secrets` — create a secret from a field map.
+         *     Returns metadata only.
+         */
+        post: operations["create_secret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/secrets/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /v1/tenants/{tenant_id}/secrets/{name}` — one secret's metadata. **No values.** */
+        get: operations["get_secret"];
+        /**
+         * `PUT /v1/tenants/{tenant_id}/secrets/{name}` — rotate a secret's values in
+         *     place (D-8/OQ-5). Returns metadata only; the next fire sees the new value.
+         */
+        put: operations["rotate_secret"];
+        post?: never;
+        /** `DELETE /v1/tenants/{tenant_id}/secrets/{name}` — delete a secret. */
+        delete: operations["delete_secret"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/triggers": {
         parameters: {
             query?: never;
@@ -1102,6 +1145,20 @@ export interface components {
             name: string;
             role?: components["schemas"]["KeyRole"];
         };
+        /**
+         * @description Request body for `POST /v1/tenants/{tenant_id}/secrets` — create a secret.
+         *
+         *     `fields` is the `{field_name: value}` map. The values are write-only: they
+         *     are encrypted at rest and never returned by any read endpoint.
+         */
+        CreateSecretRequest: {
+            /** @description The `{field: value}` map. Values are write-only. */
+            fields: {
+                [key: string]: string;
+            };
+            /** @description The secret's name (unique within the tenant). */
+            name: string;
+        };
         /** @description Request body for `POST /tenants`. */
         CreateTenantRequest: {
             /** @description Optional operator-facing description. */
@@ -1373,6 +1430,15 @@ export interface components {
         InputSlot: {
             /** @description Optional default applied when the slot is omitted. */
             default?: Record<string, never> | null;
+            /**
+             * @description CLOACI-I-0133 / T-0859: marks this slot as an **encrypted secret** rather
+             *     than a plaintext param. A secret slot is bound via a `{"$secret": name}`
+             *     reference (never a literal value), resolved encrypted at fire time, and
+             *     its resolved value never enters the durable `Context` (NFR-001). Defaults
+             *     to `false` so pre-existing serialized slots (which omit the field)
+             *     deserialize as ordinary params.
+             */
+            encrypted?: boolean;
             /**
              * @description Slot name — the context key (workflows) or source/event name
              *     (accumulators/reactors).
@@ -1683,6 +1749,26 @@ export interface components {
          *     returns `{items, total}`. `total` is best-effort — it equals the
          *     returned page size when the server doesn't run a separate COUNT.
          */
+        ListResponse_SecretMetadataResponse: {
+            items: {
+                /** @description RFC 3339 timestamp. */
+                created_at: string;
+                /** @description The declared field names (no values). */
+                field_names: string[];
+                /** @description Secret UUID. */
+                id: string;
+                /** @description The secret's name. */
+                name: string;
+                /** @description RFC 3339 timestamp. */
+                updated_at: string;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
         ListResponse_TenantSummary: {
             items: {
                 name: string;
@@ -1802,6 +1888,40 @@ export interface components {
         /** @description Reset a local account's password (admin-reset-only, OQ-12). */
         ResetPasswordRequest: {
             password: string;
+        };
+        /**
+         * @description Request body for `PUT|POST /v1/tenants/{tenant_id}/secrets/{name}` — rotate.
+         *
+         *     Replaces the secret's field map in place (D-8/OQ-5: in-place, no versioning).
+         */
+        RotateSecretRequest: {
+            /** @description The new `{field: value}` map. Values are write-only. */
+            fields: {
+                [key: string]: string;
+            };
+        };
+        /** @description `DELETE /v1/tenants/{tenant_id}/secrets/{name}` response. */
+        SecretDeletedResponse: {
+            /** @description The deleted secret's name. */
+            name: string;
+            /** @description Always `"deleted"`. */
+            status: string;
+        };
+        /**
+         * @description Metadata view of a secret — the ONLY shape a read returns. Carries names +
+         *     timestamps; **never** a plaintext or ciphertext value.
+         */
+        SecretMetadataResponse: {
+            /** @description RFC 3339 timestamp. */
+            created_at: string;
+            /** @description The declared field names (no values). */
+            field_names: string[];
+            /** @description Secret UUID. */
+            id: string;
+            /** @description The secret's name. */
+            name: string;
+            /** @description RFC 3339 timestamp. */
+            updated_at: string;
         };
         /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
         TaskExecutionDetail: {
@@ -3831,6 +3951,306 @@ export interface operations {
             };
             /** @description Key not found in this tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_secrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secret metadata (names + timestamps only) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_SecretMetadataResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Secrets not configured on this server */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Secret created — metadata only (no values) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretMetadataResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A secret of that name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Secrets not configured on this server */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Secret name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secret metadata (names + timestamps only) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretMetadataResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Secret not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Secrets not configured on this server */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rotate_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Secret name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Secret rotated — metadata only (no values) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretMetadataResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Secret not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Secrets not configured on this server */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Secret name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secret deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretDeletedResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Secret not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Secrets not configured on this server */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -539,6 +539,27 @@ successful teardown).
 | `500` | `internal_error` | Step 1 (key revocation) failed. Steps 2-4 not attempted. |
 | `403` | `admin_required` | Caller is not an `is_admin` key. |
 
+## Tenant Secrets
+
+Tenant-scoped, encrypted [secrets]({{< ref "/service/explanation/secrets" >}}) —
+named bundles of named fields a workflow references by name. **All five routes
+require a tenant `admin` key** (the caller is confined to `{tenant_id}`), and all
+return `503 secrets_not_configured` when the server has no `CLOACINA_SECRET_KEK`
+configured. **Reads are metadata-only** — list and get return names, field
+names, and timestamps, never a plaintext or ciphertext value.
+
+| Method + path | Purpose |
+|---|---|
+| `POST /v1/tenants/{tenant_id}/secrets` | Create a secret from a `{ "name": ..., "fields": { field: value, ... } }` body. Returns `201` with metadata only. `409 secret_exists` if the name is taken. |
+| `GET /v1/tenants/{tenant_id}/secrets` | List secret metadata (names, field names, timestamps). No values. |
+| `GET /v1/tenants/{tenant_id}/secrets/{name}` | One secret's metadata. No values. `404 secret_not_found` if absent. |
+| `PUT /v1/tenants/{tenant_id}/secrets/{name}` | Rotate values in place from a `{ "fields": { ... } }` body. Returns metadata only; the next fire sees the new value. `404 secret_not_found` if absent. |
+| `DELETE /v1/tenants/{tenant_id}/secrets/{name}` | Delete a secret. `404 secret_not_found` if absent. |
+
+Metadata responses carry `id`, `name`, `field_names`, `created_at`, and
+`updated_at`. Managing secrets is documented in
+[Manage Secrets]({{< ref "/service/how-to/manage-secrets" >}}).
+
 ## Workflow Packages
 
 Workflow packages are `.cloacina` archives uploaded via multipart form data, scoped to a tenant.

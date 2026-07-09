@@ -415,6 +415,22 @@ Requires an admin-role key.
 | `trigger list [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/triggers?limit=…&offset=…` | Combined cron + custom-poll trigger schedules. Default limit: 100, max 1000 (CLOACI-T-0596 / API-10). |
 | `trigger inspect <NAME>` | `GET /v1/tenants/<tenant>/triggers/<name>` | Single trigger metadata + recent executions. |
 
+## `secret`
+
+Tenant-scoped encrypted [secrets]({{< ref "/service/explanation/secrets" >}}).
+Requires a tenant **admin** key, and the server must have `CLOACINA_SECRET_KEK`
+set (routes return `503` otherwise). Field **values** are never passed on argv —
+each `--field`/`-f` names a value source; a literal `NAME=value` is rejected.
+Reads never show values. See [Manage Secrets]({{< ref "/service/how-to/manage-secrets" >}}).
+
+| Command | HTTP Endpoint | Notes |
+|---|---|---|
+| `secret create <NAME> -f <FIELD>…` | `POST /v1/tenants/<tenant>/secrets` | Each `-f`/`--field` (repeatable, required) reads its value from a file (`NAME=@path`), stdin (`NAME=-`, one field only), or an interactive prompt (`NAME` or `NAME=?`). Returns metadata only. |
+| `secret rotate <NAME> -f <FIELD>…` | `PUT /v1/tenants/<tenant>/secrets/<name>` | Replaces the whole field map in place (same `-f` sources as create); the next fire sees the new value. |
+| `secret list` | `GET /v1/tenants/<tenant>/secrets` | Metadata only: names, field names, timestamps. Never values. |
+| `secret get <NAME>` | `GET /v1/tenants/<tenant>/secrets/<name>` | One secret's metadata. Never values. |
+| `secret delete <NAME> [--force]` | `DELETE /v1/tenants/<tenant>/secrets/<name>` | Interactive confirmation unless `--force`. |
+
 ---
 
 # Singleton Commands

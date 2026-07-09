@@ -120,6 +120,11 @@ pub struct ThreadTaskExecutor {
     /// will construct an analogous handler so thread and fleet paths share
     /// one state-write sequence.
     result_handler: crate::executor::TaskResultHandler,
+    /// Optional secret resolution side channel (CLOACI-T-0858). When set, the
+    /// context built for each task carries it so a task body can call
+    /// `context.secret(...)`. `None` when secrets aren't configured for this
+    /// runner.
+    secret_resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
 }
 
 impl ThreadTaskExecutor {
@@ -177,12 +182,24 @@ impl ThreadTaskExecutor {
             total_executed,
             total_failed,
             result_handler,
+            secret_resolver: None,
         }
     }
 
     /// Sets the runtime for this executor, replacing the default.
     pub fn with_runtime(mut self, runtime: Arc<Runtime>) -> Self {
         self.runtime = runtime;
+        self
+    }
+
+    /// Sets the secret resolution side channel (CLOACI-T-0858). Every task this
+    /// executor runs then receives a context that can resolve secrets via
+    /// `context.secret(...)`.
+    pub fn with_secret_resolver(
+        mut self,
+        resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
+    ) -> Self {
+        self.secret_resolver = resolver;
         self
     }
 
@@ -211,6 +228,7 @@ impl ThreadTaskExecutor {
         // thread executor and the fleet executor resolve dependency context
         // identically (same drift-elimination pattern as TaskResultHandler).
         crate::executor::TaskContextBuilder::new(self.dal.clone())
+            .with_secret_resolver(self.secret_resolver.clone())
             .build(claimed_task, dependencies)
             .await
     }
@@ -324,6 +342,7 @@ impl Clone for ThreadTaskExecutor {
             total_executed: Arc::clone(&self.total_executed),
             total_failed: Arc::clone(&self.total_failed),
             result_handler: self.result_handler.clone(),
+            secret_resolver: self.secret_resolver.clone(),
         }
     }
 }

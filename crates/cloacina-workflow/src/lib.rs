@@ -71,6 +71,7 @@ pub mod error;
 pub mod input_interface;
 pub mod namespace;
 pub mod retry;
+pub mod secret;
 pub mod task;
 pub mod trigger;
 
@@ -80,6 +81,7 @@ pub use error::{CheckpointError, ContextError, TaskError};
 pub use input_interface::{schema_for, InputSlot};
 pub use namespace::{parse_namespace, TaskNamespace};
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
+pub use secret::{SecretAccessError, SecretResolver, SecretResolverError};
 pub use task::{Task, TaskState};
 pub use trigger::{Trigger, TriggerError, TriggerResult};
 
