@@ -25,14 +25,14 @@ bincode = "1.3"
 # crate. See T-0632 status notes.
 # `constructors-wasm` explicit (CLOACI-T-0836): agents load packaged workflows too
 # and must resolve bundled constructor providers rather than fail closed.
-cloacina = { version = "0.9.0", path = "../cloacina", default-features = false, features = ["sqlite", "constructors-wasm"] }
+cloacina = { workspace = true, default-features = false, features = ["sqlite", "constructors-wasm"] }
 
 # Python runtime (PyO3) so the agent can run Python-packaged workflows, not just
 # Rust cdylibs — the agent fetches a Python package's source archive and imports
 # it via this runtime. `default-features = false` (NOT extension-module) embeds
 # the interpreter into the binary; the agent image carries libpython +
 # python3-dev. (CLOACI-T-0716)
-cloacina-python = { version = "0.9.0", path = "../cloacina-python", default-features = false }
+cloacina-python = { workspace = true, default-features = false }
 
 # HTTP client for REST endpoints (register/heartbeat/result/ws-ticket/artifact).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

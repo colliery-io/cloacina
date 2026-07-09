@@ -38,6 +38,19 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+      # CLOACI-I-0134: single source of version truth. Fails if any core
+      # version touchpoint (Rust workspace, npm, python, scaffold pin) has
+      # drifted from [workspace.package] version. CI runs pre-commit, so drift
+      # cannot reach main. `language: python` uses a pre-commit-managed
+      # interpreter (stdlib-only script) so it never depends on the ambient
+      # python. Providers under examples/ are independently versioned (A-0010)
+      # and deliberately excluded.
+      - id: version-lockstep
+        name: Version lockstep (single source of truth)
+        entry: python .angreal/version_lockstep.py check
+        language: python
+        pass_filenames: false
+        always_run: true
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     # Ruff version.
     rev: v0.4.4

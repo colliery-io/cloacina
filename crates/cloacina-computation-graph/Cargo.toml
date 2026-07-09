@@ -1,6 +1,6 @@
 [package]
 name = "cloacina-computation-graph"
-version = "0.9.0"
+version.workspace = true
 edition = "2021"
 description = "Core types for Cloacina computation graph plugins"
 license = "Apache-2.0"

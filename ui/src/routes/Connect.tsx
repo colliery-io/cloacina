@@ -379,7 +379,7 @@ export function Connect() {
         </Box>
 
         <Box style={{ textAlign: "center", marginTop: 14, fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
-          cloacina v0.9.0 · tenant-scoped control plane
+          cloacina v{__APP_VERSION__} · tenant-scoped control plane
         </Box>
       </Box>
     </Box>

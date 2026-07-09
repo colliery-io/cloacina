@@ -35,7 +35,7 @@ mime_guess = { version = "2", optional = true }
 # `constructors-wasm` is explicit (not just transitive via cloacina-python) so the
 # server can always resolve packaged constructor providers (reconciler Step 5b,
 # CLOACI-T-0836) — packaged workflows are the primary consumer window.
-cloacina = { version = "0.9.0", path = "../cloacina", default-features = false, features = ["constructors-wasm"] }
+cloacina = { workspace = true, default-features = false, features = ["constructors-wasm"] }
 # CLOACI-T-0811: the fleet control loop runs raw SQL (Postgres advisory locks for
 # leader election) over a pooled connection — the same `conn.interact` +
 # `diesel::sql_query` idiom the DAL uses. The Postgres backend is enabled via the
@@ -46,8 +46,8 @@ utoipa = { version = "5" }
 # Python runtime — server registers the impl at startup so uploaded
 # Python-language packages can be loaded by the reconciler. Compiler
 # service intentionally does not depend on this (T-0529).
-cloacina-python = { version = "0.9.0", path = "../cloacina-python", default-features = false }
-cloacina-workflow-plugin = { version = "0.9.0", path = "../cloacina-workflow-plugin" }
+cloacina-python = { workspace = true, default-features = false }
+cloacina-workflow-plugin = { workspace = true }
 clap.workspace = true
 anyhow.workspace = true
 dirs = "6"
@@ -99,4 +99,4 @@ serial_test = "3"
 tempfile = "3"
 
 [build-dependencies]
-cloacina-build = { version = "0.9.0", path = "../cloacina-build" }
+cloacina-build = { workspace = true }
