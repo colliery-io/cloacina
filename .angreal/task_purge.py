@@ -109,18 +109,30 @@ def _cargo_cache_dirs() -> List[Path]:
 
 
 def _docker_compose_down(cwd: Path) -> int:
-    """Stop docker services and remove volumes. Returns docker's exit code,
-    or 0 if compose isn't on PATH."""
-    compose_file = cwd / ".angreal" / "docker-compose.yaml"
-    if not compose_file.exists():
-        return 0
+    """Stop EVERY Cloacina docker stack and remove volumes. Returns the worst
+    exit code, or 0 if compose isn't on PATH.
+
+    Purge must clean ALL stacks a command can bring up — otherwise a stale one
+    (notably the `angreal ui` demo stack) survives a purge and its DB pool
+    later exhausts. Historically this only tore down the backing-services stack
+    and left `cloacina-demo` running for days."""
     if shutil.which("docker") is None:
         return 0
-    return subprocess.run(
-        ["docker", "compose", "-f", str(compose_file), "down", "-v", "--remove-orphans"],
-        cwd=str(cwd),
-        check=False,
-    ).returncode
+    compose_files = [
+        cwd / ".angreal" / "docker-compose.yaml",    # backing services (angreal services / test integration)
+        cwd / "docker" / "docker-compose.demo.yml",  # demo / e2e stack (angreal ui)
+    ]
+    rc = 0
+    for compose_file in compose_files:
+        if not compose_file.exists():
+            continue
+        code = subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "down", "-v", "--remove-orphans"],
+            cwd=str(cwd),
+            check=False,
+        ).returncode
+        rc = rc or code
+    return rc
 
 
 # ---------------------------------------------------------------------------

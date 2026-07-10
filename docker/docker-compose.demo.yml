@@ -36,6 +36,11 @@ x-acme-key: &acme_key "clk_demo_acme_key_0002"
 services:
   postgres:
     image: postgres:16
+    # The demo runs a full fleet (server + N agents + compilers) all pooling
+    # into this one Postgres; the default 100 connections exhaust under that
+    # load (auth/heartbeat/scheduler all time out waiting for a slot). Match the
+    # backing-services stack's headroom.
+    command: postgres -c max_connections=500
     environment:
       POSTGRES_USER: cloacina
       POSTGRES_PASSWORD: cloacina

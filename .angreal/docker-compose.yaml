@@ -1,4 +1,10 @@
 ---
+# Pinned project name so this backing-services stack is unambiguously Cloacina's
+# and never collides with the default `angreal` project used by other angreal
+# repos on the same machine. `angreal ui`'s full demo/e2e stack is a SEPARATE
+# project (`cloacina-demo`, docker/docker-compose.demo.yml); `angreal purge`
+# tears down both.
+name: cloacina-dev
 services:
   postgres:
     image: postgres:16
