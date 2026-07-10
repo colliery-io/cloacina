@@ -87,30 +87,29 @@ pub use runtime_scope::{current_runtime, ScopedRuntime};
 // here from cloacina core in CLOACI-T-0529.
 use pyo3::prelude::*;
 
-#[pymodule]
-fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Install a process-default ScopedRuntime for standalone Python usage
-    // (tutorials, scripts, tests that import cloaca directly). Without this,
-    // module-level `@cloaca.task` and `WorkflowBuilder.__exit__` fail because
-    // the decorator/lifecycle code looks up the current Runtime via the
-    // thread-local slot in `runtime_scope`. The server loader path installs
-    // its own ScopedRuntime on a dedicated loader thread; this default is
-    // thread-local to the import thread and does not conflict with that.
-    if runtime_scope::current_runtime().is_none() {
-        let rt = std::sync::Arc::new(cloacina::Runtime::empty());
-        let guard = runtime_scope::ScopedRuntime::new(rt)
-            .expect("install process-default Runtime in cloaca pymodule init");
-        std::mem::forget(guard);
-    }
-
+/// Register the `cloaca` AUTHORSHIP contract onto a module (CLOACI-I-0137).
+///
+/// This is the SINGLE source of truth for every symbol the workflow-authoring
+/// surface exposes — `@cloaca.task`, `@cloaca.workflow`, the trigger/reactor/
+/// accumulator decorators, `RetryPolicy`, `cloaca.var`, and so on. BOTH entry
+/// points call it: the maturin `#[pymodule]` below (the pip wheel) and the
+/// synthetic `loader::ensure_cloaca_module` (the embedded server). Registering
+/// here — and ONLY here — makes wheel/server symbol drift structurally
+/// impossible (the class of bug behind the `state_accumulator` production
+/// failure and the latent `py_var` wheel gap).
+///
+/// `cloaca` is PURELY an authorship surface. Host/embedding-only symbols
+/// (`PyDefaultRunner`, the admin classes) are deliberately NOT part of this
+/// contract and live only in the wheel `#[pymodule]`; the server never exposes
+/// a runner because the server IS the runner.
+pub(crate) fn register_authoring(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<context::PyContext>()?;
 
     m.add_function(wrap_pyfunction!(task::task, m)?)?;
     m.add_class::<task::PyTaskHandle>()?;
+    m.add_class::<task::TaskDecorator>()?;
 
-    // CLOACI-T-0831: packaged constructor-provider consumption (mirrors Rust's
-    // `constructor!`). NOTE: also registered in the synthetic module
-    // (`loader.rs::ensure_cloaca_module`) — keep BOTH in sync.
+    // CLOACI-T-0831: packaged constructor-provider consumption (mirrors Rust's `constructor!`).
     m.add_function(wrap_pyfunction!(constructor::constructor, m)?)?;
 
     // CLOACI-T-0763: Python trigger-rule builders (parity with Rust's DSL).
@@ -125,6 +124,7 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;
     m.add_class::<bindings::trigger::PyTriggerResult>()?;
+    m.add_class::<trigger::TriggerDecorator>()?;
 
     m.add_function(wrap_pyfunction!(reactor::reactor, m)?)?;
 
@@ -139,12 +139,9 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(workflow::workflow_secrets, m)?)?;
     m.add_function(wrap_pyfunction!(workflow::boundary_schema, m)?)?;
 
-    m.add_class::<bindings::runner::PyDefaultRunner>()?;
-    m.add_class::<bindings::runner::PyWorkflowResult>()?;
-    m.add_class::<bindings::context::PyDefaultRunnerConfig>()?;
-
     m.add_class::<namespace::PyTaskNamespace>()?;
     m.add_class::<workflow_context::PyWorkflowContext>()?;
+
     m.add_class::<bindings::value_objects::PyRetryPolicy>()?;
     m.add_class::<bindings::value_objects::PyRetryPolicyBuilder>()?;
     m.add_class::<bindings::value_objects::PyBackoffStrategy>()?;
@@ -172,6 +169,40 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
         computation_graph::state_accumulator_decorator,
         m
     )?)?;
+
+    // Variable registry — `cloaca.var` / `cloaca.var_or`.
+    m.add_function(wrap_pyfunction!(loader::py_var, m)?)?;
+    m.add_function(wrap_pyfunction!(loader::py_var_or, m)?)?;
+
+    Ok(())
+}
+
+#[pymodule]
+fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Install a process-default ScopedRuntime for standalone Python usage
+    // (tutorials, scripts, tests that import cloaca directly). Without this,
+    // module-level `@cloaca.task` and `WorkflowBuilder.__exit__` fail because
+    // the decorator/lifecycle code looks up the current Runtime via the
+    // thread-local slot in `runtime_scope`. The server loader path installs
+    // its own ScopedRuntime on a dedicated loader thread; this default is
+    // thread-local to the import thread and does not conflict with that.
+    if runtime_scope::current_runtime().is_none() {
+        let rt = std::sync::Arc::new(cloacina::Runtime::empty());
+        let guard = runtime_scope::ScopedRuntime::new(rt)
+            .expect("install process-default Runtime in cloaca pymodule init");
+        std::mem::forget(guard);
+    }
+
+    // The shared authorship contract — the single source of truth (see
+    // `register_authoring`; the server's `ensure_cloaca_module` calls the same fn).
+    register_authoring(m)?;
+
+    // Host/embedding-only surface — the pip wheel additionally embeds a runner
+    // and admin API. These are NOT part of the authorship contract, so the
+    // synthetic server module deliberately omits them.
+    m.add_class::<bindings::runner::PyDefaultRunner>()?;
+    m.add_class::<bindings::runner::PyWorkflowResult>()?;
+    m.add_class::<bindings::context::PyDefaultRunnerConfig>()?;
 
     #[cfg(feature = "postgres")]
     {
@@ -254,30 +285,73 @@ mod tests {
                 "cloaca should be registered in sys.modules"
             );
 
-            // Verify the module is importable
+            // Verify the synthetic server module exposes the FULL authorship
+            // contract. CLOACI-I-0137: both this module and the wheel `#[pymodule]`
+            // register via `register_authoring`, so THIS LIST IS THE CONTRACT — a
+            // missing symbol fails LOUD here rather than as an obscure runtime
+            // `AttributeError` when the server loads a packaged workflow. This is
+            // the class of bug behind the T-0688 `state_accumulator` production
+            // failure AND the (previously untested) `workflow_secrets`/`RetryPolicy`
+            // gaps that no packaged-workflow example ever exercised.
             let cloaca_mod = py.import("cloaca").unwrap();
-            assert!(cloaca_mod.hasattr("task").unwrap());
-            assert!(cloaca_mod.hasattr("trigger").unwrap());
-            assert!(cloaca_mod.hasattr("TriggerResult").unwrap());
-            assert!(cloaca_mod.hasattr("WorkflowBuilder").unwrap());
-            assert!(cloaca_mod.hasattr("Context").unwrap());
-            // Reactor class decorator (mirrors Rust #[reactor])
-            assert!(cloaca_mod.hasattr("reactor").unwrap());
-            // Computation graph decorators
-            assert!(cloaca_mod.hasattr("passthrough_accumulator").unwrap());
-            assert!(cloaca_mod.hasattr("stream_accumulator").unwrap());
-            assert!(cloaca_mod.hasattr("polling_accumulator").unwrap());
-            assert!(cloaca_mod.hasattr("batch_accumulator").unwrap());
-            // CLOACI-T-0688: state accumulator must be in the SERVER's synthetic
-            // module too, not just the maturin #[pymodule] — the demo stack caught
-            // this drift (server reconciler: "module 'cloaca' has no attribute
-            // 'state_accumulator'") because ensure_cloaca_module omitted it.
-            assert!(cloaca_mod.hasattr("state_accumulator").unwrap());
-            assert!(cloaca_mod.hasattr("node").unwrap());
-            assert!(cloaca_mod.hasattr("ComputationGraphBuilder").unwrap());
-            // Variable registry
-            assert!(cloaca_mod.hasattr("var").unwrap());
-            assert!(cloaca_mod.hasattr("var_or").unwrap());
+            for sym in [
+                // Task authoring
+                "task",
+                "TaskHandle",
+                "TaskDecorator",
+                // Constructor-provider consumption
+                "constructor",
+                // Trigger-rule builders
+                "context_value",
+                "task_success",
+                "task_failed",
+                "task_skipped",
+                "all_of",
+                "any_of",
+                "none_of",
+                "always",
+                // Trigger authoring
+                "trigger",
+                "TriggerResult",
+                "TriggerDecorator",
+                // Reactor authoring
+                "reactor",
+                // Workflow authoring
+                "WorkflowBuilder",
+                "Workflow",
+                "register_workflow_constructor",
+                "WorkflowParamsDecorator",
+                "workflow_params",
+                "WorkflowSecretsDecorator",
+                "workflow_secrets",
+                "boundary_schema",
+                // Context / namespace
+                "Context",
+                "WorkflowContext",
+                "TaskNamespace",
+                // Retry value objects
+                "RetryPolicy",
+                "RetryPolicyBuilder",
+                "BackoffStrategy",
+                "RetryCondition",
+                // Computation-graph authoring
+                "ComputationGraphBuilder",
+                "node",
+                "passthrough_accumulator",
+                "stream_accumulator",
+                "polling_accumulator",
+                "batch_accumulator",
+                "state_accumulator",
+                // Variable registry
+                "var",
+                "var_or",
+            ] {
+                assert!(
+                    cloaca_mod.hasattr(sym).unwrap(),
+                    "cloaca authorship contract is missing `{sym}` — the synthetic \
+                     server module drifted from `register_authoring`",
+                );
+            }
         });
     }
 

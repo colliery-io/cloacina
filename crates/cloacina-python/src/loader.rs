@@ -105,96 +105,12 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
 
     let module = PyModule::new(py, "cloaca")?;
 
-    // Task decorator and handle
-    module.add_function(wrap_pyfunction!(super::task::task, &module)?)?;
-    module.add_class::<super::task::PyTaskHandle>()?;
-    module.add_class::<super::task::TaskDecorator>()?;
-
-    // CLOACI-T-0831: packaged constructor-provider consumption (mirrors Rust's
-    // `constructor!`). Twin of the maturin `#[pymodule]` registration in lib.rs —
-    // keep BOTH in sync.
-    module.add_function(wrap_pyfunction!(super::constructor::constructor, &module)?)?;
-
-    // CLOACI-T-0763: Python trigger-rule builders (parity with Rust's DSL).
-    module.add_function(wrap_pyfunction!(
-        super::trigger_rules::context_value,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        super::trigger_rules::task_success,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        super::trigger_rules::task_failed,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        super::trigger_rules::task_skipped,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(super::trigger_rules::all_of, &module)?)?;
-    module.add_function(wrap_pyfunction!(super::trigger_rules::any_of, &module)?)?;
-    module.add_function(wrap_pyfunction!(super::trigger_rules::none_of, &module)?)?;
-    module.add_function(wrap_pyfunction!(super::trigger_rules::always, &module)?)?;
-
-    // Context
-    module.add_class::<super::context::PyContext>()?;
-
-    // Workflow
-    module.add_class::<super::workflow::PyWorkflowBuilder>()?;
-    module.add_class::<super::workflow::PyWorkflow>()?;
-    module.add_function(wrap_pyfunction!(
-        super::workflow::py_register_workflow,
-        &module
-    )?)?;
-    // CLOACI-T-0760: declared-params decorator (runtime no-op; the compiler
-    // parses the declaration from source at build time).
-    module.add_class::<super::workflow::PyWorkflowParamsDecorator>()?;
-    module.add_function(wrap_pyfunction!(super::workflow::workflow_params, &module)?)?;
-    module.add_function(wrap_pyfunction!(super::workflow::boundary_schema, &module)?)?;
-
-    // Trigger decorator and result
-    module.add_function(wrap_pyfunction!(super::trigger::trigger, &module)?)?;
-    // T-0557 Bug 5: register the canonical `skip/fire` PyTriggerResult
-    // from `bindings::trigger`. The synthetic loader and the wheel
-    // `#[pymodule]` now expose the same `cloaca.TriggerResult` shape.
-    module.add_class::<super::bindings::trigger::PyTriggerResult>()?;
-    module.add_class::<super::trigger::TriggerDecorator>()?;
-
-    // Reactor class decorator (mirrors Rust #[reactor])
-    module.add_function(wrap_pyfunction!(super::reactor::reactor, &module)?)?;
-
-    // Value objects
-    module.add_class::<super::workflow_context::PyWorkflowContext>()?;
-    module.add_class::<super::namespace::PyTaskNamespace>()?;
-
-    // Computation graph decorators and builder
-    module.add_function(wrap_pyfunction!(
-        super::computation_graph::passthrough_accumulator_decorator,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        super::computation_graph::stream_accumulator_decorator,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        super::computation_graph::polling_accumulator_decorator,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        super::computation_graph::batch_accumulator_decorator,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        super::computation_graph::state_accumulator_decorator,
-        &module
-    )?)?;
-    module.add_function(wrap_pyfunction!(super::computation_graph::node, &module)?)?;
-    module.add_class::<super::computation_graph::PyComputationGraphBuilder>()?;
-
-    // Variable registry
-    module.add_function(wrap_pyfunction!(py_var, &module)?)?;
-    module.add_function(wrap_pyfunction!(py_var_or, &module)?)?;
+    // The `cloaca` authorship contract — the single source of truth lives in
+    // `crate::register_authoring` (the maturin wheel `#[pymodule]` calls the
+    // exact same fn), so wheel/server symbol drift is structurally impossible
+    // (CLOACI-I-0137). Host-only symbols (runner/admin) are wheel-only by
+    // design — the server IS the runner, so its `cloaca` is authorship-only.
+    crate::register_authoring(&module)?;
 
     // Register in sys.modules so `import cloaca` works
     sys_modules.set_item("cloaca", &module)?;
@@ -602,13 +518,13 @@ pub fn import_python_computation_graph(
 /// Python binding: `cloaca.var(name)` — resolve a `CLOACINA_VAR_{NAME}` env var.
 #[pyfunction]
 #[pyo3(name = "var")]
-fn py_var(name: &str) -> PyResult<String> {
+pub(crate) fn py_var(name: &str) -> PyResult<String> {
     cloacina::var(name).map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
 }
 
 /// Python binding: `cloaca.var_or(name, default)` — resolve with a fallback.
 #[pyfunction]
 #[pyo3(name = "var_or")]
-fn py_var_or(name: &str, default: &str) -> String {
+pub(crate) fn py_var_or(name: &str, default: &str) -> String {
     cloacina::var_or(name, default)
 }
