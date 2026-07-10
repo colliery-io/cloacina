@@ -120,6 +120,14 @@ struct Cli {
     #[arg(long, env = "CLOACINA_COMPILER_VENDOR_DIR")]
     vendor_dir: Option<PathBuf>,
 
+    /// DEV ESCAPE HATCH (CLOACI-T-0887): local cloacina workspace root. When set,
+    /// each build injects `[patch.crates-io]` mapping `<root>/crates/*` to their
+    /// paths (RO-bound in the sandbox), so packages that ship crates.io version
+    /// deps resolve against the UNPUBLISHED local crates during dev cycles. NOT
+    /// for production; only dev/e2e stacks (e.g. the demo compiler) set this.
+    #[arg(long, env = "CLOACINA_COMPILER_DEV_WORKSPACE")]
+    dev_workspace: Option<PathBuf>,
+
     /// `RLIMIT_CPU` (CPU-seconds) for the cargo subprocess. Linux-only.
     /// Default matches `--build-timeout-s` as a generous upper bound; the
     /// wall-clock timeout (T-0573) is the real bound. CLOACI-T-0575.
@@ -239,6 +247,7 @@ async fn main() -> Result<()> {
         cargo_target_dir: cli.cargo_target_dir,
         build_timeout: Duration::from_secs(cli.build_timeout_s),
         vendor_dir: cli.vendor_dir,
+        dev_workspace: cli.dev_workspace,
         build_rlimits: BuildRlimits {
             // RLIMIT_CPU default tracks the wall-clock timeout: T-0573 is
             // the real bound; this is a generous upper ceiling.

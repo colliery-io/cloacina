@@ -178,6 +178,13 @@ services:
       - "/workspace/target"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
+      # DEV ESCAPE HATCH (CLOACI-T-0887): packages ship crates.io VERSION deps
+      # (production form), but the cloacina crates aren't published yet. Point
+      # the compiler at the mounted workspace so each build injects
+      # `[patch.crates-io]` redirecting cloacina-* to the local unpublished
+      # crates. Production compilers OMIT this and resolve from crates.io.
+      - "--dev-workspace"
+      - "/workspace"
     environment:
       # Override the compiler's default (line-tables-only) down to NO debuginfo
       # for the memory-tightest build on a constrained Docker VM — full
@@ -233,6 +240,9 @@ services:
       - "/workspace/target"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
+      # DEV ESCAPE HATCH (CLOACI-T-0887) — see the public `compiler` service.
+      - "--dev-workspace"
+      - "/workspace"
     environment:
       CARGO_PROFILE_DEV_DEBUG: "0"
     depends_on:

@@ -649,6 +649,69 @@ fn ensure_build_wiring(source_dir: &Path) {
     }
 }
 
+/// DEV ESCAPE HATCH (CLOACI-T-0887): when `--dev-workspace <root>` is set, inject
+/// a `[patch.crates-io]` section mapping every local cloacina workspace crate
+/// (`<root>/crates/*`) to its path. This lets a package that ships
+/// PRODUCTION-shaped crates.io version deps (`cloacina-workflow = "0.x"`)
+/// resolve against the UNPUBLISHED local crates while cloacina isn't on
+/// crates.io yet. NOT for production — real packages resolve from crates.io;
+/// this is only for dev/e2e stacks (the demo compiler passes `--dev-workspace`).
+fn inject_dev_patch(source_dir: &Path, workspace: &Path) {
+    let crates_dir = workspace.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates_dir) else {
+        return;
+    };
+    let mut patches = toml::value::Table::new();
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        let Ok(raw) = std::fs::read_to_string(dir.join("Cargo.toml")) else {
+            continue;
+        };
+        let Ok(doc) = raw.parse::<toml::Value>() else {
+            continue;
+        };
+        if let Some(name) = doc
+            .get("package")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+        {
+            let mut spec = toml::value::Table::new();
+            spec.insert(
+                "path".into(),
+                toml::Value::String(dir.to_string_lossy().to_string()),
+            );
+            patches.insert(name.to_string(), toml::Value::Table(spec));
+        }
+    }
+    if patches.is_empty() {
+        return;
+    }
+    let manifest_path = source_dir.join("Cargo.toml");
+    let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
+        return;
+    };
+    let Ok(mut doc) = raw.parse::<toml::Value>() else {
+        return;
+    };
+    let Some(root) = doc.as_table_mut() else {
+        return;
+    };
+    let patch = root
+        .entry("patch")
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    if let Some(patch) = patch.as_table_mut() {
+        patch.insert("crates-io".into(), toml::Value::Table(patches));
+    }
+    if let Ok(out) = toml::to_string(&doc) {
+        let _ = std::fs::write(&manifest_path, out);
+        tracing::info!(
+            dir = %source_dir.display(),
+            workspace = %workspace.display(),
+            "DEV: injected [patch.crates-io] -> local workspace crates (CLOACI-T-0887 --dev-workspace)"
+        );
+    }
+}
+
 async fn cargo_build(
     package_id: uuid::Uuid,
     source_dir: &Path,
@@ -658,6 +721,17 @@ async fn cargo_build(
 
     ensure_build_wiring(source_dir);
 
+    // DEV hatch (CLOACI-T-0887): resolve version-dep packages against the local
+    // unpublished workspace crates. No-op unless `--dev-workspace` is set.
+    if let Some(ws) = &config.dev_workspace {
+        inject_dev_patch(source_dir, ws);
+    }
+    // Bind the workspace ROOT read-only (not just `crates/`): the patched path
+    // crates use `{ workspace = true }` inheritance, so cargo walks up to the
+    // root `Cargo.toml` to resolve their version/edition/deps. The RW target-dir
+    // sub-bind still wins (bound after this RO bind; landlock unions the rules).
+    let patch_crates = config.dev_workspace.clone();
+
     // CLOACI-I-0105: run the build at the boot-probed sandbox level. The
     // level was decided once at startup (fail-closed under `required`);
     // here we only compose the command for it.
@@ -665,6 +739,7 @@ async fn cargo_build(
         source_dir,
         target_dir: config.cargo_target_dir.as_deref(),
         vendor_dir: config.vendor_dir.as_deref(),
+        patch_crates_dir: patch_crates.as_deref(),
     };
     let level = config.sandbox_level;
     let (program, pre_args) = crate::sandbox::wrap_command(level, &mounts);
@@ -690,6 +765,7 @@ async fn cargo_build(
             source_dir.to_path_buf(),
             config.cargo_target_dir.clone(),
             config.vendor_dir.clone(),
+            patch_crates.clone(),
         );
     }
     cmd.args(&config.cargo_flags)
@@ -1080,6 +1156,7 @@ mod tests {
             cargo_target_dir: Some(home.join("target")),
             build_timeout,
             vendor_dir: None,
+            dev_workspace: None,
             // Generous rlimits for the regular tests so a normal cargo
             // build never trips them; rlimit-specific tests override the
             // relevant field explicitly.

@@ -212,6 +212,12 @@ pub struct BuildMounts<'a> {
     pub target_dir: Option<&'a Path>,
     /// Curated vendor registry / CARGO_HOME (read-only at level 1).
     pub vendor_dir: Option<&'a Path>,
+    /// DEV ESCAPE HATCH (CLOACI-T-0887): the local workspace `crates/` dir a
+    /// `--dev-workspace` build injects into `[patch.crates-io]`. Bound READ-ONLY
+    /// so version-dep packages resolve against the unpublished local crates
+    /// while crates aren't on crates.io yet. NOT for production — production
+    /// packages ship deps via crates.io.
+    pub patch_crates_dir: Option<&'a Path>,
 }
 
 /// Environment the sandboxed cargo receives. At level 1 the environment is
@@ -305,6 +311,12 @@ pub fn wrap_command(level: SandboxLevel, mounts: &BuildMounts<'_>) -> (String, V
                 let v = vendor.to_string_lossy().to_string();
                 args.extend(["--ro-bind".into(), v.clone(), v]);
             }
+            // DEV hatch (CLOACI-T-0887): the local workspace crates the injected
+            // `[patch.crates-io]` points at — read-only.
+            if let Some(crates) = mounts.patch_crates_dir {
+                let c = crates.to_string_lossy().to_string();
+                args.extend(["--ro-bind".into(), c.clone(), c]);
+            }
             // Writable surfaces: the staged source + the shared target cache.
             let src = mounts.source_dir.to_string_lossy().to_string();
             args.extend(["--bind".into(), src.clone(), src.clone()]);
@@ -333,6 +345,7 @@ pub fn apply_landlock(
     source_dir: PathBuf,
     target_dir: Option<PathBuf>,
     vendor_dir: Option<PathBuf>,
+    patch_crates_dir: Option<PathBuf>,
 ) {
     use landlock::{
         Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
@@ -355,11 +368,13 @@ pub fn apply_landlock(
                         .map_err(|e| std::io::Error::other(format!("landlock rule: {e}")))?;
                 }
             }
-            if let Some(v) = &vendor_dir {
-                if let Ok(fd) = PathFd::new(v) {
-                    ruleset = ruleset
-                        .add_rule(PathBeneath::new(fd, ro))
-                        .map_err(|e| std::io::Error::other(format!("landlock rule: {e}")))?;
+            for ro_dir in [&vendor_dir, &patch_crates_dir] {
+                if let Some(d) = ro_dir {
+                    if let Ok(fd) = PathFd::new(d) {
+                        ruleset = ruleset
+                            .add_rule(PathBeneath::new(fd, ro))
+                            .map_err(|e| std::io::Error::other(format!("landlock rule: {e}")))?;
+                    }
                 }
             }
             let mut rw_paths = vec![source_dir.clone()];
@@ -389,6 +404,7 @@ pub fn apply_landlock(
     _source_dir: PathBuf,
     _target_dir: Option<PathBuf>,
     _vendor_dir: Option<PathBuf>,
+    _patch_crates_dir: Option<PathBuf>,
 ) {
 }
 
@@ -400,6 +416,7 @@ pub fn config_hash(level: SandboxLevel, mounts: &BuildMounts<'_>) -> String {
     mounts.source_dir.hash(&mut h);
     mounts.target_dir.hash(&mut h);
     mounts.vendor_dir.hash(&mut h);
+    mounts.patch_crates_dir.hash(&mut h);
     format!("{:016x}", h.finish())
 }
 
@@ -413,6 +430,7 @@ mod tests {
             source_dir: src,
             target_dir: None,
             vendor_dir: Some(vendor),
+            patch_crates_dir: None,
         }
     }
 

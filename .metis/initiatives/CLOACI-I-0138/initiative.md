@@ -4,14 +4,14 @@ level: initiative
 title: "Packaged-first examples — server/daemon gold path as the standard for all examples"
 short_code: "CLOACI-I-0138"
 created_at: 2026-07-10T00:22:40.417461+00:00
-updated_at: 2026-07-10T00:22:40.417461+00:00
-parent: 
+updated_at: 2026-07-10T01:16:19.910293+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -104,7 +104,27 @@ Reference packaged examples: `examples/features/workflows/{simple-packaged, pack
 
 ## Detailed Design **[REQUIRED]**
 
-{Technical approach and implementation details}
+### The gold-path shape (grounded 2026-07-09)
+`simple-packaged` is the AUTHORING half (package.toml + workflow src → `.cloacina`). `registry-execution` runs a package but via an EMBEDDED `DefaultRunner` (SQLite in-mem + FilesystemRegistryStorage) — still embedded, NOT the server. Packaged-FIRST adds the missing half: **register the `.cloacina` with a running SERVER/daemon and run it there** (align with the existing `docs/content/service/tutorials/03-packaged-workflows.md`). cloacinactl exposes the nouns: `package`, `workflow`, `server`, `daemon`, `tenant`, `trigger`, `execution`.
+
+### Canonical packaged example (THE template)
+Each example dir:
+- `package.toml` — manifest (name, version, `interface = cloacina-workflow-plugin`, `[metadata] workflow_name/language/description`).
+- Workflow source — Rust (`Cargo.toml` minimal shell + `src/lib.rs` with `#[workflow]`/`#[task]`, per I-0125) OR Python (`workflow.py` + `package.toml`).
+- `README.md` — the **gold-path run recipe**: (1) build the `.cloacina`, (2) bring up the server via the docker compose demo stack ([[feedback_use_container_stack]]), (3) register the package with the server (cloacinactl), (4) trigger it, (5) observe via API/UI. NO in-process `DefaultRunner`.
+
+### Standard artifact
+A short "Writing a Packaged Example" convention (files above + the README recipe skeleton, both languages) that NEW examples follow — the thing that makes packaged-first the default.
+
+### Decomposition (proposed — for sign-off)
+- **T-a** Canonical RUST packaged example (reference template) — author + package.toml + gold-path README against the demo stack.
+- **T-b** Canonical PYTHON packaged example (reference template).
+- **T-c** "Packaged example standard" doc/convention new examples follow (+ CONTRIBUTING pointer).
+- **T-d+ (backlog, incremental per D-1)** convert each still-embedded feature example (cron-scheduling, event-triggers, multi-tenant, per-tenant-credentials, complex-dag, conditional-retries, deferred-tasks, python-workflow) — one task each, later.
+
+### Open for sign-off
+1. Run recipe targets the **docker compose demo stack** as the canonical "server" for examples (vs a bare `cloacinactl daemon`/`server start`)?
+2. T-a/T-b build NEW reference examples, or promote `simple-packaged`/`packaged-workflows` in place as the canonical ones?
 
 ## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
 
