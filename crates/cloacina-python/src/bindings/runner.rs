@@ -1890,7 +1890,7 @@ mod tests {
     fn test_with_schema_rejects_empty_schema() {
         pyo3::prepare_freethreaded_python();
         let result = PyDefaultRunner::with_schema(
-            "postgres://cloacina:cloacina@localhost:5432/cloacina",
+            "postgres://cloacina:cloacina@localhost:15432/cloacina",
             "",
         );
         assert!(result.is_err());
@@ -1901,7 +1901,7 @@ mod tests {
     fn test_with_schema_rejects_invalid_chars() {
         pyo3::prepare_freethreaded_python();
         let result = PyDefaultRunner::with_schema(
-            "postgres://cloacina:cloacina@localhost:5432/cloacina",
+            "postgres://cloacina:cloacina@localhost:15432/cloacina",
             "tenant;DROP TABLE",
         );
         assert!(result.is_err());

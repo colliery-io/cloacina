@@ -19,7 +19,7 @@ use url::Url;
 #[test]
 fn test_url_parsing_basic() {
     // Test that we can parse PostgreSQL URLs (using the url crate directly)
-    let db_url = "postgresql://user:pass@localhost:5432/test_db";
+    let db_url = "postgresql://user:pass@localhost:15432/test_db";
     let result = Url::parse(db_url);
     assert!(result.is_ok());
 
@@ -33,7 +33,7 @@ fn test_url_parsing_basic() {
 
 #[test]
 fn test_url_parsing_without_password() {
-    let db_url = "postgresql://user@localhost:5432/test_db";
+    let db_url = "postgresql://user@localhost:15432/test_db";
     let result = Url::parse(db_url);
     assert!(result.is_ok());
 
@@ -73,7 +73,7 @@ fn test_invalid_database_urls() {
 #[test]
 fn test_database_connection_construction() {
     // Test that we can construct database URLs for the Database constructor
-    let base_url = "postgresql://user:pass@localhost:5432";
+    let base_url = "postgresql://user:pass@localhost:15432";
     let database_name = "test_db";
 
     let mut url = Url::parse(base_url).unwrap();
@@ -87,7 +87,7 @@ fn test_database_connection_construction() {
 #[test]
 fn test_database_url_modification() {
     // Test URL modification as done in Database::new
-    let base_url = "postgresql://user:pass@localhost:5432";
+    let base_url = "postgresql://user:pass@localhost:15432";
     let database_name = "my_database";
 
     let mut url = Url::parse(base_url).expect("Invalid base URL");

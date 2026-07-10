@@ -32,7 +32,7 @@ def get_test_db_url():
     backend = os.environ.get("CLOACA_BACKEND", "sqlite").lower()
 
     if backend == "postgres":
-        return "postgresql://cloacina:cloacina@localhost:5432/cloacina"
+        return "postgresql://cloacina:cloacina@localhost:15432/cloacina"
     elif backend == "sqlite":
         # Create a temporary database file for SQLite
         with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:

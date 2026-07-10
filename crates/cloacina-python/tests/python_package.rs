@@ -367,7 +367,7 @@ mod postgres_bindings {
     use pyo3::prelude::*;
     use serial_test::serial;
 
-    const TEST_PG_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
+    const TEST_PG_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
     #[test]
     #[serial]

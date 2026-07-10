@@ -22,7 +22,7 @@ WORKDIR /workspace
 
 # Default environment for tests
 ENV RUST_BACKTRACE=full
-ENV DATABASE_URL=postgres://cloacina:cloacina@host.docker.internal:5432/cloacina
+ENV DATABASE_URL=postgres://cloacina:cloacina@host.docker.internal:15432/cloacina
 
 # Entry point for running tests
 CMD ["bash"]

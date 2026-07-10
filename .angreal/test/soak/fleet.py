@@ -148,7 +148,7 @@ def fleet():
     _start_postgres()
     _assert_ports_free(18088, 19008)
 
-    db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
+    db_url = "postgres://cloacina:cloacina@localhost:15432/cloacina"
     bootstrap_key = "soak-fleet-key"
     server_bind = "127.0.0.1:18088"
     compiler_bind = "127.0.0.1:19008"

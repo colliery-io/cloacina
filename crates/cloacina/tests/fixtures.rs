@@ -46,7 +46,7 @@ static SQLITE_FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
 
 /// Default PostgreSQL connection URL
 #[cfg(feature = "postgres")]
-const DEFAULT_POSTGRES_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
+const DEFAULT_POSTGRES_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
 /// Get the test schema name from environment variable or generate a unique one
 /// This allows CI jobs to isolate their tests using different schemas
@@ -87,7 +87,7 @@ pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
             // Use Database::new_with_schema for schema isolation
             // Pool size 10 + longer timeout to avoid exhaustion during long serial test runs
             let db = Database::new_with_schema(
-                "postgres://cloacina:cloacina@localhost:5432",
+                "postgres://cloacina:cloacina@localhost:15432",
                 "cloacina",
                 10,
                 Some(&schema),
@@ -519,7 +519,7 @@ pub mod fixtures {
     #[serial]
     async fn test_migration_function_postgres() {
         let mut conn =
-            PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
+            PgConnection::establish("postgres://cloacina:cloacina@localhost:15432/cloacina")
                 .expect("Failed to connect to database");
 
         // Test that our migration function works

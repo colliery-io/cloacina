@@ -75,7 +75,7 @@ def _sdk_server():
             [
                 "target/debug/cloacina-server",
                 "--home", home,
-                "--database-url", "postgres://cloacina:cloacina@localhost:5432/cloacina",
+                "--database-url", "postgres://cloacina:cloacina@localhost:15432/cloacina",
                 "--bind", BIND,
                 "--bootstrap-key", BOOTSTRAP_KEY,
             ],

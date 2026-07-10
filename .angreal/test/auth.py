@@ -116,7 +116,7 @@ def auth_integration_test():
     start_postgres()
 
     base_url = "http://127.0.0.1:18082"
-    db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
+    db_url = "postgres://cloacina:cloacina@localhost:15432/cloacina"
     test_home = Path("target/auth-integration-test")
     if test_home.exists():
         import shutil

@@ -70,7 +70,7 @@ mod postgres_multi_tenant_tests {
     #[tokio::test]
     async fn test_schema_isolation() -> Result<(), Box<dyn std::error::Error>> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
+            "postgresql://cloacina:cloacina@localhost:15432/cloacina".to_string()
         });
 
         // Setup workflows BEFORE creating runners (runtime snapshot must capture them)
@@ -173,7 +173,7 @@ mod postgres_multi_tenant_tests {
     #[tokio::test]
     async fn test_independent_execution() -> Result<(), Box<dyn std::error::Error>> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
+            "postgresql://cloacina:cloacina@localhost:15432/cloacina".to_string()
         });
 
         // Setup workflows BEFORE creating runners
@@ -259,7 +259,7 @@ mod postgres_multi_tenant_tests {
     /// Test that invalid schema names are rejected
     #[tokio::test]
     async fn test_invalid_schema_names() {
-        let database_url = "postgresql://cloacina:cloacina@localhost:5432/cloacina";
+        let database_url = "postgresql://cloacina:cloacina@localhost:15432/cloacina";
 
         // Test schema name with hyphens (should fail)
         let result = DefaultRunner::with_schema(database_url, "tenant-123").await;
@@ -300,7 +300,7 @@ mod postgres_multi_tenant_tests {
     #[tokio::test]
     async fn test_builder_pattern() -> Result<(), Box<dyn std::error::Error>> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
+            "postgresql://cloacina:cloacina@localhost:15432/cloacina".to_string()
         });
 
         let executor = DefaultRunner::builder()

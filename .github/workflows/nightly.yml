@@ -58,7 +58,7 @@ jobs:
           POSTGRES_PASSWORD: cloacina
           POSTGRES_DB: cloacina
         ports:
-          - 5432:5432
+          - 15432:5432
         options: >-
           --health-cmd "pg_isready -U cloacina"
           --health-interval 10s
@@ -104,7 +104,7 @@ jobs:
             --exclude-files "crates/cloacina/src/python/*" \
             -- --test-threads=1
         env:
-          DATABASE_URL: postgres://cloacina:cloacina@localhost:5432/cloacina
+          DATABASE_URL: postgres://cloacina:cloacina@localhost:15432/cloacina
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -154,7 +154,7 @@ jobs:
           username: cloacina
           password: cloacina
           database: cloacina
-          port: 5432
+          port: 15432
 
       - name: Install libpq
         run: |

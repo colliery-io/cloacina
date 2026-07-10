@@ -132,7 +132,7 @@ def metrics_format():
             [
                 str(server_binary),
                 "--home", str(home),
-                "--database-url", "postgres://cloacina:cloacina@localhost:5432/cloacina",
+                "--database-url", "postgres://cloacina:cloacina@localhost:15432/cloacina",
                 "--bind", "127.0.0.1:18181",
                 "--bootstrap-key", "clk_metrics_format_check_dummy_key_000000000",
             ],
@@ -164,7 +164,7 @@ def metrics_format():
             [
                 str(compiler_binary),
                 "--home", str(compiler_home),
-                "--database-url", "postgres://cloacina:cloacina@localhost:5432/cloacina",
+                "--database-url", "postgres://cloacina:cloacina@localhost:15432/cloacina",
                 "--bind", "127.0.0.1:18182",
             ],
             stdout=subprocess.DEVNULL,
