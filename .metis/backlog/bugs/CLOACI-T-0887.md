@@ -153,6 +153,9 @@ failure_reason="cargo build failed: failed to load manifest for dependency
 
 ## Status Updates **[REQUIRED]**
 
+### 2026-07-10 (update 7) — CLOSED: both lanes green, committed to PR #192
+Default (path-dep) lane also full-green (exit 0, execution Completed) — no regression. Committed as two commits on `chore/compose-stack-cleanup` (PR #192, title/body expanded): `560450c8` chore(dev-stack) port-15432 move; `bb389959` fix(T-0887) compiler `--dev-workspace` + `--version-deps` e2e + example re-author + demo compose wiring. Pre-commit (fmt, cargo check both backends, version lockstep) green on both. Done pending merge.
+
 ### 2026-07-10 (update 6) — VERIFIED GREEN: version-dep gold path passes end-to-end
 `angreal test e2e compiler --version-deps` (renamed from `--prod-deps` — maintainer read "prod" as "released crates"; it always compiles the LOCAL dev workspace, offline, crates.io never contacted) → **full pass, exit 0**: happy path (version-dep manifest) build_status=success; workflow_name/tasks/task_graph populated; **reconciler e2e → execution Completed**; failed-build/content-hash/stale-heartbeat/upgrade/rollback/concurrent lanes all green on path-dep fixtures under the same `--dev-workspace` compiler (hatch is a no-op for path-dep packages, as designed). Default (no-flag) lane rerun in progress as the regression check.
 

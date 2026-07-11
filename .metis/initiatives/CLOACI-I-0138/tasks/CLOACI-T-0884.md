@@ -4,14 +4,14 @@ level: task
 title: "Canonical Rust packaged example — promote simple-packaged + gold-path demo-stack README"
 short_code: "CLOACI-T-0884"
 created_at: 2026-07-10T01:16:01.284448+00:00
-updated_at: 2026-07-10T01:16:01.284448+00:00
+updated_at: 2026-07-10T23:29:47.511267+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -39,7 +39,9 @@ Make `examples/features/workflows/simple-packaged` THE canonical Rust packaged e
 4. `cloacinactl package upload simple-packaged.cloacina` (or `publish`) — register with the running server.
 5. Trigger the workflow via the server (cloacinactl trigger/execution noun or API) and observe via the API / web UI — NOT an in-process `DefaultRunner`.
 
-**Deliverable:** the README recipe above (verified against a live stack), plus keeping the existing embedded `end_to_end_demo` only if it's clearly labeled as the alternative embedded path. Nail the exact `package upload` args + trigger command + demo-stack bring-up + bootstrap-key retrieval during implementation.
+**Deliverable:** the README recipe above (verified against a live stack). Nail the exact `package upload` args + trigger command + demo-stack bring-up + bootstrap-key retrieval during implementation.
+
+**SCOPE STEER (maintainer, 2026-07-10):** this task is the standard-bearer for **ALL examples taking this path** — examples must demonstrate features **through the primary interface** (server/daemon: pack → upload → compile → reconcile → execute/monitor), and must **NOT show the built-in in-process scheduler (`DefaultRunner`) as the testing/demo vehicle**. So: do NOT keep the embedded `end_to_end_demo` as a labeled "alternative path" — the canonical example shows one path, the primary one. The pattern this task establishes is what the rest of the examples tree (≈26 units currently demoing via `DefaultRunner`: 10 Rust feature examples, 3 performance, 6 Rust tutorial steps, 8 Python tutorials) migrates to under [[CLOACI-I-0138]].
 
 **REMAINING (needs a live stack):** end-to-end verification requires docker + the demo stack up. Not yet run.
 
@@ -76,6 +78,8 @@ Make `examples/features/workflows/simple-packaged` THE canonical Rust packaged e
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -145,6 +149,11 @@ Make `examples/features/workflows/simple-packaged` THE canonical Rust packaged e
 {Technical risks and mitigation strategies}
 
 ## Status Updates **[REQUIRED]**
+
+### 2026-07-10 (update 2) — README rewritten + harness runner registered in the CI examples path
+- **README**: full rewrite of `simple-packaged/README.md` as the pure gold-path recipe (pack → upload → compile → reconcile → execute → observe) against the demo stack via cloacinactl. Removed all stale content (broken `cargo run --example` commands, in-process registry/scheduler snippet, wrong dep versions, dead links). No embedded-runner path anywhere (initiative D-3). Authoring section matches the real macro syntax in src/lib.rs (task id = fn name; `dependencies=[...]`, `retry_attempts=N`).
+- **Harness (maintainer steer: "the test harness should orchestrate all of this irl (angreal)... the harness has a path for examples and tutorials — use that path, it's in CI")**: added a bespoke `angreal demos features simple-packaged` command in `.angreal/demos/features/features.py` (same pattern as the bespoke `python-workflow`; the example stays in the auto-registration exclude list since `cargo run` is the wrong verb for it). It reuses the compiler-e2e lifecycle helpers: fresh dev-stack postgres (15432) + host server (18087) + host compiler (19005, `--dev-workspace <checkout>`) → cloacinactl pack → upload → poll build to success → `workflow run data_processing` → poll execution to **Completed**. Added `simple-packaged` to the `rust-examples` matrix in `.github/workflows/examples-docs.yml` so CI runs it on example changes. (A first-draft `test/e2e/gold_path.py` was deleted — wrong home; the demos surface is the harness path for examples/tutorials.)
+- Live run of `angreal demos features simple-packaged` in progress; result to be logged here.
 
 ### 2026-07-10 — recipe VERIFIED through upload; trigger/observe blocked by a stale demo stack
 Ran the gold path live against `angreal ui up`:

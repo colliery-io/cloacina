@@ -46,6 +46,13 @@ initiative_id: packaged-first-examples-server
 ## Decisions (2026-07-09 check-in)
 - **D-1 Scope:** NEW-first + incremental. Lock packaged-first as the standard, build the canonical packaged-example template, apply to new examples immediately; convert the existing embedded examples incrementally (own tasks).
 - **D-2 Docs:** Examples tree FIRST; re-cut the Diátaxis tutorials packaged-first as a LATER phase, once the pattern is proven.
+- **D-3 (maintainer, 2026-07-10): ALL examples take the primary interface; the built-in scheduler is not the demo/testing vehicle.** The point is to *demonstrate every feature through the primary interface* — server/daemon via pack → upload → compile → reconcile → execute (or monitor). Examples must not show the in-process `DefaultRunner` as the way to run/test. This sharpens D-1: incremental is still the pace, but the end-state is unambiguous — no embedded-runner demos left, no "alternative embedded path" sections in READMEs. Corollary: migrating each feature example through the server path will surface any server-path feature gaps (cron via schedules, event triggers via the trigger API, multi-tenancy via the tenants API, …) — surfacing those loudly is part of the value, per the I-0137 lesson.
+
+## Migration inventory (grounded 2026-07-10) — ≈26 units still demoing via `DefaultRunner`
+- **Rust feature examples (10):** conditional-retries, cron-scheduling, deferred-tasks, event-triggers, multi-tenant, per-tenant-credentials, registry-execution, python-workflow, computation-graphs/filtered-reactor, constructor-contract/fs-grant-demo
+- **Performance (3):** simple, parallel, pipeline (may stay embedded by design — they benchmark the engine, not the interface; decide at design time)
+- **Rust tutorial library (6):** 01-basic-workflow … 06-multi-tenancy
+- **Python tutorials (8):** 01_first_workflow … 08_packaged_triggers
 
 ## Grounding (2026-07-09) — the pattern already exists
 Reference packaged examples: `examples/features/workflows/{simple-packaged, packaged-workflows, packaged-triggers, registry-execution}` (registry-execution's README shows the compile→load-into-server→run recipe) + `computation-graphs/{packaged-graph, python-packaged-graph}`. Many `examples/fixtures/*` are packaged too but are TEST FIXTURES, not user-facing examples. Still-embedded feature examples (the incremental-conversion backlog): complex-dag, conditional-retries, cron-scheduling, deferred-tasks, event-triggers, multi-tenant, per-tenant-credentials, python-workflow.

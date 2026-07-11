@@ -1,183 +1,125 @@
-# Simple Workflow Package Demo
+# Simple Packaged Workflow
 
-This example provides a **complete end-to-end demonstration** of workflow packages in Cloacina, showing the entire lifecycle from development to execution.
+**The canonical Cloacina example.** A packaged workflow is the unit of deployment
+in Cloacina: you author tasks in Rust, pack the source into a `.cloacina`
+archive, and hand it to a running server — which compiles it, registers it, and
+executes it. Everything happens through the primary interface:
 
-## 🎯 What This Demonstrates
-
-### Complete Workflow Package Lifecycle:
-1. **📝 Define** - Create workflow with `#[workflow]` macro
-2. **🏗️ Compile** - Build to shared library (`.so`/`.dylib`/`.dll`)
-3. **📦 Package** - Create distributable `.cloacina` archive
-4. **🔄 Load** - Dynamically load via workflow registry
-5. **⚡ Execute** - Run tasks through scheduler with dependency resolution
-6. **📊 Monitor** - Track execution progress and results
-
-### Key Features Showcased:
-- **Namespace Isolation** - Tasks isolated under `tenant::package::workflow::task`
-- **Dependency Resolution** - Automatic task ordering based on dependencies
-- **Context Data Flow** - Data passing between tasks via execution context
-- **Error Handling** - Retry policies and graceful error recovery
-- **FFI Exports** - Standard C-compatible interface for dynamic loading
-
-## 🚀 Quick Start
-
-```bash
-# 1. Build the workflow package
-cargo build --release
-
-# 2. See the compilation process
-cargo run --example package_workflow
-
-# 3. Run the complete end-to-end demo
-cargo run --example end_to_end_demo
-
-# 4. Run the tests
-cargo test
+```
+pack  →  upload  →  compile  →  reconcile  →  execute  →  observe
 ```
 
-## 📋 Example Workflow
-
-The demo implements a simple **Data Processing Pipeline**:
+This example implements a three-task data processing pipeline:
 
 ```
 collect_data → process_data → generate_report
 ```
 
-### Tasks:
-- **`collect_data`** - Simulates gathering data from external sources
-- **`process_data`** - Validates and transforms the collected data
-- **`generate_report`** - Creates summary report from processed data
+## Layout
 
-### Data Flow:
+| File | Role |
+|---|---|
+| `package.toml` | Package manifest — name, version, and the workflow it exposes (`data_processing`) |
+| `Cargo.toml` | Ordinary crate manifest; cloacina deps are crates.io version deps |
+| `src/lib.rs` | The workflow: `#[workflow]` module with three `#[task]` functions |
+| `build.rs` | `cloacina-build` boilerplate (emits the plugin interface) |
+
+This is exactly the shape `cloacinactl package new <name>` scaffolds — start
+new packages from there rather than copying this directory.
+
+## Run it
+
+Everything below is also automated as `angreal demos features simple-packaged`
+(the CI examples lane runs exactly that) — the steps here are the same flow,
+by hand, against the demo stack.
+
+### 1. Bring up the stack
+
+```bash
+angreal ui up
 ```
-raw_data → processed_data → final_report
+
+Server + web UI come up at <http://localhost:8080> with a seeded `public`
+tenant. (Any running Cloacina server works; the demo stack is just the
+batteries-included one.)
+
+### 2. Point the CLI at it
+
+```bash
+cloacinactl config profile set demo http://localhost:8080 \
+    --api-key clk_demo_public_key_0003 --tenant public --default
 ```
 
-## 🔧 Real-World Usage
+### 3. Pack the source
 
-### Dependencies
-
-Workflow packages only need `cloacina-workflow`:
-
-```toml
-[dependencies]
-cloacina-workflow = "0.2"  # Includes macros by default
-serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
+```bash
+cloacinactl package pack . --out simple-packaged-demo.cloacina
 ```
 
-### Development:
+The archive contains **source**, not binaries — the server's compiler builds it
+for the fleet's architectures.
+
+### 4. Upload
+
+```bash
+cloacinactl package upload simple-packaged-demo.cloacina
+```
+
+The server registers the package and queues a build. Watch it go
+`pending → building → success`:
+
+```bash
+cloacinactl package list
+```
+
+Once the build succeeds, the reconciler loads the workflow and
+`data_processing` becomes executable.
+
+### 5. Execute
+
+```bash
+cloacinactl workflow run data_processing
+```
+
+### 6. Observe
+
+```bash
+cloacinactl execution list --workflow data_processing
+cloacinactl execution status <execution-id>
+```
+
+Or watch the run in the web UI at <http://localhost:8080> — executions, task
+states, and the workflow DAG are all there.
+
+## How the workflow is authored
+
+`src/lib.rs` declares the pipeline with the workflow macro; dependencies
+between tasks are declared per-task and the engine derives the execution
+order:
+
 ```rust
-use cloacina_workflow::{workflow, task, Context, TaskError};
-
-#[workflow(
-    name = "data_processing",
-    package = "simple_demo",
-    description = "Data processing workflow",
-    author = "Your Team"
-)]
+#[workflow(name = "data_processing", description = "...", author = "...")]
 pub mod data_processing {
-    #[task]
-    pub async fn collect_data(context: &mut Context<Value>) -> Result<(), TaskError> {
-        // Implementation
-    }
+    #[task(retry_attempts = 2)]
+    pub async fn collect_data(ctx: &mut Context<Value>) -> Result<(), TaskError> { ... }
+
+    #[task(dependencies = ["collect_data"], retry_attempts = 3)]
+    pub async fn process_data(ctx: &mut Context<Value>) -> Result<(), TaskError> { ... }
+
+    #[task(dependencies = ["process_data"])]
+    pub async fn generate_report(ctx: &mut Context<Value>) -> Result<(), TaskError> { ... }
 }
 ```
 
-### Compilation:
-```bash
-# Build as shared library
-cargo build --release --target x86_64-unknown-linux-gnu
+The task id is the function name. Data flows between tasks through the
+execution `Context` (`ctx.insert(...)` / `ctx.get(...)`); retry policy is
+declared on the `#[task]` attributes.
 
-# Create distributable package
-cloacina-ctl package build .
-# → Generates: simple_demo.cloacina
-```
+## A note on dependencies
 
-### Deployment:
-```rust
-// Load package into registry
-let package_data = std::fs::read("simple_demo.cloacina")?;
-let package_id = registry.register_workflow(package_data).await?;
-
-// Schedule workflow execution
-scheduler.schedule_workflow("data_processing", context).await?;
-```
-
-## 🏗️ Architecture
-
-### Workflow Package Structure:
-```
-simple_demo.cloacina
-├── metadata.json           # Package information
-├── lib/
-│   └── libsimple_demo.so   # Compiled workflow
-└── manifest.toml           # Task definitions
-```
-
-### Runtime Architecture:
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  .cloacina      │───▶│ Workflow        │───▶│ Task            │
-│  Package        │    │ Registry        │    │ Scheduler       │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                       │
-                                ▼                       ▼
-                       ┌─────────────────┐    ┌─────────────────┐
-                       │ Dynamic         │    │ Thread Task     │
-                       │ Loader          │    │ Executor        │
-                       └─────────────────┘    └─────────────────┘
-```
-
-## 🎯 Key Benefits
-
-### For Developers:
-- **Independent Development** - Teams can develop workflows separately
-- **Language Agnostic** - Standard C ABI enables any language
-- **Version Control** - Code fingerprinting for integrity verification
-- **Testing** - Unit test individual tasks and full workflows
-
-### For Operations:
-- **Horizontal Scaling** - Deploy packages to multiple executors
-- **Zero Downtime** - Hot-swap workflows without stopping executors
-- **Multi-Tenancy** - Isolate workflows by tenant namespace
-- **Observability** - Built-in monitoring and logging
-
-### For Organizations:
-- **Workflow Reuse** - Share packages across teams and projects
-- **Dependency Management** - Clear task dependency definitions
-- **Compliance** - Audit trail for all workflow executions
-- **Resource Efficiency** - Shared infrastructure for all workflows
-
-## 📊 Production Considerations
-
-### Performance:
-- **Lazy Loading** - Workflows loaded on-demand
-- **Connection Pooling** - Efficient database resource usage
-- **Parallel Execution** - Independent tasks run concurrently
-- **Memory Management** - Automatic cleanup of completed workflows
-
-### Security:
-- **Namespace Isolation** - Tenants cannot access each other's data
-- **Code Signing** - Verify package integrity before loading
-- **Permission Control** - Fine-grained access controls
-- **Audit Logging** - Complete execution history
-
-### Monitoring:
-- **Execution Metrics** - Task duration, success rates, error counts
-- **Resource Usage** - Memory, CPU, database connections
-- **Dependency Tracking** - Understand workflow bottlenecks
-- **Alerting** - Automated notifications for failures
-
-## 🔗 Related Examples
-
-- `examples/tutorial-*` - Basic workflow development
-- `examples/multi_tenant` - Multi-tenancy without packaging
-- `examples/cron-scheduling` - Time-based workflow execution
-- `examples/registry-execution-demo` - Advanced registry usage
-
-## 📚 Further Reading
-
-- [Workflow Package Architecture](../../docs/architecture/packaged-workflows.md)
-- [Deployment Guide](../../docs/deployment/packaged-workflows.md)
-- [Best Practices](../../docs/best-practices/workflow-design.md)
+`Cargo.toml` declares the cloacina crates as **crates.io version deps**
+(`cloacina-workflow = "0.10"`) — the form real distributed packages ship.
+Development stacks (the demo compose stack, the `angreal test e2e compiler
+--version-deps` harness) resolve these against the local workspace via the
+compiler's `--dev-workspace` flag; production compilers resolve them from
+crates.io. Nothing about the package changes between the two.
