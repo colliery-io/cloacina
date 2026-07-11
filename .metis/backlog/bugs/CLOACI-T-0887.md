@@ -153,6 +153,25 @@ failure_reason="cargo build failed: failed to load manifest for dependency
 
 ## Status Updates **[REQUIRED]**
 
+### 2026-07-11 (update 10) — MAINTAINER DECISION: build sandbox EXCISED
+After the third sandbox defect in one day (registry-write denial → landlock V1 EXDEV → bwrap probe silently downgrading), maintainer called it: "lets excise the sandbox for now - its a nice to have but given we went with a tenant based isolation we have some defenses; we can figure out more later if we need layers." Tenant-level isolation (per-tenant compilers via --tenant-schema, per-tenant schemas/agents) is the security boundary; per-build process sandboxing is a possible FUTURE layer.
+
+**Excised:** `sandbox.rs` deleted; `sandbox_level` off CompilerConfig; boot probe out of main.rs; build spawns cargo directly. compose: `CLOACINA_COMPILER_SANDBOX` + `seccomp=unconfined` removed. Dockerfiles: bubblewrap removed (demo + root). Helm: `compiler.sandbox.*` values + seccompProfile templating + env removed. Docs: `service/compiler-sandbox.md` deleted; `running-the-compiler.md` reframed around tenant isolation + rlimits; env-vars rows removed. e2e escape test (T-0855) removed with the feature.
+
+**KEPT (orthogonal):** rlimits (T-0575 resource ceilings), `--vendor-dir` curation (T-0574), wall-clock timeout (T-0573), **two-phase fetch→offline-build** (still valuable: deterministic single resolution, fetch errors separated from compile errors), `--dev-workspace` patch hatch, audit `sandbox_level` field (schema stability; now reports "none" — the truth). I-0105's archived docs stay as history.
+
+Verified post-excision: cargo check clean, compose config valid, helm template renders, harness py_compile clean. Demo rebuild + full fixture verification next.
+
+### 2026-07-11 (update 9) — second onion layer: landlock ABI::V1 denies cross-hierarchy renames with EXDEV
+Two-phase fixed the downloads; the fresh-stack fixtures then FAILED differently: builds ran (fetch OK, compile started) and died with `failed to write /workspace/target/debug/deps/libX.rmeta: Invalid cross-device link (os error 18)` + a `rustix` build-script EACCES. Compiler logs revealed the demo builds run at **sandbox="landlock"** (the bwrap probe fails in this container — separate follow-up), and the sandbox pins **landlock ABI::V1 — which denies EVERY rename/link between different rule hierarchies with EXDEV**. rustc's rmeta temp→final rename crosses hierarchies → instant failure. Not a device issue at all; nothing ever reached a landlock-sandboxed compile before (downloads always failed first), so it was latent since I-0105.
+
+**Fixes (compiler):**
+- `sandbox.rs apply_landlock`: **ABI::V1 → ABI::V2** — V2's `Refer` right permits renames between hierarchies granted it (our RW rules use `from_all`); best-effort downgrade on pre-5.19 kernels (landlock 0.4.4).
+- `sandbox.rs build_env`: pin **TMPDIR to the target dir** (same mount + same landlock hierarchy as the outputs) — belt-and-braces for the V1-downgrade case and for bwrap's tmpfs /tmp (a different device from the bound target).
+- landlock RO grant on env `CARGO_HOME` (phase-2 offline reads of the fetched registry when it's outside /usr).
+
+macOS `cargo check` can't compile the linux-only landlock body — the docker builder stage type-checks it. Rebuild + fresh-slate fixture verification in progress. Also queued follow-up: why the bwrap probe fails in the demo container (seccomp=unconfined is set; it downgrades to landlock silently).
+
 ### 2026-07-10 (update 8) — REOPENED for the demo stack: EVERY Rust package build there was failing (empty baked registry)
 In-container verification on a FRESH demo stack (`ui down --clean` → rebuilt images) surfaced the last layer of the onion: **all 10 Rust fixture builds + simple-packaged fail**; only the Python packages succeed. Root cause: `Dockerfile.demo`'s builder uses a BuildKit **cache mount** for `/usr/local/cargo/registry`, which never persists into the image → the compiler runtime's registry is EMPTY → every sandboxed cargo build tries to download crates → `Permission denied` writing the read-only cargo home (e.g. `autocfg-1.5.1.crate`, `sha1_smol-1.0.1.crate`). Old stacks looked healthy only because their volumes predated I-0105's sandbox. IMPORTANT positive finding: the `--dev-workspace` patch injection works in-container (the patch-unused warnings list only the genuinely unused cloacina crates — the workflow crates resolved from /workspace).
 

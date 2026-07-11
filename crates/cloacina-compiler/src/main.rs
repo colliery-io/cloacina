@@ -122,7 +122,7 @@ struct Cli {
 
     /// DEV ESCAPE HATCH (CLOACI-T-0887): local cloacina workspace root. When set,
     /// each build injects `[patch.crates-io]` mapping `<root>/crates/*` to their
-    /// paths (RO-bound in the sandbox), so packages that ship crates.io version
+    /// paths, so packages that ship crates.io version
     /// deps resolve against the UNPUBLISHED local crates during dev cycles. NOT
     /// for production; only dev/e2e stacks (e.g. the demo compiler) set this.
     #[arg(long, env = "CLOACINA_COMPILER_DEV_WORKSPACE")]
@@ -222,15 +222,7 @@ async fn main() -> Result<()> {
         anyhow::bail!("--build-timeout-s must be greater than zero");
     }
 
-    // CLOACI-I-0105: probe the sandbox ladder ONCE at boot. `required`
-    // without bwrap is a hard startup failure — never a silent downgrade.
-    let sandbox_mode =
-        cloacina_compiler::sandbox::SandboxMode::from_env().map_err(|e| anyhow::anyhow!(e))?;
-    let sandbox_plan =
-        cloacina_compiler::sandbox::probe(sandbox_mode).map_err(|e| anyhow::anyhow!(e))?;
-
     let config = CompilerConfig {
-        sandbox_level: sandbox_plan.level,
         home: cli.home,
         bind: cli.bind,
         database_url: cli.database_url,

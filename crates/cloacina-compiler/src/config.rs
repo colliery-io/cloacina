@@ -109,9 +109,6 @@ pub struct CompilerConfig {
     /// production (real packages resolve from crates.io); only dev/e2e stacks
     /// pass `--dev-workspace`.
     pub dev_workspace: Option<PathBuf>,
-    /// CLOACI-I-0105: boot-probed sandbox level every build runs at
-    /// (fail-closed under CLOACINA_COMPILER_SANDBOX=required).
-    pub sandbox_level: crate::sandbox::SandboxLevel,
 
     /// Kernel-enforced resource ceilings applied via `setrlimit` in a
     /// `pre_exec` hook on Linux. Stored on all platforms but only applied

@@ -382,7 +382,6 @@ Exposed on `localhost:9092`.
 
 | Variable | Purpose | Default | Component | Notes |
 |----------|---------|---------|-----------|-------|
-| `CLOACINA_COMPILER_SANDBOX` | Process-isolation posture for the build sandbox. `required` = builds run under the bwrap namespace sandbox (level 1) or the compiler **refuses to start**; `preferred` = use the best available level, logging any downgrade loudly; `off` = no process sandbox (dev laptops only). Validated **fail-closed at boot** — an invalid value or a `required` selection with no bwrap available is a fatal boot error, never a silent downgrade. See [Compiler Build Sandbox]({{< ref "/service/compiler-sandbox" >}}). | `preferred` | Compiler | The achieved level (bwrap / landlock / none) is recorded on every build's audit row. |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Wall-clock cap on a single cargo build (seconds). | `600` | Compiler | Past timeout, the build is killed and the row is left for the stale-build sweeper to reclaim. |
 | `CLOACINA_COMPILER_VENDOR_DIR` | `CARGO_HOME` for the cargo subprocess — point it at a curated pre-vendored source tree. | (cargo's usual `~/.cargo` when unset) | Compiler | Combined with `--frozen --offline` so package builds resolve only what the operator has allowed. |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. |
@@ -441,7 +440,6 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_SERVER` | Agent | Server base URL the agent registers with |
 | `CLOACINA_API_KEY` | Agent | Agent API key (tenant scope) |
 | `CLOACINA_AGENT_CACHE_DIR` | Agent | Fetched-cdylib cache directory |
-| `CLOACINA_COMPILER_SANDBOX` | Compiler | Build sandbox posture `required` / `preferred` / `off` (default `preferred`; fail-closed at boot) |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap (default `600`) |
 | `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | `CARGO_HOME` pointed at a curated vendored source tree |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Compiler | Per-build setrlimit caps |

@@ -505,9 +505,9 @@ def compiler(version_deps=False):
         ]
         if version_deps:
             # DEV ESCAPE HATCH (CLOACI-T-0887): inject [patch.crates-io] → the
-            # local unpublished crates so the version-dep fixture resolves offline
-            # under the sandbox — dev code, user-shaped manifest. No-op for the
-            # path-dep fixtures (their deps aren't crates-io deps → patch unused).
+            # local unpublished crates so the version-dep fixture resolves —
+            # dev code, user-shaped manifest. No-op for the path-dep fixtures
+            # (their deps aren't crates-io deps → patch unused).
             compiler_argv += ["--dev-workspace", str(REPO_ROOT)]
         compiler_proc = subprocess.Popen(
             compiler_argv,
