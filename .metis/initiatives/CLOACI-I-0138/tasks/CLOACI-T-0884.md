@@ -4,14 +4,14 @@ level: task
 title: "Canonical Rust packaged example — promote simple-packaged + gold-path demo-stack README"
 short_code: "CLOACI-T-0884"
 created_at: 2026-07-10T01:16:01.284448+00:00
-updated_at: 2026-07-10T23:29:47.511267+00:00
+updated_at: 2026-07-11T19:21:59.063071+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -78,6 +78,8 @@ Make `examples/features/workflows/simple-packaged` THE canonical Rust packaged e
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -149,6 +151,12 @@ Make `examples/features/workflows/simple-packaged` THE canonical Rust packaged e
 {Technical risks and mitigation strategies}
 
 ## Status Updates **[REQUIRED]**
+
+### 2026-07-11 (update 3) — DONE: recipe verified live to Completed, in-container and in-harness
+- README recipe run live against a FRESH demo stack: pack → upload (pkg 1aa77216) → in-container build success → `workflow run data_processing` → **execution `Completed`** (exec 6216daad). All 18 seed fixtures also green on the same fresh stack (post sandbox excision + two-phase builds + `--dev-workspace`).
+- `angreal demos features simple-packaged` (the CI examples-lane runner) → pass; wired into the `rust-examples` matrix.
+- `angreal test e2e compiler --version-deps` (shipping manifest form) → full pass post-excision.
+- Everything on PR #192. Task complete pending merge.
 
 ### 2026-07-10 (update 2) — README rewritten + harness runner registered in the CI examples path
 - **README**: full rewrite of `simple-packaged/README.md` as the pure gold-path recipe (pack → upload → compile → reconcile → execute → observe) against the demo stack via cloacinactl. Removed all stale content (broken `cargo run --example` commands, in-process registry/scheduler snippet, wrong dep versions, dead links). No embedded-runner path anywhere (initiative D-3). Authoring section matches the real macro syntax in src/lib.rs (task id = fn name; `dependencies=[...]`, `retry_attempts=N`).

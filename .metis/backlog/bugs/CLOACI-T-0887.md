@@ -153,6 +153,9 @@ failure_reason="cargo build failed: failed to load manifest for dependency
 
 ## Status Updates **[REQUIRED]**
 
+### 2026-07-11 (update 11) — VERIFIED CLOSED: 18/18 fixtures green on fresh stack + gold path Completed in-container
+Post-excision demo stack (sequential image build, `ui down --clean` fresh slate): **all 18 seed fixtures build success** — first time ever on a fresh stack (13 Rust + 5 Python). Then the canonical README recipe live against the stack: pack simple-packaged (version-dep manifest) → upload (pkg 1aa77216) → in-container two-phase build with `--dev-workspace` → `build_status=success` → `workflow run data_processing` (exec 6216daad) → **execution `Completed`**. The full primary-interface path is proven in-container. Post-excision harness regression lane (`angreal test e2e compiler --version-deps`) running as final belt-and-braces. Committed `56e54505` (excision) on PR #192.
+
 ### 2026-07-11 (update 10) — MAINTAINER DECISION: build sandbox EXCISED
 After the third sandbox defect in one day (registry-write denial → landlock V1 EXDEV → bwrap probe silently downgrading), maintainer called it: "lets excise the sandbox for now - its a nice to have but given we went with a tenant based isolation we have some defenses; we can figure out more later if we need layers." Tenant-level isolation (per-tenant compilers via --tenant-schema, per-tenant schemas/agents) is the security boundary; per-build process sandboxing is a possible FUTURE layer.
 
