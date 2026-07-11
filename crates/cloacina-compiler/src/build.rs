@@ -712,6 +712,54 @@ fn inject_dev_patch(source_dir: &Path, workspace: &Path) {
     }
 }
 
+/// Phase 1 of the two-phase build (CLOACI-T-0887): `cargo fetch`, OUTSIDE the
+/// sandbox. Fetch only resolves the dependency graph and downloads crates —
+/// no build scripts or proc-macros execute — so it may safely use the network
+/// and a writable `CARGO_HOME`. Phase 2 (`cargo build --offline`) then runs
+/// the untrusted code fully sandboxed with the network cut. Fetch also writes
+/// the `Cargo.lock` phase 2 builds against, so the two phases see one graph.
+async fn run_cargo_fetch(
+    package_id: uuid::Uuid,
+    source_dir: &Path,
+    config: &CompilerConfig,
+) -> Result<(), BuildError> {
+    const MAX_ERR: usize = 16 * 1024;
+    tracing::info!(
+        package_id = %package_id,
+        "two-phase build: cargo fetch (trusted, unsandboxed — no package code runs)"
+    );
+    let mut cmd = tokio::process::Command::new("cargo");
+    cmd.arg("fetch")
+        .current_dir(source_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    if let Some(vendor) = &config.vendor_dir {
+        cmd.env("CARGO_HOME", vendor);
+    }
+    let out = tokio::time::timeout(config.build_timeout, cmd.output())
+        .await
+        .map_err(|_| {
+            BuildError::internal(format!(
+                "cargo fetch timed out after {:?}",
+                config.build_timeout
+            ))
+        })?
+        .map_err(|e| BuildError::internal(format!("failed to spawn cargo fetch: {e}")))?;
+    if !out.status.success() {
+        let mut err = String::from_utf8_lossy(&out.stderr).to_string();
+        if err.len() > MAX_ERR {
+            err.truncate(MAX_ERR);
+        }
+        return Err(BuildError::Failed {
+            reason: format!("cargo fetch failed:\n{err}"),
+            exit_status: out.status.code(),
+            exit_signal: None,
+        });
+    }
+    Ok(())
+}
+
 async fn cargo_build(
     package_id: uuid::Uuid,
     source_dir: &Path,
@@ -731,6 +779,20 @@ async fn cargo_build(
     // root `Cargo.toml` to resolve their version/edition/deps. The RW target-dir
     // sub-bind still wins (bound after this RO bind; landlock unions the rules).
     let patch_crates = config.dev_workspace.clone();
+
+    // Two-phase build (CLOACI-T-0887): resolve + download OUTSIDE the sandbox
+    // (only trusted cargo code runs during fetch), then compile INSIDE it with
+    // the network cut (`--offline` appended below). Operators running the
+    // curated vendor posture (`--frozen`/`--offline` in --cargo-flag) keep the
+    // single-phase behavior: their registry is authoritative and fetch would
+    // defeat the point of the curation.
+    let operator_offline = config
+        .cargo_flags
+        .iter()
+        .any(|f| f == "--frozen" || f == "--offline");
+    if !operator_offline {
+        run_cargo_fetch(package_id, source_dir, config).await?;
+    }
 
     // CLOACI-I-0105: run the build at the boot-probed sandbox level. The
     // level was decided once at startup (fail-closed under `required`);
@@ -768,8 +830,13 @@ async fn cargo_build(
             patch_crates.clone(),
         );
     }
-    cmd.args(&config.cargo_flags)
-        .current_dir(source_dir)
+    cmd.args(&config.cargo_flags);
+    if !operator_offline {
+        // Phase 2 of the two-phase build: the fetch above populated the
+        // registry, so the sandboxed compile must never want the network.
+        cmd.arg("--offline");
+    }
+    cmd.current_dir(source_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         // Belt-and-suspenders: if the awaited future is dropped (e.g. parent

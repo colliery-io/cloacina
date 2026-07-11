@@ -350,6 +350,10 @@ pub fn apply_landlock(
     use landlock::{
         Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
     };
+    // CARGO_HOME outside /usr (e.g. ~/.cargo on host runs) needs an explicit
+    // RO grant so the phase-2 offline build can read the registry the
+    // unsandboxed fetch populated (CLOACI-T-0887 two-phase build).
+    let cargo_home = std::env::var_os("CARGO_HOME").map(PathBuf::from);
     unsafe {
         cmd.pre_exec(move || {
             let abi = ABI::V1;
@@ -368,7 +372,7 @@ pub fn apply_landlock(
                         .map_err(|e| std::io::Error::other(format!("landlock rule: {e}")))?;
                 }
             }
-            for ro_dir in [&vendor_dir, &patch_crates_dir] {
+            for ro_dir in [&vendor_dir, &patch_crates_dir, &cargo_home] {
                 if let Some(d) = ro_dir {
                     if let Ok(fd) = PathFd::new(d) {
                         ruleset = ruleset

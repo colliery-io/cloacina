@@ -178,9 +178,15 @@ services:
       - "/workspace/target"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
+      # NOTE: no --frozen/--offline here. That opts into the compiler's
+      # TWO-PHASE build (CLOACI-T-0887): `cargo fetch` runs OUTSIDE the sandbox
+      # (network on, only trusted cargo code — no package build scripts), then
+      # the compile runs INSIDE the sandbox with `--offline` appended (package
+      # code executes, network cut). Hardened operators pass a curated
+      # --vendor-dir + --cargo-flag=--frozen/--offline to stay single-phase.
       # DEV ESCAPE HATCH (CLOACI-T-0887): packages ship crates.io VERSION deps
       # (production form), but the cloacina crates aren't published yet. Point
-      # the compiler at the mounted workspace so each build injects
+      # the compiler at the baked workspace so each build injects
       # `[patch.crates-io]` redirecting cloacina-* to the local unpublished
       # crates. Production compilers OMIT this and resolve from crates.io.
       - "--dev-workspace"
@@ -203,6 +209,11 @@ services:
     # equivalent securityContext.seccompProfile=Unconfined on the compiler pod.
     security_opt:
       - seccomp=unconfined
+    volumes:
+      # Persist the cargo registry the two-phase fetch populates, so container
+      # recreations don't re-download the crate universe (CLOACI-T-0887).
+      # Shared across compilers — cargo file-locks registry writes.
+      - cargo-registry:/usr/local/cargo/registry
     depends_on:
       postgres:
         condition: service_healthy
@@ -240,11 +251,15 @@ services:
       - "/workspace/target"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
-      # DEV ESCAPE HATCH (CLOACI-T-0887) — see the public `compiler` service.
+      # Two-phase build + dev-workspace hatch (CLOACI-T-0887) — see the
+      # public `compiler` service.
       - "--dev-workspace"
       - "/workspace"
     environment:
       CARGO_PROFILE_DEV_DEBUG: "0"
+    volumes:
+      # Shared fetch cache — see the public `compiler` service (CLOACI-T-0887).
+      - cargo-registry:/usr/local/cargo/registry
     depends_on:
       postgres:
         condition: service_healthy
@@ -290,6 +305,10 @@ services:
       - "/workspace/target-x86"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
+      # Two-phase build + dev-workspace hatch (CLOACI-T-0887) — see the
+      # public `compiler` service.
+      - "--dev-workspace"
+      - "/workspace"
     environment:
       CARGO_PROFILE_DEV_DEBUG: "0"
     depends_on:
@@ -526,3 +545,5 @@ volumes:
   pgdata:
   fixtures-pkgs:
   kafkadata:
+  # Cargo registry populated by the compilers' two-phase fetch (CLOACI-T-0887).
+  cargo-registry:

@@ -153,7 +153,16 @@ failure_reason="cargo build failed: failed to load manifest for dependency
 
 ## Status Updates **[REQUIRED]**
 
-### 2026-07-10 (update 7) — CLOSED: both lanes green, committed to PR #192
+### 2026-07-10 (update 8) — REOPENED for the demo stack: EVERY Rust package build there was failing (empty baked registry)
+In-container verification on a FRESH demo stack (`ui down --clean` → rebuilt images) surfaced the last layer of the onion: **all 10 Rust fixture builds + simple-packaged fail**; only the Python packages succeed. Root cause: `Dockerfile.demo`'s builder uses a BuildKit **cache mount** for `/usr/local/cargo/registry`, which never persists into the image → the compiler runtime's registry is EMPTY → every sandboxed cargo build tries to download crates → `Permission denied` writing the read-only cargo home (e.g. `autocfg-1.5.1.crate`, `sha1_smol-1.0.1.crate`). Old stacks looked healthy only because their volumes predated I-0105's sandbox. IMPORTANT positive finding: the `--dev-workspace` patch injection works in-container (the patch-unused warnings list only the genuinely unused cloacina crates — the workflow crates resolved from /workspace).
+
+**Fix (on PR #192):**
+- `Dockerfile.demo` workspace stage: `RUN cargo fetch` after the workspace COPY — bakes the full workspace-lock registry INTO the image.
+- `docker-compose.demo.yml`: `--cargo-flag=--offline` on all three compilers (public, acme, x86) — resolution stays allowed (no `--frozen`; staged packages carry no lock) but cargo resolves against the baked cache instead of dying mid-download. Sandbox stays read-only.
+
+Rebuild + fresh-slate verification in progress: expect ALL Rust fixtures to build AND the simple-packaged gold-path recipe to reach a Completed execution in-container.
+
+### 2026-07-10 (update 7) — angreal lanes green, committed to PR #192
 Default (path-dep) lane also full-green (exit 0, execution Completed) — no regression. Committed as two commits on `chore/compose-stack-cleanup` (PR #192, title/body expanded): `560450c8` chore(dev-stack) port-15432 move; `bb389959` fix(T-0887) compiler `--dev-workspace` + `--version-deps` e2e + example re-author + demo compose wiring. Pre-commit (fmt, cargo check both backends, version lockstep) green on both. Done pending merge.
 
 ### 2026-07-10 (update 6) — VERIFIED GREEN: version-dep gold path passes end-to-end
