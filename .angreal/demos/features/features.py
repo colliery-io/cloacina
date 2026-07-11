@@ -3,6 +3,7 @@
 import json
 import shutil
 import subprocess
+import time
 
 import angreal  # type: ignore
 
@@ -44,7 +45,7 @@ _rust_feature_commands = {
 # Bespoke feature demos defined below (excluded from auto-registration because
 # `cargo run` is the wrong verb for them). Keep this list next to their
 # definitions — `demos matrix` includes it so CI runs them too.
-_BESPOKE_FEATURES = ["python-workflow", "simple-packaged"]
+_BESPOKE_FEATURES = ["parameterized-workflow", "python-workflow", "simple-packaged"]
 
 
 @demos()
@@ -126,40 +127,21 @@ def python_workflow():
             shutil.rmtree(venv_path)
 
 
-# --- canonical packaged-workflow demo (the gold path) ------------------------
+# --- gold-path packaged demos (CLOACI-I-0138) --------------------------------
 #
-# `simple-packaged` is the CANONICAL example (CLOACI-I-0138): it runs through
-# the PRIMARY interface — pack → upload → (server compiles & reconciles) →
-# workflow run → execution Completed — never an in-process runner. It's in the
-# auto-registration exclude list because `cargo run` is the wrong verb for it;
-# this bespoke command drives the real lifecycle instead, reusing the
-# service-lifecycle helpers from the compiler e2e harness.
+# These examples run through the PRIMARY interface — pack → upload → (server
+# compiles & reconciles) → workflow run → execution Completed — never an
+# in-process runner. They're in the auto-registration exclude list because
+# `cargo run` is the wrong verb; each bespoke command drives the real
+# lifecycle via this shared helper, reusing the service-lifecycle helpers
+# from the compiler e2e harness.
 
-@demos()
-@features()
-@angreal.command(
-    name="simple-packaged",
-    about="run the canonical packaged example through the primary interface (pack → upload → compile → run)",
-    long_about=(
-        "Drives examples/features/workflows/simple-packaged the way the README "
-        "says a user does: postgres (dev stack) + cloacina-server + "
-        "cloacina-compiler (with --dev-workspace so the example's crates.io "
-        "version deps resolve against this checkout), then cloacinactl "
-        "pack → upload → poll the build to success → workflow run "
-        "data_processing → poll the execution to Completed. First run "
-        "cold-compiles the package deps (~5-10 min); warm cache finishes in "
-        "under a minute."
-    ),
-    when_to_use=[
-        "verifying the packaged/server gold path end to end",
-        "validating the canonical example after compiler/server changes",
-    ],
-    when_not_to_use=[
-        "compiler-pipeline regression assertions (use `test e2e compiler`)",
-        "running without docker",
-    ],
-)
-def simple_packaged():
+def _run_gold_path(label, example_dirname, run_steps):
+    """Stand up dev-stack postgres + a host server + a host compiler
+    (--dev-workspace so the examples' crates.io version deps resolve against
+    this checkout), pack + upload the example, wait for the build, then call
+    `run_steps(ctl, home)` for the example-specific run/observe assertions.
+    `ctl(*args, check=True)` is a bound cloacinactl invoker."""
     import tempfile
     from pathlib import Path
 
@@ -169,14 +151,12 @@ def simple_packaged():
         _cloacinactl,
         _kill,
         _poll_build_status,
-        _poll_execution_status,
-        _poll_run_workflow,
         _start_postgres,
         _upload,
         _wait_http,
     )
 
-    print("=== simple-packaged: packaged-workflow gold path ===")
+    print(f"=== {label}: packaged-workflow gold path ===")
     _build_binaries()
     _start_postgres()
     # Distinct ports from the other harnesses (compiler e2e 18083/19003,
@@ -184,12 +164,12 @@ def simple_packaged():
     _assert_ports_free(18087, 19005)
 
     db_url = "postgres://cloacina:cloacina@localhost:15432/cloacina"
-    bootstrap_key = "demo-simple-packaged-key"
+    bootstrap_key = f"demo-{label}-key"
     server_bind = "127.0.0.1:18087"
     compiler_bind = "127.0.0.1:19005"
 
-    example_dir = PROJECT_ROOT / "examples" / "features" / "workflows" / "simple-packaged"
-    home = Path(tempfile.mkdtemp(prefix="simple-packaged-demo-"))
+    example_dir = PROJECT_ROOT / "examples" / "features" / "workflows" / example_dirname
+    home = Path(tempfile.mkdtemp(prefix=f"{label}-demo-"))
     print(f"demo home (service logs): {home}")
 
     server_proc = None
@@ -227,7 +207,7 @@ def simple_packaged():
                 "--cargo-target-dir", str(shared_target),
                 "--cargo-flag=build",
                 "--cargo-flag=--lib",
-                # DEV ESCAPE HATCH (CLOACI-T-0887): the example ships crates.io
+                # DEV ESCAPE HATCH (CLOACI-T-0887): the examples ship crates.io
                 # version deps (the form users ship); resolve them against THIS
                 # checkout's unpublished crates.
                 "--dev-workspace", str(PROJECT_ROOT),
@@ -256,17 +236,127 @@ def simple_packaged():
         _poll_build_status(home, pkg_id, {"success"}, timeout_s=900.0)
         print("  ok: build_status = success")
 
-        exec_id = _poll_run_workflow(home, "data_processing", timeout_s=180.0)
-        print(f"  ok: workflow run accepted (execution {exec_id})")
+        def ctl(*args, check=True):
+            return _cloacinactl(home, *args, check=check)
 
-        _poll_execution_status(home, exec_id, {"Completed"}, timeout_s=300.0)
-        print("  ok: execution Completed")
+        run_steps(ctl, home)
 
         print(
-            "\nSUCCESS: gold path verified — "
+            f"\nSUCCESS: {label} gold path verified — "
             "pack → upload → compile → reconcile → execute → Completed"
         )
         return 0
     finally:
         _kill(compiler_proc)
         _kill(server_proc)
+
+
+def _run_to_completed(ctl, home, workflow_name, context_path=None, timeout_s=300.0):
+    """`workflow run` (retrying until the reconciler has loaded the workflow),
+    then poll the execution to Completed. Returns the execution id."""
+    from test.e2e.compiler import _poll_execution_status
+
+    deadline = time.time() + 180.0
+    last_err = ""
+    exec_id = None
+    while time.time() < deadline:
+        args = ["-o", "json", "workflow", "run", workflow_name]
+        if context_path:
+            args += ["--context", str(context_path)]
+        code, out, err = ctl(*args, check=False)
+        if code == 0:
+            try:
+                exec_id = json.loads(out).get("execution_id")
+            except json.JSONDecodeError:
+                exec_id = (out.strip().splitlines() or [""])[-1].strip() or None
+            if exec_id and len(exec_id) >= 32:
+                break
+            exec_id = None
+        last_err = err.strip() or out.strip()
+        time.sleep(3.0)
+    if not exec_id:
+        raise AssertionError(
+            f"workflow run {workflow_name} never succeeded; last error: {last_err}"
+        )
+    print(f"  ok: workflow run accepted (execution {exec_id})")
+    _poll_execution_status(home, exec_id, {"Completed"}, timeout_s=timeout_s)
+    print("  ok: execution Completed")
+    return exec_id
+
+
+@demos()
+@features()
+@angreal.command(
+    name="simple-packaged",
+    about="run the canonical packaged example through the primary interface (pack → upload → compile → run)",
+    long_about=(
+        "Drives examples/features/workflows/simple-packaged the way the README "
+        "says a user does: postgres (dev stack) + cloacina-server + "
+        "cloacina-compiler (with --dev-workspace so the example's crates.io "
+        "version deps resolve against this checkout), then cloacinactl "
+        "pack → upload → poll the build to success → workflow run "
+        "data_processing → poll the execution to Completed. First run "
+        "cold-compiles the package deps (~5-10 min); warm cache finishes in "
+        "under a minute."
+    ),
+    when_to_use=[
+        "verifying the packaged/server gold path end to end",
+        "validating the canonical example after compiler/server changes",
+    ],
+    when_not_to_use=[
+        "compiler-pipeline regression assertions (use `test e2e compiler`)",
+        "running without docker",
+    ],
+)
+def simple_packaged():
+    def steps(ctl, home):
+        _run_to_completed(ctl, home, "data_processing")
+
+    return _run_gold_path("simple-packaged", "simple-packaged", steps)
+
+
+@demos()
+@features()
+@angreal.command(
+    name="parameterized-workflow",
+    about="run the parameterized-workflow example — params(...) declared, validated, and bound per run (CLOACI-T-0889)",
+    long_about=(
+        "Drives examples/features/workflows/parameterized-workflow through the "
+        "primary interface: pack → upload → build, then runs the sync_file "
+        "template TWICE with different --context param bindings (both must "
+        "reach Completed) and once with a missing required param (the server "
+        "must reject it with a typed validation error before anything runs)."
+    ),
+    when_to_use=[
+        "verifying declared workflow params end to end (I-0116 surface)",
+        "validating typed run-input validation after server changes",
+    ],
+    when_not_to_use=["running without docker"],
+)
+def parameterized_workflow():
+    def steps(ctl, home):
+        prod = home / "prod.json"
+        prod.write_text('{"source": "/data/prod", "dst": "/backup/prod"}')
+        _run_to_completed(ctl, home, "sync_file", context_path=prod)
+
+        archive = home / "archive.json"
+        archive.write_text(
+            '{"source": "/data/archive", "dst": "/cold", "mode": "move", "max_files": 10}'
+        )
+        _run_to_completed(ctl, home, "sync_file", context_path=archive)
+
+        # Missing required param `source` → the server must REJECT the run
+        # before anything executes (typed input-interface validation, T-0757).
+        bad = home / "bad.json"
+        bad.write_text('{"dst": "/backup"}')
+        code, out, err = ctl(
+            "workflow", "run", "sync_file", "--context", str(bad), check=False
+        )
+        if code == 0:
+            raise AssertionError(
+                "run with a missing required param was ACCEPTED — declared-param "
+                f"validation did not fire: {out!r}"
+            )
+        print("  ok: missing required param rejected before execution")
+
+    return _run_gold_path("parameterized-workflow", "parameterized-workflow", steps)
