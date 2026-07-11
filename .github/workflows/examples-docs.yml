@@ -115,17 +115,45 @@ jobs:
           command: angreal demos tutorials rust ${{ matrix.tutorial }}
 
   # -----------------------------------------------------------------------
-  # Rust examples
+  # Feature examples — CI executes ALL runnable examples. The matrix comes
+  # from `angreal demos matrix` (the same discovery that registers the
+  # `demos features <name>` commands), so a new example directory joins CI
+  # automatically — there is no hand-maintained list to drift.
   # -----------------------------------------------------------------------
+
+  discover-examples:
+    name: Discover Examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      examples: ${{ steps.list.outputs.examples }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: List runnable examples
+        id: list
+        run: echo "examples=$(angreal demos matrix)" >> "$GITHUB_OUTPUT"
 
   rust-examples:
     name: Rust Example Tests
-    needs: [build-cache]
+    needs: [build-cache, discover-examples]
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution"]
+        example: ${{ fromJSON(needs.discover-examples.outputs.examples) }}
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full

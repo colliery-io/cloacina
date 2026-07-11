@@ -12,11 +12,15 @@ packaged = []
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+# Production-shaped: a packaged workflow ships its cloacina deps as crates.io
+# VERSION deps (what `cloacinactl package new` emits). On dev/e2e stacks the
+# compiler's `--dev-workspace` injects `[patch.crates-io]` so these resolve
+# against the local unpublished crates until they're published (CLOACI-T-0887).
 [dependencies]
-cloacina-macros = { path = "../../../../crates/cloacina-macros" }
-cloacina-computation-graph = { path = "../../../../crates/cloacina-computation-graph" }
-cloacina-workflow = { path = "../../../../crates/cloacina-workflow", features = ["packaged"] }
-cloacina-workflow-plugin = { path = "../../../../crates/cloacina-workflow-plugin" }
+cloacina-macros = "0.10"
+cloacina-computation-graph = "0.10"
+cloacina-workflow = { version = "0.10", features = ["packaged"] }
+cloacina-workflow-plugin = "0.10"
 serde_json = "1.0"
 futures = "0.3"  # Lightweight async executor for macro-generated code
 # User workflow dependencies (optional - only needed because this example uses them):
@@ -27,8 +31,8 @@ uuid = { version = "1.0", features = ["v4"] }
 tracing = "0.1"
 
 [dev-dependencies]
-cloacina = { path = "../../../../crates/cloacina", default-features = false, features = ["macros", "sqlite"] }
+cloacina = { version = "0.10", default-features = false, features = ["macros", "sqlite"] }
 tempfile = "3.0"
 
 [build-dependencies]
-cloacina-build = { path = "../../../../crates/cloacina-build" }
+cloacina-build = "0.10"

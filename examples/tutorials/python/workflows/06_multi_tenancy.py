@@ -23,6 +23,7 @@ Prerequisites:
     PostgreSQL database running (see docker-compose.yaml in project root)
 """
 
+import os
 import sys
 import cloaca
 import random
@@ -329,8 +330,12 @@ def simulate_multi_tenant_operations():
     """Simulate multi-tenant SaaS operations."""
     print("=== Multi-Tenant SaaS Simulation ===")
 
-    # PostgreSQL admin connection URL (modify as needed for your setup)
-    admin_postgres_url = "postgresql://cloacina:cloacina@localhost:5432/cloacina"
+    # PostgreSQL admin connection URL — honors DATABASE_URL when set (the
+    # angreal harness points it at the dev stack); modify the fallback as
+    # needed for your setup.
+    admin_postgres_url = os.environ.get(
+        "DATABASE_URL", "postgresql://cloacina:cloacina@localhost:5432/cloacina"
+    )
 
     # Create tenant manager with admin credentials
     tenant_manager = TenantManager(admin_postgres_url)

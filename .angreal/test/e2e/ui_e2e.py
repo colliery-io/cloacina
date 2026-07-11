@@ -54,7 +54,7 @@ COMPILER_BIND = "127.0.0.1:19001"
 PREVIEW_PORT = 4173
 PREVIEW_URL = f"http://localhost:{PREVIEW_PORT}"
 BOOTSTRAP_KEY = "ui-e2e-bootstrap-key"
-DB_URL = "postgres://cloacina:cloacina@localhost:5432/cloacina"
+DB_URL = "postgres://cloacina:cloacina@localhost:15432/cloacina"
 TARGET_DIR = str(PROJECT_ROOT / "target")
 
 FIXTURES_DIR = PROJECT_ROOT / "examples" / "fixtures"

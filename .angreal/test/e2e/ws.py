@@ -142,7 +142,7 @@ def ws_integration_test():
 
     base_url = "http://127.0.0.1:18081"
     ws_base = "http://127.0.0.1:18081"
-    db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
+    db_url = "postgres://cloacina:cloacina@localhost:15432/cloacina"
     test_home = Path("target/ws-integration-test")
     if test_home.exists():
         import shutil

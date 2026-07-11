@@ -36,6 +36,11 @@ x-acme-key: &acme_key "clk_demo_acme_key_0002"
 services:
   postgres:
     image: postgres:16
+    # The demo runs a full fleet (server + N agents + compilers) all pooling
+    # into this one Postgres; the default 100 connections exhaust under that
+    # load (auth/heartbeat/scheduler all time out waiting for a slot). Match the
+    # backing-services stack's headroom.
+    command: postgres -c max_connections=500
     environment:
       POSTGRES_USER: cloacina
       POSTGRES_PASSWORD: cloacina
@@ -173,24 +178,30 @@ services:
       - "/workspace/target"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
+      # NOTE: no --frozen/--offline here. That opts into the compiler's
+      # TWO-PHASE build (CLOACI-T-0887): `cargo fetch` runs OUTSIDE the sandbox
+      # (network on, only trusted cargo code — no package build scripts), then
+      # the compile runs INSIDE the sandbox with `--offline` appended (package
+      # code executes, network cut). Hardened operators pass a curated
+      # --vendor-dir + --cargo-flag=--frozen/--offline to stay single-phase.
+      # DEV ESCAPE HATCH (CLOACI-T-0887): packages ship crates.io VERSION deps
+      # (production form), but the cloacina crates aren't published yet. Point
+      # the compiler at the baked workspace so each build injects
+      # `[patch.crates-io]` redirecting cloacina-* to the local unpublished
+      # crates. Production compilers OMIT this and resolve from crates.io.
+      - "--dev-workspace"
+      - "/workspace"
     environment:
       # Override the compiler's default (line-tables-only) down to NO debuginfo
       # for the memory-tightest build on a constrained Docker VM — full
       # debuginfo OOM-killed complex-dag-example (it pulls in the heavy
       # `cloacina` lib). The demo never debugs the compiled cdylibs.
       CARGO_PROFILE_DEV_DEBUG: "0"
-      # CLOACI-I-0105: build-process sandbox. `preferred` uses bwrap when the
-      # container permits unprivileged user namespaces (the security_opt
-      # below), else downgrades to landlock. Multi-tenant operators should set
-      # `required` to make an un-sandboxable container a hard boot failure.
-      CLOACINA_COMPILER_SANDBOX: "preferred"
-    # CLOACI-I-0105: bwrap needs unprivileged user namespaces, which Docker's
-    # default seccomp profile blocks. Unconfined seccomp lets bwrap create its
-    # namespaces — defensible because bwrap's per-build isolation is stronger
-    # than default-seccomp-with-no-sandbox. K8s: the Helm chart sets the
-    # equivalent securityContext.seccompProfile=Unconfined on the compiler pod.
-    security_opt:
-      - seccomp=unconfined
+    volumes:
+      # Persist the cargo registry the two-phase fetch populates, so container
+      # recreations don't re-download the crate universe (CLOACI-T-0887).
+      # Shared across compilers — cargo file-locks registry writes.
+      - cargo-registry:/usr/local/cargo/registry
     depends_on:
       postgres:
         condition: service_healthy
@@ -228,8 +239,15 @@ services:
       - "/workspace/target"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
+      # Two-phase build + dev-workspace hatch (CLOACI-T-0887) — see the
+      # public `compiler` service.
+      - "--dev-workspace"
+      - "/workspace"
     environment:
       CARGO_PROFILE_DEV_DEBUG: "0"
+    volumes:
+      # Shared fetch cache — see the public `compiler` service (CLOACI-T-0887).
+      - cargo-registry:/usr/local/cargo/registry
     depends_on:
       postgres:
         condition: service_healthy
@@ -275,6 +293,10 @@ services:
       - "/workspace/target-x86"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
+      # Two-phase build + dev-workspace hatch (CLOACI-T-0887) — see the
+      # public `compiler` service.
+      - "--dev-workspace"
+      - "/workspace"
     environment:
       CARGO_PROFILE_DEV_DEBUG: "0"
     depends_on:
@@ -511,3 +533,5 @@ volumes:
   pgdata:
   fixtures-pkgs:
   kafkadata:
+  # Cargo registry populated by the compilers' two-phase fetch (CLOACI-T-0887).
+  cargo-registry:

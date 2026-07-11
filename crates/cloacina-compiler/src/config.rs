@@ -101,9 +101,14 @@ pub struct CompilerConfig {
     /// point `--vendor-dir` at the resulting cargo home. Closes the
     /// network-side of CLOACI-T-0574 / SEC-06.
     pub vendor_dir: Option<PathBuf>,
-    /// CLOACI-I-0105: boot-probed sandbox level every build runs at
-    /// (fail-closed under CLOACINA_COMPILER_SANDBOX=required).
-    pub sandbox_level: crate::sandbox::SandboxLevel,
+    /// DEV ESCAPE HATCH (CLOACI-T-0887): a local cloacina workspace root. When
+    /// set, each build injects `[patch.crates-io]` mapping every crate under
+    /// `<root>/crates/` to its path, and that dir is bound READ-ONLY in the
+    /// sandbox — so packages that ship production crates.io version deps
+    /// resolve against the UNPUBLISHED local crates during dev cycles. NOT for
+    /// production (real packages resolve from crates.io); only dev/e2e stacks
+    /// pass `--dev-workspace`.
+    pub dev_workspace: Option<PathBuf>,
 
     /// Kernel-enforced resource ceilings applied via `setrlimit` in a
     /// `pre_exec` hook on Linux. Stored on all platforms but only applied

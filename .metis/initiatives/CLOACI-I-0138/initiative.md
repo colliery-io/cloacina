@@ -4,14 +4,14 @@ level: initiative
 title: "Packaged-first examples — server/daemon gold path as the standard for all examples"
 short_code: "CLOACI-I-0138"
 created_at: 2026-07-10T00:22:40.417461+00:00
-updated_at: 2026-07-10T00:22:40.417461+00:00
-parent: 
+updated_at: 2026-07-10T01:16:19.910293+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -46,6 +46,29 @@ initiative_id: packaged-first-examples-server
 ## Decisions (2026-07-09 check-in)
 - **D-1 Scope:** NEW-first + incremental. Lock packaged-first as the standard, build the canonical packaged-example template, apply to new examples immediately; convert the existing embedded examples incrementally (own tasks).
 - **D-2 Docs:** Examples tree FIRST; re-cut the Diátaxis tutorials packaged-first as a LATER phase, once the pattern is proven.
+- **D-3 (maintainer, 2026-07-10): ALL examples take the primary interface; the built-in scheduler is not the demo/testing vehicle.** The point is to *demonstrate every feature through the primary interface* — server/daemon via pack → upload → compile → reconcile → execute (or monitor). Examples must not show the in-process `DefaultRunner` as the way to run/test. This sharpens D-1: incremental is still the pace, but the end-state is unambiguous — no embedded-runner demos left, no "alternative embedded path" sections in READMEs. Corollary: migrating each feature example through the server path will surface any server-path feature gaps (cron via schedules, event triggers via the trigger API, multi-tenancy via the tenants API, …) — surfacing those loudly is part of the value, per the I-0137 lesson.
+
+## Feature-coverage audit (2026-07-11) — do examples exercise all Rust + Python features? NO
+Grounded against the actual surfaces: `cloacina-macros/src/lib.rs` (all proc macros + options), `cloacina-python/src/lib.rs::register_authoring` (the cloaca contract), and the server routes / cloacinactl nouns.
+
+**Covered (mostly via the EMBEDDED runner, which D-3 says stop demoing):** tasks/dependencies/retries (tutorials + most examples); conditional retries (`conditional-retries`, rust tutorial 02); trigger rules (tutorials 04); deferred tasks; cron via runner APIs (`cron-scheduling`, python 05); event/poll triggers (`event-triggers`, python 07-08); multi-tenancy via DatabaseAdmin (`multi-tenant`, `per-tenant-credentials`, tutorials 06); CGs/reactors/accumulators basics (rust CG tutorials 07-10, python 09-11, `packaged-graph`, `filtered-reactor`). **Via the PRIMARY interface: `simple-packaged` only — plain tasks.**
+
+**Zero user-facing coverage (fixtures-only or nothing):**
+1. **Parameterized workflow instances (I-0116)** — `register_workflow_instance`, `#[workflow] params(...)`, `@workflow_params` — an entire shipped initiative
+2. **Workflow secrets** — `secrets(...)` / `@workflow_secrets` + `cloacinactl secret` noun
+3. **`@boundary_schema`** (python CG typed surfaces) — fixtures only
+4. **Task→CG invocation** — `invokes = computation_graph(...)`, `post_invocation` — fixtures only
+5. **Accumulator kinds `stream` (kafka) / `batch` / `polling`** — fixtures only (tutorials cover passthrough/state)
+6. **Constructors/providers** — `#[constructor]`, `constructor_provider!`, `constructor!` nodes + `grants`, `cloacinactl constructor package` — `examples/constructor-contract/*` exists but is OUTSIDE the demos harness and CI
+7. **Operational surface** — manual `reactor fire`, `accumulator inject`, trigger pause/resume/fire, secrets noun, fleet provision/limits, `execution events --follow` — nothing teaches any of it
+
+**Conclusion:** the migration (embedded→primary interface) and the gap-fill are the SAME work: the end-state is **one gold-path example per feature**. Decomposed below as T-0889..T-0893 alongside the existing T-0885/T-0886.
+
+## Migration inventory (grounded 2026-07-10) — ≈26 units still demoing via `DefaultRunner`
+- **Rust feature examples (10):** conditional-retries, cron-scheduling, deferred-tasks, event-triggers, multi-tenant, per-tenant-credentials, registry-execution, python-workflow, computation-graphs/filtered-reactor, constructor-contract/fs-grant-demo
+- **Performance (3):** simple, parallel, pipeline (may stay embedded by design — they benchmark the engine, not the interface; decide at design time)
+- **Rust tutorial library (6):** 01-basic-workflow … 06-multi-tenancy
+- **Python tutorials (8):** 01_first_workflow … 08_packaged_triggers
 
 ## Grounding (2026-07-09) — the pattern already exists
 Reference packaged examples: `examples/features/workflows/{simple-packaged, packaged-workflows, packaged-triggers, registry-execution}` (registry-execution's README shows the compile→load-into-server→run recipe) + `computation-graphs/{packaged-graph, python-packaged-graph}`. Many `examples/fixtures/*` are packaged too but are TEST FIXTURES, not user-facing examples. Still-embedded feature examples (the incremental-conversion backlog): complex-dag, conditional-retries, cron-scheduling, deferred-tasks, event-triggers, multi-tenant, per-tenant-credentials, python-workflow.
@@ -104,7 +127,27 @@ Reference packaged examples: `examples/features/workflows/{simple-packaged, pack
 
 ## Detailed Design **[REQUIRED]**
 
-{Technical approach and implementation details}
+### The gold-path shape (grounded 2026-07-09)
+`simple-packaged` is the AUTHORING half (package.toml + workflow src → `.cloacina`). `registry-execution` runs a package but via an EMBEDDED `DefaultRunner` (SQLite in-mem + FilesystemRegistryStorage) — still embedded, NOT the server. Packaged-FIRST adds the missing half: **register the `.cloacina` with a running SERVER/daemon and run it there** (align with the existing `docs/content/service/tutorials/03-packaged-workflows.md`). cloacinactl exposes the nouns: `package`, `workflow`, `server`, `daemon`, `tenant`, `trigger`, `execution`.
+
+### Canonical packaged example (THE template)
+Each example dir:
+- `package.toml` — manifest (name, version, `interface = cloacina-workflow-plugin`, `[metadata] workflow_name/language/description`).
+- Workflow source — Rust (`Cargo.toml` minimal shell + `src/lib.rs` with `#[workflow]`/`#[task]`, per I-0125) OR Python (`workflow.py` + `package.toml`).
+- `README.md` — the **gold-path run recipe**: (1) build the `.cloacina`, (2) bring up the server via the docker compose demo stack ([[feedback_use_container_stack]]), (3) register the package with the server (cloacinactl), (4) trigger it, (5) observe via API/UI. NO in-process `DefaultRunner`.
+
+### Standard artifact
+A short "Writing a Packaged Example" convention (files above + the README recipe skeleton, both languages) that NEW examples follow — the thing that makes packaged-first the default.
+
+### Decomposition (proposed — for sign-off)
+- **T-a** Canonical RUST packaged example (reference template) — author + package.toml + gold-path README against the demo stack.
+- **T-b** Canonical PYTHON packaged example (reference template).
+- **T-c** "Packaged example standard" doc/convention new examples follow (+ CONTRIBUTING pointer).
+- **T-d+ (backlog, incremental per D-1)** convert each still-embedded feature example (cron-scheduling, event-triggers, multi-tenant, per-tenant-credentials, complex-dag, conditional-retries, deferred-tasks, python-workflow) — one task each, later.
+
+### Open for sign-off
+1. Run recipe targets the **docker compose demo stack** as the canonical "server" for examples (vs a bare `cloacinactl daemon`/`server start`)?
+2. T-a/T-b build NEW reference examples, or promote `simple-packaged`/`packaged-workflows` in place as the canonical ones?
 
 ## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
 

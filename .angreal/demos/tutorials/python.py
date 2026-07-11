@@ -1,5 +1,6 @@
 """demos tutorials python — run individual Python tutorial examples."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -68,6 +69,12 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite"):
             print(f"[diagnostic] smart_postgres_reset returned {reset_ok}", flush=True)
 
         print(f"Executing tutorial {tutorial_num}...", flush=True)
+        # The harness owns the DB wiring: the dev stack publishes postgres on
+        # host 15432 (not 5432 — that's the user's own DB). Tutorials honor
+        # DATABASE_URL and keep a user-facing 5432 fallback.
+        env = os.environ.copy()
+        if backend == "postgres":
+            env["DATABASE_URL"] = "postgres://cloacina:cloacina@localhost:15432/cloacina"
         # `python -u` forces unbuffered stdio in the child so CI sees
         # progress + tracebacks even if the tutorial crashes mid-stream.
         result = subprocess.run(
@@ -76,6 +83,7 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite"):
             capture_output=True,
             text=True,
             timeout=300,
+            env=env,
         )
 
         if result.returncode == 0:

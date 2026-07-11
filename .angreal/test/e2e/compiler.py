@@ -23,6 +23,7 @@ unpublished cloacina path-deps from any unpacked tmpdir.
 import json
 import os
 import signal
+import re
 import subprocess
 import tempfile
 import time
@@ -62,6 +63,15 @@ def _start_postgres():
         cwd=REPO_ROOT,
         check=False,
     )
+    # The down above only frees 15432 if OUR dev stack held it. The dev stack
+    # publishes postgres on 15432 (NOT the postgres default 5432) precisely so
+    # it can't collide with other projects' databases; if something still holds
+    # it, fail with a remedy instead of docker's opaque port-bind error.
+    if not _port_free(15432):
+        raise RuntimeError(
+            "port 15432 is held by another process — check `lsof -iTCP:15432 "
+            "-sTCP:LISTEN` / `docker ps`, stop whatever owns it, and re-run."
+        )
     subprocess.run(
         ["docker", "compose", "-f", ".angreal/docker-compose.yaml", "up", "-d", "postgres"],
         cwd=REPO_ROOT,
@@ -173,6 +183,39 @@ def _cloacinactl(home: Path, *args, check=True, env=None):
 # ---------------------------------------------------------------------------
 
 
+# Matches a cloacina workspace path-dep — `{ path = "__WORKSPACE__/crates/…"
+# [, features = […]] }` — so the `--version-deps` staging mode can rewrite it to
+# the crates.io VERSION-dep form a real distributed package ships.
+_WS_PATH_DEP = re.compile(
+    r'\{\s*path\s*=\s*"__WORKSPACE__/crates/[^"]+"'
+    r'(?:\s*,\s*(?P<feats>features\s*=\s*\[[^\]]*\]))?\s*\}'
+)
+
+# Workspace crate version the version-dep form pins to. Caret "0.10" matches the
+# workspace's 0.10.x; the compiler's `--dev-workspace` patch supplies the actual
+# (unpublished) crate, so this need not exist on crates.io.
+_PROD_DEP_VERSION = "0.10"
+
+
+def _to_version_deps(text: str) -> str:
+    """Rewrite `__WORKSPACE__` path-deps to crates.io version-deps in a Cargo.toml.
+
+    `{ path = "__WORKSPACE__/crates/cloacina-workflow", features = ["packaged"] }`
+    → `{ version = "0.10", features = ["packaged"] }`, and a bare path-dep →
+    `"0.10"`. This is the exact dep form `cloacinactl package new` emits — the
+    shipping form — which only resolves under a compiler started with
+    `--dev-workspace` (it injects `[patch.crates-io]` → the local crates).
+    """
+
+    def repl(m: re.Match) -> str:
+        feats = m.group("feats")
+        if feats:
+            return f'{{ version = "{_PROD_DEP_VERSION}", {feats} }}'
+        return f'"{_PROD_DEP_VERSION}"'
+
+    return _WS_PATH_DEP.sub(repl, text)
+
+
 def _stage_fixture(
     home: Path,
     src_name: str,
@@ -180,6 +223,7 @@ def _stage_fixture(
     rename_to: str | None = None,
     version_override: str | None = None,
     stage_suffix: str | None = None,
+    version_deps: bool = False,
 ) -> Path:
     """Copy a fixture from examples/fixtures/<src_name> into the per-run
     home, rewriting `__WORKSPACE__` placeholders to absolute paths that
@@ -202,7 +246,18 @@ def _stage_fixture(
 
     ws = str(REPO_ROOT)
     for rel in ("package.toml", "Cargo.toml", "build.rs", "src/lib.rs"):
-        text = (src / rel).read_text().replace("__WORKSPACE__", ws)
+        raw = (src / rel).read_text()
+        # version_deps: author the Cargo.toml with crates.io version deps (the
+        # manifest shape users get from `cloacinactl package new`) instead of
+        # rewriting `__WORKSPACE__` path-deps to absolute paths. The compiler must
+        # run with `--dev-workspace` so these resolve to the LOCAL crates.
+        if version_deps and rel == "Cargo.toml":
+            # Deps become version deps; then scrub residual placeholders (the
+            # fixture's own comments mention __WORKSPACE__, and cloacinactl's
+            # pack guard rejects the literal anywhere in the manifest).
+            text = _to_version_deps(raw).replace("__WORKSPACE__", ws)
+        else:
+            text = raw.replace("__WORKSPACE__", ws)
         if rename_to is not None:
             text = text.replace(src_name, rename_to)
             text = text.replace(
@@ -371,13 +426,32 @@ def _poll_execution_status(
     ],
     when_not_to_use=["unit testing", "running without docker"],
 )
-def compiler():
+@angreal.argument(
+    name="version_deps",
+    long="version-deps",
+    help=(
+        "Author the happy-path fixture with version deps (`cloacina-workflow = "
+        '"0.10"` — the manifest shape `cloacinactl package new` gives users) '
+        "instead of __WORKSPACE__ path deps. Still compiles THIS checkout: the "
+        "compiler gets --dev-workspace, which patches those deps to the local "
+        "crates/ (offline; crates.io is never contacted). CLOACI-T-0887."
+    ),
+    takes_value=False,
+    is_flag=True,
+)
+def compiler(version_deps=False):
     print_section_header("cloacina-compiler e2e")
+    if version_deps:
+        print(
+            "  MODE: --version-deps — user-shaped manifest (version deps), "
+            "resolved to the LOCAL dev workspace via --dev-workspace (offline; "
+            "crates.io never contacted)"
+        )
     _build_binaries()
     _start_postgres()
     _assert_ports_free(18083, 19003)
 
-    db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
+    db_url = "postgres://cloacina:cloacina@localhost:15432/cloacina"
     bootstrap_key = "test-bootstrap-compiler-e2e"
     server_bind = "127.0.0.1:18083"
     compiler_bind = "127.0.0.1:19003"
@@ -418,18 +492,25 @@ def compiler():
         # bincode in release) matches the debug-built server we're running
         # here. In prod both server and compiler are release builds and the
         # default --release flag on cargo is fine.
+        compiler_argv = [
+            "target/debug/cloacina-compiler",
+            "--home", str(home),
+            "--database-url", db_url,
+            "--bind", compiler_bind,
+            "--poll-interval-ms", "500",
+            "--cargo-target-dir", str(shared_target),
+            "--cargo-flag=build",
+            "--cargo-flag=--lib",
+            "--verbose",
+        ]
+        if version_deps:
+            # DEV ESCAPE HATCH (CLOACI-T-0887): inject [patch.crates-io] → the
+            # local unpublished crates so the version-dep fixture resolves —
+            # dev code, user-shaped manifest. No-op for the path-dep fixtures
+            # (their deps aren't crates-io deps → patch unused).
+            compiler_argv += ["--dev-workspace", str(REPO_ROOT)]
         compiler_proc = subprocess.Popen(
-            [
-                "target/debug/cloacina-compiler",
-                "--home", str(home),
-                "--database-url", db_url,
-                "--bind", compiler_bind,
-                "--poll-interval-ms", "500",
-                "--cargo-target-dir", str(shared_target),
-                "--cargo-flag=build",
-                "--cargo-flag=--lib",
-                "--verbose",
-            ],
+            compiler_argv,
             cwd=REPO_ROOT,
             stdout=compiler_log,
             stderr=subprocess.STDOUT,
@@ -455,9 +536,12 @@ def compiler():
         # --- happy path -----------------------------------------------------
         # First run cold-compiles cloacina + ~100 transitive deps; subsequent
         # runs hit the shared target cache and finish in <30s.
-        happy_dir = _stage_fixture(home, "compiler-happy-rust")
+        happy_dir = _stage_fixture(
+            home, "compiler-happy-rust", version_deps=version_deps
+        )
         print("  compiling happy fixture "
-              "(first run: ~5-10 min cold build; subsequent: <30s)")
+              f"({'version-dep manifest' if version_deps else 'path-dep escape hatch'}; "
+              "first run: ~5-10 min cold build; subsequent: <30s)")
         happy_id = _upload(home, happy_dir)
         body = _poll_build_status(home, happy_id, {"success"}, timeout_s=900.0)
         assert body.get("build_status") == "success", body

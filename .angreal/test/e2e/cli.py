@@ -109,7 +109,7 @@ def cli():
     _build_binaries()
     _start_postgres()
 
-    db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
+    db_url = "postgres://cloacina:cloacina@localhost:15432/cloacina"
     bootstrap_key = "test-bootstrap-e2e"
     bind = "127.0.0.1:18082"
     base_url = f"http://{bind}"
@@ -659,7 +659,7 @@ def default_executor():
     _build_binaries()
     _start_postgres()
 
-    db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
+    db_url = "postgres://cloacina:cloacina@localhost:15432/cloacina"
 
     # --- negative: unknown executor key aborts startup ----------------------
     with tempfile.TemporaryDirectory() as home_s:

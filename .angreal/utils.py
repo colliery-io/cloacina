@@ -122,13 +122,14 @@ def docker_clean():
         return 1
     return 0
 
-def run_cargo_command(cwd, command_args, check=True):
+def run_cargo_command(cwd, command_args, check=True, env=None):
     """Run a cargo command in the specified directory.
 
     Args:
         cwd: Working directory to run the command in
         command_args: List of arguments to pass to cargo
         check: Whether to check the return code (default: True)
+        env: Optional environment dict (default: inherit the parent env)
 
     Returns:
         The return code from the command
@@ -137,7 +138,8 @@ def run_cargo_command(cwd, command_args, check=True):
         result = subprocess.run(
             ["cargo"] + command_args,
             cwd=str(cwd),
-            check=check
+            check=check,
+            env=env,
         )
         return result.returncode
     except subprocess.CalledProcessError as e:
@@ -205,11 +207,20 @@ def run_example_or_tutorial(project_root, example_dir, name, is_test=False, bina
         # For most tutorials, SQLite is used - no Docker setup needed
         print(f"Running {name} (SQLite-based, no database setup required)")
 
+    # The harness owns the DB wiring: the dev stack publishes postgres on
+    # host port 15432 (NOT 5432 — that's left to other projects / the user's
+    # own DB), while the examples' fallback URLs stay at the user-facing
+    # default. Point them at OUR stack explicitly.
+    env = os.environ.copy()
+    if needs_postgres:
+        env["DATABASE_URL"] = "postgres://cloacina:cloacina@localhost:15432/cloacina"
+
     # Run the example/tutorial
     if is_test:
         return run_cargo_command(
             project_root / example_dir,
-            ["test", name, "--", "--nocapture"]
+            ["test", name, "--", "--nocapture"],
+            env=env,
         )
     else:
         cmd = ["run"]
@@ -217,7 +228,8 @@ def run_example_or_tutorial(project_root, example_dir, name, is_test=False, bina
             cmd.extend(["--bin", binary])
         return run_cargo_command(
             project_root / example_dir,
-            cmd
+            cmd,
+            env=env,
         )
 
 def check_postgres_container_health() -> bool:

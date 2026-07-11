@@ -1,11 +1,8 @@
 {{- if .Values.compiler.enabled }}
 {{- include "cloacina-server.validateDatabase" . -}}
-# CLOACI-I-0105: the cloacina-compiler builds uploaded packages, running
-# attacker-controlled build.rs / proc-macros. It runs each `cargo build` inside
-# a bwrap sandbox (see docs/service/compiler-sandbox.md) — which needs
-# unprivileged user namespaces, blocked by the default seccomp profile. The
-# securityContext below sets seccompProfile: Unconfined so bwrap works
-# in-cluster; CLOACINA_COMPILER_SANDBOX gates the fail-closed posture.
+# The cloacina-compiler builds uploaded packages. Tenant-level isolation is
+# the security boundary (one compiler per tenant via --tenant-schema); the
+# per-build process sandbox was excised 2026-07-11 (possible future layer).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -72,11 +69,6 @@ spec:
             - name: DATABASE_URL
               value: {{ .Values.database.url | quote }}
             {{- end }}
-            # CLOACI-I-0105: fail-closed sandbox posture. `required` refuses to
-            # boot if bwrap is unusable (multi-tenant default here); `preferred`
-            # downgrades to landlock; `off` disables the process sandbox.
-            - name: CLOACINA_COMPILER_SANDBOX
-              value: {{ .Values.compiler.sandbox.mode | quote }}
             {{- with .Values.compiler.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -84,13 +76,6 @@ spec:
             {{- toYaml .Values.compiler.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.compiler.securityContext | nindent 12 }}
-            {{- if ne .Values.compiler.sandbox.mode "off" }}
-            # bwrap's unprivileged user namespaces need the default seccomp
-            # profile relaxed. A NET security gain: bwrap's per-build isolation
-            # is stronger than default-seccomp with NO build sandbox.
-            seccompProfile:
-              type: {{ .Values.compiler.sandbox.seccompProfile }}
-            {{- end }}
           volumeMounts:
             # readOnlyRootFilesystem requires emptyDirs for cargo's writable
             # paths — the build target cache, tmp, and the cargo/rustup homes.

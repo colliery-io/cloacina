@@ -279,12 +279,13 @@ podAnnotations: {}
 podLabels: {}
 
 # ---------------------------------------------------------------------------
-# Compiler (CLOACI-I-0105 / I-0111)
+# Compiler (CLOACI-I-0111)
 #
-# The cloacina-compiler builds uploaded Rust packages, running attacker-
-# controlled build.rs / proc-macros. It sandboxes each `cargo build` with
-# bubblewrap (see docs/service/compiler-sandbox.md). Enable it to compile
+# The cloacina-compiler builds uploaded Rust packages. Enable it to compile
 # packages in-cluster; without it, uploaded Rust packages stay `pending`.
+# Tenant-level isolation is the security boundary (run one compiler per
+# tenant via --tenant-schema); the per-build process sandbox was excised
+# 2026-07-11 and may return as an optional layer later.
 # ---------------------------------------------------------------------------
 compiler:
   enabled: false
@@ -301,14 +302,6 @@ compiler:
     - "--cargo-flag=build"
     - "--cargo-flag=--lib"
   extraEnv: []
-  sandbox:
-    # required | preferred | off. `required` (the multi-tenant default) refuses
-    # to boot when bwrap is unusable, rather than build untrusted code
-    # unsandboxed. `preferred` downgrades to landlock. `off` disables it.
-    mode: required
-    # bwrap needs unprivileged user namespaces, which the default seccomp
-    # profile blocks; Unconfined grants them. Applied only when mode != off.
-    seccompProfile: Unconfined
   # emptyDir size limit for the shared cargo target cache.
   buildCacheSize: 8Gi
   resources:
@@ -318,8 +311,7 @@ compiler:
     limits:
       cpu: "2"
       memory: 4Gi
-  # Mirrors the server container hardening; seccompProfile is layered in by the
-  # template when the sandbox is active.
+  # Mirrors the server container hardening.
   securityContext:
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: true
