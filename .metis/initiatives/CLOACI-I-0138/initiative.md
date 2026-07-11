@@ -48,6 +48,22 @@ initiative_id: packaged-first-examples-server
 - **D-2 Docs:** Examples tree FIRST; re-cut the Diátaxis tutorials packaged-first as a LATER phase, once the pattern is proven.
 - **D-3 (maintainer, 2026-07-10): ALL examples take the primary interface; the built-in scheduler is not the demo/testing vehicle.** The point is to *demonstrate every feature through the primary interface* — server/daemon via pack → upload → compile → reconcile → execute (or monitor). Examples must not show the in-process `DefaultRunner` as the way to run/test. This sharpens D-1: incremental is still the pace, but the end-state is unambiguous — no embedded-runner demos left, no "alternative embedded path" sections in READMEs. Corollary: migrating each feature example through the server path will surface any server-path feature gaps (cron via schedules, event triggers via the trigger API, multi-tenancy via the tenants API, …) — surfacing those loudly is part of the value, per the I-0137 lesson.
 
+## Feature-coverage audit (2026-07-11) — do examples exercise all Rust + Python features? NO
+Grounded against the actual surfaces: `cloacina-macros/src/lib.rs` (all proc macros + options), `cloacina-python/src/lib.rs::register_authoring` (the cloaca contract), and the server routes / cloacinactl nouns.
+
+**Covered (mostly via the EMBEDDED runner, which D-3 says stop demoing):** tasks/dependencies/retries (tutorials + most examples); conditional retries (`conditional-retries`, rust tutorial 02); trigger rules (tutorials 04); deferred tasks; cron via runner APIs (`cron-scheduling`, python 05); event/poll triggers (`event-triggers`, python 07-08); multi-tenancy via DatabaseAdmin (`multi-tenant`, `per-tenant-credentials`, tutorials 06); CGs/reactors/accumulators basics (rust CG tutorials 07-10, python 09-11, `packaged-graph`, `filtered-reactor`). **Via the PRIMARY interface: `simple-packaged` only — plain tasks.**
+
+**Zero user-facing coverage (fixtures-only or nothing):**
+1. **Parameterized workflow instances (I-0116)** — `register_workflow_instance`, `#[workflow] params(...)`, `@workflow_params` — an entire shipped initiative
+2. **Workflow secrets** — `secrets(...)` / `@workflow_secrets` + `cloacinactl secret` noun
+3. **`@boundary_schema`** (python CG typed surfaces) — fixtures only
+4. **Task→CG invocation** — `invokes = computation_graph(...)`, `post_invocation` — fixtures only
+5. **Accumulator kinds `stream` (kafka) / `batch` / `polling`** — fixtures only (tutorials cover passthrough/state)
+6. **Constructors/providers** — `#[constructor]`, `constructor_provider!`, `constructor!` nodes + `grants`, `cloacinactl constructor package` — `examples/constructor-contract/*` exists but is OUTSIDE the demos harness and CI
+7. **Operational surface** — manual `reactor fire`, `accumulator inject`, trigger pause/resume/fire, secrets noun, fleet provision/limits, `execution events --follow` — nothing teaches any of it
+
+**Conclusion:** the migration (embedded→primary interface) and the gap-fill are the SAME work: the end-state is **one gold-path example per feature**. Decomposed below as T-0889..T-0893 alongside the existing T-0885/T-0886.
+
 ## Migration inventory (grounded 2026-07-10) — ≈26 units still demoing via `DefaultRunner`
 - **Rust feature examples (10):** conditional-retries, cron-scheduling, deferred-tasks, event-triggers, multi-tenant, per-tenant-credentials, registry-execution, python-workflow, computation-graphs/filtered-reactor, constructor-contract/fs-grant-demo
 - **Performance (3):** simple, parallel, pipeline (may stay embedded by design — they benchmark the engine, not the interface; decide at design time)
