@@ -1,5 +1,6 @@
 """demos features — run feature-focused Cloacina examples."""
 
+import json
 import shutil
 import subprocess
 
@@ -39,6 +40,32 @@ _rust_feature_commands = {
     name: _register_rust_feature(name, path)
     for name, path in get_rust_feature_directories()
 }
+
+# Bespoke feature demos defined below (excluded from auto-registration because
+# `cargo run` is the wrong verb for them). Keep this list next to their
+# definitions — `demos matrix` includes it so CI runs them too.
+_BESPOKE_FEATURES = ["python-workflow", "simple-packaged"]
+
+
+@demos()
+@angreal.command(
+    name="matrix",
+    about="emit every runnable feature demo as a JSON list (the CI examples matrix source)",
+    when_to_use=[
+        "generating the CI rust-examples matrix (examples-docs.yml discover job)",
+        "checking which examples the harness will execute",
+    ],
+    when_not_to_use=["running the demos themselves (use demos features <name>)"],
+)
+def matrix():
+    """CI executes ALL runnable examples. This is the single source of truth:
+    the same discovery that registers `demos features <name>` commands feeds
+    the CI matrix, so a new example directory automatically joins CI — no
+    hand-maintained workflow list to drift."""
+    names = sorted(
+        [name.replace("_", "-") for name in _rust_feature_commands] + _BESPOKE_FEATURES
+    )
+    print(json.dumps(names))
 
 
 # --- bespoke Python-workflow feature demo -----------------------------------
