@@ -13,6 +13,7 @@ from utils import run_example_or_tutorial
 
 from .._utils import (
     PROJECT_ROOT,
+    get_packaged_example_directories,
     get_rust_feature_directories,
 )
 
@@ -43,21 +44,7 @@ _rust_feature_commands = {
     for name, path in get_rust_feature_directories()
 }
 
-# Bespoke feature demos defined below (excluded from auto-registration because
-# `cargo run` is the wrong verb for them). Keep this list next to their
-# definitions — `demos matrix` includes it so CI runs them too.
-_BESPOKE_FEATURES = [
-    "cg-feature-tour",
-    "parameterized-workflow",
-    "python-packaged",
-    "python-parameterized",
-    "python-secrets",
-    "python-workflow",
-    "simple-packaged",
-    "workflow-secrets",
-]
-
-# 32-byte demo KEK (base64) for the secrets lane — the same value the demo
+# 32-byte demo KEK (base64) for the secrets lanes — the same value the demo
 # compose stack ships. Demo/dev only; production operators provision their own
 # CLOACINA_SECRET_KEK.
 _DEMO_SECRET_KEK = "ZGVtby1rZWstZGVtby1rZWstZGVtby1rZWstMDAwMSE="
@@ -77,9 +64,13 @@ def matrix():
     """CI executes ALL runnable examples. This is the single source of truth:
     the same discovery that registers `demos features <name>` commands feeds
     the CI matrix, so a new example directory automatically joins CI — no
-    hand-maintained workflow list to drift."""
+    hand-maintained list to drift. Three sources: embedded `cargo run` examples
+    (dirs without a package.toml), packaged gold-path examples (dirs WITH a
+    package.toml), and the one bespoke wheel demo (python-workflow)."""
     names = sorted(
-        [name.replace("_", "-") for name in _rust_feature_commands] + _BESPOKE_FEATURES
+        [name.replace("_", "-") for name in _rust_feature_commands]
+        + list(_packaged_commands)
+        + ["python-workflow"]
     )
     print(json.dumps(names))
 
@@ -325,208 +316,44 @@ def _run_to_completed(ctl, home, workflow_name, context_path=None, timeout_s=300
     return exec_id
 
 
-@demos()
-@features()
-@angreal.command(
-    name="simple-packaged",
-    about="run the canonical packaged example through the primary interface (pack → upload → compile → run)",
-    long_about=(
-        "Drives examples/features/workflows/simple-packaged the way the README "
-        "says a user does: postgres (dev stack) + cloacina-server + "
-        "cloacina-compiler (with --dev-workspace so the example's crates.io "
-        "version deps resolve against this checkout), then cloacinactl "
-        "pack → upload → poll the build to success → workflow run "
-        "data_processing → poll the execution to Completed. First run "
-        "cold-compiles the package deps (~5-10 min); warm cache finishes in "
-        "under a minute."
-    ),
-    when_to_use=[
-        "verifying the packaged/server gold path end to end",
-        "validating the canonical example after compiler/server changes",
-    ],
-    when_not_to_use=[
-        "compiler-pipeline regression assertions (use `test e2e compiler`)",
-        "running without docker",
-    ],
-)
-def simple_packaged():
+# --- generic packaged-example registrar (CLOACI-I-0138) ----------------------
+#
+# Every example with a `package.toml` runs through the SERVER gold path, so ONE
+# registrar discovers them and registers `demos features <name>` for each — no
+# bespoke command per example (that plumbing was harness boilerplate, not a
+# per-example feature). The default assertion comes from the manifest:
+# `workflow_name` → run it to Completed. A few examples need a richer check
+# (param validation, secret lifecycle, graph inject→fire) and supply a thin
+# override below; a few not-yet-gold-path examples are skipped WITH A REASON so
+# nothing is silently dropped.
+
+
+def _default_workflow_steps(workflow_name):
     def steps(ctl, home):
-        _run_to_completed(ctl, home, "data_processing")
+        _run_to_completed(ctl, home, workflow_name)
 
-    return _run_gold_path("simple-packaged", "workflows/simple-packaged", steps)
-
-
-@demos()
-@features()
-@angreal.command(
-    name="python-packaged",
-    about="run the canonical PYTHON packaged example through the primary interface (CLOACI-T-0885)",
-    long_about=(
-        "The Python peer of `simple-packaged`. Drives "
-        "examples/features/workflows/python-packaged through the primary "
-        "interface: pack the Python source → upload → the compiler packages it "
-        "(no cargo for language=python) → the server reconciler imports the "
-        "module via its embedded Python runtime → workflow run data_pipeline → "
-        "execution Completed. Python is a core server capability, so no extra "
-        "build features are needed."
-    ),
-    when_to_use=[
-        "verifying the Python packaged/server gold path end to end",
-        "validating the Python loader path after server/binding changes",
-    ],
-    when_not_to_use=["running without docker"],
-)
-def python_packaged():
-    def steps(ctl, home):
-        _run_to_completed(ctl, home, "data_pipeline")
-
-    return _run_gold_path("python-packaged", "workflows/python-packaged", steps)
+    return steps
 
 
-@demos()
-@features()
-@angreal.command(
-    name="python-parameterized",
-    about="run the parameterized PYTHON example — @cloaca.workflow_params declared, validated, bound per run (CLOACI-T-0885/T-0889 peer)",
-    long_about=(
-        "The Python peer of `parameterized-workflow`. Packs + uploads the "
-        "Python package, then runs python_parameterized TWICE with different "
-        "--context param bindings (both must reach Completed) and once with a "
-        "missing required param (the server must reject it with a typed "
-        "validation error before anything runs — proving the compiler parses "
-        "@cloaca.workflow_params into typed input slots)."
-    ),
-    when_to_use=[
-        "verifying Python declared params end to end",
-        "checking Python has parity with Rust params validation",
-    ],
-    when_not_to_use=["running without docker"],
-)
-def python_parameterized():
+def _params_steps(workflow_name):
+    """Run a params template twice with different bindings, then assert a
+    missing-required-param run is rejected before execution."""
+
     def steps(ctl, home):
         prod = home / "prod.json"
         prod.write_text('{"source": "/data/prod", "dst": "/backup/prod"}')
-        _run_to_completed(ctl, home, "python_parameterized", context_path=prod)
+        _run_to_completed(ctl, home, workflow_name, context_path=prod)
 
         archive = home / "archive.json"
         archive.write_text(
             '{"source": "/data/archive", "dst": "/cold", "mode": "move", "max_files": 10}'
         )
-        _run_to_completed(ctl, home, "python_parameterized", context_path=archive)
+        _run_to_completed(ctl, home, workflow_name, context_path=archive)
 
         bad = home / "bad.json"
         bad.write_text('{"dst": "/backup"}')
-        code, out, err = ctl(
-            "workflow", "run", "python_parameterized", "--context", str(bad), check=False
-        )
-        if code == 0:
-            raise AssertionError(
-                "run with a missing required param was ACCEPTED — Python "
-                f"declared-param validation did not fire: {out!r}"
-            )
-        print("  ok: missing required param rejected before execution")
-
-    return _run_gold_path(
-        "python-parameterized", "workflows/python-parameterized", steps
-    )
-
-
-@demos()
-@features()
-@angreal.command(
-    name="python-secrets",
-    about="run the PYTHON secrets example — @cloaca.workflow_secrets resolved at execution (CLOACI-T-0890 peer)",
-    long_about=(
-        "The Python peer of `workflow-secrets`. Starts a secrets-enabled "
-        "server (CLOACINA_SECRET_KEK), creates a tenant secret, runs "
-        "python_secrets with a {\"$secret\": ...} binding (execution Completed "
-        "means a Python packaged task resolved the value via context.secret), "
-        "rotates + reruns, and asserts `secret get` never returns a value and a "
-        "LITERAL binding is rejected. Probes whether Python's in-process "
-        "execution reaches the secret side channel."
-    ),
-    when_to_use=[
-        "verifying Python tenant secrets end to end",
-        "checking Python parity with the Rust secrets path (T-0895)",
-    ],
-    when_not_to_use=["running without docker"],
-)
-def python_secrets():
-    def steps(ctl, home):
-        token_file = home / "token.txt"
-        token_file.write_text("s3cr3t-demo-token-value")
-        ctl("secret", "create", "oncall_api", "--field", f"token=@{token_file}")
-        print("  ok: tenant secret created")
-
-        bind = home / "bind.json"
-        bind.write_text('{"channel": "#oncall", "api_token": {"$secret": "oncall_api"}}')
-        _run_to_completed(ctl, home, "python_secrets", context_path=bind)
-
-        token_file.write_text("r0tated-demo-token-value!")
-        ctl("secret", "rotate", "oncall_api", "--field", f"token=@{token_file}")
-        print("  ok: secret rotated")
-        _run_to_completed(ctl, home, "python_secrets", context_path=bind)
-
-        _, out, _ = ctl("-o", "json", "secret", "get", "oncall_api")
-        if "s3cr3t" in out or "r0tated" in out:
-            raise AssertionError(f"secret get leaked a value: {out!r}")
-        print("  ok: secret get returns metadata only")
-
-        bad = home / "bad.json"
-        bad.write_text('{"api_token": "plaintext-token"}')
-        code, out, err = ctl(
-            "workflow", "run", "python_secrets", "--context", str(bad), check=False
-        )
-        if code == 0:
-            raise AssertionError(
-                f"literal secret value was ACCEPTED — validation did not fire: {out!r}"
-            )
-        print("  ok: literal secret value rejected before execution")
-
-    return _run_gold_path(
-        "python-secrets",
-        "workflows/python-secrets",
-        steps,
-        server_env={"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
-    )
-
-
-@demos()
-@features()
-@angreal.command(
-    name="parameterized-workflow",
-    about="run the parameterized-workflow example — params(...) declared, validated, and bound per run (CLOACI-T-0889)",
-    long_about=(
-        "Drives examples/features/workflows/parameterized-workflow through the "
-        "primary interface: pack → upload → build, then runs the sync_file "
-        "template TWICE with different --context param bindings (both must "
-        "reach Completed) and once with a missing required param (the server "
-        "must reject it with a typed validation error before anything runs)."
-    ),
-    when_to_use=[
-        "verifying declared workflow params end to end (I-0116 surface)",
-        "validating typed run-input validation after server changes",
-    ],
-    when_not_to_use=["running without docker"],
-)
-def parameterized_workflow():
-    def steps(ctl, home):
-        prod = home / "prod.json"
-        prod.write_text('{"source": "/data/prod", "dst": "/backup/prod"}')
-        _run_to_completed(ctl, home, "sync_file", context_path=prod)
-
-        archive = home / "archive.json"
-        archive.write_text(
-            '{"source": "/data/archive", "dst": "/cold", "mode": "move", "max_files": 10}'
-        )
-        _run_to_completed(ctl, home, "sync_file", context_path=archive)
-
-        # Missing required param `source` → the server must REJECT the run
-        # before anything executes (typed input-interface validation, T-0757).
-        bad = home / "bad.json"
-        bad.write_text('{"dst": "/backup"}')
-        code, out, err = ctl(
-            "workflow", "run", "sync_file", "--context", str(bad), check=False
+        code, out, _ = ctl(
+            "workflow", "run", workflow_name, "--context", str(bad), check=False
         )
         if code == 0:
             raise AssertionError(
@@ -535,62 +362,37 @@ def parameterized_workflow():
             )
         print("  ok: missing required param rejected before execution")
 
-    return _run_gold_path("parameterized-workflow", "workflows/parameterized-workflow", steps)
+    return steps
 
 
-@demos()
-@features()
-@angreal.command(
-    name="workflow-secrets",
-    about="run the workflow-secrets example — tenant secret created, bound via $secret, resolved at execution, never persisted (CLOACI-T-0890)",
-    long_about=(
-        "Drives examples/features/workflows/workflow-secrets through the "
-        "primary interface with a secrets-enabled server (CLOACINA_SECRET_KEK "
-        "set): cloacinactl secret create → run with a {\"$secret\": ...} "
-        "binding → execution Completed (the task resolves the value through "
-        "the side channel) → rotate → run again → assert `secret get` never "
-        "returns values and a LITERAL value for the secret slot is rejected."
-    ),
-    when_to_use=[
-        "verifying tenant secrets end to end (I-0133 surface)",
-        "validating the secret side channel after server changes",
-    ],
-    when_not_to_use=["running without docker"],
-)
-def workflow_secrets():
+def _secrets_steps(workflow_name):
+    """Full tenant-secret lifecycle: create → $secret-bound run (Completed) →
+    rotate → rerun → metadata-only get → literal binding rejected."""
+
     def steps(ctl, home):
-        # Create the tenant secret; the value comes from a file — cloacinactl
-        # refuses argv literals so secrets never land in shell history.
         token_file = home / "token.txt"
         token_file.write_text("s3cr3t-demo-token-value")
         ctl("secret", "create", "oncall_api", "--field", f"token=@{token_file}")
-        print("  ok: tenant secret created (value from file, never argv)")
+        print("  ok: tenant secret created")
 
-        # Bind the declared secret with a `$secret` reference and run.
         bind = home / "bind.json"
-        bind.write_text(
-            '{"channel": "#oncall", "api_token": {"$secret": "oncall_api"}}'
-        )
-        _run_to_completed(ctl, home, "notify_oncall", context_path=bind)
+        bind.write_text('{"channel": "#oncall", "api_token": {"$secret": "oncall_api"}}')
+        _run_to_completed(ctl, home, workflow_name, context_path=bind)
 
-        # Rotate and run again — the next execution sees the new value.
         token_file.write_text("r0tated-demo-token-value!")
         ctl("secret", "rotate", "oncall_api", "--field", f"token=@{token_file}")
         print("  ok: secret rotated")
-        _run_to_completed(ctl, home, "notify_oncall", context_path=bind)
+        _run_to_completed(ctl, home, workflow_name, context_path=bind)
 
-        # Metadata-only reads: `secret get` must NEVER return a value.
         _, out, _ = ctl("-o", "json", "secret", "get", "oncall_api")
         if "s3cr3t" in out or "r0tated" in out:
             raise AssertionError(f"secret get leaked a value: {out!r}")
         print("  ok: secret get returns metadata only")
 
-        # A LITERAL value for the declared secret slot must be rejected —
-        # plaintext in the durable context is exactly what the design forbids.
         bad = home / "bad.json"
         bad.write_text('{"api_token": "plaintext-token"}')
-        code, out, err = ctl(
-            "workflow", "run", "notify_oncall", "--context", str(bad), check=False
+        code, out, _ = ctl(
+            "workflow", "run", workflow_name, "--context", str(bad), check=False
         )
         if code == 0:
             raise AssertionError(
@@ -598,54 +400,119 @@ def workflow_secrets():
             )
         print("  ok: literal secret value rejected before execution")
 
-    return _run_gold_path(
-        "workflow-secrets",
-        "workflows/workflow-secrets",
-        steps,
-        server_env={"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
-    )
+    return steps
 
 
-@demos()
-@features()
-@angreal.command(
-    name="cg-feature-tour",
-    about="run the computation-graph feature tour — kafka stream accumulator, typed inject, task→graph invocation (CLOACI-T-0891)",
-    long_about=(
-        "Drives examples/features/computation-graphs/cg-feature-tour through "
-        "the primary interface: pack → upload → build, then (1) runs the "
-        "tour_pipeline workflow whose task INVOKES a trigger-less graph — the "
-        "report task fails unless the post_invocation hook saw the graph's "
-        "terminal output, so Completed proves the whole bridge; (2) injects a "
-        "typed event into the `ticks` accumulator and polls the reactor's "
-        "fires; (3) produces a Kafka message to the stream topic (dev-stack "
-        "broker) and observes another fire."
-    ),
-    when_to_use=[
-        "verifying the reactive layer end to end on the packaged path",
-        "validating CG macro/loader changes",
-    ],
-    when_not_to_use=["running without docker"],
-)
-def cg_feature_tour():
+def _graph_inject_steps(label, reactor, accumulator, event):
+    """Inject a typed event into a reactor's accumulator and confirm the reactor
+    fires (its graph runs). Reads the fires COUNT off the reactors-list endpoint
+    (`ListResponse{items,total}`) rather than parsing the fires list."""
+
     def steps(ctl, home):
-        # Task→graph invocation (the surface T-0897 fixed and the one this
-        # example uniquely covers in CI): `report` REQUIRES the
-        # post_invocation summary, so Completed proves invoke + hook +
-        # terminal-output routing all the way through the packaged path.
-        _run_to_completed(ctl, home, "tour_pipeline")
+        from test.e2e.compiler import _get_json
 
-        # The Kafka STREAM accumulator + typed inject/fire surfaces are NOT
-        # asserted here yet: kafka is currently a HOST cargo feature (rdkafka
-        # linked into core `cloacina`), so a stream accumulator only works if
-        # the server was built `--features kafka` and silently degrades to
-        # passthrough otherwise. That's being migrated so kafka ships IN the
-        # package as a constructor provider (CLOACI-T-0898); this lane asserts
-        # the invocation bridge and re-enables the stream surface once the
-        # provider migration lands.
+        key = f"demo-{label}-key"
 
-    return _run_gold_path(
-        "cg-feature-tour",
-        "computation-graphs/cg-feature-tour",
-        steps,
+        def fires_for(name):
+            body = _get_json("http://127.0.0.1:18087/v1/health/reactors", key)
+            items = body.get("items", []) if isinstance(body, dict) else []
+            for r in items:
+                if r.get("name") == name:
+                    return int(r.get("fires", 0) or 0)
+            return 0
+
+        before = fires_for(reactor)
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            ctl("accumulator", "inject", accumulator, "--event", event, check=False)
+            time.sleep(4)
+            if fires_for(reactor) > before:
+                print(f"  ok: inject fired reactor {reactor} (graph ran)")
+                return
+        raise AssertionError(
+            f"reactor {reactor} never fired after injecting into `{accumulator}`"
+        )
+
+    return steps
+
+
+# name -> {"steps": <fn taking (ctl, home)>, "server_env": <dict|None>}
+_PACKAGED_OVERRIDES = {
+    "parameterized-workflow": {"steps": _params_steps("sync_file")},
+    "python-parameterized": {"steps": _params_steps("python_parameterized")},
+    "workflow-secrets": {
+        "steps": _secrets_steps("notify_oncall"),
+        "server_env": {"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
+    },
+    "python-secrets": {
+        "steps": _secrets_steps("python_secrets"),
+        "server_env": {"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
+    },
+    "packaged-graph": {
+        "steps": _graph_inject_steps(
+            "packaged-graph",
+            "packaged_market_maker_reactor",
+            "orderbook",
+            '{"best_bid": 100.0, "best_ask": 100.1}',
+        ),
+    },
+    "python-packaged-graph": {
+        "steps": _graph_inject_steps(
+            "python-packaged-graph",
+            "market_maker",
+            "orderbook",
+            '{"best_bid": 100.0, "best_ask": 100.1}',
+        ),
+    },
+}
+
+# Packaged examples not yet driveable on the gold path — discovered but not
+# registered, each with a reason (no silent drops). Tracked for follow-up.
+_PACKAGED_SKIP = {
+    "complex-dag": "large Rust packaged workflow; not yet verified on the gold path",
+    "packaged-triggers": "trigger-fired (poll/cron), not `workflow run`; needs a fire-the-trigger step",
+    "packaged-workflows": "multi-workflow reference package; not yet verified on the gold path",
+    # cg-feature-tour's stream/inject surface is deferred to T-0898, but its
+    # `tour_pipeline` invocation surface IS runnable via the default → registered.
+}
+
+
+def _register_packaged_example(name, rel_path, meta):
+    cfg = _PACKAGED_OVERRIDES.get(name)
+    if cfg is not None:
+        steps = cfg["steps"]
+        server_env = cfg.get("server_env")
+    else:
+        wf = meta.get("workflow_name")
+        if not wf:
+            # Graph-only package with no override → can't derive an assertion
+            # (reactor/accumulator/event aren't in the manifest). Skip loudly.
+            return None
+        steps = _default_workflow_steps(wf)
+        server_env = None
+
+    @demos()
+    @features()
+    @angreal.command(
+        name=name,
+        about=f"packaged gold path: {name} (pack → upload → compile → reconcile → execute)",
+        when_to_use=[
+            "verifying a packaged example end to end through the server",
+            "validating the gold path after compiler/server changes",
+        ],
+        when_not_to_use=["running without docker"],
     )
+    def _cmd(_steps=steps, _rel=rel_path, _name=name, _env=server_env):
+        return _run_gold_path(_name, _rel, _steps, server_env=_env)
+
+    _cmd.__name__ = f"packaged_{name}".replace("-", "_")
+    return _cmd
+
+
+_packaged_commands = {}
+for _name, _rel, _meta in get_packaged_example_directories():
+    if _name in _PACKAGED_SKIP:
+        continue
+    _cmd = _register_packaged_example(_name, _rel, _meta)
+    if _cmd is not None:
+        _packaged_commands[_name] = _cmd
