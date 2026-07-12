@@ -168,9 +168,45 @@ impl Task for DynamicLibraryTask {
 
         tracing::debug!("Task '{}' input context: {}", self.task_name, context_json);
 
+        // CLOACI-T-0895: a resolver OBJECT cannot cross the plugin boundary,
+        // so resolve every `{"$secret"}`-referenced secret host-side (via the
+        // resolver the executor/agent attached to this context) and ship the
+        // VALUES, keyed by concrete secret name. The plugin shell attaches
+        // them to the rebuilt scope; `context.secret(...)` then works
+        // identically inside the package. Fail-closed: references with no
+        // resolver (or unresolvable names) fail the task BEFORE the plugin
+        // call — never a silent run with missing secrets.
+        let mut resolved_secrets: std::collections::BTreeMap<
+            String,
+            std::collections::BTreeMap<String, String>,
+        > = std::collections::BTreeMap::new();
+        let referenced: std::collections::BTreeSet<String> = context
+            .data()
+            .get(cloacina_workflow::secret::SECRET_REFS_KEY)
+            .and_then(|v| v.as_object())
+            .map(|m| {
+                m.values()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for secret_name in referenced {
+            let fields =
+                context
+                    .secret(&secret_name)
+                    .await
+                    .map_err(|e| TaskError::ExecutionFailed {
+                        task_id: self.task_name.clone(),
+                        message: format!("resolving secret '{}': {}", secret_name, e),
+                        timestamp: Utc::now(),
+                    })?;
+            resolved_secrets.insert(secret_name, fields);
+        }
+
         let request = TaskExecutionRequest {
             task_name: self.task_name.clone(),
             context_json,
+            resolved_secrets,
         };
 
         // Call via the shared plugin handle

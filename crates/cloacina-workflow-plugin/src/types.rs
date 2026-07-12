@@ -102,12 +102,36 @@ pub struct PackageTasksMetadata {
 }
 
 /// Request to execute a task within a workflow package.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TaskExecutionRequest {
     /// Name of the task to execute (local ID)
     pub task_name: String,
     /// JSON-serialized execution context
     pub context_json: String,
+    /// CLOACI-T-0895: secrets the host resolved for this invocation, keyed by
+    /// CONCRETE secret name → `{field: value}`. A resolver object cannot cross
+    /// the plugin boundary, so the host resolves every `{"$secret"}`-referenced
+    /// secret up front and ships the VALUES; the plugin shell attaches them to
+    /// the rebuilt execution scope via `MapSecretResolver` so
+    /// `context.secret(...)` works identically inside the package. Empty when
+    /// the task references no secrets. Never logged, never serialized into the
+    /// durable context.
+    pub resolved_secrets:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+}
+
+// Secret values must never appear in logs — a manual Debug keeps names only.
+impl std::fmt::Debug for TaskExecutionRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskExecutionRequest")
+            .field("task_name", &self.task_name)
+            .field("context_json", &self.context_json)
+            .field(
+                "resolved_secrets",
+                &self.resolved_secrets.keys().collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 /// Result of a task execution.
@@ -562,14 +586,28 @@ mod tests {
 
     #[test]
     fn test_task_execution_request_round_trip() {
+        let mut secrets = std::collections::BTreeMap::new();
+        secrets.insert(
+            "oncall_api".to_string(),
+            std::collections::BTreeMap::from([("token".to_string(), "v".to_string())]),
+        );
         let request = TaskExecutionRequest {
             task_name: "extract_data".to_string(),
             context_json: r#"{"key": "value"}"#.to_string(),
+            resolved_secrets: secrets,
         };
 
         let json = serde_json::to_string(&request).unwrap();
         let roundtrip: TaskExecutionRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip.task_name, "extract_data");
+        assert_eq!(
+            roundtrip.resolved_secrets["oncall_api"]["token"],
+            "v".to_string()
+        );
+        // Debug must render NAMES only — never a secret value.
+        let dbg = format!("{request:?}");
+        assert!(dbg.contains("oncall_api"));
+        assert!(!dbg.contains("\"v\""));
     }
 
     #[test]

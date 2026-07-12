@@ -1,11 +1,5 @@
 # Workflow Secrets
 
-> **Status: blocked on CLOACI-T-0895.** The full lifecycle below (create →
-> bind → run) works up to task execution, where `context.secret(...)` in a
-> *packaged* task cannot yet resolve: the plugin task protocol has no secrets
-> channel. This example is the verification vehicle for that fix and joins CI
-> when it lands.
-
 A workflow **declares** the secrets it needs; a run **binds** each declared
 name to a tenant-stored secret; the value is **resolved at execution** through
 a side channel and is never written into the durable context, execution

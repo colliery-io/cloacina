@@ -147,4 +147,12 @@ initiative_id: NULL
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-12 — FIXED + VERIFIED (maintainer approved the interface bump)
+Implemented the sketch exactly:
+- `cloacina-workflow::secret::MapSecretResolver` — in-memory resolver over `{secret_name: {field: value}}`; Debug renders names only.
+- `TaskExecutionRequest.resolved_secrets: BTreeMap<String, BTreeMap<String,String>>` (workflow-plugin types.rs); manual Debug keeps values out of logs; round-trip + no-leak-in-Debug unit test.
+- Host bridge (`dynamic_task.rs::execute`): reads the `SECRET_REFS_KEY` alias map, resolves each CONCRETE secret name via the context's resolver (executor- or agent-attached) BEFORE the plugin call — fail-closed with a clear per-secret error — and ships the values in the request.
+- Plugin shell (`package!` execute_task): attaches `MapSecretResolver` to the rebuilt scope when `resolved_secrets` is non-empty, so `context.secret(...)` works identically inside packages. One bridge serves in-process AND agent execution.
+- **Interface version 4 → 5** (`#[fidius::plugin_interface]`): the request struct is a bincode wire change; stale artifacts fail the version gate at load instead of mis-decoding.
+
+**Verified:** `angreal demos features workflow-secrets` FULL PASS — secret create → `$secret`-bound run → execution **Completed** (a packaged task resolved a secret across the boundary for the first time) → rotate → rerun Completed → `secret get` metadata-only → literal value rejected pre-execution. The lane also proves the v5 gate end-to-end (package rebuilt + loaded under the new interface). Lane re-enabled in the CI matrix. cargo check clean across cloacina-workflow/-plugin/cloacina/server/agent.

@@ -166,6 +166,7 @@ fn test_task_execution_fidelity() {
     let request = TaskExecutionRequest {
         task_name: "extract_data".to_string(),
         context_json: "{}".to_string(),
+        resolved_secrets: Default::default(),
     };
 
     // Method index 1 = execute_task (fidius 0.0.5 tuple encoding: single-arg = (T,))
@@ -208,6 +209,7 @@ fn test_unknown_task_returns_error() {
     let request = TaskExecutionRequest {
         task_name: "nonexistent_task".to_string(),
         context_json: "{}".to_string(),
+        resolved_secrets: Default::default(),
     };
 
     // fidius 0.0.5 tuple encoding: single-arg = (T,)

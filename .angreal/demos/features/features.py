@@ -50,10 +50,7 @@ _BESPOKE_FEATURES = [
     "parameterized-workflow",
     "python-workflow",
     "simple-packaged",
-    # "workflow-secrets" — command exists but is EXCLUDED from CI until
-    # CLOACI-T-0895 lands (the fidius task protocol has no secrets channel, so
-    # a packaged task cannot resolve `context.secret(...)` yet; the lane is the
-    # verification vehicle for that fix).
+    "workflow-secrets",
 ]
 
 # 32-byte demo KEK (base64) for the secrets lane — the same value the demo
