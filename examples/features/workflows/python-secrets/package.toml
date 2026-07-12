@@ -1,0 +1,12 @@
+# Workflow secrets in PYTHON (CLOACI-T-0885 family / T-0890 peer). Declares
+# required secrets with @cloaca.workflow_secrets; the compiler parses them into
+# encrypted input slots and the server resolves a run's {"$secret": name}
+# binding at execution, never persisting the value. Package name (snake-cased)
+# is the entry module: python-secrets -> workflow/python_secrets/.
+[package]
+name = "python-secrets"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "python_secrets"
+description = "Workflow secrets in Python — declared, bound per run, resolved at execution"

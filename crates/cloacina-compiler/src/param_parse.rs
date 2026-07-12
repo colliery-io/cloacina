@@ -48,15 +48,26 @@ use cloacina::input_interface::InputSlot;
 /// pathological (mirrors `doc_parse`).
 const MAX_SOURCE_BYTES: u64 = 1024 * 1024;
 
-/// Strip Python `# …` line comments, comment-aware (a `#` inside a string
-/// literal is preserved). CLOACI-T-0899: the param/secret/boundary source
-/// scanners split on commas and `=` without a real Python lexer, so an inline
-/// comment in a `workflow_params(...)` / `workflow_secrets(...)` /
-/// `boundary_schema(...)` call — which users naturally write — was parsed AS
-/// part of a declaration (e.g. `source=str,  # required` yielded a param named
-/// "# required\n    dst"). Stripping comments first makes all three scanners
-/// robust in one place. Handles `'…'`, `"…"`, and triple-quoted strings with
-/// backslash escapes; newlines are preserved so line structure is intact.
+/// Normalize Python source so the param/secret/boundary scanners only ever see
+/// real code (CLOACI-T-0899). These scanners split on commas and `=` without a
+/// real Python lexer, so two natural author habits used to corrupt a
+/// declaration:
+///
+/// 1. **Inline comments** — `source=str,  # required` was parsed as a param
+///    literally named `"# required\n    dst"`.
+/// 2. **Decorator syntax quoted in a DOCSTRING** — a module/task docstring
+///    showing `@cloaca.workflow_secrets("name")` as an EXAMPLE was matched by
+///    the `.find("workflow_secrets(")` scan and parsed as a real secret named
+///    `name`, making every run fail with `missing required param 'name'`.
+///
+/// So this pass: strips `#…` line comments (outside strings), and **blanks the
+/// INTERIOR of triple-quoted strings** (docstrings) — replacing their content
+/// with spaces while keeping the delimiters + newlines — so a decorator call
+/// quoted in a docstring is invisible to the scanner. Single/double-quoted
+/// strings are preserved verbatim because they carry real param DEFAULT values
+/// (`mode=(str, "copy")`). Doc extraction is unaffected — that's a separate
+/// parser (`doc_parse`) reading the raw source, so docstrings still surface in
+/// the UI.
 fn strip_py_comments(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut i = 0;
@@ -65,11 +76,14 @@ fn strip_py_comments(src: &str) -> String {
     while i < src.len() {
         let rest = &src[i..];
         if let Some(q) = quote {
+            // Triple-quoted (docstring): blank the interior so the scanner
+            // can't see decorator syntax quoted as example text.
+            let blank = q.len() == 3;
             if rest.starts_with('\\') {
-                out.push('\\');
+                out.push(if blank { ' ' } else { '\\' });
                 i += 1;
                 if let Some(c) = src[i..].chars().next() {
-                    out.push(c);
+                    out.push(if blank && c != '\n' { ' ' } else { c });
                     i += c.len_utf8();
                 }
                 continue;
@@ -81,7 +95,7 @@ fn strip_py_comments(src: &str) -> String {
                 continue;
             }
             let c = rest.chars().next().unwrap();
-            out.push(c);
+            out.push(if blank && c != '\n' { ' ' } else { c });
             i += c.len_utf8();
             continue;
         }

@@ -51,6 +51,7 @@ _BESPOKE_FEATURES = [
     "parameterized-workflow",
     "python-packaged",
     "python-parameterized",
+    "python-secrets",
     "python-workflow",
     "simple-packaged",
     "workflow-secrets",
@@ -427,6 +428,66 @@ def python_parameterized():
 
     return _run_gold_path(
         "python-parameterized", "workflows/python-parameterized", steps
+    )
+
+
+@demos()
+@features()
+@angreal.command(
+    name="python-secrets",
+    about="run the PYTHON secrets example — @cloaca.workflow_secrets resolved at execution (CLOACI-T-0890 peer)",
+    long_about=(
+        "The Python peer of `workflow-secrets`. Starts a secrets-enabled "
+        "server (CLOACINA_SECRET_KEK), creates a tenant secret, runs "
+        "python_secrets with a {\"$secret\": ...} binding (execution Completed "
+        "means a Python packaged task resolved the value via context.secret), "
+        "rotates + reruns, and asserts `secret get` never returns a value and a "
+        "LITERAL binding is rejected. Probes whether Python's in-process "
+        "execution reaches the secret side channel."
+    ),
+    when_to_use=[
+        "verifying Python tenant secrets end to end",
+        "checking Python parity with the Rust secrets path (T-0895)",
+    ],
+    when_not_to_use=["running without docker"],
+)
+def python_secrets():
+    def steps(ctl, home):
+        token_file = home / "token.txt"
+        token_file.write_text("s3cr3t-demo-token-value")
+        ctl("secret", "create", "oncall_api", "--field", f"token=@{token_file}")
+        print("  ok: tenant secret created")
+
+        bind = home / "bind.json"
+        bind.write_text('{"channel": "#oncall", "api_token": {"$secret": "oncall_api"}}')
+        _run_to_completed(ctl, home, "python_secrets", context_path=bind)
+
+        token_file.write_text("r0tated-demo-token-value!")
+        ctl("secret", "rotate", "oncall_api", "--field", f"token=@{token_file}")
+        print("  ok: secret rotated")
+        _run_to_completed(ctl, home, "python_secrets", context_path=bind)
+
+        _, out, _ = ctl("-o", "json", "secret", "get", "oncall_api")
+        if "s3cr3t" in out or "r0tated" in out:
+            raise AssertionError(f"secret get leaked a value: {out!r}")
+        print("  ok: secret get returns metadata only")
+
+        bad = home / "bad.json"
+        bad.write_text('{"api_token": "plaintext-token"}')
+        code, out, err = ctl(
+            "workflow", "run", "python_secrets", "--context", str(bad), check=False
+        )
+        if code == 0:
+            raise AssertionError(
+                f"literal secret value was ACCEPTED — validation did not fire: {out!r}"
+            )
+        print("  ok: literal secret value rejected before execution")
+
+    return _run_gold_path(
+        "python-secrets",
+        "workflows/python-secrets",
+        steps,
+        server_env={"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
     )
 
 
