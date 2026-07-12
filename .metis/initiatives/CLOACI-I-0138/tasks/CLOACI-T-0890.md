@@ -4,14 +4,14 @@ level: task
 title: "Gold-path example: workflow secrets — authoring secrets() plus the cloacinactl secret lifecycle"
 short_code: "CLOACI-T-0890"
 created_at: 2026-07-11T22:03:17.286920+00:00
-updated_at: 2026-07-11T22:32:03.215955+00:00
+updated_at: 2026-07-12T01:34:13.553683+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -69,6 +69,8 @@ Tenant secrets have full plumbing — authoring (`#[workflow] secrets( n1, n2, �
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

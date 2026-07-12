@@ -4,15 +4,15 @@ level: task
 title: "BUG: packaged tasks cannot receive secrets — the fidius task protocol has no secrets channel"
 short_code: "CLOACI-T-0895"
 created_at: 2026-07-12T01:10:07.780717+00:00
-updated_at: 2026-07-12T01:10:07.780717+00:00
+updated_at: 2026-07-12T01:34:05.671813+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -77,6 +77,12 @@ initiative_id: NULL
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
