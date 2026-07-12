@@ -4,14 +4,14 @@ level: task
 title: "Canonical Python packaged example — promote + gold-path demo-stack README"
 short_code: "CLOACI-T-0885"
 created_at: 2026-07-10T01:16:02.734335+00:00
-updated_at: 2026-07-10T01:16:02.734335+00:00
+updated_at: 2026-07-12T12:44:48.449630+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -28,7 +28,7 @@ initiative_id: CLOACI-I-0138
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+The Python peer of [[CLOACI-T-0884]]: a canonical PYTHON packaged example demonstrating the primary interface (pack → upload → compile → reconcile → execute) — the packaged-Python gold path that no user-facing example currently shows (only fixtures: demo-py-*). Establishes the Python half of the T-0886 standard.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0138
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +135,9 @@ initiative_id: CLOACI-I-0138
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-12 — canonical Python packaged example built; lane running
+Grounded the packaged-Python shape from `cloacinactl package new --language python` (new.rs:163) + the `demo-py-workflow` fixture: minimal `package.toml` (`[package] name/version` + `[metadata] workflow_name/description` — language + entry_module INFERRED from the `workflow/<name>/` layout), `workflow/<module>/__init__.py` (empty) + `tasks.py` with bare `@cloaca.task(id=, dependencies=[])` decorators (NOT WorkflowBuilder — that's in-process only). No Cargo/build.rs: the compiler skips cargo for `language=python`, the reconciler imports via embedded Python.
+
+Key confirmation (maintainer): **Python is a CORE server capability** — `cloacina-server` unconditionally deps `cloacina-python` + calls `cloacina_python::install()` at startup; the server synthesizes `cloaca` in-process via `ensure_cloaca_module` (I-0137). So a default host `cloacina-server` loads Python packages — no `--features` needed, and the `_run_gold_path` host lane works for Python (build is fast — no cargo).
+
+Built `examples/features/workflows/python-packaged/` (peer of `simple-packaged`): `data_pipeline` = collect_data → process_data → generate_report, with what/why docstrings (T-0754 UI surfacing). Gold-path README. Bespoke `angreal demos features python-packaged` lane (excluded from auto-registration since `cargo run` is wrong for Python) reusing `_run_gold_path`; auto-joins the CI matrix (16 examples). Lane run in progress.

@@ -49,6 +49,7 @@ _rust_feature_commands = {
 _BESPOKE_FEATURES = [
     "cg-feature-tour",
     "parameterized-workflow",
+    "python-packaged",
     "python-workflow",
     "simple-packaged",
     "workflow-secrets",
@@ -351,6 +352,33 @@ def simple_packaged():
         _run_to_completed(ctl, home, "data_processing")
 
     return _run_gold_path("simple-packaged", "workflows/simple-packaged", steps)
+
+
+@demos()
+@features()
+@angreal.command(
+    name="python-packaged",
+    about="run the canonical PYTHON packaged example through the primary interface (CLOACI-T-0885)",
+    long_about=(
+        "The Python peer of `simple-packaged`. Drives "
+        "examples/features/workflows/python-packaged through the primary "
+        "interface: pack the Python source → upload → the compiler packages it "
+        "(no cargo for language=python) → the server reconciler imports the "
+        "module via its embedded Python runtime → workflow run data_pipeline → "
+        "execution Completed. Python is a core server capability, so no extra "
+        "build features are needed."
+    ),
+    when_to_use=[
+        "verifying the Python packaged/server gold path end to end",
+        "validating the Python loader path after server/binding changes",
+    ],
+    when_not_to_use=["running without docker"],
+)
+def python_packaged():
+    def steps(ctl, home):
+        _run_to_completed(ctl, home, "data_pipeline")
+
+    return _run_gold_path("python-packaged", "workflows/python-packaged", steps)
 
 
 @demos()
