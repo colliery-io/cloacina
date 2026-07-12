@@ -138,6 +138,22 @@ impl DefaultRunner {
         config: DefaultRunnerConfig,
         shared_runtime: Option<Arc<Runtime>>,
     ) -> Result<Self, WorkflowExecutionError> {
+        Self::with_database_secrets(database, config, shared_runtime, None).await
+    }
+
+    /// [`Self::with_database`] plus a secret resolution side channel
+    /// (CLOACI-T-0858 / I-0133 D-1) threaded onto the in-process thread
+    /// executor, so `context.secret(...)` resolves for locally-executed
+    /// tasks. Hosts that construct runners per tenant (cloacina-server's
+    /// `TenantRunnerCache`) pass a tenant-scoped
+    /// [`crate::security::SecretStoreResolver`]; `None` keeps the
+    /// fail-closed "secrets backend not configured" behavior.
+    pub async fn with_database_secrets(
+        database: Database,
+        config: DefaultRunnerConfig,
+        shared_runtime: Option<Arc<Runtime>>,
+        secret_resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
+    ) -> Result<Self, WorkflowExecutionError> {
         let runtime = shared_runtime.unwrap_or_else(|| Arc::new(Runtime::new()));
 
         // Create scheduler with the scoped runtime
@@ -160,7 +176,10 @@ impl DefaultRunner {
             Arc::new(crate::task::TaskRegistry::new()),
             runtime.clone(),
             executor_config,
-        );
+        )
+        // CLOACI-T-0858: thread the secret side channel so task contexts can
+        // resolve secrets on the in-process execution path.
+        .with_secret_resolver(secret_resolver);
 
         // Configure dispatcher for push-based task execution. Every task is sent
         // to the one configured executor key (CLOACI-T-0640).

@@ -102,6 +102,19 @@ impl ServerFleetSecretResolverFactory {
     }
 }
 
+/// Tenant-scoped secret resolver for a runner's IN-PROCESS thread executor
+/// (CLOACI-T-0890): threaded at runner construction so `context.secret(...)`
+/// resolves when tasks execute locally (the `"default"` executor) rather than
+/// on the fleet. Returns `None` when `CLOACINA_SECRET_KEK` is unset — the
+/// executor then fails closed with the clear "secrets backend not configured"
+/// error. Same composition as the fleet factory: tenant DB → SecretStore →
+/// tenant-org-scoped SecretStoreResolver.
+pub fn runner_secret_resolver(tenant: &str, db: &Database) -> Option<Arc<dyn SecretResolver>> {
+    let kek = SecretStoreResolver::kek_from_env().ok()?;
+    let store = SecretStore::new(cloacina::dal::DAL::new(db.clone()));
+    Some(SecretStoreResolver::new(store, tenant_org_id(tenant), kek).into_arc())
+}
+
 #[async_trait]
 impl FleetSecretResolverFactory for ServerFleetSecretResolverFactory {
     async fn resolver_for(&self, tenant: &str, package: &str) -> Option<Arc<dyn SecretResolver>> {

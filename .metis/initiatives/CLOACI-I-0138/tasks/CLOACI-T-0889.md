@@ -4,14 +4,14 @@ level: task
 title: "Gold-path example: parameterized workflow instances (I-0116) — params, named instances, schedules"
 short_code: "CLOACI-T-0889"
 created_at: 2026-07-11T22:03:08.051490+00:00
-updated_at: 2026-07-11T22:20:32.805357+00:00
+updated_at: 2026-07-11T22:31:55.275713+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -75,6 +75,8 @@ I-0116 (parameterized workflow instances — named, scheduled, param-bound) ship
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

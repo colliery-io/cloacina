@@ -1,6 +1,7 @@
 """demos features — run feature-focused Cloacina examples."""
 
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -45,7 +46,20 @@ _rust_feature_commands = {
 # Bespoke feature demos defined below (excluded from auto-registration because
 # `cargo run` is the wrong verb for them). Keep this list next to their
 # definitions — `demos matrix` includes it so CI runs them too.
-_BESPOKE_FEATURES = ["parameterized-workflow", "python-workflow", "simple-packaged"]
+_BESPOKE_FEATURES = [
+    "parameterized-workflow",
+    "python-workflow",
+    "simple-packaged",
+    # "workflow-secrets" — command exists but is EXCLUDED from CI until
+    # CLOACI-T-0895 lands (the fidius task protocol has no secrets channel, so
+    # a packaged task cannot resolve `context.secret(...)` yet; the lane is the
+    # verification vehicle for that fix).
+]
+
+# 32-byte demo KEK (base64) for the secrets lane — the same value the demo
+# compose stack ships. Demo/dev only; production operators provision their own
+# CLOACINA_SECRET_KEK.
+_DEMO_SECRET_KEK = "ZGVtby1rZWstZGVtby1rZWstZGVtby1rZWstMDAwMSE="
 
 
 @demos()
@@ -136,12 +150,13 @@ def python_workflow():
 # lifecycle via this shared helper, reusing the service-lifecycle helpers
 # from the compiler e2e harness.
 
-def _run_gold_path(label, example_dirname, run_steps):
+def _run_gold_path(label, example_dirname, run_steps, server_env=None):
     """Stand up dev-stack postgres + a host server + a host compiler
     (--dev-workspace so the examples' crates.io version deps resolve against
     this checkout), pack + upload the example, wait for the build, then call
     `run_steps(ctl, home)` for the example-specific run/observe assertions.
-    `ctl(*args, check=True)` is a bound cloacinactl invoker."""
+    `ctl(*args, check=True)` is a bound cloacinactl invoker. `server_env`
+    adds/overrides env vars on the server process (e.g. the secrets KEK)."""
     import tempfile
     from pathlib import Path
 
@@ -175,6 +190,9 @@ def _run_gold_path(label, example_dirname, run_steps):
     server_proc = None
     compiler_proc = None
     try:
+        env = os.environ.copy()
+        if server_env:
+            env.update(server_env)
         server_log = open(home / "server.log", "w")
         server_proc = subprocess.Popen(
             [
@@ -188,6 +206,7 @@ def _run_gold_path(label, example_dirname, run_steps):
             cwd=PROJECT_ROOT,
             stdout=server_log,
             stderr=subprocess.STDOUT,
+            env=env,
         )
         _wait_http(f"http://{server_bind}/health", "server", proc=server_proc)
         print("  ok: server up")
@@ -360,3 +379,71 @@ def parameterized_workflow():
         print("  ok: missing required param rejected before execution")
 
     return _run_gold_path("parameterized-workflow", "parameterized-workflow", steps)
+
+
+@demos()
+@features()
+@angreal.command(
+    name="workflow-secrets",
+    about="run the workflow-secrets example — tenant secret created, bound via $secret, resolved at execution, never persisted (CLOACI-T-0890)",
+    long_about=(
+        "Drives examples/features/workflows/workflow-secrets through the "
+        "primary interface with a secrets-enabled server (CLOACINA_SECRET_KEK "
+        "set): cloacinactl secret create → run with a {\"$secret\": ...} "
+        "binding → execution Completed (the task resolves the value through "
+        "the side channel) → rotate → run again → assert `secret get` never "
+        "returns values and a LITERAL value for the secret slot is rejected."
+    ),
+    when_to_use=[
+        "verifying tenant secrets end to end (I-0133 surface)",
+        "validating the secret side channel after server changes",
+    ],
+    when_not_to_use=["running without docker"],
+)
+def workflow_secrets():
+    def steps(ctl, home):
+        # Create the tenant secret; the value comes from a file — cloacinactl
+        # refuses argv literals so secrets never land in shell history.
+        token_file = home / "token.txt"
+        token_file.write_text("s3cr3t-demo-token-value")
+        ctl("secret", "create", "oncall_api", "--field", f"token=@{token_file}")
+        print("  ok: tenant secret created (value from file, never argv)")
+
+        # Bind the declared secret with a `$secret` reference and run.
+        bind = home / "bind.json"
+        bind.write_text(
+            '{"channel": "#oncall", "api_token": {"$secret": "oncall_api"}}'
+        )
+        _run_to_completed(ctl, home, "notify_oncall", context_path=bind)
+
+        # Rotate and run again — the next execution sees the new value.
+        token_file.write_text("r0tated-demo-token-value!")
+        ctl("secret", "rotate", "oncall_api", "--field", f"token=@{token_file}")
+        print("  ok: secret rotated")
+        _run_to_completed(ctl, home, "notify_oncall", context_path=bind)
+
+        # Metadata-only reads: `secret get` must NEVER return a value.
+        _, out, _ = ctl("-o", "json", "secret", "get", "oncall_api")
+        if "s3cr3t" in out or "r0tated" in out:
+            raise AssertionError(f"secret get leaked a value: {out!r}")
+        print("  ok: secret get returns metadata only")
+
+        # A LITERAL value for the declared secret slot must be rejected —
+        # plaintext in the durable context is exactly what the design forbids.
+        bad = home / "bad.json"
+        bad.write_text('{"api_token": "plaintext-token"}')
+        code, out, err = ctl(
+            "workflow", "run", "notify_oncall", "--context", str(bad), check=False
+        )
+        if code == 0:
+            raise AssertionError(
+                f"literal secret value was ACCEPTED — validation did not fire: {out!r}"
+            )
+        print("  ok: literal secret value rejected before execution")
+
+    return _run_gold_path(
+        "workflow-secrets",
+        "workflow-secrets",
+        steps,
+        server_env={"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
+    )

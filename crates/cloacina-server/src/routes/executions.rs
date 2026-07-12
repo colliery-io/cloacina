@@ -75,11 +75,23 @@ pub async fn execute_workflow(
     let provided_ctx: Option<serde_json::Map<String, serde_json::Value>> =
         body.context.as_ref().and_then(|v| v.as_object()).cloned();
 
-    // Merge provided context if any
+    // Merge provided context if any. Route through the SAME merge the
+    // instance fire path uses (CLOACI-T-0859): a `{"$secret": "name"}` value
+    // is routed AWAY from the plaintext context into the reserved alias map
+    // (names only — the resolved value never enters the durable context), so
+    // a direct `workflow run` can bind declared secrets exactly like a
+    // scheduled instance does. Reserved scheduler keys are protected too.
     if let Some(ctx_value) = body.context {
-        if let Some(obj) = ctx_value.as_object() {
-            for (k, v) in obj {
-                context.insert(k.clone(), v.clone()).unwrap_or_default();
+        if ctx_value.as_object().is_some() {
+            let params_json = ctx_value.to_string();
+            if let Err(e) =
+                cloacina::workflow_instance::merge_instance_params(&mut context, &params_json)
+            {
+                return ApiError::bad_request(
+                    "workflow_input_invalid",
+                    format!("invalid execution context: {}", e),
+                )
+                .into_response();
             }
         }
     }
@@ -549,6 +561,24 @@ pub(crate) fn validate_declared_params(
                 }
             }
             Some(v) => {
+                // CLOACI-T-0859: an encrypted slot (declared via
+                // `secrets(...)`) is bound with a `{"$secret": "name"}`
+                // reference — never a literal value (which would land the
+                // plaintext in the durable context).
+                if p.encrypted {
+                    let is_secret_ref = v
+                        .as_object()
+                        .map(|o| o.len() == 1 && o.get("$secret").is_some_and(|s| s.is_string()))
+                        .unwrap_or(false);
+                    if !is_secret_ref {
+                        errors.push(format!(
+                            "secret '{}' must be bound via {{\"$secret\": \"name\"}}, \
+                             not a literal value",
+                            p.name
+                        ));
+                    }
+                    continue;
+                }
                 if let Some(expected) = p.schema.get("type").and_then(|t| t.as_str()) {
                     if !json_value_matches_type(v, expected) {
                         errors.push(format!(

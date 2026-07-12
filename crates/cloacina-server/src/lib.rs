@@ -688,9 +688,27 @@ pub async fn run(
         .build()
         .context("Invalid runner configuration")?;
 
-    let runner = DefaultRunner::with_config(&database_url, runner_config)
+    // Construct the database explicitly (rather than via `with_config`) so the
+    // public tenant's secret resolver can be built against it and threaded onto
+    // the runner's in-process executor (CLOACI-T-0890): a locally-executed task
+    // can then resolve `{"$secret": …}` bindings via `context.secret(...)`.
+    // Without `CLOACINA_SECRET_KEK` the resolver is None and secret resolution
+    // fails closed with a clear error.
+    let admin_database =
+        cloacina::Database::new(&database_url, "cloacina", runner_config.db_pool_size());
+    admin_database
+        .run_migrations()
         .await
-        .context("Failed to connect to database")?;
+        .map_err(|e| anyhow::anyhow!("failed to run migrations: {e}"))?;
+    let public_secret_resolver = secrets::runner_secret_resolver("public", &admin_database);
+    let runner = DefaultRunner::with_database_secrets(
+        admin_database,
+        runner_config,
+        None,
+        public_secret_resolver,
+    )
+    .await
+    .context("Failed to connect to database")?;
 
     info!("Connected to Postgres, migrations applied");
 
