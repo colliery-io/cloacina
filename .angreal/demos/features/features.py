@@ -403,10 +403,13 @@ def _secrets_steps(workflow_name):
     return steps
 
 
-def _graph_inject_steps(label, reactor, accumulator, event):
+def _graph_inject_steps(label, reactor, accumulator, event, bad_event=None):
     """Inject a typed event into a reactor's accumulator and confirm the reactor
     fires (its graph runs). Reads the fires COUNT off the reactors-list endpoint
-    (`ListResponse{items,total}`) rather than parsing the fires list."""
+    (`ListResponse{items,total}`) rather than parsing the fires list. When
+    `bad_event` is given, also assert the accumulator's declared boundary schema
+    rejects it (proves the typed inject surface — `@cloaca.boundary_schema` /
+    `schemars::JsonSchema` — is wired)."""
 
     def steps(ctl, home):
         from test.e2e.compiler import _get_json
@@ -420,6 +423,17 @@ def _graph_inject_steps(label, reactor, accumulator, event):
                 if r.get("name") == name:
                     return int(r.get("fires", 0) or 0)
             return 0
+
+        if bad_event is not None:
+            code, out, _ = ctl(
+                "accumulator", "inject", accumulator, "--event", bad_event, check=False
+            )
+            if code == 0:
+                raise AssertionError(
+                    f"malformed event {bad_event!r} was ACCEPTED for `{accumulator}` — "
+                    f"the declared boundary schema did not reject it: {out!r}"
+                )
+            print("  ok: malformed event rejected by the accumulator boundary schema")
 
         before = fires_for(reactor)
         deadline = time.time() + 180
@@ -462,6 +476,9 @@ _PACKAGED_OVERRIDES = {
             "market_maker",
             "orderbook",
             '{"best_bid": 100.0, "best_ask": 100.1}',
+            # `orderbook` declares @cloaca.boundary_schema(best_bid, best_ask):
+            # a non-object event must be rejected by the typed slot.
+            bad_event="42",
         ),
     },
 }
