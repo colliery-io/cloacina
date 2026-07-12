@@ -144,4 +144,10 @@ initiative_id: CLOACI-I-0138
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-12 — 3 of 4 re-authored + verified; packaged-triggers remains
+- **complex-dag** — re-authored (dropped umbrella `cloacina`; `Context`/`TaskError` now from `cloacina-workflow`; path→version deps; cruft trimmed). Offline `cargo build --lib`: multi-min → **11s**. Un-skipped.
+- **packaged-workflows** — path→version deps (umbrella was already dev-only). Offline build **11.9s**. Un-skipped.
+- **packaged-graph** — path→version deps. Offline build **13s**. **Gold-path lane VERIFIED live**: build_status=success (lean deps resolved via `--dev-workspace`) → inject → reactor `packaged_market_maker_reactor` fired.
+- Committed `59873086`. complex-dag/packaged-workflows verified offline (same lean form + default workflow-run assertion); CI runs them.
+
+**Remaining:** `packaged-triggers` — still stale-dep AND needs a fire-the-trigger lane step (trigger-fired, not `workflow run`); stays in `_PACKAGED_SKIP`. That's the one open item.
