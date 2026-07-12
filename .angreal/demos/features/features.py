@@ -486,9 +486,7 @@ _PACKAGED_OVERRIDES = {
 # Packaged examples not yet driveable on the gold path — discovered but not
 # registered, each with a reason (no silent drops). Tracked for follow-up.
 _PACKAGED_SKIP = {
-    "complex-dag": "large Rust packaged workflow; not yet verified on the gold path",
     "packaged-triggers": "trigger-fired (poll/cron), not `workflow run`; needs a fire-the-trigger step",
-    "packaged-workflows": "multi-workflow reference package; not yet verified on the gold path",
     # cg-feature-tour's stream/inject surface is deferred to T-0898, but its
     # `tour_pipeline` invocation surface IS runnable via the default → registered.
 }
