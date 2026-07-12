@@ -1,0 +1,27 @@
+# CG feature tour (CLOACI-T-0891). One package carrying:
+#   - a Kafka-fed reactor-bound computation graph (`tour_stream_graph`) whose
+#     entry accumulator `ticks` is upgraded to a `stream` source below
+#   - a workflow (`tour_pipeline`) whose task INVOKES a trigger-less graph
+# The broker placeholder resolves via CLOACINA_VAR_KAFKA_BROKER on the server.
+[package]
+name = "cg-feature-tour"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "tour_pipeline"
+graph_name = "tour_stream_graph"
+language = "rust"
+description = "Computation-graph feature tour — kafka stream accumulator, typed inject, task-to-graph invocation"
+author = "Cloacina Demo Team"
+
+[[metadata.accumulators]]
+name = "ticks"
+accumulator_type = "stream"
+
+[metadata.accumulators.config]
+broker = "{{ KAFKA_BROKER }}"
+topic = "tour.ticks"
+group = "cg-feature-tour-group"

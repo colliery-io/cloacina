@@ -47,6 +47,7 @@ _rust_feature_commands = {
 # `cargo run` is the wrong verb for them). Keep this list next to their
 # definitions — `demos matrix` includes it so CI runs them too.
 _BESPOKE_FEATURES = [
+    "cg-feature-tour",
     "parameterized-workflow",
     "python-workflow",
     "simple-packaged",
@@ -180,7 +181,9 @@ def _run_gold_path(label, example_dirname, run_steps, server_env=None):
     server_bind = "127.0.0.1:18087"
     compiler_bind = "127.0.0.1:19005"
 
-    example_dir = PROJECT_ROOT / "examples" / "features" / "workflows" / example_dirname
+    # `example_dirname` is relative to examples/features/ and may carry a
+    # subtree (e.g. "computation-graphs/cg-feature-tour").
+    example_dir = PROJECT_ROOT / "examples" / "features" / example_dirname
     home = Path(tempfile.mkdtemp(prefix=f"{label}-demo-"))
     print(f"demo home (service logs): {home}")
 
@@ -328,7 +331,7 @@ def simple_packaged():
     def steps(ctl, home):
         _run_to_completed(ctl, home, "data_processing")
 
-    return _run_gold_path("simple-packaged", "simple-packaged", steps)
+    return _run_gold_path("simple-packaged", "workflows/simple-packaged", steps)
 
 
 @demos()
@@ -375,7 +378,7 @@ def parameterized_workflow():
             )
         print("  ok: missing required param rejected before execution")
 
-    return _run_gold_path("parameterized-workflow", "parameterized-workflow", steps)
+    return _run_gold_path("parameterized-workflow", "workflows/parameterized-workflow", steps)
 
 
 @demos()
@@ -440,7 +443,95 @@ def workflow_secrets():
 
     return _run_gold_path(
         "workflow-secrets",
-        "workflow-secrets",
+        "workflows/workflow-secrets",
         steps,
         server_env={"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
+    )
+
+
+@demos()
+@features()
+@angreal.command(
+    name="cg-feature-tour",
+    about="run the computation-graph feature tour — kafka stream accumulator, typed inject, task→graph invocation (CLOACI-T-0891)",
+    long_about=(
+        "Drives examples/features/computation-graphs/cg-feature-tour through "
+        "the primary interface: pack → upload → build, then (1) runs the "
+        "tour_pipeline workflow whose task INVOKES a trigger-less graph — the "
+        "report task fails unless the post_invocation hook saw the graph's "
+        "terminal output, so Completed proves the whole bridge; (2) injects a "
+        "typed event into the `ticks` accumulator and polls the reactor's "
+        "fires; (3) produces a Kafka message to the stream topic (dev-stack "
+        "broker) and observes another fire."
+    ),
+    when_to_use=[
+        "verifying the reactive layer end to end on the packaged path",
+        "validating CG macro/loader changes",
+    ],
+    when_not_to_use=["running without docker"],
+)
+def cg_feature_tour():
+    def steps(ctl, home):
+        from test.e2e.compiler import _get_json
+
+        # 1. Task→graph invocation: report REQUIRES the post_invocation
+        #    summary, so Completed proves invoke + hook + terminal routing.
+        _run_to_completed(ctl, home, "tour_pipeline")
+
+        # 2. Typed accumulator inject → reactor fire.
+        ctl("accumulator", "inject", "ticks", '{"price": 101.5}')
+        print("  ok: typed event injected into `ticks`")
+        deadline = time.time() + 120
+        fires = 0
+        while time.time() < deadline:
+            body = _get_json(
+                "http://127.0.0.1:18087/v1/health/reactors/tour_rx/fires",
+                "demo-cg-feature-tour-key",
+            )
+            fires = len(body.get("fires", body if isinstance(body, list) else []))
+            if fires >= 1:
+                break
+            time.sleep(3)
+        if fires < 1:
+            raise AssertionError("reactor tour_rx never fired after inject")
+        print(f"  ok: reactor fired after inject (fires={fires})")
+
+        # 3. Kafka: produce to the stream topic on the dev-stack broker and
+        #    expect an additional fire. The consumer group may subscribe from
+        #    `latest`, so produce in a retry loop until a new fire lands.
+        deadline = time.time() + 180
+        fired = False
+        while time.time() < deadline:
+            subprocess.run(
+                [
+                    "docker", "exec", "-i", "cloacina-kafka",
+                    "/opt/kafka/bin/kafka-console-producer.sh",
+                    "--bootstrap-server", "localhost:9092",
+                    "--topic", "tour.ticks",
+                ],
+                input='{"price": 202.0}\n',
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            time.sleep(5)
+            body = _get_json(
+                "http://127.0.0.1:18087/v1/health/reactors/tour_rx/fires",
+                "demo-cg-feature-tour-key",
+            )
+            now = len(body.get("fires", body if isinstance(body, list) else []))
+            if now > fires:
+                fired = True
+                break
+        if not fired:
+            raise AssertionError(
+                "reactor tour_rx never fired from the Kafka stream topic"
+            )
+        print("  ok: kafka message fired the stream accumulator")
+
+    return _run_gold_path(
+        "cg-feature-tour",
+        "computation-graphs/cg-feature-tour",
+        steps,
+        server_env={"CLOACINA_VAR_KAFKA_BROKER": "localhost:9092"},
     )

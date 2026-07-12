@@ -249,14 +249,45 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     let (compiled_fn_body, ctor_body) = if is_triggerless {
         // Trigger-less form: the compiled fn takes a workflow `Context<Value>`
         // and the runtime registration goes into `TriggerlessGraphEntry`.
-        let fn_body = quote! {
-            #vis async fn #compiled_fn_name(
-                context: &#cloacina_root::Context<#sj::Value>,
-            ) -> #cg_runtime_root::GraphResult {
-                #[allow(unused_imports)]
-                use #mod_name::*;
-                #(#routing_use_stmts)*
-                #compiled_fn
+        //
+        // CLOACI-T-0897: dual-emitted (like the ctor below) because the
+        // signature's crate paths differ per build mode — packaged cdylibs
+        // have `cloacina-workflow`/`cloacina-computation-graph` as direct
+        // deps but NOT the `cloacina` umbrella; embedded library users have
+        // only `cloacina`. The previous single emission hardcoded the
+        // umbrella path, so a trigger-less graph never compiled in a
+        // packaged crate.
+        let fn_body = if is_cloacina_crate_early {
+            quote! {
+                #vis async fn #compiled_fn_name(
+                    context: &#cloacina_root::Context<#sj::Value>,
+                ) -> #cg_runtime_root::GraphResult {
+                    #[allow(unused_imports)]
+                    use #mod_name::*;
+                    #(#routing_use_stmts)*
+                    #compiled_fn
+                }
+            }
+        } else {
+            quote! {
+                #[cfg(not(feature = "packaged"))]
+                #vis async fn #compiled_fn_name(
+                    context: &::cloacina::cloacina_workflow::Context<#sj::Value>,
+                ) -> ::cloacina::computation_graph::GraphResult {
+                    #[allow(unused_imports)]
+                    use #mod_name::*;
+                    #(#routing_use_stmts)*
+                    #compiled_fn
+                }
+                #[cfg(feature = "packaged")]
+                #vis async fn #compiled_fn_name(
+                    context: &::cloacina_workflow::Context<#sj::Value>,
+                ) -> ::cloacina_computation_graph::GraphResult {
+                    #[allow(unused_imports)]
+                    use #mod_name::*;
+                    #(#routing_use_stmts)*
+                    #compiled_fn
+                }
             }
         };
         let ctor = quote! {
