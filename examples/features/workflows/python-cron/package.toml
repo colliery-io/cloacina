@@ -1,0 +1,19 @@
+# PYTHON packaged CRON-TRIGGER example (I-0138 / Python-gap sweep). The cron
+# peer of `python-triggers` (poll). Cron and poll fire through DIFFERENT server
+# subsystems — cron is driven by the cron scheduler, poll by the runtime trigger
+# registry — so this exercises a distinct code path. The Python cron surface
+# (T-0688 added cron/timezone to `@cloaca.trigger`) was only ever run in the
+# demo-stack fixture (demo-py-cron); this lifts it onto the features gold path.
+#
+# `@cloaca.trigger(on="heartbeat_workflow", cron="*/3 * * * * *")` fires the
+# workflow every 3 seconds — executions appear automatically, no `workflow run`.
+#
+# Minimal manifest: loader infers `language = "python"` + entry module from the
+# `workflow/<name>/` layout. `heartbeat` → `workflow/heartbeat/`.
+[package]
+name = "heartbeat"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "heartbeat_workflow"
+description = "Python packaged cron trigger — fires a workflow on a schedule"

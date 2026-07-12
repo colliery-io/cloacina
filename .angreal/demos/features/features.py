@@ -523,6 +523,8 @@ _PACKAGED_OVERRIDES = {
     "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},
     # Python peer: @cloaca.trigger poll fires `file_processing_py` automatically.
     "python-triggers": {"steps": _trigger_wait_steps("file_processing_py")},
+    # Python cron: the cron scheduler fires `heartbeat_workflow` on a schedule.
+    "python-cron": {"steps": _trigger_wait_steps("heartbeat_workflow")},
 }
 
 # Packaged examples not yet driveable on the gold path — discovered but not
