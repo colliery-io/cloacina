@@ -120,6 +120,35 @@ pub async fn execute_workflow(
     {
         let storage = UnifiedRegistryStorage::new(tenant_db.clone());
         if let Ok(registry) = WorkflowRegistryImpl::new(storage, tenant_db.clone()) {
+            // CLOACI-T-0901: a non-public tenant may only execute workflows in
+            // its OWN registry. `execute_async` resolves the name against the
+            // process-shared `Runtime` (populated by every tenant's reconciler),
+            // so without this gate a tenant could run a workflow it never
+            // installed — a cross-tenant isolation leak. A definitive "not
+            // found" fails CLOSED (404); a registry ERROR fails open (proceed)
+            // so a transient DB fault never wedges execution. `public` maps to
+            // the admin/global catalog and is intentionally exempt (it may serve
+            // inventory/global workflows not tracked as tenant packages).
+            if tenant_id != "public" {
+                match registry.workflow_exists(&name).await {
+                    Ok(false) => {
+                        return ApiError::new(
+                            StatusCode::NOT_FOUND,
+                            "workflow_not_found",
+                            format!(
+                                "workflow '{}' is not registered for tenant '{}'",
+                                name, tenant_id
+                            ),
+                        )
+                        .into_response();
+                    }
+                    Ok(true) => {}
+                    Err(e) => {
+                        warn!("existence-check failed for workflow '{}': {}", name, e)
+                    }
+                }
+            }
+
             match registry.is_workflow_paused(&name).await {
                 Ok(true) => {
                     return ApiError::new(

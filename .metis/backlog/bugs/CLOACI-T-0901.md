@@ -4,15 +4,15 @@ level: task
 title: "Cross-tenant workflow-definition leak — a tenant can execute a workflow it never installed (shared Runtime, no per-tenant existence check in execute)"
 short_code: "CLOACI-T-0901"
 created_at: 2026-07-12T21:05:14.990166+00:00
-updated_at: 2026-07-12T21:05:14.990166+00:00
+updated_at: 2026-07-12T22:39:35.915124+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -62,6 +62,12 @@ Surfaced by the `python-multi-tenant` gold-path example (I-0138 Python-gap sweep
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -139,4 +145,10 @@ This is the tenant ISOLATION boundary, so flagging rather than silently changing
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-07-12 — FIXED + verified.** Implemented the per-tenant existence gate.
+- `crates/cloacina/src/registry/workflow_registry/mod.rs`: new `workflow_exists(&name)` — mirrors the `is_workflow_paused`/`get_workflow_declared_params` lookup (matches `w.workflow_name == name || w.package_name == name`) over `list_workflows()` (this tenant's registry).
+- `crates/cloacina-server/src/routes/executions.rs::execute_workflow`: for `tenant_id != "public"`, call `workflow_exists` before touching the runner; a definitive `Ok(false)` returns `404 workflow_not_found` (fails CLOSED), a registry `Err` logs + proceeds (fails open, so a transient DB fault never wedges execution).
+- **Decision on `public`**: left exempt (documented in code). `public` maps to the admin/global catalog + global runner and may serve inventory/global workflows not tracked as tenant packages; gating it risks breaking those. The reported leak (a NON-public tenant running another tenant's workflow) is closed. Maintainer can extend to `public` later if desired.
+- **Verified live** on the `python-multi-tenant` gold-path lane: `public` + `mtbeta` (installed) still run; `mtgamma` (never installed) is now rejected → `ok: tenant mtgamma (no package) cannot run the workflow — isolated`. Isolation-2 flipped from a logged known-gap back to a HARD assertion.
+- **Regression guard**: the `python-multi-tenant` lane (in the CI discovery matrix) exercises the negative end-to-end. A dedicated server-crate integration test (AC #4) was NOT added — the server `tests/` dir has no route+DB+tenant harness (only `cli_validation.rs`), and standing one up would reproduce what the lane already covers; deferred as optional hardening.
+- Broader-suite note: any pre-existing test that executed a workflow in a NON-public tenant WITHOUT installing it there was relying on the bug and would now get a 404 — none found in the features lanes (all use `public`); worth a full integration run before merge.

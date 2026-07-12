@@ -490,31 +490,21 @@ def _multi_tenant_steps(workflow_name):
             )
         print("  ok: executions are tenant-isolated (neither tenant sees the other's run)")
 
-        # Isolation 2 (KNOWN GAP — CLOACI-T-0901): a tenant that never received
-        # the package SHOULD NOT be able to run the workflow. Today it can: the
-        # execute route resolves the name against the process-shared in-memory
-        # `Runtime` (populated by public/mtbeta) without checking the calling
-        # tenant's own registry, so the run is accepted even though
-        # `mtgamma.workflow_packages` has zero rows for it. Execution STATE is
-        # still isolated (Isolation 1 above) — only workflow-DEFINITION
-        # visibility leaks. We surface it loudly rather than fail the lane; flip
-        # this to a hard assertion once T-0901 lands.
+        # Isolation 2 (CLOACI-T-0901): a tenant that never received the package
+        # MUST NOT be able to run the workflow. The execute route now gates on
+        # the calling tenant's OWN registry before resolving the name against the
+        # process-shared `Runtime`, so an uninstalled workflow is rejected even
+        # though other tenants have loaded the same name.
         ctl("tenant", "create", "mtgamma", check=False)
         code, out, err = tctl(
             "mtgamma", "workflow", "run", workflow_name, check=False,
         )
         if code == 0 and _exec_id(out):
-            print(
-                "  KNOWN GAP (CLOACI-T-0901): tenant `mtgamma` (no package) was "
-                f"allowed to run `{workflow_name}` — workflow-definition visibility "
-                "leaks across tenants via the shared Runtime. Execution state is "
-                "still isolated; tracked for fix."
+            raise AssertionError(
+                f"tenant leak (CLOACI-T-0901 regressed): `mtgamma` (never installed "
+                f"the package) ran `{workflow_name}`"
             )
-        else:
-            print(
-                "  ok: tenant `mtgamma` (no package) cannot run the workflow — "
-                "isolated (CLOACI-T-0901 appears fixed; promote this to a hard assert)"
-            )
+        print("  ok: tenant `mtgamma` (no package) cannot run the workflow — isolated")
 
     return steps
 
