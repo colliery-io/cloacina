@@ -118,9 +118,17 @@ EOF
 
 Each message on `tour.ticks` fires `tour_rx` and runs `tour_stream_graph`.
 
-## What's not here yet
+## Status of the surfaces
 
-`polling` and `batch` accumulators are declared surfaces
-(`#[polling_accumulator]`, `#[batch_accumulator]`) but do not yet work in
-packaged graphs — they silently degrade to passthrough (CLOACI-T-0896). This
-example gains them once that lands.
+- **Task→graph invocation** — works today; asserted in CI
+  (`angreal demos features cg-feature-tour`).
+- **Kafka stream accumulator** — the code is here, but kafka is currently a
+  HOST cargo feature (rdkafka linked into core `cloacina`), so a stream
+  accumulator only runs if the *server* was built `--features kafka` and
+  silently degrades to passthrough otherwise. This is being migrated so kafka
+  ships **in the package** as a constructor provider — a consumption connector
+  belongs in a provider, not the core engine (CLOACI-T-0898). The stream
+  sections above light up on that migration.
+- **`polling` / `batch` accumulators** — declared surfaces
+  (`#[polling_accumulator]`, `#[batch_accumulator]`) that also silently degrade
+  to passthrough in packaged graphs today (CLOACI-T-0896).
