@@ -4,14 +4,14 @@ level: task
 title: "Re-author stale packaged examples off the cloacina umbrella + path deps — lean version-dep form"
 short_code: "CLOACI-T-0900"
 created_at: 2026-07-12T18:51:33.225632+00:00
-updated_at: 2026-07-12T18:51:33.225632+00:00
+updated_at: 2026-07-12T19:22:27.540891+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -74,6 +74,10 @@ initiative_id: CLOACI-I-0138
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -150,4 +154,6 @@ initiative_id: CLOACI-I-0138
 - **packaged-graph** — path→version deps. Offline build **13s**. **Gold-path lane VERIFIED live**: build_status=success (lean deps resolved via `--dev-workspace`) → inject → reactor `packaged_market_maker_reactor` fired.
 - Committed `59873086`. complex-dag/packaged-workflows verified offline (same lean form + default workflow-run assertion); CI runs them.
 
-**Remaining:** `packaged-triggers` — still stale-dep AND needs a fire-the-trigger lane step (trigger-fired, not `workflow run`); stays in `_PACKAGED_SKIP`. That's the one open item.
+**DONE.** `packaged-triggers` was doc-only (declared `#[workflow]`, only *documented* a trigger in the README; tasks `unwrap_or("unknown")` so it tolerated no context). Made it a REAL poll-trigger example: added `#[trigger(on = "file_processing", poll_interval = "3s")]` firing `TriggerResult::Fire(Some(ctx))` with an injected filename, plus lean version deps. New `_trigger_wait_steps` lane waits for the poll trigger to fire an execution automatically (no `workflow run`) and asserts Completed — verified live (fired an execution on its own → Completed). `_PACKAGED_SKIP` is now empty. Commit 5a5768a8.
+
+**~~Remaining:~~** ~~`packaged-triggers`~~ — still stale-dep AND needs a fire-the-trigger lane step (trigger-fired, not `workflow run`); stays in `_PACKAGED_SKIP`. That's the one open item.
