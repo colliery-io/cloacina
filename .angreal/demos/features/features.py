@@ -521,6 +521,8 @@ _PACKAGED_OVERRIDES = {
     },
     # Poll trigger fires `file_processing` automatically — wait for it, don't run.
     "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},
+    # Python peer: @cloaca.trigger poll fires `file_processing_py` automatically.
+    "python-triggers": {"steps": _trigger_wait_steps("file_processing_py")},
 }
 
 # Packaged examples not yet driveable on the gold path — discovered but not

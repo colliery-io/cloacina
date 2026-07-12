@@ -1,0 +1,19 @@
+# PYTHON packaged POLL-TRIGGER example (CLOACI-T-0900 follow-on / I-0138).
+# The Python peer of the Rust `packaged-triggers` example: a pure-Python task
+# workflow plus a `@cloaca.trigger(on=…, poll_interval=…)` that fires it
+# automatically on an interval — no `workflow run`. Proves the Python
+# packaged-trigger path end to end THROUGH THE SERVER GOLD PATH (compile →
+# reconcile → host trigger registry → scheduled fire), not just the demo stack.
+#
+# Minimal manifest (like the canonical `python-packaged`): the loader infers
+# `language = "python"` and the entry module from the `workflow/<name>/` layout.
+# The package name (snake-cased) is the entry module: `file-inbox` →
+# `workflow/file_inbox/`. There is NO triggers section — the `@cloaca.trigger`
+# decorator running at import IS the declaration.
+[package]
+name = "file-inbox"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "file_processing_py"
+description = "Python packaged poll trigger — fires a workflow automatically as files arrive"
