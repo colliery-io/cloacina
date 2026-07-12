@@ -48,6 +48,84 @@ use cloacina::input_interface::InputSlot;
 /// pathological (mirrors `doc_parse`).
 const MAX_SOURCE_BYTES: u64 = 1024 * 1024;
 
+/// Strip Python `# …` line comments, comment-aware (a `#` inside a string
+/// literal is preserved). CLOACI-T-0899: the param/secret/boundary source
+/// scanners split on commas and `=` without a real Python lexer, so an inline
+/// comment in a `workflow_params(...)` / `workflow_secrets(...)` /
+/// `boundary_schema(...)` call — which users naturally write — was parsed AS
+/// part of a declaration (e.g. `source=str,  # required` yielded a param named
+/// "# required\n    dst"). Stripping comments first makes all three scanners
+/// robust in one place. Handles `'…'`, `"…"`, and triple-quoted strings with
+/// backslash escapes; newlines are preserved so line structure is intact.
+fn strip_py_comments(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    // The active string delimiter (`"`, `'`, `"""`, or `'''`) when inside one.
+    let mut quote: Option<&'static str> = None;
+    while i < src.len() {
+        let rest = &src[i..];
+        if let Some(q) = quote {
+            if rest.starts_with('\\') {
+                out.push('\\');
+                i += 1;
+                if let Some(c) = src[i..].chars().next() {
+                    out.push(c);
+                    i += c.len_utf8();
+                }
+                continue;
+            }
+            if rest.starts_with(q) {
+                out.push_str(q);
+                i += q.len();
+                quote = None;
+                continue;
+            }
+            let c = rest.chars().next().unwrap();
+            out.push(c);
+            i += c.len_utf8();
+            continue;
+        }
+        for delim in ["\"\"\"", "'''"] {
+            if rest.starts_with(delim) {
+                quote = Some(delim);
+                break;
+            }
+        }
+        if quote.is_some() {
+            let q = quote.unwrap();
+            out.push_str(q);
+            i += q.len();
+            continue;
+        }
+        if rest.starts_with('"') {
+            quote = Some("\"");
+            out.push('"');
+            i += 1;
+            continue;
+        }
+        if rest.starts_with('\'') {
+            quote = Some("'");
+            out.push('\'');
+            i += 1;
+            continue;
+        }
+        if rest.starts_with('#') {
+            // Skip to (but keep) the end of line.
+            while let Some(c) = src[i..].chars().next() {
+                if c == '\n' {
+                    break;
+                }
+                i += c.len_utf8();
+            }
+            continue;
+        }
+        let c = rest.chars().next().unwrap();
+        out.push(c);
+        i += c.len_utf8();
+    }
+    out
+}
+
 /// Parse declared workflow params from the unpacked package `source_dir`.
 /// `language` selects the strategy — only `"python"` parses source (Rust gets
 /// its params from the FFI input-interface entrypoint). Never errors.
@@ -97,7 +175,7 @@ fn walk_py_secrets(dir: &Path, out: &mut Vec<InputSlot>) {
                 continue;
             }
             if let Ok(contents) = std::fs::read_to_string(&path) {
-                parse_file_secrets(&contents, out);
+                parse_file_secrets(&strip_py_comments(&contents), out);
             }
         }
     }
@@ -174,7 +252,7 @@ fn walk_py_surfaces(dir: &Path, out: &mut Vec<cloacina_api_types::DeclaredSurfac
                 continue;
             }
             if let Ok(contents) = std::fs::read_to_string(&path) {
-                parse_file_surfaces(&contents, out);
+                parse_file_surfaces(&strip_py_comments(&contents), out);
             }
         }
     }
@@ -293,7 +371,7 @@ fn walk_py(dir: &Path, out: &mut Vec<InputSlot>) {
                 continue;
             }
             if let Ok(contents) = std::fs::read_to_string(&path) {
-                parse_file(&contents, out);
+                parse_file(&strip_py_comments(&contents), out);
             }
         }
     }

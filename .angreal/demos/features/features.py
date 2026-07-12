@@ -50,6 +50,7 @@ _BESPOKE_FEATURES = [
     "cg-feature-tour",
     "parameterized-workflow",
     "python-packaged",
+    "python-parameterized",
     "python-workflow",
     "simple-packaged",
     "workflow-secrets",
@@ -379,6 +380,54 @@ def python_packaged():
         _run_to_completed(ctl, home, "data_pipeline")
 
     return _run_gold_path("python-packaged", "workflows/python-packaged", steps)
+
+
+@demos()
+@features()
+@angreal.command(
+    name="python-parameterized",
+    about="run the parameterized PYTHON example — @cloaca.workflow_params declared, validated, bound per run (CLOACI-T-0885/T-0889 peer)",
+    long_about=(
+        "The Python peer of `parameterized-workflow`. Packs + uploads the "
+        "Python package, then runs python_parameterized TWICE with different "
+        "--context param bindings (both must reach Completed) and once with a "
+        "missing required param (the server must reject it with a typed "
+        "validation error before anything runs — proving the compiler parses "
+        "@cloaca.workflow_params into typed input slots)."
+    ),
+    when_to_use=[
+        "verifying Python declared params end to end",
+        "checking Python has parity with Rust params validation",
+    ],
+    when_not_to_use=["running without docker"],
+)
+def python_parameterized():
+    def steps(ctl, home):
+        prod = home / "prod.json"
+        prod.write_text('{"source": "/data/prod", "dst": "/backup/prod"}')
+        _run_to_completed(ctl, home, "python_parameterized", context_path=prod)
+
+        archive = home / "archive.json"
+        archive.write_text(
+            '{"source": "/data/archive", "dst": "/cold", "mode": "move", "max_files": 10}'
+        )
+        _run_to_completed(ctl, home, "python_parameterized", context_path=archive)
+
+        bad = home / "bad.json"
+        bad.write_text('{"dst": "/backup"}')
+        code, out, err = ctl(
+            "workflow", "run", "python_parameterized", "--context", str(bad), check=False
+        )
+        if code == 0:
+            raise AssertionError(
+                "run with a missing required param was ACCEPTED — Python "
+                f"declared-param validation did not fire: {out!r}"
+            )
+        print("  ok: missing required param rejected before execution")
+
+    return _run_gold_path(
+        "python-parameterized", "workflows/python-parameterized", steps
+    )
 
 
 @demos()

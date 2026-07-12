@@ -46,7 +46,7 @@ def get_rust_feature_directories():
     if not features_dir.exists():
         return []
     # Exclude examples that are libraries or not meant to be executed directly
-    excluded = {"validation-failures", "complex-dag", "packaged-workflows", "simple-packaged", "packaged-triggers", "python-workflow", "parameterized-workflow", "workflow-secrets", "cg-feature-tour", "python-packaged"}
+    excluded = {"validation-failures", "complex-dag", "packaged-workflows", "simple-packaged", "packaged-triggers", "python-workflow", "parameterized-workflow", "workflow-secrets", "cg-feature-tour", "python-packaged", "python-parameterized"}
     results = []
     for capability in ["workflows", "computation-graphs"]:
         scan_dir = features_dir / capability
