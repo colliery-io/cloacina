@@ -335,6 +335,44 @@ def _default_workflow_steps(workflow_name):
     return steps
 
 
+def _trigger_wait_steps(workflow_name):
+    """For a POLL/CRON-triggered workflow: don't `workflow run` it — wait for the
+    trigger to fire it AUTOMATICALLY and assert the auto-execution reaches
+    Completed. Proves the packaged-trigger path (macro → FFI projection → host
+    trigger registry → scheduled fire) end to end."""
+
+    def steps(ctl, home):
+        from test.e2e.compiler import _poll_execution_status
+
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            _, out, _ = ctl(
+                "-o", "json", "execution", "list",
+                "--workflow", workflow_name, "--limit", "1", check=False,
+            )
+            try:
+                data = json.loads(out)
+            except json.JSONDecodeError:
+                time.sleep(3)
+                continue
+            rows = data.get("items", data) if isinstance(data, dict) else data
+            if rows:
+                row = rows[0]
+                exec_id = row.get("execution_id") or row.get("id")
+                if exec_id and len(str(exec_id)) >= 32:
+                    print(f"  ok: trigger fired an execution automatically ({exec_id})")
+                    _poll_execution_status(home, exec_id, {"Completed"}, timeout_s=180.0)
+                    print("  ok: triggered execution Completed")
+                    return
+            time.sleep(3)
+        raise AssertionError(
+            f"no execution of `{workflow_name}` appeared — the poll trigger never "
+            "fired (macro/FFI projection or trigger scheduler not running)"
+        )
+
+    return steps
+
+
 def _params_steps(workflow_name):
     """Run a params template twice with different bindings, then assert a
     missing-required-param run is rejected before execution."""
@@ -481,12 +519,14 @@ _PACKAGED_OVERRIDES = {
             bad_event="42",
         ),
     },
+    # Poll trigger fires `file_processing` automatically — wait for it, don't run.
+    "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},
 }
 
 # Packaged examples not yet driveable on the gold path — discovered but not
 # registered, each with a reason (no silent drops). Tracked for follow-up.
 _PACKAGED_SKIP = {
-    "packaged-triggers": "trigger-fired (poll/cron), not `workflow run`; needs a fire-the-trigger step",
+    # (empty) — every packaged example is now driveable on the gold path.
     # cg-feature-tour's stream/inject surface is deferred to T-0898, but its
     # `tour_pipeline` invocation surface IS runnable via the default → registered.
 }
