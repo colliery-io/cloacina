@@ -4,14 +4,14 @@ level: task
 title: "Canonical Python packaged example — promote + gold-path demo-stack README"
 short_code: "CLOACI-T-0885"
 created_at: 2026-07-10T01:16:02.734335+00:00
-updated_at: 2026-07-12T12:44:48.449630+00:00
+updated_at: 2026-07-12T12:57:12.345241+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ The Python peer of [[CLOACI-T-0884]]: a canonical PYTHON packaged example demons
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -140,4 +142,6 @@ Grounded the packaged-Python shape from `cloacinactl package new --language pyth
 
 Key confirmation (maintainer): **Python is a CORE server capability** — `cloacina-server` unconditionally deps `cloacina-python` + calls `cloacina_python::install()` at startup; the server synthesizes `cloaca` in-process via `ensure_cloaca_module` (I-0137). So a default host `cloacina-server` loads Python packages — no `--features` needed, and the `_run_gold_path` host lane works for Python (build is fast — no cargo).
 
-Built `examples/features/workflows/python-packaged/` (peer of `simple-packaged`): `data_pipeline` = collect_data → process_data → generate_report, with what/why docstrings (T-0754 UI surfacing). Gold-path README. Bespoke `angreal demos features python-packaged` lane (excluded from auto-registration since `cargo run` is wrong for Python) reusing `_run_gold_path`; auto-joins the CI matrix (16 examples). Lane run in progress.
+Built `examples/features/workflows/python-packaged/` (peer of `simple-packaged`): `data_pipeline` = collect_data → process_data → generate_report, with what/why docstrings (T-0754 UI surfacing). Gold-path README. Bespoke `angreal demos features python-packaged` lane (excluded from auto-registration since `cargo run` is wrong for Python) reusing `_run_gold_path`; auto-joins the CI matrix (16 examples).
+
+**VERIFIED live (exit 0):** pack Python source → upload → build success (compiler skips cargo) → `workflow run data_pipeline` → execution **Completed**. One naming gotcha found + fixed: `entry_module` is inferred from the PACKAGE NAME (snake-cased), not `workflow_name` — the module dir must match the package name; aligned by naming the package `data-pipeline` (→ module `data_pipeline`), keeping the minimal inference-based manifest the scaffold teaches. Unlike every Rust example this session, the Python path had NO hidden shipped-but-broken bug — worked once the naming aligned. Committed `315cd918`. Done pending merge.
