@@ -547,6 +547,19 @@ def _trigger_wait_steps(workflow_name):
     return steps
 
 
+def _context_run_steps(workflow_name, context_json):
+    """Run a workflow that declares REQUIRED params, supplying them via context.
+    The default lane runs `workflow run` with no context, which the execute route
+    rejects for a workflow with required params (I-0128 validation)."""
+
+    def steps(ctl, home):
+        ctx = home / "ctx.json"
+        ctx.write_text(context_json)
+        _run_to_completed(ctl, home, workflow_name, context_path=ctx)
+
+    return steps
+
+
 def _params_steps(workflow_name):
     """Run a params template twice with different bindings, then assert a
     missing-required-param run is rejected before execution."""
@@ -664,6 +677,10 @@ def _graph_inject_steps(label, reactor, accumulator, event, bad_event=None):
 
 # name -> {"steps": <fn taking (ctl, home)>, "server_env": <dict|None>}
 _PACKAGED_OVERRIDES = {
+    # analytics_workflow declares a required `source_id` param → supply it.
+    "packaged-workflows": {
+        "steps": _context_run_steps("analytics_workflow", '{"source_id": "src-001"}'),
+    },
     "parameterized-workflow": {"steps": _params_steps("sync_file")},
     "python-parameterized": {"steps": _params_steps("python_parameterized")},
     "workflow-secrets": {

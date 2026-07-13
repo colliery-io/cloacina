@@ -274,6 +274,11 @@ def smart_postgres_reset() -> bool:
             [
                 "psql",
                 "-h", "localhost",
+                # The dev stack (Docker on Ubuntu, Homebrew on macOS) publishes
+                # postgres on 15432, matching the test fixtures — connect there,
+                # not the default 5432, or the reset silently misses and falls
+                # through to the Docker path (which doesn't exist on macOS CI).
+                "-p", "15432",
                 "-U", "cloacina",
                 "-d", "cloacina",
                 "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;",
