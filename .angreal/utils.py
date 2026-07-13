@@ -162,8 +162,11 @@ def run_example_or_tutorial(project_root, example_dir, name, is_test=False, bina
     # Check if this is a tutorial (SQLite-based) or other example (potentially PostgreSQL-based)
     is_tutorial = "tutorial" in example_dir
 
-    # Tutorial-06 (multi-tenancy) needs PostgreSQL for the advanced admin demo
-    needs_postgres = not is_tutorial or "tutorial-06" in example_dir
+    # Tutorial-06 (multi-tenancy) needs PostgreSQL for the advanced admin demo.
+    # Match the real dir name (`06-multi-tenancy`) — the old `"tutorial-06"`
+    # probe never matched, so DATABASE_URL was left unset and the tutorial fell
+    # back to :5432 while the dev stack publishes :15432 (connection refused).
+    needs_postgres = not is_tutorial or "06-multi-tenancy" in example_dir
 
     if needs_postgres:
         # For examples and tutorial-06, check if Docker services are running

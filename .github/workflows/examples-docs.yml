@@ -8,6 +8,12 @@ concurrency:
   group: examples-docs-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # angreal auto-installs shell completion on first run and prints a banner to
+  # stdout; that banner corrupts `angreal demos matrix` when captured into
+  # $GITHUB_OUTPUT (and is noise everywhere else). Suppress it globally.
+  ANGREAL_NO_AUTO_COMPLETION: "1"
+
 jobs:
   # -----------------------------------------------------------------------
   # Step 0: Single build that all tutorial/example jobs share

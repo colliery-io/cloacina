@@ -233,9 +233,15 @@ jobs:
         run: |
           brew services start postgresql@14
           sleep 5
-          # Create the cloacina user and database that tests expect
-          createuser -s cloacina || true
-          createdb -O cloacina cloacina || true
+          # The Rust test fixtures hardcode the dev-stack port 15432 (matching the
+          # docker-compose stack used on Ubuntu), so move the Homebrew cluster off
+          # the default 5432 onto 15432 — otherwise every postgres test refuses.
+          psql -d postgres -c "ALTER SYSTEM SET port = 15432;"
+          brew services restart postgresql@14
+          sleep 5
+          # Create the cloacina user and database that tests expect (on 15432).
+          createuser -s cloacina -p 15432 || true
+          createdb -O cloacina cloacina -p 15432 || true
 
       - name: Run integration tests (${{ matrix.backend }})
         env:
