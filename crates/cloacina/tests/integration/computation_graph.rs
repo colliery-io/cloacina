@@ -951,6 +951,16 @@ async fn test_sequential_input_strategy() {
 mod resilience_tests {
     use super::*;
 
+    /// Decode a state-accumulator boundary payload. State accumulators emit the
+    /// window as JSON (`state_window_frame`), which `BoundarySender::send` then
+    /// wraps with `types::serialize` — so a received boundary is two layers:
+    /// the `types` envelope around the JSON bytes. Peel both.
+    fn decode_state_window<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, String> {
+        let json: Vec<u8> = cloacina::computation_graph::types::deserialize(bytes)
+            .map_err(|e| format!("envelope decode: {e}"))?;
+        serde_json::from_slice(&json).map_err(|e| format!("json decode: {e}"))
+    }
+
     /// Helper: create an in-memory SQLite DAL for testing.
     /// Uses shared-cache in-memory DB so the pool can have multiple connections
     /// to the same database without creating temp files on disk.
@@ -1594,16 +1604,30 @@ mod resilience_tests {
                 .unwrap();
         }
 
-        // Wait for processing + persistence
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-
-        // Drain boundaries (each write emits the full list)
+        // Poll boundaries until the accumulator has processed all 3 writes and
+        // emitted the full list (each write emits the full list). Waits up to 5s
+        // rather than a fixed sleep + non-blocking drain, which flakes when
+        // processing lags under a loaded single-threaded test run.
         let mut last_boundary: Option<Vec<AlphaData>> = None;
-        while let Ok((_, bytes)) = boundary_rx.try_recv() {
-            if let Ok(list) =
-                cloacina::computation_graph::types::deserialize::<Vec<AlphaData>>(&bytes)
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
+            match tokio::time::timeout(std::time::Duration::from_millis(200), boundary_rx.recv())
+                .await
             {
-                last_boundary = Some(list);
+                Ok(Some((_, bytes))) => {
+                    // The boundary is a JSON-encoded window (`state_window_frame`
+                    // uses `serde_json`) wrapped by `BoundarySender::send` via
+                    // `types::serialize` — decode both layers: envelope → JSON → list.
+                    if let Ok(list) = decode_state_window::<AlphaData>(&bytes) {
+                        let complete = list.len() == 3;
+                        last_boundary = Some(list);
+                        if complete {
+                            break;
+                        }
+                    }
+                }
+                Ok(None) => break, // channel closed
+                Err(_) => {}       // recv timed out this round; keep waiting
             }
         }
 
@@ -1649,15 +1673,31 @@ mod resilience_tests {
         let acc2 = StateAccumulator::<AlphaData>::new(10);
         let _handle2 = tokio::spawn(state_accumulator_runtime(acc2, ctx2, socket_rx2));
 
-        // On startup, state_accumulator_runtime loads from DAL and emits the list
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-
-        // Should receive the restored list as initial boundary
-        let (_, bytes) = boundary_rx2
-            .try_recv()
-            .expect("should receive initial boundary from restored state");
-        let restored: Vec<AlphaData> =
-            cloacina::computation_graph::types::deserialize(&bytes).unwrap();
+        // On startup, state_accumulator_runtime loads from DAL and emits the
+        // restored list. Wait for it (up to 5s) rather than a fixed sleep +
+        // single non-blocking try_recv, which flakes when the restore/emit lags.
+        let restored = {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            let mut received: Option<Vec<AlphaData>> = None;
+            while tokio::time::Instant::now() < deadline {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(200),
+                    boundary_rx2.recv(),
+                )
+                .await
+                {
+                    Ok(Some((_, b))) => {
+                        if let Ok(list) = decode_state_window::<AlphaData>(&b) {
+                            received = Some(list);
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(_) => {}
+                }
+            }
+            received.expect("should receive initial boundary from restored state")
+        };
 
         assert_eq!(restored.len(), 3, "restored list should have 3 items");
         assert_eq!(restored[0].value, 1.0);

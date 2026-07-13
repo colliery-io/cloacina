@@ -253,8 +253,8 @@ fn test_plugin_info_populated() {
         "Interface hash should be non-zero"
     );
     assert_eq!(
-        plugin.info.interface_version, 4,
-        "Interface version should be 4 (CLOACI-I-0132 get_constructor_metadata)"
+        plugin.info.interface_version, 5,
+        "Interface version should be 5 (CLOACI-T-0895 resolved_secrets on TaskExecutionRequest)"
     );
     assert_eq!(
         plugin.method_count, 11,
