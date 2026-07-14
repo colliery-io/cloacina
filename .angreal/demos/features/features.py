@@ -721,6 +721,17 @@ _PACKAGED_OVERRIDES = {
             bad_event="42",
         ),
     },
+    # Python BATCH accumulator (buffer + flush on size/interval) — inject events,
+    # the buffer flushes, `batch_reactor` fires; a non-object is rejected.
+    "python-batch-graph": {
+        "steps": _graph_inject_steps(
+            "python-batch-graph",
+            "batch_reactor",
+            "event_batch",
+            '{"level": 42.0}',
+            bad_event="42",
+        ),
+    },
     # Poll trigger fires `file_processing` automatically — wait for it, don't run.
     "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},
     # Python peer: @cloaca.trigger poll fires `file_processing_py` automatically.
