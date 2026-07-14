@@ -45,16 +45,56 @@ def get_rust_feature_directories():
     features_dir = PROJECT_ROOT / "examples" / "features"
     if not features_dir.exists():
         return []
-    # Exclude examples that are libraries or not meant to be executed directly
-    excluded = {"validation-failures", "complex-dag", "packaged-workflows", "simple-packaged", "packaged-triggers", "python-workflow"}
+    # An example dir is EITHER embedded (has src + Cargo, run via `cargo run` —
+    # returned here) OR packaged (has a `package.toml`, run through the server
+    # gold path — discovered separately by `get_packaged_example_directories`).
+    # `package.toml` presence is the discriminator, so the two registrars never
+    # overlap and a packaged example can never be mis-registered as `cargo run`.
+    # A couple of embedded dirs are still hand-excluded: python-workflow is a
+    # bespoke wheel demo; validation-failures is a negative fixture.
+    excluded = {"validation-failures", "python-workflow"}
     results = []
     for capability in ["workflows", "computation-graphs"]:
         scan_dir = features_dir / capability
         if scan_dir.exists():
             for d in scan_dir.iterdir():
-                if d.is_dir() and d.name not in excluded:
-                    rel_path = f"examples/features/{capability}/{d.name}"
-                    results.append((d.name, rel_path))
+                if not d.is_dir() or d.name in excluded:
+                    continue
+                if (d / "package.toml").exists():
+                    continue  # packaged → the gold-path registrar owns it
+                rel_path = f"examples/features/{capability}/{d.name}"
+                results.append((d.name, rel_path))
+    return results
+
+
+def get_packaged_example_directories():
+    """Every packaged example (a dir with a `package.toml`) under
+    examples/features/, with its parsed manifest metadata. These run through
+    the SERVER gold path (pack → upload → compile → reconcile → execute), so
+    the packaged registrar drives them — never `cargo run`.
+
+    Returns (name, rel_path, meta) tuples where meta has `workflow_name` and/or
+    `graph_name` (whichever the package declares).
+    """
+    features_dir = PROJECT_ROOT / "examples" / "features"
+    if not features_dir.exists():
+        return []
+    results = []
+    for capability in ["workflows", "computation-graphs"]:
+        scan_dir = features_dir / capability
+        if not scan_dir.exists():
+            continue
+        for d in sorted(scan_dir.iterdir()):
+            pt = d / "package.toml"
+            if not d.is_dir() or not pt.exists():
+                continue
+            meta = {}
+            for line in pt.read_text().splitlines():
+                line = line.strip()
+                for key in ("workflow_name", "graph_name"):
+                    if line.startswith(key) and "=" in line:
+                        meta[key] = line.split("=", 1)[1].strip().strip('"')
+            results.append((d.name, f"{capability}/{d.name}", meta))
     return results
 
 

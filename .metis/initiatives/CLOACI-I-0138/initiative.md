@@ -64,6 +64,21 @@ Grounded against the actual surfaces: `cloacina-macros/src/lib.rs` (all proc mac
 
 **Conclusion:** the migration (embedded→primary interface) and the gap-fill are the SAME work: the end-state is **one gold-path example per feature**. Decomposed below as T-0889..T-0893 alongside the existing T-0885/T-0886.
 
+## Python-gap sweep (2026-07-12) — new gold-path Python peers, all verified live
+Goal: "find and close our gaps in python." Each new example is a probe that runs the full gold path (pack → upload → compile → reconcile → execute) on the host-lane harness. All PASSED — the Python packaged surface is more solid than feared; these convert untested→tested (coverage gaps closed), no product bugs found in this batch.
+- **python-triggers** — `@cloaca.trigger(on=…, poll_interval="3s")` poll trigger; fires `file_processing_py` automatically (new `_trigger_wait_steps` lane asserts an execution auto-appears + Completed). Python `@cloaca.trigger` existed only in the demo-py-cron fixture before — first time on the features gold path. Commit a9319900.
+- **python-retries** — `@cloaca.task(retry_attempts=4, retry_backoff="fixed", retry_delay_ms=200)`; task RAISES on attempts 1-2, so Completed proves the server honored the retry policy. Commit b161f58a.
+- **python-conditional** — `trigger_rules=cloaca.context_value("do_audit","Equals",True)` gates `audit` to Skipped; it RAISES if run, so Completed proves the skip (T-0763 parity, previously fixture-only). `record` fans in over the skipped dep + asserts the run path ran. Commit bdb17c51.
+- **python-cron** — `@cloaca.trigger(on=…, cron="*/3 * * * * *")`; the CRON SCHEDULER (distinct subsystem from the poll registry) fires `heartbeat_workflow`. T-0688 cron surface, first on the gold path. Commit dfb4215a.
+
+Also this session: **T-0900 fully closed** — `packaged-triggers` was doc-only (declared a `#[workflow]`, only *documented* a trigger); made it a REAL Rust poll-trigger (`#[trigger(on="file_processing", poll_interval="3s")]` → `Fire(Some(ctx))`) + lean deps. `_PACKAGED_SKIP` is now empty; every packaged example is driveable on the gold path. Commit 5a5768a8.
+
+- **python-multi-tenant** — the FULL per-tenant deployment model on the gold path: package deployed into `public` AND a second tenant `mtbeta` (which runs its OWN `cloacina-compiler --tenant-schema mtbeta` — the default compiler only claims public/admin, by design), both tenants execute independently, execution-state isolation HARD-asserted (neither tenant's `execution list` sees the other's run). **Found a real bug → [[CLOACI-T-0901]]:** a third tenant `mtgamma` that never installed the package was still allowed to run the workflow — the execute route resolves the name against the process-shared in-memory `Runtime` (populated by other tenants) with no per-tenant existence check. Execution STATE is isolated; workflow-DEFINITION visibility leaks. The lane surfaces this loudly (not a hard fail) pending the fix; flip to a hard assert when T-0901 lands. Lane adds `_multi_tenant_steps` + spawns a per-tenant compiler.
+
+**This batch's real find:** the multi-tenant probe was the one that exposed a genuine isolation bug (T-0901) — vindicating the "write honest examples through the primary interface" strategy. The trigger/retry/conditional/cron probes were clean coverage; multi-tenancy was the gap.
+
+**Assertion technique worth reusing:** design the workflow so the *desired behavior is the only path to Completed* (task raises if it shouldn't run / fails until it should succeed) — turns a plain "Completed" check into honest proof without needing task-level status APIs (cloacinactl has no `execution tasks` verb; only the server `/executions/{id}/tasks` endpoint exposes per-task status).
+
 ## Migration inventory (grounded 2026-07-10) — ≈26 units still demoing via `DefaultRunner`
 - **Rust feature examples (10):** conditional-retries, cron-scheduling, deferred-tasks, event-triggers, multi-tenant, per-tenant-credentials, registry-execution, python-workflow, computation-graphs/filtered-reactor, constructor-contract/fs-grant-demo
 - **Performance (3):** simple, parallel, pipeline (may stay embedded by design — they benchmark the engine, not the interface; decide at design time)

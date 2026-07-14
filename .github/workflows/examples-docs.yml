@@ -8,6 +8,12 @@ concurrency:
   group: examples-docs-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # angreal auto-installs shell completion on first run and prints a banner to
+  # stdout; that banner corrupts `angreal demos matrix` when captured into
+  # $GITHUB_OUTPUT (and is noise everywhere else). Suppress it globally.
+  ANGREAL_NO_AUTO_COMPLETION: "1"
+
 jobs:
   # -----------------------------------------------------------------------
   # Step 0: Single build that all tutorial/example jobs share
@@ -19,6 +25,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina +
+          # an example (~GB each) and run the docker stack on a ~14GB runner.
+          # Reclaim ~18GB of preinstalled toolchains we never use.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -64,6 +78,14 @@ jobs:
       RUST_BACKTRACE: full
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina +
+          # an example (~GB each) and run the docker stack on a ~14GB runner.
+          # Reclaim ~18GB of preinstalled toolchains we never use.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -128,6 +150,14 @@ jobs:
     outputs:
       examples: ${{ steps.list.outputs.examples }}
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina +
+          # an example (~GB each) and run the docker stack on a ~14GB runner.
+          # Reclaim ~18GB of preinstalled toolchains we never use.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
@@ -159,6 +189,14 @@ jobs:
       RUST_BACKTRACE: full
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina +
+          # an example (~GB each) and run the docker stack on a ~14GB runner.
+          # Reclaim ~18GB of preinstalled toolchains we never use.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -274,6 +312,14 @@ jobs:
       RUST_BACKTRACE: full
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina +
+          # an example (~GB each) and run the docker stack on a ~14GB runner.
+          # Reclaim ~18GB of preinstalled toolchains we never use.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -334,6 +380,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina +
+          # an example (~GB each) and run the docker stack on a ~14GB runner.
+          # Reclaim ~18GB of preinstalled toolchains we never use.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

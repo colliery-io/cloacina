@@ -153,6 +153,63 @@ pub fn drain_accumulators() -> HashMap<String, (PyObject, PyAccumulatorRegistrat
     std::mem::take(&mut *registry)
 }
 
+/// Resolve the poll closure for a packaged POLLING accumulator (CLOACI-T-0896).
+/// Looks up the registered Python poll fn by name and wraps it so the packaged
+/// polling runtime can invoke it on the interval. The poll fn lives in-process
+/// (the reconciler imports the module in the server), so no FFI is needed. The
+/// closure does the GIL work itself — cloacina runs it under `spawn_blocking`,
+/// mirroring how `PythonTriggerWrapper` drives Python poll triggers off the
+/// async executor.
+fn resolve_poll_closure(
+    name: &str,
+) -> Option<cloacina::computation_graph::packaging_bridge::PollClosure> {
+    let function = {
+        let registry = ACCUMULATOR_REGISTRY.lock().unwrap();
+        let (func, reg) = registry.get(name)?;
+        if reg.accumulator_type != "polling" {
+            return None;
+        }
+        Python::with_gil(|py| func.clone_ref(py))
+    };
+    let name = name.to_string();
+    Some(std::sync::Arc::new(move || -> Option<Vec<u8>> {
+        Python::with_gil(|py| {
+            let result = match function.call0(py) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("polling accumulator '{}' poll raised: {}", name, e);
+                    return None;
+                }
+            };
+            // `None` from the poll fn means "no change this tick" — skip.
+            if result.is_none(py) {
+                return None;
+            }
+            match pythonize::depythonize::<serde_json::Value>(result.bind(py)) {
+                Ok(val) => serde_json::to_vec(&val).ok(),
+                Err(e) => {
+                    tracing::warn!(
+                        "polling accumulator '{}' returned a non-JSON value: {}",
+                        name,
+                        e
+                    );
+                    None
+                }
+            }
+        })
+    }))
+}
+
+/// Install the polling-accumulator poll-closure resolver into the packaged CG
+/// bridge (CLOACI-T-0896). Idempotent (the bridge's OnceLock keeps the first);
+/// called once from `register_authoring` so every embedding (pip wheel + the
+/// server's synthetic `cloaca` module) wires packaged polling accumulators.
+pub(crate) fn install_polling_accumulator_builder() {
+    cloacina::computation_graph::packaging_bridge::register_polling_accumulator_builder(Box::new(
+        resolve_poll_closure,
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // @cloaca.passthrough_accumulator decorator
 // ---------------------------------------------------------------------------

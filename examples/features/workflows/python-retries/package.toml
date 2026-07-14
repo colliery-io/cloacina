@@ -1,0 +1,18 @@
+# PYTHON packaged RETRY-POLICY example (I-0138 / Python-gap sweep). The Python
+# peer of the Rust `conditional-retries` example (which is embedded-only). A
+# task that DELIBERATELY fails its first two attempts and only succeeds on the
+# third — so the run can only reach `Completed` if the server actually honored
+# `@cloaca.task(retry_attempts=…, retry_backoff=…)` and re-executed it. Proves
+# the Python packaged retry path through the server gold path (compile →
+# reconcile → execute → retry → Completed).
+#
+# Minimal manifest: the loader infers `language = "python"` and the entry module
+# from the `workflow/<name>/` layout. Package name (snake-cased) is the entry
+# module: `retry-pipeline` → `workflow/retry_pipeline/`.
+[package]
+name = "retry-pipeline"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "retry_pipeline"
+description = "Python packaged retry policy — a task that fails twice then succeeds on retry"

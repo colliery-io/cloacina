@@ -1,0 +1,30 @@
+# PYTHON packaged MULTI-TENANCY example (I-0138 / Python-gap sweep). The tenant
+# is Cloacina's isolation boundary: workflows and executions are tenant-scoped
+# (`/v1/tenants/{tenant}/workflows`, `/executions`). This example demonstrates
+# that boundary on the server gold path — the SAME package deployed into two
+# tenants runs independently, and their executions never cross; a third tenant
+# that never received the package cannot see the workflow at all.
+#
+# The Python peer of the Rust `multi-tenant` / `per-tenant-credentials` examples
+# (which are embedded-only). The workflow itself is deliberately trivial — the
+# feature under test is the tenancy boundary, driven by the lane (deploy into
+# tenant A + tenant B, run in both, assert isolation), not the task logic.
+#
+# Operational model the lane demonstrates: each tenant runs its OWN compiler
+# (`cloacina-compiler --tenant-schema <tenant>`) — the default compiler only
+# claims the public/admin schema, by design (per-tenant build isolation). So a
+# second compiler is stood up for tenant B. Execution STATE is fully isolated
+# (a tenant only sees its own executions). NOTE: workflow-DEFINITION visibility
+# currently leaks across tenants via the process-shared runtime — a tenant can
+# run a workflow name another tenant loaded even without installing it; tracked
+# as CLOACI-T-0901 and surfaced (not asserted) by the lane until fixed.
+#
+# Minimal manifest: loader infers `language = "python"` + entry module from the
+# `workflow/<name>/` layout. `tenant-job` → `workflow/tenant_job/`.
+[package]
+name = "tenant-job"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "tenant_job"
+description = "Python packaged multi-tenancy — same workflow in two tenants, executions isolated"

@@ -256,7 +256,7 @@ macro_rules! package {
                         }
                     };
 
-                    let context: cloacina_workflow::Context<::serde_json::Value> =
+                    let mut context: cloacina_workflow::Context<::serde_json::Value> =
                         match cloacina_workflow::Context::from_json(request.context_json) {
                             Ok(c) => c,
                             Err(e) => {
@@ -267,6 +267,19 @@ macro_rules! package {
                                 });
                             }
                         };
+
+                    // CLOACI-T-0895: the host resolved any `{"$secret"}`-referenced
+                    // secrets before this call; attach them to the rebuilt scope so
+                    // `context.secret(...)` resolves inside the package. Values live
+                    // only in this resolver for this one invocation — never in the
+                    // serialized context.
+                    if !request.resolved_secrets.is_empty() {
+                        context.set_secret_resolver(::std::sync::Arc::new(
+                            cloacina_workflow::secret::MapSecretResolver::new(
+                                request.resolved_secrets,
+                            ),
+                        ));
+                    }
 
                     let result = rt.block_on(async move {
                         cloacina_workflow::Task::execute(&*task, context).await
@@ -845,7 +858,10 @@ pub const METHOD_GET_CONSTRUCTOR_METADATA: usize = 10;
 ///   (IDs, dependencies, descriptions). Called once at registration time.
 /// - `execute_task` — Runs a specific task by name with a JSON-serialized
 ///   context. Returns the updated context or an error.
-#[fidius::plugin_interface(version = 4, buffer = PluginAllocated)]
+// version 4 → 5 (CLOACI-T-0895): `TaskExecutionRequest` gained the
+// `resolved_secrets` wire field — a bincode layout change, so stale artifacts
+// must fail the version gate at load rather than mis-decode.
+#[fidius::plugin_interface(version = 5, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.
     /// Method index 0.

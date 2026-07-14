@@ -21,18 +21,21 @@ packaged = []
 [lib]
 crate-type = ["cdylib"]
 
+# Lean packaged-workflow deps: crates.io VERSION deps (what `cloacinactl
+# package new` emits), resolved against the local crates by the dev/demo
+# compiler's `--dev-workspace`. A packaged workflow needs ONLY the authoring
+# crates — NOT the `cloacina` engine umbrella (Context/TaskError come from
+# cloacina-workflow). (CLOACI-T-0900 re-author off the pre-T-0887 path deps.)
 [dependencies]
-cloacina = { path = "../../../../crates/cloacina" }
-cloacina-computation-graph = { path = "../../../../crates/cloacina-computation-graph" }
-cloacina-workflow = { path = "../../../../crates/cloacina-workflow", features = ["packaged"] }
-cloacina-workflow-plugin = { path = "../../../../crates/cloacina-workflow-plugin" }
-cloacina-macros = { path = "../../../../crates/cloacina-macros" }
+cloacina-macros = "0.10"
+cloacina-computation-graph = "0.10"
+cloacina-workflow = { version = "0.10", features = ["packaged"] }
+cloacina-workflow-plugin = "0.10"
 serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
 
 [build-dependencies]
-cloacina-build = { path = "../../../../crates/cloacina-build" }
+cloacina-build = "0.10"

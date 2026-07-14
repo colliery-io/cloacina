@@ -143,4 +143,22 @@ The reactive layer's advanced surface is fixtures-only. Tutorials + `packaged-gr
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-12 — grounded + designed; scope adjusted by a new finding (T-0896)
+**Finding:** packaged graphs support only `stream`/`state` accumulator kinds — `polling`/`batch` silently degrade to passthrough (`packaging_bridge.rs:225` `_ =>` arm). Filed as [[CLOACI-T-0896]]; this example covers polling/batch only after that lands.
+
+**Adjusted scope (what's REAL on the primary interface today):**
+1. **Kafka stream accumulator** — proven pattern from `demo-kafka-stream-rust`: declare a plain accumulator in `#[reactor(accumulators=[...], criteria=when_any(...))]`, upgrade via package.toml `[[metadata.accumulators]] accumulator_type = "stream"` + `[metadata.accumulators.config] broker = "{{ KAFKA_BROKER }}" / topic / group`. Broker token resolves via `CLOACINA_VAR_KAFKA_BROKER` (demo server sets `kafka:9092`; the DEV stack also has kafka for the harness lane — wire the env via `_run_gold_path` server_env).
+2. **State accumulator** — `accumulator_type = "state"` + capacity config (packaged-proven).
+3. **Task→CG invocation** — `#[task(invokes = computation_graph("name"), post_invocation = hook)]` against a TRIGGERLESS graph (no `trigger=`; reactor-triggered graphs are compile-time rejected for invoke — teaching note). Grounded on tests/integration/computation_graph.rs T-0540 M3: terminal outputs merge back into the task's context under terminal-node names; post_invocation sees the merged context.
+4. **boundary_schema (python)** — add `@cloaca.boundary_schema(...)` to `examples/features/computation-graphs/python-packaged-graph` (pattern from `demo-py-graph`/`demo-py-state`).
+
+**Example shape:** `examples/features/computation-graphs/cg-feature-tour/` — one package: kafka-fed reactor CG (stream) + state accumulator + a workflow whose task `invokes` a triggerless CG with a `post_invocation` hook. README teaches each surface + an "Operate it" section (accumulator inject, reactor fire — coordinates with T-0893). Harness lane via `_run_gold_path`: (a) run the invoking workflow to Completed and assert terminal keys, (b) `accumulator inject` a typed event + poll reactor fires, (c) kafka: produce via the dev-stack broker (docker exec kafka console producer) and observe a fire — fall back to demo-stack verification if host-lane kafka is awkward (document which).
+
+Design complete; ready to execute.
+
+### 2026-07-12 (update 2) — task→CG invocation DONE + verified; stream/inject deferred to T-0898
+Built `examples/features/computation-graphs/cg-feature-tour` (all three surfaces authored: kafka stream accumulator, typed inject, task→CG invocation) + bespoke `demos features cg-feature-tour` lane. Two findings surfaced building it:
+- **[[CLOACI-T-0897]] (FIXED):** the CG macro emitted umbrella-crate (`cloacina::`) paths in two single-emission sites, so trigger-less graphs + task→CG invocation NEVER compiled in a packaged crate — task→CG invocation was unshippable on the primary path. Dual-emitted per build mode; verified `tour_pipeline` reaches **Completed** in-container (invoke + post_invocation hook + terminal routing all proven).
+- **Kafka is a host cargo feature (rdkafka in core `cloacina`), not package code.** A stream accumulator silently degrades to passthrough unless the server was built `--features kafka`. Maintainer steer: kafka is a consumption connector; migrate it into the delivered constructor/provider mechanism so it ships IN the package. Filed [[CLOACI-T-0898]].
+
+**Decision (maintainer):** keep the full example code (all surfaces authored) and migrate kafka to a provider NEXT session. The CI lane asserts only the invocation surface today (package-clean, works); the stream + inject/fire surfaces stay in the example, documented honestly ("Status of the surfaces" → T-0898/T-0896), and light up on the migration. So T-0891 is PARTIALLY done: invocation ✅ + verified; stream/inject/boundary_schema pending T-0898 (kafka) / T-0896 (polling/batch). Stays `todo` until those land.

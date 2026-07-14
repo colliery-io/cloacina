@@ -1,0 +1,12 @@
+# Parameterized PYTHON workflow (CLOACI-T-0885 family / T-0889 peer). Declares
+# typed params with `@cloaca.workflow_params`; the compiler parses them from
+# source into JSON-Schema-typed input slots and the server validates every run's
+# values against them. Package name (snake-cased) is the entry module:
+# `python-parameterized` → `workflow/python_parameterized/`.
+[package]
+name = "python-parameterized"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "python_parameterized"
+description = "Parameterized Python workflow — declared params, validated and bound per run"

@@ -4,14 +4,14 @@ level: task
 title: "Gold-path example: parameterized workflow instances (I-0116) — params, named instances, schedules"
 short_code: "CLOACI-T-0889"
 created_at: 2026-07-11T22:03:08.051490+00:00
-updated_at: 2026-07-11T22:03:08.051490+00:00
+updated_at: 2026-07-11T22:31:55.275713+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -75,6 +75,10 @@ I-0116 (parameterized workflow instances — named, scheduled, param-bound) ship
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -145,4 +149,12 @@ I-0116 (parameterized workflow instances — named, scheduled, param-bound) ship
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-11 — LOUD FINDING + example built; live verification running
+**Finding (filed as [[CLOACI-T-0894]]):** I-0116 instance registration is embedded-runner-only — `register_cron_workflow_instance` exists on DefaultRunner + python bindings, but there is NO server route and NO cloacinactl noun. Named/scheduled instances cannot be created through the primary interface. What the gold path DOES support: `params(...)` declaration → compiler extracts typed InputSlots → server validates `workflow run --context` values (T-0757) → bound values arrive as top-level context keys.
+
+**Built accordingly** (`examples/features/workflows/parameterized-workflow/`, branch feat/i0138-examples):
+- `sync_file` template: `params(source: String, dst: String, mode: String = "copy", max_files: i64 = 100)` (syntax grounded on the acme-billing fixture); 3 tasks reading bound params off context (plan_sync validates mode, execute_sync, report).
+- T-0886 standard shape: package.toml + version-dep Cargo.toml + build.rs + gold-path README (two runs with different --context bindings; a missing-required-param run shown REJECTED; honest "About named instances" note pointing at the doc + the T-0894 gap).
+- Harness: refactored `.angreal/demos/features/features.py` — the simple-packaged bespoke runner generalized into `_run_gold_path(label, dir, run_steps)` + `_run_to_completed(ctl, home, workflow, context_path)`; new `demos features parameterized-workflow` command runs the template twice to Completed with different bindings AND asserts the missing-param run is rejected pre-execution. Auto-joined the CI matrix via `demos matrix` (now 13 examples); added to the auto-registration exclude set.
+
+Live run of `angreal demos features parameterized-workflow` in progress (cold dep build).

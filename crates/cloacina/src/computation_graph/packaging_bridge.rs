@@ -28,8 +28,9 @@ use tokio::task::JoinHandle;
 use cloacina_workflow_plugin::{GraphExecutionRequest, GraphPackageMetadata};
 
 use super::accumulator::{
-    accumulator_runtime, accumulator_runtime_with_source, state_accumulator_runtime,
-    AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, StateAccumulator,
+    accumulator_runtime, accumulator_runtime_with_source, batch_accumulator_runtime, flush_signal,
+    state_accumulator_runtime, AccumulatorContext, AccumulatorRuntimeConfig, BatchAccumulator,
+    BatchAccumulatorConfig, BoundarySender, StateAccumulator,
 };
 use super::reactor::{CompiledGraphFn, InputStrategy, ReactionCriteria};
 use super::scheduler::{
@@ -222,15 +223,7 @@ pub fn build_declaration_from_ffi(
         .accumulators
         .iter()
         .map(|acc_entry| {
-            let factory: Arc<dyn AccumulatorFactory> = match acc_entry.accumulator_type.as_str() {
-                "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
-                    acc_entry.config.clone(),
-                )),
-                "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
-                    &acc_entry.config,
-                ))),
-                _ => Arc::new(PassthroughAccumulatorFactory),
-            };
+            let factory = accumulator_factory_for(&acc_entry.accumulator_type, &acc_entry.config);
             AccumulatorDeclaration {
                 name: acc_entry.name.clone(),
                 factory,
@@ -650,6 +643,276 @@ fn state_capacity_from_config(config: &std::collections::HashMap<String, String>
         .unwrap_or(0)
 }
 
+/// A generic, list-collecting batch accumulator for the packaged path
+/// (CLOACI-T-0896). Socket events arrive as JSON bytes (the same wire the
+/// passthrough/state accumulators receive); on flush we emit the whole batch as
+/// a JSON array, so the boundary matches the shape the FFI cache expects
+/// (`bincode(Vec<u8>)` of JSON — see `input_cache_to_ffi_cache`). This mirrors
+/// what `state_window_frame` does for the state accumulator.
+struct JsonListBatchAccumulator;
+
+impl BatchAccumulator for JsonListBatchAccumulator {
+    type Output = Vec<u8>;
+
+    fn process_batch(&mut self, events: Vec<Vec<u8>>) -> Option<Vec<u8>> {
+        let list: Vec<serde_json::Value> = events
+            .iter()
+            .filter_map(|e| serde_json::from_slice(e).ok())
+            .collect();
+        if list.is_empty() {
+            return None;
+        }
+        serde_json::to_vec(&list).ok()
+    }
+}
+
+/// Packaged batch-accumulator factory (CLOACI-T-0896): buffers socket events and
+/// flushes the whole buffer as one boundary on the flush interval or when the
+/// buffer fills. Mirrors `StateAccumulatorFactory` — socket-driven, so it fits
+/// the existing spawn contract without any FFI change.
+pub struct BatchAccumulatorFactory {
+    flush_interval: Option<std::time::Duration>,
+    max_buffer_size: Option<usize>,
+}
+
+impl BatchAccumulatorFactory {
+    pub fn new(
+        flush_interval: Option<std::time::Duration>,
+        max_buffer_size: Option<usize>,
+    ) -> Self {
+        Self {
+            flush_interval,
+            max_buffer_size,
+        }
+    }
+}
+
+impl AccumulatorFactory for BatchAccumulatorFactory {
+    fn spawn(
+        &self,
+        name: String,
+        boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+        shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
+    ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+        let (socket_tx, socket_rx) = mpsc::channel(1024);
+        let (flush_tx, flush_rx) = flush_signal();
+
+        let checkpoint = config.dal.map(|dal| {
+            super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
+        });
+        let sender = BoundarySender::with_freshness(
+            boundary_tx,
+            SourceName::new(&name),
+            config.freshness.clone(),
+        );
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: name.clone(),
+            shutdown: shutdown_rx,
+            checkpoint,
+            health: config.health_tx,
+        };
+        let batch_cfg = BatchAccumulatorConfig {
+            flush_interval: self.flush_interval,
+            max_buffer_size: self.max_buffer_size,
+        };
+        let handle = tokio::spawn(async move {
+            // The packaged path has no external reactor-driven flusher, so
+            // flushes come from the timer / size threshold. Hold `flush_tx` for
+            // the runtime's lifetime so `flush_rx` stays open (its select arm
+            // simply never fires) rather than closing and busy-spinning.
+            let _flush_tx = flush_tx;
+            batch_accumulator_runtime(
+                JsonListBatchAccumulator,
+                ctx,
+                socket_rx,
+                flush_rx,
+                batch_cfg,
+            )
+            .await;
+        });
+        (socket_tx, handle)
+    }
+}
+
+/// Parse a batch accumulator's `flush_interval` (e.g. `"1s"`, `"500ms"`) and
+/// `max_buffer_size` from its String-keyed config map. Absent/unparsable →
+/// `None` (the runtime treats each as an optional flush trigger).
+fn batch_config_from_config(
+    config: &std::collections::HashMap<String, String>,
+) -> (Option<std::time::Duration>, Option<usize>) {
+    let flush_interval = config
+        .get("flush_interval")
+        .and_then(|s| crate::packaging::manifest_schema::parse_duration_str(s).ok());
+    let max_buffer_size = config
+        .get("max_buffer_size")
+        .and_then(|s| s.parse::<usize>().ok());
+    (flush_interval, max_buffer_size)
+}
+
+/// Central accumulator-factory dispatch for the packaged path (CLOACI-T-0896).
+/// Every packaged-reactor loader (Python runtime registration, Rust cdylib
+/// metadata, manifest overrides) resolves the same set of kinds here, and an
+/// unknown type WARNs loudly + falls back to passthrough instead of silently
+/// degrading — the whole point of T-0896.
+/// A poll closure for a packaged polling accumulator: invoked on each interval,
+/// it returns `Some(json_bytes)` to emit a boundary or `None` to skip. The
+/// closure does the blocking, GIL-taking work itself — cloacina runs it via
+/// `spawn_blocking` off the async executor. The Python layer supplies these
+/// (each wraps the registered Python poll fn); there is NO FFI accumulator-invoke
+/// method, and none is needed — the poll fn lives in-process. (CLOACI-T-0896)
+pub type PollClosure = Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>;
+
+/// Resolves the poll closure for a polling accumulator by name (returns `None`
+/// when the name isn't registered). Installed once by the Python extension.
+type PollingClosureBuilder = Box<dyn Fn(&str) -> Option<PollClosure> + Send + Sync>;
+
+static POLLING_CLOSURE_BUILDER: std::sync::OnceLock<PollingClosureBuilder> =
+    std::sync::OnceLock::new();
+
+/// Register the polling-accumulator poll-closure resolver for the packaged path
+/// (CLOACI-T-0896). Idempotent — the first registration wins. The Python
+/// extension calls this at module install so a packaged polling accumulator
+/// drives its Python poll fn on the configured interval. A pure-Rust host that
+/// never installs one gets a loud passthrough fallback for polling accumulators.
+pub fn register_polling_accumulator_builder(builder: PollingClosureBuilder) {
+    let _ = POLLING_CLOSURE_BUILDER.set(builder);
+}
+
+/// A [`PollingAccumulator`] driven by an injected [`PollClosure`] (the Python
+/// poll fn). `poll()` runs the closure on a blocking thread so the GIL work
+/// never blocks the async executor — the same discipline `PythonTriggerWrapper`
+/// uses for poll triggers. (CLOACI-T-0896)
+struct ClosurePollingAccumulator {
+    poll_fn: PollClosure,
+    interval: std::time::Duration,
+}
+
+#[async_trait::async_trait]
+impl super::accumulator::PollingAccumulator for ClosurePollingAccumulator {
+    type Output = Vec<u8>;
+
+    async fn poll(&mut self) -> Option<Vec<u8>> {
+        let f = self.poll_fn.clone();
+        tokio::task::spawn_blocking(move || f())
+            .await
+            .ok()
+            .flatten()
+    }
+
+    fn interval(&self) -> std::time::Duration {
+        self.interval
+    }
+}
+
+/// Packaged polling-accumulator factory (CLOACI-T-0896). Resolves the poll
+/// closure by name at spawn time via the registered builder, then runs
+/// `polling_accumulator_runtime` on the configured interval. If no closure is
+/// registered for the name, the accumulator simply never emits (logged) rather
+/// than failing the load.
+pub struct PollingAccumulatorFactory {
+    interval: std::time::Duration,
+}
+
+impl PollingAccumulatorFactory {
+    pub fn new(interval: std::time::Duration) -> Self {
+        Self { interval }
+    }
+}
+
+impl AccumulatorFactory for PollingAccumulatorFactory {
+    fn spawn(
+        &self,
+        name: String,
+        boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+        shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
+    ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+        let (socket_tx, socket_rx) = mpsc::channel(1024);
+
+        let poll_fn = POLLING_CLOSURE_BUILDER
+            .get()
+            .and_then(|builder| builder(&name));
+        if poll_fn.is_none() {
+            tracing::warn!(
+                accumulator = %name,
+                "no poll closure registered for polling accumulator — it will \
+                 never emit (CLOACI-T-0896)"
+            );
+        }
+        // No registered closure → a no-op poller that always returns None.
+        let poll_fn: PollClosure = poll_fn.unwrap_or_else(|| Arc::new(|| None));
+
+        let checkpoint = config.dal.map(|dal| {
+            super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
+        });
+        let sender = BoundarySender::with_freshness(
+            boundary_tx,
+            SourceName::new(&name),
+            config.freshness.clone(),
+        );
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: name.clone(),
+            shutdown: shutdown_rx,
+            checkpoint,
+            health: config.health_tx,
+        };
+        let poller = ClosurePollingAccumulator {
+            poll_fn,
+            interval: self.interval,
+        };
+        let handle = tokio::spawn(super::accumulator::polling_accumulator_runtime(
+            poller, ctx, socket_rx,
+        ));
+        (socket_tx, handle)
+    }
+}
+
+/// Parse a polling accumulator's `interval` (e.g. `"2s"`) from config; defaults
+/// to 5s when absent/unparsable.
+fn polling_interval_from_config(
+    config: &std::collections::HashMap<String, String>,
+) -> std::time::Duration {
+    config
+        .get("interval")
+        .and_then(|s| crate::packaging::manifest_schema::parse_duration_str(s).ok())
+        .unwrap_or_else(|| std::time::Duration::from_secs(5))
+}
+
+fn accumulator_factory_for(
+    acc_type: &str,
+    config: &std::collections::HashMap<String, String>,
+) -> Arc<dyn AccumulatorFactory> {
+    match acc_type {
+        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(config.clone())),
+        "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
+            config,
+        ))),
+        "batch" => {
+            let (flush_interval, max_buffer_size) = batch_config_from_config(config);
+            Arc::new(BatchAccumulatorFactory::new(
+                flush_interval,
+                max_buffer_size,
+            ))
+        }
+        "polling" => Arc::new(PollingAccumulatorFactory::new(
+            polling_interval_from_config(config),
+        )),
+        "passthrough" => Arc::new(PassthroughAccumulatorFactory),
+        other => {
+            tracing::warn!(
+                accumulator_type = %other,
+                "unknown accumulator type in packaged graph — falling back to \
+                 passthrough (CLOACI-T-0896); firing will be per-event, not the \
+                 declared behavior"
+            );
+            Arc::new(PassthroughAccumulatorFactory)
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // T-0545 M3a: dispatch reactors registered in a Runtime into a scheduler
 // ---------------------------------------------------------------------------
@@ -704,13 +967,7 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
                         None => ("passthrough".to_string(), Default::default()),
                     },
                 };
-                let factory: Arc<dyn AccumulatorFactory> = match acc_type.as_str() {
-                    "stream" => Arc::new(StreamBackendAccumulatorFactory::new(acc_config)),
-                    "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
-                        &acc_config,
-                    ))),
-                    _ => Arc::new(PassthroughAccumulatorFactory),
-                };
+                let factory = accumulator_factory_for(&acc_type, &acc_config);
                 AccumulatorDeclaration {
                     name: acc_name.clone(),
                     factory,
@@ -770,28 +1027,15 @@ pub async fn dispatch_package_reactors_into_scheduler(
             .accumulators
             .iter()
             .map(|acc| {
-                let factory: Arc<dyn AccumulatorFactory> = match accumulator_overrides
+                let factory = match accumulator_overrides
                     .iter()
                     .find(|cfg| cfg.name == acc.name)
                 {
-                    Some(override_cfg) => match override_cfg.accumulator_type.as_str() {
-                        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
-                            override_cfg.config.clone(),
-                        )),
-                        "state" => Arc::new(StateAccumulatorFactory::new(
-                            state_capacity_from_config(&override_cfg.config),
-                        )),
-                        _ => Arc::new(PassthroughAccumulatorFactory),
-                    },
-                    None => match acc.accumulator_type.as_str() {
-                        "stream" => {
-                            Arc::new(StreamBackendAccumulatorFactory::new(acc.config.clone()))
-                        }
-                        "state" => Arc::new(StateAccumulatorFactory::new(
-                            state_capacity_from_config(&acc.config),
-                        )),
-                        _ => Arc::new(PassthroughAccumulatorFactory),
-                    },
+                    Some(override_cfg) => accumulator_factory_for(
+                        &override_cfg.accumulator_type,
+                        &override_cfg.config,
+                    ),
+                    None => accumulator_factory_for(&acc.accumulator_type, &acc.config),
                 };
                 AccumulatorDeclaration {
                     name: acc.name.clone(),

@@ -1,0 +1,26 @@
+# PYTHON packaged STATE-ACCUMULATOR computation graph (I-0138 / Python-gap
+# sweep). The stateful peer of `python-packaged-graph` (which uses a passthrough
+# accumulator): this one uses `@cloaca.state_accumulator(capacity=N)` — the
+# bounded rolling-window primitive. Every injected event is appended to a
+# bounded window; the FULL retained window is emitted as the boundary on each
+# write, so the entry node receives a LIST (history), not a single event. Closes
+# the accumulator-kind coverage gap (state was fixtures-only, demo-py-state) on
+# the server gold path.
+#
+# The module tree MUST live under workflow/ — the reconciler's Python CG
+# extraction requires it. Package name (snake) is the entry module root:
+# `tick-window` → `workflow/tick_window/`.
+[package]
+name = "tick-window"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "tick_window_py"
+language = "python"
+description = "Python state accumulator — bounded rolling window over a market feed"
+entry_module = "tick_window.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"

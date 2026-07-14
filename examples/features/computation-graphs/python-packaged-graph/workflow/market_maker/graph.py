@@ -9,7 +9,12 @@ in the global Python executor registry.
 import cloaca
 
 
-# Define accumulators
+# Define accumulators. `@cloaca.boundary_schema(...)` declares the accumulator's
+# typed boundary (the Python parity of deriving `schemars::JsonSchema` on a Rust
+# boundary type): the compiler parses it into a typed input slot, so the server
+# validates injected/fired events against it — a non-conforming event is
+# rejected before it reaches the graph (CLOACI-T-0759 / T-0770).
+@cloaca.boundary_schema(best_bid=float, best_ask=float)
 @cloaca.passthrough_accumulator
 def orderbook(event):
     """Pass through order book events."""

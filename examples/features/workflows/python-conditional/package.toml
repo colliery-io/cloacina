@@ -1,0 +1,20 @@
+# PYTHON packaged CONDITIONAL-SKIP example (I-0138 / Python-gap sweep). Probes
+# the Python `trigger_rules` → `Skipped` state on the server gold path — the
+# parity closed in T-0763 was only ever exercised by the demo-stack fixture
+# (demo-py-cron), never through compile → reconcile → execute.
+#
+# `audit` is gated by `context_value("do_audit", "Equals", True)`, but `gate`
+# sets `do_audit = False`, so the rule never fires and the planner must Skip it.
+# `audit` RAISES if it ever runs — so the only way the run reaches `Completed`
+# is if the skip was honored. `record` fans in on the run path + the skipped
+# path (a Skipped dep counts as resolved) and still runs.
+#
+# Minimal manifest: loader infers `language = "python"` + entry module from the
+# `workflow/<name>/` layout. `audit-pipeline` → `workflow/audit_pipeline/`.
+[package]
+name = "audit-pipeline"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "audit_pipeline"
+description = "Python packaged trigger_rules — a gated task Skips; the run completes over the skipped dep"

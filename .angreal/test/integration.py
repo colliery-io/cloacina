@@ -1,7 +1,6 @@
 import shutil
 import subprocess
 import sys
-import time
 import os
 from pathlib import Path
 
@@ -20,6 +19,65 @@ from ._python_utils import (
 )
 
 
+def _local_crate_patch_block() -> str:
+    """A `[patch.crates-io]` block mapping every workspace crate to its local
+    path — the file-based dependency resolution the compiler's `--dev-workspace`
+    injects at build time (CLOACI-T-0887). Ship-form example packages declare
+    their cloacina deps as crates.io VERSION deps (`= "0.10"`), which are
+    unpublished; a plain `cargo build` of such an example can't resolve them
+    against crates.io, so we point them at the local checkout for testing."""
+    repo = Path(__file__).resolve().parents[2]
+    lines = ["", "[patch.crates-io]"]
+    for cargo_toml in sorted((repo / "crates").glob("*/Cargo.toml")):
+        name = None
+        in_pkg = False
+        for raw in cargo_toml.read_text().splitlines():
+            s = raw.strip()
+            if s == "[package]":
+                in_pkg = True
+                continue
+            if s.startswith("[") and s != "[package]":
+                in_pkg = False
+            if in_pkg and s.startswith("name") and "=" in s:
+                name = s.split("=", 1)[1].strip().strip('"')
+                break
+        if name:
+            lines.append(f'{name} = {{ path = "{cargo_toml.parent}" }}')
+    return "\n".join(lines) + "\n"
+
+
+def _build_shipform_fixture(example_rel: str, pkg: str):
+    """Build a ship-form (version-dep) example package as a test fixture with
+    file-based dependency resolution. Ship-form examples carry crates.io VERSION
+    deps and rely on the compiler's `--dev-workspace` to patch them to local
+    paths on the gold path; a plain `cargo build` has no such patch, so we append
+    the local `[patch.crates-io]` block to a temporary copy of the example's
+    Cargo.toml (and its Cargo.lock is already local-shaped), then restore both so
+    the shipped example stays pristine. Path-dep examples (already file-based)
+    build as-is."""
+    repo = Path(__file__).resolve().parents[2]
+    example_dir = repo / example_rel
+    cargo_toml = example_dir / "Cargo.toml"
+    cargo_lock = example_dir / "Cargo.lock"
+    original_toml = cargo_toml.read_text()
+    original_lock = cargo_lock.read_text() if cargo_lock.exists() else None
+    # Detect a REAL patch section (a section header line), not the substring in a
+    # doc comment — several examples mention `[patch.crates-io]` in comments.
+    already_patched = any(
+        line.strip() == "[patch.crates-io]" for line in original_toml.splitlines()
+    )
+    if already_patched:
+        subprocess.run(["cargo", "build", "-p", pkg], check=True, cwd=str(example_dir))
+        return
+    try:
+        cargo_toml.write_text(original_toml + _local_crate_patch_block())
+        subprocess.run(["cargo", "build", "-p", pkg], check=True, cwd=str(example_dir))
+    finally:
+        cargo_toml.write_text(original_toml)
+        if original_lock is not None:
+            cargo_lock.write_text(original_lock)
+
+
 def build_test_packages(backend=None):
     """Pre-build test packages before running integration tests.
 
@@ -35,20 +93,17 @@ def build_test_packages(backend=None):
     # Create output directory
     os.makedirs("target/test-packages", exist_ok=True)
 
-    # Build packaged-workflow-example (debug mode to match test binary wire format)
+    # Build packaged-workflow-example (debug mode to match test binary wire
+    # format). Ship-form (version-dep) example → build with local crate patch.
     print("Building packaged-workflow-example...")
-    subprocess.run(
-        ["cargo", "build", "-p", "packaged-workflow-example"],
-        check=True,
-        cwd="examples/features/workflows/packaged-workflows"
+    _build_shipform_fixture(
+        "examples/features/workflows/packaged-workflows", "packaged-workflow-example"
     )
 
-    # Build simple-packaged-demo (debug mode to match test binary wire format)
+    # Build simple-packaged-demo (debug mode to match test binary wire format).
     print("Building simple-packaged-demo...")
-    subprocess.run(
-        ["cargo", "build", "-p", "simple-packaged-demo"],
-        check=True,
-        cwd="examples/features/workflows/simple-packaged"
+    _build_shipform_fixture(
+        "examples/features/workflows/simple-packaged", "simple-packaged-demo"
     )
 
     # T-0550 / I-0102 T-D — primitive-only fixtures exercised by

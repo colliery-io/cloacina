@@ -23,8 +23,8 @@
 //! - Parallel execution paths
 //! - Complex branching and merging
 
-use cloacina::{Context, TaskError};
 use cloacina_macros::{task, workflow};
+use cloacina_workflow::{Context, TaskError};
 
 // I-0102 / T-C: unified plugin shell.
 cloacina_workflow_plugin::package!();

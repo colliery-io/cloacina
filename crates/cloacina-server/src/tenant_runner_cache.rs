@@ -180,10 +180,15 @@ impl TenantRunnerCache {
         // fleet executor routes on, so the tenant's tasks reach its agents.
         let mut config = self.base_config.clone();
         config.set_tenant_id(tenant_id);
-        let runner = DefaultRunner::with_database(
+        // CLOACI-T-0890: thread the tenant-scoped secret resolver onto this
+        // runner's in-process executor so locally-executed tasks can resolve
+        // `{"$secret": …}` bindings. None (KEK unset) fails closed at the task.
+        let secret_resolver = crate::secrets::runner_secret_resolver(tenant_id, &tenant_database);
+        let runner = DefaultRunner::with_database_secrets(
             tenant_database,
             config,
             Some(self.shared_runtime.clone()),
+            secret_resolver,
         )
         .await?;
         // CLOACI-T-0581 follow-up: install the shared graph scheduler if

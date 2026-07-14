@@ -1,8 +1,10 @@
 """demos features — run feature-focused Cloacina examples."""
 
 import json
+import os
 import shutil
 import subprocess
+import time
 
 import angreal  # type: ignore
 
@@ -11,6 +13,7 @@ from utils import run_example_or_tutorial
 
 from .._utils import (
     PROJECT_ROOT,
+    get_packaged_example_directories,
     get_rust_feature_directories,
 )
 
@@ -41,10 +44,10 @@ _rust_feature_commands = {
     for name, path in get_rust_feature_directories()
 }
 
-# Bespoke feature demos defined below (excluded from auto-registration because
-# `cargo run` is the wrong verb for them). Keep this list next to their
-# definitions — `demos matrix` includes it so CI runs them too.
-_BESPOKE_FEATURES = ["python-workflow", "simple-packaged"]
+# 32-byte demo KEK (base64) for the secrets lanes — the same value the demo
+# compose stack ships. Demo/dev only; production operators provision their own
+# CLOACINA_SECRET_KEK.
+_DEMO_SECRET_KEK = "ZGVtby1rZWstZGVtby1rZWstZGVtby1rZWstMDAwMSE="
 
 
 @demos()
@@ -61,9 +64,13 @@ def matrix():
     """CI executes ALL runnable examples. This is the single source of truth:
     the same discovery that registers `demos features <name>` commands feeds
     the CI matrix, so a new example directory automatically joins CI — no
-    hand-maintained workflow list to drift."""
+    hand-maintained list to drift. Three sources: embedded `cargo run` examples
+    (dirs without a package.toml), packaged gold-path examples (dirs WITH a
+    package.toml), and the one bespoke wheel demo (python-workflow)."""
     names = sorted(
-        [name.replace("_", "-") for name in _rust_feature_commands] + _BESPOKE_FEATURES
+        [name.replace("_", "-") for name in _rust_feature_commands]
+        + list(_packaged_commands)
+        + ["python-workflow"]
     )
     print(json.dumps(names))
 
@@ -126,40 +133,25 @@ def python_workflow():
             shutil.rmtree(venv_path)
 
 
-# --- canonical packaged-workflow demo (the gold path) ------------------------
+# --- gold-path packaged demos (CLOACI-I-0138) --------------------------------
 #
-# `simple-packaged` is the CANONICAL example (CLOACI-I-0138): it runs through
-# the PRIMARY interface — pack → upload → (server compiles & reconciles) →
-# workflow run → execution Completed — never an in-process runner. It's in the
-# auto-registration exclude list because `cargo run` is the wrong verb for it;
-# this bespoke command drives the real lifecycle instead, reusing the
-# service-lifecycle helpers from the compiler e2e harness.
+# These examples run through the PRIMARY interface — pack → upload → (server
+# compiles & reconciles) → workflow run → execution Completed — never an
+# in-process runner. They're in the auto-registration exclude list because
+# `cargo run` is the wrong verb; each bespoke command drives the real
+# lifecycle via this shared helper, reusing the service-lifecycle helpers
+# from the compiler e2e harness.
 
-@demos()
-@features()
-@angreal.command(
-    name="simple-packaged",
-    about="run the canonical packaged example through the primary interface (pack → upload → compile → run)",
-    long_about=(
-        "Drives examples/features/workflows/simple-packaged the way the README "
-        "says a user does: postgres (dev stack) + cloacina-server + "
-        "cloacina-compiler (with --dev-workspace so the example's crates.io "
-        "version deps resolve against this checkout), then cloacinactl "
-        "pack → upload → poll the build to success → workflow run "
-        "data_processing → poll the execution to Completed. First run "
-        "cold-compiles the package deps (~5-10 min); warm cache finishes in "
-        "under a minute."
-    ),
-    when_to_use=[
-        "verifying the packaged/server gold path end to end",
-        "validating the canonical example after compiler/server changes",
-    ],
-    when_not_to_use=[
-        "compiler-pipeline regression assertions (use `test e2e compiler`)",
-        "running without docker",
-    ],
-)
-def simple_packaged():
+def _run_gold_path(label, example_dirname, run_steps, server_env=None, extra_services=None):
+    """Stand up dev-stack postgres + a host server + a host compiler
+    (--dev-workspace so the examples' crates.io version deps resolve against
+    this checkout), pack + upload the example, wait for the build, then call
+    `run_steps(ctl, home)` for the example-specific run/observe assertions.
+    `ctl(*args, check=True)` is a bound cloacinactl invoker. `server_env`
+    adds/overrides env vars on the server process (e.g. the secrets KEK).
+    `extra_services` names additional dev-stack compose services to bring up
+    (e.g. `("kafka",)`) AFTER the postgres reset but BEFORE the server starts,
+    so a stream accumulator's consumer can connect at reconcile time."""
     import tempfile
     from pathlib import Path
 
@@ -169,32 +161,51 @@ def simple_packaged():
         _cloacinactl,
         _kill,
         _poll_build_status,
-        _poll_execution_status,
-        _poll_run_workflow,
         _start_postgres,
         _upload,
         _wait_http,
     )
 
-    print("=== simple-packaged: packaged-workflow gold path ===")
+    print(f"=== {label}: packaged-workflow gold path ===")
     _build_binaries()
     _start_postgres()
+    # Bring up any extra dev-stack services (e.g. kafka) AFTER the postgres
+    # reset (which does `down -v`, tearing the whole project down) but before
+    # the server. `--wait` blocks until they're healthy so the server's
+    # reconcile-time consumers can connect.
+    if extra_services:
+        print(f"  bringing up dev-stack services: {', '.join(extra_services)}")
+        rc = subprocess.run(
+            [
+                "docker", "compose", "-f", ".angreal/docker-compose.yaml",
+                "up", "-d", "--wait", *extra_services,
+            ],
+            cwd=str(PROJECT_ROOT),
+            check=False,
+        ).returncode
+        if rc != 0:
+            raise RuntimeError(f"failed to bring up dev-stack services {extra_services}")
     # Distinct ports from the other harnesses (compiler e2e 18083/19003,
     # ui e2e 18085/19001) so lanes can't collide on a shared machine.
     _assert_ports_free(18087, 19005)
 
     db_url = "postgres://cloacina:cloacina@localhost:15432/cloacina"
-    bootstrap_key = "demo-simple-packaged-key"
+    bootstrap_key = f"demo-{label}-key"
     server_bind = "127.0.0.1:18087"
     compiler_bind = "127.0.0.1:19005"
 
-    example_dir = PROJECT_ROOT / "examples" / "features" / "workflows" / "simple-packaged"
-    home = Path(tempfile.mkdtemp(prefix="simple-packaged-demo-"))
+    # `example_dirname` is relative to examples/features/ and may carry a
+    # subtree (e.g. "computation-graphs/cg-feature-tour").
+    example_dir = PROJECT_ROOT / "examples" / "features" / example_dirname
+    home = Path(tempfile.mkdtemp(prefix=f"{label}-demo-"))
     print(f"demo home (service logs): {home}")
 
     server_proc = None
     compiler_proc = None
     try:
+        env = os.environ.copy()
+        if server_env:
+            env.update(server_env)
         server_log = open(home / "server.log", "w")
         server_proc = subprocess.Popen(
             [
@@ -208,6 +219,7 @@ def simple_packaged():
             cwd=PROJECT_ROOT,
             stdout=server_log,
             stderr=subprocess.STDOUT,
+            env=env,
         )
         _wait_http(f"http://{server_bind}/health", "server", proc=server_proc)
         print("  ok: server up")
@@ -227,7 +239,7 @@ def simple_packaged():
                 "--cargo-target-dir", str(shared_target),
                 "--cargo-flag=build",
                 "--cargo-flag=--lib",
-                # DEV ESCAPE HATCH (CLOACI-T-0887): the example ships crates.io
+                # DEV ESCAPE HATCH (CLOACI-T-0887): the examples ship crates.io
                 # version deps (the form users ship); resolve them against THIS
                 # checkout's unpublished crates.
                 "--dev-workspace", str(PROJECT_ROOT),
@@ -256,17 +268,564 @@ def simple_packaged():
         _poll_build_status(home, pkg_id, {"success"}, timeout_s=900.0)
         print("  ok: build_status = success")
 
-        exec_id = _poll_run_workflow(home, "data_processing", timeout_s=180.0)
-        print(f"  ok: workflow run accepted (execution {exec_id})")
+        def ctl(*args, check=True):
+            return _cloacinactl(home, *args, check=check)
 
-        _poll_execution_status(home, exec_id, {"Completed"}, timeout_s=300.0)
-        print("  ok: execution Completed")
+        run_steps(ctl, home)
 
         print(
-            "\nSUCCESS: gold path verified — "
+            f"\nSUCCESS: {label} gold path verified — "
             "pack → upload → compile → reconcile → execute → Completed"
         )
         return 0
     finally:
         _kill(compiler_proc)
         _kill(server_proc)
+
+
+def _run_to_completed(ctl, home, workflow_name, context_path=None, timeout_s=300.0):
+    """`workflow run` (retrying until the reconciler has loaded the workflow),
+    then poll the execution to Completed. Returns the execution id."""
+    from test.e2e.compiler import _poll_execution_status
+
+    deadline = time.time() + 180.0
+    last_err = ""
+    exec_id = None
+    while time.time() < deadline:
+        args = ["-o", "json", "workflow", "run", workflow_name]
+        if context_path:
+            args += ["--context", str(context_path)]
+        code, out, err = ctl(*args, check=False)
+        if code == 0:
+            try:
+                exec_id = json.loads(out).get("execution_id")
+            except json.JSONDecodeError:
+                exec_id = (out.strip().splitlines() or [""])[-1].strip() or None
+            if exec_id and len(exec_id) >= 32:
+                break
+            exec_id = None
+        last_err = err.strip() or out.strip()
+        time.sleep(3.0)
+    if not exec_id:
+        raise AssertionError(
+            f"workflow run {workflow_name} never succeeded; last error: {last_err}"
+        )
+    print(f"  ok: workflow run accepted (execution {exec_id})")
+    _poll_execution_status(home, exec_id, {"Completed"}, timeout_s=timeout_s)
+    print("  ok: execution Completed")
+    return exec_id
+
+
+# --- generic packaged-example registrar (CLOACI-I-0138) ----------------------
+#
+# Every example with a `package.toml` runs through the SERVER gold path, so ONE
+# registrar discovers them and registers `demos features <name>` for each — no
+# bespoke command per example (that plumbing was harness boilerplate, not a
+# per-example feature). The default assertion comes from the manifest:
+# `workflow_name` → run it to Completed. A few examples need a richer check
+# (param validation, secret lifecycle, graph inject→fire) and supply a thin
+# override below; a few not-yet-gold-path examples are skipped WITH A REASON so
+# nothing is silently dropped.
+
+
+def _default_workflow_steps(workflow_name):
+    def steps(ctl, home):
+        _run_to_completed(ctl, home, workflow_name)
+
+    return steps
+
+
+_MT_DB_URL = "postgres://cloacina:cloacina@localhost:15432/cloacina"
+
+
+def _multi_tenant_steps(workflow_name):
+    """Prove the tenant isolation boundary — the FULL per-tenant deployment
+    model — on the gold path. The package is already deployed in `public` (the
+    harness pre-upload) = tenant 1. We create a second tenant `mtbeta`, stand up
+    a SECOND compiler scoped to `--tenant-schema mtbeta` (each tenant runs its
+    own compiler — the harness's default compiler only claims the public/admin
+    schema, by design: `cloacina-compiler --tenant-schema` isolates builds per
+    tenant), deploy the SAME archive into `mtbeta`, and run the workflow in BOTH
+    tenants. We then assert their executions never cross, and that a third
+    tenant `mtgamma` that never received the package cannot run the workflow.
+
+    Tenant/workflow/execution routes are all `/v1/tenants/{tenant}/...`; every
+    call here is `--tenant`-scoped (the shared poll helpers target `public`
+    only, so this lane does its own tenant-aware run/poll)."""
+
+    def steps(ctl, home):
+        from test.e2e.compiler import _cloacinactl, _wait_http, _kill
+
+        def tctl(tenant, *args, check=True):
+            return _cloacinactl(home, "--tenant", tenant, *args, check=check)
+
+        def _exec_id(out):
+            try:
+                v = json.loads(out).get("execution_id")
+            except json.JSONDecodeError:
+                v = (out.strip().splitlines() or [""])[-1].strip() or None
+            return v if v and len(v) >= 32 else None
+
+        def run_and_wait(tenant, timeout_s=180.0):
+            # Retry `workflow run` until the reconciler has loaded the workflow
+            # in THIS tenant, then poll THIS tenant's execution to Completed.
+            deadline = time.time() + 120.0
+            exec_id = None
+            last = ""
+            while time.time() < deadline:
+                code, out, err = tctl(
+                    tenant, "-o", "json", "workflow", "run", workflow_name,
+                    check=False,
+                )
+                if code == 0:
+                    exec_id = _exec_id(out)
+                    if exec_id:
+                        break
+                last = err.strip() or out.strip()
+                time.sleep(3.0)
+            if not exec_id:
+                raise AssertionError(
+                    f"[{tenant}] workflow run {workflow_name} never accepted: {last!r}"
+                )
+            pdl = time.time() + timeout_s
+            while time.time() < pdl:
+                _, pout, _ = tctl(
+                    tenant, "-o", "json", "execution", "status", exec_id,
+                    check=False,
+                )
+                try:
+                    st = json.loads(pout).get("status")
+                except json.JSONDecodeError:
+                    st = None
+                if st == "Completed":
+                    return exec_id
+                if st in {"Failed", "Cancelled"}:
+                    raise AssertionError(f"[{tenant}] execution {exec_id} → {st}")
+                time.sleep(2.0)
+            raise AssertionError(f"[{tenant}] execution {exec_id} never Completed")
+
+        def exec_ids(tenant):
+            _, out, _ = tctl(
+                tenant, "-o", "json", "execution", "list", "--limit", "100",
+                check=False,
+            )
+            try:
+                data = json.loads(out)
+            except json.JSONDecodeError:
+                return []
+            rows = data.get("items", data) if isinstance(data, dict) else data
+            return {(r.get("execution_id") or r.get("id")) for r in rows}
+
+        archive = next(home.glob("*.cloacina"))
+
+        # Tenant 1 = public: the harness already uploaded + built the package.
+        e_public = run_and_wait("public")
+        print(f"  ok: ran in tenant `public` → {e_public}")
+
+        # Tenant 2 = mtbeta: create it, then stand up its OWN compiler scoped to
+        # its schema (the per-tenant build isolation model), deploy the SAME
+        # archive, and run independently.
+        ctl("tenant", "create", "mtbeta", check=False)
+        mt_compiler = None
+        try:
+            mt_home = home / "mtbeta-compiler"
+            mt_home.mkdir(exist_ok=True)
+            mt_log = open(mt_home / "compiler.log", "w")
+            mt_compiler = subprocess.Popen(
+                [
+                    "target/debug/cloacina-compiler",
+                    "--home", str(mt_home),
+                    "--database-url", _MT_DB_URL,
+                    "--bind", "127.0.0.1:19006",
+                    "--tenant-schema", "mtbeta",
+                    "--poll-interval-ms", "500",
+                    "--dev-workspace", str(PROJECT_ROOT),
+                    "--verbose",
+                ],
+                cwd=PROJECT_ROOT,
+                stdout=mt_log,
+                stderr=subprocess.STDOUT,
+            )
+            _wait_http(
+                "http://127.0.0.1:19006/health", "mtbeta-compiler",
+                timeout_s=60.0, proc=mt_compiler,
+            )
+            print("  ok: per-tenant compiler up (--tenant-schema mtbeta)")
+
+            _, up, _ = tctl("mtbeta", "package", "upload", str(archive), check=False)
+            pkg_beta = (up.strip().splitlines() or [""])[-1].strip()
+            if not (pkg_beta and len(pkg_beta) >= 32):
+                raise AssertionError(f"upload to mtbeta didn't return a package id: {up!r}")
+            bdl = time.time() + 180.0
+            while time.time() < bdl:
+                _, iout, _ = tctl(
+                    "mtbeta", "-o", "json", "package", "inspect", pkg_beta,
+                    check=False,
+                )
+                try:
+                    if json.loads(iout).get("build_status") == "success":
+                        break
+                except json.JSONDecodeError:
+                    pass
+                time.sleep(2.0)
+            else:
+                raise AssertionError("mtbeta package never built (per-tenant compiler)")
+            print("  ok: deployed the same package into tenant `mtbeta` (its own compiler built it)")
+            e_beta = run_and_wait("mtbeta")
+            print(f"  ok: ran in tenant `mtbeta` → {e_beta}")
+        finally:
+            _kill(mt_compiler)
+
+        # Isolation 1: each tenant's execution list contains ONLY its own run.
+        pub_ids, beta_ids = exec_ids("public"), exec_ids("mtbeta")
+        if e_public not in pub_ids or e_beta in pub_ids:
+            raise AssertionError(
+                f"tenant leak: `public` list {sorted(pub_ids)} should have "
+                f"{e_public} and NOT {e_beta}"
+            )
+        if e_beta not in beta_ids or e_public in beta_ids:
+            raise AssertionError(
+                f"tenant leak: `mtbeta` list {sorted(beta_ids)} should have "
+                f"{e_beta} and NOT {e_public}"
+            )
+        print("  ok: executions are tenant-isolated (neither tenant sees the other's run)")
+
+        # Isolation 2 (CLOACI-T-0901): a tenant that never received the package
+        # MUST NOT be able to run the workflow. The execute route now gates on
+        # the calling tenant's OWN registry before resolving the name against the
+        # process-shared `Runtime`, so an uninstalled workflow is rejected even
+        # though other tenants have loaded the same name.
+        ctl("tenant", "create", "mtgamma", check=False)
+        code, out, err = tctl(
+            "mtgamma", "workflow", "run", workflow_name, check=False,
+        )
+        if code == 0 and _exec_id(out):
+            raise AssertionError(
+                f"tenant leak (CLOACI-T-0901 regressed): `mtgamma` (never installed "
+                f"the package) ran `{workflow_name}`"
+            )
+        print("  ok: tenant `mtgamma` (no package) cannot run the workflow — isolated")
+
+    return steps
+
+
+def _graph_autofire_steps(label, reactor):
+    """For a SELF-FIRING reactor (a polling accumulator): assert the reactor
+    fires on its own — no inject. Reads the fires count off the reactors-list
+    endpoint and waits for it to increase, proving the packaged polling
+    accumulator drives its Python poll fn on the interval (CLOACI-T-0896)."""
+
+    def steps(ctl, home):
+        from test.e2e.compiler import _get_json
+
+        key = f"demo-{label}-key"
+
+        def fires_for(name):
+            body = _get_json("http://127.0.0.1:18087/v1/health/reactors", key)
+            items = body.get("items", []) if isinstance(body, dict) else []
+            for r in items:
+                if r.get("name") == name:
+                    return int(r.get("fires", 0) or 0)
+            return 0
+
+        before = fires_for(reactor)
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            time.sleep(5)
+            if fires_for(reactor) > before:
+                print(f"  ok: reactor {reactor} self-fired (polling accumulator ran its poll fn)")
+                return
+        raise AssertionError(
+            f"reactor {reactor} never self-fired — the polling accumulator's poll "
+            "fn was not driven on its interval (CLOACI-T-0896)"
+        )
+
+    return steps
+
+
+def _trigger_wait_steps(workflow_name):
+    """For a POLL/CRON-triggered workflow: don't `workflow run` it — wait for the
+    trigger to fire it AUTOMATICALLY and assert the auto-execution reaches
+    Completed. Proves the packaged-trigger path (macro → FFI projection → host
+    trigger registry → scheduled fire) end to end."""
+
+    def steps(ctl, home):
+        from test.e2e.compiler import _poll_execution_status
+
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            _, out, _ = ctl(
+                "-o", "json", "execution", "list",
+                "--workflow", workflow_name, "--limit", "1", check=False,
+            )
+            try:
+                data = json.loads(out)
+            except json.JSONDecodeError:
+                time.sleep(3)
+                continue
+            rows = data.get("items", data) if isinstance(data, dict) else data
+            if rows:
+                row = rows[0]
+                exec_id = row.get("execution_id") or row.get("id")
+                if exec_id and len(str(exec_id)) >= 32:
+                    print(f"  ok: trigger fired an execution automatically ({exec_id})")
+                    _poll_execution_status(home, exec_id, {"Completed"}, timeout_s=180.0)
+                    print("  ok: triggered execution Completed")
+                    return
+            time.sleep(3)
+        raise AssertionError(
+            f"no execution of `{workflow_name}` appeared — the poll trigger never "
+            "fired (macro/FFI projection or trigger scheduler not running)"
+        )
+
+    return steps
+
+
+def _context_run_steps(workflow_name, context_json):
+    """Run a workflow that declares REQUIRED params, supplying them via context.
+    The default lane runs `workflow run` with no context, which the execute route
+    rejects for a workflow with required params (I-0128 validation)."""
+
+    def steps(ctl, home):
+        ctx = home / "ctx.json"
+        ctx.write_text(context_json)
+        _run_to_completed(ctl, home, workflow_name, context_path=ctx)
+
+    return steps
+
+
+def _params_steps(workflow_name):
+    """Run a params template twice with different bindings, then assert a
+    missing-required-param run is rejected before execution."""
+
+    def steps(ctl, home):
+        prod = home / "prod.json"
+        prod.write_text('{"source": "/data/prod", "dst": "/backup/prod"}')
+        _run_to_completed(ctl, home, workflow_name, context_path=prod)
+
+        archive = home / "archive.json"
+        archive.write_text(
+            '{"source": "/data/archive", "dst": "/cold", "mode": "move", "max_files": 10}'
+        )
+        _run_to_completed(ctl, home, workflow_name, context_path=archive)
+
+        bad = home / "bad.json"
+        bad.write_text('{"dst": "/backup"}')
+        code, out, _ = ctl(
+            "workflow", "run", workflow_name, "--context", str(bad), check=False
+        )
+        if code == 0:
+            raise AssertionError(
+                "run with a missing required param was ACCEPTED — declared-param "
+                f"validation did not fire: {out!r}"
+            )
+        print("  ok: missing required param rejected before execution")
+
+    return steps
+
+
+def _secrets_steps(workflow_name):
+    """Full tenant-secret lifecycle: create → $secret-bound run (Completed) →
+    rotate → rerun → metadata-only get → literal binding rejected."""
+
+    def steps(ctl, home):
+        token_file = home / "token.txt"
+        token_file.write_text("s3cr3t-demo-token-value")
+        ctl("secret", "create", "oncall_api", "--field", f"token=@{token_file}")
+        print("  ok: tenant secret created")
+
+        bind = home / "bind.json"
+        bind.write_text('{"channel": "#oncall", "api_token": {"$secret": "oncall_api"}}')
+        _run_to_completed(ctl, home, workflow_name, context_path=bind)
+
+        token_file.write_text("r0tated-demo-token-value!")
+        ctl("secret", "rotate", "oncall_api", "--field", f"token=@{token_file}")
+        print("  ok: secret rotated")
+        _run_to_completed(ctl, home, workflow_name, context_path=bind)
+
+        _, out, _ = ctl("-o", "json", "secret", "get", "oncall_api")
+        if "s3cr3t" in out or "r0tated" in out:
+            raise AssertionError(f"secret get leaked a value: {out!r}")
+        print("  ok: secret get returns metadata only")
+
+        bad = home / "bad.json"
+        bad.write_text('{"api_token": "plaintext-token"}')
+        code, out, _ = ctl(
+            "workflow", "run", workflow_name, "--context", str(bad), check=False
+        )
+        if code == 0:
+            raise AssertionError(
+                f"literal secret value was ACCEPTED — validation did not fire: {out!r}"
+            )
+        print("  ok: literal secret value rejected before execution")
+
+    return steps
+
+
+def _graph_inject_steps(label, reactor, accumulator, event, bad_event=None):
+    """Inject a typed event into a reactor's accumulator and confirm the reactor
+    fires (its graph runs). Reads the fires COUNT off the reactors-list endpoint
+    (`ListResponse{items,total}`) rather than parsing the fires list. When
+    `bad_event` is given, also assert the accumulator's declared boundary schema
+    rejects it (proves the typed inject surface — `@cloaca.boundary_schema` /
+    `schemars::JsonSchema` — is wired)."""
+
+    def steps(ctl, home):
+        from test.e2e.compiler import _get_json
+
+        key = f"demo-{label}-key"
+
+        def fires_for(name):
+            body = _get_json("http://127.0.0.1:18087/v1/health/reactors", key)
+            items = body.get("items", []) if isinstance(body, dict) else []
+            for r in items:
+                if r.get("name") == name:
+                    return int(r.get("fires", 0) or 0)
+            return 0
+
+        if bad_event is not None:
+            code, out, _ = ctl(
+                "accumulator", "inject", accumulator, "--event", bad_event, check=False
+            )
+            if code == 0:
+                raise AssertionError(
+                    f"malformed event {bad_event!r} was ACCEPTED for `{accumulator}` — "
+                    f"the declared boundary schema did not reject it: {out!r}"
+                )
+            print("  ok: malformed event rejected by the accumulator boundary schema")
+
+        before = fires_for(reactor)
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            ctl("accumulator", "inject", accumulator, "--event", event, check=False)
+            time.sleep(4)
+            if fires_for(reactor) > before:
+                print(f"  ok: inject fired reactor {reactor} (graph ran)")
+                return
+        raise AssertionError(
+            f"reactor {reactor} never fired after injecting into `{accumulator}`"
+        )
+
+    return steps
+
+
+# name -> {"steps": <fn taking (ctl, home)>, "server_env": <dict|None>}
+_PACKAGED_OVERRIDES = {
+    # analytics_workflow declares a required `source_id` param → supply it.
+    "packaged-workflows": {
+        "steps": _context_run_steps("analytics_workflow", '{"source_id": "src-001"}'),
+    },
+    "parameterized-workflow": {"steps": _params_steps("sync_file")},
+    "python-parameterized": {"steps": _params_steps("python_parameterized")},
+    "workflow-secrets": {
+        "steps": _secrets_steps("notify_oncall"),
+        "server_env": {"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
+    },
+    "python-secrets": {
+        "steps": _secrets_steps("python_secrets"),
+        "server_env": {"CLOACINA_SECRET_KEK": _DEMO_SECRET_KEK},
+    },
+    "packaged-graph": {
+        "steps": _graph_inject_steps(
+            "packaged-graph",
+            "packaged_market_maker_reactor",
+            "orderbook",
+            '{"best_bid": 100.0, "best_ask": 100.1}',
+        ),
+    },
+    "python-packaged-graph": {
+        "steps": _graph_inject_steps(
+            "python-packaged-graph",
+            "market_maker",
+            "orderbook",
+            '{"best_bid": 100.0, "best_ask": 100.1}',
+            # `orderbook` declares @cloaca.boundary_schema(best_bid, best_ask):
+            # a non-object event must be rejected by the typed slot.
+            bad_event="42",
+        ),
+    },
+    # Python STATE accumulator (bounded rolling window) — inject a tick, the
+    # window emits, `tick_reactor` fires the graph; a non-object is rejected.
+    "python-stateful-graph": {
+        "steps": _graph_inject_steps(
+            "python-stateful-graph",
+            "tick_reactor",
+            "tick_window",
+            '{"bid": 100.0, "ask": 100.2}',
+            bad_event="42",
+        ),
+    },
+    # Python BATCH accumulator (buffer + flush on size/interval) — inject events,
+    # the buffer flushes, `batch_reactor` fires; a non-object is rejected.
+    "python-batch-graph": {
+        "steps": _graph_inject_steps(
+            "python-batch-graph",
+            "batch_reactor",
+            "event_batch",
+            '{"level": 42.0}',
+            bad_event="42",
+        ),
+    },
+    # Python POLLING accumulator (self-fires via its poll fn) — no inject; assert
+    # `poll_reactor` fires on its own on the interval (CLOACI-T-0896).
+    "python-polling-graph": {
+        "steps": _graph_autofire_steps("python-polling-graph", "poll_reactor"),
+    },
+    # Poll trigger fires `file_processing` automatically — wait for it, don't run.
+    "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},
+    # Python peer: @cloaca.trigger poll fires `file_processing_py` automatically.
+    "python-triggers": {"steps": _trigger_wait_steps("file_processing_py")},
+    # Python cron: the cron scheduler fires `heartbeat_workflow` on a schedule.
+    "python-cron": {"steps": _trigger_wait_steps("heartbeat_workflow")},
+    # Python multi-tenancy: same package in two tenants, executions isolated.
+    "python-multi-tenant": {"steps": _multi_tenant_steps("tenant_job")},
+}
+
+# Packaged examples not yet driveable on the gold path — discovered but not
+# registered, each with a reason (no silent drops). Tracked for follow-up.
+_PACKAGED_SKIP = {
+    # (empty) — every packaged example is now driveable on the gold path.
+    # cg-feature-tour's stream/inject surface is deferred to T-0898, but its
+    # `tour_pipeline` invocation surface IS runnable via the default → registered.
+}
+
+
+def _register_packaged_example(name, rel_path, meta):
+    cfg = _PACKAGED_OVERRIDES.get(name)
+    if cfg is not None:
+        steps = cfg["steps"]
+        server_env = cfg.get("server_env")
+    else:
+        wf = meta.get("workflow_name")
+        if not wf:
+            # Graph-only package with no override → can't derive an assertion
+            # (reactor/accumulator/event aren't in the manifest). Skip loudly.
+            return None
+        steps = _default_workflow_steps(wf)
+        server_env = None
+
+    @demos()
+    @features()
+    @angreal.command(
+        name=name,
+        about=f"packaged gold path: {name} (pack → upload → compile → reconcile → execute)",
+        when_to_use=[
+            "verifying a packaged example end to end through the server",
+            "validating the gold path after compiler/server changes",
+        ],
+        when_not_to_use=["running without docker"],
+    )
+    def _cmd(_steps=steps, _rel=rel_path, _name=name, _env=server_env):
+        return _run_gold_path(_name, _rel, _steps, server_env=_env)
+
+    _cmd.__name__ = f"packaged_{name}".replace("-", "_")
+    return _cmd
+
+
+_packaged_commands = {}
+for _name, _rel, _meta in get_packaged_example_directories():
+    if _name in _PACKAGED_SKIP:
+        continue
+    _cmd = _register_packaged_example(_name, _rel, _meta)
+    if _cmd is not None:
+        _packaged_commands[_name] = _cmd

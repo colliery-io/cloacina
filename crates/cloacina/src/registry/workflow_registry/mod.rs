@@ -234,6 +234,18 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .unwrap_or_default())
     }
 
+    /// Whether a workflow addressed by `name` (its `workflow_name` or
+    /// `package_name`) is registered in THIS tenant's registry (CLOACI-T-0901).
+    /// The execute chokepoint uses this to refuse cross-tenant execution: a
+    /// tenant must not be able to run a workflow it never installed just because
+    /// another tenant loaded the same name into the process-shared `Runtime`.
+    pub async fn workflow_exists(&self, name: &str) -> Result<bool, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        Ok(workflows
+            .iter()
+            .any(|w| w.workflow_name == name || w.package_name == name))
+    }
+
     /// Workflow names subscribed to `trigger_name` via `#[workflow(triggers = […])]`
     /// (CLOACI-T-0777) — the fan-out set for a manual trigger fire. The schedules
     /// table only carries the trigger's primary `on` workflow, so subscriptions

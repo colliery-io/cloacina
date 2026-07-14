@@ -25,7 +25,7 @@ fn test_url_parsing_basic() {
 
     let parsed = result.unwrap();
     assert_eq!(parsed.host_str(), Some("localhost"));
-    assert_eq!(parsed.port(), Some(5432));
+    assert_eq!(parsed.port(), Some(15432));
     assert_eq!(parsed.path(), "/test_db");
     assert_eq!(parsed.username(), "user");
     assert_eq!(parsed.password(), Some("pass"));

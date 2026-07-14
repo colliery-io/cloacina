@@ -872,8 +872,15 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                     let __terminal_names: Vec<String> = __reg.terminal_node_names.clone();
                     let __ctx_for_graph = context.clone_data();
                     let __graph_result = __graph_fn(__ctx_for_graph).await;
+                    // CLOACI-T-0897: GraphResult's crate path differs per
+                    // build mode (packaged cdylibs have the CG runtime crate
+                    // direct; library users route through `cloacina`).
+                    #[cfg(not(feature = "packaged"))]
+                    use ::cloacina::computation_graph::GraphResult as __CgGraphResult;
+                    #[cfg(feature = "packaged")]
+                    use ::cloacina_computation_graph::GraphResult as __CgGraphResult;
                     match __graph_result {
-                        ::cloacina::computation_graph::GraphResult::Completed { outputs, .. } => {
+                        __CgGraphResult::Completed { outputs, .. } => {
                             for (idx, name) in __terminal_names.iter().enumerate() {
                                 if let Some(boxed) = outputs.get(idx) {
                                     if let Some(value) =
@@ -888,7 +895,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                                 }
                             }
                         }
-                        ::cloacina::computation_graph::GraphResult::Error(graph_err) => {
+                        __CgGraphResult::Error(graph_err) => {
                             let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
                                 message: format!(
                                     "computation_graph '{}' invocation failed: {}",

@@ -166,6 +166,7 @@ fn test_task_execution_fidelity() {
     let request = TaskExecutionRequest {
         task_name: "extract_data".to_string(),
         context_json: "{}".to_string(),
+        resolved_secrets: Default::default(),
     };
 
     // Method index 1 = execute_task (fidius 0.0.5 tuple encoding: single-arg = (T,))
@@ -208,6 +209,7 @@ fn test_unknown_task_returns_error() {
     let request = TaskExecutionRequest {
         task_name: "nonexistent_task".to_string(),
         context_json: "{}".to_string(),
+        resolved_secrets: Default::default(),
     };
 
     // fidius 0.0.5 tuple encoding: single-arg = (T,)
@@ -251,8 +253,8 @@ fn test_plugin_info_populated() {
         "Interface hash should be non-zero"
     );
     assert_eq!(
-        plugin.info.interface_version, 4,
-        "Interface version should be 4 (CLOACI-I-0132 get_constructor_metadata)"
+        plugin.info.interface_version, 5,
+        "Interface version should be 5 (CLOACI-T-0895 resolved_secrets on TaskExecutionRequest)"
     );
     assert_eq!(
         plugin.method_count, 11,

@@ -114,6 +114,11 @@ services:
       # Resolves the `{{ KAFKA_BROKER }}` token in Kafka-stream accumulator
       # configs (e.g. demo-kafka-stream-rust) to the in-network broker.
       CLOACINA_VAR_KAFKA_BROKER: "kafka:9092"
+      # Tenant-secrets KEK (CLOACI-I-0133) — enables `cloacinactl secret …` +
+      # `{"$secret": …}` bindings on this stack. Fixed DEMO value (base64 of a
+      # 32-byte string); production operators provision their own and never
+      # commit it.
+      CLOACINA_SECRET_KEK: "ZGVtby1rZWstZGVtby1rZWstZGVtby1rZWstMDAwMSE="
       # Route all task execution to the execution-agent fleet instead of the
       # server's in-process executor (CLOACI-I-0114). The `agent` services below
       # register over WS, fetch cdylibs by digest, run tasks, and report back.

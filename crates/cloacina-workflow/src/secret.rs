@@ -108,3 +108,43 @@ pub trait SecretResolver: Send + Sync {
     /// Resolve `name` to its decrypted `{field: value}` map.
     async fn resolve(&self, name: &str) -> Result<BTreeMap<String, String>, SecretResolverError>;
 }
+
+/// In-memory resolver over already-resolved secret values, keyed by concrete
+/// secret name (CLOACI-T-0895).
+///
+/// The packaged-task bridge uses this on the PLUGIN side: the host resolves
+/// every `{"$secret"}`-referenced secret through its real backend before the
+/// plugin call and ships the values across the boundary in the
+/// `TaskExecutionRequest`; the plugin shell rebuilds the execution scope with
+/// this resolver so `context.secret(...)` works identically inside the
+/// package. Values live only in this object for the duration of one task
+/// invocation — never serialized into the durable context (NFR-001).
+pub struct MapSecretResolver {
+    secrets: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+impl MapSecretResolver {
+    /// Wrap a `{secret_name: {field: value}}` map.
+    pub fn new(secrets: BTreeMap<String, BTreeMap<String, String>>) -> Self {
+        Self { secrets }
+    }
+}
+
+// Values must never appear in logs; a manual Debug keeps names only.
+impl std::fmt::Debug for MapSecretResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MapSecretResolver")
+            .field("names", &self.secrets.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+#[async_trait]
+impl SecretResolver for MapSecretResolver {
+    async fn resolve(&self, name: &str) -> Result<BTreeMap<String, String>, SecretResolverError> {
+        self.secrets
+            .get(name)
+            .cloned()
+            .ok_or_else(|| SecretResolverError::NotFound(name.to_string()))
+    }
+}

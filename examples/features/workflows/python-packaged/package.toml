@@ -1,0 +1,14 @@
+# Canonical PYTHON packaged workflow (CLOACI-T-0885) — the Python peer of the
+# Rust `simple-packaged` example. Minimal manifest: the loader infers
+# `language = "python"` and the entry module from the `workflow/<name>/` layout,
+# so authors learn the real contract (this is what `cloacinactl package new
+# --language python` emits).
+# The package name (snake-cased) is the entry module: `data-pipeline` →
+# `workflow/data_pipeline/`. workflow_name is the registered workflow.
+[package]
+name = "data-pipeline"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "data_pipeline"
+description = "Simple Python data pipeline, run through the server"

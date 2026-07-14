@@ -74,10 +74,27 @@ cargo build --release
 ```
 */
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{task, trigger, workflow, Context, TaskError, TriggerResult};
 
 // I-0102 / T-C: unified plugin shell.
 cloacina_workflow_plugin::package!();
+
+/// Poll trigger: fires `file_processing` on a short interval, injecting the
+/// filename the workflow reads from context. A real trigger would watch a
+/// directory / queue and `Fire` only when a new file arrives (returning `Skip`
+/// otherwise); this demo fires every interval so executions appear
+/// automatically — no `workflow run` needed. The `#[trigger]` macro projects
+/// this into the host trigger registry via the plugin FFI at load time.
+#[trigger(on = "file_processing", poll_interval = "3s")]
+pub async fn inbox_poll() -> Result<TriggerResult, cloacina_workflow::TriggerError> {
+    let mut ctx = Context::new();
+    ctx.insert("filename", serde_json::json!("invoice-042.dat"))?;
+    ctx.insert(
+        "source_path",
+        serde_json::json!("/data/inbox/invoice-042.dat"),
+    )?;
+    Ok(TriggerResult::Fire(Some(ctx)))
+}
 
 /// File Processing Pipeline — triggered when new files arrive.
 ///
@@ -95,10 +112,7 @@ pub mod file_processing {
     /// Validate the incoming file.
     ///
     /// The trigger passes `filename` and `source_path` in the context.
-    #[task(
-        retry_attempts = 2,
-        retry_backoff = "linear"
-    )]
+    #[task(retry_attempts = 2, retry_backoff = "linear")]
     pub async fn validate(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let filename = context
             .get("filename")

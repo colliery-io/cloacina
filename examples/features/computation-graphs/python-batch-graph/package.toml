@@ -1,0 +1,24 @@
+# PYTHON packaged BATCH-ACCUMULATOR computation graph (I-0138 / Python-gap
+# sweep). Covers the batch-accumulator kind — `@cloaca.batch_accumulator(
+# flush_interval=…, max_buffer_size=…)` — which buffers events and flushes the
+# whole buffer as one boundary when EITHER the buffer fills OR the interval
+# elapses. Unlike `state` (a rolling window emitted on every write), `batch`
+# emits only on flush. This kind had NO example or fixture before, so it's the
+# least-exercised accumulator on the Python path — a fresh probe on the gold path.
+#
+# The module tree MUST live under workflow/ — the reconciler's Python CG
+# extraction requires it. `event-batch` → `workflow/event_batch/`.
+[package]
+name = "event-batch"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "event_batch_py"
+language = "python"
+description = "Python batch accumulator — buffer events, flush on size or interval"
+entry_module = "event_batch.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"
