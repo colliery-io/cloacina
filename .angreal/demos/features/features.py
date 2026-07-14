@@ -509,6 +509,40 @@ def _multi_tenant_steps(workflow_name):
     return steps
 
 
+def _graph_autofire_steps(label, reactor):
+    """For a SELF-FIRING reactor (a polling accumulator): assert the reactor
+    fires on its own — no inject. Reads the fires count off the reactors-list
+    endpoint and waits for it to increase, proving the packaged polling
+    accumulator drives its Python poll fn on the interval (CLOACI-T-0896)."""
+
+    def steps(ctl, home):
+        from test.e2e.compiler import _get_json
+
+        key = f"demo-{label}-key"
+
+        def fires_for(name):
+            body = _get_json("http://127.0.0.1:18087/v1/health/reactors", key)
+            items = body.get("items", []) if isinstance(body, dict) else []
+            for r in items:
+                if r.get("name") == name:
+                    return int(r.get("fires", 0) or 0)
+            return 0
+
+        before = fires_for(reactor)
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            time.sleep(5)
+            if fires_for(reactor) > before:
+                print(f"  ok: reactor {reactor} self-fired (polling accumulator ran its poll fn)")
+                return
+        raise AssertionError(
+            f"reactor {reactor} never self-fired — the polling accumulator's poll "
+            "fn was not driven on its interval (CLOACI-T-0896)"
+        )
+
+    return steps
+
+
 def _trigger_wait_steps(workflow_name):
     """For a POLL/CRON-triggered workflow: don't `workflow run` it — wait for the
     trigger to fire it AUTOMATICALLY and assert the auto-execution reaches
@@ -731,6 +765,11 @@ _PACKAGED_OVERRIDES = {
             '{"level": 42.0}',
             bad_event="42",
         ),
+    },
+    # Python POLLING accumulator (self-fires via its poll fn) — no inject; assert
+    # `poll_reactor` fires on its own on the interval (CLOACI-T-0896).
+    "python-polling-graph": {
+        "steps": _graph_autofire_steps("python-polling-graph", "poll_reactor"),
     },
     # Poll trigger fires `file_processing` automatically — wait for it, don't run.
     "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},

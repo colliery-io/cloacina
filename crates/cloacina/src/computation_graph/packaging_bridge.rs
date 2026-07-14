@@ -756,6 +756,131 @@ fn batch_config_from_config(
 /// metadata, manifest overrides) resolves the same set of kinds here, and an
 /// unknown type WARNs loudly + falls back to passthrough instead of silently
 /// degrading — the whole point of T-0896.
+/// A poll closure for a packaged polling accumulator: invoked on each interval,
+/// it returns `Some(json_bytes)` to emit a boundary or `None` to skip. The
+/// closure does the blocking, GIL-taking work itself — cloacina runs it via
+/// `spawn_blocking` off the async executor. The Python layer supplies these
+/// (each wraps the registered Python poll fn); there is NO FFI accumulator-invoke
+/// method, and none is needed — the poll fn lives in-process. (CLOACI-T-0896)
+pub type PollClosure = Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>;
+
+/// Resolves the poll closure for a polling accumulator by name (returns `None`
+/// when the name isn't registered). Installed once by the Python extension.
+type PollingClosureBuilder = Box<dyn Fn(&str) -> Option<PollClosure> + Send + Sync>;
+
+static POLLING_CLOSURE_BUILDER: std::sync::OnceLock<PollingClosureBuilder> =
+    std::sync::OnceLock::new();
+
+/// Register the polling-accumulator poll-closure resolver for the packaged path
+/// (CLOACI-T-0896). Idempotent — the first registration wins. The Python
+/// extension calls this at module install so a packaged polling accumulator
+/// drives its Python poll fn on the configured interval. A pure-Rust host that
+/// never installs one gets a loud passthrough fallback for polling accumulators.
+pub fn register_polling_accumulator_builder(builder: PollingClosureBuilder) {
+    let _ = POLLING_CLOSURE_BUILDER.set(builder);
+}
+
+/// A [`PollingAccumulator`] driven by an injected [`PollClosure`] (the Python
+/// poll fn). `poll()` runs the closure on a blocking thread so the GIL work
+/// never blocks the async executor — the same discipline `PythonTriggerWrapper`
+/// uses for poll triggers. (CLOACI-T-0896)
+struct ClosurePollingAccumulator {
+    poll_fn: PollClosure,
+    interval: std::time::Duration,
+}
+
+#[async_trait::async_trait]
+impl super::accumulator::PollingAccumulator for ClosurePollingAccumulator {
+    type Output = Vec<u8>;
+
+    async fn poll(&mut self) -> Option<Vec<u8>> {
+        let f = self.poll_fn.clone();
+        tokio::task::spawn_blocking(move || f())
+            .await
+            .ok()
+            .flatten()
+    }
+
+    fn interval(&self) -> std::time::Duration {
+        self.interval
+    }
+}
+
+/// Packaged polling-accumulator factory (CLOACI-T-0896). Resolves the poll
+/// closure by name at spawn time via the registered builder, then runs
+/// `polling_accumulator_runtime` on the configured interval. If no closure is
+/// registered for the name, the accumulator simply never emits (logged) rather
+/// than failing the load.
+pub struct PollingAccumulatorFactory {
+    interval: std::time::Duration,
+}
+
+impl PollingAccumulatorFactory {
+    pub fn new(interval: std::time::Duration) -> Self {
+        Self { interval }
+    }
+}
+
+impl AccumulatorFactory for PollingAccumulatorFactory {
+    fn spawn(
+        &self,
+        name: String,
+        boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+        shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
+    ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+        let (socket_tx, socket_rx) = mpsc::channel(1024);
+
+        let poll_fn = POLLING_CLOSURE_BUILDER
+            .get()
+            .and_then(|builder| builder(&name));
+        if poll_fn.is_none() {
+            tracing::warn!(
+                accumulator = %name,
+                "no poll closure registered for polling accumulator — it will \
+                 never emit (CLOACI-T-0896)"
+            );
+        }
+        // No registered closure → a no-op poller that always returns None.
+        let poll_fn: PollClosure = poll_fn.unwrap_or_else(|| Arc::new(|| None));
+
+        let checkpoint = config.dal.map(|dal| {
+            super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
+        });
+        let sender = BoundarySender::with_freshness(
+            boundary_tx,
+            SourceName::new(&name),
+            config.freshness.clone(),
+        );
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: name.clone(),
+            shutdown: shutdown_rx,
+            checkpoint,
+            health: config.health_tx,
+        };
+        let poller = ClosurePollingAccumulator {
+            poll_fn,
+            interval: self.interval,
+        };
+        let handle = tokio::spawn(super::accumulator::polling_accumulator_runtime(
+            poller, ctx, socket_rx,
+        ));
+        (socket_tx, handle)
+    }
+}
+
+/// Parse a polling accumulator's `interval` (e.g. `"2s"`) from config; defaults
+/// to 5s when absent/unparsable.
+fn polling_interval_from_config(
+    config: &std::collections::HashMap<String, String>,
+) -> std::time::Duration {
+    config
+        .get("interval")
+        .and_then(|s| crate::packaging::manifest_schema::parse_duration_str(s).ok())
+        .unwrap_or_else(|| std::time::Duration::from_secs(5))
+}
+
 fn accumulator_factory_for(
     acc_type: &str,
     config: &std::collections::HashMap<String, String>,
@@ -772,6 +897,9 @@ fn accumulator_factory_for(
                 max_buffer_size,
             ))
         }
+        "polling" => Arc::new(PollingAccumulatorFactory::new(
+            polling_interval_from_config(config),
+        )),
         "passthrough" => Arc::new(PassthroughAccumulatorFactory),
         other => {
             tracing::warn!(

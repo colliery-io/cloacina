@@ -103,6 +103,10 @@ use pyo3::prelude::*;
 /// contract and live only in the wheel `#[pymodule]`; the server never exposes
 /// a runner because the server IS the runner.
 pub(crate) fn register_authoring(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // CLOACI-T-0896: wire packaged polling accumulators to their in-process
+    // Python poll fn (no FFI). Idempotent across embeddings.
+    computation_graph::install_polling_accumulator_builder();
+
     m.add_class::<context::PyContext>()?;
 
     m.add_function(wrap_pyfunction!(task::task, m)?)?;

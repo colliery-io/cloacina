@@ -1,0 +1,24 @@
+# PYTHON packaged POLLING-ACCUMULATOR computation graph (I-0138 / T-0896).
+# Covers the polling-accumulator kind — `@cloaca.polling_accumulator(interval=…)`
+# — which, unlike the event-driven kinds (passthrough/state/batch), is
+# SELF-FIRING: the runtime calls the accumulator's poll function on the interval
+# and emits whatever it returns (None = skip). No inject/socket needed — the
+# reactor fires on its own each interval.
+#
+# This is the kind T-0896 fixed: the packaged path invokes the in-process Python
+# poll fn (spawn_blocking + GIL, like poll triggers) — no FFI. `heartbeat-poll`
+# → `workflow/heartbeat_poll/`.
+[package]
+name = "heartbeat-poll"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "heartbeat_poll_py"
+language = "python"
+description = "Python polling accumulator — self-fires on an interval via its poll fn"
+entry_module = "heartbeat_poll.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"
