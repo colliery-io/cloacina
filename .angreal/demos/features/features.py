@@ -710,6 +710,17 @@ _PACKAGED_OVERRIDES = {
             bad_event="42",
         ),
     },
+    # Python STATE accumulator (bounded rolling window) — inject a tick, the
+    # window emits, `tick_reactor` fires the graph; a non-object is rejected.
+    "python-stateful-graph": {
+        "steps": _graph_inject_steps(
+            "python-stateful-graph",
+            "tick_reactor",
+            "tick_window",
+            '{"bid": 100.0, "ask": 100.2}',
+            bad_event="42",
+        ),
+    },
     # Poll trigger fires `file_processing` automatically — wait for it, don't run.
     "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},
     # Python peer: @cloaca.trigger poll fires `file_processing_py` automatically.
