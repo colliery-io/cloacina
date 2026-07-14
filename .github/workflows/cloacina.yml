@@ -32,6 +32,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        if: runner.os == 'Linux'
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina and
+          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
+          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -117,6 +126,15 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        if: runner.os == 'Linux'
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina and
+          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
+          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -173,6 +191,15 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        if: runner.os == 'Linux'
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina and
+          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
+          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -353,6 +380,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        if: runner.os == 'Linux'
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina and
+          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
+          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -398,6 +434,15 @@ jobs:
     needs: unit-tests
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space (CI disk-pressure guard)
+        if: runner.os == 'Linux'
+        run: |
+          # Recurring "No space left on device": these jobs rebuild cloacina and
+          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
+          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
