@@ -4,15 +4,15 @@ level: task
 title: "BUG: polling and batch accumulators silently degrade to passthrough in packaged graphs"
 short_code: "CLOACI-T-0896"
 created_at: 2026-07-12T01:36:33.300520+00:00
-updated_at: 2026-07-12T01:36:33.300520+00:00
+updated_at: 2026-07-14T22:24:25.278833+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -71,6 +71,12 @@ initiative_id: NULL
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -141,4 +147,26 @@ initiative_id: NULL
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-07-14 — CONFIRMED LIVE (Python-gap sweep).** Built `python-batch-graph` (a `@cloaca.batch_accumulator(flush_interval="1s", max_buffer_size=5)` packaged CG) and ran it on the gold path. It "passes" — but ONLY because the injected events fire the reactor immediately (passthrough behavior), NOT because the buffer flushes. Confirms the `_ =>` fallthrough at `packaging_bridge.rs:225` silently degrades batch → passthrough.
+
+**Effort re-grounded (the factories do NOT exist for the packaged bridge):**
+- Only `PassthroughAccumulatorFactory`, `StreamBackendAccumulatorFactory`, `StateAccumulatorFactory` exist in `packaging_bridge.rs`. There is NO `BatchAccumulatorFactory`/`PollingAccumulatorFactory` to "wire" — they must be WRITTEN.
+- **Batch (moderate):** the runtime `batch_accumulator_runtime<B: BatchAccumulator>(acc, ctx, socket_rx, flush_rx, config)` exists but is generic over the `BatchAccumulator` TRAIT with no list-collecting impl (tests use a bespoke `SumBatchAccumulator`). A packaged batch factory needs (a) a generic passthrough-style `BatchAccumulator` that folds `serde_json::Value` events into `Vec<serde_json::Value>` and emits on flush, (b) a flush-timer task feeding `flush_rx` on `flush_interval` + max_buffer_size gating, (c) config parsing. ~mirror of `StateAccumulatorFactory` + a timer. Socket-driven, so it fits the existing spawn contract.
+- **Polling (hard):** `polling_accumulator_runtime` drives a `poll()` FUNCTION on an interval (not socket events). In the packaged path the poll fn is the PYTHON function — so a packaged polling factory needs an FFI bridge that calls the loaded Python accumulator fn each interval. No socket. Materially more work than batch.
+- **`state` works** (StateAccumulatorFactory real) — verified separately by `python-stateful-graph` (that example IS legit).
+
+**2026-07-14 — BATCH DONE (commit d2043bbc).** Implemented `JsonListBatchAccumulator` + `BatchAccumulatorFactory` (socket-driven, mirrors `StateAccumulatorFactory`; flush_interval/max_buffer_size parsed via `parse_duration_str`) and a central `accumulator_factory_for(type, config)` that all four packaged-reactor dispatch sites route through — with a **loud WARN + passthrough fallback for unknown kinds** (accept #2 met). `python-batch-graph` now exercises the REAL batch factory and passes on the gold path; state/passthrough regression-checked live. No FFI change needed for batch.
+
+**POLLING — scope re-grounded, materially LARGER than "harder FFI".** Unlike batch (socket-driven), a polling accumulator must CALL its poll function on an interval; on the packaged path that fn is the PYTHON accumulator fn, and the plugin FFI has NO accumulator-invoke method (only execute_graph/execute_task/invoke_trigger_poll/invoke_triggerless_graph). So packaged polling requires:
+1. New FFI method `invoke_accumulator_poll(name) -> Option<bytes>` on `CloacinaPlugin` → **plugin interface version bump 5 → 6** (ABI change; every plugin recompiles; `fidius_validation::test_plugin_info_populated` expectation moves 5→6; loader keeps loading v5 packages via the `NotImplemented` fallback).
+2. Python plugin shell implementing it (call the registered Python accumulator poll fn; Some→emit / None→skip).
+3. A `PollingAccumulatorFactory` whose `poll()` calls that FFI on the interval — needs the loaded plugin handle threaded into the factory / `AccumulatorSpawnConfig` (today it carries none). `accumulator_factory_for(type, config)` can't build polling without the handle.
+
+~~Cross-crate, ABI-bumping...split POLLING to its own ticket.~~ **SUPERSEDED — no ABI bump needed.**
+
+**2026-07-14 — POLLING DONE, T-0896 COMPLETE (commit b010dbee).** The ABI-bump concern was WRONG (maintainer pushed back — correctly). On the Python path the poll fn lives IN-PROCESS: `ACCUMULATOR_REGISTRY` keeps the callable (only tests drain it; the reconciler imports the module in the server process), so no FFI accumulator-invoke method is needed. Drove it exactly like a Python poll trigger:
+- `cloacina/packaging_bridge`: `PollClosure` type + OnceLock builder hook (`register_polling_accumulator_builder`); `ClosurePollingAccumulator` (runs the injected closure under `spawn_blocking` → GIL off the async executor); `PollingAccumulatorFactory` resolves the closure by name at spawn and runs `polling_accumulator_runtime` on the config interval. Wired into `accumulator_factory_for`'s `"polling"` arm.
+- `cloacina-python`: `resolve_poll_closure(name)` looks up the registered Python poll fn and wraps it (`call0` → `depythonize` → JSON bytes; None → skip). Installed from `register_authoring`, so BOTH embeddings wire it (pip wheel + server synthetic `ensure_cloaca_module`).
+- Example `python-polling-graph` + new `_graph_autofire_steps` lane asserting `poll_reactor` self-fires (no inject). **Verified live: reactor self-fired.**
+
+**T-0896 CLOSED:** batch (d2043bbc) + polling (b010dbee) + loud-WARN fallback. No plugin interface/ABI bump. All accumulator kinds now behave correctly on the packaged path (passthrough/state/batch/polling; stream = kafka/T-0898 track).
