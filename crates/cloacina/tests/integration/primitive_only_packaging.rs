@@ -88,6 +88,37 @@ fn reactor_only_fixture_emits_reactor_metadata() {
     let acc_names: Vec<&str> = r.accumulators.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(acc_names, vec!["alpha", "beta"]);
     assert_eq!(r.reaction_mode, "when_any");
+
+    // CLOACI-T-0896 (Rust-cdylib side): `alpha` is declared as a
+    // `#[state_accumulator(capacity = 5)]` — the FFI metadata must now report its
+    // REAL kind + config from the `AccumulatorEntry` inventory, not the old
+    // hardcoded `passthrough`. `beta` has no decorated fn, so it falls back to
+    // passthrough — proving both the lookup and the fallback.
+    let alpha = r
+        .accumulators
+        .iter()
+        .find(|a| a.name == "alpha")
+        .expect("alpha accumulator present");
+    assert_eq!(
+        alpha.accumulator_type, "state",
+        "alpha is #[state_accumulator] — expected kind 'state', got {:?}",
+        alpha.accumulator_type
+    );
+    assert_eq!(
+        alpha.config.get("capacity").map(String::as_str),
+        Some("5"),
+        "alpha should carry its authored capacity in config; got {:?}",
+        alpha.config
+    );
+    let beta = r
+        .accumulators
+        .iter()
+        .find(|a| a.name == "beta")
+        .expect("beta accumulator present");
+    assert_eq!(
+        beta.accumulator_type, "passthrough",
+        "beta has no decorated accumulator fn — should fall back to passthrough"
+    );
 }
 
 #[test]

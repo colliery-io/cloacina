@@ -89,6 +89,24 @@ pub struct ReactorEntry {
 }
 inventory::collect!(ReactorEntry);
 
+/// Accumulator entry emitted by the accumulator attribute macros
+/// (`#[state_accumulator]`, `#[batch_accumulator]`, `#[polling_accumulator]`,
+/// `#[stream_accumulator]`, `#[passthrough_accumulator]`). The `package!()`
+/// shell walks `inventory::iter::<AccumulatorEntry>` when building graph/reactor
+/// metadata so a packaged Rust reactor reports each accumulator's REAL kind +
+/// config — instead of the old hardcoded `"passthrough"`, which silently
+/// degraded every declared state/batch/polling accumulator (CLOACI-T-0896,
+/// Rust-cdylib side).
+pub struct AccumulatorEntry {
+    pub name: &'static str,
+    /// "passthrough" | "stream" | "polling" | "batch" | "state".
+    pub accumulator_type: &'static str,
+    /// String-keyed config (e.g. `capacity`, `flush_interval`, `interval`,
+    /// `topic`) — the same channel the manifest override + packaging bridge use.
+    pub config: fn() -> std::collections::HashMap<String, String>,
+}
+inventory::collect!(AccumulatorEntry);
+
 /// Constructor-node entry emitted by `constructor!(...)` inside a `#[workflow]`,
 /// in PACKAGED mode (CLOACI-T-0832). A packaged cdylib cannot link the WASM
 /// constructor loader, so instead of building the node it DECLARES it: the

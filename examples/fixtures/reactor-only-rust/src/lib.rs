@@ -20,8 +20,20 @@
 //! produces a valid `CloacinaPlugin` whose `get_reactor_metadata` returns
 //! the reactor's accumulators.
 
-use cloacina_macros::reactor;
+use cloacina_macros::{reactor, state_accumulator};
 use cloacina_workflow_plugin as cloacina;
+use std::collections::VecDeque;
+
+// CLOACI-T-0896 (Rust-cdylib side): declare `alpha` as a STATE accumulator via
+// the macro. In packaged mode the macro emits only this function + an
+// `AccumulatorEntry` inventory record (the host provides the runtime; the
+// `cloacina::`-bound struct is gated out), so `get_reactor_metadata` reports
+// `alpha` as `state` (capacity 5) instead of the old hardcoded passthrough.
+// `beta` stays an implicit passthrough (no decorated fn) — proving the fallback.
+#[state_accumulator(capacity = 5)]
+pub fn alpha() -> VecDeque<u64> {
+    VecDeque::new()
+}
 
 #[reactor(
     name = "shared_rx",

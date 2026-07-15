@@ -43,9 +43,9 @@ pub mod manifest;
 pub mod types;
 
 pub use inventory_entries::{
-    ComputationGraphEntry, ConstructorEntry, ReactorEntry, TaskEntry, TriggerEntry,
-    TriggerlessGraph, TriggerlessGraphEntry, TriggerlessGraphFn, TriggerlessGraphRegistration,
-    WorkflowDescriptorEntry,
+    AccumulatorEntry, ComputationGraphEntry, ConstructorEntry, ReactorEntry, TaskEntry,
+    TriggerEntry, TriggerlessGraph, TriggerlessGraphEntry, TriggerlessGraphFn,
+    TriggerlessGraphRegistration, WorkflowDescriptorEntry,
 };
 
 // Re-export the interface types for convenience
@@ -333,13 +333,31 @@ macro_rules! package {
                         });
                     }
                     let reg = (entries[0].constructor)();
+                    // CLOACI-T-0896 (Rust-cdylib side): report each accumulator's
+                    // REAL kind + config from its `AccumulatorEntry` inventory
+                    // entry, not a hardcoded `passthrough` that silently degraded
+                    // every declared state/batch/polling accumulator.
+                    let mut __acc_specs: ::std::collections::HashMap<
+                        &'static str,
+                        (&'static str, ::std::collections::HashMap<String, String>),
+                    > = ::std::collections::HashMap::new();
+                    for __e in $crate::inventory::iter::<$crate::AccumulatorEntry> {
+                        __acc_specs.insert(__e.name, (__e.accumulator_type, (__e.config)()));
+                    }
                     let accumulators: ::std::vec::Vec<$crate::AccumulatorDeclarationEntry> = reg
                         .accumulator_names
                         .iter()
-                        .map(|name| $crate::AccumulatorDeclarationEntry {
-                            name: name.clone(),
-                            accumulator_type: "passthrough".to_string(),
-                            config: ::std::collections::HashMap::new(),
+                        .map(|name| match __acc_specs.get(name.as_str()) {
+                            Some((__ty, __cfg)) => $crate::AccumulatorDeclarationEntry {
+                                name: name.clone(),
+                                accumulator_type: __ty.to_string(),
+                                config: __cfg.clone(),
+                            },
+                            None => $crate::AccumulatorDeclarationEntry {
+                                name: name.clone(),
+                                accumulator_type: "passthrough".to_string(),
+                                config: ::std::collections::HashMap::new(),
+                            },
                         })
                         .collect();
                     let graph_data_json = if entries[0].graph_data_json.is_empty() {
@@ -456,15 +474,32 @@ macro_rules! package {
                 > {
                     let mut out: ::std::vec::Vec<$crate::ReactorPackageMetadata> =
                         ::std::vec::Vec::new();
+                    let mut __acc_specs: ::std::collections::HashMap<
+                        &'static str,
+                        (&'static str, ::std::collections::HashMap<String, String>),
+                    > = ::std::collections::HashMap::new();
+                    for __e in $crate::inventory::iter::<$crate::AccumulatorEntry> {
+                        __acc_specs.insert(__e.name, (__e.accumulator_type, (__e.config)()));
+                    }
                     for entry in $crate::inventory::iter::<$crate::ReactorEntry> {
                         let reg = (entry.constructor)();
+                        // CLOACI-T-0896 (Rust-cdylib side): real kind + config per
+                        // accumulator from its inventory entry, not hardcoded
+                        // passthrough.
                         let accumulators: ::std::vec::Vec<$crate::AccumulatorDeclarationEntry> =
                             reg.accumulator_names
                                 .iter()
-                                .map(|name| $crate::AccumulatorDeclarationEntry {
-                                    name: name.clone(),
-                                    accumulator_type: "passthrough".to_string(),
-                                    config: ::std::collections::HashMap::new(),
+                                .map(|name| match __acc_specs.get(name.as_str()) {
+                                    Some((__ty, __cfg)) => $crate::AccumulatorDeclarationEntry {
+                                        name: name.clone(),
+                                        accumulator_type: __ty.to_string(),
+                                        config: __cfg.clone(),
+                                    },
+                                    None => $crate::AccumulatorDeclarationEntry {
+                                        name: name.clone(),
+                                        accumulator_type: "passthrough".to_string(),
+                                        config: ::std::collections::HashMap::new(),
+                                    },
                                 })
                                 .collect();
                         out.push($crate::ReactorPackageMetadata {

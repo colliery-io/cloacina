@@ -23,6 +23,50 @@ use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::{Ident, ItemFn, LitStr, Token, Type};
 
+/// Emit the `AccumulatorEntry` inventory submission so a packaged Rust reactor
+/// reports this accumulator's REAL kind + config (CLOACI-T-0896, Rust-cdylib
+/// side) instead of the shell defaulting it to `passthrough`. Cfg-gated so the
+/// path resolves through `cloacina` in library mode and `cloacina-workflow-plugin`
+/// directly in packaged mode (mirrors the reactor/graph inventory submissions).
+/// `config_inserts` is a sequence of `__m.insert(...)` statements building the
+/// String-keyed config map.
+fn accumulator_entry_submission(
+    name_str: &str,
+    accumulator_type: &str,
+    config_inserts: TokenStream,
+) -> TokenStream {
+    quote! {
+        #[cfg(not(feature = "packaged"))]
+        ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina::cloacina_workflow_plugin::AccumulatorEntry {
+                name: #name_str,
+                accumulator_type: #accumulator_type,
+                config: || {
+                    #[allow(unused_mut)]
+                    let mut __m: ::std::collections::HashMap<String, String> =
+                        ::std::collections::HashMap::new();
+                    #config_inserts
+                    __m
+                },
+            }
+        }
+        #[cfg(feature = "packaged")]
+        ::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina_workflow_plugin::AccumulatorEntry {
+                name: #name_str,
+                accumulator_type: #accumulator_type,
+                config: || {
+                    #[allow(unused_mut)]
+                    let mut __m: ::std::collections::HashMap<String, String> =
+                        ::std::collections::HashMap::new();
+                    #config_inserts
+                    __m
+                },
+            }
+        }
+    }
+}
+
 /// Parsed args for `#[stream_accumulator(type = "...", topic = "...", ...)]`
 struct StreamAccumulatorArgs {
     backend_type: String,
@@ -105,13 +149,22 @@ pub fn passthrough_accumulator_impl(
     // Get the output type from the return type
     let output_type = extract_return_type(output)?;
 
+    let name_str = fn_name.to_string();
+    let submission = accumulator_entry_submission(&name_str, "passthrough", quote! {});
+
     Ok(quote! {
-        // Keep the original function
+        // Keep the original function (both modes).
         #func
 
-        // Generate the accumulator struct
+        // Embedded-only: the generated `Accumulator` impl uses `cloacina::` paths
+        // and is unused on the packaged path (the host provides the accumulator
+        // runtime; the kind + config travel via the `AccumulatorEntry` inventory).
+        // Gating it out lets the macro compile in lean packaged crates that don't
+        // depend on the `cloacina` umbrella (CLOACI-T-0896).
+        #[cfg(not(feature = "packaged"))]
         pub struct #struct_name;
 
+        #[cfg(not(feature = "packaged"))]
         #[async_trait::async_trait]
         impl cloacina::computation_graph::Accumulator for #struct_name {
             type Output = #output_type;
@@ -123,6 +176,8 @@ pub fn passthrough_accumulator_impl(
 
             // No run() override — socket-only (passthrough)
         }
+
+        #submission
     })
 }
 
@@ -148,6 +203,17 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
         .group
         .unwrap_or_else(|| format!("{}_group", fn_name));
 
+    let name_str = fn_name.to_string();
+    let submission = accumulator_entry_submission(
+        &name_str,
+        "stream",
+        quote! {
+            __m.insert("type".to_string(), #backend_type_str.to_string());
+            __m.insert("topic".to_string(), #topic_str.to_string());
+            __m.insert("group".to_string(), #group_str.to_string());
+        },
+    );
+
     // Check if stateful (has a state parameter)
     let has_state = parsed_args.state_type.is_some();
 
@@ -156,6 +222,8 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
         Ok(quote! {
             #func
 
+            // Embedded-only (see passthrough): unused on the packaged path.
+            #[cfg(not(feature = "packaged"))]
             pub struct #struct_name {
                 pub state: #state_type,
                 pub backend_type: String,
@@ -163,6 +231,7 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
                 pub group: String,
             }
 
+            #[cfg(not(feature = "packaged"))]
             impl #struct_name {
                 pub fn new(initial_state: #state_type) -> Self {
                     Self {
@@ -174,6 +243,7 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
                 }
             }
 
+            #[cfg(not(feature = "packaged"))]
             #[async_trait::async_trait]
             impl cloacina::computation_graph::Accumulator for #struct_name {
                 type Output = #output_type;
@@ -183,17 +253,22 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
                     Some(#fn_name(parsed, &mut self.state))
                 }
             }
+
+            #submission
         })
     } else {
         Ok(quote! {
             #func
 
+            // Embedded-only (see passthrough): unused on the packaged path.
+            #[cfg(not(feature = "packaged"))]
             pub struct #struct_name {
                 pub backend_type: String,
                 pub topic: String,
                 pub group: String,
             }
 
+            #[cfg(not(feature = "packaged"))]
             impl #struct_name {
                 pub fn new() -> Self {
                     Self {
@@ -204,12 +279,14 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
                 }
             }
 
+            #[cfg(not(feature = "packaged"))]
             impl Default for #struct_name {
                 fn default() -> Self {
                     Self::new()
                 }
             }
 
+            #[cfg(not(feature = "packaged"))]
             #[async_trait::async_trait]
             impl cloacina::computation_graph::Accumulator for #struct_name {
                 type Output = #output_type;
@@ -219,6 +296,8 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
                     Some(#fn_name(parsed))
                 }
             }
+
+            #submission
         })
     }
 }
@@ -303,11 +382,24 @@ pub fn polling_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::R
 
     let interval_ms = parse_duration_ms(&parsed_args.interval_str)?;
 
+    let name_str = fn_name.to_string();
+    // Carry the ORIGINAL interval string ("5s") — the packaged config parser
+    // (`polling_interval_from_config`) re-parses it via `parse_duration_str`.
+    let interval_str = &parsed_args.interval_str;
+    let submission = accumulator_entry_submission(
+        &name_str,
+        "polling",
+        quote! { __m.insert("interval".to_string(), #interval_str.to_string()); },
+    );
+
     Ok(quote! {
         #func
 
+        // Embedded-only (see passthrough): unused on the packaged path.
+        #[cfg(not(feature = "packaged"))]
         pub struct #struct_name;
 
+        #[cfg(not(feature = "packaged"))]
         #[async_trait::async_trait]
         impl cloacina::computation_graph::PollingAccumulator for #struct_name {
             type Output = #inner_type;
@@ -320,6 +412,8 @@ pub fn polling_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::R
                 std::time::Duration::from_millis(#interval_ms)
             }
         }
+
+        #submission
     })
 }
 
@@ -398,11 +492,26 @@ pub fn batch_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
         None => quote! { None },
     };
 
+    let name_str = fn_name.to_string();
+    // Carry the ORIGINAL flush_interval string ("5s") + max_buffer_size — the
+    // packaged config parser (`batch_config_from_config`) re-parses them.
+    let flush_interval_str = &parsed_args.flush_interval_str;
+    let mut config_inserts =
+        quote! { __m.insert("flush_interval".to_string(), #flush_interval_str.to_string()); };
+    if let Some(max) = parsed_args.max_buffer_size {
+        config_inserts
+            .extend(quote! { __m.insert("max_buffer_size".to_string(), #max.to_string()); });
+    }
+    let submission = accumulator_entry_submission(&name_str, "batch", config_inserts);
+
     Ok(quote! {
         #func
 
+        // Embedded-only (see passthrough): unused on the packaged path.
+        #[cfg(not(feature = "packaged"))]
         pub struct #struct_name;
 
+        #[cfg(not(feature = "packaged"))]
         #[async_trait::async_trait]
         impl cloacina::computation_graph::BatchAccumulator for #struct_name {
             type Output = #inner_output_type;
@@ -416,6 +525,7 @@ pub fn batch_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
             }
         }
 
+        #[cfg(not(feature = "packaged"))]
         impl #struct_name {
             pub fn config() -> cloacina::computation_graph::BatchAccumulatorConfig {
                 cloacina::computation_graph::BatchAccumulatorConfig {
@@ -424,6 +534,8 @@ pub fn batch_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
                 }
             }
         }
+
+        #submission
     })
 }
 
@@ -535,12 +647,20 @@ pub fn state_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
 
     let capacity = parsed_args.capacity;
     let name_str = fn_name.to_string();
+    let submission = accumulator_entry_submission(
+        &name_str,
+        "state",
+        quote! { __m.insert("capacity".to_string(), #capacity.to_string()); },
+    );
 
     Ok(quote! {
         #func
 
+        // Embedded-only (see passthrough): unused on the packaged path.
+        #[cfg(not(feature = "packaged"))]
         pub struct #struct_name;
 
+        #[cfg(not(feature = "packaged"))]
         impl #struct_name {
             pub fn create() -> cloacina::computation_graph::accumulator::StateAccumulator<#inner_type> {
                 cloacina::computation_graph::accumulator::StateAccumulator::new(#capacity)
@@ -550,6 +670,8 @@ pub fn state_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
                 #name_str
             }
         }
+
+        #submission
     })
 }
 
