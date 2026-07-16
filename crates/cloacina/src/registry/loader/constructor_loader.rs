@@ -87,9 +87,9 @@ use serde::Serialize;
 
 use cloacina_constructor_contract::{
     AccumulatorInvocation, AccumulatorOutcome, ConstructorManifest, PollOutcome, PrimitiveKind,
-    ProviderManifest, ReactorInvocation, ReactorOutcome, TaskInvocation, TaskOutcome,
-    TriggerInvocation, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, METHOD_EVALUATE, METHOD_EXECUTE,
-    METHOD_INGEST, METHOD_POLL, REACTOR_CONSTRUCTOR_INTERFACE_VERSION,
+    ProviderManifest, ProviderRuntime, ReactorInvocation, ReactorOutcome, TaskInvocation,
+    TaskOutcome, TriggerInvocation, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, METHOD_EVALUATE,
+    METHOD_EXECUTE, METHOD_INGEST, METHOD_POLL, REACTOR_CONSTRUCTOR_INTERFACE_VERSION,
     TASK_CONSTRUCTOR_INTERFACE_VERSION, TRIGGER_CONSTRUCTOR_INTERFACE_VERSION,
 };
 use fidius_host::PluginHost;
@@ -209,6 +209,133 @@ fn wrap_member_config<C: Serialize>(
         name: constructor_name.to_string(),
         config: inner,
     })
+}
+
+// ===========================================================================
+// NATIVE provider load path (CLOACI-T-0902 / I-0139)
+// ===========================================================================
+//
+// A provider whose `provider.json` declares `runtime = "native"` ships a host
+// cdylib (the T-0903 native shell) instead of a `wasm32-wasip2` component. It is
+// loaded IN-PROCESS via `fidius_host::loader::load_library` +
+// `PluginHandle::configure_from_loaded` (fidius 0.5.6), the dynamic-load analogue
+// of the WASM path's `load_wasm_configured_with_grants`. Native providers run with
+// full host trust — the same trust surface a packaged Rust workflow cdylib already
+// has — so capability `grants` are ADVISORY only (I-0139 (e)); no `WasiCtx` /
+// `EgressPolicy` is applied. `fidius`'s wasm-only `find_wasm_package` never matches
+// a native package, so the package dir is resolved here by scanning the search path
+// for a matching `provider.json`.
+
+/// Scan `search_path` (one level, mirroring `find_wasm_package`) for a NATIVE
+/// provider package named `package_name`. Returns `Ok(None)` when none is present
+/// — the package is absent OR is a WASM provider — so the caller falls through to
+/// the WASM load path; `Ok(Some((dir, manifest)))` for a native provider.
+fn resolve_native_provider(
+    search_path: &Path,
+    package_name: &str,
+) -> Result<Option<(std::path::PathBuf, ProviderManifest)>, LoaderError> {
+    if !search_path.is_dir() {
+        return Ok(None);
+    }
+    let entries = std::fs::read_dir(search_path).map_err(|e| LoaderError::FileSystem {
+        path: search_path.display().to_string(),
+        error: e.to_string(),
+    })?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        // Only a directory that holds a parseable provider.json is a candidate.
+        if let Ok(provider) = read_provider_manifest(&path) {
+            if provider.name == package_name && provider.runtime == ProviderRuntime::Native {
+                return Ok(Some((path, provider)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Load a configured member from a NATIVE provider cdylib. Returns `Ok(None)` when
+/// `package_name` is not a native provider in `search_path` (caller then takes the
+/// WASM path). On the native path it `dlopen`s the provider cdylib, selects the
+/// per-kind holder plugin (`__Provider{Task,Trigger,Accumulator,Reactor}`), and
+/// binds the member's config once via `configure_from_loaded`. NO grants/egress
+/// are applied (native = trusted, I-0139 (e)).
+fn load_native_member<C: Serialize>(
+    search_path: &Path,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+    expected_kind: PrimitiveKind,
+    expected_iface_version: u32,
+    holder_plugin: &str,
+) -> Result<Option<(fidius_host::PluginHandle, ConstructorManifest)>, LoaderError> {
+    let Some((dir, provider)) = resolve_native_provider(search_path, package_name)? else {
+        return Ok(None);
+    };
+
+    let member = provider
+        .constructor(constructor_name)
+        .cloned()
+        .ok_or_else(|| LoaderError::Validation {
+            reason: format!(
+                "native provider '{}' has no constructor '{}'; members: [{}]",
+                provider.name,
+                constructor_name,
+                provider
+                    .constructors
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        })?;
+
+    if member.primitive_kind != expected_kind {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "constructor '{}' is {:?}, not {:?}",
+                member.name, member.primitive_kind, expected_kind
+            ),
+        });
+    }
+    if member.interface_version != expected_iface_version {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "native constructor '{}' declares interface v{}, loader supports v{}",
+                member.name, member.interface_version, expected_iface_version
+            ),
+        });
+    }
+
+    // Same name-in-configure wrapper the WASM path uses (positional bincode config
+    // tagged with the member name the suite shell name-dispatches on).
+    let configure = wrap_member_config(constructor_name, config)?;
+    let lib_path = dir.join(&provider.component);
+    let loaded =
+        fidius_host::loader::load_library(&lib_path).map_err(|e| LoaderError::LibraryLoad {
+            path: lib_path.display().to_string(),
+            error: format!("load_library (native provider): {e}"),
+        })?;
+    let plugin = loaded
+        .plugins
+        .into_iter()
+        .find(|p| p.info.name == holder_plugin)
+        .ok_or_else(|| LoaderError::Validation {
+            reason: format!(
+                "native provider '{}' cdylib '{}' has no '{}' plugin (kind {:?})",
+                provider.name, provider.component, holder_plugin, expected_kind
+            ),
+        })?;
+    let handle =
+        fidius_host::PluginHandle::configure_from_loaded(plugin, &configure).map_err(|e| {
+            LoaderError::LibraryLoad {
+                path: lib_path.display().to_string(),
+                error: format!("configure_from_loaded (native provider): {e}"),
+            }
+        })?;
+    Ok(Some((handle, member)))
 }
 
 /// A loaded, configured WASM task constructor wrapped as a cloacina [`Task`].
@@ -337,6 +464,25 @@ pub fn load_task_constructor<C: Serialize>(
     grants: &ResolvedGrants,
 ) -> Result<Arc<dyn Task>, LoaderError> {
     let search_path = search_path.as_ref();
+
+    // NATIVE provider fast-path (CLOACI-T-0902): a `runtime = "native"` provider
+    // loads in-process via `configure_from_loaded`; grants are advisory (no
+    // sandbox). Falls through to the WASM path when the package isn't native.
+    if let Some((handle, member)) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Task,
+        TASK_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderTask",
+    )? {
+        return Ok(Arc::new(WasmTaskConstructor {
+            id: member.name,
+            handle: Arc::new(handle),
+            dependencies: Vec::new(),
+        }));
+    }
 
     let host = PluginHost::builder()
         .search_path(search_path)
