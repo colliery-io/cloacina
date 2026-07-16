@@ -4,14 +4,14 @@ level: task
 title: "Per-arch native artifact selection at load — wire content_hash_for_target into the reconciler"
 short_code: "CLOACI-T-0905"
 created_at: 2026-07-15T12:09:20.216080+00:00
-updated_at: 2026-07-15T12:09:20.216080+00:00
+updated_at: 2026-07-16T12:33:53.201288+00:00
 parent: CLOACI-I-0139
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -71,6 +71,10 @@ Parent: [[CLOACI-I-0139]]. Independent of the native-provider tasks (can land fi
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -141,4 +145,21 @@ Parent: [[CLOACI-I-0139]]. Independent of the native-provider tasks (can land fi
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-16 — investigated, built, tested → `5e79fe10`. T-0905 DONE.
+
+**Investigation corrections to the task premise:**
+- `content_hash_for_target` doesn't exist by that name — the actual DAL fn is `get_artifact_digest_for_target(package, triple)` (workflow_packages.rs:241). And it is **version-agnostic** (filters name+triple only, `.first()` no ordering) — fine for fleet digest serving, WRONG for a reconciler load of a specific version.
+- The fleet DISPATCH path was already per-arch aware (`fleet_executor.rs:516-534`). The genuine gap was ONLY the local reconciler (`loading.rs:271` always took primary `compiled_data`).
+- `host_target_triple()` (fleet/protocol.rs:77, `{arch}-{os}` v1 format) is the shared triple vocabulary (compiler stamping + OQ-6 fail-closed agent comparison) — the reconciler now uses the same.
+- `workflow_packages` has NO triple column for the primary build ⇒ can't fail-closed compare the primary; the fallback is kept and load failures carry PROVENANCE instead.
+
+**Implementation:**
+1. **DAL** `get_artifact_data_for_target(package, version, triple)` — VERSION-scoped single query on `package_artifacts` (tenant-neutral, like the T-0780 fns).
+2. **`WorkflowRegistry` trait** gains `get_compiled_data_for_target(package, version, triple)` with default `Ok(None)` (filesystem/mocks keep the primary fallback); `WorkflowRegistryImpl` overrides via the DAL fn.
+3. **Reconciler** (`loading.rs`): prefers the per-target artifact for `host_target_triple()`, falls back to primary; an `artifact_provenance` string is woven into BOTH failure modes — the no-data error names the missing triple, and a `build_view_rust` (dlopen) failure names which artifact was tried + a wrong-arch hint. `rust_cdylib_bytes` keeps its name/type so the downstream CG-step reuse is untouched.
+
+**ACCEPTANCE:**
+- [x] Reconciler selects its `target_triple`'s artifact, falling back to primary when absent.
+- [x] Simulated-triple test `test_get_compiled_data_for_target_is_version_and_triple_scoped` (sqlite in-memory): simulated arch gets ITS bytes; missing triple → None (fallback); **another version's artifact never satisfies this version** (the scoping the old DAL fn lacked). Missing-arch load failure is a clear provenance-carrying error, not a silent wrong-arch load. 1/1 green; `--tests` compile clean under `constructors-wasm,sqlite`.
+
+**Follow-up note (out of scope):** the fleet's `get_artifact_digest_for_target` remains version-agnostic — latent wrong-version risk on the DISPATCH path when multiple versions carry per-target artifacts; worth a ticket if multi-version fleets materialize.
