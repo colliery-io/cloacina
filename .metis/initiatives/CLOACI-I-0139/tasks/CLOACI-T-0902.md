@@ -4,14 +4,14 @@ level: task
 title: "Native provider load path — runtime discriminator + configure_in_process in the constructor loader"
 short_code: "CLOACI-T-0902"
 created_at: 2026-07-15T12:07:17.071770+00:00
-updated_at: 2026-07-15T12:16:57.468823+00:00
+updated_at: 2026-07-16T02:05:47.169620+00:00
 parent: CLOACI-I-0139
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ Parent: [[CLOACI-I-0139]]. First buildable/testable against a local native fixtu
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -192,6 +194,33 @@ Built a real native fixture (`examples/constructor-contract/native-task-provider
 **PROOF:** `native_provider_task_loads_and_runs_in_process` — a `runtime="native"` provider loads via `load_library`+`configure_from_loaded`, `execute({name:"world"})` → `result == "native-world"` (configure-bound `prefix="native-"` + context param round-trip, all in-process). `native_provider_unknown_member_rejected` — fail-closed. **2/2 green.** T-0902 acceptance MET for the TASK kind.
 
 **Still remaining:** other 3 kinds' native branches (accumulator native is the T-0904 prereq); native packaging path (T-0903 remainder: `--native` build + `render_package_toml` runtime stamping + `cloacinactl constructor package --native`). The macro + loader spine is now REAL-verified, not just compile-verified.
+
+### 2026-07-15 (resume, cont.) — LANDED `461c87b9`; a FOURTH bug found + fixed (feature gate)
+
+Committed the E2E slice as `461c87b9`. Before committing, the wasm-provider regression check (`constructor_provider_package_wasm`) came back **5/5 RED** — a FOURTH bug, a regression this branch had already shipped in `724d2fcf` that only an E2E consumer could surface:
+
+4. **Native shell `cfg(not(wasm32))` was too broad.** The native shell + `__constructor_make` + `fidius_get_registry` all reference `fidius_core`/`fidius_macro` as HOST deps. But EVERY provider fixture (wasm ones too) builds a **host `emit_manifest` bin** — where `not(wasm32)` is TRUE — so the native glue was compiled into wasm-only fixtures that don't declare fidius_core → `E0433 cannot find fidius_core`. (Invisible because `cargo check -p cloacina` never builds the fixtures; the packaging test shells out `cargo run --bin emit_manifest`, which is where it bit.)
+   **Fix:** gate all native emission behind `#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]` (constructor_provider.rs native_cfg + registry export; constructor_attr.rs 3 `__constructor_make` sites). Mirrors the packaged-workflow `packaged` feature exactly. A native provider opts in with `features = ["native"]` + fidius-core/fidius-macro host deps; a wasm-only provider omits both and is untouched. Aligns with [[feedback_macro_generated_deps_invisible]] — no invisible transitive dep forced on wasm authors.
+
+**Verified green together:** `constructor_provider_native` **2/2** + `constructor_provider_package_wasm` **5/5** under `--features constructors-wasm`. Acceptance boxes 1 (native loads via configure_from_loaded + executes) and 2 (WASM unaffected) MET. Box 3 (native takes no grants) — `load_native_member` ignores the grant set; asserted implicitly by loading with `ResolvedGrants::default()`.
+
+**Now continuing T-0902's stated 4-fn scope:** branch trigger/accumulator/reactor `load_*_constructor` fns (currently only task is branched). Accumulator-native is also T-0904's prereq → doing it here.
+
+### 2026-07-15 (resume, cont.) — 4-fn scope COMPLETE + accumulator kind E2E-proven → `be7d0f56`. T-0902 DONE.
+
+- **All four `load_*_constructor` fns now branch native** (`be7d0f56`): trigger/accumulator/reactor got the same fast-path task already had. `load_native_member` was already kind-generic (parameterized on `holder_plugin` + `expected_kind`/`interface_version`), so each branch is 12 lines selecting `__ProviderTrigger`/`__ProviderAccumulator`/`__ProviderReactor` and wrapping its own `Wasm*Constructor`. Grants advisory; each falls through to WASM when not `runtime="native"`. Loader compiles clean across all four (`cargo check -p cloacina --features constructors-wasm --tests` → Finished).
+- **Refused to leave the other kinds compile-verified** (the trap that hid 4 bugs). The native fixture now carries a SECOND member — a `threshold` accumulator in the same suite/cdylib — and two new E2E tests drive it through `accumulator_runtime`: emits `{crossed: value}` above the load-bound threshold, buffers below. Proves `load_native_member` is genuinely kind-generic (a second holder `__ProviderAccumulator` selected from the same dlopen'd library) and is the exact shape T-0904 builds its stream accumulator on.
+- **`constructor_provider_native` 4/4 green** (2 task + 2 accumulator). Trigger/reactor native remain compile-verified — same generic path, now exercised by a real consumer for 2 of 4 kinds (task the trusted-load proof, accumulator the runtime-drive proof).
+
+**ACCEPTANCE — all three MET:**
+- [x] native cdylib loads via `configure_from_loaded` + member answers `execute`/`ingest` (task AND accumulator, E2E).
+- [x] WASM providers unaffected — `constructor_provider_package_wasm` 5/5 green.
+- [x] native load takes no grants — `load_native_member` ignores the grant set; loaded with `ResolvedGrants::default()`.
+
+**Handoff (belongs to OTHER tasks, NOT T-0902):**
+- **T-0903 remainder** — native PACKAGING path: `render_package_toml` still hardcodes `runtime="wasm"`; `build_wasm_component` always `--target wasm32-wasip2`. Need a `--native` host-cdylib build (+ the `native` cargo feature the fixture demonstrates) + `cloacinactl constructor package --native` that stamps `runtime="native"` + `component=<dylib>`. The E2E currently patches provider.json by hand (`stage_native_provider`) precisely because this path doesn't exist yet.
+- **T-0904** — stream accumulator via `call_streaming`; the native accumulator drive proven here is its foundation.
+- **Design note for T-0903/authoring docs:** a native provider crate opts in with `features = ["native"]` + `fidius-core`/`fidius-macro` host deps (see the fixture Cargo.toml). The `native` feature gates ALL fidius_core-referencing native glue so wasm-only providers carry no native deps.
 
 **REMAINING for T-0902/T-0903 (NOT done — honest bar):**
 1. **E2E proof** — build a native task-provider FIXTURE (a minimal `#[constructor(kind=task)]`+`constructor_provider!` crate depending on `fidius-core`/`fidius-macro`, crate-type cdylib), package with `provider.json` `runtime=native`, load via `load_task_constructor`, assert `execute` round-trips. THIS is T-0902's acceptance; only compile-verified so far.
