@@ -314,13 +314,46 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
     }
 }
 
-/// The wasm-guest fidius shell for one kind: the interface, the configure wire
-/// type, the holder + `#[plugin_impl]`, and the name-dispatched `configure`.
+/// The fidius shell for one kind: the interface, the configure wire type, the
+/// holder + `#[plugin_impl]`, and the name-dispatched `configure`. Emitted TWICE
+/// (CLOACI-T-0903) — once for the WASM guest target (`crate = fidius_guest`,
+/// gated `target_arch = "wasm32"`, compiled to a `wasm32-wasip2` component) and
+/// once for the NATIVE host target (`crate = fidius_core`, gated
+/// `not(target_arch = "wasm32")`, compiled to a host cdylib the loader dlopen's
+/// via `load_library` + `PluginHandle::configure_from_loaded`). The two are
+/// mutually exclusive by cfg, so the identically-named `configure`/holder types
+/// never collide. The author surface (`#[constructor]` bodies) is unchanged; only
+/// the emission target differs.
 fn kind_shell(
     kind: Kind,
     members: &[Ident],
     contract: &Path,
     fidius_crate: &LitStr,
+) -> TokenStream2 {
+    // `fidius_crate` is the wasm-guest crate (default `fidius_guest`). The native
+    // variant targets `fidius_core` — the same crate the host loader re-declares
+    // the interface against (constructor_loader.rs `crate = "fidius_core"`).
+    let native_crate = LitStr::new("fidius_core", Span::call_site());
+    let wasm_cfg = quote! { #[cfg(target_arch = "wasm32")] };
+    let native_cfg = quote! { #[cfg(not(target_arch = "wasm32"))] };
+
+    let wasm = kind_shell_variant(kind, members, contract, fidius_crate, &wasm_cfg);
+    let native = kind_shell_variant(kind, members, contract, &native_crate, &native_cfg);
+    quote! {
+        #wasm
+        #native
+    }
+}
+
+/// One cfg-gated copy of a kind's shell (wasm or native — see [`kind_shell`]).
+/// `cfg` is the mutually-exclusive gate; `fidius_crate` is the fidius crate path
+/// the fidius macros generate against for this target.
+fn kind_shell_variant(
+    kind: Kind,
+    members: &[Ident],
+    contract: &Path,
+    fidius_crate: &LitStr,
+    cfg: &TokenStream2,
 ) -> TokenStream2 {
     let trait_ident = kind.trait_ident();
     let method_ident = kind.method_ident();
@@ -329,16 +362,6 @@ fn kind_shell(
     let configure_ty = format_ident!("__Provider{}Configure", infix);
     let holder_ty = format_ident!("__Provider{}", infix);
     let no_member = LitStr::new(kind.no_member_outcome(), Span::call_site());
-
-    // The interface trait — byte-identical to the host loader's re-declaration so
-    // the fidius interface hash matches at load.
-    let interface_decl = quote! {
-        #[cfg(target_arch = "wasm32")]
-        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #fidius_crate)]
-        pub trait #trait_ident: Send + Sync {
-            fn #method_ident(&self, invocation_json: String) -> String;
-        }
-    };
 
     // The name-dispatch: pick the member whose `__constructor_name()` matches and
     // build it from the per-member config bytes.
@@ -351,24 +374,30 @@ fn kind_shell(
     });
 
     quote! {
-        #interface_decl
+        // The interface trait — byte-identical to the host loader's re-declaration
+        // so the fidius interface hash matches at load.
+        #cfg
+        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #fidius_crate)]
+        pub trait #trait_ident: Send + Sync {
+            fn #method_ident(&self, invocation_json: String) -> String;
+        }
 
         /// The suite `configure` payload for this kind: `(member-name, that
         /// member's config bytes)`. The host serializes it at load; fidius's
         /// `fidius-configure` decodes it here before name-dispatch.
-        #[cfg(target_arch = "wasm32")]
+        #cfg
         #[derive(::serde::Serialize, ::serde::Deserialize)]
         pub struct #configure_ty {
             pub name: ::std::string::String,
             pub config: ::std::vec::Vec<u8>,
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #cfg
         pub struct #holder_ty {
             inner: ::std::option::Option<::std::boxed::Box<dyn #contract::#object_ident>>,
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #cfg
         #[::fidius_macro::plugin_impl(#trait_ident, crate = #fidius_crate, config = #configure_ty)]
         impl #trait_ident for #holder_ty {
             fn #method_ident(&self, invocation_json: String) -> String {
@@ -379,7 +408,7 @@ fn kind_shell(
             }
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #cfg
         impl #holder_ty {
             // The fidius `configure` hook: select the member named in the payload
             // and build it once at load.
