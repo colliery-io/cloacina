@@ -686,6 +686,22 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         }
     }
 
+    /// CLOACI-T-0905 (multi-arch): version-scoped per-target artifact lookup.
+    /// Queries `package_artifacts` (stored tenant-neutral) for the cdylib built
+    /// for exactly `(package, version, target_triple)`; the reconciler prefers
+    /// this over the primary `compiled_data` so each agent loads its own arch.
+    async fn get_compiled_data_for_target(
+        &self,
+        package_name: &str,
+        version: &str,
+        target_triple: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        dal.workflow_packages()
+            .get_artifact_data_for_target(package_name, version, target_triple)
+            .await
+    }
+
     /// Bundled constructor providers for a package (CLOACI-T-0836): queries
     /// `package_providers` (stored tenant-neutral, like per-target artifacts) and
     /// returns each provider's packed archive for the reconciler to unpack.

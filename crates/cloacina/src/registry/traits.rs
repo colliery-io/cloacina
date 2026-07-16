@@ -174,6 +174,29 @@ pub trait WorkflowRegistry: Send + Sync {
         Ok(false)
     }
 
+    /// CLOACI-T-0905 (multi-arch): the compiled cdylib for `(package, version)`
+    /// built for `target_triple`, or `None` when no per-target artifact exists.
+    ///
+    /// The reconciler prefers this over the primary `compiled_data` so an agent on
+    /// a different arch than the compiler host loads ITS OWN arch's cdylib (per-
+    /// target builds come from the compiler's `run_per_target` scan, T-0780).
+    /// `target_triple` uses the same `{arch}-{os}` format as
+    /// [`host_target_triple`](crate::fleet::protocol::host_target_triple) — the
+    /// string both the compiler stamping and the fleet's fail-closed comparison
+    /// already share.
+    ///
+    /// Default impl returns `Ok(None)` (no per-target store — filesystem,
+    /// in-memory, mocks), which makes callers fall back to the primary build.
+    async fn get_compiled_data_for_target(
+        &self,
+        package_name: &str,
+        version: &str,
+        target_triple: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        let _ = (package_name, version, target_triple);
+        Ok(None)
+    }
+
     /// Persist a workflow's task list (local ids + dependency edges) into the
     /// stored package metadata.
     ///

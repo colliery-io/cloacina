@@ -266,9 +266,40 @@ impl RegistryReconciler {
         // --- Step 4, 5, 6: language-specific loading ---
         //
         // `compiled_data` is populated by the compiler service for Rust / mixed
-        // packages. Hold onto it here so the computation-graph step below can
-        // reuse the same bytes without another DB round-trip.
-        let rust_cdylib_bytes = loaded_workflow.compiled_data.clone();
+        // packages. CLOACI-T-0905 (multi-arch): prefer THIS host's per-target
+        // artifact (compiler `run_per_target` builds into `package_artifacts`)
+        // over the primary build — the primary is whatever arch the compiler
+        // host runs, which on a mixed fleet is not necessarily ours. Falls back
+        // to the primary when no per-target artifact exists (single-arch
+        // deployments, where the primary IS the right arch). Hold onto the
+        // bytes so the computation-graph step below can reuse them without
+        // another DB round-trip.
+        let host_triple = crate::fleet::protocol::host_target_triple();
+        let per_target_cdylib = self
+            .registry
+            .get_compiled_data_for_target(&metadata.package_name, &metadata.version, &host_triple)
+            .await?;
+        // Provenance string woven into load-failure messages so a wrong-arch
+        // dlopen failure names WHICH artifact was tried (clear error, not a
+        // silent wrong-arch load).
+        let artifact_provenance = if per_target_cdylib.is_some() {
+            format!("per-target artifact for '{host_triple}'")
+        } else {
+            format!("primary build (no per-target artifact for '{host_triple}')")
+        };
+        let rust_cdylib_bytes = match per_target_cdylib {
+            Some(bytes) => {
+                info!(
+                    "Selected per-target cdylib ({} bytes, {}) for {} v{}",
+                    bytes.len(),
+                    host_triple,
+                    metadata.package_name,
+                    metadata.version
+                );
+                Some(bytes)
+            }
+            None => loaded_workflow.compiled_data.clone(),
+        };
 
         // T-0554 Phase 2: per-language reactor_names tracking. The
         // earlier pre/post inventory-diff approach didn't work for
@@ -302,18 +333,35 @@ impl RegistryReconciler {
                     .clone()
                     .ok_or_else(|| RegistryError::RegistrationFailed {
                         message: format!(
-                            "Rust package {} v{} has no compiled_data — compiler service must \
-                             produce the cdylib before the reconciler loads it",
-                            metadata.package_name, metadata.version
+                            "Rust package {} v{} has no compiled_data and no per-target \
+                             artifact for '{}' — compiler service must produce the cdylib \
+                             before the reconciler loads it",
+                            metadata.package_name, metadata.version, host_triple
                         ),
                     })?;
             info!(
-                "Loaded compiled cdylib ({} bytes) for {}",
+                "Loaded compiled cdylib ({} bytes, {}) for {}",
                 library_data.len(),
+                artifact_provenance,
                 metadata.package_name
             );
 
-            let view = self.build_view_rust(&library_data).await?;
+            // A wrong-arch cdylib dies here (dlopen). Name which artifact was
+            // tried so the failure is diagnosable (CLOACI-T-0905), instead of a
+            // bare loader error that reads like corruption.
+            let view = self.build_view_rust(&library_data).await.map_err(|e| {
+                RegistryError::RegistrationFailed {
+                    message: format!(
+                        "loading {} v{} from {} failed: {} (host triple '{}'; if this is a \
+                         wrong-arch cdylib, ensure the per-target compiler covers this arch)",
+                        metadata.package_name,
+                        metadata.version,
+                        artifact_provenance,
+                        e,
+                        host_triple
+                    ),
+                }
+            })?;
             rust_reactor_names = view.reactors.iter().map(|r| r.name.clone()).collect();
 
             // Step 1: cron triggers — registered through the attached

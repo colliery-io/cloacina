@@ -1388,6 +1388,88 @@ mod tests {
         }
     }
 
+    /// CLOACI-T-0905 (multi-arch): `get_compiled_data_for_target` selects the
+    /// per-target artifact for exactly `(package, version, triple)` — a simulated
+    /// second arch gets ITS bytes, a triple with no artifact gets `None` (the
+    /// caller then falls back to the primary build), and another VERSION's
+    /// artifact never satisfies this version's load.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_compiled_data_for_target_is_version_and_triple_scoped() {
+        use crate::registry::traits::WorkflowRegistry as _;
+
+        let url = format!(
+            "file:wfreg_target_test_{}?mode=memory&cache=shared",
+            Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        let storage = UnifiedRegistryStorage::new(db.clone());
+        let registry = WorkflowRegistryImpl::new(storage, db.clone()).unwrap();
+
+        // A success package whose PRIMARY build is the compiler host's arch.
+        let registry_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("arch-pkg", "1.0.0");
+        let pkg_id = registry
+            .store_package_metadata(&registry_id, &meta)
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_success(pkg_id, b"primary-arch-bytes".to_vec())
+            .await
+            .unwrap();
+
+        // Simulated second arch: the per-target compiler stored ITS cdylib.
+        let dal = crate::dal::DAL::new(db);
+        dal.workflow_packages()
+            .upsert_artifact(
+                "arch-pkg",
+                "1.0.0",
+                None,
+                "testarch-testos",
+                "digest-testarch",
+                b"testarch-bytes".to_vec(),
+            )
+            .await
+            .unwrap();
+        // A DIFFERENT VERSION's artifact for the same triple — must never leak
+        // into 1.0.0's selection.
+        dal.workflow_packages()
+            .upsert_artifact(
+                "arch-pkg",
+                "2.0.0",
+                None,
+                "otherarch-testos",
+                "digest-otherarch-v2",
+                b"v2-otherarch-bytes".to_vec(),
+            )
+            .await
+            .unwrap();
+
+        // The simulated arch loads ITS OWN cdylib.
+        let got = registry
+            .get_compiled_data_for_target("arch-pkg", "1.0.0", "testarch-testos")
+            .await
+            .unwrap();
+        assert_eq!(got.as_deref(), Some(b"testarch-bytes".as_slice()));
+
+        // No artifact for this triple+version → None (caller falls back to the
+        // primary build) — including when only ANOTHER version has that triple.
+        assert!(registry
+            .get_compiled_data_for_target("arch-pkg", "1.0.0", "missing-arch")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(registry
+            .get_compiled_data_for_target("arch-pkg", "1.0.0", "otherarch-testos")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_store_and_get_package_metadata() {

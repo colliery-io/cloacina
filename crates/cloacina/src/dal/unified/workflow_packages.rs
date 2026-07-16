@@ -256,6 +256,39 @@ impl<'a> WorkflowPackagesDAL<'a> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
     }
 
+    /// CLOACI-T-0905 (multi-arch, version-scoped): the cdylib bytes of the
+    /// per-target artifact for `(package, version, target_triple)`, or `None` when
+    /// no build exists for that target. Unlike
+    /// [`get_artifact_digest_for_target`](Self::get_artifact_digest_for_target)
+    /// (which serves fleet dispatch and is version-agnostic), the reconciler loads
+    /// a SPECIFIC package version, so the version must participate in selection —
+    /// otherwise an old version's artifact could satisfy a new version's load.
+    pub async fn get_artifact_data_for_target(
+        &self,
+        package_name: &str,
+        version: &str,
+        target_triple: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        use crate::database::schema::unified::package_artifacts;
+        let (pn, ver, tt) = (
+            package_name.to_string(),
+            version.to_string(),
+            target_triple.to_string(),
+        );
+        let bytes: Option<crate::database::universal_types::UniversalBinary> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                package_artifacts::table
+                    .filter(package_artifacts::package_name.eq(pn))
+                    .filter(package_artifacts::version.eq(ver))
+                    .filter(package_artifacts::target_triple.eq(tt))
+                    .select(package_artifacts::compiled_data)
+                    .first::<crate::database::universal_types::UniversalBinary>(conn)
+                    .optional()
+            })
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(bytes.map(|b| b.into_inner()))
+    }
+
     /// CLOACI-T-0780: the set of target triples this package has a per-target
     /// artifact for. The fleet uses this (∪ the host primary) to only dispatch a
     /// package to an agent whose arch it actually has a cdylib for — so an agent
