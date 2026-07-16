@@ -1288,6 +1288,94 @@ pub async fn load_stream_accumulator_source<C: Serialize>(
     })
 }
 
+/// Load a NATIVE stream-accumulator member declared by a PACKAGED workflow's
+/// `[[metadata.accumulators]]` config map (CLOACI-T-0907) and start its source.
+///
+/// The packaged-workflow declaration surface is a name-keyed STRING map
+/// (`[metadata.accumulators.config] broker = ".." topic = ".."`), but the member's
+/// `#[config]` crosses as bincode of its typed struct. This bridges the two the
+/// same way `constructor!(config = { … })` nodes do: read the member's declared
+/// `config_fields` from the provider manifest, bind the map BY NAME
+/// ([`bind_config_by_name`] — fails closed on unknown/missing keys), and encode in
+/// declaration order. String values coerce per the declared field type (`"5"` for
+/// an `i64` field parses; kafka's fields are all `String`).
+///
+/// The provider resolves from the process-wide [`provider_search_path`] — the same
+/// `providers/` tree the reconciler unpacks a package's bundled providers into.
+pub async fn load_stream_accumulator_source_from_config(
+    provider_name: &str,
+    constructor_name: &str,
+    config: &std::collections::HashMap<String, String>,
+) -> Result<ProviderStreamSource, LoaderError> {
+    let search_path = provider_search_path();
+
+    // Member manifest first — bind_config_by_name needs its config_fields.
+    let (_dir, provider) =
+        resolve_native_provider(&search_path, provider_name)?.ok_or_else(|| {
+            LoaderError::Validation {
+                reason: format!(
+                "stream accumulator declares provider '{provider_name}' but no NATIVE provider \
+                 by that name exists under '{}' (bundle it with the package, or check the \
+                 provider/runtime — wasm stream providers are CLOACI-T-0906/0907 follow-up)",
+                search_path.display()
+            ),
+            }
+        })?;
+    let member = provider
+        .constructor(constructor_name)
+        .ok_or_else(|| LoaderError::Validation {
+            reason: format!(
+                "provider '{provider_name}' has no constructor '{constructor_name}'; members: [{}]",
+                provider
+                    .constructors
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        })?
+        .clone();
+
+    // Map → JSON values (strings that parse as the declared numeric/bool type
+    // coerce — package.toml accumulator config is stringly-typed).
+    let author: Vec<(String, serde_json::Value)> = config
+        .iter()
+        .map(|(k, v)| {
+            let field_ty = member
+                .config_fields
+                .iter()
+                .find(|f| f.name == *k)
+                .map(|f| f.ty.as_str());
+            let value = match field_ty {
+                Some("String") | Some("str") | None => serde_json::Value::String(v.clone()),
+                Some("bool") => v
+                    .parse::<bool>()
+                    .map(serde_json::Value::Bool)
+                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
+                // Numeric field: parse the string; a non-parsing value falls
+                // through as a string so bind_config_by_name names the field in
+                // its type error.
+                Some(_) => serde_json::from_str::<serde_json::Value>(v)
+                    .ok()
+                    .filter(serde_json::Value::is_number)
+                    .unwrap_or_else(|| serde_json::Value::String(v.clone())),
+            };
+            (k.clone(), value)
+        })
+        .collect();
+
+    let ordered = bind_config_by_name(
+        // Context strings for the fail-closed error messages.
+        &format!("accumulator '{constructor_name}'"),
+        provider_name,
+        constructor_name,
+        &member,
+        author,
+    )?;
+
+    load_stream_accumulator_source(&search_path, provider_name, constructor_name, &ordered).await
+}
+
 // ===========================================================================
 // REACTOR primitive (CLOACI-T-0828)
 // ===========================================================================

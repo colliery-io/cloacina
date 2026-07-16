@@ -226,3 +226,117 @@ async fn kafka_provider_streams_real_messages_from_signed_native_package() {
         .expect("runtime task joins after shutdown (keepalive-bounded idle teardown)")
         .expect("runtime task did not panic");
 }
+
+/// CLOACI-T-0907 slice 1 — the PACKAGED-WORKFLOW declaration path: a `stream`
+/// accumulator whose config map carries `provider`/`constructor` keys (the
+/// `[[metadata.accumulators]]` surface) spawns through
+/// `ProviderStreamAccumulatorFactory`, which resolves the provider from the
+/// process-wide provider search path (the bundled-providers tree), binds the
+/// string-map config BY NAME against the member's declared `#[config]` schema,
+/// resolves `{{ VAR }}` templates, and streams real Kafka messages into the
+/// boundary channel. This is exactly what a packaged CG's reconciled reactor
+/// drives — minus the demo stack (T-0907 slice 2).
+#[tokio::test]
+async fn provider_stream_factory_drives_kafka_from_declaration_config() {
+    use cloacina::computation_graph::accumulator::FreshnessHandle;
+    use cloacina::computation_graph::packaging_bridge::ProviderStreamAccumulatorFactory;
+    use cloacina::computation_graph::scheduler::{AccumulatorFactory, AccumulatorSpawnConfig};
+    use cloacina::registry::loader::set_provider_search_path;
+
+    let broker = broker();
+    if !broker_reachable(&broker) {
+        eprintln!(
+            "SKIP provider_stream_factory_drives_kafka_from_declaration_config: \
+             no Kafka broker at {broker} (bring up the dev stack), test passes vacuously"
+        );
+        return;
+    }
+
+    // Package (unsigned) + unpack into the process-wide provider search path —
+    // standing in for the reconciler's bundled-providers unpack step.
+    let work = tempfile::TempDir::new().unwrap();
+    let archive_path = work.path().join("kafka-provider.cloacina");
+    let opts = ProviderPackageOptions {
+        output: Some(archive_path.clone()),
+        release: false,
+        ..ProviderPackageOptions::new_native(provider_dir())
+    };
+    let result = package_constructor_provider(&opts).expect("package kafka provider (native)");
+    let providers_root = tempfile::TempDir::new().unwrap();
+    unpack_provider_archive(&result.archive, providers_root.path(), &[])
+        .expect("unpack provider archive");
+    set_provider_search_path(providers_root.path());
+
+    // The declaration config exactly as `[[metadata.accumulators]]` carries it:
+    // routing keys + member #[config], broker via a `{{ VAR }}` template.
+    std::env::set_var("CLOACINA_VAR_T0907_BROKER", &broker);
+    let run_id = uuid::Uuid::new_v4().simple().to_string();
+    let topic = format!("t0907-{run_id}");
+    let group = format!("t0907-group-{run_id}");
+    let decl_config: std::collections::HashMap<String, String> = [
+        ("provider", "cloacina-provider-kafka"),
+        ("constructor", "kafka_source"),
+        ("broker", "{{ T0907_BROKER }}"),
+        ("topic", topic.as_str()),
+        ("group", group.as_str()),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+
+    let (boundary_tx, mut boundary_rx) = mpsc::channel::<(SourceName, Vec<u8>)>(16);
+    let (shutdown_tx, shutdown_rx) = shutdown_signal();
+    let factory = ProviderStreamAccumulatorFactory::new(decl_config);
+    let (_socket_tx, handle) = factory.spawn(
+        "ticks".to_string(),
+        boundary_tx,
+        shutdown_rx,
+        AccumulatorSpawnConfig {
+            dal: None,
+            health_tx: None,
+            graph_name: "t0907-graph".to_string(),
+            freshness: FreshnessHandle::default(),
+        },
+    );
+
+    // Real messages through the declared provider.
+    {
+        use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
+        let producer: BaseProducer = rdkafka::config::ClientConfig::new()
+            .set("bootstrap.servers", &broker)
+            .set("message.timeout.ms", "10000")
+            .create()
+            .expect("create test producer");
+        for n in 1..=2 {
+            let payload = serde_json::json!({ "tick": n }).to_string();
+            producer
+                .send(BaseRecord::<(), str>::to(&topic).payload(&payload))
+                .expect("enqueue message");
+        }
+        producer.flush(Duration::from_secs(10)).expect("flush");
+    }
+
+    let mut ticks = Vec::new();
+    for _ in 0..2 {
+        let (name, bytes) = tokio::time::timeout(Duration::from_secs(30), boundary_rx.recv())
+            .await
+            .expect("boundary within 30s")
+            .expect("boundary channel open");
+        assert_eq!(name, SourceName::new("ticks"));
+        let json_bytes: Vec<u8> = deserialize(&bytes).expect("decode boundary frame");
+        let b: serde_json::Value = serde_json::from_slice(&json_bytes).expect("boundary json");
+        ticks.push(b.get("tick").and_then(|v| v.as_u64()).expect("tick field"));
+    }
+    ticks.sort();
+    assert_eq!(
+        ticks,
+        vec![1, 2],
+        "the [[metadata.accumulators]] declaration path streamed real Kafka into the boundary channel"
+    );
+
+    let _ = shutdown_tx.send(true);
+    tokio::time::timeout(Duration::from_secs(15), handle)
+        .await
+        .expect("factory-spawned task joins after shutdown")
+        .expect("factory-spawned task did not panic");
+}

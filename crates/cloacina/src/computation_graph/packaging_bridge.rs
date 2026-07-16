@@ -577,6 +577,173 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
     }
 }
 
+/// A PROVIDER-backed stream accumulator factory (CLOACI-T-0907): the `stream`
+/// accumulator's source comes from a constructor provider the package bundles
+/// (e.g. `cloacina-provider-kafka`), not from host-compiled backend code.
+///
+/// Selected by `accumulator_factory_for` when the accumulator's config carries a
+/// `provider` key:
+///
+/// ```toml
+/// [[metadata.accumulators]]
+/// name = "ticks"
+/// accumulator_type = "stream"
+/// [metadata.accumulators.config]
+/// provider = "cloacina-provider-kafka"   # routing: which bundled provider
+/// constructor = "kafka_source"           # routing: which member (default = provider's convention)
+/// broker = "{{ KAFKA_BROKER }}"          # member #[config] (name-keyed, templated)
+/// topic = "tour.ticks"
+/// group = "cg-feature-tour-group"
+/// ```
+///
+/// The provider resolves from the process-wide provider search path (the
+/// `providers/` tree the reconciler unpacks bundled providers into); its member's
+/// `source` is driven via fidius `call_streaming` and drained onto the boundary
+/// channel by `ProviderStreamSource` (T-0904). Load failure is LOUD: an ERROR log
+/// + health `Disconnected` — never a silent passthrough (CLOACI-T-0898 item 3).
+pub struct ProviderStreamAccumulatorFactory {
+    /// Full accumulator config; `provider`/`constructor` are routing keys, the
+    /// rest are the member's `#[config]` values (may be `{{ VAR }}` templates).
+    config: std::collections::HashMap<String, String>,
+}
+
+impl ProviderStreamAccumulatorFactory {
+    pub fn new(config: std::collections::HashMap<String, String>) -> Self {
+        Self { config }
+    }
+}
+
+impl AccumulatorFactory for ProviderStreamAccumulatorFactory {
+    fn spawn(
+        &self,
+        name: String,
+        boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+        shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
+    ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+        let (socket_tx, socket_rx) = mpsc::channel(1024);
+
+        let checkpoint = config.dal.map(|dal| {
+            super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
+        });
+        let sender = BoundarySender::with_freshness(
+            boundary_tx,
+            SourceName::new(&name),
+            config.freshness.clone(),
+        );
+        let health_tx = config.health_tx.clone();
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: name.clone(),
+            shutdown: shutdown_rx,
+            checkpoint,
+            health: config.health_tx,
+        };
+
+        let provider = self.config.get("provider").cloned().unwrap_or_default();
+        let constructor = self
+            .config
+            .get("constructor")
+            .cloned()
+            .unwrap_or_else(|| "kafka_source".to_string());
+        let member_config: std::collections::HashMap<String, String> = self
+            .config
+            .iter()
+            .filter(|(k, _)| !["provider", "constructor", "backend"].contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        #[cfg(feature = "constructors-wasm")]
+        let handle = tokio::spawn(async move {
+            // Resolve `{{ VAR }}` templates in every member config value (the
+            // same treatment KafkaEventSource gave `broker`); a missing var is a
+            // loud load failure, not a silent misconfiguration.
+            let mut resolved = std::collections::HashMap::new();
+            for (k, v) in member_config {
+                match crate::var::resolve_template(&v) {
+                    Ok(rv) => {
+                        resolved.insert(k, rv);
+                    }
+                    Err(missing) => {
+                        let names = missing
+                            .iter()
+                            .map(|e| e.to_string())
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        tracing::error!(
+                            accumulator = %name,
+                            provider = %provider,
+                            "provider stream accumulator FAILED: cannot resolve config var \
+                             '{k}': {names}"
+                        );
+                        if let Some(tx) = &health_tx {
+                            let _ = tx.send(super::accumulator::AccumulatorHealth::Disconnected);
+                        }
+                        return;
+                    }
+                }
+            }
+
+            match crate::registry::loader::constructor_loader::load_stream_accumulator_source_from_config(
+                &provider,
+                &constructor,
+                &resolved,
+            )
+            .await
+            {
+                Ok(source) => {
+                    tracing::info!(
+                        accumulator = %name,
+                        provider = %provider,
+                        constructor = %constructor,
+                        "provider-backed stream accumulator started (native, trusted)"
+                    );
+                    accumulator_runtime_with_source(
+                        GenericPassthroughAccumulator,
+                        ctx,
+                        socket_rx,
+                        AccumulatorRuntimeConfig::default(),
+                        source,
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    // LOUD failure (T-0898 item 3): the reactor will see this
+                    // accumulator as Disconnected instead of silently running a
+                    // passthrough that never fires.
+                    tracing::error!(
+                        accumulator = %name,
+                        provider = %provider,
+                        constructor = %constructor,
+                        "provider stream accumulator FAILED to load: {e}"
+                    );
+                    if let Some(tx) = &health_tx {
+                        let _ = tx.send(super::accumulator::AccumulatorHealth::Disconnected);
+                    }
+                }
+            }
+        });
+
+        #[cfg(not(feature = "constructors-wasm"))]
+        let handle = {
+            let _ = (provider, constructor, member_config, health_tx);
+            tracing::error!(
+                accumulator = %name,
+                "provider-backed stream accumulator requires the 'constructors-wasm' feature; \
+                 boundaries will NOT flow"
+            );
+            tokio::spawn(accumulator_runtime(
+                GenericPassthroughAccumulator,
+                ctx,
+                socket_rx,
+                AccumulatorRuntimeConfig::default(),
+            ))
+        };
+
+        (socket_tx, handle)
+    }
+}
+
 /// A state-backed accumulator factory for FFI-loaded / Python packages.
 ///
 /// Spawns `state_accumulator_runtime::<serde_json::Value>` with a bounded
@@ -886,6 +1053,13 @@ fn accumulator_factory_for(
     config: &std::collections::HashMap<String, String>,
 ) -> Arc<dyn AccumulatorFactory> {
     match acc_type {
+        // CLOACI-T-0907: a `provider` key routes the stream to a bundled
+        // constructor provider (e.g. cloacina-provider-kafka); without it the
+        // legacy host-compiled backend branch applies (removal tracked by
+        // CLOACI-T-0898 once the demo lane proves provider parity).
+        "stream" if config.contains_key("provider") => {
+            Arc::new(ProviderStreamAccumulatorFactory::new(config.clone()))
+        }
         "stream" => Arc::new(StreamBackendAccumulatorFactory::new(config.clone())),
         "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
             config,
