@@ -105,8 +105,17 @@ impl ConstructorCmd {
                     .map_err(|e| CliError::UserError(e.to_string()))?;
 
                 let signed = if result.signed { "signed" } else { "unsigned" };
+                // CLOACI-T-0907: surface the TRUST TIER — a native provider runs
+                // in-process with full host trust (grants advisory); wasm runs
+                // sandboxed with grants enforced. Operators should see which
+                // tier they just packaged.
+                let tier = if native {
+                    "native — TRUSTED, runs unsandboxed in-process"
+                } else {
+                    "wasm — sandboxed, capability grants enforced"
+                };
                 eprintln!(
-                    "Packaged provider '{}' ({signed}) carrying {} constructor(s): {}",
+                    "Packaged provider '{}' ({signed}, {tier}) carrying {} constructor(s): {}",
                     result.provider_name,
                     result.constructors.len(),
                     result.constructors.join(", "),

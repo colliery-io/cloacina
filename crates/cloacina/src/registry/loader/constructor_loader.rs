@@ -336,6 +336,13 @@ fn load_native_member<C: Serialize>(
                 error: format!("configure_from_loaded (native provider): {e}"),
             }
         })?;
+    // CLOACI-T-0907: surface the trust tier at load — a native provider runs
+    // unsandboxed in-process (grants advisory), unlike sandboxed wasm providers.
+    tracing::info!(
+        provider = %provider.name,
+        constructor = %constructor_name,
+        "loaded NATIVE constructor provider (trusted, unsandboxed in-process; grants advisory)"
+    );
     Ok(Some((handle, member)))
 }
 
