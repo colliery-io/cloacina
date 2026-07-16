@@ -45,9 +45,17 @@
 #![cfg(feature = "constructors-wasm")]
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Serialize;
+use tokio::sync::mpsc;
 
+use cloacina::computation_graph::accumulator::{
+    accumulator_runtime, shutdown_signal, AccumulatorContext, AccumulatorRuntimeConfig,
+    BoundarySender,
+};
+use cloacina::computation_graph::types::{deserialize, SourceName};
+use cloacina::registry::loader::constructor_loader::load_accumulator_constructor;
 use cloacina::registry::loader::grants::ResolvedGrants;
 use cloacina::registry::loader::load_task_constructor;
 use cloacina::Context;
@@ -59,6 +67,12 @@ const PROVIDER: &str = "native-task-provider-fixture";
 #[derive(Serialize)]
 struct PrefixConfig {
     prefix: String,
+}
+
+/// The accumulator member's `#[config] threshold`, bound once at load.
+#[derive(Serialize)]
+struct ThresholdConfig {
+    threshold: f64,
 }
 
 fn fixture_dir() -> PathBuf {
@@ -193,4 +207,117 @@ async fn native_provider_unknown_member_rejected() {
         msg.contains("does-not-exist") || msg.to_lowercase().contains("no constructor"),
         "error should name the missing member: {msg}"
     );
+}
+
+/// A SECOND kind through the same generic native path: the `threshold`
+/// accumulator member of the same cdylib loads via the `__ProviderAccumulator`
+/// holder and, driven by `accumulator_runtime`, emits a boundary only when an
+/// event crosses the load-bound threshold. This proves `load_native_member` is
+/// genuinely kind-generic (not task-special-cased) and is the exact shape
+/// T-0904's stream accumulator builds on.
+#[tokio::test]
+async fn native_provider_accumulator_loads_and_ingests_in_process() {
+    let (cdylib, base_manifest) = build_fixture();
+    let work = tempfile::TempDir::new().unwrap();
+    let search_path = stage_native_provider(work.path(), &cdylib, &base_manifest);
+
+    let acc = load_accumulator_constructor(
+        &search_path,
+        PROVIDER,
+        "threshold",
+        &ThresholdConfig { threshold: 5.0 },
+        &ResolvedGrants::default(),
+    )
+    .expect("load native accumulator constructor");
+    assert_eq!(acc.name(), "threshold");
+
+    let (boundary_tx, mut boundary_rx) = mpsc::channel::<(SourceName, Vec<u8>)>(10);
+    let (socket_tx, socket_rx) = mpsc::channel::<Vec<u8>>(10);
+    let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+    let ctx = AccumulatorContext {
+        output: BoundarySender::new(boundary_tx, SourceName::new("threshold")),
+        name: "threshold".to_string(),
+        shutdown: shutdown_rx,
+        checkpoint: None,
+        health: None,
+    };
+    let handle = tokio::spawn(accumulator_runtime(
+        acc,
+        ctx,
+        socket_rx,
+        AccumulatorRuntimeConfig::default(),
+    ));
+
+    // 7.0 >= threshold 5.0 → the config-bound native `ingest` emits a boundary.
+    socket_tx
+        .send(serde_json::to_vec(&serde_json::json!({ "value": 7.0 })).unwrap())
+        .await
+        .unwrap();
+
+    let (name, bytes) = tokio::time::timeout(Duration::from_secs(5), boundary_rx.recv())
+        .await
+        .expect("boundary within 5s")
+        .expect("boundary channel open");
+    assert_eq!(name, SourceName::new("threshold"));
+    let json_bytes: Vec<u8> = deserialize(&bytes).expect("decode boundary frame");
+    let boundary: serde_json::Value = serde_json::from_slice(&json_bytes).expect("boundary json");
+    assert_eq!(
+        boundary.get("crossed"),
+        Some(&serde_json::json!(7.0)),
+        "native accumulator emits {{crossed: value}} above the load-bound threshold"
+    );
+
+    shutdown_tx.send(true).unwrap();
+    let _ = handle.await;
+}
+
+/// The same native accumulator BUFFERS below threshold — no boundary emitted.
+#[tokio::test]
+async fn native_provider_accumulator_buffers_below_threshold() {
+    let (cdylib, base_manifest) = build_fixture();
+    let work = tempfile::TempDir::new().unwrap();
+    let search_path = stage_native_provider(work.path(), &cdylib, &base_manifest);
+
+    let acc = load_accumulator_constructor(
+        &search_path,
+        PROVIDER,
+        "threshold",
+        &ThresholdConfig { threshold: 5.0 },
+        &ResolvedGrants::default(),
+    )
+    .expect("load native accumulator constructor");
+
+    let (boundary_tx, mut boundary_rx) = mpsc::channel::<(SourceName, Vec<u8>)>(10);
+    let (socket_tx, socket_rx) = mpsc::channel::<Vec<u8>>(10);
+    let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+    let ctx = AccumulatorContext {
+        output: BoundarySender::new(boundary_tx, SourceName::new("threshold")),
+        name: "threshold".to_string(),
+        shutdown: shutdown_rx,
+        checkpoint: None,
+        health: None,
+    };
+    let handle = tokio::spawn(accumulator_runtime(
+        acc,
+        ctx,
+        socket_rx,
+        AccumulatorRuntimeConfig::default(),
+    ));
+
+    // 1.0 < threshold 5.0 → native `ingest` buffers (Ok(None)); no boundary.
+    socket_tx
+        .send(serde_json::to_vec(&serde_json::json!({ "value": 1.0 })).unwrap())
+        .await
+        .unwrap();
+
+    let got = tokio::time::timeout(Duration::from_millis(500), boundary_rx.recv()).await;
+    assert!(
+        got.is_err(),
+        "below-threshold event must not emit a boundary, got {got:?}"
+    );
+
+    shutdown_tx.send(true).unwrap();
+    let _ = handle.await;
 }

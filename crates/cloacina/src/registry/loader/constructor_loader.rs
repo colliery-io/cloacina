@@ -772,6 +772,24 @@ pub fn load_trigger_constructor<C: Serialize>(
 ) -> Result<Arc<dyn Trigger>, LoaderError> {
     let search_path = search_path.as_ref();
 
+    // NATIVE provider fast-path (CLOACI-T-0902): grants advisory; falls through
+    // to the WASM path when the package isn't a `runtime = "native"` provider.
+    if let Some((handle, member)) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Trigger,
+        TRIGGER_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderTrigger",
+    )? {
+        return Ok(Arc::new(WasmTriggerConstructor {
+            name: member.name,
+            handle: Arc::new(handle),
+            binding,
+        }));
+    }
+
     let host = PluginHost::builder()
         .search_path(search_path)
         .build()
@@ -1061,6 +1079,23 @@ pub fn load_accumulator_constructor<C: Serialize>(
 ) -> Result<WasmAccumulatorConstructor, LoaderError> {
     let search_path = search_path.as_ref();
 
+    // NATIVE provider fast-path (CLOACI-T-0902; also T-0904's stream-accumulator
+    // prereq): grants advisory; falls through to WASM when not a native provider.
+    if let Some((handle, member)) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Accumulator,
+        ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderAccumulator",
+    )? {
+        return Ok(WasmAccumulatorConstructor {
+            name: member.name,
+            handle: Arc::new(handle),
+        });
+    }
+
     let host = PluginHost::builder()
         .search_path(search_path)
         .build()
@@ -1264,6 +1299,23 @@ pub fn load_reactor_constructor<C: Serialize>(
     grants: &ResolvedGrants,
 ) -> Result<WasmReactorConstructor, LoaderError> {
     let search_path = search_path.as_ref();
+
+    // NATIVE provider fast-path (CLOACI-T-0902): grants advisory; falls through
+    // to the WASM path when the package isn't a `runtime = "native"` provider.
+    if let Some((handle, member)) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Reactor,
+        REACTOR_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderReactor",
+    )? {
+        return Ok(WasmReactorConstructor {
+            name: member.name,
+            handle: Arc::new(handle),
+        });
+    }
 
     let host = PluginHost::builder()
         .search_path(search_path)

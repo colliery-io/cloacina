@@ -62,12 +62,51 @@ impl Prefix {
     }
 }
 
-// The provider suite shell (CLOACI-A-0011). For a HOST cdylib build,
-// `constructor_provider!` emits the native variant (`crate = fidius_core`,
-// `#[cfg(not(wasm32))]`) → the `__ProviderTask` plugin the loader selects.
+/// A second kind in the SAME native suite: an accumulator that emits a boundary
+/// only when an event's numeric `value` crosses the config-bound `threshold`.
+/// Proves the generic native `load_native_member` path across a second holder
+/// (`__ProviderAccumulator`) — and is the shape T-0904 builds its stream
+/// accumulator on.
+#[constructor(
+    kind = accumulator,
+    name = "threshold",
+    version = "0.1.0",
+    contract = constructor_contract,
+    description = "Emits a boundary when an event value crosses a configured threshold (native-authored).",
+    author = "CLOACI-T-0902"
+)]
+pub struct Threshold {
+    /// Bound once per instance at load via the generated `configure` hook.
+    #[config]
+    threshold: f64,
+}
+
+impl Threshold {
+    /// Parse the event, emit `{crossed: value}` when `value >= threshold`
+    /// (config-bound), else buffer (`Ok(None)`).
+    fn ingest(&self, event_json: &str) -> Result<Option<String>, ConstructorError> {
+        let event: serde_json::Value = serde_json::from_str(event_json)
+            .map_err(|e| ConstructorError::msg(format!("decode event: {e}")))?;
+        let value = event
+            .get("value")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| ConstructorError::msg("event missing numeric `value`"))?;
+        if value >= self.threshold {
+            Ok(Some(serde_json::json!({ "crossed": value }).to_string()))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+// The provider suite shell (CLOACI-A-0011): TWO kinds behind one native cdylib.
+// For a HOST cdylib build, `constructor_provider!` emits the native variant
+// (`crate = fidius_core`, `#[cfg(not(wasm32))]`) → the `__ProviderTask` +
+// `__ProviderAccumulator` plugins the loader selects by kind.
 constructor_provider!(
     name = "native-task-provider-fixture",
     version = "0.1.0",
     contract = constructor_contract,
     task = [Prefix],
+    accumulator = [Threshold],
 );
