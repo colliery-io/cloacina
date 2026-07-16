@@ -1206,6 +1206,14 @@ impl EventSource for ProviderStreamSource {
                             let boundary: String = fidius_core::from_value(value).map_err(|e| {
                                 AccumulatorError::Init(format!("decode provider stream item: {e}"))
                             })?;
+                            // KEEPALIVE convention (CLOACI-T-0906): an empty item is a
+                            // liveness tick from a BLOCKING source (e.g. a Kafka poll
+                            // timeout) — fidius's pump thread only notices a dropped
+                            // consumer when it sends, so an idle source must tick to
+                            // keep teardown bounded. Never a boundary; skip it.
+                            if boundary.is_empty() {
+                                continue;
+                            }
                             if events.send(boundary.into_bytes()).await.is_err() {
                                 break; // consumer gone
                             }

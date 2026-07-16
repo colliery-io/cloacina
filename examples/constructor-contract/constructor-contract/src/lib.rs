@@ -298,6 +298,11 @@ pub trait ReactorObject: Send + Sync {
 /// the host drains via `call_streaming`. The iterator is `Send + 'static`.
 pub trait StreamAccumulatorObject: Send + Sync {
     /// Start the configured stream source, yielding boundary-JSON items lazily.
+    ///
+    /// KEEPALIVE convention (CLOACI-T-0906): an **empty string** item is a
+    /// liveness tick, not a boundary — the host skips it. A blocking source
+    /// (e.g. Kafka) should yield `""` on each poll timeout so idle-stream
+    /// teardown resolves within one poll interval.
     fn source(&self) -> Box<dyn Iterator<Item = String> + Send>;
 }
 

@@ -393,6 +393,12 @@ pub trait AccumulatorObject: Send + Sync {
 /// source (e.g. a Kafka consumer) owns what it needs, built from the bound config.
 pub trait StreamAccumulatorObject: Send + Sync {
     /// Start the configured stream source, yielding boundary-JSON items lazily.
+    ///
+    /// KEEPALIVE convention (CLOACI-T-0906): an **empty string** item is a
+    /// liveness tick, not a boundary — the host skips it. A source whose `next()`
+    /// blocks on an external poll (e.g. Kafka) should yield `""` on each poll
+    /// timeout so the host's pump thread gets a periodic send and teardown of an
+    /// idle stream resolves within one poll interval instead of parking forever.
     fn source(&self) -> Box<dyn Iterator<Item = String> + Send>;
 }
 
