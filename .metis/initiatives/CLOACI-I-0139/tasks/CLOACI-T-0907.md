@@ -4,14 +4,14 @@ level: task
 title: "Kafka provider consumption proof + provider-authoring docs — demo-stack CG, cg-feature-tour kafka lane"
 short_code: "CLOACI-T-0907"
 created_at: 2026-07-15T12:09:23.381471+00:00
-updated_at: 2026-07-15T12:09:23.381471+00:00
+updated_at: 2026-07-16T20:56:47.257561+00:00
 parent: CLOACI-I-0139
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ Parent: [[CLOACI-I-0139]]. Depends on [[CLOACI-T-0906]] (the kafka provider) + c
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -142,4 +144,32 @@ Parent: [[CLOACI-I-0139]]. Depends on [[CLOACI-T-0906]] (the kafka provider) + c
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-16 — activated; consumer-side machinery FULLY SCOPED (3 slices).
+
+**T-0898 status note:** its open questions 1 (source shape) + 2 (native in-process) are ANSWERED by T-0904/0906; question 3 (loud failure) folds into slice 1 here. Core-rdkafka removal = end of slice 2 (after demo parity).
+
+**Machinery findings (all exist, nothing to invent):**
+- Consumer declaration = `[[metadata.accumulators]]` in package.toml (`name`, `accumulator_type = "stream"`, `[.config] broker/topic/group` — cg-feature-tour already carries the deferred kafka block, `{{ KAFKA_BROKER }}` templating via `crate::var::resolve_template`).
+- Dispatch = `accumulator_factory_for` (packaging_bridge.rs:884); "stream" → `StreamBackendAccumulatorFactory` (host kafka, silently degrades to passthrough without the feature — the T-0898 complaint).
+- **Provider resolution**: process-wide `provider_search_path()` exists (constructor_loader.rs:1572; reconciler unpacks bundled providers → `set_provider_search_path`). The stream factory uses the SAME path — no plumbing.
+- **Config bridge (subtle bit, SOLVED)**: package.toml gives a string map; the member needs bincode of its typed `#[config]` struct. `bind_config_by_name` (:1825) + `OrderedConfig` (bincode TUPLE = byte-identical to the guest struct) + `coerce_config_value` already do name-keyed → declaration-ordered typed encoding from the manifest's `config_fields`. Reuse verbatim.
+- Feature gating: constructor_loader is behind `constructors-wasm`; packaging_bridge is always-compiled ⇒ provider branch needs `#[cfg(feature = "constructors-wasm")]` + LOUD error fallback otherwise.
+
+**SLICE 1 (engine seam — implementing now):**
+- Loader: `pub async fn load_stream_accumulator_source_from_config(from, constructor, &HashMap<String,String>)` — resolve member manifest from `provider_search_path()`, map→JSON values → `bind_config_by_name` → `load_stream_accumulator_source` with the `OrderedConfig`.
+- packaging_bridge: `"stream"` + `provider` key → new `ProviderStreamAccumulatorFactory` (routing keys `provider`/`constructor` stripped; remaining values var-template-resolved like KafkaEventSource does broker). Spawn = tokio task: async load → `accumulator_runtime_with_source(GenericPassthroughAccumulator, source)`; load failure → ERROR + health Failed (loud), not silent passthrough. No `provider` key → legacy host branch unchanged (removal after slice 2 parity).
+- Test: extend the kafka E2E — stage provider under a search path, spawn via `accumulator_factory_for("stream", {provider, constructor, broker, topic, group})`, real messages → boundaries.
+
+**SLICE 2 (demo lane):** cg-feature-tour package.toml gains `provider`/`constructor` keys; bundle the native provider archive (T-0836 `package_providers`; NOTE native bundles are arch-specific — fine on the single-arch demo stack, per-arch bundling is a noted gap); compiler container must build rdkafka (verify C toolchain in image); re-enable the kafka surface in features.py. THEN drop core `kafka` feature + rdkafka + `KafkaEventSource` (T-0898 payoff).
+
+**SLICE 3 (docs + CLI):** "author your first provider" doc (kafka worked example: `mode = stream`, `features=["native"]`, fidius host deps, keepalive, `package --native`); consuming (`provider = ..` keys + trust note); CLI/load-log: "native (trusted, unsandboxed)" vs "wasm (sandboxed)".
+
+### 2026-07-16 — SLICE 1 LANDED + PROVEN → `e234e1a1`. Declaration path streams real Kafka.
+
+- **Loader**: `load_stream_accumulator_source_from_config(provider, constructor, &HashMap<String,String>)` — resolves from `provider_search_path()`, bridges the stringly map → typed member bincode via `bind_config_by_name`/`OrderedConfig` (fail-closed on unknown/missing keys; numeric fields parse from strings).
+- **packaging_bridge**: `accumulator_factory_for` routes `"stream"` + `provider` key → `ProviderStreamAccumulatorFactory` (routing keys stripped; ALL member values `{{ VAR }}`-resolved; spawn = async load → `accumulator_runtime_with_source`; **load failure = ERROR + health `Disconnected`**, never silent passthrough — T-0898 item 3 delivered for the provider path). No `provider` key → legacy branch untouched. `cfg(constructors-wasm)` with loud-error fallback build; both combos compile.
+- **PROOF**: `provider_stream_factory_drives_kafka_from_declaration_config` — the exact `[[metadata.accumulators]]`-shaped map (routing keys + `{{ T0907_BROKER }}` template) → factory spawn → provider resolved from a staged search path → REAL Kafka messages → boundary channel → clean shutdown join. **2/2 green** (both kafka E2Es, 4.8s, dev-stack broker).
+
+**REMAINING:**
+- **Slice 2 (demo lane)**: cg-feature-tour package.toml gains `provider`/`constructor` keys; bundle the native kafka provider archive with the package (T-0836 `package_providers` — check how bundling is declared/uploaded, likely `cloacinactl` or the harness uploads provider rows); verify the compiler container can build rdkafka (C toolchain); re-enable the kafka surface in `.angreal/demos/features/features.py`; run the lane green; THEN drop core `kafka` feature + rdkafka + `KafkaEventSource` + `StreamBackendAccumulatorFactory` (T-0898 payoff).
+- **Slice 3 (docs + CLI)**: authoring doc (kafka worked example), consuming doc, trust-tier surfacing in `cloacinactl constructor package` output + load logs (the factory already logs "native, trusted" on start).
