@@ -364,6 +364,16 @@ impl RegistryReconciler {
             })?;
             rust_reactor_names = view.reactors.iter().map(|r| r.name.clone()).collect();
 
+            // Step 0 (CLOACI-T-0907): stage the package's BUNDLED constructor
+            // providers before anything that may consume them spawns. This used
+            // to happen only inside step_load_constructor_nodes (i.e. only for
+            // packages with `constructor!` NODES) — but a provider-backed STREAM
+            // accumulator (`[[metadata.accumulators]] provider = ..`) consumes a
+            // bundled provider from step 3's reactor spawn, with no constructor
+            // node in sight. Packages that bundle nothing stage nothing (and
+            // clear the search path — hermetic fail-closed, unchanged).
+            self.stage_bundled_providers(&metadata).await?;
+
             // Step 1: cron triggers — registered through the attached
             // CronWorkflowRegistrar (no-op when none is wired).
             cron_schedule_ids = self.step_load_cron_triggers(&metadata, &view).await?;

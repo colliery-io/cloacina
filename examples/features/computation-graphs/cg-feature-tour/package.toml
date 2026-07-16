@@ -21,7 +21,19 @@ author = "Cloacina Demo Team"
 name = "ticks"
 accumulator_type = "stream"
 
+# CLOACI-T-0907: the stream source is the BUNDLED native kafka provider (see
+# [metadata.providers]) — `provider`/`constructor` route the accumulator to it;
+# the remaining keys are the member's #[config], bound by name at load.
 [metadata.accumulators.config]
+provider = "cloacina-provider-kafka"
+constructor = "kafka_source"
 broker = "{{ KAFKA_BROKER }}"
 topic = "tour.ticks"
 group = "cg-feature-tour-group"
+
+# The provider dep the compiler bundles into `package_providers` (built NATIVE —
+# the provider's own Cargo.toml declares `runtime = "native"`; rdkafka is C and
+# cannot target wasm). `__WORKSPACE__` is rewritten to an absolute path by the
+# demo harness before packing (same convention as demo-constructor-py).
+[metadata.providers]
+cloacina-provider-kafka = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-kafka" }
