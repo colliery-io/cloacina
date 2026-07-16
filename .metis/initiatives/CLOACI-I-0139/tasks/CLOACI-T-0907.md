@@ -4,14 +4,14 @@ level: task
 title: "Kafka provider consumption proof + provider-authoring docs — demo-stack CG, cg-feature-tour kafka lane"
 short_code: "CLOACI-T-0907"
 created_at: 2026-07-15T12:09:23.381471+00:00
-updated_at: 2026-07-16T20:56:47.257561+00:00
+updated_at: 2026-07-16T23:07:52.140151+00:00
 parent: CLOACI-I-0139
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ Parent: [[CLOACI-I-0139]]. Depends on [[CLOACI-T-0906]] (the kafka provider) + c
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -196,3 +198,15 @@ Parent: [[CLOACI-I-0139]]. Depends on [[CLOACI-T-0906]] (the kafka provider) + c
 **Pre-existing bug noticed (NOT mine, worth a ticket):** scheduler "failed to record recovery event: Database error: invalid input syntax for type json" on accumulator crash-restart.
 
 **Left in T-0907:** slice 3 (docs + CLI trust tier). Core-rdkafka removal stays T-0898's ticket (backlog) — the legacy branch is still exercised by other lanes; removal is now UNBLOCKED by proven parity.
+
+### 2026-07-16 — SLICE 3 LANDED → `74f498d5`. T-0907 DONE.
+
+- **Docs**: `author-a-provider.md` gains the NATIVE tier (trust table wasm-vs-native, the 3 authoring declarations — runtime marker / `native` feature / fidius host deps — and `--native` packaging) + the `mode = stream` authoring shape (blocking-safe pump thread, `""` keepalive rule), kafka as the worked example. `consume-a-provider.md` gains the provider-backed stream accumulator section (`provider`/`constructor` routing keys, `[metadata.providers]` both-languages semantics, name-keyed binding, `{{ VAR }}` templating, the runnable lane). Docs site builds clean.
+- **CLI/logs**: `cloacinactl constructor package` prints the tier ("native — TRUSTED, runs unsandboxed in-process" vs "wasm — sandboxed, capability grants enforced"); `load_native_member` logs the tier at load; the stream factory already logged "(native, trusted)" at start.
+
+**ACCEPTANCE — all three MET:**
+- [x] A green lane streams Kafka → CG through the consumed provider on the demo stack (`angreal demos features cg-feature-tour`, exit 0, "reactor tour_rx fired (0 -> 2)"). It IS the CI lane — the features demos are the discovery-driven CI examples matrix (`demos matrix`).
+- [x] The cg-feature-tour kafka surface is re-enabled (the override runs tour_pipeline AND the kafka fire).
+- [x] Docs cover authoring + consuming + trust tiers; CLI + load logs show the runtime/trust tier.
+
+**Deviations from the original objective (deliberate):** consumption is via the `[[metadata.accumulators]] provider = ..` declaration (the accumulator surface), not a `constructor!(from = ..)` node — a stream accumulator is graph plumbing, not a DAG node; `grants = { net = […] }` doesn't apply (native = grants advisory, documented). Core cleanup (T-0898) unblocked but not folded in.
