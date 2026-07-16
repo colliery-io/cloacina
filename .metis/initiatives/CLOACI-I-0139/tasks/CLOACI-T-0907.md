@@ -171,5 +171,28 @@ Parent: [[CLOACI-I-0139]]. Depends on [[CLOACI-T-0906]] (the kafka provider) + c
 - **PROOF**: `provider_stream_factory_drives_kafka_from_declaration_config` — the exact `[[metadata.accumulators]]`-shaped map (routing keys + `{{ T0907_BROKER }}` template) → factory spawn → provider resolved from a staged search path → REAL Kafka messages → boundary channel → clean shutdown join. **2/2 green** (both kafka E2Es, 4.8s, dev-stack broker).
 
 **REMAINING:**
-- **Slice 2 (demo lane)**: cg-feature-tour package.toml gains `provider`/`constructor` keys; bundle the native kafka provider archive with the package (T-0836 `package_providers` — check how bundling is declared/uploaded, likely `cloacinactl` or the harness uploads provider rows); verify the compiler container can build rdkafka (C toolchain); re-enable the kafka surface in `.angreal/demos/features/features.py`; run the lane green; THEN drop core `kafka` feature + rdkafka + `KafkaEventSource` + `StreamBackendAccumulatorFactory` (T-0898 payoff).
 - **Slice 3 (docs + CLI)**: authoring doc (kafka worked example), consuming doc, trust-tier surfacing in `cloacinactl constructor package` output + load logs (the factory already logs "native, trusted" on start).
+
+### 2026-07-16 — SLICE 2 SCOPED in detail (bundling machinery mapped).
+
+**Bundling facts:**
+- Compiler build.rs (:298-395): RUST consumers → `discover_provider_refs(source)` (scans `.rs` for `constructor!`/`#[reactor]` `from` refs) → `pack_providers` (resolves via the CONSUMER'S cargo graph — provider must be a Cargo dep) → rows stored via `store_package_providers`. PYTHON consumers → `[metadata.providers]` manifest section → `pack_providers_from_specs` (scratch cargo project; NO consumer Cargo.toml involvement). Declared-but-unbundleable FAILS the build (fail closed).
+- BOTH pack/bundle sites hardcode `runtime: Wasm` (provider_bundle.rs:257/:336) — a native provider (rdkafka!) cannot build to wasm32-wasip2, so bundling needs a runtime signal.
+
+**Slice-2 engine plan:**
+1. `provider_runtime_for_crate(crate_dir)` — read the provider crate's `[package.metadata.cloacina] runtime = "native"` marker (explicit opt-in; default wasm); use at the pack/bundle option sites. Add the marker to `cloacina-provider-kafka/Cargo.toml`.
+2. Compiler Rust arm: ALSO honor `[metadata.providers]` (union with source-scan refs, spec-based `pack_providers_from_specs` path) — so a Rust consumer can bundle the kafka provider WITHOUT adding rdkafka to its own Cargo graph (the wasm-provider Cargo-dep convention stays for `constructor!` refs).
+3. `discover_provider_refs` unchanged (accumulator providers ride `[metadata.providers]`, not source scan).
+4. cg-feature-tour: `[metadata.providers] cloacina-provider-kafka = { path = … }` + the `ticks` accumulator config gains `provider`/`constructor` keys. ⚠️ verify the compiler CONTAINER can see the path dep (volume mounts — check how fs-grant-demo's provider path resolves in-container) and can build rdkafka (C toolchain in the image).
+5. features.py: re-enable the kafka lane surface; lane green on the demo stack.
+6. THEN core cleanup (T-0898 payoff): drop `kafka` feature, rdkafka, `KafkaEventSource`, `StreamBackendAccumulatorFactory` legacy branch; `accumulator_factory_for("stream")` without `provider` becomes a LOUD error.
+
+### 2026-07-16 — SLICE 2 GREEN ON THE DEMO STACK → `2deb2451` + `f083d154`. Flagship acceptance MET.
+
+**Lane output (exit 0):** pack (`__WORKSPACE__` rewrite) → upload → compile (compiler log: "bundling [metadata.providers] … cloacina-provider-kafka", built NATIVE per the runtime marker) → reconcile (server log: "Unpacked 1 bundled provider(s)…", "provider-backed stream accumulator started (native, trusted)") → `tour_pipeline` execution Completed → produced 2 messages via the dev-stack container's console producer → **"ok: reactor tour_rx fired (0 -> 2)"** → SUCCESS. NOTE: the harness runs HOST binaries (docker only for postgres/kafka) so the "compiler container rdkafka" concern was moot; the container story arrives when CI runs the lane containerized (watch for librdkafka build deps then).
+
+**Reconciler BUG the lane surfaced + fixed:** `stage_bundled_providers` ran ONLY inside `step_load_constructor_nodes` (packages with `constructor!` NODES) — a provider-backed stream ACCUMULATOR consumes bundled providers from the reactor-spawn step with no node in sight, so its providers were never staged (factory retried loudly forever against the default path — the supervision/backoff loop worked exactly as designed). FIX: Rust load path stages bundled providers as **step 0**; no-provider packages still clear the path (hermetic fail-closed unchanged). Also observed working: transient-error keepalive (UnknownTopicOrPartition before topic creation → logged + stream alive) and clean provider teardown on shutdown.
+
+**Pre-existing bug noticed (NOT mine, worth a ticket):** scheduler "failed to record recovery event: Database error: invalid input syntax for type json" on accumulator crash-restart.
+
+**Left in T-0907:** slice 3 (docs + CLI trust tier). Core-rdkafka removal stays T-0898's ticket (backlog) — the legacy branch is still exercised by other lanes; removal is now UNBLOCKED by proven parity.
