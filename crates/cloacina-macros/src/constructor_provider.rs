@@ -304,6 +304,10 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
                 name: #name_expr,
                 version: #version_expr,
                 component: #component_expr,
+                // Default runtime; the packaging step overrides this to `native`
+                // when built via `cloacinactl constructor package --native`
+                // (CLOACI-T-0902 field; T-0903 native build path sets it).
+                runtime: #contract::ProviderRuntime::Wasm,
                 constructors: ::std::vec![ #(#manifest_exprs),* ],
             }
         }

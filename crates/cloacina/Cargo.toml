@@ -69,11 +69,11 @@ diesel_migrations = { version = "2.1.0" }
 libsqlite3-sys = { version = ">= 0.35", optional = true }
 dotenvy = { version = "0.15" }
 bzip2 = { version = "0.4" }
-fidius-host = "0.5.5"
-fidius-core = "0.5.5"
+fidius-host = "0.5.6"
+fidius-core = "0.5.6"
 # Only compiled in when `constructors-wasm` is on (host-side interface descriptor +
 # the shared constructor contract). Default builds pull neither.
-fidius-macro = { version = "0.5.5", optional = true }
+fidius-macro = { version = "0.5.6", optional = true }
 cloacina-constructor-contract = { workspace = true, optional = true }
 libloading = { version = "0.8" }
 parking_lot = { version = "0.12" }
@@ -119,7 +119,7 @@ tempfile = "3.2"
 # CLOACI-T-0827: signed-provider e2e test signs/verifies with the same Ed25519
 # scheme fidius uses, and repacks a tampered dir to prove the loader fails closed.
 ed25519-dalek = { version = "2.1" }
-fidius-core = "0.5.5"
+fidius-core = "0.5.6"
 once_cell = "1.19.0"
 serial_test = "3.2.0"
 aquamarine = "0.6.0"

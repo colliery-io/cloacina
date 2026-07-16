@@ -443,6 +443,7 @@ mod tests {
             name: "cloacina-provider-fs".into(),
             version: "0.1.0".into(),
             component: "cloacina_provider_fs.wasm".into(),
+            runtime: Default::default(),
             constructors: vec![member("read_file"), member("write_file")],
         };
         let s = p.to_json().unwrap();

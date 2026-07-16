@@ -238,8 +238,42 @@ impl ConstructorManifest {
     }
 }
 
+/// Which runtime substrate a provider's component is loaded through
+/// (CLOACI-T-0902 / I-0139). The whole suite shares one runtime — a provider is
+/// authored the same way regardless (the `#[constructor]` surface is
+/// target-agnostic); only the emitted glue + load path differ.
+///
+/// **Trust asymmetry (I-0139 sub-question (e)):** WASM providers are sandboxed
+/// (wasmtime) and their `grants` are ENFORCED by the host capability layer.
+/// NATIVE providers run in-process with full host trust — the same trust surface
+/// a tenant already extends to a packaged Rust workflow cdylib — so `grants`
+/// degrade to ADVISORY/audit metadata (a native provider opens its sockets/files
+/// directly regardless of a grant). The discriminator makes this explicit at
+/// author + install time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRuntime {
+    /// Sandboxed WASM component (`wasm32-wasip2`), loaded via
+    /// `load_wasm_configured`; `grants` enforced. The default for pre-native
+    /// `provider.json` manifests.
+    #[default]
+    Wasm,
+    /// Trusted native cdylib (host target), loaded via `load_library` +
+    /// `PluginHandle::configure_in_process`; `grants` advisory only.
+    Native,
+}
+
+impl ProviderRuntime {
+    /// Whether this runtime's `grants` are enforced (WASM sandbox) vs. advisory
+    /// (native, trusted in-process). Consumed by the loader (skip grant
+    /// translation for native) and by author/CLI trust-tier surfacing.
+    pub fn grants_enforced(self) -> bool {
+        matches!(self, ProviderRuntime::Wasm)
+    }
+}
+
 /// The package-level manifest for a **provider** — a *suite* of constructors
-/// (CLOACI-A-0011). One provider crate compiles to ONE WASM component that may
+/// (CLOACI-A-0011). One provider crate compiles to ONE component that may
 /// expose **N constructors**; this manifest (the package's `provider.json`) is the
 /// `List[Constructor]` index over them. A consumer selects a member by
 /// `constructor = "<name>"`, and the loader carries that name in the `configure`
@@ -256,9 +290,16 @@ pub struct ProviderManifest {
     pub name: String,
     /// Provider version (semver string), independent of cloacina's version.
     pub version: String,
-    /// The single `.wasm` component filename inside the package that implements
-    /// every member constructor (one component per provider; CLOACI-A-0011).
+    /// The single component filename inside the package that implements every
+    /// member constructor (one component per provider; CLOACI-A-0011). A `.wasm`
+    /// component for `runtime = wasm`; a native cdylib (`.so`/`.dylib`) for
+    /// `runtime = native` (per-arch artifact selection is CLOACI-T-0905).
     pub component: String,
+    /// Which runtime substrate this provider loads through (CLOACI-T-0902). The
+    /// whole suite shares one runtime. Defaults to [`ProviderRuntime::Wasm`] so
+    /// pre-native `provider.json` manifests deserialize unchanged.
+    #[serde(default)]
+    pub runtime: ProviderRuntime,
     /// The member constructors this provider exposes, in declaration order.
     pub constructors: Vec<ConstructorManifest>,
 }
