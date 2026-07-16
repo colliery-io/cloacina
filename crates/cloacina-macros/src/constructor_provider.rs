@@ -294,6 +294,14 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
     quote! {
         #(#shells)*
 
+        // CLOACI-I-0139 (T-0902/0903): a NATIVE provider is a host cdylib the
+        // loader `dlopen`s — it must export `fidius_get_registry` (via dlsym)
+        // so `load_library` can enumerate the `#[plugin_impl]` holders. Emitted
+        // ONCE per crate, native-only (the wasm path uses component exports, not
+        // dlsym). Uses `fidius_core` — the same crate the native shells target.
+        #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+        ::fidius_core::fidius_plugin_registry!();
+
         /// CLOACI-A-0011/T-0837: the provider manifest (`provider.json`) — the
         /// `List[Constructor]` index over this suite's members. Packaging's
         /// `emit_manifest` bin serializes this; the loader reads it to select a
@@ -335,7 +343,12 @@ fn kind_shell(
     // the interface against (constructor_loader.rs `crate = "fidius_core"`).
     let native_crate = LitStr::new("fidius_core", Span::call_site());
     let wasm_cfg = quote! { #[cfg(target_arch = "wasm32")] };
-    let native_cfg = quote! { #[cfg(not(target_arch = "wasm32"))] };
+    // CLOACI-I-0139: the native shell needs `fidius_core`/`fidius_macro` as HOST
+    // deps. Gate it behind BOTH not-wasm AND a `native` feature (mirroring the
+    // packaged-workflow `packaged` feature) so a WASM-only provider — whose host
+    // `emit_manifest` build has no fidius_core — is NOT forced to carry native
+    // deps. A native provider crate opts in with `features = ["native"]`.
+    let native_cfg = quote! { #[cfg(all(not(target_arch = "wasm32"), feature = "native"))] };
 
     let wasm = kind_shell_variant(kind, members, contract, fidius_crate, &wasm_cfg);
     let native = kind_shell_variant(kind, members, contract, &native_crate, &native_cfg);

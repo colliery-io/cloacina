@@ -493,6 +493,18 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
                     .expect("constructor member: decode config");
                 ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
             }
+            // CLOACI-I-0139 (T-0902/0903): the NATIVE provider shell (host
+            // cdylib, `crate = fidius_core`) dispatches to this on non-wasm.
+            // `fidius_core::wire` re-exports the same codec as `fidius_guest::wire`.
+            // Gated on the `native` feature so a wasm-only provider's host
+            // `emit_manifest` build (no fidius_core dep) doesn't compile it.
+            #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::TaskObject> {
+                let __cfg: #config_ident = ::fidius_core::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
+            }
         }
     };
 
@@ -776,6 +788,14 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
                     .expect("constructor member: decode config");
                 ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
             }
+            // CLOACI-I-0139 (T-0902/0903): NATIVE host-cdylib dispatch (feature-gated).
+            #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::TriggerObject> {
+                let __cfg: #config_ident = ::fidius_core::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
+            }
         }
     };
 
@@ -1042,6 +1062,14 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
             #[allow(dead_code)]
             pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::#object_ident> {
                 let __cfg: #config_ident = #fidius_crate_ident::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
+            }
+            // CLOACI-I-0139 (T-0902/0903): NATIVE host-cdylib dispatch (feature-gated).
+            #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::#object_ident> {
+                let __cfg: #config_ident = ::fidius_core::wire::deserialize(__bytes)
                     .expect("constructor member: decode config");
                 ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
             }
