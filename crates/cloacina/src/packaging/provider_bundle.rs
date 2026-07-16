@@ -254,6 +254,7 @@ pub fn bundle_providers(
             sign_key: None,
             manifest_bin: "emit_manifest".to_string(),
             release,
+            runtime: cloacina_constructor_contract::ProviderRuntime::Wasm,
         };
         let result = package_constructor_provider(&opts)?;
 
@@ -332,6 +333,7 @@ pub fn pack_providers(
             sign_key: None,
             manifest_bin: "emit_manifest".to_string(),
             release,
+            runtime: cloacina_constructor_contract::ProviderRuntime::Wasm,
         };
         let result = package_constructor_provider(&opts)?;
 

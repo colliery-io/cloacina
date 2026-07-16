@@ -3243,6 +3243,7 @@ mod tests {
                     sign_key: None,
                     manifest_bin: "emit_manifest".to_string(),
                     release: false,
+                    runtime: cloacina_constructor_contract::ProviderRuntime::Wasm,
                 };
                 crate::packaging::constructor_provider::package_constructor_provider(&opts)
                     .expect("package cloacina-provider-fs");
