@@ -296,21 +296,50 @@ async fn run_build(
     > = match result {
         Ok(success) => {
             // CLOACI-T-0836/T-0831: bundle the constructor providers this package
-            // consumes (resolve → build to wasm → pack) into `package_providers`,
-            // so the reconciler can resolve its constructor nodes hermetically at
-            // load. Discovery is per-language: RUST scans the source for
-            // `constructor!`/`#[reactor]` `from` refs (Cargo.toml is the dep
-            // source of truth); PYTHON reads the AUTHORITATIVE
-            // `[metadata.providers]` manifest section (no Cargo.toml — a scratch
-            // Cargo project is synthesized around the specs). Either way, a
-            // declared-but-unbundleable provider FAILS the build (fail closed —
-            // the package could never load).
+            // consumes (resolve → build per the provider's declared runtime →
+            // pack) into `package_providers`, so the reconciler can resolve its
+            // constructor nodes hermetically at load. Discovery: RUST scans the
+            // source for `constructor!`/`#[reactor]` `from` refs (Cargo.toml is
+            // the dep source of truth) AND honors `[metadata.providers]`
+            // additively (CLOACI-T-0907 — e.g. a native kafka provider backing a
+            // stream accumulator, kept out of the consumer's Cargo graph);
+            // PYTHON reads the AUTHORITATIVE `[metadata.providers]` section (no
+            // Cargo.toml — a scratch Cargo project is synthesized around the
+            // specs). Either way, a declared-but-unbundleable provider FAILS the
+            // build (fail closed — the package could never load).
             // Inner Result so a bundling failure still reaches the "failed"
             // audit emit below — a bare `?` here would short-circuit past BOTH
             // the success emit and the Err(..) match arms, leaving the T-0576
             // audit stream with a started event and no finished event.
             let bundle_result: Result<(), BuildError> = async {
-                let packed = if language == "rust" {
+                // `[metadata.providers]` from the (untyped) manifest, deserialized
+                // through the canonical ProviderDep schema. AUTHORITATIVE for
+                // Python (no Cargo.toml); ADDITIVE for Rust (CLOACI-T-0907): a
+                // Rust consumer uses it to bundle providers it doesn't want in
+                // its own Cargo graph — e.g. a NATIVE rdkafka provider backing a
+                // `[[metadata.accumulators]] provider = ..` stream declaration.
+                let providers: std::collections::HashMap<
+                    String,
+                    cloacina::cloacina_workflow_plugin::ProviderDep,
+                > = match manifest
+                    .get("metadata")
+                    .and_then(|m| m.get("providers"))
+                    .cloned()
+                {
+                    Some(v) => v.try_into().map_err(|e| {
+                        BuildError::internal(format!(
+                            "invalid [metadata.providers] in {} v{}: {e}",
+                            meta.package_name, meta.version
+                        ))
+                    })?,
+                    None => Default::default(),
+                };
+                let specs: Vec<(String, String)> = providers
+                    .iter()
+                    .map(|(name, dep)| (name.clone(), dep.to_toml_value()))
+                    .collect();
+
+                let mut packed = if language == "rust" {
                     let refs =
                         cloacina::packaging::provider_bundle::discover_provider_refs(&source_dir);
                     if refs.is_empty() {
@@ -335,51 +364,35 @@ async fn run_build(
                         })?
                     }
                 } else {
-                    // `[metadata.providers]` from the (untyped) manifest, deserialized
-                    // through the canonical ProviderDep schema.
-                    let providers: std::collections::HashMap<
-                        String,
-                        cloacina::cloacina_workflow_plugin::ProviderDep,
-                    > = match manifest
-                        .get("metadata")
-                        .and_then(|m| m.get("providers"))
-                        .cloned()
-                    {
-                        Some(v) => v.try_into().map_err(|e| {
-                            BuildError::internal(format!(
-                                "invalid [metadata.providers] in {} v{}: {e}",
-                                meta.package_name, meta.version
-                            ))
-                        })?,
-                        None => Default::default(),
-                    };
-                    let specs: Vec<(String, String)> = providers
-                        .iter()
-                        .map(|(name, dep)| (name.clone(), dep.to_toml_value()))
-                        .collect();
-                    if specs.is_empty() {
-                        Vec::new()
-                    } else {
-                        info!(
-                            %package_id,
-                            providers = ?specs.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
-                            "bundling [metadata.providers] declared by the Python package"
-                        );
-                        tokio::task::spawn_blocking(move || {
-                            cloacina::packaging::provider_bundle::pack_providers_from_specs(
-                                &specs, true,
-                            )
-                        })
-                        .await
-                        .map_err(|e| BuildError::internal(format!("provider bundle join: {e}")))?
-                        .map_err(|e| {
-                            BuildError::internal(format!(
-                                "failed to bundle [metadata.providers] for {} v{}: {e}",
-                                meta.package_name, meta.version
-                            ))
-                        })?
-                    }
+                    Vec::new()
                 };
+
+                if !specs.is_empty() {
+                    info!(
+                        %package_id,
+                        providers = ?specs.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+                        "bundling [metadata.providers] declared by the package"
+                    );
+                    let from_specs = tokio::task::spawn_blocking(move || {
+                        cloacina::packaging::provider_bundle::pack_providers_from_specs(
+                            &specs, true,
+                        )
+                    })
+                    .await
+                    .map_err(|e| BuildError::internal(format!("provider bundle join: {e}")))?
+                    .map_err(|e| {
+                        BuildError::internal(format!(
+                            "failed to bundle [metadata.providers] for {} v{}: {e}",
+                            meta.package_name, meta.version
+                        ))
+                    })?;
+                    // A provider both Cargo-referenced AND spec-declared bundles once.
+                    for p in from_specs {
+                        if !packed.iter().any(|q| q.provider_name == p.provider_name) {
+                            packed.push(p);
+                        }
+                    }
+                }
                 if !packed.is_empty() {
                     let rows: Vec<(String, String, Vec<u8>)> = packed
                         .into_iter()

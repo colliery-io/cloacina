@@ -21,6 +21,13 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+# CLOACI-T-0907: tells the provider BUNDLER (compiler `pack_providers` /
+# `bundle_providers`) to build this provider as a NATIVE host cdylib —
+# librdkafka is C and cannot target wasm32-wasip2. Native = trusted,
+# unsandboxed (grants advisory); the loader dlopen's it in-process.
+[package.metadata.cloacina]
+runtime = "native"
+
 [lib]
 # cdylib → the host plugin the loader dlopen's; rlib → so `emit_manifest`
 # (host bin) can link `__provider_manifest()`.

@@ -114,6 +114,40 @@ pub enum ProviderBundleError {
     Io(String),
 }
 
+/// The runtime a provider crate declares for itself (CLOACI-T-0907): a NATIVE
+/// provider (e.g. one shipping rdkafka — C code that cannot target
+/// `wasm32-wasip2`) opts in explicitly in its own `Cargo.toml`:
+///
+/// ```toml
+/// [package.metadata.cloacina]
+/// runtime = "native"
+/// ```
+///
+/// Absent marker (or unreadable manifest) defaults to WASM — the sandboxed tier
+/// stays the default; native is a deliberate authoring choice the bundler honors
+/// rather than infers.
+pub fn provider_runtime_for_crate(
+    crate_dir: &Path,
+) -> cloacina_constructor_contract::ProviderRuntime {
+    use cloacina_constructor_contract::ProviderRuntime;
+    let Ok(raw) = std::fs::read_to_string(crate_dir.join("Cargo.toml")) else {
+        return ProviderRuntime::Wasm;
+    };
+    let Ok(value) = raw.parse::<toml::Value>() else {
+        return ProviderRuntime::Wasm;
+    };
+    match value
+        .get("package")
+        .and_then(|p| p.get("metadata"))
+        .and_then(|m| m.get("cloacina"))
+        .and_then(|c| c.get("runtime"))
+        .and_then(|r| r.as_str())
+    {
+        Some("native") => ProviderRuntime::Native,
+        _ => ProviderRuntime::Wasm,
+    }
+}
+
 /// Locate a provider crate in the consumer's resolved dependency graph.
 ///
 /// Runs `cargo metadata --format-version 1` in `consumer_dir` and finds the package
@@ -254,7 +288,9 @@ pub fn bundle_providers(
             sign_key: None,
             manifest_bin: "emit_manifest".to_string(),
             release,
-            runtime: cloacina_constructor_contract::ProviderRuntime::Wasm,
+            // CLOACI-T-0907: the provider crate's own `[package.metadata.cloacina]
+            // runtime` marker picks native vs wasm (rdkafka etc. can't be wasm).
+            runtime: provider_runtime_for_crate(&crate_dir),
         };
         let result = package_constructor_provider(&opts)?;
 
@@ -327,13 +363,15 @@ pub fn pack_providers(
         let staging = tempfile::TempDir::new()
             .map_err(|e| ProviderBundleError::Io(format!("create staging dir: {e}")))?;
         let archive_path = staging.path().join(format!("{}.cloacina", provider.name));
+        let runtime = provider_runtime_for_crate(&crate_dir);
         let opts = ProviderPackageOptions {
             crate_dir,
             output: Some(archive_path.clone()),
             sign_key: None,
             manifest_bin: "emit_manifest".to_string(),
             release,
-            runtime: cloacina_constructor_contract::ProviderRuntime::Wasm,
+            // CLOACI-T-0907: honor the provider's own runtime marker.
+            runtime,
         };
         let result = package_constructor_provider(&opts)?;
 
@@ -548,6 +586,56 @@ mod tests {
             }],
             "comment 'from's and value-literal 'from's must not shadow the real field, \
              and doc-comment examples must not false-positive"
+        );
+    }
+
+    /// CLOACI-T-0907: the bundler honors a provider crate's own
+    /// `[package.metadata.cloacina] runtime = "native"` marker; absence (or an
+    /// unreadable manifest) defaults to the sandboxed WASM tier.
+    #[test]
+    fn provider_runtime_marker_selects_native() {
+        use cloacina_constructor_contract::ProviderRuntime;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        // No Cargo.toml at all → wasm default.
+        assert_eq!(
+            provider_runtime_for_crate(dir.path()),
+            ProviderRuntime::Wasm
+        );
+
+        // Plain crate, no marker → wasm.
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            provider_runtime_for_crate(dir.path()),
+            ProviderRuntime::Wasm
+        );
+
+        // Marker present → native.
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n\
+             [package.metadata.cloacina]\nruntime = \"native\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            provider_runtime_for_crate(dir.path()),
+            ProviderRuntime::Native
+        );
+
+        // Unknown value → wasm (never silently native).
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n\
+             [package.metadata.cloacina]\nruntime = \"exotic\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            provider_runtime_for_crate(dir.path()),
+            ProviderRuntime::Wasm
         );
     }
 
