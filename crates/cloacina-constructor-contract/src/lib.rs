@@ -128,6 +128,11 @@ pub const METHOD_INGEST: usize = 0;
 /// continuation — wire type defined, bridge sketched).
 pub const METHOD_EVALUATE: usize = 0;
 
+/// The vtable method index of `StreamAccumulatorConstructor::source` — the single
+/// SERVER-STREAMING method of a stream (loop-owning) accumulator (CLOACI-T-0904).
+/// Its own one-method interface, so index `0`.
+pub const METHOD_SOURCE: usize = 0;
+
 /// The fidius interface version of the TASK-constructor contract. Must match the
 /// `version` passed to the guest/host `#[plugin_interface(version = ..)]` and is
 /// cross-checked against [`ConstructorManifest::interface_version`] by the loader.
@@ -144,6 +149,18 @@ pub const ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION: u32 = 1;
 /// The fidius interface version of the REACTOR-constructor contract
 /// (continuation — see [`ReactorInvocation`]).
 pub const REACTOR_CONSTRUCTOR_INTERFACE_VERSION: u32 = 1;
+
+/// The fidius interface version of the STREAM-accumulator contract (CLOACI-T-0904).
+/// A distinct one-method (`source`) server-streaming interface — separate from the
+/// per-event `AccumulatorConstructor` (`ingest`) so a stream accumulator does not
+/// force a version bump on existing per-event accumulators. The member's
+/// `ConstructorManifest.interface` is `"stream-accumulator-constructor"`.
+pub const STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION: u32 = 1;
+
+/// The `interface` string a stream accumulator member's `ConstructorManifest`
+/// carries — the loader switches on it to take the `call_streaming` path instead
+/// of the per-event `ingest` path (CLOACI-T-0904).
+pub const STREAM_ACCUMULATOR_INTERFACE: &str = "stream-accumulator-constructor";
 
 /// Which cloacina runtime primitive a WASM constructor implements. The loader
 /// (CLOACI-T-0823 for `Task`; the rest land in T-0824) switches on this to pick
@@ -362,6 +379,21 @@ pub trait AccumulatorObject: Send + Sync {
     /// Run the configured accumulator member. `JSON(AccumulatorInvocation)` in,
     /// `JSON(AccumulatorOutcome)` out.
     fn ingest(&self, invocation_json: String) -> String;
+}
+
+/// Object-safe form of a STREAM (loop-owning) accumulator member (CLOACI-T-0904):
+/// instead of a per-event `ingest`, the configured member produces the WHOLE
+/// stream of boundary events at once. Each yielded `String` is one boundary JSON
+/// (the same shape `AccumulatorOutcome.boundary_json` carries per event).
+///
+/// The suite shell's server-streaming `source` method calls this and wraps the
+/// returned iterator in a `fidius::Stream<String>`; the host drains it via
+/// `call_streaming` → `ChunkStream`. The iterator is `Send + 'static` because it
+/// crosses to the host stream bridge and outlives the borrow of `&self` — a real
+/// source (e.g. a Kafka consumer) owns what it needs, built from the bound config.
+pub trait StreamAccumulatorObject: Send + Sync {
+    /// Start the configured stream source, yielding boundary-JSON items lazily.
+    fn source(&self) -> Box<dyn Iterator<Item = String> + Send>;
 }
 
 /// Object-safe form of the REACTOR member: `JSON(ReactorInvocation)` in →

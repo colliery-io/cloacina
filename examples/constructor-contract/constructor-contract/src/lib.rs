@@ -292,6 +292,15 @@ pub trait ReactorObject: Send + Sync {
     fn evaluate(&self, invocation_json: String) -> String;
 }
 
+/// Object-safe form of a STREAM (loop-owning) accumulator member (CLOACI-T-0904):
+/// the configured member produces the WHOLE stream of boundary-JSON events at
+/// once. The suite shell wraps the returned iterator in a `fidius::Stream<String>`
+/// the host drains via `call_streaming`. The iterator is `Send + 'static`.
+pub trait StreamAccumulatorObject: Send + Sync {
+    /// Start the configured stream source, yielding boundary-JSON items lazily.
+    fn source(&self) -> Box<dyn Iterator<Item = String> + Send>;
+}
+
 // ---------------------------------------------------------------------------
 // TASK primitive — the WASM-boundary wire types (this first cut).
 // ---------------------------------------------------------------------------

@@ -89,14 +89,15 @@ use cloacina_constructor_contract::{
     AccumulatorInvocation, AccumulatorOutcome, ConstructorManifest, PollOutcome, PrimitiveKind,
     ProviderManifest, ProviderRuntime, ReactorInvocation, ReactorOutcome, TaskInvocation,
     TaskOutcome, TriggerInvocation, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, METHOD_EVALUATE,
-    METHOD_EXECUTE, METHOD_INGEST, METHOD_POLL, REACTOR_CONSTRUCTOR_INTERFACE_VERSION,
+    METHOD_EXECUTE, METHOD_INGEST, METHOD_POLL, METHOD_SOURCE,
+    REACTOR_CONSTRUCTOR_INTERFACE_VERSION, STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION,
     TASK_CONSTRUCTOR_INTERFACE_VERSION, TRIGGER_CONSTRUCTOR_INTERFACE_VERSION,
 };
 use fidius_host::PluginHost;
 
 use super::grants::{lint_unmet_intents, translate, GrantSpec, ResolvedGrants};
 
-use crate::computation_graph::accumulator::Accumulator;
+use crate::computation_graph::accumulator::{Accumulator, AccumulatorError, EventSource};
 use crate::computation_graph::reactor::ReactorFireDecider;
 use crate::computation_graph::types::InputCache;
 use crate::context::Context;
@@ -1147,6 +1148,135 @@ pub fn load_accumulator_constructor<C: Serialize>(
     Ok(WasmAccumulatorConstructor {
         name: manifest.name,
         handle: Arc::new(handle),
+    })
+}
+
+// ===========================================================================
+// STREAM accumulator — native provider-supplied, server-streaming (CLOACI-T-0904)
+// ===========================================================================
+//
+// A stream accumulator is LOOP-OWNING: the member's `source` yields the whole
+// stream of boundary events, rather than the per-event `ingest` transform above.
+// On a native provider this is fidius server-streaming: the shell exposes a
+// `source(seed) -> fidius_core::Stream<String>` method (holder
+// `__ProviderStreamAccumulator`), which the host drives via
+// `PluginHandle::call_streaming` → a `ChunkStream` of boundary-JSON items. Draining
+// that stream onto the accumulator merge channel is exactly the `EventSource` seam
+// (`accumulator_runtime_with_source`) the host-side `KafkaEventSource` uses — so a
+// provider-supplied source drops straight in where the hardcoded Kafka source was
+// (the Kafka provider itself is T-0906). Native-only for now (wasm streaming
+// parity is T-0906/0907), so this whole path lives under `constructors-wasm`
+// (which now also enables `fidius-host/streaming`).
+
+/// An [`EventSource`] that drains a native provider's server-streaming `source`
+/// (a [`ChunkStream`](fidius_host::ChunkStream) from
+/// [`PluginHandle::call_streaming`](fidius_host::PluginHandle::call_streaming)) and
+/// pushes each boundary-JSON item onto the accumulator merge channel.
+///
+/// The held [`Arc<PluginHandle>`](fidius_host::PluginHandle) keeps the dlopen'd
+/// provider (and thus its stream producer) alive for the stream's lifetime.
+/// Dropping this source drops the `ChunkStream`, which tears the producer down —
+/// the fidius host-pull backpressure/teardown contract (REQ-003), matching how an
+/// `EventSource` shutdown tears a Kafka consumer down.
+pub struct ProviderStreamSource {
+    name: String,
+    // Keep-alive only: the ChunkStream owns its bridge but the producer lives in
+    // the dlopen'd instance behind this handle. Held so the library isn't unloaded
+    // while the stream is draining.
+    _handle: Arc<fidius_host::PluginHandle>,
+    stream: fidius_host::ChunkStream,
+}
+
+#[async_trait]
+impl EventSource for ProviderStreamSource {
+    async fn run(
+        mut self,
+        events: tokio::sync::mpsc::Sender<Vec<u8>>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<(), AccumulatorError> {
+        use futures::StreamExt as _;
+        loop {
+            tokio::select! {
+                item = self.stream.next() => {
+                    match item {
+                        Some(Ok(value)) => {
+                            // Each stream item is one boundary-JSON string; push its
+                            // bytes onto the merge channel (a passthrough accumulator
+                            // forwards them verbatim to the reactor boundary).
+                            let boundary: String = fidius_core::from_value(value).map_err(|e| {
+                                AccumulatorError::Init(format!("decode provider stream item: {e}"))
+                            })?;
+                            if events.send(boundary.into_bytes()).await.is_err() {
+                                break; // consumer gone
+                            }
+                        }
+                        Some(Err(e)) => {
+                            tracing::warn!(accumulator = %self.name, "provider stream error: {e}");
+                        }
+                        None => break, // source exhausted
+                    }
+                }
+                _ = shutdown.changed() => {
+                    tracing::debug!(accumulator = %self.name, "provider stream source shutting down");
+                    break; // drop self.stream → producer teardown
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Load a NATIVE **stream accumulator** member and start its server-streaming
+/// `source`, returning an [`EventSource`] that drives boundary items onto an
+/// accumulator's merge channel (feed it to `accumulator_runtime_with_source` with
+/// a passthrough [`Accumulator`]).
+///
+/// Native-only (a `runtime = "native"` provider whose member carries
+/// `interface = "stream-accumulator-constructor"`); wasm streaming parity is
+/// T-0906/0907. Fails closed if the member isn't a native stream accumulator.
+/// `config` binds the member's `#[config]` once at load, exactly like the other
+/// constructor loaders.
+pub async fn load_stream_accumulator_source<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+) -> Result<ProviderStreamSource, LoaderError> {
+    let search_path = search_path.as_ref();
+
+    let (handle, member) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Accumulator,
+        STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderStreamAccumulator",
+    )?
+    .ok_or_else(|| LoaderError::Validation {
+        reason: format!(
+            "provider '{package_name}' member '{constructor_name}' is not a native stream \
+             accumulator (needs runtime = \"native\" + a stream-accumulator member; wasm \
+             streaming parity is CLOACI-T-0906/0907)"
+        ),
+    })?;
+
+    let handle = Arc::new(handle);
+    // Start the server-streaming `source` (METHOD_SOURCE). The `seed` arg is unused
+    // by the shell — a single-arg fidius method takes a `(T,)` tuple. Items decode
+    // as boundary-JSON `String`s.
+    let stream = handle
+        .call_streaming::<(u64,), String>(METHOD_SOURCE, &(0u64,))
+        .await
+        .map_err(|e| LoaderError::LibraryLoad {
+            path: package_name.to_string(),
+            error: format!("call_streaming(source) on native stream accumulator: {e}"),
+        })?;
+
+    Ok(ProviderStreamSource {
+        name: member.name,
+        _handle: handle,
+        stream,
     })
 }
 

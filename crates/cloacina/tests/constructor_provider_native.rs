@@ -51,14 +51,39 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime, shutdown_signal, AccumulatorContext, AccumulatorRuntimeConfig,
-    BoundarySender,
+    accumulator_runtime, accumulator_runtime_with_source, shutdown_signal, Accumulator,
+    AccumulatorContext, AccumulatorError, AccumulatorRuntimeConfig, BoundarySender,
 };
 use cloacina::computation_graph::types::{deserialize, SourceName};
-use cloacina::registry::loader::constructor_loader::load_accumulator_constructor;
+use cloacina::registry::loader::constructor_loader::{
+    load_accumulator_constructor, load_stream_accumulator_source,
+};
 use cloacina::registry::loader::grants::ResolvedGrants;
 use cloacina::registry::loader::load_task_constructor;
 use cloacina::Context;
+
+/// The stream accumulator member's `#[config]` (base + count), bound once at load.
+#[derive(Serialize)]
+struct CounterConfig {
+    base: u64,
+    count: u64,
+}
+
+/// A trivial passthrough [`Accumulator`]: each raw event byte-vector IS the
+/// boundary (the provider stream already yields boundary JSON). This is what a
+/// provider-supplied stream source pairs with — the runtime just forwards.
+struct Passthrough;
+
+#[async_trait::async_trait]
+impl Accumulator for Passthrough {
+    type Output = Vec<u8>;
+    fn process(&mut self, event: Vec<u8>) -> Option<Vec<u8>> {
+        Some(event)
+    }
+    async fn init(&mut self, _ctx: &AccumulatorContext) -> Result<(), AccumulatorError> {
+        Ok(())
+    }
+}
 
 /// The provider's `[package].name` — the suite the native cdylib carries.
 const PROVIDER: &str = "native-task-provider-fixture";
@@ -320,4 +345,81 @@ async fn native_provider_accumulator_buffers_below_threshold() {
 
     shutdown_tx.send(true).unwrap();
     let _ = handle.await;
+}
+
+/// CLOACI-T-0904 — the flagship proof: a native provider's `mode = stream`
+/// accumulator (`counter`) drives boundaries in-process via fidius server-
+/// streaming. `load_stream_accumulator_source` loads it native, `call_streaming`
+/// starts its `source`, and the resulting `ProviderStreamSource` (an
+/// `EventSource`) pushes each boundary-JSON item onto the accumulator merge
+/// channel — items flow all the way to the reactor boundary channel. The finite
+/// source then exhausts, tearing the producer down and ending the runtime task
+/// cleanly (no leak).
+#[tokio::test]
+async fn native_stream_accumulator_drives_boundaries_in_process() {
+    let (cdylib, base_manifest) = build_fixture();
+    let work = tempfile::TempDir::new().unwrap();
+    let search_path = stage_native_provider(work.path(), &cdylib, &base_manifest);
+
+    // counter: base=100, count=3 → boundaries {"tick":100},{"tick":101},{"tick":102}.
+    let source = load_stream_accumulator_source(
+        &search_path,
+        PROVIDER,
+        "counter",
+        &CounterConfig {
+            base: 100,
+            count: 3,
+        },
+    )
+    .await
+    .expect("load native stream accumulator source");
+
+    let (boundary_tx, mut boundary_rx) = mpsc::channel::<(SourceName, Vec<u8>)>(10);
+    let (_socket_tx, socket_rx) = mpsc::channel::<Vec<u8>>(10);
+    let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+    let ctx = AccumulatorContext {
+        output: BoundarySender::new(boundary_tx, SourceName::new("counter")),
+        name: "counter".to_string(),
+        shutdown: shutdown_rx,
+        checkpoint: None,
+        health: None,
+    };
+    // A passthrough accumulator forwards each streamed boundary verbatim — the
+    // provider-supplied source drops straight into `accumulator_runtime_with_source`
+    // exactly where the hardcoded Kafka source used to sit.
+    let handle = tokio::spawn(accumulator_runtime_with_source(
+        Passthrough,
+        ctx,
+        socket_rx,
+        AccumulatorRuntimeConfig::default(),
+        source,
+    ));
+
+    let mut ticks = Vec::new();
+    for _ in 0..3 {
+        let (name, bytes) = tokio::time::timeout(Duration::from_secs(5), boundary_rx.recv())
+            .await
+            .expect("boundary within 5s")
+            .expect("boundary channel open");
+        assert_eq!(name, SourceName::new("counter"));
+        // Boundary frame is `bincode(json_bytes)` (the canonical reactor shape).
+        let json_bytes: Vec<u8> = deserialize(&bytes).expect("decode boundary frame");
+        let b: serde_json::Value = serde_json::from_slice(&json_bytes).expect("boundary json");
+        ticks.push(b.get("tick").and_then(|t| t.as_u64()).expect("tick field"));
+    }
+    ticks.sort();
+    assert_eq!(
+        ticks,
+        vec![100, 101, 102],
+        "native stream source drove all three boundaries in-process (config-bound base + count)"
+    );
+
+    // Teardown: the finite source has exhausted (drop → producer torn down); an
+    // explicit shutdown is idempotent. The runtime task must join cleanly (no leak).
+    let _ = shutdown_tx.send(true);
+    tokio::time::timeout(Duration::from_secs(5), handle)
+        .await
+        .expect("runtime task joins after the stream ends (no leaked task)")
+        .expect("runtime task did not panic");
 }

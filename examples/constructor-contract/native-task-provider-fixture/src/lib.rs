@@ -99,14 +99,48 @@ impl Threshold {
     }
 }
 
-// The provider suite shell (CLOACI-A-0011): TWO kinds behind one native cdylib.
-// For a HOST cdylib build, `constructor_provider!` emits the native variant
-// (`crate = fidius_core`, `#[cfg(not(wasm32))]`) → the `__ProviderTask` +
-// `__ProviderAccumulator` plugins the loader selects by kind.
+/// A STREAM (loop-owning) accumulator (`mode = stream`, CLOACI-T-0904): instead of
+/// a per-event `ingest`, it yields the WHOLE stream of boundary events. Here it
+/// emits `count` synthetic boundaries `{"tick": <base + i>}` — the native analogue
+/// of a Kafka source (T-0906 supplies the real rdkafka one). The returned iterator
+/// owns its state (edition-2021 `-> impl Iterator` can't borrow `&self`).
+#[constructor(
+    kind = accumulator,
+    mode = stream,
+    name = "counter",
+    version = "0.1.0",
+    contract = constructor_contract,
+    description = "Emits `count` synthetic boundary events starting at `base` (native stream source).",
+    author = "CLOACI-T-0904"
+)]
+pub struct Counter {
+    /// First tick value; bound once at load.
+    #[config]
+    base: u64,
+    /// How many boundary events to emit before the stream ends.
+    #[config]
+    count: u64,
+}
+
+impl Counter {
+    /// The ONLY thing the author writes for a stream accumulator: return an
+    /// iterator of boundary-JSON strings. Owns `base`/`count` (moved into the map).
+    fn source(&self) -> impl Iterator<Item = String> {
+        let base = self.base;
+        (0..self.count).map(move |i| serde_json::json!({ "tick": base + i }).to_string())
+    }
+}
+
+// The provider suite shell (CLOACI-A-0011): THREE kinds behind one native cdylib.
+// For a HOST cdylib build, `constructor_provider!` emits the native variants
+// (`crate = fidius_core`, feature-gated) → `__ProviderTask` + `__ProviderAccumulator`
+// + `__ProviderStreamAccumulator` (server-streaming `source`) plugins the loader
+// selects by kind/interface.
 constructor_provider!(
     name = "native-task-provider-fixture",
     version = "0.1.0",
     contract = constructor_contract,
     task = [Prefix],
     accumulator = [Threshold],
+    stream_accumulator = [Counter],
 );

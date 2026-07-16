@@ -41,6 +41,10 @@ constructors-wasm = [
     "dep:fidius-macro",
     "dep:cloacina-constructor-contract",
     "fidius-host/wasm",
+    # CLOACI-T-0904: server-streaming dispatch (`PluginHandle::call_streaming` /
+    # `ChunkStream`) for a native provider-supplied STREAM accumulator. Gates the
+    # loader's stream-accumulator path + the fidius stream module.
+    "fidius-host/streaming",
     "constructor-packaging",
 ]
 

@@ -157,6 +157,12 @@ struct ProviderArgs {
     trigger: Vec<Ident>,
     accumulator: Vec<Ident>,
     reactor: Vec<Ident>,
+    /// CLOACI-T-0904: STREAM (loop-owning) accumulator members — authored with
+    /// `#[constructor(kind = accumulator, mode = stream)]`. They get their own
+    /// server-streaming `source` interface + `__ProviderStreamAccumulator` holder
+    /// (native-only for now). Listing a per-event accumulator here (or a stream one
+    /// under `accumulator`) fails to compile — the object-trait impls don't match.
+    stream_accumulator: Vec<Ident>,
 }
 
 fn parse_ident_list(input: ParseStream) -> SynResult<Vec<Ident>> {
@@ -177,6 +183,7 @@ impl Parse for ProviderArgs {
         let mut trigger: Vec<Ident> = Vec::new();
         let mut accumulator: Vec<Ident> = Vec::new();
         let mut reactor: Vec<Ident> = Vec::new();
+        let mut stream_accumulator: Vec<Ident> = Vec::new();
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -191,10 +198,11 @@ impl Parse for ProviderArgs {
                 "trigger" => trigger = parse_ident_list(input)?,
                 "accumulator" => accumulator = parse_ident_list(input)?,
                 "reactor" => reactor = parse_ident_list(input)?,
+                "stream_accumulator" => stream_accumulator = parse_ident_list(input)?,
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!("unknown constructor_provider! argument `{other}`; valid: name, version, component, contract, fidius_crate, task, trigger, accumulator, reactor"),
+                        format!("unknown constructor_provider! argument `{other}`; valid: name, version, component, contract, fidius_crate, task, trigger, accumulator, reactor, stream_accumulator"),
                     ));
                 }
             }
@@ -207,10 +215,15 @@ impl Parse for ProviderArgs {
             contract.unwrap_or_else(|| syn::parse_quote!(::cloacina_constructor_contract));
         let fidius_crate = fidius_crate.unwrap_or_else(|| "fidius_guest".to_string());
 
-        if task.is_empty() && trigger.is_empty() && accumulator.is_empty() && reactor.is_empty() {
+        if task.is_empty()
+            && trigger.is_empty()
+            && accumulator.is_empty()
+            && reactor.is_empty()
+            && stream_accumulator.is_empty()
+        {
             return Err(syn::Error::new(
                 input.span(),
-                "constructor_provider! requires at least one member (task/trigger/accumulator/reactor = [..])",
+                "constructor_provider! requires at least one member (task/trigger/accumulator/reactor/stream_accumulator = [..])",
             ));
         }
 
@@ -224,6 +237,7 @@ impl Parse for ProviderArgs {
             trigger,
             accumulator,
             reactor,
+            stream_accumulator,
         })
     }
 }
@@ -272,6 +286,12 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
         }
         shells.push(kind_shell(kind, members, contract, &fidius_crate));
     }
+    // CLOACI-T-0904: the STREAM accumulator shell (its own server-streaming
+    // `source` interface + `__ProviderStreamAccumulator` holder). Native-only for
+    // now — wasm streaming parity is deferred (T-0906/0907).
+    if !args.stream_accumulator.is_empty() {
+        shells.push(stream_accumulator_shell(&args.stream_accumulator, contract));
+    }
 
     // The crate-level provider manifest — every member across every kind. Pure
     // serde, emitted on all targets (the packaging `emit_manifest` bin reads it).
@@ -281,6 +301,7 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
         .chain(args.trigger.iter())
         .chain(args.accumulator.iter())
         .chain(args.reactor.iter())
+        .chain(args.stream_accumulator.iter())
         .collect();
     let manifest_exprs = all_members
         .iter()
@@ -425,6 +446,80 @@ fn kind_shell_variant(
         impl #holder_ty {
             // The fidius `configure` hook: select the member named in the payload
             // and build it once at load.
+            fn configure(__c: #configure_ty) -> Self {
+                #(#dispatch_arms)*
+                Self { inner: ::std::option::Option::None }
+            }
+        }
+    }
+}
+
+/// CLOACI-T-0904: the STREAM-accumulator suite shell — a single SERVER-STREAMING
+/// `source` method (`-> fidius_core::Stream<String>`) that the host drains via
+/// `PluginHandle::call_streaming`. NATIVE-ONLY (`crate = fidius_core`, gated on
+/// `feature = "native"`): wasm streaming parity is deferred (T-0906/0907), so a
+/// wasm build of a stream-accumulator provider simply omits this shell.
+///
+/// Mirrors [`kind_shell_variant`] (name-dispatch `configure` → boxed member) but
+/// the holder method wraps the member's boxed iterator in a `Stream<String>`.
+fn stream_accumulator_shell(members: &[Ident], contract: &Path) -> TokenStream2 {
+    let native_crate = LitStr::new("fidius_core", Span::call_site());
+    let cfg = quote! { #[cfg(all(not(target_arch = "wasm32"), feature = "native"))] };
+    let trait_ident = format_ident!("StreamAccumulatorConstructor");
+    let configure_ty = format_ident!("__ProviderStreamAccumulatorConfigure");
+    let holder_ty = format_ident!("__ProviderStreamAccumulator");
+
+    let dispatch_arms = members.iter().map(|m| {
+        quote! {
+            if __c.name == #m::__constructor_name() {
+                return Self { inner: ::std::option::Option::Some(#m::__constructor_make(&__c.config)) };
+            }
+        }
+    });
+
+    quote! {
+        // The server-streaming interface — byte-identical to the host loader's
+        // re-declaration so the fidius interface hash matches at load. The single
+        // `source` method returns a `fidius_core::Stream<String>` (FIDIUS-I-0026),
+        // which the host routes through `call_streaming`. The `_seed` arg exists
+        // only because a streaming call carries an argument tuple; it is ignored.
+        #cfg
+        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #native_crate)]
+        pub trait #trait_ident: Send + Sync {
+            fn source(&self, seed: u64) -> ::fidius_core::Stream<String>;
+        }
+
+        #cfg
+        #[derive(::serde::Serialize, ::serde::Deserialize)]
+        pub struct #configure_ty {
+            pub name: ::std::string::String,
+            pub config: ::std::vec::Vec<u8>,
+        }
+
+        #cfg
+        pub struct #holder_ty {
+            inner: ::std::option::Option<
+                ::std::boxed::Box<dyn #contract::StreamAccumulatorObject>,
+            >,
+        }
+
+        #cfg
+        #[::fidius_macro::plugin_impl(#trait_ident, crate = #native_crate, config = #configure_ty)]
+        impl #trait_ident for #holder_ty {
+            fn source(&self, _seed: u64) -> ::fidius_core::Stream<String> {
+                match &self.inner {
+                    ::std::option::Option::Some(__m) => ::fidius_core::Stream::from_iter(
+                        #contract::StreamAccumulatorObject::source(__m.as_ref()),
+                    ),
+                    ::std::option::Option::None => {
+                        ::fidius_core::Stream::from_iter(::std::iter::empty::<String>())
+                    }
+                }
+            }
+        }
+
+        #cfg
+        impl #holder_ty {
             fn configure(__c: #configure_ty) -> Self {
                 #(#dispatch_arms)*
                 Self { inner: ::std::option::Option::None }

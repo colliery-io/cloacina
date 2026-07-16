@@ -1991,14 +1991,17 @@ version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0114fd58575422da9b0aeebb724048c8203d8463a03f3cf0380f07a8df449fb"
 dependencies = [
+ "async-trait",
  "ed25519-dalek",
  "fidius-core",
+ "futures",
  "http",
  "libloading",
  "pyo3-build-config",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",
