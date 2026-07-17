@@ -1572,14 +1572,22 @@ impl ComputationGraphScheduler {
         };
         use crate::database::universal_types::UniversalUuid;
         use crate::models::recovery_event::NewRecoveryEvent;
+        // `recovery_events.details` carries a CHECK (details::json IS NOT NULL)
+        // in the postgres DDL — details MUST be valid JSON text. The previous
+        // `component=…, attempt=…` plain string failed that check on every
+        // graph-component restart (observed live in the T-0907 kafka lane).
         let event = NewRecoveryEvent {
             workflow_execution_id: UniversalUuid::new_v4(),
             task_execution_id: None,
             recovery_type: "graph_component_restart".to_string(),
-            details: Some(format!(
-                "component={}, attempt={}, backoff={}s",
-                component, attempt, backoff_secs
-            )),
+            details: Some(
+                serde_json::json!({
+                    "component": component,
+                    "attempt": attempt,
+                    "backoff_secs": backoff_secs,
+                })
+                .to_string(),
+            ),
         };
         if let Err(e) = dal.recovery_event().create(event).await {
             warn!(component = %component, "failed to record recovery event: {}", e);
