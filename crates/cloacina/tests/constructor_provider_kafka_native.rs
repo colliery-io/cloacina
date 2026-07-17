@@ -34,9 +34,11 @@
 //!
 //! GATED on a reachable broker: self-skips (pass, with a note) when
 //! `$CLOACINA_KAFKA_BROKER` (default `localhost:9092` — the dev stack's
-//! `cloacina-kafka` container) is not accepting TCP. Requires the `kafka`
-//! feature (the TEST uses rdkafka's producer; the provider ships its own).
-#![cfg(all(feature = "constructors-wasm", feature = "kafka"))]
+//! `cloacina-kafka` container) is not accepting TCP. Core has NO rdkafka
+//! (CLOACI-T-0898 — it ships only in the provider), so the test PRODUCES via
+//! the dev-stack container's own console producer (`docker exec`), like the
+//! demo lane does.
+#![cfg(feature = "constructors-wasm")]
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -107,6 +109,40 @@ impl ToFirstAddr for str {
         use std::net::ToSocketAddrs;
         self.to_socket_addrs().ok()?.next()
     }
+}
+
+/// Produce newline-delimited payloads onto `topic` via the dev-stack kafka
+/// container's console producer — core carries no kafka client (T-0898).
+fn produce(topic: &str, payloads: &[String]) {
+    let mut child = std::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            "cloacina-kafka",
+            "/opt/kafka/bin/kafka-console-producer.sh",
+            "--bootstrap-server",
+            "localhost:9092",
+            "--topic",
+            topic,
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn kafka-console-producer via docker exec");
+    {
+        use std::io::Write as _;
+        let stdin = child.stdin.as_mut().expect("producer stdin");
+        for p in payloads {
+            writeln!(stdin, "{p}").expect("write payload");
+        }
+    }
+    let out = child.wait_with_output().expect("producer exit");
+    assert!(
+        out.status.success(),
+        "kafka-console-producer failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[tokio::test]
@@ -182,21 +218,10 @@ async fn kafka_provider_streams_real_messages_from_signed_native_package() {
         source,
     ));
 
-    {
-        use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
-        let producer: BaseProducer = rdkafka::config::ClientConfig::new()
-            .set("bootstrap.servers", &broker)
-            .set("message.timeout.ms", "10000")
-            .create()
-            .expect("create test producer");
-        for n in 1..=3 {
-            let payload = serde_json::json!({ "n": n }).to_string();
-            producer
-                .send(BaseRecord::<(), str>::to(&topic).payload(&payload))
-                .expect("enqueue message");
-        }
-        producer.flush(Duration::from_secs(10)).expect("flush");
-    }
+    let payloads: Vec<String> = (1..=3)
+        .map(|n| serde_json::json!({ "n": n }).to_string())
+        .collect();
+    produce(&topic, &payloads);
 
     // Collect the three boundaries (keepalive ticks are filtered by the shim).
     let mut ns = Vec::new();
@@ -300,21 +325,10 @@ async fn provider_stream_factory_drives_kafka_from_declaration_config() {
     );
 
     // Real messages through the declared provider.
-    {
-        use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
-        let producer: BaseProducer = rdkafka::config::ClientConfig::new()
-            .set("bootstrap.servers", &broker)
-            .set("message.timeout.ms", "10000")
-            .create()
-            .expect("create test producer");
-        for n in 1..=2 {
-            let payload = serde_json::json!({ "tick": n }).to_string();
-            producer
-                .send(BaseRecord::<(), str>::to(&topic).payload(&payload))
-                .expect("enqueue message");
-        }
-        producer.flush(Duration::from_secs(10)).expect("flush");
-    }
+    let payloads: Vec<String> = (1..=2)
+        .map(|n| serde_json::json!({ "tick": n }).to_string())
+        .collect();
+    produce(&topic, &payloads);
 
     let mut ticks = Vec::new();
     for _ in 0..2 {

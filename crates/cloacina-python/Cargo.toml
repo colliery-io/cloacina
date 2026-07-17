@@ -22,7 +22,7 @@ default = ["postgres", "sqlite", "macros"]
 postgres = ["cloacina/postgres"]
 sqlite = ["cloacina/sqlite"]
 macros = ["cloacina/macros"]
-kafka = ["cloacina/kafka"]
+
 auth = ["cloacina/auth"]
 extension-module = ["pyo3/extension-module"]
 

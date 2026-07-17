@@ -22,7 +22,7 @@ path = "src/main.rs"
 default = ["postgres"]
 postgres = ["cloacina/postgres", "diesel/postgres"]
 sqlite = ["cloacina/sqlite"]
-kafka = ["cloacina/kafka"]
+
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 # CLOACI-I-0130: serve the @cloacina/ui SPA from this binary (single-origin,
 # no Nginx/CORS). Feature-on builds REQUIRE a Node toolchain (build.rs runs

@@ -17,12 +17,13 @@ name = "cloacina"
 crate-type = ["lib", "cdylib"]
 
 [features]
-default = ["macros", "postgres", "sqlite", "kafka"]
+# CLOACI-T-0898: no `kafka` feature — event-source backends live in constructor
+# PROVIDERS (e.g. cloacina-provider-kafka ships rdkafka), not in core.
+default = ["macros", "postgres", "sqlite"]
 postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres", "tokio-postgres"]
 sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool-diesel/sqlite", "libsqlite3-sys/bundled"]
 auth = ["postgres"]
 macros = ["cloacina-macros"]
-kafka = ["rdkafka"]
 # CLOACI-I-0132 / T-0827 — constructor provider PACKAGING (assemble + sign + pack a
 # built constructor crate into a distributable `.cloacina` provider archive). This
 # is the build/distribute side and needs NO wasm runtime: it only pulls the
@@ -81,7 +82,6 @@ fidius-macro = { version = "0.5.6", optional = true }
 cloacina-constructor-contract = { workspace = true, optional = true }
 libloading = { version = "0.8" }
 parking_lot = { version = "0.12" }
-rdkafka = { version = "0.39", features = ["tokio"], optional = true }
 petgraph = { version = "0.6" }
 rand = { version = "0.8" }
 serde = { version = "1.0", features = ["derive"] }

@@ -15,10 +15,9 @@ name = "cloacinactl"
 path = "src/main.rs"
 
 [features]
-default = ["postgres", "sqlite", "kafka"]
+default = ["postgres", "sqlite"]
 postgres = ["cloacina/postgres"]
 sqlite = ["cloacina/sqlite"]
-kafka = ["cloacina/kafka"]
 
 [dependencies]
 # `constructor-packaging` gives `cloacinactl constructor package` the provider
