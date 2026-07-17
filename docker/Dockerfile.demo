@@ -56,9 +56,15 @@ COPY . /workspace
 ARG CARGO_BINS="cloacina-server cloacina-compiler cloacinactl"
 COPY --from=ui-builder /workspace/ui/dist ui/dist
 ENV CLOACINA_EMBEDDED_UI_SKIP_NPM=1
+# CLOACI-T-0908: the TARGET cache is keyed per-arch — building the arm64 and
+# amd64 images CONCURRENTLY (the multiarch profile / nightly) collided on a
+# shared /workspace/target cache ('File exists' mid-cargo). The registry/git
+# caches stay shared: cargo file-locks them, and cross-arch source reuse is
+# the point of sharing.
+ARG TARGETARCH
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/workspace/target \
+    --mount=type=cache,id=cloacina-demo-target-${TARGETARCH},target=/workspace/target \
     cargo build --release --locked \
         $(echo "$CARGO_BINS" | grep -q cloacina-server && echo --features cloacina-server/embedded-ui) \
         $(for b in $CARGO_BINS; do echo --bin "$b"; done) \

@@ -184,3 +184,33 @@ All 10 plan items landed. Two things the implementation surfaced:
 **Bonus fix**: the clobber bug (second-arch per-target compile overwrote the primary provider row) is dead — the delete-filter is triple-scoped.
 
 **Untested remainder (honest):** an actual two-arch fleet run (requires a second-arch per-target compiler container + a remote agent; the machinery is now in place and unit/integration-proven per component). The nightly per-target lane will exercise the producer half when it next runs.
+
+### 2026-07-16 — TWO-ARCH VALIDATION RUN in progress (the T-0780 `multiarch` demo lane).
+
+The demo compose already models the topology: `compiler-x86` (linux/amd64 under Rosetta, `--build-target x86_64-linux`, scan-and-fill) + `agent-x86`, against the aarch64-linux primary stack. Server carries `CLOACINA_VAR_KAFKA_BROKER=kafka:9092`; the workspace image bakes THIS branch at `/workspace` (the kafka provider's `__WORKSPACE__` path dep resolves in-container, pack-demo-fixtures convention).
+
+**Run plan:**
+1. Override scopes `compiler-x86` to `--build-target-package cg-feature-tour` (no whole-catalog backfill under emulation). Fresh volumes.
+2. Build multiarch images (long pole: amd64 workspace under Rosetta), `up -d`.
+3. Upload cg-feature-tour (`__WORKSPACE__` → `/workspace`) via host cloacinactl → server :8080 (demo bootstrap key).
+4. Primary (aarch64-linux) compiler builds → NULL-triple native provider row; server stages it; kafka stream starts.
+5. `compiler-x86` fills the x86_64-linux artifact + provider rows (rdkafka built under emulation).
+6. **Assert (psql, demo postgres)**: TWO `package_providers` rows for cloacina-provider-kafka — (NULL, native) and ('x86_64-linux', native) — with DIFFERENT content hashes; plus the x86_64-linux `package_artifacts` row.
+
+**Scope note:** the agent-side per-arch provider FETCH is exercised only by `constructor!`-node workflows (stream accumulators run on the SERVER); no demo package carries a native constructor! task node, so that leg stays covered by the route/DAL tests. This run proves the PRODUCER half — distinct per-arch native provider builds coexisting — on real (emulated) two-arch hardware.
+
+### 2026-07-17 — TWO-ARCH RUN GREEN. The proof, verbatim from the demo postgres:
+
+```
+      provider_name      | runtime |    triple    |     hash     |  bytes
+-------------------------+---------+--------------+--------------+---------
+ cloacina-provider-kafka | native  | (primary)    | 767dd73d24f8 | 1115574   ← aarch64-linux (primary compiler container)
+ cloacina-provider-kafka | native  | x86_64-linux | 91c37974933e | 1196618   ← amd64 build under Rosetta (compiler-x86)
+```
+Plus the `x86_64-linux` `package_artifacts` row for cg-feature-tour (4.0MB). **Two coexisting rows, different hashes/sizes — the primary was NOT clobbered** (the exact bug the pre-T-0908 code had). The x86 compiler log shows the full per-target flow: "bundling [metadata.providers] … cloacina-provider-kafka" → `Compiling cloacina-provider-kafka` (rdkafka under amd64 emulation) → "per-target: stored artifact … target=x86_64-linux". And the CONTAINERIZED arm64 server independently proved the consumer leg in a new environment: "Unpacked 1 bundled provider(s) for cg-feature-tour" → "provider-backed stream accumulator started (native, trusted)".
+
+**Two infra bugs the run surfaced + fixed:**
+1. `8a08d458` — ALL docker rust base images pinned 1.93 (production Dockerfile: 1.85), below wasmtime 46's 1.94 MSRV (the fidius 0.5.6 bump, T-0902). No container on the branch could build; every containerized CI lane would have hit it.
+2. Dockerfile.demo's `/workspace/target` buildkit cache was SHARED across arch builds — concurrent multiarch builds collided ('File exists' mid-cargo). Fixed with an arch-keyed cache id (`cloacina-demo-target-${TARGETARCH}`); registry/git caches stay shared (cargo file-locks them).
+
+**Run mechanics for posterity:** demo compose + `--profile multiarch` + an override scoping `compiler-x86` to `--build-target-package cg-feature-tour`; sequential image builds (arm64 set → compiler-x86 → agent-x86) until the cache fix landed; upload = host cloacinactl → :8080 with the pack staged `__WORKSPACE__`→`/workspace`.
