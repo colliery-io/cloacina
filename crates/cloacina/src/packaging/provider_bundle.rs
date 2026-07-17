@@ -338,6 +338,10 @@ pub struct PackedProvider {
     pub constructors: Vec<String>,
     /// The packed provider `.cloacina` archive bytes.
     pub archive: Vec<u8>,
+    /// CLOACI-T-0908: the runtime the provider was built for — `Wasm`
+    /// (arch-neutral component) or `Native` (an arch-SPECIFIC host cdylib the
+    /// per-target compiler must rebuild per triple).
+    pub runtime: cloacina_constructor_contract::ProviderRuntime,
 }
 
 /// Resolve + build + PACK every referenced provider, returning the archives
@@ -388,6 +392,7 @@ pub fn pack_providers(
             version: result.provider_version,
             constructors: result.constructors,
             archive,
+            runtime,
         });
     }
 

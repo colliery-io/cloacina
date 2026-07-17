@@ -397,6 +397,7 @@ pub async fn fetch_providers(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthenticatedKey>,
     Path(digest): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<AgentProvidersResponse>, ApiError> {
     use base64::Engine as _;
 
@@ -419,8 +420,21 @@ pub async fn fetch_providers(
         .await
         .map_err(|e| ApiError::internal(format!("provider fetch failed: {}", e)))?;
 
+    // CLOACI-T-0908: select rows for the requesting agent's arch. Agents send
+    // `?target_triple=<{arch}-{os}>`; an absent param (a pre-T-0908 agent) gets
+    // the primary rows — byte-for-byte the pre-triple behavior.
+    let selected = match params.get("target_triple") {
+        Some(triple) => {
+            cloacina::dal::unified::workflow_packages::select_provider_rows_for_target(rows, triple)
+        }
+        None => rows
+            .into_iter()
+            .filter(|r| r.target_triple.is_none())
+            .collect(),
+    };
+
     Ok(Json(AgentProvidersResponse {
-        providers: rows
+        providers: selected
             .into_iter()
             .map(|r| AgentProviderEntry {
                 name: r.provider_name,

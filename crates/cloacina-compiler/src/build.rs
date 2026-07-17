@@ -394,19 +394,39 @@ async fn run_build(
                     }
                 }
                 if !packed.is_empty() {
-                    let rows: Vec<(String, String, Vec<u8>)> = packed
+                    use cloacina::packaging::constructor_provider::ProviderRuntime;
+                    // CLOACI-T-0908: a PRIMARY compile (no build_target) stores
+                    // NULL-triple rows for every provider; a PER-TARGET compile
+                    // stores triple-keyed rows for NATIVE providers only — wasm
+                    // bundles are arch-neutral, the primary row serves all archs.
+                    let target_triple = config.build_target.as_deref();
+                    let rows: Vec<(String, String, String, Vec<u8>)> = packed
                         .into_iter()
-                        .map(|p| (p.provider_name, p.version, p.archive))
+                        .filter(|p| target_triple.is_none() || p.runtime == ProviderRuntime::Native)
+                        .map(|p| {
+                            let runtime = match p.runtime {
+                                ProviderRuntime::Native => "native".to_string(),
+                                ProviderRuntime::Wasm => "wasm".to_string(),
+                            };
+                            (p.provider_name, p.version, runtime, p.archive)
+                        })
                         .collect();
-                    registry
-                        .store_package_providers(&meta.package_name, &meta.version, rows)
-                        .await
-                        .map_err(|e| {
-                            BuildError::internal(format!(
-                                "failed to store bundled providers for {} v{}: {e}",
-                                meta.package_name, meta.version
-                            ))
-                        })?;
+                    if !rows.is_empty() {
+                        registry
+                            .store_package_providers(
+                                &meta.package_name,
+                                &meta.version,
+                                target_triple,
+                                rows,
+                            )
+                            .await
+                            .map_err(|e| {
+                                BuildError::internal(format!(
+                                    "failed to store bundled providers for {} v{}: {e}",
+                                    meta.package_name, meta.version
+                                ))
+                            })?;
+                    }
                 }
                 Ok(())
             }

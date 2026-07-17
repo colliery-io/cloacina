@@ -317,7 +317,14 @@ fn load_native_member<C: Serialize>(
     let loaded =
         fidius_host::loader::load_library(&lib_path).map_err(|e| LoaderError::LibraryLoad {
             path: lib_path.display().to_string(),
-            error: format!("load_library (native provider): {e}"),
+            // Name the host triple: a wrong-arch cdylib (a bundle built on a
+            // different arch, CLOACI-T-0908) dies here and should read as an
+            // arch mismatch, not corruption.
+            error: format!(
+                "load_library (native provider, host triple '{}'): {e} — if this is a \
+                 wrong-arch cdylib, the per-target compiler has not filled this arch yet",
+                crate::fleet::protocol::host_target_triple()
+            ),
         })?;
     let plugin = loaded
         .plugins

@@ -4,15 +4,15 @@ level: task
 title: "Per-arch native provider bundles — target_triple on package_providers + triple-keyed staging"
 short_code: "CLOACI-T-0908"
 created_at: 2026-07-17T02:37:42.746499+00:00
-updated_at: 2026-07-17T02:37:42.746499+00:00
+updated_at: 2026-07-17T02:42:14.124456+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -76,6 +76,10 @@ Related: [[CLOACI-T-0905]] (the workflow-artifact twin of this), [[CLOACI-T-0906
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -146,4 +150,20 @@ Related: [[CLOACI-T-0905]] (the workflow-artifact twin of this), [[CLOACI-T-0906
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-16 — activated; surface mapped. UPGRADE: this is a live BUG, not just a missing feature.
+
+**Discovery:** `run_per_target` calls the FULL `execute_build` (loopp.rs:262), and since T-0907 `execute_build` ALSO re-bundles providers + `store_package_providers` (build.rs:314-414) — whose `upsert_provider` delete-filter has NO triple. ⇒ the moment a second-arch per-target compiler processes a native-provider package, it **clobbers the primary provider row with its own arch's cdylib**. The triple column fixes correctness, not just coverage.
+
+**Surface (all confirmed):** migration next = 042 (pg + sqlite, ADD COLUMN style per 040); all consumers funnel through DAL `get_providers_for_package` (workflow_packages.rs:447) — reconciler impl (workflow_registry/mod.rs:708) + agent route `GET /v1/agent/providers/{digest}` (routes/agent.rs:418); agent client = cloacina-agent/main.rs:1298; `PackageProvider` is `Selectable` (by-name select — adding columns is safe).
+
+**Plan:**
+1. Migration 042 both backends: `ADD COLUMN target_triple TEXT` (NULL = primary build, exactly what existing rows are — no backfill) + `ADD COLUMN runtime TEXT NOT NULL DEFAULT 'wasm'` (lets the missing-scan target native rows without unpacking archives).
+2. schema.rs (all package_providers blocks) + models gain both fields.
+3. DAL: `upsert_provider` gains `runtime: &str, target_triple: Option<&str>`; delete-filter includes triple so primary + per-arch rows COEXIST (kills the clobber). New `find_packages_missing_target_provider(target, name_filter)`.
+4. `PackedProvider` gains `runtime` (pack_providers already computes it).
+5. build.rs: store passes runtime + `config.build_target` as triple (primary loop = None → NULL rows; per-target = triple rows), and per-target stores ONLY native providers (wasm bundles are arch-neutral).
+6. `store_package_providers`: rows become `(name, version, runtime_str, archive)` + `target_triple: Option<&str>` (runtime as str — the contract crate is feature-gated).
+7. Selection: pub `select_provider_rows_for_target(rows, triple)` (prefer exact-triple row per provider, else NULL primary). Reconciler selects for `host_target_triple()`; agent route gains `?target_triple=` (absent → primary rows = old-agent behavior); cloacina-agent sends its triple.
+8. run_per_target: missing set = artifact-missing ∪ provider-missing.
+9. `load_native_member`'s `load_library` error names the host triple.
+10. Tests: DAL coexist/selection/version-scoping + selection-helper unit test.

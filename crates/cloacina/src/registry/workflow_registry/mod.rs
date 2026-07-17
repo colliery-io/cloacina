@@ -99,18 +99,23 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     /// Persist the bundled constructor providers a build produced for a package
     /// (CLOACI-T-0836): one `package_providers` row per provider, each carrying
     /// the packed `.cloacina` archive the reconciler unpacks at load. Called by
-    /// the compiler after a successful Rust build that discovered `constructor!`
-    /// `from` references. `providers` is `(provider_name, provider_version,
-    /// archive_bytes)`.
+    /// the compiler after a successful build that discovered provider refs.
+    /// `providers` is `(provider_name, provider_version, runtime, archive_bytes)`
+    /// where `runtime` is `"wasm"` or `"native"`.
+    ///
+    /// CLOACI-T-0908: `target_triple` is `None` for the PRIMARY compile and
+    /// `Some(triple)` for a per-target compiler's rebuild — triple-scoped rows
+    /// coexist with the primary, so a second-arch compile never clobbers it.
     pub async fn store_package_providers(
         &self,
         package_name: &str,
         version: &str,
-        providers: Vec<(String, String, Vec<u8>)>,
+        target_triple: Option<&str>,
+        providers: Vec<(String, String, String, Vec<u8>)>,
     ) -> Result<(), RegistryError> {
         use sha2::{Digest, Sha256};
         let dal = crate::dal::DAL::new(self.database.clone());
-        for (provider_name, provider_version, archive) in providers {
+        for (provider_name, provider_version, runtime, archive) in providers {
             let mut hasher = Sha256::new();
             hasher.update(&archive);
             let content_hash = format!("{:x}", hasher.finalize());
@@ -123,6 +128,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     &provider_version,
                     &content_hash,
                     archive,
+                    &runtime,
+                    target_triple,
                 )
                 .await?;
         }
@@ -705,6 +712,10 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
     /// Bundled constructor providers for a package (CLOACI-T-0836): queries
     /// `package_providers` (stored tenant-neutral, like per-target artifacts) and
     /// returns each provider's packed archive for the reconciler to unpack.
+    ///
+    /// CLOACI-T-0908: rows are selected for THIS host's arch — per provider,
+    /// prefer the `host_target_triple()` row (a per-arch NATIVE rebuild), else
+    /// the primary (NULL-triple) build. Another arch's bytes are never returned.
     async fn get_package_providers(
         &self,
         package_name: &str,
@@ -715,9 +726,20 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             .workflow_packages()
             .get_providers_for_package(package_name, version, None)
             .await?;
-        Ok(rows
+        let triple = crate::fleet::protocol::host_target_triple();
+        let selected =
+            crate::dal::unified::workflow_packages::select_provider_rows_for_target(rows, &triple);
+        Ok(selected
             .into_iter()
-            .map(|r| (r.provider_name, r.provider_data.into_inner()))
+            .map(|r| {
+                tracing::debug!(
+                    provider = %r.provider_name,
+                    runtime = %r.runtime,
+                    triple = %r.target_triple.as_deref().unwrap_or("primary"),
+                    "selected bundled provider row for this host"
+                );
+                (r.provider_name, r.provider_data.into_inner())
+            })
             .collect())
     }
 

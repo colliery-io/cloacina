@@ -1295,7 +1295,14 @@ async fn stage_agent_providers(
         providers: Vec<ProviderEntry>,
     }
 
-    let url = format!("{}/v1/agent/providers/{}", server, digest);
+    // CLOACI-T-0908: name our arch so the server hands us OUR per-arch build of
+    // any native provider (falling back to the primary when none exists).
+    let url = format!(
+        "{}/v1/agent/providers/{}?target_triple={}",
+        server,
+        digest,
+        cloacina::fleet::protocol::host_target_triple()
+    );
     let resp = http
         .get(&url)
         .bearer_auth(api_key)
