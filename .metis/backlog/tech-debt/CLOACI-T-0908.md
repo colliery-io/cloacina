@@ -4,7 +4,7 @@ level: task
 title: "Per-arch native provider bundles — target_triple on package_providers + triple-keyed staging"
 short_code: "CLOACI-T-0908"
 created_at: 2026-07-17T02:37:42.746499+00:00
-updated_at: 2026-07-17T02:42:14.124456+00:00
+updated_at: 2026-07-17T03:03:46.749358+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -76,6 +76,8 @@ Related: [[CLOACI-T-0905]] (the workflow-artifact twin of this), [[CLOACI-T-0906
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -167,3 +169,18 @@ Related: [[CLOACI-T-0905]] (the workflow-artifact twin of this), [[CLOACI-T-0906
 8. run_per_target: missing set = artifact-missing ∪ provider-missing.
 9. `load_native_member`'s `load_library` error names the host triple.
 10. Tests: DAL coexist/selection/version-scoping + selection-helper unit test.
+
+### 2026-07-16 — IMPLEMENTED + PROVEN → `2b1ab795`. T-0908 DONE.
+
+All 10 plan items landed. Two things the implementation surfaced:
+- **The unique key had to change too**: `idx_package_providers_key` (039/028) was UNIQUE on (package, version, tenant, provider) — the new DAL test failed with a duplicate-key violation on the second arch row, proving the old key made coexistence impossible. Migration 042 rebuilds it with `COALESCE(target_triple,'')` appended (the same NULL pattern the key already used for tenant).
+- **Old-agent compat**: the providers route treats an absent `?target_triple=` as "primary rows only" — byte-for-byte the pre-T-0908 response for agents that haven't been rebuilt.
+
+**ACCEPTANCE — all MET:**
+- [x] Rows are triple-keyed; `run_per_target` unions `find_packages_missing_target_provider` with the artifact scan and `execute_build` stores triple-keyed NATIVE rows (`config.build_target`), wasm skipped (arch-neutral).
+- [x] Reconciler selects `host_target_triple()` with primary fallback; agent route selects per `?target_triple=`; the dlopen error names the host triple + the per-target hint.
+- [x] `test_provider_rows_are_triple_scoped_and_selected_per_target` (postgres): primary + 2 per-arch + wasm rows COEXIST; per-arch re-upsert replaces only its triple; arm reader gets arm bytes; unknown arch falls back to PRIMARY, never another arch. Pre-existing round-trip test green. All five crates compile; **cg-feature-tour lane green end-to-end on the triple-aware code**.
+
+**Bonus fix**: the clobber bug (second-arch per-target compile overwrote the primary provider row) is dead — the delete-filter is triple-scoped.
+
+**Untested remainder (honest):** an actual two-arch fleet run (requires a second-arch per-target compiler container + a remote agent; the machinery is now in place and unit/integration-proven per component). The nightly per-target lane will exercise the producer half when it next runs.
