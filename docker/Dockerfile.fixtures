@@ -15,7 +15,7 @@
 # Build:  docker build -t cloacina-fixtures:dev -f docker/Dockerfile.fixtures .
 # Run:    docker run --rm -v pkgs:/out cloacina-fixtures:dev   # → /out/*.cloacina
 
-ARG RUST_VERSION=1.93
+ARG RUST_VERSION=1.94
 
 FROM rust:${RUST_VERSION}-slim-bookworm
 

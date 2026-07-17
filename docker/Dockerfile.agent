@@ -19,7 +19,7 @@
 # Run:     docker run --rm cloacina-agent:dev --server http://server:8080 --api-key <key>
 # Verify:  docker run --rm cloacina-agent:dev --version
 
-ARG RUST_VERSION=1.93
+ARG RUST_VERSION=1.94
 
 # ---------------------------------------------------------------------------
 # Stage 1: builder
