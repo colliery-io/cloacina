@@ -172,3 +172,7 @@ initiative_id: NULL
 - [x] cg-feature-tour's kafka surface re-enabled against the provider (T-0907).
 
 **Follow-on (unchanged scope):** batch/polling backends are host-typed but pure-Rust (no C dep) — migrating them to providers is the "same treatment" tail, tracked by [[CLOACI-T-0896]]'s dispatch notes, not this ticket. Related bugfix landed alongside: recovery-event details now valid JSON (`c96ea82f`).
+
+### 2026-07-19 — migration MISS found + fixed on the live demo stack → `1241fdbb`.
+
+The sweep migrated `examples/features` but missed `examples/fixtures/demo-kafka-stream-rust` — the demo stack's `demo_kafka_graph` still declared the legacy provider-less stream, so its accumulator failed LOUDLY post-removal (the designed behavior, observed live: ERROR naming the exact fix, reactor gated at "warming" — the pre-T-0898 code would have silently passthrough'd here, which was the whole complaint). Migrated to `provider`/`constructor` + `[metadata.providers]` (`__WORKSPACE__` convention; note the fixture's Cargo.toml ALSO carries placeholders — rewrite ALL files when hand-packing), bumped to 0.1.1, re-uploaded to the running multiarch stack: compiled (provider bundled), reconciled, **`demo_kafka_rx` went warming → live** and fires continuously on the demo producer's kafka traffic (426 fires within the first minute). Repo-wide sweep of `accumulator_type = "stream"` declarations without provider keys is now EMPTY.
