@@ -169,4 +169,8 @@ initiative_id: NULL
 - `cloacina-python`: `resolve_poll_closure(name)` looks up the registered Python poll fn and wraps it (`call0` → `depythonize` → JSON bytes; None → skip). Installed from `register_authoring`, so BOTH embeddings wire it (pip wheel + server synthetic `ensure_cloaca_module`).
 - Example `python-polling-graph` + new `_graph_autofire_steps` lane asserting `poll_reactor` self-fires (no inject). **Verified live: reactor self-fired.**
 
-**T-0896 CLOSED:** batch (d2043bbc) + polling (b010dbee) + loud-WARN fallback. No plugin interface/ABI bump. All accumulator kinds now behave correctly on the packaged path (passthrough/state/batch/polling; stream = kafka/T-0898 track).
+**T-0896 CLOSED (Python path):** batch (d2043bbc) + polling (b010dbee) + loud-WARN fallback. No plugin interface/ABI bump.
+
+**2026-07-14 — RUST-CDYLIB SIDE ALSO CLOSED (commit 5b7e19fc, PR #194).** The plugin shell hardcoded `accumulator_type = "passthrough"` in get_graph/reactor metadata (Rust analog of the Python bug), AND the accumulator macros couldn't be used in a lean packaged crate (their generated `impl cloacina::…` structs need the `cloacina` umbrella; no fixture ever decorated one — the path was dead). Fixed: new `AccumulatorEntry` inventory (name/type/config); the two metadata sites report the REAL kind from it (fallback passthrough only when a name has no entry); each accumulator macro emits a cfg-gated `AccumulatorEntry` submission AND gates its `cloacina::`-bound struct/impls behind `cfg(not(packaged))` so `#[state_accumulator]` etc. compile in lean packaged crates. `reactor-only-rust` now declares `alpha` as `#[state_accumulator(capacity=5)]`; `primitive_only_packaging` asserts metadata reports alpha=`state`(cap 5), beta=`passthrough`. Verified: compiles packaged + test passes.
+
+All accumulator kinds now behave correctly on the packaged path for BOTH languages (passthrough/state/batch/polling; stream = kafka/T-0898 track).
