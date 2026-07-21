@@ -149,6 +149,7 @@ fn stage_into(work: &tempfile::TempDir, providers: &PathBuf, fixture_dir: PathBu
         output: Some(archive.clone()),
         sign_key: None,
         manifest_bin: "emit_manifest".to_string(),
+        runtime: cloacina_constructor_contract::ProviderRuntime::Wasm,
         release: true,
     };
     package_constructor_provider(&opts).expect("package_constructor_provider");

@@ -89,6 +89,7 @@ fn signed_archive(work: &std::path::Path) -> (PathBuf, ed25519_dalek::VerifyingK
         output: Some(out.clone()),
         sign_key: Some(key_path),
         manifest_bin: "emit_manifest".to_string(),
+        runtime: cloacina_constructor_contract::ProviderRuntime::Wasm,
         // Debug build keeps the test fast (reuses the debug wasm artifact).
         release: false,
     };

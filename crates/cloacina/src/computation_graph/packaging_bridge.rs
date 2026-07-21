@@ -28,9 +28,9 @@ use tokio::task::JoinHandle;
 use cloacina_workflow_plugin::{GraphExecutionRequest, GraphPackageMetadata};
 
 use super::accumulator::{
-    accumulator_runtime, accumulator_runtime_with_source, batch_accumulator_runtime, flush_signal,
-    state_accumulator_runtime, AccumulatorContext, AccumulatorRuntimeConfig, BatchAccumulator,
-    BatchAccumulatorConfig, BoundarySender, StateAccumulator,
+    accumulator_runtime, batch_accumulator_runtime, flush_signal, state_accumulator_runtime,
+    AccumulatorContext, AccumulatorRuntimeConfig, BatchAccumulator, BatchAccumulatorConfig,
+    BoundarySender, StateAccumulator,
 };
 use super::reactor::{CompiledGraphFn, InputStrategy, ReactionCriteria};
 use super::scheduler::{
@@ -399,106 +399,43 @@ impl AccumulatorFactory for PassthroughAccumulatorFactory {
     }
 }
 
-/// A stream-backed accumulator factory for FFI-loaded packages.
+/// A PROVIDER-backed stream accumulator factory (CLOACI-T-0907): the `stream`
+/// accumulator's source comes from a constructor provider the package bundles
+/// (e.g. `cloacina-provider-kafka`), not from host-compiled backend code.
 ///
-/// Creates a passthrough accumulator with a `KafkaEventSource` that pulls raw
-/// bytes from a Kafka topic. The event source runs on its own task via
-/// `accumulator_runtime_with_source`. The socket channel remains available for
-/// out-of-band WebSocket pushes.
-pub struct StreamBackendAccumulatorFactory {
-    /// Stream backend config from the package metadata.
+/// Selected by `accumulator_factory_for` when the accumulator's config carries a
+/// `provider` key:
+///
+/// ```toml
+/// [[metadata.accumulators]]
+/// name = "ticks"
+/// accumulator_type = "stream"
+/// [metadata.accumulators.config]
+/// provider = "cloacina-provider-kafka"   # routing: which bundled provider
+/// constructor = "kafka_source"           # routing: which member (default = provider's convention)
+/// broker = "{{ KAFKA_BROKER }}"          # member #[config] (name-keyed, templated)
+/// topic = "tour.ticks"
+/// group = "cg-feature-tour-group"
+/// ```
+///
+/// The provider resolves from the process-wide provider search path (the
+/// `providers/` tree the reconciler unpacks bundled providers into); its member's
+/// `source` is driven via fidius `call_streaming` and drained onto the boundary
+/// channel by `ProviderStreamSource` (T-0904). Load failure is LOUD: an ERROR log
+/// + health `Disconnected` — never a silent passthrough (CLOACI-T-0898 item 3).
+pub struct ProviderStreamAccumulatorFactory {
+    /// Full accumulator config; `provider`/`constructor` are routing keys, the
+    /// rest are the member's `#[config]` values (may be `{{ VAR }}` templates).
     config: std::collections::HashMap<String, String>,
 }
 
-impl StreamBackendAccumulatorFactory {
+impl ProviderStreamAccumulatorFactory {
     pub fn new(config: std::collections::HashMap<String, String>) -> Self {
         Self { config }
     }
 }
 
-/// EventSource that reads raw bytes from a Kafka topic.
-#[cfg(feature = "kafka")]
-struct KafkaEventSource {
-    broker_var: String,
-    topic: String,
-    group: String,
-    extra: std::collections::HashMap<String, String>,
-    name: String,
-}
-
-#[cfg(feature = "kafka")]
-#[async_trait::async_trait]
-impl super::accumulator::EventSource for KafkaEventSource {
-    async fn run(
-        self,
-        events: mpsc::Sender<Vec<u8>>,
-        mut shutdown: watch::Receiver<bool>,
-    ) -> Result<(), super::accumulator::AccumulatorError> {
-        // The broker config may be a `{{ VAR }}` template (e.g.
-        // `{{ KAFKA_BROKER }}` → CLOACINA_VAR_KAFKA_BROKER) or a literal
-        // (`kafka:9092`). `resolve_template` handles both — it strips the
-        // braces/whitespace and resolves the var, and passes plain values
-        // through unchanged. (Previously this passed the raw `{{ KAFKA_BROKER }}`
-        // string to `var()`, so the Kafka accumulator never initialized —
-        // CLOACI-I-0124 / WS-11.)
-        let broker_url = crate::var::resolve_template(&self.broker_var).map_err(|missing| {
-            let names = missing
-                .iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("; ");
-            super::accumulator::AccumulatorError::Init(format!(
-                "cannot resolve broker var '{}': {}",
-                self.broker_var, names
-            ))
-        })?;
-
-        let stream_config = super::stream_backend::StreamConfig {
-            broker_url,
-            topic: self.topic,
-            group: self.group,
-            extra: self.extra,
-        };
-
-        use super::stream_backend::StreamBackend as _;
-        let mut backend = super::stream_backend::kafka::KafkaStreamBackend::connect(&stream_config)
-            .await
-            .map_err(|e| {
-                super::accumulator::AccumulatorError::Init(format!("Kafka connect failed: {}", e))
-            })?;
-
-        tracing::info!(accumulator = %self.name, "Kafka event source started");
-        loop {
-            tokio::select! {
-                result = backend.recv() => {
-                    match result {
-                        Ok(msg) => {
-                            tracing::debug!(
-                                accumulator = %self.name,
-                                offset = msg.offset,
-                                bytes = msg.payload.len(),
-                                "Kafka message received"
-                            );
-                            if events.send(msg.payload).await.is_err() {
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(accumulator = %self.name, "Kafka recv error: {}", e);
-                        }
-                    }
-                }
-                _ = shutdown.changed() => {
-                    tracing::debug!(accumulator = %self.name, "Kafka event source shutting down");
-                    break;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl AccumulatorFactory for StreamBackendAccumulatorFactory {
+impl AccumulatorFactory for ProviderStreamAccumulatorFactory {
     fn spawn(
         &self,
         name: String,
@@ -511,12 +448,12 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
         let checkpoint = config.dal.map(|dal| {
             super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
         });
-
         let sender = BoundarySender::with_freshness(
             boundary_tx,
             SourceName::new(&name),
             config.freshness.clone(),
         );
+        let health_tx = config.health_tx.clone();
         let ctx = AccumulatorContext {
             output: sender,
             name: name.clone(),
@@ -525,46 +462,113 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
             health: config.health_tx,
         };
 
-        let topic = self.config.get("topic").cloned().unwrap_or_default();
-        let group = self
+        let provider = self.config.get("provider").cloned().unwrap_or_default();
+        let constructor = self
             .config
-            .get("group")
+            .get("constructor")
             .cloned()
-            .unwrap_or_else(|| format!("{}_group", name));
-        let broker_var = self
-            .config
-            .get("broker")
-            .cloned()
-            .expect("stream accumulator config must include 'broker' key");
-        let extra_config: std::collections::HashMap<String, String> = self
+            .unwrap_or_else(|| "kafka_source".to_string());
+        let member_config: std::collections::HashMap<String, String> = self
             .config
             .iter()
-            .filter(|(k, _)| !["topic", "group", "backend", "broker"].contains(&k.as_str()))
+            .filter(|(k, _)| !["provider", "constructor", "backend"].contains(&k.as_str()))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
-        #[cfg(feature = "kafka")]
-        let handle = {
-            let source = KafkaEventSource {
-                broker_var,
-                topic,
-                group,
-                extra: extra_config,
-                name: name.clone(),
-            };
-            tokio::spawn(accumulator_runtime_with_source(
-                GenericPassthroughAccumulator,
-                ctx,
-                socket_rx,
-                AccumulatorRuntimeConfig::default(),
-                source,
-            ))
-        };
+        #[cfg(feature = "constructors-wasm")]
+        let handle = tokio::spawn(async move {
+            // CLOACI-T-0898: the host-compiled kafka backend is gone — a stream
+            // accumulator MUST name its provider. Fail loudly, not passthrough.
+            if provider.is_empty() {
+                tracing::error!(
+                    accumulator = %name,
+                    "stream accumulator declares no `provider` — host-compiled stream \
+                     backends were removed (CLOACI-T-0898); set `provider`/`constructor` \
+                     in [metadata.accumulators.config] and bundle the provider via \
+                     [metadata.providers] (e.g. cloacina-provider-kafka)"
+                );
+                if let Some(tx) = &health_tx {
+                    let _ = tx.send(super::accumulator::AccumulatorHealth::Disconnected);
+                }
+                return;
+            }
+            // Resolve `{{ VAR }}` templates in every member config value (the
+            // treatment the old host kafka source gave `broker`); a missing var
+            // is a loud load failure, not a silent misconfiguration.
+            let mut resolved = std::collections::HashMap::new();
+            for (k, v) in member_config {
+                match crate::var::resolve_template(&v) {
+                    Ok(rv) => {
+                        resolved.insert(k, rv);
+                    }
+                    Err(missing) => {
+                        let names = missing
+                            .iter()
+                            .map(|e| e.to_string())
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        tracing::error!(
+                            accumulator = %name,
+                            provider = %provider,
+                            "provider stream accumulator FAILED: cannot resolve config var \
+                             '{k}': {names}"
+                        );
+                        if let Some(tx) = &health_tx {
+                            let _ = tx.send(super::accumulator::AccumulatorHealth::Disconnected);
+                        }
+                        return;
+                    }
+                }
+            }
 
-        #[cfg(not(feature = "kafka"))]
+            match crate::registry::loader::constructor_loader::load_stream_accumulator_source_from_config(
+                &provider,
+                &constructor,
+                &resolved,
+            )
+            .await
+            {
+                Ok(source) => {
+                    tracing::info!(
+                        accumulator = %name,
+                        provider = %provider,
+                        constructor = %constructor,
+                        "provider-backed stream accumulator started (native, trusted)"
+                    );
+                    super::accumulator::accumulator_runtime_with_source(
+                        GenericPassthroughAccumulator,
+                        ctx,
+                        socket_rx,
+                        AccumulatorRuntimeConfig::default(),
+                        source,
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    // LOUD failure (T-0898 item 3): the reactor will see this
+                    // accumulator as Disconnected instead of silently running a
+                    // passthrough that never fires.
+                    tracing::error!(
+                        accumulator = %name,
+                        provider = %provider,
+                        constructor = %constructor,
+                        "provider stream accumulator FAILED to load: {e}"
+                    );
+                    if let Some(tx) = &health_tx {
+                        let _ = tx.send(super::accumulator::AccumulatorHealth::Disconnected);
+                    }
+                }
+            }
+        });
+
+        #[cfg(not(feature = "constructors-wasm"))]
         let handle = {
-            let _ = (topic, group, extra_config, broker_var);
-            tracing::error!(accumulator = %name, "stream accumulator requires 'kafka' feature");
+            let _ = (provider, constructor, member_config, health_tx);
+            tracing::error!(
+                accumulator = %name,
+                "provider-backed stream accumulator requires the 'constructors-wasm' feature; \
+                 boundaries will NOT flow"
+            );
             tokio::spawn(accumulator_runtime(
                 GenericPassthroughAccumulator,
                 ctx,
@@ -886,7 +890,12 @@ fn accumulator_factory_for(
     config: &std::collections::HashMap<String, String>,
 ) -> Arc<dyn AccumulatorFactory> {
     match acc_type {
-        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(config.clone())),
+        // CLOACI-T-0898/T-0907: a stream accumulator's source ALWAYS comes from
+        // a bundled constructor provider (`provider`/`constructor` config keys —
+        // e.g. cloacina-provider-kafka). The host-compiled kafka backend is
+        // gone; a declaration without a `provider` key fails LOUDLY at spawn
+        // (ERROR + health Disconnected), never a silent passthrough.
+        "stream" => Arc::new(ProviderStreamAccumulatorFactory::new(config.clone())),
         "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
             config,
         ))),

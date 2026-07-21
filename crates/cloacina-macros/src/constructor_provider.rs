@@ -157,6 +157,12 @@ struct ProviderArgs {
     trigger: Vec<Ident>,
     accumulator: Vec<Ident>,
     reactor: Vec<Ident>,
+    /// CLOACI-T-0904: STREAM (loop-owning) accumulator members — authored with
+    /// `#[constructor(kind = accumulator, mode = stream)]`. They get their own
+    /// server-streaming `source` interface + `__ProviderStreamAccumulator` holder
+    /// (native-only for now). Listing a per-event accumulator here (or a stream one
+    /// under `accumulator`) fails to compile — the object-trait impls don't match.
+    stream_accumulator: Vec<Ident>,
 }
 
 fn parse_ident_list(input: ParseStream) -> SynResult<Vec<Ident>> {
@@ -177,6 +183,7 @@ impl Parse for ProviderArgs {
         let mut trigger: Vec<Ident> = Vec::new();
         let mut accumulator: Vec<Ident> = Vec::new();
         let mut reactor: Vec<Ident> = Vec::new();
+        let mut stream_accumulator: Vec<Ident> = Vec::new();
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -191,10 +198,11 @@ impl Parse for ProviderArgs {
                 "trigger" => trigger = parse_ident_list(input)?,
                 "accumulator" => accumulator = parse_ident_list(input)?,
                 "reactor" => reactor = parse_ident_list(input)?,
+                "stream_accumulator" => stream_accumulator = parse_ident_list(input)?,
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!("unknown constructor_provider! argument `{other}`; valid: name, version, component, contract, fidius_crate, task, trigger, accumulator, reactor"),
+                        format!("unknown constructor_provider! argument `{other}`; valid: name, version, component, contract, fidius_crate, task, trigger, accumulator, reactor, stream_accumulator"),
                     ));
                 }
             }
@@ -207,10 +215,15 @@ impl Parse for ProviderArgs {
             contract.unwrap_or_else(|| syn::parse_quote!(::cloacina_constructor_contract));
         let fidius_crate = fidius_crate.unwrap_or_else(|| "fidius_guest".to_string());
 
-        if task.is_empty() && trigger.is_empty() && accumulator.is_empty() && reactor.is_empty() {
+        if task.is_empty()
+            && trigger.is_empty()
+            && accumulator.is_empty()
+            && reactor.is_empty()
+            && stream_accumulator.is_empty()
+        {
             return Err(syn::Error::new(
                 input.span(),
-                "constructor_provider! requires at least one member (task/trigger/accumulator/reactor = [..])",
+                "constructor_provider! requires at least one member (task/trigger/accumulator/reactor/stream_accumulator = [..])",
             ));
         }
 
@@ -224,6 +237,7 @@ impl Parse for ProviderArgs {
             trigger,
             accumulator,
             reactor,
+            stream_accumulator,
         })
     }
 }
@@ -272,6 +286,12 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
         }
         shells.push(kind_shell(kind, members, contract, &fidius_crate));
     }
+    // CLOACI-T-0904: the STREAM accumulator shell (its own server-streaming
+    // `source` interface + `__ProviderStreamAccumulator` holder). Native-only for
+    // now — wasm streaming parity is deferred (T-0906/0907).
+    if !args.stream_accumulator.is_empty() {
+        shells.push(stream_accumulator_shell(&args.stream_accumulator, contract));
+    }
 
     // The crate-level provider manifest — every member across every kind. Pure
     // serde, emitted on all targets (the packaging `emit_manifest` bin reads it).
@@ -281,6 +301,7 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
         .chain(args.trigger.iter())
         .chain(args.accumulator.iter())
         .chain(args.reactor.iter())
+        .chain(args.stream_accumulator.iter())
         .collect();
     let manifest_exprs = all_members
         .iter()
@@ -294,6 +315,14 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
     quote! {
         #(#shells)*
 
+        // CLOACI-I-0139 (T-0902/0903): a NATIVE provider is a host cdylib the
+        // loader `dlopen`s — it must export `fidius_get_registry` (via dlsym)
+        // so `load_library` can enumerate the `#[plugin_impl]` holders. Emitted
+        // ONCE per crate, native-only (the wasm path uses component exports, not
+        // dlsym). Uses `fidius_core` — the same crate the native shells target.
+        #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+        ::fidius_core::fidius_plugin_registry!();
+
         /// CLOACI-A-0011/T-0837: the provider manifest (`provider.json`) — the
         /// `List[Constructor]` index over this suite's members. Packaging's
         /// `emit_manifest` bin serializes this; the loader reads it to select a
@@ -304,19 +333,61 @@ fn expand(args: ProviderArgs) -> TokenStream2 {
                 name: #name_expr,
                 version: #version_expr,
                 component: #component_expr,
+                // Default runtime; the packaging step overrides this to `native`
+                // when built via `cloacinactl constructor package --native`
+                // (CLOACI-T-0902 field; T-0903 native build path sets it).
+                runtime: #contract::ProviderRuntime::Wasm,
                 constructors: ::std::vec![ #(#manifest_exprs),* ],
             }
         }
     }
 }
 
-/// The wasm-guest fidius shell for one kind: the interface, the configure wire
-/// type, the holder + `#[plugin_impl]`, and the name-dispatched `configure`.
+/// The fidius shell for one kind: the interface, the configure wire type, the
+/// holder + `#[plugin_impl]`, and the name-dispatched `configure`. Emitted TWICE
+/// (CLOACI-T-0903) — once for the WASM guest target (`crate = fidius_guest`,
+/// gated `target_arch = "wasm32"`, compiled to a `wasm32-wasip2` component) and
+/// once for the NATIVE host target (`crate = fidius_core`, gated
+/// `not(target_arch = "wasm32")`, compiled to a host cdylib the loader dlopen's
+/// via `load_library` + `PluginHandle::configure_from_loaded`). The two are
+/// mutually exclusive by cfg, so the identically-named `configure`/holder types
+/// never collide. The author surface (`#[constructor]` bodies) is unchanged; only
+/// the emission target differs.
 fn kind_shell(
     kind: Kind,
     members: &[Ident],
     contract: &Path,
     fidius_crate: &LitStr,
+) -> TokenStream2 {
+    // `fidius_crate` is the wasm-guest crate (default `fidius_guest`). The native
+    // variant targets `fidius_core` — the same crate the host loader re-declares
+    // the interface against (constructor_loader.rs `crate = "fidius_core"`).
+    let native_crate = LitStr::new("fidius_core", Span::call_site());
+    let wasm_cfg = quote! { #[cfg(target_arch = "wasm32")] };
+    // CLOACI-I-0139: the native shell needs `fidius_core`/`fidius_macro` as HOST
+    // deps. Gate it behind BOTH not-wasm AND a `native` feature (mirroring the
+    // packaged-workflow `packaged` feature) so a WASM-only provider — whose host
+    // `emit_manifest` build has no fidius_core — is NOT forced to carry native
+    // deps. A native provider crate opts in with `features = ["native"]`.
+    let native_cfg = quote! { #[cfg(all(not(target_arch = "wasm32"), feature = "native"))] };
+
+    let wasm = kind_shell_variant(kind, members, contract, fidius_crate, &wasm_cfg);
+    let native = kind_shell_variant(kind, members, contract, &native_crate, &native_cfg);
+    quote! {
+        #wasm
+        #native
+    }
+}
+
+/// One cfg-gated copy of a kind's shell (wasm or native — see [`kind_shell`]).
+/// `cfg` is the mutually-exclusive gate; `fidius_crate` is the fidius crate path
+/// the fidius macros generate against for this target.
+fn kind_shell_variant(
+    kind: Kind,
+    members: &[Ident],
+    contract: &Path,
+    fidius_crate: &LitStr,
+    cfg: &TokenStream2,
 ) -> TokenStream2 {
     let trait_ident = kind.trait_ident();
     let method_ident = kind.method_ident();
@@ -325,16 +396,6 @@ fn kind_shell(
     let configure_ty = format_ident!("__Provider{}Configure", infix);
     let holder_ty = format_ident!("__Provider{}", infix);
     let no_member = LitStr::new(kind.no_member_outcome(), Span::call_site());
-
-    // The interface trait — byte-identical to the host loader's re-declaration so
-    // the fidius interface hash matches at load.
-    let interface_decl = quote! {
-        #[cfg(target_arch = "wasm32")]
-        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #fidius_crate)]
-        pub trait #trait_ident: Send + Sync {
-            fn #method_ident(&self, invocation_json: String) -> String;
-        }
-    };
 
     // The name-dispatch: pick the member whose `__constructor_name()` matches and
     // build it from the per-member config bytes.
@@ -347,24 +408,30 @@ fn kind_shell(
     });
 
     quote! {
-        #interface_decl
+        // The interface trait — byte-identical to the host loader's re-declaration
+        // so the fidius interface hash matches at load.
+        #cfg
+        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #fidius_crate)]
+        pub trait #trait_ident: Send + Sync {
+            fn #method_ident(&self, invocation_json: String) -> String;
+        }
 
         /// The suite `configure` payload for this kind: `(member-name, that
         /// member's config bytes)`. The host serializes it at load; fidius's
         /// `fidius-configure` decodes it here before name-dispatch.
-        #[cfg(target_arch = "wasm32")]
+        #cfg
         #[derive(::serde::Serialize, ::serde::Deserialize)]
         pub struct #configure_ty {
             pub name: ::std::string::String,
             pub config: ::std::vec::Vec<u8>,
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #cfg
         pub struct #holder_ty {
             inner: ::std::option::Option<::std::boxed::Box<dyn #contract::#object_ident>>,
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #cfg
         #[::fidius_macro::plugin_impl(#trait_ident, crate = #fidius_crate, config = #configure_ty)]
         impl #trait_ident for #holder_ty {
             fn #method_ident(&self, invocation_json: String) -> String {
@@ -375,10 +442,84 @@ fn kind_shell(
             }
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #cfg
         impl #holder_ty {
             // The fidius `configure` hook: select the member named in the payload
             // and build it once at load.
+            fn configure(__c: #configure_ty) -> Self {
+                #(#dispatch_arms)*
+                Self { inner: ::std::option::Option::None }
+            }
+        }
+    }
+}
+
+/// CLOACI-T-0904: the STREAM-accumulator suite shell — a single SERVER-STREAMING
+/// `source` method (`-> fidius_core::Stream<String>`) that the host drains via
+/// `PluginHandle::call_streaming`. NATIVE-ONLY (`crate = fidius_core`, gated on
+/// `feature = "native"`): wasm streaming parity is deferred (T-0906/0907), so a
+/// wasm build of a stream-accumulator provider simply omits this shell.
+///
+/// Mirrors [`kind_shell_variant`] (name-dispatch `configure` → boxed member) but
+/// the holder method wraps the member's boxed iterator in a `Stream<String>`.
+fn stream_accumulator_shell(members: &[Ident], contract: &Path) -> TokenStream2 {
+    let native_crate = LitStr::new("fidius_core", Span::call_site());
+    let cfg = quote! { #[cfg(all(not(target_arch = "wasm32"), feature = "native"))] };
+    let trait_ident = format_ident!("StreamAccumulatorConstructor");
+    let configure_ty = format_ident!("__ProviderStreamAccumulatorConfigure");
+    let holder_ty = format_ident!("__ProviderStreamAccumulator");
+
+    let dispatch_arms = members.iter().map(|m| {
+        quote! {
+            if __c.name == #m::__constructor_name() {
+                return Self { inner: ::std::option::Option::Some(#m::__constructor_make(&__c.config)) };
+            }
+        }
+    });
+
+    quote! {
+        // The server-streaming interface — byte-identical to the host loader's
+        // re-declaration so the fidius interface hash matches at load. The single
+        // `source` method returns a `fidius_core::Stream<String>` (FIDIUS-I-0026),
+        // which the host routes through `call_streaming`. The `_seed` arg exists
+        // only because a streaming call carries an argument tuple; it is ignored.
+        #cfg
+        #[::fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = #native_crate)]
+        pub trait #trait_ident: Send + Sync {
+            fn source(&self, seed: u64) -> ::fidius_core::Stream<String>;
+        }
+
+        #cfg
+        #[derive(::serde::Serialize, ::serde::Deserialize)]
+        pub struct #configure_ty {
+            pub name: ::std::string::String,
+            pub config: ::std::vec::Vec<u8>,
+        }
+
+        #cfg
+        pub struct #holder_ty {
+            inner: ::std::option::Option<
+                ::std::boxed::Box<dyn #contract::StreamAccumulatorObject>,
+            >,
+        }
+
+        #cfg
+        #[::fidius_macro::plugin_impl(#trait_ident, crate = #native_crate, config = #configure_ty)]
+        impl #trait_ident for #holder_ty {
+            fn source(&self, _seed: u64) -> ::fidius_core::Stream<String> {
+                match &self.inner {
+                    ::std::option::Option::Some(__m) => ::fidius_core::Stream::from_iter(
+                        #contract::StreamAccumulatorObject::source(__m.as_ref()),
+                    ),
+                    ::std::option::Option::None => {
+                        ::fidius_core::Stream::from_iter(::std::iter::empty::<String>())
+                    }
+                }
+            }
+        }
+
+        #cfg
+        impl #holder_ty {
             fn configure(__c: #configure_ty) -> Self {
                 #(#dispatch_arms)*
                 Self { inner: ::std::option::Option::None }

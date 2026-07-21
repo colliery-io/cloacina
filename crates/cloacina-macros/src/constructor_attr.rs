@@ -144,6 +144,11 @@ struct ConstructorArgs {
     interface_version: u32,
     description: Option<String>,
     author: Option<String>,
+    /// CLOACI-T-0904: `mode = stream` on `kind = accumulator` makes the member a
+    /// STREAM (loop-owning) accumulator authored as `fn source(&self) -> impl
+    /// Iterator<Item = String>` instead of the per-event `fn ingest`. `false`
+    /// (per-event) for every other kind/default.
+    stream: bool,
 }
 
 impl Parse for ConstructorArgs {
@@ -157,6 +162,7 @@ impl Parse for ConstructorArgs {
         let mut interface_version: u32 = 1;
         let mut description: Option<String> = None;
         let mut author: Option<String> = None;
+        let mut stream = false;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -165,6 +171,21 @@ impl Parse for ConstructorArgs {
                 "kind" => {
                     let id: Ident = input.parse()?;
                     kind = Some(Kind::from_ident(&id)?);
+                }
+                "mode" => {
+                    // CLOACI-T-0904: `mode = stream` (loop-owning) vs the default
+                    // `mode = per_event`. Only meaningful for `kind = accumulator`.
+                    let id: Ident = input.parse()?;
+                    stream = match id.to_string().as_str() {
+                        "stream" => true,
+                        "per_event" => false,
+                        other => {
+                            return Err(syn::Error::new(
+                                id.span(),
+                                format!("unknown constructor `mode = {other}`; expected `stream` or `per_event`"),
+                            ))
+                        }
+                    };
                 }
                 "name" => name = Some(input.parse::<LitStr>()?.value()),
                 "version" => version = Some(input.parse::<LitStr>()?.value()),
@@ -179,7 +200,7 @@ impl Parse for ConstructorArgs {
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!("unknown #[constructor] argument `{other}`; valid: kind, name, version, contract, fidius_crate, interface, interface_version, description, author"),
+                        format!("unknown #[constructor] argument `{other}`; valid: kind, mode, name, version, contract, fidius_crate, interface, interface_version, description, author"),
                     ));
                 }
             }
@@ -198,6 +219,13 @@ impl Parse for ConstructorArgs {
             contract.unwrap_or_else(|| syn::parse_quote!(::cloacina_constructor_contract));
         let fidius_crate = fidius_crate.unwrap_or_else(|| "fidius_guest".to_string());
 
+        if stream && kind != Kind::Accumulator {
+            return Err(syn::Error::new(
+                input.span(),
+                "`mode = stream` is only supported for `kind = accumulator` (CLOACI-T-0904)",
+            ));
+        }
+
         Ok(ConstructorArgs {
             kind,
             name,
@@ -208,6 +236,7 @@ impl Parse for ConstructorArgs {
             interface_version,
             description,
             author,
+            stream,
         })
     }
 }
@@ -242,6 +271,9 @@ fn expand(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStream2> {
     match args.kind {
         Kind::Task => expand_task(args, item),
         Kind::Trigger => expand_trigger(args, item),
+        // CLOACI-T-0904: a stream accumulator (`mode = stream`) is a distinct
+        // loop-owning shape (author writes `source`, not `ingest`).
+        Kind::Accumulator if args.stream => expand_stream_accumulator(args, item),
         Kind::Accumulator | Kind::Reactor => expand_event_kind(args, item),
     }
 }
@@ -490,6 +522,18 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
             #[allow(dead_code)]
             pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::TaskObject> {
                 let __cfg: #config_ident = #fidius_crate_ident::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
+            }
+            // CLOACI-I-0139 (T-0902/0903): the NATIVE provider shell (host
+            // cdylib, `crate = fidius_core`) dispatches to this on non-wasm.
+            // `fidius_core::wire` re-exports the same codec as `fidius_guest::wire`.
+            // Gated on the `native` feature so a wasm-only provider's host
+            // `emit_manifest` build (no fidius_core dep) doesn't compile it.
+            #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::TaskObject> {
+                let __cfg: #config_ident = ::fidius_core::wire::deserialize(__bytes)
                     .expect("constructor member: decode config");
                 ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
             }
@@ -776,6 +820,14 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
                     .expect("constructor member: decode config");
                 ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
             }
+            // CLOACI-I-0139 (T-0902/0903): NATIVE host-cdylib dispatch (feature-gated).
+            #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::TriggerObject> {
+                let __cfg: #config_ident = ::fidius_core::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
+            }
         }
     };
 
@@ -1045,6 +1097,14 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
                     .expect("constructor member: decode config");
                 ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
             }
+            // CLOACI-I-0139 (T-0902/0903): NATIVE host-cdylib dispatch (feature-gated).
+            #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+            #[allow(dead_code)]
+            pub fn __constructor_make(__bytes: &[u8]) -> ::std::boxed::Box<dyn #contract::#object_ident> {
+                let __cfg: #config_ident = ::fidius_core::wire::deserialize(__bytes)
+                    .expect("constructor member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
+            }
         }
     };
 
@@ -1078,6 +1138,198 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
                     ::std::result::Result::Ok(::std::option::Option::None) => #ok_none,
                     ::std::result::Result::Err(__e) => #err_outcome,
                 }
+            }
+        }
+    };
+
+    Ok(quote! {
+        #clean_struct
+        #config_struct
+        #assoc_impl
+        #member_impl
+    })
+}
+
+/// Code-gen for a STREAM (loop-owning) ACCUMULATOR — `#[constructor(kind =
+/// accumulator, mode = stream)]` (CLOACI-T-0904).
+///
+/// Unlike the per-event `ingest` accumulator ([`expand_event_kind`]), the author
+/// writes a single loop-owning source:
+/// ```ignore
+/// fn source(&self) -> impl Iterator<Item = String>  // each item = one boundary JSON
+/// ```
+/// Each yielded `String` is a boundary event. The returned iterator must own what
+/// it needs (it crosses to the host stream bridge as a `fidius::Stream<String>`);
+/// in edition 2021 an `-> impl Iterator` return cannot borrow `&self`, which
+/// enforces that. Fields are `#[config]`-only (bound once at load), same as the
+/// per-event accumulator. Emitted as [`StreamAccumulatorObject`] +
+/// `interface = "stream-accumulator-constructor"`; the suite shell's server-
+/// streaming `source` method wraps the iterator and the loader drains it via
+/// `call_streaming`.
+fn expand_stream_accumulator(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStream2> {
+    let struct_ident = item.ident.clone();
+    let struct_vis = item.vis.clone();
+
+    if !item.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &item.generics,
+            "#[constructor] does not support generic constructor structs",
+        ));
+    }
+
+    let data = match &item.data {
+        Data::Struct(d) => d,
+        _ => {
+            return Err(syn::Error::new_spanned(
+                &struct_ident,
+                "#[constructor] must be applied to a struct",
+            ))
+        }
+    };
+    let named = match &data.fields {
+        Fields::Named(n) => n,
+        _ => {
+            return Err(syn::Error::new_spanned(
+                &struct_ident,
+                "#[constructor] requires a struct with named fields",
+            ))
+        }
+    };
+
+    // Stream accumulator fields must all be #[config] (loop-owning, no per-event
+    // context to pull #[param]s from) — same rule as the per-event accumulator.
+    let mut config_fields: Vec<ConfigField> = Vec::new();
+    let mut clean_field_defs: Vec<TokenStream2> = Vec::new();
+    for field in &named.named {
+        let ident = field
+            .ident
+            .clone()
+            .ok_or_else(|| syn::Error::new_spanned(field, "field must be named"))?;
+        let ty = field.ty.clone();
+        let is_config = field.attrs.iter().any(|a| a.path().is_ident("config"));
+        if field.attrs.iter().any(|a| a.path().is_ident("param")) {
+            return Err(syn::Error::new_spanned(
+                field,
+                "#[param] is not supported for a stream accumulator — use #[config] fields only",
+            ));
+        }
+        if !is_config {
+            return Err(syn::Error::new_spanned(
+                field,
+                "every stream-accumulator #[constructor] field must be marked #[config]",
+            ));
+        }
+        let kept_attrs: Vec<&syn::Attribute> = field
+            .attrs
+            .iter()
+            .filter(|a| !a.path().is_ident("config"))
+            .collect();
+        let fvis = &field.vis;
+        clean_field_defs.push(quote! { #(#kept_attrs)* #fvis #ident: #ty });
+        config_fields.push(ConfigField { ident, ty });
+    }
+
+    let contract = &args.contract;
+    let op_name = &args.name;
+    let op_version = &args.version;
+    // Stream accumulators carry their OWN fidius interface (distinct from the
+    // per-event accumulator's), so the loader can take the `call_streaming` path.
+    let interface = args
+        .interface
+        .clone()
+        .unwrap_or_else(|| "stream-accumulator-constructor".to_string());
+    let interface_version = args.interface_version;
+    let description_tokens = opt_string(&args.description);
+    let author_tokens = opt_string(&args.author);
+
+    let clean_struct = quote! {
+        #struct_vis struct #struct_ident {
+            #(#clean_field_defs,)*
+        }
+    };
+
+    let config_ident = format_ident!("__{}Config", struct_ident);
+    let config_field_defs = config_fields.iter().map(|c| {
+        let id = &c.ident;
+        let ty = &c.ty;
+        quote! { pub #id: #ty }
+    });
+    let config_struct = quote! {
+        #[derive(::serde::Serialize, ::serde::Deserialize)]
+        #struct_vis struct #config_ident {
+            #(#config_field_defs,)*
+        }
+    };
+    let config_binds = config_fields.iter().map(|c| {
+        let id = &c.ident;
+        quote! { #id: ::std::clone::Clone::clone(&self.cfg.#id) }
+    });
+
+    let config_fields_lit = config_fields_tokens(contract, &config_fields);
+    let configured_ident = format_ident!("__{}Configured", struct_ident);
+    let fidius_crate_ident = format_ident!("{}", args.fidius_crate);
+
+    let assoc_impl = quote! {
+        impl #struct_ident {
+            #[allow(dead_code)]
+            pub fn __constructor_name() -> &'static str { #op_name }
+
+            #[allow(dead_code)]
+            pub fn __constructor_manifest() -> #contract::ConstructorManifest {
+                #contract::ConstructorManifest {
+                    name: #op_name.to_string(),
+                    version: #op_version.to_string(),
+                    // Still an accumulator primitive — the runtime treats it as one;
+                    // the stream vs per-event split is carried by `interface`.
+                    primitive_kind: #contract::PrimitiveKind::Accumulator,
+                    interface: #interface.to_string(),
+                    interface_version: #interface_version,
+                    params: ::std::vec::Vec::new(),
+                    config_fields: #config_fields_lit,
+                    dependencies: ::std::vec::Vec::new(),
+                    description: #description_tokens,
+                    author: #author_tokens,
+                }
+            }
+
+            // Decode this member's bound config and box it as the object-safe
+            // STREAM member the shell dispatches to. (Native-only for now — the
+            // stream shell is emitted only on the native target; T-0904.)
+            #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+            #[allow(dead_code)]
+            pub fn __constructor_make(
+                __bytes: &[u8],
+            ) -> ::std::boxed::Box<dyn #contract::StreamAccumulatorObject> {
+                let __cfg: #config_ident = ::fidius_core::wire::deserialize(__bytes)
+                    .expect("stream-accumulator member: decode config");
+                ::std::boxed::Box::new(#configured_ident { cfg: __cfg })
+            }
+            // WASM stream-accumulator glue is deferred (T-0906/0907 wasm parity);
+            // reference `fidius_crate_ident` so a wasm build of this crate still
+            // resolves the arg without an unused-import style warning.
+            #[cfg(target_arch = "wasm32")]
+            #[allow(dead_code)]
+            fn __stream_wasm_deferred() {
+                let _ = ::std::stringify!(#fidius_crate_ident);
+            }
+        }
+    };
+
+    let member_impl = quote! {
+        pub struct #configured_ident {
+            cfg: #config_ident,
+        }
+
+        impl #contract::StreamAccumulatorObject for #configured_ident {
+            fn source(&self) -> ::std::boxed::Box<dyn ::std::iter::Iterator<Item = String> + Send> {
+                // Build the author constructor with #[config] bound, then start the
+                // ONLY thing the author wrote. The returned iterator owns its state
+                // (edition-2021 `-> impl Iterator` cannot borrow `&__op`), so it is
+                // safe to box as `'static` and let `__op` drop.
+                let __op = #struct_ident {
+                    #(#config_binds,)*
+                };
+                ::std::boxed::Box::new(__op.source())
             }
         }
     };

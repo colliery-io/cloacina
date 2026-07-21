@@ -24,7 +24,7 @@
 # Run:     docker run --rm -e DATABASE_URL=postgres://... cloacina-compiler:dev \
 #            --bind 0.0.0.0:9000 --cargo-flag build --cargo-flag --release --cargo-flag --lib
 
-ARG RUST_VERSION=1.93
+ARG RUST_VERSION=1.94
 
 FROM rust:${RUST_VERSION}-slim-bookworm
 

@@ -508,6 +508,11 @@ pub struct PackageProvider {
     pub content_hash: String,
     pub provider_data: UniversalBinary,
     pub created_at: UniversalTimestamp,
+    /// CLOACI-T-0908: `None` = the primary build (arch-neutral for wasm, the
+    /// compiler host's arch for native); `Some(triple)` = a per-arch NATIVE build.
+    pub target_triple: Option<String>,
+    /// `"wasm"` (arch-neutral) or `"native"` (per-arch host cdylib).
+    pub runtime: String,
 }
 
 #[derive(Debug, Insertable)]
@@ -522,6 +527,8 @@ pub struct NewPackageProvider {
     pub content_hash: String,
     pub provider_data: UniversalBinary,
     pub created_at: UniversalTimestamp,
+    pub target_triple: Option<String>,
+    pub runtime: String,
 }
 
 // ============================================================================

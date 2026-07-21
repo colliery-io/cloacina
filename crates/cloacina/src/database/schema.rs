@@ -251,6 +251,11 @@ mod unified_schema {
             content_hash -> Text,
             provider_data -> DbBinary,
             created_at -> DbTimestamp,
+            // CLOACI-T-0908: NULL = the primary build; per-arch NATIVE builds
+            // carry their triple. `runtime` ('wasm'|'native') drives the
+            // per-target missing-arch scan without unpacking archives.
+            target_triple -> Nullable<Text>,
+            runtime -> Text,
         }
     }
 

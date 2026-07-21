@@ -87,16 +87,17 @@ use serde::Serialize;
 
 use cloacina_constructor_contract::{
     AccumulatorInvocation, AccumulatorOutcome, ConstructorManifest, PollOutcome, PrimitiveKind,
-    ProviderManifest, ReactorInvocation, ReactorOutcome, TaskInvocation, TaskOutcome,
-    TriggerInvocation, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, METHOD_EVALUATE, METHOD_EXECUTE,
-    METHOD_INGEST, METHOD_POLL, REACTOR_CONSTRUCTOR_INTERFACE_VERSION,
+    ProviderManifest, ProviderRuntime, ReactorInvocation, ReactorOutcome, TaskInvocation,
+    TaskOutcome, TriggerInvocation, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, METHOD_EVALUATE,
+    METHOD_EXECUTE, METHOD_INGEST, METHOD_POLL, METHOD_SOURCE,
+    REACTOR_CONSTRUCTOR_INTERFACE_VERSION, STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION,
     TASK_CONSTRUCTOR_INTERFACE_VERSION, TRIGGER_CONSTRUCTOR_INTERFACE_VERSION,
 };
 use fidius_host::PluginHost;
 
 use super::grants::{lint_unmet_intents, translate, GrantSpec, ResolvedGrants};
 
-use crate::computation_graph::accumulator::Accumulator;
+use crate::computation_graph::accumulator::{Accumulator, AccumulatorError, EventSource};
 use crate::computation_graph::reactor::ReactorFireDecider;
 use crate::computation_graph::types::InputCache;
 use crate::context::Context;
@@ -209,6 +210,147 @@ fn wrap_member_config<C: Serialize>(
         name: constructor_name.to_string(),
         config: inner,
     })
+}
+
+// ===========================================================================
+// NATIVE provider load path (CLOACI-T-0902 / I-0139)
+// ===========================================================================
+//
+// A provider whose `provider.json` declares `runtime = "native"` ships a host
+// cdylib (the T-0903 native shell) instead of a `wasm32-wasip2` component. It is
+// loaded IN-PROCESS via `fidius_host::loader::load_library` +
+// `PluginHandle::configure_from_loaded` (fidius 0.5.6), the dynamic-load analogue
+// of the WASM path's `load_wasm_configured_with_grants`. Native providers run with
+// full host trust — the same trust surface a packaged Rust workflow cdylib already
+// has — so capability `grants` are ADVISORY only (I-0139 (e)); no `WasiCtx` /
+// `EgressPolicy` is applied. `fidius`'s wasm-only `find_wasm_package` never matches
+// a native package, so the package dir is resolved here by scanning the search path
+// for a matching `provider.json`.
+
+/// Scan `search_path` (one level, mirroring `find_wasm_package`) for a NATIVE
+/// provider package named `package_name`. Returns `Ok(None)` when none is present
+/// — the package is absent OR is a WASM provider — so the caller falls through to
+/// the WASM load path; `Ok(Some((dir, manifest)))` for a native provider.
+fn resolve_native_provider(
+    search_path: &Path,
+    package_name: &str,
+) -> Result<Option<(std::path::PathBuf, ProviderManifest)>, LoaderError> {
+    if !search_path.is_dir() {
+        return Ok(None);
+    }
+    let entries = std::fs::read_dir(search_path).map_err(|e| LoaderError::FileSystem {
+        path: search_path.display().to_string(),
+        error: e.to_string(),
+    })?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        // Only a directory that holds a parseable provider.json is a candidate.
+        if let Ok(provider) = read_provider_manifest(&path) {
+            if provider.name == package_name && provider.runtime == ProviderRuntime::Native {
+                return Ok(Some((path, provider)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Load a configured member from a NATIVE provider cdylib. Returns `Ok(None)` when
+/// `package_name` is not a native provider in `search_path` (caller then takes the
+/// WASM path). On the native path it `dlopen`s the provider cdylib, selects the
+/// per-kind holder plugin (`__Provider{Task,Trigger,Accumulator,Reactor}`), and
+/// binds the member's config once via `configure_from_loaded`. NO grants/egress
+/// are applied (native = trusted, I-0139 (e)).
+fn load_native_member<C: Serialize>(
+    search_path: &Path,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+    expected_kind: PrimitiveKind,
+    expected_iface_version: u32,
+    holder_plugin: &str,
+) -> Result<Option<(fidius_host::PluginHandle, ConstructorManifest)>, LoaderError> {
+    let Some((dir, provider)) = resolve_native_provider(search_path, package_name)? else {
+        return Ok(None);
+    };
+
+    let member = provider
+        .constructor(constructor_name)
+        .cloned()
+        .ok_or_else(|| LoaderError::Validation {
+            reason: format!(
+                "native provider '{}' has no constructor '{}'; members: [{}]",
+                provider.name,
+                constructor_name,
+                provider
+                    .constructors
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        })?;
+
+    if member.primitive_kind != expected_kind {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "constructor '{}' is {:?}, not {:?}",
+                member.name, member.primitive_kind, expected_kind
+            ),
+        });
+    }
+    if member.interface_version != expected_iface_version {
+        return Err(LoaderError::Validation {
+            reason: format!(
+                "native constructor '{}' declares interface v{}, loader supports v{}",
+                member.name, member.interface_version, expected_iface_version
+            ),
+        });
+    }
+
+    // Same name-in-configure wrapper the WASM path uses (positional bincode config
+    // tagged with the member name the suite shell name-dispatches on).
+    let configure = wrap_member_config(constructor_name, config)?;
+    let lib_path = dir.join(&provider.component);
+    let loaded =
+        fidius_host::loader::load_library(&lib_path).map_err(|e| LoaderError::LibraryLoad {
+            path: lib_path.display().to_string(),
+            // Name the host triple: a wrong-arch cdylib (a bundle built on a
+            // different arch, CLOACI-T-0908) dies here and should read as an
+            // arch mismatch, not corruption.
+            error: format!(
+                "load_library (native provider, host triple '{}'): {e} — if this is a \
+                 wrong-arch cdylib, the per-target compiler has not filled this arch yet",
+                crate::fleet::protocol::host_target_triple()
+            ),
+        })?;
+    let plugin = loaded
+        .plugins
+        .into_iter()
+        .find(|p| p.info.name == holder_plugin)
+        .ok_or_else(|| LoaderError::Validation {
+            reason: format!(
+                "native provider '{}' cdylib '{}' has no '{}' plugin (kind {:?})",
+                provider.name, provider.component, holder_plugin, expected_kind
+            ),
+        })?;
+    let handle =
+        fidius_host::PluginHandle::configure_from_loaded(plugin, &configure).map_err(|e| {
+            LoaderError::LibraryLoad {
+                path: lib_path.display().to_string(),
+                error: format!("configure_from_loaded (native provider): {e}"),
+            }
+        })?;
+    // CLOACI-T-0907: surface the trust tier at load — a native provider runs
+    // unsandboxed in-process (grants advisory), unlike sandboxed wasm providers.
+    tracing::info!(
+        provider = %provider.name,
+        constructor = %constructor_name,
+        "loaded NATIVE constructor provider (trusted, unsandboxed in-process; grants advisory)"
+    );
+    Ok(Some((handle, member)))
 }
 
 /// A loaded, configured WASM task constructor wrapped as a cloacina [`Task`].
@@ -337,6 +479,25 @@ pub fn load_task_constructor<C: Serialize>(
     grants: &ResolvedGrants,
 ) -> Result<Arc<dyn Task>, LoaderError> {
     let search_path = search_path.as_ref();
+
+    // NATIVE provider fast-path (CLOACI-T-0902): a `runtime = "native"` provider
+    // loads in-process via `configure_from_loaded`; grants are advisory (no
+    // sandbox). Falls through to the WASM path when the package isn't native.
+    if let Some((handle, member)) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Task,
+        TASK_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderTask",
+    )? {
+        return Ok(Arc::new(WasmTaskConstructor {
+            id: member.name,
+            handle: Arc::new(handle),
+            dependencies: Vec::new(),
+        }));
+    }
 
     let host = PluginHost::builder()
         .search_path(search_path)
@@ -625,6 +786,24 @@ pub fn load_trigger_constructor<C: Serialize>(
     grants: &ResolvedGrants,
 ) -> Result<Arc<dyn Trigger>, LoaderError> {
     let search_path = search_path.as_ref();
+
+    // NATIVE provider fast-path (CLOACI-T-0902): grants advisory; falls through
+    // to the WASM path when the package isn't a `runtime = "native"` provider.
+    if let Some((handle, member)) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Trigger,
+        TRIGGER_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderTrigger",
+    )? {
+        return Ok(Arc::new(WasmTriggerConstructor {
+            name: member.name,
+            handle: Arc::new(handle),
+            binding,
+        }));
+    }
 
     let host = PluginHost::builder()
         .search_path(search_path)
@@ -915,6 +1094,23 @@ pub fn load_accumulator_constructor<C: Serialize>(
 ) -> Result<WasmAccumulatorConstructor, LoaderError> {
     let search_path = search_path.as_ref();
 
+    // NATIVE provider fast-path (CLOACI-T-0902; also T-0904's stream-accumulator
+    // prereq): grants advisory; falls through to WASM when not a native provider.
+    if let Some((handle, member)) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Accumulator,
+        ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderAccumulator",
+    )? {
+        return Ok(WasmAccumulatorConstructor {
+            name: member.name,
+            handle: Arc::new(handle),
+        });
+    }
+
     let host = PluginHost::builder()
         .search_path(search_path)
         .build()
@@ -967,6 +1163,231 @@ pub fn load_accumulator_constructor<C: Serialize>(
         name: manifest.name,
         handle: Arc::new(handle),
     })
+}
+
+// ===========================================================================
+// STREAM accumulator — native provider-supplied, server-streaming (CLOACI-T-0904)
+// ===========================================================================
+//
+// A stream accumulator is LOOP-OWNING: the member's `source` yields the whole
+// stream of boundary events, rather than the per-event `ingest` transform above.
+// On a native provider this is fidius server-streaming: the shell exposes a
+// `source(seed) -> fidius_core::Stream<String>` method (holder
+// `__ProviderStreamAccumulator`), which the host drives via
+// `PluginHandle::call_streaming` → a `ChunkStream` of boundary-JSON items. Draining
+// that stream onto the accumulator merge channel is exactly the `EventSource` seam
+// (`accumulator_runtime_with_source`) the host-side `KafkaEventSource` uses — so a
+// provider-supplied source drops straight in where the hardcoded Kafka source was
+// (the Kafka provider itself is T-0906). Native-only for now (wasm streaming
+// parity is T-0906/0907), so this whole path lives under `constructors-wasm`
+// (which now also enables `fidius-host/streaming`).
+
+/// An [`EventSource`] that drains a native provider's server-streaming `source`
+/// (a [`ChunkStream`](fidius_host::ChunkStream) from
+/// [`PluginHandle::call_streaming`](fidius_host::PluginHandle::call_streaming)) and
+/// pushes each boundary-JSON item onto the accumulator merge channel.
+///
+/// The held [`Arc<PluginHandle>`](fidius_host::PluginHandle) keeps the dlopen'd
+/// provider (and thus its stream producer) alive for the stream's lifetime.
+/// Dropping this source drops the `ChunkStream`, which tears the producer down —
+/// the fidius host-pull backpressure/teardown contract (REQ-003), matching how an
+/// `EventSource` shutdown tears a Kafka consumer down.
+pub struct ProviderStreamSource {
+    name: String,
+    // Keep-alive only: the ChunkStream owns its bridge but the producer lives in
+    // the dlopen'd instance behind this handle. Held so the library isn't unloaded
+    // while the stream is draining.
+    _handle: Arc<fidius_host::PluginHandle>,
+    stream: fidius_host::ChunkStream,
+}
+
+#[async_trait]
+impl EventSource for ProviderStreamSource {
+    async fn run(
+        mut self,
+        events: tokio::sync::mpsc::Sender<Vec<u8>>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<(), AccumulatorError> {
+        use futures::StreamExt as _;
+        loop {
+            tokio::select! {
+                item = self.stream.next() => {
+                    match item {
+                        Some(Ok(value)) => {
+                            // Each stream item is one boundary-JSON string; push its
+                            // bytes onto the merge channel (a passthrough accumulator
+                            // forwards them verbatim to the reactor boundary).
+                            let boundary: String = fidius_core::from_value(value).map_err(|e| {
+                                AccumulatorError::Init(format!("decode provider stream item: {e}"))
+                            })?;
+                            // KEEPALIVE convention (CLOACI-T-0906): an empty item is a
+                            // liveness tick from a BLOCKING source (e.g. a Kafka poll
+                            // timeout) — fidius's pump thread only notices a dropped
+                            // consumer when it sends, so an idle source must tick to
+                            // keep teardown bounded. Never a boundary; skip it.
+                            if boundary.is_empty() {
+                                continue;
+                            }
+                            if events.send(boundary.into_bytes()).await.is_err() {
+                                break; // consumer gone
+                            }
+                        }
+                        Some(Err(e)) => {
+                            tracing::warn!(accumulator = %self.name, "provider stream error: {e}");
+                        }
+                        None => break, // source exhausted
+                    }
+                }
+                _ = shutdown.changed() => {
+                    tracing::debug!(accumulator = %self.name, "provider stream source shutting down");
+                    break; // drop self.stream → producer teardown
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Load a NATIVE **stream accumulator** member and start its server-streaming
+/// `source`, returning an [`EventSource`] that drives boundary items onto an
+/// accumulator's merge channel (feed it to `accumulator_runtime_with_source` with
+/// a passthrough [`Accumulator`]).
+///
+/// Native-only (a `runtime = "native"` provider whose member carries
+/// `interface = "stream-accumulator-constructor"`); wasm streaming parity is
+/// T-0906/0907. Fails closed if the member isn't a native stream accumulator.
+/// `config` binds the member's `#[config]` once at load, exactly like the other
+/// constructor loaders.
+pub async fn load_stream_accumulator_source<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+) -> Result<ProviderStreamSource, LoaderError> {
+    let search_path = search_path.as_ref();
+
+    let (handle, member) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Accumulator,
+        STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderStreamAccumulator",
+    )?
+    .ok_or_else(|| LoaderError::Validation {
+        reason: format!(
+            "provider '{package_name}' member '{constructor_name}' is not a native stream \
+             accumulator (needs runtime = \"native\" + a stream-accumulator member; wasm \
+             streaming parity is CLOACI-T-0906/0907)"
+        ),
+    })?;
+
+    let handle = Arc::new(handle);
+    // Start the server-streaming `source` (METHOD_SOURCE). The `seed` arg is unused
+    // by the shell — a single-arg fidius method takes a `(T,)` tuple. Items decode
+    // as boundary-JSON `String`s.
+    let stream = handle
+        .call_streaming::<(u64,), String>(METHOD_SOURCE, &(0u64,))
+        .await
+        .map_err(|e| LoaderError::LibraryLoad {
+            path: package_name.to_string(),
+            error: format!("call_streaming(source) on native stream accumulator: {e}"),
+        })?;
+
+    Ok(ProviderStreamSource {
+        name: member.name,
+        _handle: handle,
+        stream,
+    })
+}
+
+/// Load a NATIVE stream-accumulator member declared by a PACKAGED workflow's
+/// `[[metadata.accumulators]]` config map (CLOACI-T-0907) and start its source.
+///
+/// The packaged-workflow declaration surface is a name-keyed STRING map
+/// (`[metadata.accumulators.config] broker = ".." topic = ".."`), but the member's
+/// `#[config]` crosses as bincode of its typed struct. This bridges the two the
+/// same way `constructor!(config = { … })` nodes do: read the member's declared
+/// `config_fields` from the provider manifest, bind the map BY NAME
+/// ([`bind_config_by_name`] — fails closed on unknown/missing keys), and encode in
+/// declaration order. String values coerce per the declared field type (`"5"` for
+/// an `i64` field parses; kafka's fields are all `String`).
+///
+/// The provider resolves from the process-wide [`provider_search_path`] — the same
+/// `providers/` tree the reconciler unpacks a package's bundled providers into.
+pub async fn load_stream_accumulator_source_from_config(
+    provider_name: &str,
+    constructor_name: &str,
+    config: &std::collections::HashMap<String, String>,
+) -> Result<ProviderStreamSource, LoaderError> {
+    let search_path = provider_search_path();
+
+    // Member manifest first — bind_config_by_name needs its config_fields.
+    let (_dir, provider) =
+        resolve_native_provider(&search_path, provider_name)?.ok_or_else(|| {
+            LoaderError::Validation {
+                reason: format!(
+                "stream accumulator declares provider '{provider_name}' but no NATIVE provider \
+                 by that name exists under '{}' (bundle it with the package, or check the \
+                 provider/runtime — wasm stream providers are CLOACI-T-0906/0907 follow-up)",
+                search_path.display()
+            ),
+            }
+        })?;
+    let member = provider
+        .constructor(constructor_name)
+        .ok_or_else(|| LoaderError::Validation {
+            reason: format!(
+                "provider '{provider_name}' has no constructor '{constructor_name}'; members: [{}]",
+                provider
+                    .constructors
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        })?
+        .clone();
+
+    // Map → JSON values (strings that parse as the declared numeric/bool type
+    // coerce — package.toml accumulator config is stringly-typed).
+    let author: Vec<(String, serde_json::Value)> = config
+        .iter()
+        .map(|(k, v)| {
+            let field_ty = member
+                .config_fields
+                .iter()
+                .find(|f| f.name == *k)
+                .map(|f| f.ty.as_str());
+            let value = match field_ty {
+                Some("String") | Some("str") | None => serde_json::Value::String(v.clone()),
+                Some("bool") => v
+                    .parse::<bool>()
+                    .map(serde_json::Value::Bool)
+                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
+                // Numeric field: parse the string; a non-parsing value falls
+                // through as a string so bind_config_by_name names the field in
+                // its type error.
+                Some(_) => serde_json::from_str::<serde_json::Value>(v)
+                    .ok()
+                    .filter(serde_json::Value::is_number)
+                    .unwrap_or_else(|| serde_json::Value::String(v.clone())),
+            };
+            (k.clone(), value)
+        })
+        .collect();
+
+    let ordered = bind_config_by_name(
+        // Context strings for the fail-closed error messages.
+        &format!("accumulator '{constructor_name}'"),
+        provider_name,
+        constructor_name,
+        &member,
+        author,
+    )?;
+
+    load_stream_accumulator_source(&search_path, provider_name, constructor_name, &ordered).await
 }
 
 // ===========================================================================
@@ -1118,6 +1539,23 @@ pub fn load_reactor_constructor<C: Serialize>(
     grants: &ResolvedGrants,
 ) -> Result<WasmReactorConstructor, LoaderError> {
     let search_path = search_path.as_ref();
+
+    // NATIVE provider fast-path (CLOACI-T-0902): grants advisory; falls through
+    // to the WASM path when the package isn't a `runtime = "native"` provider.
+    if let Some((handle, member)) = load_native_member(
+        search_path,
+        package_name,
+        constructor_name,
+        config,
+        PrimitiveKind::Reactor,
+        REACTOR_CONSTRUCTOR_INTERFACE_VERSION,
+        "__ProviderReactor",
+    )? {
+        return Ok(WasmReactorConstructor {
+            name: member.name,
+            handle: Arc::new(handle),
+        });
+    }
 
     let host = PluginHost::builder()
         .search_path(search_path)

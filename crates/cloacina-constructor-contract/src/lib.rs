@@ -128,6 +128,11 @@ pub const METHOD_INGEST: usize = 0;
 /// continuation — wire type defined, bridge sketched).
 pub const METHOD_EVALUATE: usize = 0;
 
+/// The vtable method index of `StreamAccumulatorConstructor::source` — the single
+/// SERVER-STREAMING method of a stream (loop-owning) accumulator (CLOACI-T-0904).
+/// Its own one-method interface, so index `0`.
+pub const METHOD_SOURCE: usize = 0;
+
 /// The fidius interface version of the TASK-constructor contract. Must match the
 /// `version` passed to the guest/host `#[plugin_interface(version = ..)]` and is
 /// cross-checked against [`ConstructorManifest::interface_version`] by the loader.
@@ -144,6 +149,18 @@ pub const ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION: u32 = 1;
 /// The fidius interface version of the REACTOR-constructor contract
 /// (continuation — see [`ReactorInvocation`]).
 pub const REACTOR_CONSTRUCTOR_INTERFACE_VERSION: u32 = 1;
+
+/// The fidius interface version of the STREAM-accumulator contract (CLOACI-T-0904).
+/// A distinct one-method (`source`) server-streaming interface — separate from the
+/// per-event `AccumulatorConstructor` (`ingest`) so a stream accumulator does not
+/// force a version bump on existing per-event accumulators. The member's
+/// `ConstructorManifest.interface` is `"stream-accumulator-constructor"`.
+pub const STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION: u32 = 1;
+
+/// The `interface` string a stream accumulator member's `ConstructorManifest`
+/// carries — the loader switches on it to take the `call_streaming` path instead
+/// of the per-event `ingest` path (CLOACI-T-0904).
+pub const STREAM_ACCUMULATOR_INTERFACE: &str = "stream-accumulator-constructor";
 
 /// Which cloacina runtime primitive a WASM constructor implements. The loader
 /// (CLOACI-T-0823 for `Task`; the rest land in T-0824) switches on this to pick
@@ -238,8 +255,42 @@ impl ConstructorManifest {
     }
 }
 
+/// Which runtime substrate a provider's component is loaded through
+/// (CLOACI-T-0902 / I-0139). The whole suite shares one runtime — a provider is
+/// authored the same way regardless (the `#[constructor]` surface is
+/// target-agnostic); only the emitted glue + load path differ.
+///
+/// **Trust asymmetry (I-0139 sub-question (e)):** WASM providers are sandboxed
+/// (wasmtime) and their `grants` are ENFORCED by the host capability layer.
+/// NATIVE providers run in-process with full host trust — the same trust surface
+/// a tenant already extends to a packaged Rust workflow cdylib — so `grants`
+/// degrade to ADVISORY/audit metadata (a native provider opens its sockets/files
+/// directly regardless of a grant). The discriminator makes this explicit at
+/// author + install time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRuntime {
+    /// Sandboxed WASM component (`wasm32-wasip2`), loaded via
+    /// `load_wasm_configured`; `grants` enforced. The default for pre-native
+    /// `provider.json` manifests.
+    #[default]
+    Wasm,
+    /// Trusted native cdylib (host target), loaded via `load_library` +
+    /// `PluginHandle::configure_in_process`; `grants` advisory only.
+    Native,
+}
+
+impl ProviderRuntime {
+    /// Whether this runtime's `grants` are enforced (WASM sandbox) vs. advisory
+    /// (native, trusted in-process). Consumed by the loader (skip grant
+    /// translation for native) and by author/CLI trust-tier surfacing.
+    pub fn grants_enforced(self) -> bool {
+        matches!(self, ProviderRuntime::Wasm)
+    }
+}
+
 /// The package-level manifest for a **provider** — a *suite* of constructors
-/// (CLOACI-A-0011). One provider crate compiles to ONE WASM component that may
+/// (CLOACI-A-0011). One provider crate compiles to ONE component that may
 /// expose **N constructors**; this manifest (the package's `provider.json`) is the
 /// `List[Constructor]` index over them. A consumer selects a member by
 /// `constructor = "<name>"`, and the loader carries that name in the `configure`
@@ -256,9 +307,16 @@ pub struct ProviderManifest {
     pub name: String,
     /// Provider version (semver string), independent of cloacina's version.
     pub version: String,
-    /// The single `.wasm` component filename inside the package that implements
-    /// every member constructor (one component per provider; CLOACI-A-0011).
+    /// The single component filename inside the package that implements every
+    /// member constructor (one component per provider; CLOACI-A-0011). A `.wasm`
+    /// component for `runtime = wasm`; a native cdylib (`.so`/`.dylib`) for
+    /// `runtime = native` (per-arch artifact selection is CLOACI-T-0905).
     pub component: String,
+    /// Which runtime substrate this provider loads through (CLOACI-T-0902). The
+    /// whole suite shares one runtime. Defaults to [`ProviderRuntime::Wasm`] so
+    /// pre-native `provider.json` manifests deserialize unchanged.
+    #[serde(default)]
+    pub runtime: ProviderRuntime,
     /// The member constructors this provider exposes, in declaration order.
     pub constructors: Vec<ConstructorManifest>,
 }
@@ -321,6 +379,27 @@ pub trait AccumulatorObject: Send + Sync {
     /// Run the configured accumulator member. `JSON(AccumulatorInvocation)` in,
     /// `JSON(AccumulatorOutcome)` out.
     fn ingest(&self, invocation_json: String) -> String;
+}
+
+/// Object-safe form of a STREAM (loop-owning) accumulator member (CLOACI-T-0904):
+/// instead of a per-event `ingest`, the configured member produces the WHOLE
+/// stream of boundary events at once. Each yielded `String` is one boundary JSON
+/// (the same shape `AccumulatorOutcome.boundary_json` carries per event).
+///
+/// The suite shell's server-streaming `source` method calls this and wraps the
+/// returned iterator in a `fidius::Stream<String>`; the host drains it via
+/// `call_streaming` → `ChunkStream`. The iterator is `Send + 'static` because it
+/// crosses to the host stream bridge and outlives the borrow of `&self` — a real
+/// source (e.g. a Kafka consumer) owns what it needs, built from the bound config.
+pub trait StreamAccumulatorObject: Send + Sync {
+    /// Start the configured stream source, yielding boundary-JSON items lazily.
+    ///
+    /// KEEPALIVE convention (CLOACI-T-0906): an **empty string** item is a
+    /// liveness tick, not a boundary — the host skips it. A source whose `next()`
+    /// blocks on an external poll (e.g. Kafka) should yield `""` on each poll
+    /// timeout so the host's pump thread gets a periodic send and teardown of an
+    /// idle stream resolves within one poll interval instead of parking forever.
+    fn source(&self) -> Box<dyn Iterator<Item = String> + Send>;
 }
 
 /// Object-safe form of the REACTOR member: `JSON(ReactorInvocation)` in →

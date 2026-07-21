@@ -3,7 +3,7 @@
 # cloacina-server — production HTTP API image (CLOACI-I-0111 / T-0604)
 #
 # Multi-stage build:
-#   Stage 1 (builder): rust:1.85-slim — compiles cloacina-server in release.
+#   Stage 1 (builder): rust:1.94-slim — compiles cloacina-server in release.
 #   Stage 2 (runtime): debian:bookworm-slim — minimal Debian + libpq5.
 #
 # Why debian:bookworm-slim instead of distroless?
@@ -18,7 +18,7 @@
 # Run:     docker run --rm -e DATABASE_URL=postgres://... cloacina-server:dev
 # Verify:  docker run --rm cloacina-server:dev --version
 
-ARG RUST_VERSION=1.93
+ARG RUST_VERSION=1.94
 
 # ---------------------------------------------------------------------------
 # Stage 1: builder

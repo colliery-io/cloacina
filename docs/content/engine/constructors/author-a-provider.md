@@ -157,6 +157,97 @@ The `@0.1.0` suffix is an enforced version pin (exact or segment-prefix — `@0.
 matches 0.1.x but not 0.10.x); a mismatch fails at build and at load naming both
 versions.
 
+## Native providers — the trusted tier
+
+Some providers cannot be WASM: anything wrapping a native C library
+(librdkafka, a database driver, a GPU runtime) has no `wasm32-wasip2` target.
+For these, a provider can be **native**: a host cdylib the engine loads
+in-process.
+
+The two tiers differ in exactly one thing — trust:
+
+| | **wasm** (default) | **native** |
+|---|---|---|
+| Runs | sandboxed component | in-process cdylib (`dlopen`) |
+| Capability grants | **enforced** (default-closed) | **advisory only** |
+| Trust required | none — the sandbox contains it | same as any packaged Rust workflow cdylib |
+| Can wrap C deps | no | yes |
+
+`cloacinactl constructor package` prints the tier, and the loader logs
+`loaded NATIVE constructor provider (trusted, unsandboxed in-process)` at load —
+deploy native providers only from sources you'd trust with host code.
+
+A native provider makes three declarations the WASM form doesn't need:
+
+```toml
+# Cargo.toml
+[package.metadata.cloacina]
+runtime = "native"        # tells the compiler's bundler to build a host cdylib
+
+[features]
+default = ["native"]      # gates the native glue the macros emit
+native = []
+
+[dependencies]
+# fidius HOST SDK (instead of the target-gated guest SDK)
+fidius-core = "0.5"
+fidius-macro = "0.5"
+rdkafka = "0.39"          # the whole point: the C dep ships IN the provider
+```
+
+Package it explicitly with `--native`:
+
+```bash
+cloacinactl constructor package ./cloacina-provider-kafka --native --sign-key key.secret
+```
+
+## Stream accumulators — loop-owning sources
+
+A per-event accumulator (`kind = accumulator`) transforms one event per
+`ingest` call. An event **source** — a Kafka consumer, a socket listener — owns
+its own loop instead. Declare it with `mode = stream` and write a single
+`source` method returning an iterator of boundary-JSON strings:
+
+```rust,ignore
+#[constructor(kind = accumulator, mode = stream, name = "kafka_source", version = "0.1.0")]
+pub struct KafkaSource {
+    #[config] broker: String,
+    #[config] topic: String,
+    #[config] group: String,
+}
+
+impl KafkaSource {
+    fn source(&self) -> impl Iterator<Item = String> {
+        // Build the consumer from the bound config; the iterator OWNS it
+        // (an `-> impl Iterator` return can't borrow `&self`), so dropping
+        // the stream tears the consumer down.
+        let consumer = connect(&self.broker, &self.topic, &self.group);
+        std::iter::from_fn(move || match consumer.poll(POLL_TIMEOUT) {
+            Some(Ok(msg)) => Some(payload_string(msg)), // one boundary event
+            Some(Err(e))  => { log(e); Some(String::new()) } // keepalive
+            None          => Some(String::new()),            // keepalive
+        })
+    }
+}
+
+constructor_provider!(
+    version = "0.1.0",
+    stream_accumulator = [KafkaSource],
+);
+```
+
+Two rules of the shape:
+
+- **Blocking is fine.** The engine pumps a native stream on a dedicated OS
+  thread — a `poll()` that blocks never touches the async runtime.
+- **Yield `""` on poll timeouts.** An empty string is a *keepalive tick* the
+  engine skips: it lets an idle stream notice shutdown within one poll window
+  instead of parking its thread forever.
+
+Stream accumulators are native-only today (WASM streaming parity is planned).
+The complete implementation is
+`examples/constructor-contract/cloacina-provider-kafka`.
+
 ## Worked example
 
 A complete, runnable example lives at
@@ -164,6 +255,11 @@ A complete, runnable example lives at
 suite) and `examples/constructor-contract/fs-grant-demo` (three workflows: a
 granted read, a denied read, and a granted write via the second member). Run it
 with `cargo run` in the demo crate.
+
+For the NATIVE + stream tier, the worked example is
+`examples/constructor-contract/cloacina-provider-kafka` consumed by
+`examples/features/computation-graphs/cg-feature-tour` (run it end to end with
+`angreal demos features cg-feature-tour`).
 
 The [Seed Providers]({{< ref "seed-providers.md" >}}) — one canonical provider
 per primitive kind — are the reference implementations for authoring each kind

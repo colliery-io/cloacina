@@ -4,15 +4,15 @@ level: task
 title: "Migrate event-source backends (kafka first) out of core into constructor providers — core drops the kafka feature + rdkafka"
 short_code: "CLOACI-T-0898"
 created_at: 2026-07-12T11:59:47.722068+00:00
-updated_at: 2026-07-12T11:59:47.722068+00:00
-parent:
+updated_at: 2026-07-17T02:23:31.521066+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -77,6 +77,12 @@ initiative_id: NULL
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -147,4 +153,26 @@ initiative_id: NULL
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-16 — DONE → `93cfac24` (on `feat/i0139-native-kafka-provider`). All three open questions were answered by I-0139; this task delivered the core removal.
+
+**The open design questions, as resolved by I-0139 (T-0902…T-0907):**
+1. **Source shape** → `#[constructor(kind = accumulator, mode = stream)]`: the author writes `fn source(&self) -> impl Iterator<Item = String>` (loop-owning); the host drives it via fidius server-streaming (`call_streaming` → `ChunkStream` → boundary channel), with a `""` keepalive convention bounding idle teardown.
+2. **WASM vs in-process** → the native cdylib provider path (T-0902/0903: `runtime="native"` provider.json, `configure_from_loaded`, `--native` packaging, `[package.metadata.cloacina] runtime="native"` bundler marker). Lifecycle: drop the stream → fidius pump thread exits → consumer closed; scoped to the consuming accumulator exactly as required.
+3. **Loud failure** → `ProviderStreamAccumulatorFactory` fails LOUDLY (ERROR + health `Disconnected`) on missing provider key, unresolvable `{{ VAR }}`, or provider load failure — the silent-passthrough degradation is gone.
+
+**This task's removal (commit `93cfac24`):**
+- cloacina: `kafka` feature (was in DEFAULTS) + rdkafka dep GONE; `stream_backend::kafka` module GONE; `KafkaEventSource` + `StreamBackendAccumulatorFactory` GONE (generic StreamBackend trait/registry/mock kept). `accumulator_factory_for("stream")` always routes to the provider-backed factory.
+- cloacina-python/-server/cloacinactl: `kafka` forwarding features gone (cloacinactl had it in defaults too). cloacina-python's CG builder routes "stream" provider-backed (Python CGs upgraded for free).
+- nightly.yml: kafka out of both feature matrices. Tutorial 06 + features.md + packaging.md rewritten to the provider model. The kafka E2E test now produces via `docker exec` console-producer (core stays rdkafka-free even in dev-deps).
+
+**ACCEPTANCE — all MET:**
+- [x] kafka ships as the first-party `cloacina-provider-kafka` consumed by a package (T-0906).
+- [x] `cloacina`/`cloacina-server` build with NO kafka feature, NO rdkafka dep (`cargo tree`-clean; all five crates compile).
+- [x] Packaged workflow streams end-to-end on the demo stack WITH core rdkafka-free: `angreal demos features cg-feature-tour` exit 0, "reactor tour_rx fired (0 -> 2)".
+- [x] cg-feature-tour's kafka surface re-enabled against the provider (T-0907).
+
+**Follow-on (unchanged scope):** batch/polling backends are host-typed but pure-Rust (no C dep) — migrating them to providers is the "same treatment" tail, tracked by [[CLOACI-T-0896]]'s dispatch notes, not this ticket. Related bugfix landed alongside: recovery-event details now valid JSON (`c96ea82f`).
+
+### 2026-07-19 — migration MISS found + fixed on the live demo stack → `1241fdbb`.
+
+The sweep migrated `examples/features` but missed `examples/fixtures/demo-kafka-stream-rust` — the demo stack's `demo_kafka_graph` still declared the legacy provider-less stream, so its accumulator failed LOUDLY post-removal (the designed behavior, observed live: ERROR naming the exact fix, reactor gated at "warming" — the pre-T-0898 code would have silently passthrough'd here, which was the whole complaint). Migrated to `provider`/`constructor` + `[metadata.providers]` (`__WORKSPACE__` convention; note the fixture's Cargo.toml ALSO carries placeholders — rewrite ALL files when hand-packing), bumped to 0.1.1, re-uploaded to the running multiarch stack: compiled (provider bundled), reconciled, **`demo_kafka_rx` went warming → live** and fires continuously on the demo producer's kafka traffic (426 fires within the first minute). Repo-wide sweep of `accumulator_type = "stream"` declarations without provider keys is now EMPTY.

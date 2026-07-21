@@ -142,7 +142,9 @@ def python_workflow():
 # lifecycle via this shared helper, reusing the service-lifecycle helpers
 # from the compiler e2e harness.
 
-def _run_gold_path(label, example_dirname, run_steps, server_env=None, extra_services=None):
+def _run_gold_path(
+    label, example_dirname, run_steps, server_env=None, extra_services=None, prepare=None
+):
     """Stand up dev-stack postgres + a host server + a host compiler
     (--dev-workspace so the examples' crates.io version deps resolve against
     this checkout), pack + upload the example, wait for the build, then call
@@ -151,7 +153,10 @@ def _run_gold_path(label, example_dirname, run_steps, server_env=None, extra_ser
     adds/overrides env vars on the server process (e.g. the secrets KEK).
     `extra_services` names additional dev-stack compose services to bring up
     (e.g. `("kafka",)`) AFTER the postgres reset but BEFORE the server starts,
-    so a stream accumulator's consumer can connect at reconcile time."""
+    so a stream accumulator's consumer can connect at reconcile time.
+    `prepare(example_dir) -> Path` optionally transforms the example source
+    before packing (e.g. rewriting the `__WORKSPACE__` placeholder in
+    `[metadata.providers]` path deps to this checkout's absolute path)."""
     import tempfile
     from pathlib import Path
 
@@ -264,6 +269,8 @@ def _run_gold_path(label, example_dirname, run_steps, server_env=None, extra_ser
 
         print("  pack + upload (server compiles the source archive; "
               "first run: ~5-10 min cold build)")
+        if prepare is not None:
+            example_dir = prepare(example_dir)
         pkg_id = _upload(home, example_dir)
         _poll_build_status(home, pkg_id, {"success"}, timeout_s=900.0)
         print("  ok: build_status = success")
@@ -543,6 +550,90 @@ def _graph_autofire_steps(label, reactor):
     return steps
 
 
+def _workspace_rewrite_prepare(example_dir):
+    """Copy the example to a temp dir with `__WORKSPACE__` in package.toml
+    rewritten to this checkout's absolute path — so `[metadata.providers]` path
+    deps resolve when the compiler builds them from the shipped source archive
+    (same convention as docker/pack-demo-fixtures.sh)."""
+    import tempfile
+    from pathlib import Path
+
+    staged = Path(tempfile.mkdtemp(prefix="ws-rewrite-")) / example_dir.name
+    shutil.copytree(
+        example_dir, staged,
+        ignore=shutil.ignore_patterns("target"),
+    )
+    manifest = staged / "package.toml"
+    manifest.write_text(
+        manifest.read_text().replace("__WORKSPACE__", str(PROJECT_ROOT))
+    )
+    print(f"  staged workspace-rewritten copy: {staged}")
+    return staged
+
+
+def _graph_kafka_steps(label, workflow_name, reactor, topic, payloads):
+    """CLOACI-T-0907: the kafka-stream surface — run the package's workflow
+    surface first (the pre-existing default assertion), then PRODUCE real
+    messages onto the dev-stack kafka topic and assert the reactor fires,
+    proving the BUNDLED native kafka provider (`[metadata.providers]` +
+    `[[metadata.accumulators]] provider = ..`) consumed them into the graph."""
+
+    def steps(ctl, home):
+        from test.e2e.compiler import _get_json
+
+        # Surface 1: the workflow invocation path still works.
+        _default_workflow_steps(workflow_name)(ctl, home)
+
+        key = f"demo-{label}-key"
+
+        def fires_for(name):
+            body = _get_json("http://127.0.0.1:18087/v1/health/reactors", key)
+            items = body.get("items", []) if isinstance(body, dict) else []
+            for r in items:
+                if r.get("name") == name:
+                    return int(r.get("fires", 0) or 0)
+            return 0
+
+        before = fires_for(reactor)
+
+        # Surface 2: real Kafka messages through the bundled native provider.
+        # Produce via the dev-stack container's own CLI (no host kafka client).
+        print(f"  producing {len(payloads)} message(s) to kafka topic {topic}")
+        produce = subprocess.run(
+            [
+                "docker", "exec", "-i", "cloacina-kafka",
+                "/opt/kafka/bin/kafka-console-producer.sh",
+                "--bootstrap-server", "localhost:9092",
+                "--topic", topic,
+            ],
+            input="\n".join(payloads) + "\n",
+            text=True,
+            capture_output=True,
+        )
+        if produce.returncode != 0:
+            raise RuntimeError(
+                f"kafka-console-producer failed: {produce.stderr.strip()}"
+            )
+
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            time.sleep(5)
+            now = fires_for(reactor)
+            if now > before:
+                print(
+                    f"  ok: reactor {reactor} fired ({before} -> {now}) — the bundled "
+                    "NATIVE kafka provider streamed the messages into the graph"
+                )
+                return
+        raise AssertionError(
+            f"reactor {reactor} never fired after producing to {topic} — the bundled "
+            "kafka provider did not deliver boundaries (check server.log for the "
+            "provider stream accumulator load line)"
+        )
+
+    return steps
+
+
 def _trigger_wait_steps(workflow_name):
     """For a POLL/CRON-triggered workflow: don't `workflow run` it — wait for the
     trigger to fire it AUTOMATICALLY and assert the auto-execution reaches
@@ -779,22 +870,44 @@ _PACKAGED_OVERRIDES = {
     "python-cron": {"steps": _trigger_wait_steps("heartbeat_workflow")},
     # Python multi-tenancy: same package in two tenants, executions isolated.
     "python-multi-tenant": {"steps": _multi_tenant_steps("tenant_job")},
+    # CLOACI-T-0907: the FULL kafka-stream surface — the package bundles the
+    # NATIVE cloacina-provider-kafka ([metadata.providers], built by the
+    # compiler per the provider's runtime marker), its `ticks` accumulator
+    # routes to the provider (provider/constructor config keys), and real
+    # messages produced onto the dev-stack broker fire `tour_rx`. The workflow
+    # invocation surface (tour_pipeline) runs first, unchanged.
+    "cg-feature-tour": {
+        "steps": _graph_kafka_steps(
+            "cg-feature-tour",
+            "tour_pipeline",
+            "tour_rx",
+            "tour.ticks",
+            ['{"price": 101.5}', '{"price": 102.5}'],
+        ),
+        "server_env": {"CLOACINA_VAR_KAFKA_BROKER": "localhost:9092"},
+        "extra_services": ("kafka",),
+        "prepare": _workspace_rewrite_prepare,
+    },
 }
 
 # Packaged examples not yet driveable on the gold path — discovered but not
 # registered, each with a reason (no silent drops). Tracked for follow-up.
 _PACKAGED_SKIP = {
     # (empty) — every packaged example is now driveable on the gold path.
-    # cg-feature-tour's stream/inject surface is deferred to T-0898, but its
-    # `tour_pipeline` invocation surface IS runnable via the default → registered.
+    # cg-feature-tour's kafka stream surface is LIVE (CLOACI-T-0907): its
+    # override runs tour_pipeline AND the bundled-native-kafka-provider fire.
 }
 
 
 def _register_packaged_example(name, rel_path, meta):
     cfg = _PACKAGED_OVERRIDES.get(name)
+    extra_services = None
+    prepare = None
     if cfg is not None:
         steps = cfg["steps"]
         server_env = cfg.get("server_env")
+        extra_services = cfg.get("extra_services")
+        prepare = cfg.get("prepare")
     else:
         wf = meta.get("workflow_name")
         if not wf:
@@ -815,8 +928,17 @@ def _register_packaged_example(name, rel_path, meta):
         ],
         when_not_to_use=["running without docker"],
     )
-    def _cmd(_steps=steps, _rel=rel_path, _name=name, _env=server_env):
-        return _run_gold_path(_name, _rel, _steps, server_env=_env)
+    def _cmd(
+        _steps=steps,
+        _rel=rel_path,
+        _name=name,
+        _env=server_env,
+        _svc=extra_services,
+        _prep=prepare,
+    ):
+        return _run_gold_path(
+            _name, _rel, _steps, server_env=_env, extra_services=_svc, prepare=_prep
+        )
 
     _cmd.__name__ = f"packaged_{name}".replace("-", "_")
     return _cmd

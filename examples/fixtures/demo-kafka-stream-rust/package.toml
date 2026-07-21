@@ -3,9 +3,14 @@
 # `[[metadata.accumulators]]` block upgrades the macro's plain `kafka_alpha`
 # accumulator to a `stream` source; `broker` resolves via
 # `CLOACINA_VAR_KAFKA_BROKER` (set on the demo server to `kafka:9092`).
+#
+# CLOACI-T-0898/T-0907: the stream source is the BUNDLED native kafka provider
+# (`provider`/`constructor` routing keys + [metadata.providers]) — host-compiled
+# stream backends are gone. `__WORKSPACE__` is rewritten to the workspace root
+# by docker/pack-demo-fixtures.sh before packing.
 [package]
 name = "demo-kafka-stream-rust"
-version = "0.1.0"
+version = "0.1.1"
 interface = "cloacina-workflow-plugin"
 interface_version = 1
 extension = "cloacina"
@@ -21,6 +26,11 @@ name = "kafka_alpha"
 accumulator_type = "stream"
 
 [metadata.accumulators.config]
+provider = "cloacina-provider-kafka"
+constructor = "kafka_source"
 broker = "{{ KAFKA_BROKER }}"
 topic = "demo.kafka.stream"
 group = "demo-kafka-stream-rust-group"
+
+[metadata.providers]
+cloacina-provider-kafka = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-kafka" }

@@ -21,8 +21,11 @@ In the previous tutorials, events arrived via WebSocket pushed by an external pr
 
 - Tutorial 04 complete (you know how to package and upload a CG)
 - Docker and Docker Compose available
-- Your Cloacina server built with the `kafka` feature flag enabled
 - `curl` and `python3` available
+
+No special server build is required: the Kafka client ships inside the
+`cloacina-provider-kafka` constructor provider your package bundles, not in
+the server (CLOACI-T-0898).
 
 ## Time estimate
 
@@ -120,20 +123,30 @@ name = "orderbook"
 accumulator_type = "stream"
 
 [metadata.accumulators.config]
-broker = "KAFKA_BROKER"
+provider = "cloacina-provider-kafka"
+constructor = "kafka_source"
+broker = "{{ KAFKA_BROKER }}"
 topic = "price.orderbook"
 group = "kafka-price-signal-group"
+
+[metadata.providers]
+cloacina-provider-kafka = "0.1"
 ```
 
+A `stream` accumulator's source is a **constructor provider** the package
+bundles — the Kafka client ships inside `cloacina-provider-kafka`, not the
+server (see [Consume a Constructor Provider]({{< ref "/engine/constructors/consume-a-provider" >}})).
 The `[[metadata.accumulators]]` array table declares each accumulator. Fields:
 
 | Field | Required | Meaning |
 |---|---|---|
 | `name` | Yes | Must match the accumulator name in the graph macro |
-| `accumulator_type` | Yes | `"passthrough"` (WebSocket) or `"stream"` (Kafka) |
-| `config.broker` | Yes (stream) | Variable name for the broker URL (resolved from `CLOACINA_VAR_{name}`) |
+| `accumulator_type` | Yes | `"passthrough"` (WebSocket) or `"stream"` (provider-sourced) |
+| `config.provider` | Yes (stream) | The bundled provider that supplies the source (declared under `[metadata.providers]`) |
+| `config.constructor` | Yes (stream) | The provider member to instantiate (`kafka_source`) |
+| `config.broker` | Yes (stream) | Broker URL or a `{{ VAR }}` template (resolved from `CLOACINA_VAR_{VAR}`) |
 | `config.topic` | Yes (stream) | Kafka topic to consume from |
-| `config.group` | No | Consumer group ID — defaults to `{name}_group` |
+| `config.group` | Yes (stream) | Consumer group ID |
 
 {{< hint type=info title="Multiple accumulators" >}}
 You can mix `passthrough` and `stream` accumulators in the same graph. For example, one accumulator could receive WebSocket pushes while another pulls from a Kafka topic. Add another `[[metadata.accumulators]]` block for each additional accumulator.
@@ -344,7 +357,7 @@ This tutorial covered the passthrough path, where each Kafka message fires the g
 
 ## Troubleshooting
 
-**Accumulator shows `"unhealthy"` and graph never fires**: The Kafka connection failed. Check the server logs for `failed to connect to Kafka` messages. Verify `CLOACINA_VAR_KAFKA_BROKER` is set correctly and that the broker is reachable from the server process. If running the server inside a container, `localhost:9092` may not resolve correctly — use the Docker network hostname instead (e.g., `cloacina-kafka:9092`).
+**Accumulator shows `"unhealthy"` and graph never fires**: The Kafka connection failed. Check the server logs for `provider stream accumulator FAILED` or `kafka_source[...]: poll error` messages. Verify `CLOACINA_VAR_KAFKA_BROKER` is set correctly and that the broker is reachable from the server process. If running the server inside a container, `localhost:9092` may not resolve correctly — use the Docker network hostname instead (e.g., `cloacina-kafka:9092`).
 
 **Messages produce but `cloacina_reactor_fires_total{graph="kafka_price_signal"}` stays at 0**: The message payload is not valid JSON matching your boundary type. Verify with `kafka-console-consumer.sh`:
 
@@ -357,13 +370,16 @@ docker exec cloacina-kafka \
   --max-messages 5
 ```
 
-**`stream` accumulator type not supported** error in server logs: The server was built without the `kafka` feature flag. Rebuild with:
+**`stream accumulator declares no provider`** error in server logs: the
+accumulator config is missing the `provider`/`constructor` routing keys — add
+them (and the `[metadata.providers]` declaration) as shown in Step 4. Kafka
+support ships in the bundled provider, not the server, so there is no server
+feature flag to enable.
 
-```bash
-cargo build -p cloacina-server --features kafka
-```
-
-**Topic does not exist**: The Kafka backend will log a subscription failure. Create the topic before uploading the package (topics created after the graph loads require a server restart or graph reload to pick up).
+**Topic does not exist**: the provider's consumer logs a poll error and keeps
+retrying (the stream stays alive) — the topic is picked up as soon as it
+exists. Auto-topic-creation on the first produced message also works with the
+default broker config.
 
 ---
 

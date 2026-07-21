@@ -62,7 +62,9 @@ first if those terms are new.
   input strategy.
 - **Routing** — enum-variant routing propagates results conditionally between
   nodes.
-- **Kafka stream accumulators** — consume topics via the `kafka` feature; see
+- **Kafka stream accumulators** — consume topics via the bundled
+  `cloacina-provider-kafka` constructor provider (the Kafka client ships in the
+  provider, not the engine); see
   [Kafka Stream]({{< ref "/service/tutorials/06-kafka-stream" >}}).
 - **CEL firing filters** — filter reactor firings with CEL (Common Expression
   Language) expressions; see

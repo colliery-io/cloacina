@@ -886,7 +886,7 @@ pub fn build_python_graph_declaration(
     accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
 ) -> Option<cloacina::computation_graph::scheduler::ComputationGraphDeclaration> {
     use cloacina::computation_graph::packaging_bridge::{
-        PassthroughAccumulatorFactory, StateAccumulatorFactory, StreamBackendAccumulatorFactory,
+        PassthroughAccumulatorFactory, ProviderStreamAccumulatorFactory, StateAccumulatorFactory,
     };
     use cloacina::computation_graph::reactor::{InputStrategy, ReactionCriteria};
     use cloacina::computation_graph::scheduler::{
@@ -932,7 +932,10 @@ pub fn build_python_graph_declaration(
             let factory: Arc<dyn cloacina::computation_graph::scheduler::AccumulatorFactory> =
                 if let Some(override_cfg) = accumulator_overrides.iter().find(|a| a.name == *name) {
                     match override_cfg.accumulator_type.as_str() {
-                        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
+                        // CLOACI-T-0898: stream sources come from a bundled
+                        // constructor provider (`provider`/`constructor` config
+                        // keys); a declaration without one fails loudly at spawn.
+                        "stream" => Arc::new(ProviderStreamAccumulatorFactory::new(
                             override_cfg.config.clone(),
                         )),
                         "state" => Arc::new(StateAccumulatorFactory::new(

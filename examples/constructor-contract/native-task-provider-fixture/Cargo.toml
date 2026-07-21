@@ -1,0 +1,54 @@
+# CLOACI-I-0139 / T-0902 — NATIVE task-provider fixture.
+#
+# The native counterpart to `task-constructor-macro-fixture`: the SAME clean
+# `#[constructor(kind = task)]` + `constructor_provider!` authoring surface, but
+# built to a HOST cdylib (not a wasm component). `constructor_provider!` emits
+# the native suite shell under `#[cfg(not(target_arch = "wasm32"))]` with
+# `crate = fidius_core`, so the fixture depends on `fidius-core`/`fidius-macro`
+# as plain HOST deps (no wasm target). The cloacina loader `dlopen`s the built
+# cdylib via `load_library` + `configure_from_loaded` (fidius 0.5.6) — proving
+# T-0902's acceptance end-to-end.
+#
+# Standalone crate (empty [workspace] + under examples/*, excluded from the
+# cloacina workspace) so the native build stays self-contained.
+[workspace]
+
+[package]
+name = "native-task-provider-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+# cdylib → the host plugin the loader dlopen's; rlib → so `emit_manifest`
+# (host bin) can link `__provider_manifest()`.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "emit_manifest"
+path = "src/bin/emit_manifest.rs"
+
+[features]
+# CLOACI-I-0139: opts the crate into the native provider shell emission
+# (`constructor_provider!` gates the fidius_core-referencing native glue on
+# this). On by default — this fixture IS a native provider. A wasm-only
+# provider simply omits it (and the fidius-core host deps below).
+default = ["native"]
+native = []
+
+[dependencies]
+# The `#[constructor]` / `constructor_provider!` authoring macros (path dep).
+cloacina-macros = { path = "../../../crates/cloacina-macros" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Shared, language-neutral contract types (serde-only → host-safe).
+constructor-contract = { path = "../constructor-contract" }
+
+# fidius HOST SDK — the native suite shell is emitted with `crate = fidius_core`
+# under `cfg(not(wasm32))`, so these are plain (non-target-gated) host deps.
+fidius-core = "0.5.6"
+fidius-macro = "0.5.6"
+
+[profile.release]
+opt-level = "s"
+strip = true

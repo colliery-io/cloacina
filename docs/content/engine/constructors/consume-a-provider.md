@@ -126,6 +126,48 @@ prefix instead.
   packages are detected as stale at load and automatically recompiled from
   retained source — no manual rebuild sweep.
 
+## Stream accumulators from a provider
+
+A computation graph's `stream` accumulator can be **supplied by a provider**
+instead of host-compiled backend code. In `package.toml`, add
+`provider`/`constructor` routing keys to the accumulator config and declare the
+provider under `[metadata.providers]`:
+
+```toml
+[[metadata.accumulators]]
+name = "ticks"
+accumulator_type = "stream"
+
+[metadata.accumulators.config]
+provider = "cloacina-provider-kafka"   # routing: which bundled provider
+constructor = "kafka_source"           # routing: which member
+broker = "{{ KAFKA_BROKER }}"          # member #[config], name-keyed + templated
+topic = "tour.ticks"
+group = "my-consumer-group"
+
+[metadata.providers]
+cloacina-provider-kafka = "0.1"        # crates.io / { git = … } / { path = … }
+```
+
+`[metadata.providers]` works for **both** languages: it's the only declaration
+form for Python packages, and for Rust packages it's *additive* to source-scanned
+`constructor!` refs — use it when the provider shouldn't join your crate's own
+Cargo graph (a native rdkafka provider is the canonical case). The compiler
+builds each declared provider per its own runtime marker (wasm component or
+native cdylib) and bundles it; the reconciler stages the bundle and the
+accumulator's source streams straight into the graph's boundary channel.
+
+Config values bind **by name** against the member's declared `#[config]` schema
+(unknown or missing keys fail the load with a key-named error), and `{{ VAR }}`
+templates resolve via `CLOACINA_VAR_*` server env. Native providers are the
+trusted tier — see the trust-tier table in
+[Author a Constructor Provider]({{< ref "author-a-provider.md" >}}).
+
+The runnable end-to-end example is
+`examples/features/computation-graphs/cg-feature-tour`
+(`angreal demos features cg-feature-tour`: real Kafka messages fire the graph
+through the bundled native provider).
+
 ## Embedded (no server)
 
 Embedded runners resolve `from` against a provider **search path** instead of a

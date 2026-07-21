@@ -243,7 +243,7 @@ pub(crate) async fn run_per_target(
                 return Ok(());
             }
             _ = poll_ticker.tick() => {
-                let missing = match dal
+                let mut missing = match dal
                     .workflow_packages()
                     .find_packages_missing_target_artifact(&target, None, name_filter.as_deref())
                     .await
@@ -254,6 +254,29 @@ pub(crate) async fn run_per_target(
                         continue;
                     }
                 };
+                // CLOACI-T-0908: also fill missing per-arch NATIVE provider
+                // bundles. `execute_build` re-bundles providers as part of the
+                // rebuild (storing triple-keyed rows via config.build_target),
+                // so a package that HAS its artifact but LACKS this arch's
+                // native provider rows still needs one pass through the loop.
+                match dal
+                    .workflow_packages()
+                    .find_packages_missing_target_provider(&target, None, name_filter.as_deref())
+                    .await
+                {
+                    Ok(provider_missing) => {
+                        for entry in provider_missing {
+                            if !missing.iter().any(|(id, _, _)| *id == entry.0) {
+                                info!(name = %entry.1, version = %entry.2, %target,
+                                      "per-target: native provider bundle missing for this arch");
+                                missing.push(entry);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(%e, "find_packages_missing_target_provider failed; skipping provider fill this tick");
+                    }
+                }
                 for (package_id, name, version) in missing {
                     if failed.contains(&(name.clone(), version.clone())) {
                         continue; // already failed this run — don't retry-loop on it

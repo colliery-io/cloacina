@@ -206,15 +206,34 @@ impl ConstructorManifest {
 /// `List[Constructor]` index over them. A consumer selects a member by
 /// `constructor = "<name>"`, and the loader carries that name in the `configure`
 /// payload. A single-constructor provider is just a suite of one.
+/// Which runtime substrate a provider's component loads through (CLOACI-T-0902 /
+/// I-0139). Mirrors `cloacina_constructor_contract::ProviderRuntime` — the
+/// vendored copy the fixture macros emit against; the macro's
+/// `__provider_manifest()` sets `runtime`, so this MUST stay in sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRuntime {
+    /// Sandboxed WASM component; grants enforced. The default for pre-native
+    /// `provider.json` manifests (`#[serde(default)]` below).
+    #[default]
+    Wasm,
+    /// Trusted native cdylib (host target); grants advisory only.
+    Native,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderManifest {
     /// Provider name — the `from = "<name>"` a consumer references (CLOACI-A-0010).
     pub name: String,
     /// Provider version (semver string), independent of cloacina's version.
     pub version: String,
-    /// The single `.wasm` component filename inside the package implementing every
+    /// The single component filename inside the package implementing every
     /// member constructor (one component per provider; CLOACI-A-0011).
     pub component: String,
+    /// Which runtime substrate this provider loads through (CLOACI-T-0902).
+    /// `#[serde(default)]` → pre-native `provider.json` deserializes as Wasm.
+    #[serde(default)]
+    pub runtime: ProviderRuntime,
     /// The member constructors this provider exposes, in declaration order.
     pub constructors: Vec<ConstructorManifest>,
 }
@@ -271,6 +290,20 @@ pub trait AccumulatorObject: Send + Sync {
 pub trait ReactorObject: Send + Sync {
     /// Run the configured reactor member.
     fn evaluate(&self, invocation_json: String) -> String;
+}
+
+/// Object-safe form of a STREAM (loop-owning) accumulator member (CLOACI-T-0904):
+/// the configured member produces the WHOLE stream of boundary-JSON events at
+/// once. The suite shell wraps the returned iterator in a `fidius::Stream<String>`
+/// the host drains via `call_streaming`. The iterator is `Send + 'static`.
+pub trait StreamAccumulatorObject: Send + Sync {
+    /// Start the configured stream source, yielding boundary-JSON items lazily.
+    ///
+    /// KEEPALIVE convention (CLOACI-T-0906): an **empty string** item is a
+    /// liveness tick, not a boundary — the host skips it. A blocking source
+    /// (e.g. Kafka) should yield `""` on each poll timeout so idle-stream
+    /// teardown resolves within one poll interval.
+    fn source(&self) -> Box<dyn Iterator<Item = String> + Send>;
 }
 
 // ---------------------------------------------------------------------------

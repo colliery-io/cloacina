@@ -256,6 +256,39 @@ impl<'a> WorkflowPackagesDAL<'a> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
     }
 
+    /// CLOACI-T-0905 (multi-arch, version-scoped): the cdylib bytes of the
+    /// per-target artifact for `(package, version, target_triple)`, or `None` when
+    /// no build exists for that target. Unlike
+    /// [`get_artifact_digest_for_target`](Self::get_artifact_digest_for_target)
+    /// (which serves fleet dispatch and is version-agnostic), the reconciler loads
+    /// a SPECIFIC package version, so the version must participate in selection —
+    /// otherwise an old version's artifact could satisfy a new version's load.
+    pub async fn get_artifact_data_for_target(
+        &self,
+        package_name: &str,
+        version: &str,
+        target_triple: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        use crate::database::schema::unified::package_artifacts;
+        let (pn, ver, tt) = (
+            package_name.to_string(),
+            version.to_string(),
+            target_triple.to_string(),
+        );
+        let bytes: Option<crate::database::universal_types::UniversalBinary> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                package_artifacts::table
+                    .filter(package_artifacts::package_name.eq(pn))
+                    .filter(package_artifacts::version.eq(ver))
+                    .filter(package_artifacts::target_triple.eq(tt))
+                    .select(package_artifacts::compiled_data)
+                    .first::<crate::database::universal_types::UniversalBinary>(conn)
+                    .optional()
+            })
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(bytes.map(|b| b.into_inner()))
+    }
+
     /// CLOACI-T-0780: the set of target triples this package has a per-target
     /// artifact for. The fleet uses this (∪ the host primary) to only dispatch a
     /// package to an agent whose arch it actually has a cdylib for — so an agent
@@ -365,6 +398,8 @@ impl<'a> WorkflowPackagesDAL<'a> {
         provider_version: &str,
         content_hash: &str,
         provider_data: Vec<u8>,
+        runtime: &str,
+        target_triple: Option<&str>,
     ) -> Result<(), RegistryError> {
         use crate::database::schema::unified::package_providers;
         use crate::database::universal_types::{
@@ -380,6 +415,8 @@ impl<'a> WorkflowPackagesDAL<'a> {
             content_hash: content_hash.to_string(),
             provider_data: UniversalBinary::new(provider_data),
             created_at: UniversalTimestamp::now(),
+            target_triple: target_triple.map(|s| s.to_string()),
+            runtime: runtime.to_string(),
         };
         let (pn, ver, prov) = (
             package_name.to_string(),
@@ -387,8 +424,12 @@ impl<'a> WorkflowPackagesDAL<'a> {
             provider_name.to_string(),
         );
         let tid = tenant_id.map(|s| s.to_string());
+        let tt = target_triple.map(|s| s.to_string());
         crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                // CLOACI-T-0908: the delete-filter is TRIPLE-scoped so the
+                // primary (NULL) row and per-arch rows COEXIST — previously a
+                // second-arch per-target compile clobbered the primary build.
                 let mut del = diesel::delete(package_providers::table)
                     .filter(package_providers::package_name.eq(&pn))
                     .filter(package_providers::version.eq(&ver))
@@ -397,6 +438,10 @@ impl<'a> WorkflowPackagesDAL<'a> {
                 del = match &tid {
                     Some(t) => del.filter(package_providers::tenant_id.eq(t.clone())),
                     None => del.filter(package_providers::tenant_id.is_null()),
+                };
+                del = match &tt {
+                    Some(t) => del.filter(package_providers::target_triple.eq(t.clone())),
+                    None => del.filter(package_providers::target_triple.is_null()),
                 };
                 del.execute(conn)?;
                 diesel::insert_into(package_providers::table)
@@ -433,6 +478,96 @@ impl<'a> WorkflowPackagesDAL<'a> {
                 .load(conn)
         })
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+    }
+
+    /// CLOACI-T-0908 (producer): active (success, non-superseded) packages whose
+    /// PRIMARY rows include a NATIVE provider but which lack a per-arch provider
+    /// row for `target_triple` — the provider twin of the artifact scan below and
+    /// [`find_packages_missing_target_artifact`](Self::find_packages_missing_target_artifact).
+    /// The per-target compiler unions this with the artifact scan; rebuilding the
+    /// package (from retained source, on the target arch) re-bundles its native
+    /// providers and stores triple-keyed rows. WASM providers are arch-neutral and
+    /// never appear here.
+    pub async fn find_packages_missing_target_provider(
+        &self,
+        target_triple: &str,
+        tenant_id: Option<&str>,
+        name_filter: Option<&str>,
+    ) -> Result<
+        Vec<(
+            crate::database::universal_types::UniversalUuid,
+            String,
+            String,
+        )>,
+        RegistryError,
+    > {
+        use crate::database::schema::unified::{package_providers, workflow_packages};
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
+
+        let (tid, nf, tt) = (
+            tenant_id.map(|s| s.to_string()),
+            name_filter.map(|s| s.to_string()),
+            target_triple.to_string(),
+        );
+        // 1. Active success packages (optionally one name) in tenant scope.
+        let success: Vec<(UniversalUuid, String, String)> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                let mut q = workflow_packages::table
+                    .filter(workflow_packages::build_status.eq("success"))
+                    .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                    .into_boxed();
+                q = match &tid {
+                    Some(t) => q.filter(workflow_packages::tenant_id.eq(t.clone())),
+                    None => q.filter(workflow_packages::tenant_id.is_null()),
+                };
+                if let Some(n) = &nf {
+                    q = q.filter(workflow_packages::package_name.eq(n.clone()));
+                }
+                q.select((
+                    workflow_packages::id,
+                    workflow_packages::package_name,
+                    workflow_packages::version,
+                ))
+                .load(conn)
+            })
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+
+        // 2. Keep packages with a primary NATIVE provider row missing its
+        //    per-arch twin. Row counts are tiny; filter in Rust for clarity.
+        let mut missing = Vec::new();
+        for (id, name, version) in success {
+            let (pn, ver, tt2) = (name.clone(), version.clone(), tt.clone());
+            let rows: Vec<(String, Option<String>, String)> =
+                crate::interact_on_backend!(self.dal, |conn| {
+                    package_providers::table
+                        .filter(package_providers::package_name.eq(&pn))
+                        .filter(package_providers::version.eq(&ver))
+                        .filter(package_providers::tenant_id.is_null())
+                        .filter(
+                            package_providers::target_triple
+                                .is_null()
+                                .or(package_providers::target_triple.eq(&tt2)),
+                        )
+                        .select((
+                            package_providers::provider_name,
+                            package_providers::target_triple,
+                            package_providers::runtime,
+                        ))
+                        .load(conn)
+                })
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+            let needs = rows.iter().any(|(prov, triple, runtime)| {
+                triple.is_none()
+                    && runtime == "native"
+                    && !rows
+                        .iter()
+                        .any(|(p2, t2, _)| p2 == prov && t2.as_deref() == Some(tt.as_str()))
+            });
+            if needs {
+                missing.push((id, name, version));
+            }
+        }
+        Ok(missing)
     }
 
     /// CLOACI-T-0780 (producer): active (success, non-superseded) packages in this
@@ -648,6 +783,38 @@ impl<'a> WorkflowPackagesDAL<'a> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         Ok(result)
     }
+}
+
+/// CLOACI-T-0908 (consumer): pick the provider rows THIS host should stage from
+/// the full row set of a package — for each `provider_name`, prefer the row whose
+/// `target_triple` matches `target_triple` exactly (a per-arch NATIVE build),
+/// else fall back to the primary (`target_triple` NULL) row. Rows for OTHER
+/// triples are never returned. Pure function so the reconciler, the agent route,
+/// and tests share one selection semantic.
+pub fn select_provider_rows_for_target(
+    rows: Vec<crate::dal::unified::models::PackageProvider>,
+    target_triple: &str,
+) -> Vec<crate::dal::unified::models::PackageProvider> {
+    let mut names: Vec<String> = Vec::new();
+    for r in &rows {
+        if !names.contains(&r.provider_name) {
+            names.push(r.provider_name.clone());
+        }
+    }
+    names
+        .into_iter()
+        .filter_map(|name| {
+            rows.iter()
+                .find(|r| {
+                    r.provider_name == name && r.target_triple.as_deref() == Some(target_triple)
+                })
+                .or_else(|| {
+                    rows.iter()
+                        .find(|r| r.provider_name == name && r.target_triple.is_none())
+                })
+                .cloned()
+        })
+        .collect()
 }
 
 #[cfg(test)]

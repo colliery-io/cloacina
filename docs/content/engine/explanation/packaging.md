@@ -189,7 +189,7 @@ At the host level, all packaged accumulators are one of two types:
 
 **Passthrough** (`PassthroughAccumulatorFactory`): creates a `GenericPassthroughAccumulator` that forwards `serde_json::Value` events directly to the reactor. The actual event type is opaque to the host — the graph plugin decodes it inside `execute_graph`.
 
-**Stream** (`StreamBackendAccumulatorFactory`): creates the same passthrough accumulator at the host level, but also spawns a background task that reads from a `StreamBackend` (e.g., Kafka) and feeds raw message bytes into the accumulator's socket channel. The passthrough accumulator then forwards those bytes to the reactor.
+**Stream** (`ProviderStreamAccumulatorFactory`): creates the same passthrough accumulator at the host level, but also drives a source supplied by a **bundled constructor provider** (`provider`/`constructor` keys in the accumulator config — e.g. `cloacina-provider-kafka`) and feeds each streamed item into the accumulator's channel. The passthrough accumulator then forwards those bytes to the reactor. The source client (e.g. rdkafka) ships inside the provider, not the host engine.
 
 In both cases, the host's accumulator is a dumb byte forwarder. All type-aware processing happens inside the compiled graph plugin via `execute_graph`. This is the right abstraction: the host cannot know the graph's types (they were compiled separately), so it should not try to process them.
 

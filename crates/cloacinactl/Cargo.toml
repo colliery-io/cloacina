@@ -15,10 +15,9 @@ name = "cloacinactl"
 path = "src/main.rs"
 
 [features]
-default = ["postgres", "sqlite", "kafka"]
+default = ["postgres", "sqlite"]
 postgres = ["cloacina/postgres"]
 sqlite = ["cloacina/sqlite"]
-kafka = ["cloacina/kafka"]
 
 [dependencies]
 # `constructor-packaging` gives `cloacinactl constructor package` the provider
@@ -30,8 +29,8 @@ cloacina-workflow-plugin = { workspace = true }
 clap.workspace = true
 clap_complete = "4"
 anyhow.workspace = true
-fidius-core = "0.5.5"
-fidius-host = "0.5.5"
+fidius-core = "0.5.6"
+fidius-host = "0.5.6"
 tempfile = "3.2"
 dirs = "6"
 serde = { version = "1.0", features = ["derive"] }

@@ -23,13 +23,20 @@
 //! `runtime = "wasm"` provider package, optionally Ed25519-signs it, and packs it
 //! into a distributable `<name>-<version>.cloacina` archive — the constructor
 //! analogue of `cloacinactl package pack`.
+//!
+//! `--native` (CLOACI-T-0903) packages a NATIVE host cdylib provider instead: the
+//! crate is built to a host `cdylib` (no wasm target, `--features native`), the
+//! fidius `package.toml` is stamped `runtime = "rust"` (fidius's cdylib runtime —
+//! there is no `"native"` there) with no `[wasm]` section, and cloacina's
+//! `provider.json` carries `runtime = "native"` so the loader `dlopen`s it
+//! in-process (trusted; grants advisory). Same signing + pack path.
 
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    package_constructor_provider, ProviderPackageOptions, ProviderRuntime,
 };
 
 use crate::shared::error::CliError;
@@ -59,9 +66,15 @@ enum ConstructorVerb {
         /// (the `__provider_manifest()` emitter).
         #[arg(long, default_value = "emit_manifest")]
         manifest_bin: String,
-        /// Build the wasm component in debug profile (default is release).
+        /// Build the component in debug profile (default is release).
         #[arg(long)]
         debug: bool,
+        /// Package a NATIVE host cdylib provider (loaded in-process, trusted)
+        /// instead of a sandboxed `wasm32-wasip2` component (CLOACI-T-0903). The
+        /// crate must declare a `native` cargo feature + `fidius-core`/`fidius-macro`
+        /// host deps.
+        #[arg(long)]
+        native: bool,
     },
 }
 
@@ -74,6 +87,7 @@ impl ConstructorCmd {
                 sign_key,
                 manifest_bin,
                 debug,
+                native,
             } => {
                 let opts = ProviderPackageOptions {
                     crate_dir,
@@ -81,13 +95,27 @@ impl ConstructorCmd {
                     sign_key,
                     manifest_bin,
                     release: !debug,
+                    runtime: if native {
+                        ProviderRuntime::Native
+                    } else {
+                        ProviderRuntime::Wasm
+                    },
                 };
                 let result = package_constructor_provider(&opts)
                     .map_err(|e| CliError::UserError(e.to_string()))?;
 
                 let signed = if result.signed { "signed" } else { "unsigned" };
+                // CLOACI-T-0907: surface the TRUST TIER — a native provider runs
+                // in-process with full host trust (grants advisory); wasm runs
+                // sandboxed with grants enforced. Operators should see which
+                // tier they just packaged.
+                let tier = if native {
+                    "native — TRUSTED, runs unsandboxed in-process"
+                } else {
+                    "wasm — sandboxed, capability grants enforced"
+                };
                 eprintln!(
-                    "Packaged provider '{}' ({signed}) carrying {} constructor(s): {}",
+                    "Packaged provider '{}' ({signed}, {tier}) carrying {} constructor(s): {}",
                     result.provider_name,
                     result.constructors.len(),
                     result.constructors.join(", "),

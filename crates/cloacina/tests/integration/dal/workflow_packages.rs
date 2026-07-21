@@ -589,6 +589,8 @@ async fn test_package_providers_upsert_and_get_round_trip() {
         "0.1.0",
         "hash-a",
         vec![1, 2, 3],
+        "wasm",
+        None,
     )
     .await
     .expect("upsert provider fs");
@@ -600,6 +602,8 @@ async fn test_package_providers_upsert_and_get_round_trip() {
         "0.2.0",
         "hash-b",
         vec![4, 5],
+        "wasm",
+        None,
     )
     .await
     .expect("upsert provider http");
@@ -625,6 +629,8 @@ async fn test_package_providers_upsert_and_get_round_trip() {
         "0.1.1",
         "hash-a2",
         vec![9, 9, 9, 9],
+        "wasm",
+        None,
     )
     .await
     .expect("re-upsert provider fs");
@@ -646,4 +652,133 @@ async fn test_package_providers_upsert_and_get_round_trip() {
         .await
         .expect("get providers other version");
     assert!(other.is_empty());
+}
+
+/// CLOACI-T-0908: per-arch NATIVE provider rows — the primary (NULL-triple) row
+/// and per-arch rows COEXIST (a second-arch per-target compile must never
+/// clobber the primary, which is exactly what the old triple-less delete-filter
+/// did), and `select_provider_rows_for_target` picks the reader's own arch with
+/// primary fallback, never another arch's bytes.
+#[tokio::test]
+async fn test_provider_rows_are_triple_scoped_and_selected_per_target() {
+    use cloacina::dal::unified::workflow_packages::select_provider_rows_for_target;
+
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    fixture.initialize().await;
+    fixture.reset_database().await;
+
+    let dal = fixture.get_dal();
+    let wp = dal.workflow_packages();
+
+    // Primary build (compiler host arch) + two per-arch NATIVE rebuilds, plus an
+    // arch-neutral wasm provider that only ever has the primary row.
+    wp.upsert_provider(
+        "consumer-pkg",
+        "0.1.0",
+        None,
+        "cloacina-provider-kafka",
+        "0.1.0",
+        "hash-primary",
+        vec![0xAA],
+        "native",
+        None,
+    )
+    .await
+    .expect("primary native row");
+    wp.upsert_provider(
+        "consumer-pkg",
+        "0.1.0",
+        None,
+        "cloacina-provider-kafka",
+        "0.1.0",
+        "hash-arm",
+        vec![0xBB],
+        "native",
+        Some("aarch64-linux"),
+    )
+    .await
+    .expect("arm native row");
+    wp.upsert_provider(
+        "consumer-pkg",
+        "0.1.0",
+        None,
+        "cloacina-provider-kafka",
+        "0.1.0",
+        "hash-x86",
+        vec![0xCC],
+        "native",
+        Some("x86_64-linux"),
+    )
+    .await
+    .expect("x86 native row");
+    wp.upsert_provider(
+        "consumer-pkg",
+        "0.1.0",
+        None,
+        "cloacina-provider-fs",
+        "0.1.0",
+        "hash-wasm",
+        vec![0xDD],
+        "wasm",
+        None,
+    )
+    .await
+    .expect("wasm primary row");
+
+    // COEXISTENCE: all four rows survive (the old delete-filter would have left one
+    // kafka row — whichever arch wrote last).
+    let rows = wp
+        .get_providers_for_package("consumer-pkg", "0.1.0", None)
+        .await
+        .expect("all rows");
+    assert_eq!(rows.len(), 4, "primary + 2 per-arch + wasm rows coexist");
+
+    // Re-upserting ONE arch replaces only that arch's row.
+    wp.upsert_provider(
+        "consumer-pkg",
+        "0.1.0",
+        None,
+        "cloacina-provider-kafka",
+        "0.1.0",
+        "hash-arm2",
+        vec![0xBE],
+        "native",
+        Some("aarch64-linux"),
+    )
+    .await
+    .expect("re-upsert arm row");
+    let rows = wp
+        .get_providers_for_package("consumer-pkg", "0.1.0", None)
+        .await
+        .expect("rows after per-arch re-upsert");
+    assert_eq!(rows.len(), 4, "replace within the triple, not across");
+
+    // SELECTION: an arm agent gets ITS kafka build + the arch-neutral wasm row.
+    let mut selected = select_provider_rows_for_target(rows.clone(), "aarch64-linux");
+    selected.sort_by(|a, b| a.provider_name.cmp(&b.provider_name));
+    assert_eq!(selected.len(), 2);
+    assert_eq!(selected[0].provider_name, "cloacina-provider-fs");
+    assert_eq!(selected[0].provider_data.as_slice(), &[0xDD]);
+    assert_eq!(selected[1].provider_name, "cloacina-provider-kafka");
+    assert_eq!(
+        selected[1].provider_data.as_slice(),
+        &[0xBE],
+        "the arm agent gets the arm build (the re-upserted one)"
+    );
+
+    // FALLBACK: an arch with no per-target build gets the primary row — never
+    // another arch's bytes.
+    let selected = select_provider_rows_for_target(rows, "riscv64-linux");
+    let kafka = selected
+        .iter()
+        .find(|r| r.provider_name == "cloacina-provider-kafka")
+        .expect("kafka selected via fallback");
+    assert_eq!(
+        kafka.provider_data.as_slice(),
+        &[0xAA],
+        "unknown arch falls back to the PRIMARY build"
+    );
 }
