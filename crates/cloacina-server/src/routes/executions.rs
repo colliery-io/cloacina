@@ -58,6 +58,7 @@ use crate::AppState;
         (status = 400, description = "Execution failed", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Workflow not registered for this tenant (I-0138 cross-tenant gate; `public` is exempt)", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))

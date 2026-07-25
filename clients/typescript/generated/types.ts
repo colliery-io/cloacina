@@ -4806,6 +4806,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description Workflow not registered for this tenant (I-0138 cross-tenant gate; `public` is exempt) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Internal error */
             500: {
                 headers: {
