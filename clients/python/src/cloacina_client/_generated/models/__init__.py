@@ -7,6 +7,8 @@ from .agent_info import AgentInfo
 from .compiler_status import CompilerStatus
 from .create_account_request import CreateAccountRequest
 from .create_key_request import CreateKeyRequest
+from .create_secret_request import CreateSecretRequest
+from .create_secret_request_fields import CreateSecretRequestFields
 from .create_tenant_request import CreateTenantRequest
 from .declared_surface import DeclaredSurface
 from .error_body import ErrorBody
@@ -56,6 +58,10 @@ from .list_response_reactor_fire_items_item_inputs import (
 )
 from .list_response_reactor_status import ListResponseReactorStatus
 from .list_response_reactor_status_items_item import ListResponseReactorStatusItemsItem
+from .list_response_secret_metadata_response import ListResponseSecretMetadataResponse
+from .list_response_secret_metadata_response_items_item import (
+    ListResponseSecretMetadataResponseItemsItem,
+)
 from .list_response_tenant_summary import ListResponseTenantSummary
 from .list_response_tenant_summary_items_item import ListResponseTenantSummaryItemsItem
 from .local_login_request import LocalLoginRequest
@@ -67,6 +73,10 @@ from .reactor_fire_inputs import ReactorFireInputs
 from .reactor_fire_timeseries import ReactorFireTimeseries
 from .reactor_status import ReactorStatus
 from .reset_password_request import ResetPasswordRequest
+from .rotate_secret_request import RotateSecretRequest
+from .rotate_secret_request_fields import RotateSecretRequestFields
+from .secret_deleted_response import SecretDeletedResponse
+from .secret_metadata_response import SecretMetadataResponse
 from .task_execution_detail import TaskExecutionDetail
 from .tenant_created_response import TenantCreatedResponse
 from .tenant_list_response_execution_summary import TenantListResponseExecutionSummary
@@ -109,6 +119,8 @@ __all__ = (
     "CompilerStatus",
     "CreateAccountRequest",
     "CreateKeyRequest",
+    "CreateSecretRequest",
+    "CreateSecretRequestFields",
     "CreateTenantRequest",
     "DeclaredSurface",
     "ErrorBody",
@@ -119,13 +131,13 @@ __all__ = (
     "ExecutionEventsResponse",
     "ExecutionSummary",
     "ExecutionTasksResponse",
-    "FiredExecution",
     "FireMode",
     "FireReactorRequest",
     "FireReactorRequestInputs",
     "FireReactorResponse",
     "FireTriggerRequest",
     "FireTriggerResponse",
+    "FiredExecution",
     "GraphStatus",
     "GraphTopology",
     "GraphTopologyEdge",
@@ -154,6 +166,8 @@ __all__ = (
     "ListResponseReactorFireItemsItemInputs",
     "ListResponseReactorStatus",
     "ListResponseReactorStatusItemsItem",
+    "ListResponseSecretMetadataResponse",
+    "ListResponseSecretMetadataResponseItemsItem",
     "ListResponseTenantSummary",
     "ListResponseTenantSummaryItemsItem",
     "LocalLoginRequest",
@@ -165,6 +179,10 @@ __all__ = (
     "ReactorFireTimeseries",
     "ReactorStatus",
     "ResetPasswordRequest",
+    "RotateSecretRequest",
+    "RotateSecretRequestFields",
+    "SecretDeletedResponse",
+    "SecretMetadataResponse",
     "TaskExecutionDetail",
     "TenantCreatedResponse",
     "TenantListResponseExecutionSummary",

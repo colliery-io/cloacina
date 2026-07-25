@@ -62,6 +62,13 @@ from ._generated.api.keys import (
     revoke_tenant_key,
 )
 from ._generated.api.operational import health, ready
+from ._generated.api.secrets import (
+    create_secret,
+    delete_secret,
+    get_secret,
+    list_secrets,
+    rotate_secret,
+)
 from ._generated.api.tenants import create_tenant, list_tenants, remove_tenant
 from ._generated.api.triggers import (
     fire_trigger,
@@ -83,6 +90,8 @@ from ._generated.api.workflows import (
 from ._generated.models import (
     CreateAccountRequest,
     CreateKeyRequest,
+    CreateSecretRequest,
+    CreateSecretRequestFields,
     CreateTenantRequest,
     ErrorBody,
     ExecuteRequest,
@@ -90,6 +99,8 @@ from ._generated.models import (
     LocalLoginRequest,
     PackageUploadForm,
     ResetPasswordRequest,
+    RotateSecretRequest,
+    RotateSecretRequestFields,
 )
 from ._generated.types import UNSET, File, Response, Unset
 
@@ -295,6 +306,56 @@ class Client(_Base):
 
     def remove_tenant(self, schema_name: str):
         return _unwrap(remove_tenant.sync_detailed(schema_name, client=self._gen))
+
+    # ---- secrets (CLOACI-I-0133 / T-0862) ----
+    #
+    # Reads return metadata only — never a plaintext or ciphertext value.
+
+    def list_secrets(self, tenant: str | None = None):
+        """List the tenant's secret metadata (names + timestamps, no values)."""
+        return _unwrap(
+            list_secrets.sync_detailed(self.tenant_segment(tenant), client=self._gen)
+        )
+
+    def create_secret(
+        self, name: str, fields: dict[str, str], tenant: str | None = None
+    ):
+        """Create a secret from a `{field: value}` map. Returns metadata only."""
+        body = CreateSecretRequest(
+            name=name, fields=CreateSecretRequestFields.from_dict(fields)
+        )
+        return _unwrap(
+            create_secret.sync_detailed(
+                self.tenant_segment(tenant), client=self._gen, body=body
+            )
+        )
+
+    def get_secret(self, name: str, tenant: str | None = None):
+        """One secret's metadata. Never returns a value."""
+        return _unwrap(
+            get_secret.sync_detailed(
+                self.tenant_segment(tenant), name, client=self._gen
+            )
+        )
+
+    def rotate_secret(
+        self, name: str, fields: dict[str, str], tenant: str | None = None
+    ):
+        """Rotate a secret's field map in place. Returns metadata only."""
+        body = RotateSecretRequest(fields=RotateSecretRequestFields.from_dict(fields))
+        return _unwrap(
+            rotate_secret.sync_detailed(
+                self.tenant_segment(tenant), name, client=self._gen, body=body
+            )
+        )
+
+    def delete_secret(self, name: str, tenant: str | None = None):
+        """Delete a secret."""
+        return _unwrap(
+            delete_secret.sync_detailed(
+                self.tenant_segment(tenant), name, client=self._gen
+            )
+        )
 
     # ---- workflows ----
 

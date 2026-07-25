@@ -60,12 +60,13 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest,
-    DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, FireReactorRequest, FireReactorResponse,
-    FireTriggerRequest, FireTriggerResponse, GraphStatus, InjectAccumulatorRequest,
-    InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
-    ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus, TenantCreatedResponse,
+    AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateSecretRequest,
+    CreateTenantRequest, DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail,
+    ExecutionEventsResponse, ExecutionSummary, ExecutionTasksResponse, FireReactorRequest,
+    FireReactorResponse, FireTriggerRequest, FireTriggerResponse, GraphStatus,
+    InjectAccumulatorRequest, InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo,
+    KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
+    RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse,
     TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
     TriggerPauseResponse, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
     WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
@@ -475,6 +476,68 @@ impl Client {
     ) -> Result<TenantRemovedResponse, ClientError> {
         let response = self
             .request(Method::DELETE, &format!("/v1/tenants/{schema_name}"))
+            .send()
+            .await
+            .map_err(ClientError::from_reqwest)?;
+        Self::parse(response).await
+    }
+
+    // ---- secrets (CLOACI-I-0133 / T-0862) ----
+    //
+    // Reads return metadata only — never a plaintext or ciphertext value.
+
+    /// List the tenant's secret metadata (names + timestamps, no values).
+    pub async fn list_secrets(
+        &self,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<SecretMetadataResponse>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/secrets")).await
+    }
+
+    /// Create a secret from a `{field: value}` map. Returns metadata only.
+    pub async fn create_secret(
+        &self,
+        request: &CreateSecretRequest,
+        tenant: Option<&str>,
+    ) -> Result<SecretMetadataResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(&format!("/v1/tenants/{t}/secrets"), request)
+            .await
+    }
+
+    /// One secret's metadata. Never returns a value.
+    pub async fn get_secret(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<SecretMetadataResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/secrets/{name}"))
+            .await
+    }
+
+    /// Rotate a secret's field map in place. Returns metadata only.
+    pub async fn rotate_secret(
+        &self,
+        name: &str,
+        request: &RotateSecretRequest,
+        tenant: Option<&str>,
+    ) -> Result<SecretMetadataResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.put_json(&format!("/v1/tenants/{t}/secrets/{name}"), request)
+            .await
+    }
+
+    /// Delete a secret.
+    pub async fn delete_secret(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<SecretDeletedResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        let response = self
+            .request(Method::DELETE, &format!("/v1/tenants/{t}/secrets/{name}"))
             .send()
             .await
             .map_err(ClientError::from_reqwest)?;
