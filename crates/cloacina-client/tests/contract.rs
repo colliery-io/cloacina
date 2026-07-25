@@ -190,6 +190,58 @@ async fn full_rest_surface_contract() {
     assert_eq!(events.execution_id, RANDOM_UUID);
     assert!(events.events.is_empty());
 
+    // ---- secrets (CLOACI-I-0133 / T-0862) ----
+    // Lifecycle: create → list → get → rotate → delete. Every read is
+    // metadata-only — the contract forbids values in any response.
+    let secret_name = format!("rs-contract-secret-{tenant}");
+    let created_secret = client
+        .create_secret(
+            &types::CreateSecretRequest {
+                name: secret_name.clone(),
+                fields: [("token".to_string(), "s3cr3t".to_string())].into(),
+            },
+            None,
+        )
+        .await
+        .expect("create_secret");
+    assert_eq!(created_secret.name, secret_name);
+    assert_eq!(created_secret.field_names, vec!["token".to_string()]);
+
+    let secrets = client.list_secrets(None).await.expect("list_secrets");
+    assert!(secrets.items.iter().any(|s| s.name == secret_name));
+
+    let fetched = client
+        .get_secret(&secret_name, None)
+        .await
+        .expect("get_secret");
+    assert_eq!(fetched.id, created_secret.id);
+
+    let rotated = client
+        .rotate_secret(
+            &secret_name,
+            &types::RotateSecretRequest {
+                fields: [
+                    ("token".to_string(), "rotated".to_string()),
+                    ("extra".to_string(), "field".to_string()),
+                ]
+                .into(),
+            },
+            None,
+        )
+        .await
+        .expect("rotate_secret");
+    assert_eq!(rotated.field_names.len(), 2);
+
+    let missing_secret = client.get_secret("does-not-exist", None).await;
+    assert!(matches!(missing_secret, Err(ClientError::NotFound(_))));
+
+    let deleted_secret = client
+        .delete_secret(&secret_name, None)
+        .await
+        .expect("delete_secret");
+    assert_eq!(deleted_secret.status, "deleted");
+    assert_eq!(deleted_secret.name, secret_name);
+
     // ---- computation-graph health ----
     let accs = client.list_accumulators().await.expect("accumulators");
     assert_eq!(accs.total, accs.items.len());

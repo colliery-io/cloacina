@@ -225,6 +225,10 @@ def _create_tenant(name: str):
 def _ui_e2e(smoke: bool) -> int:
     label = "smoke subset" if smoke else "full suite"
     print_section_header(f"UI acceptance e2e ({label})")
+    # UI deps first: the embedded-ui cargo build below runs `npm run build`
+    # in ui/ via build.rs, which needs node_modules (and the built SDK the UI
+    # depends on) — a fresh CI checkout has neither.
+    _build_ui()
     _build()
     _start_postgres()
     _fresh_database()
@@ -232,7 +236,6 @@ def _ui_e2e(smoke: bool) -> int:
     with tempfile.TemporaryDirectory(prefix="cloacina-ui-e2e-") as tmp:
         home = Path(tmp)
         _pack_fixtures(home)
-        _build_ui()
 
         server_cmd = [
             "target/debug/cloacina-server",

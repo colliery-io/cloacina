@@ -134,6 +134,39 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
 
   // (create/remove are exercised in beforeAll/afterAll)
 
+  // ---- secrets (CLOACI-I-0133 / T-0862) ----
+
+  it("secrets lifecycle: create → list → get → rotate → delete, metadata only", async () => {
+    const name = `ts-contract-secret-${Date.now()}`;
+    const created = await client.createSecret({
+      name,
+      fields: { token: "s3cr3t" },
+    });
+    expect(created.name).toBe(name);
+    expect(created.field_names).toEqual(["token"]);
+    // Metadata-only contract: no value ever comes back on a read.
+    expect(JSON.stringify(created)).not.toContain("s3cr3t");
+
+    const page = await client.listSecrets();
+    expect(page.items.map((s) => s.name)).toContain(name);
+
+    const fetched = await client.getSecret(name);
+    expect(fetched.id).toBe(created.id);
+
+    const rotated = await client.rotateSecret(name, {
+      fields: { token: "rotated", extra: "field" },
+    });
+    expect(rotated.field_names).toHaveLength(2);
+
+    const missing = await client.getSecret("does-not-exist").catch((e) => e);
+    expect(missing).toBeInstanceOf(CloacinaApiError);
+    expect((missing as CloacinaApiError).status).toBe(404);
+
+    const deleted = await client.deleteSecret(name);
+    expect(deleted.status).toBe("deleted");
+    expect(deleted.name).toBe(name);
+  });
+
   // ---- workflows ----
 
   it("POST /v1/tenants/{t}/workflows rejects a garbage package with the documented error shape", async () => {

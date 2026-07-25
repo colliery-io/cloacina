@@ -39,6 +39,9 @@ test = angreal.command_group(
 BIND = "127.0.0.1:18084"
 BASE_URL = f"http://{BIND}"
 BOOTSTRAP_KEY = "sdk-contract-bootstrap-key"
+# 32-byte base64 KEK so the secrets endpoints (CLOACI-I-0133) are configured
+# and each SDK's secret-lifecycle contract test runs against the real path.
+SECRET_KEK = "c2RrLWNvbnRyYWN0LWtlay1hYmNkZWZnaGlqMTIzNCE="
 PROJECT_ROOT = Path(angreal.get_root()).parent
 
 
@@ -79,6 +82,7 @@ def _sdk_server():
                 "--bind", BIND,
                 "--bootstrap-key", BOOTSTRAP_KEY,
             ],
+            env={**os.environ, "CLOACINA_SECRET_KEK": SECRET_KEK},
             stdout=subprocess.DEVNULL,
             stderr=stderr_log,
         )

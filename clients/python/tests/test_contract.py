@@ -119,6 +119,37 @@ def test_tenant_listed(client: Client, tenant_name: str) -> None:
     assert tenant_name in [t.name for t in page.items]
 
 
+# ---- secrets (CLOACI-I-0133 / T-0862) ----
+
+
+def test_secret_lifecycle(client: Client) -> None:
+    """create → list → get → rotate → delete; every read is metadata-only."""
+    name = f"py-contract-secret-{int(time.time() * 1000)}"
+
+    created = client.create_secret(name, {"token": "s3cr3t"})
+    assert created.name == name
+    assert created.field_names == ["token"]
+    # Metadata-only contract: no value ever comes back on a read.
+    assert "s3cr3t" not in json.dumps(created.to_dict())
+
+    page = client.list_secrets()
+    assert name in [s.name for s in page.items]
+
+    fetched = client.get_secret(name)
+    assert fetched.id == created.id
+
+    rotated = client.rotate_secret(name, {"token": "rotated", "extra": "field"})
+    assert len(rotated.field_names) == 2
+
+    with pytest.raises(CloacinaApiError) as exc:
+        client.get_secret("does-not-exist")
+    assert exc.value.status == 404
+
+    deleted = client.delete_secret(name)
+    assert deleted.status == "deleted"
+    assert deleted.name == name
+
+
 # ---- workflows ----
 
 

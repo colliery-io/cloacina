@@ -310,7 +310,10 @@ jobs:
           tags: ${{ steps.img.outputs.image }}:nightly
           provenance: false
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # ignore-error: the GHA cache backend intermittently 404s on cache
+          # export (`ERROR: failed to solve: not_found`) AFTER the image has
+          # already been pushed — a lost cache is not worth a red nightly.
+          cache-to: type=gha,mode=max,ignore-error=true
 
   # -----------------------------------------------------------------------
   # Failure notification — auto-create GitHub issue
@@ -318,7 +321,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, nightly-docker]
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -382,7 +385,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, nightly-docker]
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
     if: success()
     runs-on: ubuntu-latest
     permissions:
@@ -430,7 +433,7 @@ jobs:
 
   prune-caches:
     name: Prune Stale Caches
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, nightly-docker]
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
     if: always()
     runs-on: ubuntu-latest
     permissions:

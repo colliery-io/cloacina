@@ -34,37 +34,20 @@ export type ListTriggersQuery = NonNullable<
 
 // ---- secrets (CLOACI-I-0133 / T-0862) ----
 //
-// Hand-typed rather than sourced from `schemas` because the generated
-// `../generated/types.js` is regenerated from a live server's OpenAPI doc
-// (which now includes the secret routes) as a separate step; until that regen
-// runs these local shapes keep the UI type-safe. Metadata-only: a read NEVER
-// carries a value.
+// Aliases of the generated wire schemas, kept under the names the UI already
+// imports. Metadata-only: a read NEVER carries a value.
 
 /** Metadata view of a secret — names + timestamps only, never a value. */
-export interface SecretMetadata {
-  id: string;
-  name: string;
-  field_names: string[];
-  created_at: string;
-  updated_at: string;
-}
+export type SecretMetadata = schemas["SecretMetadataResponse"];
 
 /** Create body: name + the `{field: value}` map (values are write-only). */
-export interface CreateSecretBody {
-  name: string;
-  fields: Record<string, string>;
-}
+export type CreateSecretBody = schemas["CreateSecretRequest"];
 
 /** Rotate body: the new `{field: value}` map (values are write-only). */
-export interface RotateSecretBody {
-  fields: Record<string, string>;
-}
+export type RotateSecretBody = schemas["RotateSecretRequest"];
 
 /** `{items, total}` envelope for the secret metadata list. */
-export interface SecretListResponse {
-  items: SecretMetadata[];
-  total: number;
-}
+export type SecretListResponse = schemas["ListResponse_SecretMetadataResponse"];
 
 /** Error thrown by the ergonomic helpers when the server returns non-2xx. */
 export class CloacinaApiError extends Error {
@@ -312,53 +295,23 @@ export class CloacinaClient {
 
   // ---- secrets (CLOACI-I-0133 / T-0862) ----
   //
-  // Raw authed fetch (not the typed `this.api`) because the secret paths are
-  // not yet in the generated `paths`. Reads return metadata ONLY.
-
-  /** Raw JSON request carrying the same Bearer auth as `this.api`. */
-  async #secretRequest<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<T> {
-    const headers: Record<string, string> = { accept: "application/json" };
-    if (this.#apiKey !== undefined) {
-      headers.authorization = `Bearer ${this.#apiKey}`;
-    }
-    if (body !== undefined) {
-      headers["content-type"] = "application/json";
-    }
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    if (!response.ok) {
-      let errBody: ErrorBody | undefined;
-      try {
-        errBody = (await response.json()) as ErrorBody;
-      } catch {
-        errBody = undefined;
-      }
-      throw new CloacinaApiError(response.status, errBody);
-    }
-    // DELETE returns a small JSON body; every secret endpoint is JSON.
-    return (await response.json()) as T;
-  }
+  // Reads return metadata ONLY — never a plaintext or ciphertext value.
 
   /** List secret metadata for the tenant. Never returns values. */
   async listSecrets(tenant?: string): Promise<SecretListResponse> {
-    return this.#secretRequest(
-      "GET",
-      `/v1/tenants/${this.#tenant(tenant)}/secrets`,
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/secrets", {
+        params: { path: { tenant_id: this.#tenant(tenant) } },
+      }),
     );
   }
 
   /** One secret's metadata. Never returns a value. */
   async getSecret(name: string, tenant?: string): Promise<SecretMetadata> {
-    return this.#secretRequest(
-      "GET",
-      `/v1/tenants/${this.#tenant(tenant)}/secrets/${encodeURIComponent(name)}`,
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/secrets/{name}", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
     );
   }
 
@@ -367,10 +320,11 @@ export class CloacinaClient {
     body: CreateSecretBody,
     tenant?: string,
   ): Promise<SecretMetadata> {
-    return this.#secretRequest(
-      "POST",
-      `/v1/tenants/${this.#tenant(tenant)}/secrets`,
-      body,
+    return unwrap(
+      await this.api.POST("/v1/tenants/{tenant_id}/secrets", {
+        params: { path: { tenant_id: this.#tenant(tenant) } },
+        body,
+      }),
     );
   }
 
@@ -380,10 +334,11 @@ export class CloacinaClient {
     body: RotateSecretBody,
     tenant?: string,
   ): Promise<SecretMetadata> {
-    return this.#secretRequest(
-      "PUT",
-      `/v1/tenants/${this.#tenant(tenant)}/secrets/${encodeURIComponent(name)}`,
-      body,
+    return unwrap(
+      await this.api.PUT("/v1/tenants/{tenant_id}/secrets/{name}", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+        body,
+      }),
     );
   }
 
@@ -391,10 +346,11 @@ export class CloacinaClient {
   async deleteSecret(
     name: string,
     tenant?: string,
-  ): Promise<{ status: string; name: string }> {
-    return this.#secretRequest(
-      "DELETE",
-      `/v1/tenants/${this.#tenant(tenant)}/secrets/${encodeURIComponent(name)}`,
+  ): Promise<schemas["SecretDeletedResponse"]> {
+    return unwrap(
+      await this.api.DELETE("/v1/tenants/{tenant_id}/secrets/{name}", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
     );
   }
 
