@@ -33,11 +33,12 @@ test("tenant-admin scales the agent fleet up then down @smoke", async ({ page })
   // Fleet view → the stats + admin controls are visible.
   await page.goto("/fleet");
   await expect(page.getByRole("heading", { name: "Agent fleet" })).toBeVisible();
-  // exact: the "Provisioned vs running agents" chart subtitle also matches
-  // these as substrings (getByText is case-insensitive substring by default).
+  // exact: the "Provisioned vs running agents" subtitle and the
+  // "Effective limit N = …" breakdown line also match these as substrings
+  // (getByText is case-insensitive substring by default).
   await expect(page.getByText("Provisioned", { exact: true })).toBeVisible();
   await expect(page.getByText("Running", { exact: true })).toBeVisible();
-  await expect(page.getByText("Effective limit")).toBeVisible();
+  await expect(page.getByText("Effective limit", { exact: true })).toBeVisible();
 
   const provision = page.getByRole("button", { name: "Provision +1" });
   const deprovision = page.getByRole("button", { name: "Deprovision −1" });
