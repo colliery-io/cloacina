@@ -3402,6 +3402,16 @@
               }
             }
           },
+          "404": {
+            "description": "Workflow not registered for this tenant (I-0138 cross-tenant gate; `public` is exempt)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {

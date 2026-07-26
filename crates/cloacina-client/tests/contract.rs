@@ -156,11 +156,13 @@ async fn full_rest_surface_contract() {
     assert!(matches!(no_trigger, Err(ClientError::NotFound(_))));
 
     // ---- executions ----
+    // I-0138 cross-tenant gate: a workflow not registered for THIS tenant
+    // fails closed with 404 (the `public` tenant is exempt).
     let exec_err = client
         .execute_workflow("does-not-exist", serde_json::json!({"k": "v"}))
         .await
         .expect_err("unknown workflow rejected");
-    assert!(matches!(exec_err, ClientError::InvalidRequest(_)));
+    assert!(matches!(exec_err, ClientError::NotFound(_)));
 
     let executions = client
         .list_executions(

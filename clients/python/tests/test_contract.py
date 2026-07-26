@@ -201,10 +201,12 @@ def test_trigger_missing_404(client: Client) -> None:
 
 
 def test_execute_unknown_workflow(client: Client) -> None:
+    # I-0138 cross-tenant gate: a workflow not registered for THIS tenant
+    # fails closed with 404 (the `public` tenant is exempt).
     with pytest.raises(CloacinaApiError) as exc:
         client.execute_workflow("does-not-exist", {"k": "v"})
-    assert exc.value.status == 400
-    assert exc.value.code == "execution_failed"
+    assert exc.value.status == 404
+    assert exc.value.code == "workflow_not_found"
 
 
 def test_execution_list_and_iteration(client: Client, tenant_name: str) -> None:

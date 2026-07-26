@@ -233,13 +233,15 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
   // ---- executions ----
 
   it("POST /v1/tenants/{t}/workflows/{name}/execute rejects unknown workflow with documented error", async () => {
+    // I-0138 cross-tenant gate: a workflow not registered for THIS tenant
+    // fails closed with 404 (the `public` tenant is exempt).
     const err = await client
       .executeWorkflow("does-not-exist", { context: { k: "v" } })
       .then(() => null)
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CloacinaApiError);
-    expect((err as CloacinaApiError).status).toBe(400);
-    expect((err as CloacinaApiError).code).toBe("execution_failed");
+    expect((err as CloacinaApiError).status).toBe(404);
+    expect((err as CloacinaApiError).code).toBe("workflow_not_found");
   });
 
   it("GET /v1/tenants/{t}/executions returns the paged envelope and honors filters", async () => {
