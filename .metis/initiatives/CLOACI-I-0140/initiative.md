@@ -189,6 +189,16 @@ Round-2 fix: `retry_transient` around `schedule_task_retry` with a **fail-instea
 
 Verification: 300-iter local stress on scenario 33 in flight (regression check — the 33 hang was only ever seen on ubuntu; macOS never repro'd it pre-fix, so the linux nightly is the real arbiter). Lesson: when a mechanism is confirmed, audit EVERY error path owning that state transition in one sweep — not just the site the stack trace names.
 
+### 2026-07-27 — Round 3: the scheduling ENTRY had the same exposure (nightly caught it again)
+
+Round-2 verified locally (scenario 33: **300/300 clean**, ~1.2s/iter vs ~3s pre-fix — retry scheduling visibly healthier), PR #202 squash-merged. Ops footnote: the post-merge nightly initially wedged — the `cloacina-tests-refs/heads/main` concurrency group jammed after the preemption dance (push CI queued 35+ min, runners available, GitHub all-operational); cancelling every run touching the group cleared it. If main CI ever sits queued mysteriously: look for a half-dead run holding `cloacina-tests`.
+
+The round-2 nightly's sqlite/ubuntu leg then failed BEFORE reaching the Python scenarios — in the RUST integration suite: `secret_no_leak`, `execute_async` → `schedule_workflow_execution` → `database table is locked: task_executions` (SQLITE_LOCKED, shared-cache class — busy_timeout does NOT cover it; same family as the July 15 unit-test flake). The disease at the ENTRY write, not the terminal write.
+
+Round-3 fix (`runner/default_runner/workflow_executor_impl.rs`): `retry_transient` around both `schedule_workflow_execution` call sites (execute / execute_async; context re-supplied via `clone_data()` per attempt), the `execute` status-poll read, and `get_execution_status` (backs every `wait_for_completion` loop). The failing test passes locally with the fix.
+
+Running tally of one mechanism, N surfaces: terminal writes (round 1) → retry scheduling + executor error paths (round 2) → workflow scheduling entry + status reads (round 3). The class is "any unretried DB access on the execution path, surfaced wherever a test unwraps or a state machine stalls."
+
 ## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
 
 {Delete if no UI components}
