@@ -42,7 +42,7 @@ use tracing::{debug, error, info, warn};
 /// `mark_failed` left the task Running FOREVER, which is the reproduced
 /// scenario-flake HANG (the workflow future never resolves, the Python
 /// `execute()` blocks on its oneshot, pytest-timeout is silenced).
-fn is_transient_db_error(msg: &str) -> bool {
+pub(crate) fn is_transient_db_error(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
     m.contains("database is locked")
         || m.contains("database table is locked")
@@ -53,7 +53,7 @@ fn is_transient_db_error(msg: &str) -> bool {
 /// Retry an async DB write on transient contention errors: `attempts` tries,
 /// linear backoff (`base_delay * attempt`). Non-transient errors return
 /// immediately; exhaustion returns the last error.
-async fn retry_transient<T, E, F, Fut>(
+pub(crate) async fn retry_transient<T, E, F, Fut>(
     attempts: u32,
     base_delay: Duration,
     mut op: F,
@@ -197,15 +197,57 @@ impl TaskResultHandler {
                     .unwrap_or(false);
 
                 if should_retry {
-                    if let Err(e) = self.schedule_task_retry(claimed_task, retry_policy).await {
-                        warn!(
-                            task_id = %event.task_execution_id,
-                            error = %e,
-                            "Failed to schedule retry"
-                        );
+                    // CLOACI-I-0140: schedule_retry is a terminal state write too —
+                    // dropping it on sqlite-busy left the task Running forever (the
+                    // scenario-33 hang the first fix round missed). Retry it, and if
+                    // it STILL fails, fail the task rather than leave it in limbo.
+                    match retry_transient(5, Duration::from_millis(100), || {
+                        self.schedule_task_retry(claimed_task, retry_policy)
+                    })
+                    .await
+                    {
+                        Ok(()) => {
+                            self.total_executed.fetch_add(1, Ordering::SeqCst);
+                            ExecutionResult::retry(
+                                event.task_execution_id,
+                                error.to_string(),
+                                duration,
+                            )
+                        }
+                        Err(sched_err) => {
+                            warn!(
+                                task_id = %event.task_execution_id,
+                                error = %sched_err,
+                                "Failed to schedule retry after retries — failing task \
+                                 instead of leaving it Running"
+                            );
+                            self.total_failed.fetch_add(1, Ordering::SeqCst);
+                            let error_str =
+                                format!("{} (retry scheduling failed: {})", error, sched_err);
+                            if let Err(mark_err) =
+                                retry_transient(5, Duration::from_millis(100), || async {
+                                    self.dal
+                                        .task_execution()
+                                        .mark_failed(
+                                            event.task_execution_id,
+                                            &error_str,
+                                            self.runner_id,
+                                        )
+                                        .await
+                                })
+                                .await
+                            {
+                                error!(
+                                    task_id = %event.task_execution_id,
+                                    error = %mark_err,
+                                    "mark_failed FAILED after retries — task row stays Running \
+                                     until the stale-claim sweeper recovers it; workflow \
+                                     completion is delayed"
+                                );
+                            }
+                            ExecutionResult::failure(event.task_execution_id, error_str, duration)
+                        }
                     }
-                    self.total_executed.fetch_add(1, Ordering::SeqCst);
-                    ExecutionResult::retry(event.task_execution_id, error.to_string(), duration)
                 } else {
                     self.total_failed.fetch_add(1, Ordering::SeqCst);
                     // Mark failed in DB — executor owns all state transitions.

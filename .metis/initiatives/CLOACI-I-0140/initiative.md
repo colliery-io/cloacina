@@ -177,6 +177,18 @@ Environment notes: failures concentrate in the **sqlite** lanes (both ubuntu and
 
 Rebuilt the wheel with the `retry_transient` fix (sqlite,macros lane) and ran the stress harness 500 iterations on scenario 30 with CI-parity flags: **`outcomes={'ok': 500}`** — zero hangs, zero assertion failures, zero signals. Against the measured 1-in-~25 baseline that's ~p 1e-9 of the fix being a no-op. Remaining: land the fix (branch `fix/i0140-terminal-state-writes`), let nightly soak, then shrink `KNOWN_FLAKY_HANG` and confirm the segfault class died with the hang class.
 
+### 2026-07-27 — Round 2: the retry branch had the same hole (nightly caught it)
+
+PR #201 squash-merged; manual nightly dispatched. **Audit of the job logs before shrinking the allowlist** (user's prompt — right call): 3 of 4 integration legs passed scenarios 30/32/33 outright, but **sqlite/ubuntu scenario 33 (retry_condition) hung 180s on attempt 1** and was rescued by the harness retry loop. Green-by-rescue, not green.
+
+Residual mechanism — same swallowed-terminal-write shape, in the branch round 1 didn't touch:
+- `result_handler.rs` retry branch: `schedule_task_retry` failure was warn-and-dropped → task Running forever. (`should_retry_task` is pure — its `unwrap_or(false)` is inert.)
+- `thread_task_executor.rs`: three more `let _ = mark_failed(...)` sites (invalid namespace / task not found / context build failed).
+
+Round-2 fix: `retry_transient` around `schedule_task_retry` with a **fail-instead-of-limbo fallback** (if scheduling still fails after retries: mark_failed + return failure — never leave the row Running); `mark_failed_reliably` helper in thread_task_executor for the three swallowed sites; `retry_transient`/`is_transient_db_error` now `pub(crate)`. Swept executor/scheduler/dispatcher for remaining `let _ =` DB writes — none left (rest are channel sends/gauges).
+
+Verification: 300-iter local stress on scenario 33 in flight (regression check — the 33 hang was only ever seen on ubuntu; macOS never repro'd it pre-fix, so the linux nightly is the real arbiter). Lesson: when a mechanism is confirmed, audit EVERY error path owning that state transition in one sweep — not just the site the stack trace names.
+
 ## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
 
 {Delete if no UI components}
