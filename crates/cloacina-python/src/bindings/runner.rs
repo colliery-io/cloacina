@@ -249,7 +249,15 @@ impl AsyncRuntimeHandle {
 
 impl Drop for AsyncRuntimeHandle {
     fn drop(&mut self) {
-        if let Err(e) = self.shutdown() {
+        // CLOACI-I-0140 (B1): when Python GC drops PyDefaultRunner this Drop
+        // runs WITH THE GIL HELD, and shutdown() joins the runtime thread —
+        // whose in-flight work (task callbacks, deferred decrefs) may need the
+        // GIL. The explicit `shutdown` pymethod already releases via
+        // `allow_threads`; do the same here. `with_gil` is re-entrant when the
+        // GIL is held and a cheap acquire/release when it is not (pure-Rust
+        // drop path), so this is safe from both directions.
+        let result = Python::with_gil(|py| py.allow_threads(|| self.shutdown()));
+        if let Err(e) = result {
             warn!("Error during AsyncRuntimeHandle drop: {}", e);
         }
     }
@@ -773,7 +781,16 @@ async fn run_event_loop(
 ///
 /// `create_runner` is called inside the thread with a reference to the Tokio
 /// runtime so it can block_on async DefaultRunner constructors.
-fn spawn_runtime<F>(create_runner: F) -> PyResult<PyDefaultRunner>
+///
+/// CLOACI-I-0140: takes `py` so the init wait can RELEASE THE GIL. This was
+/// the reproduced scenario-flake deadlock (1-in-~25 locally): the constructor
+/// pymethod held the GIL through `init_rx.blocking_recv()` while
+/// `create_runner`'s background services raced to their first `with_gil`
+/// (task-factory clone_refs at materialization, or flushing the previous
+/// test's deferred decrefs) BEFORE sending init — classic AB-BA. The blocked
+/// C call on the main thread also silenced pytest-timeout's SIGALRM, turning
+/// the deadlock into the CI "hang" class (T-0622).
+fn spawn_runtime<F>(py: Python<'_>, create_runner: F) -> PyResult<PyDefaultRunner>
 where
     F: FnOnce(
             &Runtime,
@@ -815,8 +832,9 @@ where
         rt.block_on(run_event_loop(runner, rx));
     });
 
-    // Wait for init — propagate errors instead of panicking
-    match init_rx.blocking_recv() {
+    // Wait for init — propagate errors instead of panicking. MUST release the
+    // GIL: the runtime thread's startup path may acquire it (see fn docs).
+    match py.allow_threads(move || init_rx.blocking_recv()) {
         Ok(Ok(())) => {}
         Ok(Err(msg)) => return Err(PyRuntimeError::new_err(msg)),
         Err(_) => {
@@ -875,13 +893,13 @@ impl PyDefaultRunner {
 impl PyDefaultRunner {
     /// Create a new DefaultRunner with database connection
     #[new]
-    pub fn new(database_url: &str) -> PyResult<Self> {
+    pub fn new(py: Python<'_>, database_url: &str) -> PyResult<Self> {
         let database_url = database_url.to_string();
         // Share the caller's ScopedRuntime (installed by the cloaca pymodule
         // init, and where `@task`/`WorkflowBuilder` register) so the runner's
         // scheduler can find workflows registered before the runner existed.
         let rt_arc = crate::runtime_scope::current_runtime();
-        spawn_runtime(move |rt| {
+        spawn_runtime(py, move |rt| {
             info!(
                 "Creating DefaultRunner with database_url: {}",
                 cloacina::logging::mask_db_url(&database_url)
@@ -897,13 +915,14 @@ impl PyDefaultRunner {
     /// Create a new DefaultRunner with custom configuration
     #[staticmethod]
     pub fn with_config(
+        py: Python<'_>,
         database_url: &str,
         config: &super::context::PyDefaultRunnerConfig,
     ) -> PyResult<PyDefaultRunner> {
         let database_url = database_url.to_string();
         let rust_config = config.to_rust_config();
         let rt_arc = crate::runtime_scope::current_runtime();
-        spawn_runtime(move |rt| {
+        spawn_runtime(py, move |rt| {
             let mut builder = cloacina::DefaultRunner::builder()
                 .database_url(&database_url)
                 .with_config(rust_config);
@@ -923,7 +942,11 @@ impl PyDefaultRunner {
     /// * `database_url` - PostgreSQL connection string
     /// * `schema` - Schema name for tenant isolation (alphanumeric + underscores only)
     #[staticmethod]
-    pub fn with_schema(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner> {
+    pub fn with_schema(
+        py: Python<'_>,
+        database_url: &str,
+        schema: &str,
+    ) -> PyResult<PyDefaultRunner> {
         if !database_url.starts_with("postgres://") && !database_url.starts_with("postgresql://") {
             return Err(PyValueError::new_err(
                 "Schema-based multi-tenancy requires PostgreSQL. \
@@ -943,7 +966,7 @@ impl PyDefaultRunner {
         let database_url = database_url.to_string();
         let schema = schema.to_string();
         let rt_arc = crate::runtime_scope::current_runtime();
-        spawn_runtime(move |rt| {
+        spawn_runtime(py, move |rt| {
             info!(
                 "Creating DefaultRunner with schema: {} and database_url: {}",
                 schema,
@@ -1444,7 +1467,8 @@ mod tests {
     #[serial]
     fn test_runner_repr() {
         pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        let runner = Python::with_gil(|py| PyDefaultRunner::new(py, &unique_sqlite_url()))
+            .expect("Failed to create runner");
         assert_eq!(
             runner.__repr__(),
             "DefaultRunner(thread_separated_async_runtime)"
@@ -1455,7 +1479,8 @@ mod tests {
     #[serial]
     fn test_runner_shutdown() {
         pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        let runner = Python::with_gil(|py| PyDefaultRunner::new(py, &unique_sqlite_url()))
+            .expect("Failed to create runner");
         Python::with_gil(|py| {
             runner.shutdown(py).expect("Shutdown should succeed");
         });
@@ -1466,7 +1491,8 @@ mod tests {
     fn test_runner_context_manager() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
-            let runner = Py::new(py, PyDefaultRunner::new(&unique_sqlite_url()).unwrap()).unwrap();
+            let runner =
+                Py::new(py, PyDefaultRunner::new(py, &unique_sqlite_url()).unwrap()).unwrap();
             let entered = PyDefaultRunner::__enter__(runner.borrow(py));
             assert_eq!(
                 entered.__repr__(),
@@ -1481,7 +1507,8 @@ mod tests {
     #[serial]
     fn test_runner_list_cron_schedules_empty() {
         pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        let runner = Python::with_gil(|py| PyDefaultRunner::new(py, &unique_sqlite_url()))
+            .expect("Failed to create runner");
         Python::with_gil(|py| {
             let schedules = runner
                 .list_cron_schedules(None, None, None, py)
@@ -1495,7 +1522,8 @@ mod tests {
     #[serial]
     fn test_runner_list_trigger_schedules_empty() {
         pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        let runner = Python::with_gil(|py| PyDefaultRunner::new(py, &unique_sqlite_url()))
+            .expect("Failed to create runner");
         Python::with_gil(|py| {
             let schedules = runner
                 .list_trigger_schedules(None, None, None, py)
@@ -1509,7 +1537,8 @@ mod tests {
     #[serial]
     fn test_runner_get_trigger_schedule_not_found() {
         pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        let runner = Python::with_gil(|py| PyDefaultRunner::new(py, &unique_sqlite_url()))
+            .expect("Failed to create runner");
         Python::with_gil(|py| {
             let result = runner.get_trigger_schedule("nonexistent".to_string(), py);
             assert!(result.is_ok());
@@ -1523,7 +1552,8 @@ mod tests {
     fn test_runner_register_cron_workflow() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let schedule_id = runner
                 .register_cron_workflow(
@@ -1544,7 +1574,8 @@ mod tests {
     fn test_runner_list_cron_schedules_after_register() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             runner
                 .register_cron_workflow(
@@ -1568,7 +1599,8 @@ mod tests {
     fn test_runner_get_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let schedule_id = runner
                 .register_cron_workflow(
@@ -1592,7 +1624,8 @@ mod tests {
     fn test_runner_set_cron_schedule_enabled() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let schedule_id = runner
                 .register_cron_workflow(
@@ -1618,7 +1651,8 @@ mod tests {
     fn test_runner_delete_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let schedule_id = runner
                 .register_cron_workflow(
@@ -1644,7 +1678,8 @@ mod tests {
     fn test_runner_update_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let schedule_id = runner
                 .register_cron_workflow(
@@ -1672,7 +1707,8 @@ mod tests {
     fn test_runner_get_cron_execution_history_empty() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let schedule_id = runner
                 .register_cron_workflow(
@@ -1696,7 +1732,8 @@ mod tests {
     fn test_runner_get_cron_execution_stats() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let since = chrono::Utc::now() - chrono::Duration::try_hours(1).unwrap();
             let stats = runner
@@ -1712,7 +1749,8 @@ mod tests {
     fn test_runner_set_cron_schedule_enabled_invalid_id() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let result = runner.set_cron_schedule_enabled("not-a-uuid".to_string(), false, py);
             assert!(result.is_err());
@@ -1725,7 +1763,8 @@ mod tests {
     fn test_runner_set_trigger_enabled() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let result = runner.set_trigger_enabled("nonexistent".to_string(), true, py);
             let _ = result;
@@ -1738,7 +1777,8 @@ mod tests {
     fn test_runner_get_trigger_execution_history() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let history =
                 runner.get_trigger_execution_history("nonexistent".to_string(), None, None, py);
@@ -1810,7 +1850,8 @@ mod tests {
     fn test_runner_execute_nonexistent_workflow() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let ctx = crate::context::PyContext::new(None).unwrap();
             let result = runner.execute("nonexistent_workflow", &ctx, py);
@@ -1834,7 +1875,8 @@ mod tests {
     fn test_runner_get_cron_execution_stats_invalid_date() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let result = runner.get_cron_execution_stats("not-a-date".to_string(), py);
             assert!(result.is_err(), "Invalid date should error");
@@ -1847,7 +1889,8 @@ mod tests {
     fn test_runner_list_cron_schedules_enabled_only() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        let runner =
+            Python::with_gil(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
         Python::with_gil(|py| {
             let id = runner
                 .register_cron_workflow(
@@ -1881,7 +1924,9 @@ mod tests {
     #[serial]
     fn test_with_schema_rejects_sqlite() {
         pyo3::prepare_freethreaded_python();
-        let result = PyDefaultRunner::with_schema("sqlite:///tmp/test.db", "tenant_a");
+        let result = Python::with_gil(|py| {
+            PyDefaultRunner::with_schema(py, "sqlite:///tmp/test.db", "tenant_a")
+        });
         assert!(result.is_err());
     }
 
@@ -1889,10 +1934,13 @@ mod tests {
     #[serial]
     fn test_with_schema_rejects_empty_schema() {
         pyo3::prepare_freethreaded_python();
-        let result = PyDefaultRunner::with_schema(
-            "postgres://cloacina:cloacina@localhost:15432/cloacina",
-            "",
-        );
+        let result = Python::with_gil(|py| {
+            PyDefaultRunner::with_schema(
+                py,
+                "postgres://cloacina:cloacina@localhost:15432/cloacina",
+                "",
+            )
+        });
         assert!(result.is_err());
     }
 
@@ -1900,10 +1948,13 @@ mod tests {
     #[serial]
     fn test_with_schema_rejects_invalid_chars() {
         pyo3::prepare_freethreaded_python();
-        let result = PyDefaultRunner::with_schema(
-            "postgres://cloacina:cloacina@localhost:15432/cloacina",
-            "tenant;DROP TABLE",
-        );
+        let result = Python::with_gil(|py| {
+            PyDefaultRunner::with_schema(
+                py,
+                "postgres://cloacina:cloacina@localhost:15432/cloacina",
+                "tenant;DROP TABLE",
+            )
+        });
         assert!(result.is_err());
     }
 

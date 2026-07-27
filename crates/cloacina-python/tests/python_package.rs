@@ -373,7 +373,8 @@ mod postgres_bindings {
     #[serial]
     fn test_runner_postgres_construction_and_shutdown() {
         pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(TEST_PG_URL).expect("Failed to create runner");
+        let runner = Python::with_gil(|py| PyDefaultRunner::new(py, TEST_PG_URL))
+            .expect("Failed to create runner");
         Python::with_gil(|py| {
             runner.shutdown(py).expect("Shutdown should succeed");
         });
@@ -387,8 +388,8 @@ mod postgres_bindings {
             "test_{}",
             uuid::Uuid::new_v4().to_string().replace('-', "_")
         );
-        let runner =
-            PyDefaultRunner::with_schema(TEST_PG_URL, &schema).expect("with_schema should succeed");
+        let runner = Python::with_gil(|py| PyDefaultRunner::with_schema(py, TEST_PG_URL, &schema))
+            .expect("with_schema should succeed");
         Python::with_gil(|py| {
             let schedules = runner
                 .list_cron_schedules(None, None, None, py)
@@ -406,8 +407,8 @@ mod postgres_bindings {
             "test_{}",
             uuid::Uuid::new_v4().to_string().replace('-', "_")
         );
-        let runner =
-            PyDefaultRunner::with_schema(TEST_PG_URL, &schema).expect("with_schema should succeed");
+        let runner = Python::with_gil(|py| PyDefaultRunner::with_schema(py, TEST_PG_URL, &schema))
+            .expect("with_schema should succeed");
         Python::with_gil(|py| {
             let id = runner
                 .register_cron_workflow(
