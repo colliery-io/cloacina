@@ -24,6 +24,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::dal::DAL;
+use crate::executor::result_handler::retry_transient;
 use crate::executor::workflow_executor::{
     WorkflowExecution, WorkflowExecutionError, WorkflowExecutionResult, WorkflowExecutor,
     WorkflowStatus,
@@ -57,14 +58,17 @@ impl WorkflowExecutor for DefaultRunner {
         workflow_name: &str,
         context: Context<serde_json::Value>,
     ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
-        // Schedule execution
-        let execution_id = self
-            .scheduler
-            .schedule_workflow_execution(workflow_name, context)
-            .await
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Failed to schedule workflow: {}", e),
-            })?;
+        // Schedule execution. CLOACI-I-0140: the entry write (execution +
+        // task_executions rows) is retried on transient sqlite busy/locked —
+        // same contention class as the executor's terminal-state writes.
+        let execution_id = retry_transient(5, Duration::from_millis(100), || {
+            self.scheduler
+                .schedule_workflow_execution(workflow_name, context.clone_data())
+        })
+        .await
+        .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+            message: format!("Failed to schedule workflow: {}", e),
+        })?;
 
         // Wait for completion
         let start_time = std::time::Instant::now();
@@ -80,14 +84,17 @@ impl WorkflowExecutor for DefaultRunner {
                 }
             }
 
-            // Check status
-            let execution = dal
-                .workflow_execution()
-                .get_by_id(UniversalUuid(execution_id))
-                .await
-                .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                    message: format!("Failed to check execution status: {}", e),
-                })?;
+            // Check status — retried on transient DB contention so a single
+            // sqlite-busy read doesn't abort a wait that would have succeeded.
+            let execution = retry_transient(5, Duration::from_millis(100), || async {
+                dal.workflow_execution()
+                    .get_by_id(UniversalUuid(execution_id))
+                    .await
+            })
+            .await
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+                message: format!("Failed to check execution status: {}", e),
+            })?;
 
             match execution.status.as_str() {
                 "Completed" | "Failed" => {
@@ -116,14 +123,15 @@ impl WorkflowExecutor for DefaultRunner {
         workflow_name: &str,
         context: Context<serde_json::Value>,
     ) -> Result<WorkflowExecution, WorkflowExecutionError> {
-        // Schedule execution
-        let execution_id = self
-            .scheduler
-            .schedule_workflow_execution(workflow_name, context)
-            .await
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Failed to schedule workflow: {}", e),
-            })?;
+        // Schedule execution — retried on transient DB contention (see execute).
+        let execution_id = retry_transient(5, Duration::from_millis(100), || {
+            self.scheduler
+                .schedule_workflow_execution(workflow_name, context.clone_data())
+        })
+        .await
+        .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+            message: format!("Failed to schedule workflow: {}", e),
+        })?;
 
         Ok(WorkflowExecution::new(
             execution_id,
@@ -186,13 +194,17 @@ impl WorkflowExecutor for DefaultRunner {
         execution_id: Uuid,
     ) -> Result<WorkflowStatus, WorkflowExecutionError> {
         let dal = DAL::new(self.database.clone());
-        let execution = dal
-            .workflow_execution()
-            .get_by_id(UniversalUuid(execution_id))
-            .await
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Failed to get execution status: {}", e),
-            })?;
+        // Retried on transient DB contention — this read backs every
+        // wait_for_completion poll loop (CLOACI-I-0140).
+        let execution = retry_transient(5, Duration::from_millis(100), || async {
+            dal.workflow_execution()
+                .get_by_id(UniversalUuid(execution_id))
+                .await
+        })
+        .await
+        .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+            message: format!("Failed to get execution status: {}", e),
+        })?;
 
         // Fallible parse (COR-18). Unknown strings surface as typed
         // error rather than silently coercing to Failed.
