@@ -128,6 +128,36 @@ pub struct ThreadTaskExecutor {
 }
 
 impl ThreadTaskExecutor {
+    /// CLOACI-I-0140: terminal state writes must never be silently dropped — a
+    /// lost `mark_failed` leaves the task row Running forever and hangs the
+    /// workflow. Retries transient DB contention; screams on exhaustion.
+    async fn mark_failed_reliably(
+        &self,
+        task_execution_id: UniversalUuid,
+        error_msg: &str,
+        runner_id: Option<UniversalUuid>,
+    ) {
+        let result = super::result_handler::retry_transient(
+            5,
+            std::time::Duration::from_millis(100),
+            || async {
+                self.dal
+                    .task_execution()
+                    .mark_failed(task_execution_id, error_msg, runner_id)
+                    .await
+            },
+        )
+        .await;
+        if let Err(e) = result {
+            tracing::error!(
+                task_id = %task_execution_id,
+                error = %e,
+                "mark_failed FAILED after retries — task row stays Running until \
+                 the stale-claim sweeper recovers it; workflow completion is delayed"
+            );
+        }
+    }
+
     /// Creates a new ThreadTaskExecutor instance.
     ///
     /// # Arguments
@@ -516,10 +546,7 @@ impl TaskExecutor for ThreadTaskExecutor {
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
                 let error_msg = format!("Invalid namespace: {}", e);
-                let _ = self
-                    .dal
-                    .task_execution()
-                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
+                self.mark_failed_reliably(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
@@ -534,10 +561,7 @@ impl TaskExecutor for ThreadTaskExecutor {
             None => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
                 let error_msg = format!("Task not found: {}", claimed_task.task_name);
-                let _ = self
-                    .dal
-                    .task_execution()
-                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
+                self.mark_failed_reliably(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
@@ -554,10 +578,7 @@ impl TaskExecutor for ThreadTaskExecutor {
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
                 let error_msg = format!("Context build failed: {}", e);
-                let _ = self
-                    .dal
-                    .task_execution()
-                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
+                self.mark_failed_reliably(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
