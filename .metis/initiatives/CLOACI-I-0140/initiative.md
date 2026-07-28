@@ -215,6 +215,15 @@ Running tally of one mechanism, N surfaces: terminal writes (round 1) → retry 
 
 **Still open for the segfault class:** CI symbolization fix (unstripped nightly test wheel + gdb pointed at the python binary) so any post-derisk kill self-documents.
 
+### 2026-07-28 — Rounds 5+6 landed; MILESTONE: first nightly with the allowlist EMPTY, genuinely green
+
+- **#206 (round 5):** `KNOWN_FLAKY_HANG` emptied — gate was the 2026-07-28 scheduled nightly: all four legs, 29/29 scenarios, zero rescue markers on rounds 1-3 alone. Comment block in `_python_utils.py` records the story and forbids re-allowlisting over root-causing. Machinery kept but inert (keys off the empty set; rescued infra flakes still print auditable TIMEOUT markers).
+- **#207 (round 6):** the #206 merge's push CI flushed out surface #6 — delivery sweeper: `concurrent_sweepers_are_race_safe` failed when BOTH racing sweepers hit `database table is locked: delivery_outbox` and misread the transient lock as a CAS loss → nobody reset the row (prod shape: redelivery silently deferred a sweep interval; likely the July 15 unit-lane flake). Fix: `retry_transient` around `reset_to_pending` — CAS losses are a distinct error shape and still skip. Race test 60/60 clean.
+- **MILESTONE nightly (30380037247, full stack + EMPTY allowlist):** all four integration legs 29/29, zero rescue markers, zero segfaults — the first unassisted-green nightly. All initiative goals now met: mechanism identified + fixed (6 surfaces), local repro harness built, allowlist empty, nightly genuinely green.
+- Ops noise for the record: #206's `Discover Examples` job was runner-cancelled mid-disk-cleanup and its auto-requeue wedged in `queued` limbo — cancel + fresh rerun fixed it (second wedge instance; pattern noted round 3).
+
+**Remaining before close:** CI symbolization insurance (unstripped nightly wheel + gdb at the python binary), a few scheduled-nightly soaks, then phase transitions + close-out.
+
 ## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
 
 {Delete if no UI components}

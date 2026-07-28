@@ -35,4 +35,8 @@ Documentation = "https://cloacina.dev"
 [tool.maturin]
 module-name = "cloaca"
 features = ["postgres", "sqlite", "macros", "extension-module"]
-strip = true
+# CLOACI-I-0140: keep the symbol table in dev/CI wheels so a native crash in a
+# test lane produces a SYMBOLIZED backtrace (the rotating-segfault hunt spent a
+# day defeated by stripped .so files). PyPI wheels are still stripped — the
+# release workflow passes maturin's `--strip` flag explicitly.
+strip = false
