@@ -10,18 +10,22 @@ import re
 import subprocess
 
 
-# CLOACI-T-0622: scenarios with a known *intermittent* PyO3<->tokio GIL hang on
-# the callback / CG-invocation path. When one of these times out on ALL retry
-# attempts we record it as XFAIL (logged, non-blocking) instead of failing the
-# suite — otherwise a transient infra hang blocks CI and releases. The same GIL
-# issue also surfaces as a native crash (SIGSEGV), so XFAIL covers both the hang
-# (timeout) and the crash form. A genuine pytest assertion FAILURE (rc 1, no
-# crash marker) still fails the suite, so real regressions are never masked.
-KNOWN_FLAKY_HANG = {
-    "test_scenario_30_task_callbacks.py",
-    "test_scenario_32_task_invokes_computation_graph.py",
-    "test_scenario_33_retry_condition.py",
-}
+# CLOACI-I-0140: EMPTY by design — keep it that way.
+#
+# This allowlist (born as T-0622) once xfail'd scenarios 30/32/33 for an
+# "intermittent PyO3<->tokio GIL hang". I-0140 root-caused the whole rotating
+# flake class: it was never the GIL — swallowed/unretried DB writes on the
+# execution path left task rows Running forever (hangs) or failed tasks that
+# succeeded (assertions), fixed in rounds 1-3 (retry_transient on every
+# terminal/entry write); the separate teardown segfault class was structurally
+# derisked in round 4 (atexit joins all runtime threads before interpreter
+# finalization). Verified: 500/500 + 300/300 + 800/800 local stress runs and a
+# fully-clean nightly with zero rescue markers across all four legs.
+#
+# A scenario hang/crash is now a REAL regression — do not re-add entries here
+# to make CI green; find the unretried write or teardown race instead (the
+# I-0140 initiative doc is the playbook, .angreal/gil_stress.py the harness).
+KNOWN_FLAKY_HANG: set = set()
 
 
 def _looks_like_crash(returncode, stdout, stderr) -> bool:
