@@ -306,6 +306,15 @@ def integration(
             raise RuntimeError(f"{failed} Python pytest scenario file(s) failed")
 
         print_final_success("All integration tests passed!")
+
+        # CLOACI-I-0140: clean the venv ONLY on success. On failure it must
+        # survive — CI's core-dump analysis step needs the (unstripped)
+        # cloaca .so inside it to symbolize backtraces; the old finally-block
+        # cleanup was exactly why every nightly segfault core came out
+        # symbol-less.
+        if py_venv is not None and venv_path.exists():
+            print(f"\nCleaning up Python test environment: {venv_name}")
+            shutil.rmtree(venv_path, ignore_errors=True)
     except subprocess.CalledProcessError as e:
         print(f"Integration tests failed with error: {e}", file=sys.stderr)
         raise RuntimeError(f"Integration tests failed with return code {e.returncode}")
@@ -313,6 +322,3 @@ def integration(
         if not skip_docker and run_postgres:
             docker_down()
             docker_clean()
-        if py_venv is not None and venv_path.exists():
-            print(f"\nCleaning up Python test environment: {venv_name}")
-            shutil.rmtree(venv_path, ignore_errors=True)
