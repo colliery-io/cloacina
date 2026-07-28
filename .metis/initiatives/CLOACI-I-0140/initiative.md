@@ -199,6 +199,22 @@ Round-3 fix (`runner/default_runner/workflow_executor_impl.rs`): `retry_transien
 
 Running tally of one mechanism, N surfaces: terminal writes (round 1) → retry scheduling + executor error paths (round 2) → workflow scheduling entry + status reads (round 3). The class is "any unretried DB access on the execution path, surfaced wherever a test unwraps or a state machine stalls."
 
+### 2026-07-28 — Segfault class: hunt results + structural derisk (round 4)
+
+**Hunt results:** the segfault class does NOT reproduce locally — 400/400 clean on macOS/postgres (scenario 16) and 400/400 clean on arm64-linux/postgres in docker (scenarios 27+16, unstripped wheel, gdb armed). Two CI kills in two days meanwhile (scenario 16, then 27 — postgres/ubuntu both). Remaining differentiators: x86_64 and GitHub's 2-core runner timing. CI evidence pins the crash *site*: faulthandler shows the main thread inside pytest's `collect_unraisable` — a finalizer raised, and processing the exception touched freed memory → refcount corruption/UAF from the extension during teardown (audit B2 shape). The nightly's gdb core capture is useless today (stripped wheel + gdb loads the wrong binary + it catches the signal re-raise frame).
+
+**Decision (user): derisk the teardown race structurally instead of chasing an environment-specific repro.**
+
+**Round-4 changes (branch fix/i0140-teardown-derisk):**
+1. `_shutdown_all_runners` atexit backstop — every live runtime registers in a global `LIVE_RUNNERS` (Weak refs); the wheel's pymodule init registers an atexit hook joining ALL runtime threads before interpreter finalization begins. Invariant: no runtime thread outlives the interpreter; no PyObject decref into a finalizing interpreter. Forgetting `runner.shutdown()` is now SAFE — a product fix, not a test fix.
+2. `AsyncRuntimeHandle::drop` guards: no-op (zero GIL) when already joined; after `ATEXIT_FIRED`, degrades to a best-effort shutdown signal WITHOUT join/GIL — leak-on-exit is strictly safer than a decref into a dying interpreter.
+3. conftest.py: removed the SIGALRM abandon-on-timeout machinery — it interrupted `shutdown()` mid-join and left runtime threads alive going into finalization (a live instance of the exact race; predates the I-0140 shutdown fixes).
+4. gil_stress.py: harvests macOS `.ips` crash reports on signal exits.
+
+**Verified:** leak test (create runner, exit WITHOUT shutdown) → atexit fires, "Received shutdown signal" logged, clean rc 0. Scenarios 30+16 smoke-pass on the new wheel.
+
+**Still open for the segfault class:** CI symbolization fix (unstripped nightly test wheel + gdb pointed at the python binary) so any post-derisk kill self-documents.
+
 ## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
 
 {Delete if no UI components}

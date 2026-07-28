@@ -208,6 +208,17 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<bindings::runner::PyWorkflowResult>()?;
     m.add_class::<bindings::context::PyDefaultRunnerConfig>()?;
 
+    // CLOACI-I-0140 (segfault class): join ALL runtime threads via atexit,
+    // BEFORE interpreter finalization begins. This is the structural guarantee
+    // that no runtime thread can decref a PyObject into a finalizing
+    // interpreter — a user forgetting `runner.shutdown()` is now safe.
+    m.add_function(wrap_pyfunction!(
+        bindings::runner::_shutdown_all_runners,
+        m
+    )?)?;
+    let atexit = m.py().import("atexit")?;
+    atexit.call_method1("register", (m.getattr("_shutdown_all_runners")?,))?;
+
     #[cfg(feature = "postgres")]
     {
         m.add_class::<bindings::admin::PyDatabaseAdmin>()?;

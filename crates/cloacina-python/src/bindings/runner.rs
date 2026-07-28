@@ -195,6 +195,40 @@ struct AsyncRuntimeHandle {
     thread_handle: Option<thread::JoinHandle<()>>,
 }
 
+/// CLOACI-I-0140 (segfault class): every live runtime is registered here so the
+/// module's `atexit` hook can join ALL runtime threads BEFORE interpreter
+/// finalization begins. The invariant this enforces: no runtime thread may
+/// outlive the interpreter, and no `PyObject` may be dropped after finalization
+/// starts — the teardown race behind the rotating CI segfaults.
+static LIVE_RUNNERS: Mutex<Vec<std::sync::Weak<Mutex<AsyncRuntimeHandle>>>> =
+    Mutex::new(Vec::new());
+
+/// Set once the atexit hook has drained `LIVE_RUNNERS`. Any `Drop` that fires
+/// after this point is running during interpreter exit: acquiring the GIL or
+/// joining a thread that might need it is unsafe, so Drop degrades to a
+/// best-effort shutdown signal without a join.
+static ATEXIT_FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Shut down every still-live runner. Registered with Python's `atexit` by the
+/// wheel's `#[pymodule]` init; also callable directly (idempotent — shutdown of
+/// an already-joined handle is a no-op).
+#[pyfunction]
+pub fn _shutdown_all_runners(py: Python) -> PyResult<()> {
+    let handles: Vec<_> = {
+        let mut reg = LIVE_RUNNERS.lock().unwrap();
+        reg.drain(..).filter_map(|w| w.upgrade()).collect()
+    };
+    py.allow_threads(|| {
+        for h in &handles {
+            if let Err(e) = h.lock().unwrap().shutdown() {
+                warn!("atexit runner shutdown reported: {}", e);
+            }
+        }
+    });
+    ATEXIT_FIRED.store(true, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
 impl AsyncRuntimeHandle {
     /// Shutdown the runtime thread and wait for it to complete
     fn shutdown(&mut self) -> Result<(), ShutdownError> {
@@ -249,6 +283,20 @@ impl AsyncRuntimeHandle {
 
 impl Drop for AsyncRuntimeHandle {
     fn drop(&mut self) {
+        // Already joined (explicit shutdown() or the atexit hook) — nothing to
+        // do, and crucially NO GIL acquisition on this path.
+        if self.thread_handle.is_none() {
+            return;
+        }
+        // CLOACI-I-0140 (segfault class): after the atexit hook has fired the
+        // interpreter is exiting — acquiring the GIL or joining a thread that
+        // may need it is unsafe. Degrade to a best-effort shutdown signal and
+        // deliberately leak the join; the process is dying anyway and a leaked
+        // thread is strictly safer than a decref into a finalizing interpreter.
+        if ATEXIT_FIRED.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = self.tx.send(RuntimeMessage::Shutdown);
+            return;
+        }
         // CLOACI-I-0140 (B1): when Python GC drops PyDefaultRunner this Drop
         // runs WITH THE GIL HELD, and shutdown() joins the runtime thread —
         // whose in-flight work (task callbacks, deferred decrefs) may need the
@@ -844,11 +892,19 @@ where
         }
     }
 
+    let handle = Arc::new(Mutex::new(AsyncRuntimeHandle {
+        tx,
+        thread_handle: Some(thread_handle),
+    }));
+    // CLOACI-I-0140: register for the atexit drain (prune dead entries while
+    // holding the lock so the registry can't grow unboundedly).
+    {
+        let mut reg = LIVE_RUNNERS.lock().unwrap();
+        reg.retain(|w| w.strong_count() > 0);
+        reg.push(Arc::downgrade(&handle));
+    }
     Ok(PyDefaultRunner {
-        runtime_handle: Mutex::new(AsyncRuntimeHandle {
-            tx,
-            thread_handle: Some(thread_handle),
-        }),
+        runtime_handle: handle,
     })
 }
 
@@ -859,7 +915,7 @@ where
 /// Python wrapper for DefaultRunner
 #[pyclass(name = "DefaultRunner")]
 pub struct PyDefaultRunner {
-    runtime_handle: Mutex<AsyncRuntimeHandle>,
+    runtime_handle: Arc<Mutex<AsyncRuntimeHandle>>,
 }
 
 /// Internal (non-Python) helpers.
