@@ -4,14 +4,14 @@ level: initiative
 title: "First-party Kafka event-source provider — the flagship provider authoring story"
 short_code: "CLOACI-I-0139"
 created_at: 2026-07-15T02:15:31.122534+00:00
-updated_at: 2026-07-15T12:14:45.111644+00:00
-parent: 
+updated_at: 2026-07-28T20:14:56.277423+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
