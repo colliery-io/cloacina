@@ -4,14 +4,14 @@ level: initiative
 title: "Root-cause the PyO3-tokio GIL instability — end the rotating Python scenario flake class"
 short_code: "CLOACI-I-0140"
 created_at: 2026-07-27T01:12:10.161328+00:00
-updated_at: 2026-07-27T01:12:10.161328+00:00
+updated_at: 2026-07-28T20:15:17.011269+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
