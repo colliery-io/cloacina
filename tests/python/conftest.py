@@ -67,26 +67,20 @@ def shared_runner():
 
     yield _shared_runner
 
-    # Cleanup at session end
+    # Cleanup at session end.
+    #
+    # CLOACI-I-0140: the old SIGALRM machinery here interrupted shutdown()
+    # mid-join and ABANDONED it on timeout — leaving runtime threads alive
+    # while the interpreter proceeded into finalization, which is the exact
+    # teardown race behind the rotating CI segfaults. Shutdown is reliable
+    # now (the runner also registers an atexit backstop that joins every
+    # runtime thread before finalization), so: plain shutdown, no alarm,
+    # never abandon a live runner.
     if _shared_runner is not None:
         print("DEBUG: Shutting down shared runner at session end")
         try:
-            # Set a timeout for shutdown
-            def timeout_handler(signum, frame):
-                print("WARNING: Shared runner shutdown timed out")
-                raise TimeoutError("Shutdown timeout")
-
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(10)  # 10 second timeout
-
-            try:
-                _shared_runner.shutdown()
-                signal.alarm(0)  # Cancel timeout
-                print("DEBUG: Shared runner shutdown completed")
-            except TimeoutError:
-                print("WARNING: Forced shutdown due to timeout")
-                signal.alarm(0)
-
+            _shared_runner.shutdown()
+            print("DEBUG: Shared runner shutdown completed")
         except Exception as e:
             print(f"WARNING: Error during shared runner shutdown: {e}")
 

@@ -130,6 +130,19 @@ def main() -> int:
         log = art_dir / f"iter{i:04d}-{kind}.log"
         out = out or ""
         err = err or ""
+        # On a native crash, harvest the macOS crash report (.ips) — it carries
+        # the full native stacks of every thread, symbolized (CLOACI-I-0140
+        # segfault-class hunt).
+        if kind.startswith("signal"):
+            time.sleep(3)  # ReportCrash needs a beat to write the file
+            reports = sorted(
+                Path.home().glob("Library/Logs/DiagnosticReports/[Pp]ython*.ips"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if reports and time.time() - reports[0].stat().st_mtime < 60:
+                err += f"\n--- CRASH REPORT ({reports[0].name}) ---\n"
+                err += reports[0].read_text(errors="replace")
         log.write_text(
             f"# {scenario.name} iter {i} -> {kind} after {dt:.1f}s\n\n"
             f"--- STDOUT ---\n{out}\n--- STDERR ---\n{err}\n"
