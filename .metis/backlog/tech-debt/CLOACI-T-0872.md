@@ -5,7 +5,7 @@ title: "Independent provider release path — publish/tag first-party providers 
 short_code: "CLOACI-T-0872"
 created_at: 2026-07-08T11:43:21.080493+00:00
 updated_at: 2026-07-08T11:43:21.080493+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -39,7 +39,7 @@ Design + build a release path for first-party providers that lets them publish/t
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -51,7 +51,7 @@ Design + build a release path for first-party providers that lets them publish/t
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -80,7 +80,7 @@ Design + build a release path for first-party providers that lets them publish/t
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -91,7 +91,7 @@ Design + build a release path for first-party providers that lets them publish/t
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}
@@ -136,4 +136,13 @@ Design + build a release path for first-party providers that lets them publish/t
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-28 — Validated model + urgency raised during 0.10.0 release prep
+
+The consumption chain was validated in code end-to-end (user prompt), confirming this task's premise exactly:
+- A consumer depends on the provider **as a plain Cargo dependency** — `provider-consumer-fixture/Cargo.toml`: "The provider, referenced exactly as a consumer would (A-0010: `from` = this name)".
+- The **workflow package is what gets compiled**; the compiler resolves its deps from crates.io in production (`cloacina-compiler/src/build.rs:696-698`: "real packages resolve from crates.io" — path-dep injection is a dev/test-only shim).
+- For NATIVE providers (I-0139), the compiler's provider bundler (`pack_providers`/`bundle_providers`, T-0907) builds the host cdylib while compiling the consuming workflow — so **crates.io publication of the provider crate is the complete consumer story**; `cloacinactl constructor package --native` is the standalone/manual packaging path.
+
+**Consequence:** until this task lands, NO server-compiled workflow can use `cloacina-provider-kafka` (or any first-party provider) — every provider still carries `publish = false` "until the providers publish home (T-0871/0872) exists" per its own Cargo.toml. With kafka (I-0139, completed) now the flagship REAL provider, T-0871's audit question has a partial answer (kafka + likely fs are real; sensor/quorum/extract likely illustrative) and this task's priority rises accordingly.
+
+(A duplicate task CLOACI-T-0909 was created 2026-07-28 in error and archived; nothing from it supersedes this task's design direction: per-provider tags `provider-<name>-vX.Y.Z` → publish that crate to crates.io, separate workflow from core's release train.)

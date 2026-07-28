@@ -28,6 +28,16 @@ _JSON_FILES = [
 _PY_PYPROJECT = ("python · client pyproject", "clients/python/pyproject.toml")
 _PY_INIT = ("python · client __init__", "clients/python/src/cloacina_client/__init__.py")
 _SCAFFOLD = ("scaffold · CLOACINA_CRATE_VERSION", "crates/cloacinactl/src/nouns/package/new.rs")
+# Helm chart appVersion = which app image tag `helm install` runs by default.
+# These drifted four minors behind before being added here (found during 0.10.0
+# release prep: server/agent said 0.6.1, ui 0.7.0 — a fresh chart install would
+# have deployed the wrong image). The chart's own `version:` is deliberately
+# independent semver and NOT checked.
+_HELM_CHARTS = [
+    ("helm · cloacina-server appVersion", "charts/cloacina-server/Chart.yaml"),
+    ("helm · cloacina-agent appVersion", "charts/cloacina-agent/Chart.yaml"),
+    ("helm · cloacina-ui appVersion", "charts/cloacina-ui/Chart.yaml"),
+]
 
 
 def _read(rel: str) -> str:
@@ -71,12 +81,15 @@ def found_versions(source: str):
     out.append((_PY_INIT[0], m.group(1) if m else "<missing>", source))
     m = re.search(r'CLOACINA_CRATE_VERSION:\s*&str\s*=\s*"([^"]+)"', _read(_SCAFFOLD[1]))
     out.append((_SCAFFOLD[0], m.group(1) if m else "<missing>", _minor(source)))
+    for label, rel in _HELM_CHARTS:
+        m = re.search(r'^appVersion:\s*"([^"]+)"', _read(rel), re.MULTILINE)
+        out.append((label, m.group(1) if m else "<missing>", source))
     return out
 
 
 def mismatches():
     source = source_version()
-    return source, [(l, g, e) for (l, g, e) in found_versions(source) if g != e]
+    return source, [(lbl, got, exp) for (lbl, got, exp) in found_versions(source) if got != exp]
 
 
 def set_version(new: str) -> None:
@@ -109,6 +122,10 @@ def set_version(new: str) -> None:
     t = _read(_SCAFFOLD[1])
     t = re.sub(r'(CLOACINA_CRATE_VERSION:\s*&str\s*=\s*")[^"]+(")', r"\g<1>" + source_minor + r"\g<2>", t, count=1)
     _write(_SCAFFOLD[1], t)
+    for _, rel in _HELM_CHARTS:
+        t = _read(rel)
+        t = re.sub(r'^(appVersion:\s*")[^"]+(")', r"\g<1>" + new + r"\g<2>", t, count=1, flags=re.MULTILINE)
+        _write(rel, t)
 
 
 def changelog_stub(new: str) -> None:

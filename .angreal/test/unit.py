@@ -57,7 +57,24 @@ def unit(filter=None, backend=None):
 
     try:
         subprocess.run(cmd, check=True)
-        print_final_success("All unit tests passed!")
     except subprocess.CalledProcessError as e:
         print(f"Unit tests failed with error: {e}", file=sys.stderr)
+        raise RuntimeError(f"Unit tests failed with return code {e.returncode}")
+
+    # Run cloacinactl unit tests. Previously in NO lane at all — two scaffold
+    # tests sat failing for three minors with CI green (found during 0.10.0
+    # release prep). Feature set mirrors the distributed CLI build.
+    print("Running cloacinactl unit tests...")
+    ctl_cmd = [
+        "cargo", "test", "-p", "cloacinactl",
+        "--no-default-features", "--features", "postgres,sqlite",
+    ]
+    if filter:
+        ctl_cmd.append(filter)
+
+    try:
+        subprocess.run(ctl_cmd, check=True)
+        print_final_success("All unit tests passed!")
+    except subprocess.CalledProcessError as e:
+        print(f"cloacinactl unit tests failed with error: {e}", file=sys.stderr)
         raise RuntimeError(f"Unit tests failed with return code {e.returncode}")

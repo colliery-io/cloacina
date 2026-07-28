@@ -520,7 +520,9 @@ mod tests {
 
         let manifest = fs::read_to_string(dir.join("package.toml")).unwrap();
         assert!(manifest.contains("workflow_name = \"data_pipeline\""));
-        assert!(manifest.contains("entry_module = \"data_pipeline.tasks\""));
+        // T-0735 minimal manifest: entry_module is INFERRED from the layout for
+        // python workflows (graphs keep it explicit — see the graph test).
+        assert!(!manifest.contains("entry_module"));
     }
 
     #[test]
@@ -559,7 +561,11 @@ mod tests {
         .unwrap();
 
         let cargo = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-        assert!(cargo.contains("cloacina-workflow = { version = \"0.7\""));
+        // Assert against the const, not a literal — a hardcoded "0.7" here
+        // silently rotted three minors before being caught (0.10.0 release prep).
+        assert!(cargo.contains(&format!(
+            "cloacina-workflow = {{ version = \"{CLOACINA_CRATE_VERSION}\""
+        )));
         assert!(!cargo.contains("__WORKSPACE__"));
         assert!(!cargo.contains("path ="));
 
