@@ -137,7 +137,18 @@ impl DeliverySweeper {
             // the envelope contract). Pending-past-threshold rows are left as-is
             // — the wake below tells the relay to re-drain.
             if row.state() == Some(DeliveryState::Delivered) {
-                match self.dal.delivery_outbox().reset_to_pending(row.id).await {
+                // CLOACI-I-0140: retry transient DB contention (sqlite
+                // busy/locked) so it isn't misread as a CAS loss — under
+                // concurrent sweepers a transient lock on BOTH meant NO ONE
+                // reset the row. A genuine CAS loss (row left `delivered`
+                // concurrently) is a different error shape and still skips.
+                match crate::executor::result_handler::retry_transient(
+                    5,
+                    std::time::Duration::from_millis(50),
+                    || async { self.dal.delivery_outbox().reset_to_pending(row.id).await },
+                )
+                .await
+                {
                     Ok(()) => reset += 1,
                     // Race with another sweeper or with an ack: row already
                     // moved out of `delivered`. Safe to ignore.
