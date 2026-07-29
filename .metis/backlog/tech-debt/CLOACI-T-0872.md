@@ -69,9 +69,12 @@ Design + build a release path for first-party providers that lets them publish/t
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [ ] `provider_release.yml` wave workflow exists (tag `providers-v<YYYY.MM[.n]>` or dispatch) implementing classify → guard → certify → publish → record → wave notes, with per-provider-atomic failure semantics.
+- [ ] Certification compiles + E2E-runs each provider's consumer fixture against **crates.io** core (no local patching) for BOTH candidates and unchanged providers.
+- [ ] Compat table (in-repo, machine-readable: provider × version × certified core × wave) is regenerated and committed by the wave.
+- [ ] PR guard fails any change to `providers/<name>/src` that doesn't bump the version + add a changelog entry.
+- [ ] `angreal providers wave` front door exists (prep checks + tag cut); post-core-release prep PR flow (pin bumps + compat patch releases) documented.
+- [ ] Inaugural wave publishes `cloacina-provider-kafka` (publish=false flipped) and the compat table records it certified against core 0.10.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -123,16 +126,39 @@ Design + build a release path for first-party providers that lets them publish/t
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
-{Keep for technical tasks, delete for non-technical. Technical details, approach, or important considerations}
+### Design — the provider WAVE model (blessed by user 2026-07-28; supersedes the per-provider-tag sketch in the Objective)
 
-### Technical Approach
-{How this will be implemented}
+**What a provider release IS:** a verified claim with four parts — (1) an immutable source crate at version X on crates.io; (2) a **machine-earned compatibility claim** ("tested against released core Y" — the release gate compiles + E2E-runs the provider's consumer fixture against crates.io core, never the working tree); (3) the provider's own semver where the API surface is the **config schema** (renaming a config key is breaking even if no Rust signature moved — changelogs written in config-schema terms); (4) a row in the tested-set **compat table**. NOT part of a release: binaries or signing — the compiler builds native cdylibs from source at workflow-compile time (validated 2026-07-28), so providers are source releases.
+
+**Cadence model (Airflow-style waves):** provider versions stay independent (A-0010) but release ceremony is BATCHED — one wave trigger covers every provider. (Airflow's actual model for ~90 providers: independent versions + periodic release waves + published constraint files recording the tested combination. We adopt all three at small scale.)
+
+**Standing state between waves:**
+- Providers live in `providers/` (post-T-0871), each: standalone crate, own `[workspace]`, own version, per-provider CHANGELOG.md, a consumer fixture, core deps PINNED to an exact released minor (`= "0.10"`); ship-form version deps with harness local-patching for dev (same mechanism as ship-form examples).
+- PR guard: any PR touching `providers/<name>/src` with manifest version == last PUBLISHED version FAILS (must bump + changelog). Main is self-describing by wave time.
+
+**The wave (`provider_release.yml`, triggered by `providers-v<YYYY.MM[.n]>` tag or dispatch; `angreal providers wave` as the front door):**
+1. **Classify** each provider: manifest version > crates.io published → RELEASE CANDIDATE; equal → RE-CERTIFY ONLY.
+2. **Guards (candidates only):** changelog entry for the new version exists; core deps are published versions (no path deps); version increased.
+3. **Certify (BOTH classes, identical step — the heart):** clean env, NO local patching — compile the consumer fixture resolving core from crates.io, run it E2E (kafka: broker service container). This step manufactures the compat claim; unchanged providers RE-EARN theirs rather than assume it.
+4. **Publish (candidates only):** `cargo publish` from `providers/<name>` (existing crates.io token).
+5. **Record (everyone):** regenerate + commit the compat table (in-repo, machine-readable: provider × version × certified core × wave).
+6. **Wave release notes:** one GH release on the wave tag — "published: X (changelog excerpt); re-certified: Y, Z".
+
+**Failure semantics:** waves are per-provider atomic — a failing candidate drops out with a report, the rest proceed. An UNCHANGED provider failing re-certification is the contract-drift alarm: it keeps its old compat row (visibly not certified for current core) and becomes the next wave's top work item. No silent rot.
+
+**Core-release coupling (emergent from the pin policy):** pinned deps make every provider a mechanical candidate after a core release — one prep PR bumps all pins + patch versions + "compat: core 0.N" changelog lines, then a wave publishes compat releases for all. Providers therefore ride core's cadence plus ad-hoc feature waves between. Loosen pins to ranges only if/when the roster grows enough for this to hurt.
+
+**Key property:** bumped and unbumped providers run the IDENTICAL pipeline differing at exactly one step (publish) — because the claim, not the upload, is what a release means.
 
 ### Dependencies
-{Other tasks or systems this depends on}
+- [[CLOACI-T-0871]] first: audit roster (kafka + fs real; sensor/quorum/extract stay illustrative examples) and move real providers to `providers/`.
+- Core 0.10.0 published on crates.io (v0.10.0 train, 2026-07-28) — providers must version-dep against released core.
+- Flip `publish = false` off the real providers as part of their first wave prep.
 
 ### Risk Considerations
-{Technical risks and mitigation strategies}
+- Consumer-fixture E2E against crates.io core IS the certification — a shallow fixture means a shallow compat claim. Fixtures must instantiate constructors and execute, not just compile.
+- The nightly contract-drift lane (build providers against MAIN's contract crates) complements waves: early warning that the NEXT core release breaks providers, before release day.
+- First wave is the plumbing shakedown: expect crates.io first-publish quirks (mirror the core train's soft-fail handling).
 
 ## Status Updates **[REQUIRED]**
 
