@@ -284,58 +284,13 @@ jobs:
           skip-existing: true
 
   # -----------------------------------------------------------------------
-  # Step 4c: Publish the TypeScript SDK to npm (CLOACI-I-0113 / T-0648).
-  # Version-locked to the workspace release; idempotent on re-runs (skips
-  # when the version already exists on the registry — same class of guard
-  # as crates.io/PyPI above, learned the hard way on v0.7.0).
+  # (Step 4c npm-publish job removed 2026-07-29: the @cloacina/client npm
+  # publish was broken for multiple releases — the @cloacina scope was never
+  # bootstrapped on npmjs (E404 on first scoped PUT) and the job soft-failed
+  # every train. The TypeScript SDK still lives in clients/typescript and
+  # stays in the SDK version-lockstep check; reinstate a publish job if/when
+  # the npm org exists.)
   # -----------------------------------------------------------------------
-
-  publish-npm:
-    name: Publish @cloacina/client to npm
-    needs: [verify-version]
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    # Soft-fail: the FIRST publish of a scoped package routinely needs manual
-    # one-time setup (npm org for the @cloacina scope, token granularity,
-    # 2FA/provenance settings). Don't let that hold the rest of the release
-    # hostage — the job is idempotent, so re-run it (or publish by hand) once
-    # the registry side is sorted. Revisit dropping this after the first
-    # successful publish.
-    continue-on-error: true
-    permissions:
-      contents: read
-    environment:
-      name: production
-      url: https://www.npmjs.com/package/@cloacina/client
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Build
-        working-directory: clients/typescript
-        run: |
-          npm ci
-          npm run check:generated
-          npm run build
-
-      - name: Publish (idempotent)
-        working-directory: clients/typescript
-        run: |
-          version=$(node -p "require('./package.json').version")
-          if npm view "@cloacina/client@${version}" version >/dev/null 2>&1; then
-            echo "○ @cloacina/client@${version} already published (skipping)"
-          else
-            npm publish --access public
-            echo "✓ @cloacina/client@${version} published"
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # -----------------------------------------------------------------------
   # Step 4d: Publish the Python SDK (cloacina-client) to PyPI
