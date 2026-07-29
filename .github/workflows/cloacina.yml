@@ -305,20 +305,37 @@ jobs:
           # the crashing executable per-core from the core file itself; the
           # unstripped cloaca wheel (pyproject strip=false) makes the frames
           # inside the extension resolve.
+          # Lessons from the 2026-07-29 v0.10.0 release-gate core (the first
+          # capture with the venv intact): `execfn` records the exec'd FILE,
+          # which for pytest is a python SCRIPT (not ELF — gdb rejects it and
+          # then loads no symbol tables at all); and `%e` in the core pattern
+          # is the crashing THREAD's name (e.g. `tokio-rt-worker`), not the
+          # binary. So: resolve execfn, then if it isn't a real ELF, follow a
+          # script's shebang / fall back to the venv's REAL python binary
+          # (readlink through the symlink chain), then the rust test binary.
+          resolve_elf() {
+            local cand="$1"
+            [ -n "$cand" ] && [ -f "$cand" ] || return 1
+            cand=$(readlink -f "$cand")
+            if file "$cand" | grep -q ELF; then echo "$cand"; return 0; fi
+            # Script: try its shebang interpreter.
+            local interp
+            interp=$(head -1 "$cand" | grep -oP '^#!\K\S+' || true)
+            if [ -n "$interp" ] && [ -f "$interp" ]; then
+              interp=$(readlink -f "$interp")
+              file "$interp" | grep -q ELF && echo "$interp" && return 0
+            fi
+            return 1
+          }
           for core in /tmp/core.*; do
             [ -f "$core" ] || continue
             echo "=== Analyzing core dump: $core ==="
-            EXE=$(file "$core" | grep -oP "execfn: '\K[^']+" || true)
-            if [ -z "$EXE" ] || [ ! -f "$EXE" ]; then
-              # Fallback: %e in the core pattern is the executable basename.
-              BASE=$(basename "$core" | cut -d. -f2)
-              case "$BASE" in
-                python*) EXE=$(find "$PWD/test-env-unified/bin" -name 'python*' -type f 2>/dev/null | head -1) ;;
-                *) EXE=$(find target/debug/deps -name "${BASE}*" -type f -executable 2>/dev/null | head -1) ;;
-              esac
+            EXE=$(resolve_elf "$(file "$core" | grep -oP "execfn: '\K[^']+" || true)" || true)
+            if [ -z "$EXE" ]; then
+              EXE=$(resolve_elf "$PWD/test-env-unified/bin/python" || true)
             fi
             if [ -z "$EXE" ]; then
-              echo "Could not determine executable for $core; trying rust test binary"
+              echo "Could not resolve a python ELF; trying rust test binary"
               EXE=$(find target/debug/deps -name 'integration-*' -type f -executable 2>/dev/null | head -1)
             fi
             echo "=== Executable: ${EXE:-unknown} ==="
