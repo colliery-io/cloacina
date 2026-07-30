@@ -4,15 +4,15 @@ level: task
 title: "First-party provider audit + promotion out of examples/ — which are real providers, where do they live"
 short_code: "CLOACI-T-0871"
 created_at: 2026-07-08T11:43:20.369192+00:00
-updated_at: 2026-07-08T11:43:20.369192+00:00
-parent: 
+updated_at: 2026-07-30T04:56:28.761478+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -39,7 +39,7 @@ Audit which of these are real first-party providers vs. purely illustrative exam
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -51,7 +51,7 @@ Audit which of these are real first-party providers vs. purely illustrative exam
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -67,6 +67,10 @@ Audit which of these are real first-party providers vs. purely illustrative exam
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] {Specific, testable requirement 1}
@@ -80,7 +84,7 @@ Audit which of these are real first-party providers vs. purely illustrative exam
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -91,7 +95,7 @@ Audit which of these are real first-party providers vs. purely illustrative exam
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}
@@ -136,4 +140,20 @@ Audit which of these are real first-party providers vs. purely illustrative exam
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-30 — Audit complete; roster blessed (kafka + fs promote, seeds hold)
+
+**Audit table:** kafka (native stream accumulator, I-0139 flagship) and fs (task suite read_file/write_file, grants-model canonical) = REAL, promote to `providers/`. extract/quorum/sensor (T-0825 "seeds", ~70 lines, one member each) = nascent stdlib rather than pure pedagogy, but stateless-only and undemanded — HOLD in examples with a graduation note. **User blessed 2026-07-30.**
+
+**Key audit finding — TWO contract crates:** providers dep the example-local `constructor-contract` (553 lines, unpublished), not the published `cloacina-constructor-contract` (670 lines, crates.io 0.10.0, a superset adding ProviderRuntime etc). Wire-compatible today, but ship-form providers MUST retarget to the published crate. The main non-mechanical promotion work.
+
+**Mechanical map:** path deps → version deps `= "0.10"`; 3 core tests hardcode old paths (constructor_provider_kafka_native.rs, provider_bundle.rs, constructor_provider_package_wasm.rs); fixture path updates (packaged-consumer-fixture, demo-kafka-stream-rust via __WORKSPACE__, provider-consumer-fixture relative); root Cargo.toml exclude needs `providers/*`; docs author-a-provider.md; compiler bundler has ZERO path assumptions.
+
+**Scope adjustment:** fixture COLOCATION deferred to T-0872 (the wave defines the fixture-discovery convention; demo-kafka-stream-rust is demo-harness-entangled). This task: move providers, retarget contract, ship-form deps, sweep references, CHANGELOG/README stubs, PROVIDERS.md roster.
+
+### 2026-07-30 — Phase 2 implementation (branch feat/t0871-promote-providers)
+
+- `git mv` kafka + fs → `providers/`; root Cargo.toml `exclude` += `providers/*`.
+- **Contract retarget PROVED mechanical**: both providers flipped to `cloacina-constructor-contract = "0.10"` + `cloacina-macros = "0.10"` (crates.io) and **compile clean in pure ship form** — the published contract is a true compatible superset; `contract = cloacina_constructor_contract` attr works as-is. fs: 4 source refs; kafka: 2; emit_manifest bins untouched (go through the generated fn).
+- Reference sweep (all fixed): 3 core tests, reconciler `loading.rs:3299` embedded test, fixtures demo-constructor-{py,rust}, cg-feature-tour, packaged-consumer-fixture, demo-kafka-stream-rust (all `__WORKSPACE__` substitutions), provider-consumer-fixture (relative), fs-grant-demo `CARGO_MANIFEST_DIR` join, docs author-a-provider.md. Grep for both absolute and relative ref shapes = 0 remaining (metis history intentionally untouched).
+- Scaffolding: `providers/PROVIDERS.md` (roster + seeds-graduation note + wave conventions), per-provider CHANGELOG.md, manifest comments updated (ship-form deps; `publish = false` until first wave, T-0872).
+- Verification in flight: `provider_bundle` (fs wasm) + `constructor_provider_kafka_native` (kafka native) tests running against the moved paths.

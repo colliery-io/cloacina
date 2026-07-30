@@ -16,4 +16,4 @@ publish = false
 
 [dependencies]
 # The provider, referenced exactly as a consumer would (A-0010: `from` = this name).
-cloacina-provider-fs = { path = "../cloacina-provider-fs" }
+cloacina-provider-fs = { path = "../../../providers/cloacina-provider-fs" }

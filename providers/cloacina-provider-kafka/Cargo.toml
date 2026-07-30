@@ -11,8 +11,8 @@
 # `call_streaming` → `ChunkStream` → the accumulator boundary channel (T-0904).
 #
 # Standalone crate (empty [workspace], under examples/*, excluded from the
-# cloacina workspace). `publish = false` until the providers publish home
-# (CLOACI-T-0871/0872) exists; deps are path deps for the same reason.
+# cloacina workspace). Ship-form version deps (crates.io); `publish = false`
+# until the first provider release wave flips it (CLOACI-T-0872).
 [workspace]
 
 [package]
@@ -45,12 +45,12 @@ default = ["native"]
 native = []
 
 [dependencies]
-# The `#[constructor]` / `constructor_provider!` authoring macros (path dep).
-cloacina-macros = { path = "../../../crates/cloacina-macros" }
+# The `#[constructor]` / `constructor_provider!` authoring macros (crates.io version dep).
+cloacina-macros = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Shared, language-neutral contract types (serde-only → host-safe).
-constructor-contract = { path = "../constructor-contract" }
+cloacina-constructor-contract = "0.10"
 
 # fidius HOST SDK — the native suite shell is emitted with `crate = fidius_core`.
 fidius-core = "0.5.6"

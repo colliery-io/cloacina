@@ -33,4 +33,4 @@ topic = "demo.kafka.stream"
 group = "demo-kafka-stream-rust-group"
 
 [metadata.providers]
-cloacina-provider-kafka = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-kafka" }
+cloacina-provider-kafka = { path = "__WORKSPACE__/providers/cloacina-provider-kafka" }

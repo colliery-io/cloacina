@@ -246,18 +246,18 @@ Two rules of the shape:
 
 Stream accumulators are native-only today (WASM streaming parity is planned).
 The complete implementation is
-`examples/constructor-contract/cloacina-provider-kafka`.
+`providers/cloacina-provider-kafka`.
 
 ## Worked example
 
 A complete, runnable example lives at
-`examples/constructor-contract/cloacina-provider-fs` (the `cloacina-provider-fs`
+`providers/cloacina-provider-fs` (the `cloacina-provider-fs`
 suite) and `examples/constructor-contract/fs-grant-demo` (three workflows: a
 granted read, a denied read, and a granted write via the second member). Run it
 with `cargo run` in the demo crate.
 
 For the NATIVE + stream tier, the worked example is
-`examples/constructor-contract/cloacina-provider-kafka` consumed by
+`providers/cloacina-provider-kafka` consumed by
 `examples/features/computation-graphs/cg-feature-tour` (run it end to end with
 `angreal demos features cg-feature-tour`).
 

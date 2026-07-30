@@ -71,7 +71,7 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(2);
     mode = stream,
     name = "kafka_source",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Streams Kafka messages (one payload = one boundary event) from a configured broker/topic/group.",
     author = "CLOACI-T-0906"
 )]
@@ -139,6 +139,6 @@ impl KafkaSource {
 constructor_provider!(
     name = "cloacina-provider-kafka",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     stream_accumulator = [KafkaSource],
 );

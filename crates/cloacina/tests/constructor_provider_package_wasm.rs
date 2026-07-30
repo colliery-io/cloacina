@@ -65,8 +65,7 @@ struct PathConfig {
 }
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/constructor-contract/cloacina-provider-fs")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../providers/cloacina-provider-fs")
 }
 
 /// A deterministic Ed25519 keypair for the test (no OsRng needed). Writes the
