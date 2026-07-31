@@ -3295,8 +3295,7 @@ mod tests {
                 let out = tempfile::TempDir::new().unwrap().keep();
                 let archive = out.join("cloacina-provider-fs.cloacina");
                 let opts = crate::packaging::constructor_provider::ProviderPackageOptions {
-                    crate_dir: workspace_root()
-                        .join("examples/constructor-contract/cloacina-provider-fs"),
+                    crate_dir: workspace_root().join("providers/cloacina-provider-fs"),
                     output: Some(archive.clone()),
                     sign_key: None,
                     manifest_bin: "emit_manifest".to_string(),

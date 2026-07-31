@@ -24,4 +24,4 @@ author = "CLOACI-T-0831"
 entry_module = "constructor_demo_py.tasks"
 
 [metadata.providers]
-cloacina-provider-fs = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-fs" }
+cloacina-provider-fs = { path = "__WORKSPACE__/providers/cloacina-provider-fs" }

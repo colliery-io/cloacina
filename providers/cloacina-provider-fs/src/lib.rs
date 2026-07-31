@@ -40,8 +40,8 @@
 // workspace check-cfg lint flags as unknown — benign (mirrors the loader's own allow).
 #![allow(unexpected_cfgs)]
 
+use cloacina_constructor_contract::ConstructorError;
 use cloacina_macros::{constructor, constructor_provider};
-use constructor_contract::ConstructorError;
 
 /// Reads the file at the bound `#[config] path` and stores its contents in the
 /// context under `contents`. The read only succeeds if the consuming workflow
@@ -50,7 +50,7 @@ use constructor_contract::ConstructorError;
     kind = task,
     name = "read_file",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Reads a file from inside the sandbox; succeeds only with an fs grant.",
     author = "CLOACI-T-0834"
 )]
@@ -83,7 +83,7 @@ impl ReadFile {
     kind = task,
     name = "write_file",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Writes a file from inside the sandbox; succeeds only with a writable fs grant.",
     author = "CLOACI-T-0837"
 )]
@@ -115,6 +115,6 @@ impl WriteFile {
 // (`cloacina-provider-fs`) — the `cloacina-provider-<name>` convention, and the
 // name a consumer's `from = "cloacina-provider-fs"` resolves at both build and load.
 constructor_provider!(
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     task = [ReadFile, WriteFile],
 );

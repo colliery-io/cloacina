@@ -36,4 +36,4 @@ group = "cg-feature-tour-group"
 # cannot target wasm). `__WORKSPACE__` is rewritten to an absolute path by the
 # demo harness before packing (same convention as demo-constructor-py).
 [metadata.providers]
-cloacina-provider-kafka = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-kafka" }
+cloacina-provider-kafka = { path = "__WORKSPACE__/providers/cloacina-provider-kafka" }

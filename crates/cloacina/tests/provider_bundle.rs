@@ -146,7 +146,7 @@ fn packs_providers_from_manifest_specs() {
     use cloacina::packaging::provider_bundle::pack_providers_from_specs;
 
     let provider_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/constructor-contract/cloacina-provider-fs")
+        .join("../../providers/cloacina-provider-fs")
         .canonicalize()
         .unwrap();
     let specs = vec![(

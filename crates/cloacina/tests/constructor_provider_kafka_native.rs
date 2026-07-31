@@ -84,8 +84,7 @@ impl Accumulator for Passthrough {
 }
 
 fn provider_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/constructor-contract/cloacina-provider-kafka")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../providers/cloacina-provider-kafka")
 }
 
 fn broker() -> String {

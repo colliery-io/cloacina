@@ -17,7 +17,7 @@
 //! CLOACI-T-0834 / A-0011 — runnable proof of the constructor capability-GRANT model
 //! over a provider SUITE.
 //!
-//! ONE provider crate (`../cloacina-provider-fs`) is a *suite* (`cloacina-provider-fs`)
+//! ONE provider crate (`providers/cloacina-provider-fs`) is a *suite* (`cloacina-provider-fs`)
 //! of TWO members compiled into ONE component: `read_file` and `write_file`, each
 //! selected by `constructor = "<name>"`. We wire them across three `#[workflow]`s that
 //! differ only in the tenant's `grants`:
@@ -163,10 +163,11 @@ pub mod write_granted {
     }
 }
 
-/// Package `../cloacina-provider-fs` into an (unsigned) provider archive and unpack it
+/// Package `providers/cloacina-provider-fs` into an (unsigned) provider archive and unpack it
 /// into `providers` — the `stage_into` of the workflow-node test, inlined for the demo.
 fn stage_constructor(work_dir: &std::path::Path, providers: &PathBuf) {
-    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../cloacina-provider-fs");
+    let crate_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../providers/cloacina-provider-fs");
     let archive = work_dir.join("cloacina-provider-fs.cloacina");
 
     let opts = ProviderPackageOptions {

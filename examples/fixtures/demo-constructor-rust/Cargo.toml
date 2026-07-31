@@ -21,7 +21,7 @@ default = ["packaged"]
 packaged = []
 
 [dependencies]
-cloacina-provider-fs = { path = "__WORKSPACE__/examples/constructor-contract/cloacina-provider-fs" }
+cloacina-provider-fs = { path = "__WORKSPACE__/providers/cloacina-provider-fs" }
 cloacina-macros = { path = "__WORKSPACE__/crates/cloacina-macros" }
 cloacina-computation-graph = { path = "__WORKSPACE__/crates/cloacina-computation-graph" }
 cloacina-workflow = { path = "__WORKSPACE__/crates/cloacina-workflow", features = ["packaged"] }
