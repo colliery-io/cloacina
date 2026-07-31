@@ -125,4 +125,14 @@ Root-cause and fix the RESIDUAL native segfault that survived the I-0140 campaig
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-07-31 — ROOT CAUSE NAMED (symbolized): glibc getenv/setenv race via libpq's GSSAPI path. Never PyO3.
+
+The full forensics stack (#208 unstripped wheel + venv-survives-failure, #212 real-ELF resolution) paid off on the first double-kill (PR #218 CI, scenarios 10+17, postgres/ubuntu). Faulting thread, symbolized through the signal frame: `__GI_getenv("KRB5_TRACE")` ← k5_init_trace ← gss_acquire_cred ← PQconnectPoll/PQconnectdb ← diesel establish ← deadpool Manager::create ← tokio blocking thread.
+
+**Mechanism:** glibc's `getenv` walks `environ` unlocked; concurrent `setenv`/`putenv` from any thread can realloc the array → UAF → SIGSEGV. The mutator: conftest's `enable_rust_logging` was an **autouse fixture** running `os.environ['RUST_LOG']=...` before EVERY test — a setenv racing every pool-thread connection-establish, all session long. Explains everything: postgres-only (no libpq on sqlite), ubuntu-only (glibc unlocked getenv + distro libpq with GSSAPI; macOS libc differs; arm64-docker libpq lacked krb5), 2-core timing, scenario rotation (whichever test's fixture fired during an establish). Also explains the corrupted-looking earlier captures: faulthandler itself crashed AGAIN mid-dump (PyCode_Addr2Line co=0x0).
+
+**Fixes (branch fix/t0910-getenv-race):**
+1. Core: `build_postgres_url` (the single pg-URL funnel — verified nothing bypasses it) defaults `gssencmode=disable` (explicit caller value wins) — skips the krb5/getenv storm. Unit tests 4/4.
+2. Test hygiene: autouse fixture → one-time import-scope `os.environ.setdefault` + standing no-mutation-after-runner rule; scenario 13's inline duplicate removed.
+
+Smoke: scenarios 10+13 pass. Residual: the general glibc getenv/setenv hazard is inherent — the gssencmode default removes cloacina's hottest getenv path; embedders who mutate env at runtime remain exposed on their own paths.

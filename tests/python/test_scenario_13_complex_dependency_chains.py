@@ -14,8 +14,8 @@ class TestComplexDependencyChains:
 
     def test_comprehensive_complex_dependency_patterns(self, shared_runner):
         """Test comprehensive complex dependency chain patterns including diamond, fan-out, fan-in, and multi-level chains."""
-        import os
-        os.environ['RUST_LOG'] = 'cloacina=debug,cloaca_backend=debug'
+        # (RUST_LOG is set once in conftest at import time — mutating
+        # os.environ mid-test races the runner's threads; CLOACI-T-0910.)
         import cloaca
 
         # Test 1: Diamond dependency pattern

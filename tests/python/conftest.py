@@ -171,10 +171,17 @@ def timeout_protection(seconds=15):
         signal.signal(signal.SIGALRM, old_handler)
 
 
-@pytest.fixture(autouse=True)
-def enable_rust_logging():
-    """Enable Rust logging for all tests."""
-    os.environ['RUST_LOG'] = 'cloacina=debug,cloaca_backend=debug'
+# CLOACI-T-0910: RUST_LOG is set ONCE at import time — NEVER from a fixture.
+# The old autouse fixture re-ran `os.environ[...] = ...` before EVERY test,
+# i.e. setenv() racing the live runner's pool threads, whose libpq connection
+# setup is getenv-heavy (krb5). glibc's getenv is unlocked, so that race
+# segfaults — this was the rotating CI segfault class (symbolized core:
+# SIGSEGV in __GI_getenv under PQconnectdb). Conftest imports before any
+# runner exists, so setting it here is safe; respect an externally-set value.
+#
+# Standing rule: NO os.environ mutation anywhere in this suite after a runner
+# has been created.
+os.environ.setdefault('RUST_LOG', 'cloacina=debug,cloaca_backend=debug')
 
 
 def pytest_sessionfinish(session, exitstatus):
