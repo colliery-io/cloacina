@@ -1,0 +1,30 @@
+---
+# CLOACI-T-0872 — the provider PR guard.
+#
+# Any PR touching providers/<name>/src or the provider manifest must bump the
+# provider version (vs crates.io published) and carry a matching CHANGELOG
+# entry — main stays self-describing, so wave day needs no archaeology.
+# Config-schema changes are BREAKING even when no Rust signature moves
+# (providers/PROVIDERS.md). certify/ harness changes are exempt.
+name: "Provider Guard"
+
+on:
+  pull_request:
+    paths:
+      - 'providers/**'
+
+permissions:
+  contents: read
+
+jobs:
+  pr-check:
+    name: Version bump + changelog guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guard changed providers
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          python3 scripts/provider_wave.py pr-check --base "origin/${{ github.base_ref }}"

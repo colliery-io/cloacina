@@ -17,6 +17,9 @@
 [workspace]
 
 [package]
+# The certify/ harness (T-0872 wave certification) is a sibling dev tool,
+# never part of the published crate.
+exclude = ["certify"]
 name = "cloacina-provider-fs"
 version = "0.1.0"
 edition = "2021"
