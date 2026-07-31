@@ -4,7 +4,7 @@ level: task
 title: "First-party provider audit + promotion out of examples/ — which are real providers, where do they live"
 short_code: "CLOACI-T-0871"
 created_at: 2026-07-08T11:43:20.369192+00:00
-updated_at: 2026-07-30T04:56:28.761478+00:00
+updated_at: 2026-07-31T01:46:27.091023+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,8 @@ Audit which of these are real first-party providers vs. purely illustrative exam
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -485,6 +485,20 @@ impl Database {
         if !has_explicit_db {
             url.set_path(database_name);
         }
+        // CLOACI-T-0910: default `gssencmode=disable` (caller's explicit value
+        // wins). libpq's GSSAPI negotiation walks libkrb5 init on every new
+        // connection, which is getenv-heavy — and glibc's getenv is unlocked,
+        // so it segfaults if ANY other thread setenv/putenv's concurrently
+        // (e.g. Python `os.environ[...] = ...` while a pool thread opens a
+        // connection). This was the rotating CI segfault class: symbolized
+        // core showed SIGSEGV in __GI_getenv("KRB5_TRACE") under
+        // PQconnectdb ← deadpool Manager::create on a tokio blocking thread.
+        // Disabling GSS encryption skips the krb5 path entirely; anyone who
+        // actually needs GSSAPI sets gssencmode explicitly in their URL.
+        let has_gssencmode = url.query_pairs().any(|(k, _)| k == "gssencmode");
+        if !has_gssencmode {
+            url.query_pairs_mut().append_pair("gssencmode", "disable");
+        }
         Ok(url.to_string())
     }
 
@@ -892,6 +906,41 @@ mod tests {
         assert!(
             url.contains("/mydb") && !url.contains("/cloacina"),
             "explicit dbname must win: {url}"
+        );
+    }
+
+    // CLOACI-T-0910: gssencmode=disable is defaulted (skips libpq's krb5/getenv
+    // path — the getenv/setenv segfault race), but an explicit value wins.
+    #[test]
+    fn build_postgres_url_defaults_gssencmode_disable() {
+        let url =
+            Database::build_postgres_url("postgres://u:p@host:5432/mydb", "cloacina").unwrap();
+        assert!(
+            url.contains("gssencmode=disable"),
+            "gssencmode=disable should be defaulted: {url}"
+        );
+        // Appends correctly when a query string already exists.
+        let url2 = Database::build_postgres_url(
+            "postgres://u:p@host:5432/mydb?sslmode=require",
+            "cloacina",
+        )
+        .unwrap();
+        assert!(
+            url2.contains("sslmode=require") && url2.contains("gssencmode=disable"),
+            "should append to existing query: {url2}"
+        );
+    }
+
+    #[test]
+    fn build_postgres_url_respects_explicit_gssencmode() {
+        let url = Database::build_postgres_url(
+            "postgres://u:p@host:5432/mydb?gssencmode=prefer",
+            "cloacina",
+        )
+        .unwrap();
+        assert!(
+            url.contains("gssencmode=prefer") && !url.contains("gssencmode=disable"),
+            "explicit gssencmode must win: {url}"
         );
     }
 
