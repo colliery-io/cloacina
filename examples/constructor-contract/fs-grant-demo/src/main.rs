@@ -176,6 +176,10 @@ fn stage_constructor(work_dir: &std::path::Path, providers: &PathBuf) {
         sign_key: None,
         manifest_bin: "emit_manifest".to_string(),
         release: true,
+        // CLOACI-T-0903 added per-runtime packaging; this demo is the WASM path.
+        // (Drift caught by the T-0872 crates.io certification dry-run — this demo
+        // is in no CI lane, T-0892.)
+        runtime: cloacina::packaging::constructor_provider::ProviderRuntime::Wasm,
     };
     println!("==> Packaging cloacina-provider-fs to a WASM provider (slow on first run)...");
     package_constructor_provider(&opts).expect("package_constructor_provider");
