@@ -11,8 +11,8 @@
 # `call_streaming` → `ChunkStream` → the accumulator boundary channel (T-0904).
 #
 # Standalone crate (empty [workspace], under examples/*, excluded from the
-# cloacina workspace). Ship-form version deps (crates.io); `publish = false`
-# until the first provider release wave flips it (CLOACI-T-0872).
+# cloacina workspace). Ship-form version deps (crates.io); published to
+# crates.io by the provider release wave (CLOACI-T-0872).
 [workspace]
 
 [package]
@@ -22,7 +22,6 @@ exclude = ["certify"]
 name = "cloacina-provider-kafka"
 version = "0.1.0"
 edition = "2021"
-publish = false
 
 # CLOACI-T-0907: tells the provider BUNDLER (compiler `pack_providers` /
 # `bundle_providers`) to build this provider as a NATIVE host cdylib —
