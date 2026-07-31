@@ -1,0 +1,31 @@
+# CLOACI-T-0872 — the CERTIFICATION harness for `cloacina-provider-kafka`.
+#
+# The wave's certify step for the NATIVE provider: cloacina core resolves from
+# CRATES.IO (version pins, no path deps, no patching); the provider comes from
+# the sibling directory (`..`). `cargo run --release` packages the provider as
+# a SIGNED native cdylib via the published packaging API, unpacks with
+# signature verification, loads `kafka_source` through the published native
+# loader, and streams three real messages from a Kafka broker end-to-end.
+#
+# REQUIRES a reachable broker (CLOACINA_KAFKA_BROKER, default localhost:9092)
+# and a `docker exec`-able container named CLOACINA_KAFKA_CONTAINER (default
+# `cloacina-kafka`) for the console producer — core carries no kafka client
+# (T-0898). Unlike the in-repo test, an unreachable broker FAILS (a cert that
+# self-skips is not a cert); the wave workflow provides the broker.
+[package]
+name = "certify-kafka"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+cloacina = { version = "0.10", features = ["constructors-wasm"] }
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+ed25519-dalek = "2"
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3"

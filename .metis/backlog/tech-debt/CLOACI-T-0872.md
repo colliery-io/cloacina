@@ -4,15 +4,15 @@ level: task
 title: "Independent provider release path — publish/tag first-party providers on their own cadence (not core's v* tag)"
 short_code: "CLOACI-T-0872"
 created_at: 2026-07-08T11:43:21.080493+00:00
-updated_at: 2026-07-08T11:43:21.080493+00:00
+updated_at: 2026-07-31T05:39:49.412122+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -66,6 +66,10 @@ Design + build a release path for first-party providers that lets them publish/t
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -161,6 +165,23 @@ Design + build a release path for first-party providers that lets them publish/t
 - First wave is the plumbing shakedown: expect crates.io first-publish quirks (mirror the core train's soft-fail handling).
 
 ## Status Updates **[REQUIRED]**
+
+### 2026-07-31 — BUILD-OUT COMPLETE (branch feat/t0872-provider-waves); BOTH providers certified locally
+
+All six acceptance criteria implemented:
+- `providers/<name>/certify/` harnesses (fs = grant demo adapted; kafka = native test adapted, broker REQUIRED — no vacuous pass): bin crates whose cloacina deps resolve from CRATES.IO, provider from `..`; `exclude = ["certify"]` on provider manifests so publish never ships them. **Both PASS locally**: fs 3/3 grant cases; kafka 3/3 real messages through the signed native package via published packaging API + loader. Kafka harness gotcha: boundary frames are the fidius bincode wire — `deserialize` before JSON (matches the in-repo test).
+- `scripts/provider_wave.py` (standalone): classify (crates.io query; UA header required), guard (changelog / no path deps / publish flag / contract pin), compat (regenerate COMPAT.toml; uncertified providers keep their previously-earned row), pr-check (the PR guard).
+- `providers/COMPAT.toml` — machine-generated tested set, seeded from the local certification runs (wave 2026.07-preflight).
+- `.github/workflows/provider_release.yml` — the wave: per-provider jobs (classify → guard → certify → publish, already-published tolerated) + record job (compat PR via bot branch + wave GH release on providers-v* tags). Kafka job runs a named apache/kafka:3.9.0 container (docker-exec producer parity with the dev stack).
+- `.github/workflows/provider_guard.yml` — PR guard on providers/** (certify/ exempt).
+- `.angreal/task_providers.py` — `providers check` + `providers wave` (pre-flight; tag push stays human).
+- PROVIDERS.md updated with the machinery.
+
+Remaining for close: PR merge → wave prep PR (flip publish=false) → inaugural `providers-v*` tag → first wave publishes both.
+
+### 2026-07-31 — Certification step PROVEN by dry-run: pure crates.io, all cases green
+
+Manual dry-run of the wave's certify step, fully outside the repo (scratchpad `crates-io-cert/`): ship-form `cloacina-provider-fs` + a copy of `fs-grant-demo` with `cloacina`/`cloacina-workflow`/`cloacina-build` flipped to **crates.io 0.10** version deps. Result: **all three grant cases pass E2E** — packaged to a WASM component by the PUBLISHED packaging API, loaded by the published loader, both suite members via `constructor!`: granted read ✓ / default-closed denial ✓ / granted write ✓ — zero repo code in the graph except the unpublished provider. The run also validated the re-certification thesis on contact: it immediately caught real drift (`fs-grant-demo`, in no CI lane per T-0892, had rotted against I-0139's `ProviderPackageOptions.runtime` — fixed, PR #220). Wave implementation note: this scratch-copy + version-dep-flip recipe IS the certify-harness shape; kafka's variant needs the native path + a broker container.
 
 ### 2026-07-28 — Validated model + urgency raised during 0.10.0 release prep
 

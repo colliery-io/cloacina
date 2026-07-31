@@ -40,5 +40,24 @@ audit that drew this line).
   `cloacina-macros = "0.10"`) — never path deps in ship form.
 - Any PR touching `providers/<name>/src` must bump the provider version and add
   a CHANGELOG entry (config-schema changes are breaking even when no Rust
-  signature moves).
-- Per-provider `CHANGELOG.md`; consumer fixture is the certification instrument.
+  signature moves). Enforced by the **Provider Guard** workflow
+  (`scripts/provider_wave.py pr-check`).
+- Per-provider `CHANGELOG.md`; the **`certify/` harness** is the certification
+  instrument: a bin crate whose cloacina deps resolve from CRATES.IO (never
+  path deps, never patched) and which runs the provider E2E. Exit 0 EARNS the
+  compat claim. `certify/` is `exclude`d from the published crate.
+
+## The wave machinery
+
+- **`providers/COMPAT.toml`** — the tested set, machine-generated
+  (`scripts/provider_wave.py compat`). A row means that provider version
+  passed its certify harness against crates.io core in the named wave. Never
+  hand-edit rows.
+- **`angreal providers check`** — classify vs crates.io + run candidate guards.
+- **`angreal providers wave`** — pre-flight a wave and print the tag commands
+  (tag push stays a human step, same convention as core's release).
+- **Tag `providers-vYYYY.MM[.N]`** (or workflow dispatch) →
+  `.github/workflows/provider_release.yml`: classify → guard → **certify
+  everyone** (unchanged providers re-earn their claim — silent rot is the
+  enemy) → publish candidates → compat PR + wave release notes. Waves are
+  per-provider atomic.
