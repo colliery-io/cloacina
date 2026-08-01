@@ -21,6 +21,9 @@
 exclude = ["certify"]
 name = "cloacina-provider-kafka"
 version = "0.1.0"
+description = "Kafka event-source provider for cloacina — kafka_source native stream-accumulator constructor (rdkafka lives here, not in core)."
+license = "Apache-2.0"
+repository = "https://github.com/colliery-io/cloacina"
 edition = "2021"
 
 # CLOACI-T-0907: tells the provider BUNDLER (compiler `pack_providers` /

@@ -65,9 +65,15 @@ jobs:
         if: steps.classify.outputs.candidate == 'True'
         run: |
           cd providers/cloacina-provider-fs
-          cargo publish 2>&1 | tee /tmp/publish.log || {
-            grep -qE "already (exists|uploaded)" /tmp/publish.log && echo "already published" || exit 1
-          }
+          # PIPESTATUS, not the pipeline status — tee's 0 masked a real 400
+          # failure in the inaugural wave (the exact trap the core train's
+          # publish helper documents).
+          cargo publish 2>&1 | tee /tmp/publish.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            grep -qE "already (exists|uploaded)" /tmp/publish.log \
+              && echo "already published" || exit 1
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -132,9 +138,15 @@ jobs:
         if: steps.classify.outputs.candidate == 'True'
         run: |
           cd providers/cloacina-provider-kafka
-          cargo publish 2>&1 | tee /tmp/publish.log || {
-            grep -qE "already (exists|uploaded)" /tmp/publish.log && echo "already published" || exit 1
-          }
+          # PIPESTATUS, not the pipeline status — tee's 0 masked a real 400
+          # failure in the inaugural wave (the exact trap the core train's
+          # publish helper documents).
+          cargo publish 2>&1 | tee /tmp/publish.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            grep -qE "already (exists|uploaded)" /tmp/publish.log \
+              && echo "already published" || exit 1
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
