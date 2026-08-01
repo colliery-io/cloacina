@@ -22,6 +22,9 @@
 exclude = ["certify"]
 name = "cloacina-provider-fs"
 version = "0.1.0"
+description = "Sandboxed file I/O constructor suite for cloacina — read_file/write_file task constructors, capability-gated by tenant fs grants (default-closed)."
+license = "Apache-2.0"
+repository = "https://github.com/colliery-io/cloacina"
 edition = "2021"
 
 [lib]

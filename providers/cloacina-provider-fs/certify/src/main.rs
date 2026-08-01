@@ -175,6 +175,7 @@ fn stage_constructor(work_dir: &std::path::Path, providers: &PathBuf) {
         sign_key: None,
         manifest_bin: "emit_manifest".to_string(),
         release: true,
+        runtime: cloacina::packaging::constructor_provider::ProviderRuntime::Wasm,
     };
     println!("==> Packaging cloacina-provider-fs to a WASM provider (slow on first run)...");
     package_constructor_provider(&opts).expect("package_constructor_provider");
