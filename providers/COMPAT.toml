@@ -7,10 +7,10 @@
 name = "cloacina-provider-fs"
 version = "0.1.0"
 certified_core = "0.10"
-wave = "2026.07-preflight"
+wave = "2026.08.2"
 
 [[provider]]
 name = "cloacina-provider-kafka"
 version = "0.1.0"
 certified_core = "0.10"
-wave = "2026.07-preflight"
+wave = "2026.08.2"
