@@ -4,7 +4,7 @@ level: task
 title: "Python cron scaffold template for cloacinactl package new"
 short_code: "CLOACI-T-0913"
 created_at: 2026-08-02T15:02:16.233117+00:00
-updated_at: 2026-08-02T15:21:01.387529+00:00
+updated_at: 2026-08-02T18:22:34.131173+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -37,6 +37,8 @@ Add a Python template for `cloacinactl package new --kind cron --language python
 - **Current Problems**: Python users scaffolding a cron package are bounced to hand-assembly; asymmetry with the Rust path for a capability that is fully supported.
 - **Benefits of Fixing**: `package new` covers the full kind x language matrix; one less doc caveat (reference/python-api/trigger.md hint + running-the-daemon.md note can be simplified).
 - **Risk Assessment**: Low; scaffold-only change.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
