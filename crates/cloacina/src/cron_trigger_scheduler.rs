@@ -468,10 +468,20 @@ impl Scheduler {
                 }
             };
 
-            // Step 2: Hand off to workflow executor
+            // Step 2: Hand off to workflow executor (async — the execution id
+            // exists as soon as the handoff is accepted).
             match self.execute_cron_workflow(schedule, scheduled_time).await {
-                Ok(workflow_execution_id) => {
-                    // Step 3: Link audit record
+                Ok(handle) => {
+                    let workflow_execution_id = UniversalUuid(handle.execution_id);
+
+                    // Step 3: Link audit record AT HANDOFF (CLOACI-T-0914
+                    // finding 5). Linking used to happen only after the
+                    // blocking execute() returned — i.e. after the workflow
+                    // completed — so cron_recovery saw any workflow running
+                    // longer than its lost threshold as an unlinked "lost"
+                    // handoff and re-fired the schedule (duplicate execution).
+                    // With the link in place immediately, recovery consults
+                    // the live workflow execution row instead.
                     if let Err(e) = self
                         .dal
                         .schedule_execution()
@@ -479,29 +489,43 @@ impl Scheduler {
                         .await
                     {
                         error!(
-                            "Failed to complete audit trail for cron schedule {} execution: {}",
-                            schedule.id, e
+                            "Failed to link audit record {} to workflow execution {} for cron schedule {}: {}",
+                            audit_record_id, workflow_execution_id, schedule.id, e
                         );
                     }
 
-                    // Step 4: Mark execution complete so cron_recovery does not
-                    // treat it as lost and reschedule it on every tick.
-                    if let Err(e) = self
-                        .dal
-                        .schedule_execution()
-                        .complete(audit_record_id, Utc::now())
-                        .await
-                    {
-                        warn!(
-                            "Failed to mark cron schedule execution {} complete: {}",
-                            audit_record_id, e
-                        );
-                    }
+                    // Step 4: Wait for the workflow to reach a terminal state,
+                    // then mark the audit row complete so cron_recovery stops
+                    // tracking it. If the wait itself fails, the row is left
+                    // open — it is linked, so recovery skips it while the
+                    // execution is live and backfills completion once the
+                    // execution reaches a terminal state.
+                    match handle.wait_for_completion().await {
+                        Ok(_) => {
+                            if let Err(e) = self
+                                .dal
+                                .schedule_execution()
+                                .complete(audit_record_id, Utc::now())
+                                .await
+                            {
+                                warn!(
+                                    "Failed to mark cron schedule execution {} complete: {}",
+                                    audit_record_id, e
+                                );
+                            }
 
-                    info!(
-                        "Successfully executed and audited workflow {} for cron schedule {} (scheduled: {})",
-                        schedule.workflow_name, schedule.id, scheduled_time
-                    );
+                            info!(
+                                "Successfully executed and audited workflow {} for cron schedule {} (scheduled: {})",
+                                schedule.workflow_name, schedule.id, scheduled_time
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Wait for workflow {} (cron schedule {}) failed; leaving audit record {} open for cron_recovery to reconcile: {}",
+                                schedule.workflow_name, schedule.id, audit_record_id, e
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     error!(
@@ -614,11 +638,15 @@ impl Scheduler {
     }
 
     /// Executes a cron workflow by handing it off to the workflow executor.
+    ///
+    /// Returns the execution handle from `execute_async` so the caller can
+    /// link the audit record at handoff (the execution id exists immediately)
+    /// and separately wait for completion (CLOACI-T-0914 finding 5).
     async fn execute_cron_workflow(
         &self,
         schedule: &Schedule,
         scheduled_time: DateTime<Utc>,
-    ) -> Result<UniversalUuid, WorkflowExecutionError> {
+    ) -> Result<crate::executor::WorkflowExecution, WorkflowExecutionError> {
         let mut context = Context::new();
         // CLOACI-I-0116: a named instance's bound params are delivered as
         // flat context keys; the reserved scheduler keys below are stamped
@@ -665,17 +693,17 @@ impl Scheduler {
             schedule.workflow_name, schedule.id, scheduled_time
         );
 
-        let workflow_result = self
+        let handle = self
             .executor
-            .execute(&schedule.workflow_name, context)
+            .execute_async(&schedule.workflow_name, context)
             .await?;
 
         debug!(
             "Successfully handed off workflow '{}' to executor (execution_id: {})",
-            schedule.workflow_name, workflow_result.execution_id
+            schedule.workflow_name, handle.execution_id
         );
 
-        Ok(UniversalUuid(workflow_result.execution_id))
+        Ok(handle)
     }
 
     /// Creates an audit record for a cron execution.

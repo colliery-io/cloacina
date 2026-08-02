@@ -32,8 +32,14 @@
 //!
 //! Executions are considered "lost" if:
 //! - They have a schedule_executions record (were claimed)
-//! - They have no corresponding workflow_executions record
+//! - They are NOT linked to a live workflow execution (the scheduler links
+//!   the audit row to the workflow execution at handoff — CLOACI-T-0914)
 //! - They were claimed more than X minutes ago (configurable)
+//!
+//! A row linked to a workflow execution in a non-terminal state is a
+//! legitimately running workflow, not a lost handoff — it is skipped. A row
+//! linked to a terminal execution that was never marked complete only has its
+//! completion accounting backfilled; it is never re-fired.
 //!
 //! Recovery is skipped if:
 //! - The schedule is disabled
@@ -159,6 +165,15 @@ impl CronRecoveryService {
         Ok(())
     }
 
+    /// Runs one recovery pass over currently-lost executions.
+    ///
+    /// Exposed so integration tests (and ad-hoc operator scripts) can drive
+    /// the recovery logic deterministically without waiting on the background
+    /// `check_interval` tick (CLOACI-T-0914).
+    pub async fn recover_lost_executions_once(&self) -> Result<(), WorkflowExecutionError> {
+        self.check_and_recover_lost_executions().await
+    }
+
     /// Checks for lost executions and attempts to recover them.
     async fn check_and_recover_lost_executions(&self) -> Result<(), WorkflowExecutionError> {
         debug!("Checking for lost cron executions");
@@ -199,6 +214,67 @@ impl CronRecoveryService {
         &self,
         execution: &ScheduleExecution,
     ) -> Result<(), WorkflowExecutionError> {
+        // CLOACI-T-0914 finding 5: a linked execution is not a lost handoff.
+        // The scheduler links the audit row to the workflow execution at
+        // handoff, so consult the live workflow execution row before even
+        // considering a re-fire. Re-firing while the workflow was
+        // legitimately running (anything longer than lost_threshold_minutes)
+        // was the cron duplicate-fire bug.
+        if let Some(workflow_execution_id) = execution.workflow_execution_id {
+            match self
+                .dal
+                .workflow_execution()
+                .get_by_id(workflow_execution_id)
+                .await
+            {
+                Ok(workflow_execution) => match workflow_execution.status.as_str() {
+                    // Terminal set for workflow executions
+                    // (mirrors WorkflowStatus::is_terminal).
+                    "Completed" | "Failed" | "Cancelled" => {
+                        // The workflow reached a terminal state but the audit
+                        // row was never marked complete (crash between link
+                        // and complete, or the scheduler's completion wait was
+                        // interrupted). Backfill the completion accounting; do
+                        // NOT re-fire — the execution already happened.
+                        info!(
+                            "Execution {} is linked to terminal workflow execution {} (status: {}); backfilling completion accounting instead of re-firing",
+                            execution.id, workflow_execution_id, workflow_execution.status
+                        );
+                        if let Err(e) = self
+                            .dal
+                            .schedule_execution()
+                            .complete(execution.id, Utc::now())
+                            .await
+                        {
+                            warn!(
+                                "Failed to backfill completion for execution {}: {}",
+                                execution.id, e
+                            );
+                        }
+                        self.recovery_attempts.lock().await.remove(&execution.id);
+                        return Ok(());
+                    }
+                    _ => {
+                        debug!(
+                            "Execution {} is linked to live workflow execution {} (status: {}); not lost, skipping recovery",
+                            execution.id, workflow_execution_id, workflow_execution.status
+                        );
+                        return Ok(());
+                    }
+                },
+                Err(e) => {
+                    // Fail toward "no duplicate": if the linked execution row
+                    // cannot be read, skip this pass and re-check on the next
+                    // sweep rather than risking a duplicate fire.
+                    warn!(
+                        "Execution {} is linked to workflow execution {} but the row could not be read; skipping recovery this pass: {}",
+                        execution.id, workflow_execution_id, e
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
         // Use scheduled_time if available; fall back to created_at
         let scheduled_time = execution
             .scheduled_time
@@ -349,6 +425,23 @@ impl CronRecoveryService {
                         execution.id, e
                     );
                     // Continue - the recovery succeeded, just audit update failed
+                }
+
+                // `execute` blocks until the workflow reaches a terminal
+                // state, so completion accounting is accurate here. Without
+                // this, the recovered row stayed `completed_at IS NULL` and
+                // was re-found as lost on every subsequent sweep
+                // (CLOACI-T-0914 finding 5).
+                if let Err(e) = self
+                    .dal
+                    .schedule_execution()
+                    .complete(execution.id, Utc::now())
+                    .await
+                {
+                    warn!(
+                        "Failed to mark recovered execution {} complete: {}",
+                        execution.id, e
+                    );
                 }
 
                 info!(
