@@ -25,6 +25,8 @@ All fields are owned `String` values; no raw pointers are involved.
 |------|------|-------------|
 | `local_id` | `String` | Local task ID (e.g., "collect_data") |
 | `dependencies_json` | `String` | JSON string of task dependencies |
+| `trigger_rules_json` | `String` | JSON string of the task's trigger rules (conditional execution).
+`{"type":"Always"}` when unconditional. (CLOACI-T-0721) |
 
 
 

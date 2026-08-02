@@ -30,6 +30,10 @@ graph scheduler, stale-claim sweeper, ...) live inside the
 | `config` | `DefaultRunnerConfig` | Configuration parameters for the runner |
 | `scheduler` | `Arc < TaskScheduler >` | Task scheduler for managing workflow execution scheduling |
 | `service_manager` | `Arc < RwLock < ServiceManager > >` | Owns the lifecycle of every background service plus typed accessor slots. |
+| `cron_change` | `Arc < tokio :: sync :: Notify >` | Shared wake signal for the timer-driven cron scheduler (CLOACI-T-0743).
+The cron registrar and the runner's cron API call `notify_one` after
+mutating schedules so the scheduler re-arms its sleep immediately
+instead of waiting for the backstop. |
 
 #### Methods
 
@@ -171,6 +175,34 @@ in `DatabaseAdmin::create_tenant`).
         config: DefaultRunnerConfig,
         shared_runtime: Option<Arc<Runtime>>,
     ) -> Result<Self, WorkflowExecutionError> {
+        Self::with_database_secrets(database, config, shared_runtime, None).await
+    }
+```
+
+</details>
+
+
+
+##### `with_database_secrets` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn with_database_secrets (database : Database , config : DefaultRunnerConfig , shared_runtime : Option < Arc < Runtime > > , secret_resolver : Option < Arc < dyn cloacina_workflow :: secret :: SecretResolver > > ,) -> Result < Self , WorkflowExecutionError >
+```
+
+[`Self::with_database`] plus a secret resolution side channel (CLOACI-T-0858 / I-0133 D-1) threaded onto the in-process thread executor, so `context.secret(...)` resolves for locally-executed tasks. Hosts that construct runners per tenant (cloacina-server's `TenantRunnerCache`) pass a tenant-scoped [`crate::security::SecretStoreResolver`]; `None` keeps the fail-closed "secrets backend not configured" behavior.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn with_database_secrets(
+        database: Database,
+        config: DefaultRunnerConfig,
+        shared_runtime: Option<Arc<Runtime>>,
+        secret_resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
+    ) -> Result<Self, WorkflowExecutionError> {
         let runtime = shared_runtime.unwrap_or_else(|| Arc::new(Runtime::new()));
 
         // Create scheduler with the scoped runtime
@@ -193,7 +225,10 @@ in `DatabaseAdmin::create_tenant`).
             Arc::new(crate::task::TaskRegistry::new()),
             runtime.clone(),
             executor_config,
-        );
+        )
+        // CLOACI-T-0858: thread the secret side channel so task contexts can
+        // resolve secrets on the in-process execution path.
+        .with_secret_resolver(secret_resolver);
 
         // Configure dispatcher for push-based task execution. Every task is sent
         // to the one configured executor key (CLOACI-T-0640).
@@ -210,6 +245,7 @@ in `DatabaseAdmin::create_tenant`).
             config,
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
+            cron_change: Arc::new(tokio::sync::Notify::new()),
         };
 
         // Start the background services immediately

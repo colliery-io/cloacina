@@ -11,7 +11,7 @@ with `AccumulatorFactory` implementations and a `CompiledGraphFn` that calls
 
 ### `cloacina::computation_graph::packaging_bridge::LoadedGraphPlugin`
 
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 A persistent handle to a loaded FFI graph plugin.
@@ -29,20 +29,20 @@ and must not be invoked concurrently.
 
 #### Methods
 
-##### `load` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+##### `load` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
 fn load (library_data : & [u8]) -> Result < Self , String >
 ```
 
-Load a graph plugin from library bytes. The library is written to a temp file, loaded via fidius, and kept resident for reuse.
+Load a graph plugin from library bytes. The library is written to a temp file, loaded via fidius, and kept resident for reuse. Public so the execution agent can run whole-graph firings (CLOACI-T-0722).
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    fn load(library_data: &[u8]) -> Result<Self, String> {
+    pub fn load(library_data: &[u8]) -> Result<Self, String> {
         let temp_dir =
             tempfile::TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
@@ -82,7 +82,7 @@ Load a graph plugin from library bytes. The library is written to a temp file, l
 
 
 
-##### `execute_graph` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+##### `execute_graph` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
@@ -95,7 +95,7 @@ Call execute_graph on the loaded plugin.
 <summary>Source</summary>
 
 ```rust
-    fn execute_graph(
+    pub fn execute_graph(
         &self,
         request: GraphExecutionRequest,
     ) -> Result<cloacina_workflow_plugin::GraphExecutionResult, String> {
@@ -135,23 +135,38 @@ The actual processing logic lives inside the FFI plugin's `execute_graph()`.
 
 
 
-### `cloacina::computation_graph::packaging_bridge::StreamBackendAccumulatorFactory`
+### `cloacina::computation_graph::packaging_bridge::ProviderStreamAccumulatorFactory`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
-A stream-backed accumulator factory for FFI-loaded packages.
+A PROVIDER-backed stream accumulator factory (CLOACI-T-0907): the `stream` accumulator's source comes from a constructor provider the package bundles (e.g. `cloacina-provider-kafka`), not from host-compiled backend code.
 
-Creates a passthrough accumulator with a `KafkaEventSource` that pulls raw
-bytes from a Kafka topic. The event source runs on its own task via
-`accumulator_runtime_with_source`. The socket channel remains available for
-out-of-band WebSocket pushes.
+Selected by `accumulator_factory_for` when the accumulator's config carries a
+`provider` key:
+```toml
+[[metadata.accumulators]]
+name = "ticks"
+accumulator_type = "stream"
+[metadata.accumulators.config]
+provider = "cloacina-provider-kafka"   # routing: which bundled provider
+constructor = "kafka_source"           # routing: which member (default = provider's convention)
+broker = "{{ KAFKA_BROKER }}"          # member #[config] (name-keyed, templated)
+topic = "tour.ticks"
+group = "cg-feature-tour-group"
+```
+The provider resolves from the process-wide provider search path (the
+`providers/` tree the reconciler unpacks bundled providers into); its member's
+`source` is driven via fidius `call_streaming` and drained onto the boundary
+channel by `ProviderStreamSource` (T-0904). Load failure is LOUD: an ERROR log
++ health `Disconnected` — never a silent passthrough (CLOACI-T-0898 item 3).
 
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
-| `config` | `std :: collections :: HashMap < String , String >` | Stream backend config from the package metadata. |
+| `config` | `std :: collections :: HashMap < String , String >` | Full accumulator config; `provider`/`constructor` are routing keys, the
+rest are the member's `#[config]` values (may be `{{ VAR }}` templates). |
 
 #### Methods
 
@@ -177,22 +192,157 @@ fn new (config : std :: collections :: HashMap < String , String >) -> Self
 
 
 
-### `cloacina::computation_graph::packaging_bridge::KafkaEventSource`
+### `cloacina::computation_graph::packaging_bridge::StateAccumulatorFactory`
 
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
-EventSource that reads raw bytes from a Kafka topic.
+A state-backed accumulator factory for FFI-loaded / Python packages.
+
+Spawns `state_accumulator_runtime::<serde_json::Value>` with a bounded
+`VecDeque` of the given capacity. This is the host-side wiring for
+`@cloaca.state_accumulator(capacity=N)` (and Rust's
+`#[state_accumulator(capacity=…)]`): values pushed over the socket are
+buffered, persisted to the DAL on every write, and the full list is emitted
+back as the boundary so the graph can feed its own state on the next fire.
+Capacity semantics (see `StateAccumulator`):
+- `> 0`: bounded — evicts oldest when at capacity
+- `< 0`: unbounded — grows without limit
+- `0`:  write-only sink — no history emitted back
 
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
-| `broker_var` | `String` |  |
-| `topic` | `String` |  |
-| `group` | `String` |  |
-| `extra` | `std :: collections :: HashMap < String , String >` |  |
-| `name` | `String` |  |
+| `capacity` | `i32` |  |
+
+#### Methods
+
+##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn new (capacity : i32) -> Self
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn new(capacity: i32) -> Self {
+        Self { capacity }
+    }
+```
+
+</details>
+
+
+
+
+
+### `cloacina::computation_graph::packaging_bridge::JsonListBatchAccumulator`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+A generic, list-collecting batch accumulator for the packaged path (CLOACI-T-0896). Socket events arrive as JSON bytes (the same wire the passthrough/state accumulators receive); on flush we emit the whole batch as a JSON array, so the boundary matches the shape the FFI cache expects (`bincode(Vec<u8>)` of JSON — see `input_cache_to_ffi_cache`). This mirrors what `state_window_frame` does for the state accumulator.
+
+
+
+### `cloacina::computation_graph::packaging_bridge::BatchAccumulatorFactory`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+Packaged batch-accumulator factory (CLOACI-T-0896): buffers socket events and flushes the whole buffer as one boundary on the flush interval or when the buffer fills. Mirrors `StateAccumulatorFactory` — socket-driven, so it fits the existing spawn contract without any FFI change.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `flush_interval` | `Option < std :: time :: Duration >` |  |
+| `max_buffer_size` | `Option < usize >` |  |
+
+#### Methods
+
+##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn new (flush_interval : Option < std :: time :: Duration > , max_buffer_size : Option < usize > ,) -> Self
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn new(
+        flush_interval: Option<std::time::Duration>,
+        max_buffer_size: Option<usize>,
+    ) -> Self {
+        Self {
+            flush_interval,
+            max_buffer_size,
+        }
+    }
+```
+
+</details>
+
+
+
+
+
+### `cloacina::computation_graph::packaging_bridge::ClosurePollingAccumulator`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+A [`PollingAccumulator`] driven by an injected [`PollClosure`] (the Python poll fn). `poll()` runs the closure on a blocking thread so the GIL work never blocks the async executor — the same discipline `PythonTriggerWrapper` uses for poll triggers. (CLOACI-T-0896)
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `poll_fn` | `PollClosure` |  |
+| `interval` | `std :: time :: Duration` |  |
+
+
+
+### `cloacina::computation_graph::packaging_bridge::PollingAccumulatorFactory`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+Packaged polling-accumulator factory (CLOACI-T-0896). Resolves the poll closure by name at spawn time via the registered builder, then runs `polling_accumulator_runtime` on the configured interval. If no closure is registered for the name, the accumulator simply never emits (logged) rather than failing the load.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `interval` | `std :: time :: Duration` |  |
+
+#### Methods
+
+##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn new (interval : std :: time :: Duration) -> Self
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn new(interval: std::time::Duration) -> Self {
+        Self { interval }
+    }
+```
+
+</details>
+
+
 
 
 
@@ -230,6 +380,39 @@ pub fn call_get_reactor_metadata(
         Ok(metadata) => Ok(metadata),
         Err(fidius_host::CallError::NotImplemented { .. }) => Ok(Vec::new()),
         Err(e) => Err(format!("get_reactor_metadata FFI call failed: {}", e)),
+    }
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::packaging_bridge::call_get_constructor_metadata`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn call_get_constructor_metadata (handle : & fidius_host :: PluginHandle ,) -> Result < Vec < cloacina_workflow_plugin :: ConstructorPackageMetadata > , String >
+```
+
+Call `get_constructor_metadata` (method index 10) on a loaded fidius plugin (CLOACI-T-0832). Returns the packaged workflow's declared `constructor!(...)` nodes for the host to resolve + inject. Plugins built before trait v4 return `CallError::NotImplemented` → `Ok(vec![])` ("package declares no constructor nodes"), so older packages keep loading unchanged.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn call_get_constructor_metadata(
+    handle: &fidius_host::PluginHandle,
+) -> Result<Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>, String> {
+    match handle.call_method::<(), Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>>(
+        METHOD_GET_CONSTRUCTOR_METADATA,
+        &(),
+    ) {
+        Ok(metadata) => Ok(metadata),
+        Err(fidius_host::CallError::NotImplemented { .. }) => Ok(Vec::new()),
+        Err(e) => Err(format!("get_constructor_metadata FFI call failed: {}", e)),
     }
 }
 ```
@@ -333,12 +516,7 @@ pub fn build_declaration_from_ffi(
         .accumulators
         .iter()
         .map(|acc_entry| {
-            let factory: Arc<dyn AccumulatorFactory> = match acc_entry.accumulator_type.as_str() {
-                "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
-                    acc_entry.config.clone(),
-                )),
-                _ => Arc::new(PassthroughAccumulatorFactory),
-            };
+            let factory = accumulator_factory_for(&acc_entry.accumulator_type, &acc_entry.config);
             AccumulatorDeclaration {
                 name: acc_entry.name.clone(),
                 factory,
@@ -353,6 +531,11 @@ pub fn build_declaration_from_ffi(
             criteria,
             strategy,
             graph_fn,
+            // CLOACI-T-0830: the FFI/cdylib packaged path doesn't yet carry a
+            // reactor-constructor reference through `GraphPackageMetadata`
+            // (deferred — see `dispatch_package_reactors_into_scheduler`). Native
+            // dirty-flag firing only for this path.
+            constructor: None,
         },
         tenant_id: None, // Set by the reconciler based on package ownership
         // Propagate the explicit reactor name from the FFI metadata
@@ -364,7 +547,58 @@ pub fn build_declaration_from_ffi(
         // default and pre-M5 packages via `#[serde(default)]`) keeps the
         // synthesized per-graph reactor name and 1:1 lifecycle.
         reactor_name: graph_meta.trigger_reactor.clone(),
+        topology: graph_meta.graph_data_json.clone(),
     }
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::packaging_bridge::input_cache_to_ffi_cache`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn input_cache_to_ffi_cache (cache : & InputCache) -> Result < HashMap < String , String > , String >
+```
+
+Execute a computation graph via FFI using the pre-loaded plugin handle. Convert an [`InputCache`] snapshot into the FFI/wire cache shape (source name → UTF-8 JSON string) — the same conversion the in-process FFI call performs, shared with the fleet path so a dispatched firing carries an agent-ready cache (CLOACI-T-0722). Boundary frames are `bincode(Vec<u8>)` of raw event JSON; non-UTF-8 payloads are hex-encoded.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn input_cache_to_ffi_cache(cache: &InputCache) -> Result<HashMap<String, String>, String> {
+    let cache_snapshot = cache.snapshot();
+    let mut ffi_cache: HashMap<String, String> = HashMap::new();
+    for source_name in cache_snapshot.sources() {
+        if let Some(raw_bytes) = cache_snapshot.get_raw(source_name.as_str()) {
+            match bincode::deserialize::<Vec<u8>>(raw_bytes) {
+                Ok(original_bytes) => {
+                    let json_str = String::from_utf8(original_bytes).unwrap_or_else(|e| {
+                        tracing::warn!(
+                            source = source_name.as_str(),
+                            "cache entry is not valid UTF-8, hex-encoding: {}",
+                            e
+                        );
+                        raw_bytes.iter().map(|b| format!("{:02x}", b)).collect()
+                    });
+                    ffi_cache.insert(source_name.as_str().to_string(), json_str);
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "Failed to deserialize cache entry '{}' for FFI: {}",
+                        source_name.as_str(),
+                        e
+                    ));
+                }
+            }
+        }
+    }
+    Ok(ffi_cache)
 }
 ```
 
@@ -381,46 +615,15 @@ pub fn build_declaration_from_ffi(
 async fn execute_graph_via_ffi (plugin : & Arc < LoadedGraphPlugin > , cache : & InputCache) -> GraphResult
 ```
 
-Execute a computation graph via FFI using the pre-loaded plugin handle.
-
 <details>
 <summary>Source</summary>
 
 ```rust
 async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult {
-    let cache_snapshot = cache.snapshot();
-
-    // Recover raw bytes from bincode wire format, then interpret as UTF-8 JSON
-    // for the FFI boundary. The passthrough accumulator stores raw event bytes
-    // (typically JSON from WebSocket) which are bincode-serialized as Vec<u8>.
-    let mut ffi_cache: HashMap<String, String> = HashMap::new();
-    for source_name in cache_snapshot.sources() {
-        if let Some(raw_bytes) = cache_snapshot.get_raw(source_name.as_str()) {
-            // Wire format is bincode(Vec<u8>) — recover the original bytes
-            match bincode::deserialize::<Vec<u8>>(raw_bytes) {
-                Ok(original_bytes) => {
-                    // Original bytes are JSON from WebSocket — convert to string
-                    let json_str = String::from_utf8(original_bytes).unwrap_or_else(|e| {
-                        tracing::warn!(
-                            source = source_name.as_str(),
-                            "cache entry is not valid UTF-8, hex-encoding: {}",
-                            e
-                        );
-                        // Fall back to hex encoding for non-UTF-8 data
-                        raw_bytes.iter().map(|b| format!("{:02x}", b)).collect()
-                    });
-                    ffi_cache.insert(source_name.as_str().to_string(), json_str);
-                }
-                Err(e) => {
-                    return GraphResult::error(GraphError::Serialization(format!(
-                        "Failed to deserialize cache entry '{}' for FFI: {}",
-                        source_name.as_str(),
-                        e
-                    )));
-                }
-            }
-        }
-    }
+    let ffi_cache = match input_cache_to_ffi_cache(cache) {
+        Ok(c) => c,
+        Err(e) => return GraphResult::error(GraphError::Serialization(e)),
+    };
 
     let request = GraphExecutionRequest { cache: ffi_cache };
 
@@ -431,20 +634,22 @@ async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCac
     match result {
         Ok(Ok(ffi_result)) => {
             if ffi_result.success {
-                let outputs: Vec<Box<dyn std::any::Any + Send>> =
-                    if let Some(json_outputs) = ffi_result.terminal_outputs_json {
-                        json_outputs
-                            .into_iter()
-                            .filter_map(|json_str| {
-                                serde_json::from_str::<serde_json::Value>(&json_str)
-                                    .ok()
-                                    .map(|v| Box::new(v) as Box<dyn std::any::Any + Send>)
-                            })
-                            .collect()
-                    } else {
-                        vec![]
-                    };
-                GraphResult::completed(outputs)
+                // CLOACI-T-0775: keep the terminal outputs as JSON (for the
+                // per-fire output history) in addition to the type-erased boxes.
+                let outputs_json: Vec<serde_json::Value> = ffi_result
+                    .terminal_outputs_json
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|json_str| {
+                        serde_json::from_str::<serde_json::Value>(&json_str).ok()
+                    })
+                    .collect();
+                let outputs: Vec<Box<dyn std::any::Any + Send>> = outputs_json
+                    .iter()
+                    .cloned()
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any + Send>)
+                    .collect();
+                GraphResult::completed_with_json(outputs, outputs_json)
             } else {
                 let error_msg = ffi_result
                     .error
@@ -460,6 +665,173 @@ async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCac
             "FFI execute_graph panicked: {}",
             join_err
         ))),
+    }
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::packaging_bridge::state_capacity_from_config`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn state_capacity_from_config (config : & std :: collections :: HashMap < String , String >) -> i32
+```
+
+Parse a state accumulator's capacity from its String-keyed config map. Defaults to `0` (write-only sink) when absent or unparsable.
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn state_capacity_from_config(config: &std::collections::HashMap<String, String>) -> i32 {
+    config
+        .get("capacity")
+        .and_then(|c| c.parse::<i32>().ok())
+        .unwrap_or(0)
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::packaging_bridge::batch_config_from_config`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn batch_config_from_config (config : & std :: collections :: HashMap < String , String > ,) -> (Option < std :: time :: Duration > , Option < usize >)
+```
+
+Parse a batch accumulator's `flush_interval` (e.g. `"1s"`, `"500ms"`) and `max_buffer_size` from its String-keyed config map. Absent/unparsable → `None` (the runtime treats each as an optional flush trigger).
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn batch_config_from_config(
+    config: &std::collections::HashMap<String, String>,
+) -> (Option<std::time::Duration>, Option<usize>) {
+    let flush_interval = config
+        .get("flush_interval")
+        .and_then(|s| crate::packaging::manifest_schema::parse_duration_str(s).ok());
+    let max_buffer_size = config
+        .get("max_buffer_size")
+        .and_then(|s| s.parse::<usize>().ok());
+    (flush_interval, max_buffer_size)
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::packaging_bridge::register_polling_accumulator_builder`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn register_polling_accumulator_builder (builder : PollingClosureBuilder)
+```
+
+Register the polling-accumulator poll-closure resolver for the packaged path (CLOACI-T-0896). Idempotent — the first registration wins. The Python extension calls this at module install so a packaged polling accumulator drives its Python poll fn on the configured interval. A pure-Rust host that never installs one gets a loud passthrough fallback for polling accumulators.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn register_polling_accumulator_builder(builder: PollingClosureBuilder) {
+    let _ = POLLING_CLOSURE_BUILDER.set(builder);
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::packaging_bridge::polling_interval_from_config`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn polling_interval_from_config (config : & std :: collections :: HashMap < String , String > ,) -> std :: time :: Duration
+```
+
+Parse a polling accumulator's `interval` (e.g. `"2s"`) from config; defaults to 5s when absent/unparsable.
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn polling_interval_from_config(
+    config: &std::collections::HashMap<String, String>,
+) -> std::time::Duration {
+    config
+        .get("interval")
+        .and_then(|s| crate::packaging::manifest_schema::parse_duration_str(s).ok())
+        .unwrap_or_else(|| std::time::Duration::from_secs(5))
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::packaging_bridge::accumulator_factory_for`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn accumulator_factory_for (acc_type : & str , config : & std :: collections :: HashMap < String , String > ,) -> Arc < dyn AccumulatorFactory >
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn accumulator_factory_for(
+    acc_type: &str,
+    config: &std::collections::HashMap<String, String>,
+) -> Arc<dyn AccumulatorFactory> {
+    match acc_type {
+        // CLOACI-T-0898/T-0907: a stream accumulator's source ALWAYS comes from
+        // a bundled constructor provider (`provider`/`constructor` config keys —
+        // e.g. cloacina-provider-kafka). The host-compiled kafka backend is
+        // gone; a declaration without a `provider` key fails LOUDLY at spawn
+        // (ERROR + health Disconnected), never a silent passthrough.
+        "stream" => Arc::new(ProviderStreamAccumulatorFactory::new(config.clone())),
+        "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
+            config,
+        ))),
+        "batch" => {
+            let (flush_interval, max_buffer_size) = batch_config_from_config(config);
+            Arc::new(BatchAccumulatorFactory::new(
+                flush_interval,
+                max_buffer_size,
+            ))
+        }
+        "polling" => Arc::new(PollingAccumulatorFactory::new(
+            polling_interval_from_config(config),
+        )),
+        "passthrough" => Arc::new(PassthroughAccumulatorFactory),
+        other => {
+            tracing::warn!(
+                accumulator_type = %other,
+                "unknown accumulator type in packaged graph — falling back to \
+                 passthrough (CLOACI-T-0896); firing will be per-event, not the \
+                 declared behavior"
+            );
+            Arc::new(PassthroughAccumulatorFactory)
+        }
     }
 }
 ```
@@ -510,18 +882,26 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
             .accumulator_names
             .iter()
             .map(|acc_name| {
-                let factory: Arc<dyn AccumulatorFactory> = match accumulator_overrides
+                // CLOACI-T-0839 precedence: manifest override (deployment wins)
+                // → authored spec carried on the registration → passthrough.
+                // The authored-spec fallback closes the gap where a
+                // runtime-registered reactor's state/stream accumulators
+                // silently degraded to passthrough (this site only had names).
+                let (acc_type, acc_config) = match accumulator_overrides
                     .iter()
                     .find(|cfg| &cfg.name == acc_name)
                 {
-                    Some(override_cfg) => match override_cfg.accumulator_type.as_str() {
-                        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
-                            override_cfg.config.clone(),
-                        )),
-                        _ => Arc::new(PassthroughAccumulatorFactory),
+                    Some(cfg) => (cfg.accumulator_type.clone(), cfg.config.clone()),
+                    None => match registration
+                        .accumulator_specs
+                        .iter()
+                        .find(|spec| &spec.name == acc_name)
+                    {
+                        Some(spec) => (spec.accumulator_type.clone(), spec.config.clone()),
+                        None => ("passthrough".to_string(), Default::default()),
                     },
-                    None => Arc::new(PassthroughAccumulatorFactory),
                 };
+                let factory = accumulator_factory_for(&acc_type, &acc_config);
                 AccumulatorDeclaration {
                     name: acc_name.clone(),
                     factory,
@@ -540,6 +920,11 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
                 strategy,
                 tenant_id.clone(),
                 vec![],
+                // CLOACI-T-0830: carry the reactor-constructor reference from the
+                // runtime registration (populated by `#[reactor(from=.., …)]`)
+                // into the scheduler, which resolves + installs the WASM
+                // `evaluate` as the reactor's firing decider.
+                registration.constructor.clone(),
             )
             .await?;
 
@@ -594,22 +979,15 @@ pub async fn dispatch_package_reactors_into_scheduler(
             .accumulators
             .iter()
             .map(|acc| {
-                let factory: Arc<dyn AccumulatorFactory> = match accumulator_overrides
+                let factory = match accumulator_overrides
                     .iter()
                     .find(|cfg| cfg.name == acc.name)
                 {
-                    Some(override_cfg) => match override_cfg.accumulator_type.as_str() {
-                        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
-                            override_cfg.config.clone(),
-                        )),
-                        _ => Arc::new(PassthroughAccumulatorFactory),
-                    },
-                    None => match acc.accumulator_type.as_str() {
-                        "stream" => {
-                            Arc::new(StreamBackendAccumulatorFactory::new(acc.config.clone()))
-                        }
-                        _ => Arc::new(PassthroughAccumulatorFactory),
-                    },
+                    Some(override_cfg) => accumulator_factory_for(
+                        &override_cfg.accumulator_type,
+                        &override_cfg.config,
+                    ),
+                    None => accumulator_factory_for(&acc.accumulator_type, &acc.config),
                 };
                 AccumulatorDeclaration {
                     name: acc.name.clone(),
@@ -632,6 +1010,11 @@ pub async fn dispatch_package_reactors_into_scheduler(
                 strategy,
                 tenant_id.clone(),
                 vec![],
+                // CLOACI-T-0830: threading a reactor-constructor reference through
+                // the FFI `ReactorPackageMetadata` shape is deferred (it needs new
+                // serialized fields + signing). Rust cdylib packages dispatch as
+                // native dirty-flag reactors for now.
+                None,
             )
             .await?;
 

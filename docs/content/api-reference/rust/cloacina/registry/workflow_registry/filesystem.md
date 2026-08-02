@@ -130,10 +130,7 @@ Corrupt or unreadable files are logged and skipped.
                     }
                 };
 
-                match fidius_core::package::load_manifest::<
-                    cloacina_workflow_plugin::CloacinaMetadata,
-                >(&source_dir)
-                {
+                match cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir) {
                     Ok(manifest) => {
                         let package_name = manifest.package.name.clone();
                         let version = manifest.package.version.clone();
@@ -146,14 +143,27 @@ Corrupt or unreadable files are logged and skipped.
                         let metadata = WorkflowMetadata {
                             id,
                             registry_id: id, // Same as id for filesystem registry
+                            workflow_name: manifest
+                                .metadata
+                                .workflow_name
+                                .clone()
+                                .filter(|w| !w.is_empty())
+                                .unwrap_or_else(|| package_name.clone()),
                             package_name: package_name.clone(),
                             version: version.clone(),
                             description: manifest.metadata.description.clone(),
                             author: manifest.metadata.author.clone(),
                             tasks: vec![],
+                            task_graph: vec![],
                             schedules: Vec::new(),
                             created_at: now,
                             updated_at: now,
+                            // Filesystem registry has no DB pause state.
+                            paused: false,
+                            // Filesystem registry doesn't surface declared params.
+                            declared_params: Vec::new(),
+                            declared_surfaces: Vec::new(),
+                            workflow_triggers: Vec::new(),
                         };
 
                         debug!(

@@ -270,6 +270,24 @@ Check if a key is authorized for a specific operation.
 
 
 
+### `cloacina::computation_graph::registry::AccumulatorDescriptor`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`
+
+Discoverability metadata an accumulator self-registers at graph load (CLOACI-I-0128 follow-up). The runtime channel registration ([`EndpointRegistry::register_accumulator`]) only carries the socket sender; this descriptor adds the structural context the discovery API needs — chiefly the reactor/graph the accumulator feeds — so an operator can tell what connecting to `/v1/ws/accumulator/{name}` actually drives.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `reactor` | `String` | The reactor (graph) this accumulator feeds. |
+| `tenant_id` | `Option < String >` | Owning tenant, or `None` for untagged single-tenant graphs. |
+
+
+
 ### `cloacina::computation_graph::registry::EndpointRegistry`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
@@ -279,7 +297,7 @@ Check if a key is authorized for a specific operation.
 
 Registry mapping endpoint names to channel senders.
 
-Shared between the Reactive Scheduler (registers on spawn) and
+Shared between the computation graph scheduler (registers on spawn) and
 WebSocket handlers (look up on message receipt).
 
 #### Fields
@@ -310,8 +328,69 @@ fn new () -> Self
                 accumulator_policies: HashMap::new(),
                 reactor_policies: HashMap::new(),
                 accumulator_health: HashMap::new(),
+                accumulator_freshness: HashMap::new(),
+                accumulator_meta: HashMap::new(),
+                accumulator_injects: HashMap::new(),
             })),
         }
+    }
+```
+
+</details>
+
+
+
+##### `note_accumulator_operator_inject` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn note_accumulator_operator_inject (& self , name : & str)
+```
+
+Record an operator inject into an accumulator (CLOACI-T-0776). Called only from the REST inject endpoint — the true human-operator path. (The WS accumulator-push path also goes through `send_to_accumulator` but is the data-source feed, e.g. the demo producer, so it must NOT count here.)
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn note_accumulator_operator_inject(&self, name: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut inner = self.inner.write().await;
+        let entry = inner
+            .accumulator_injects
+            .entry(name.to_string())
+            .or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 = now;
+    }
+```
+
+</details>
+
+
+
+##### `accumulator_inject_stat` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn accumulator_inject_stat (& self , name : & str) -> Option < (u64 , i64) >
+```
+
+`(operator-inject count, last-inject epoch ms)` for an accumulator, or `None` if it has never been operator-injected (CLOACI-T-0776).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn accumulator_inject_stat(&self, name: &str) -> Option<(u64, i64)> {
+        self.inner
+            .read()
+            .await
+            .accumulator_injects
+            .get(name)
+            .copied()
     }
 ```
 
@@ -380,6 +459,54 @@ Register a reactor's manual command sender and shared handle.
 
 
 
+##### `register_accumulator_meta` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn register_accumulator_meta (& self , name : String , descriptor : AccumulatorDescriptor)
+```
+
+Register an accumulator's discoverability descriptor (its parent reactor + tenant), self-supplied by the graph at load. Keyed by name; a re-load overwrites. (CLOACI-I-0128 follow-up.)
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn register_accumulator_meta(&self, name: String, descriptor: AccumulatorDescriptor) {
+        let mut inner = self.inner.write().await;
+        inner.accumulator_meta.insert(name, descriptor);
+    }
+```
+
+</details>
+
+
+
+##### `accumulator_descriptor` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn accumulator_descriptor (& self , name : & str) -> Option < AccumulatorDescriptor >
+```
+
+The discoverability descriptor for an accumulator, if registered.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn accumulator_descriptor(&self, name: &str) -> Option<AccumulatorDescriptor> {
+        let inner = self.inner.read().await;
+        inner.accumulator_meta.get(name).cloned()
+    }
+```
+
+</details>
+
+
+
 ##### `deregister_accumulator` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
 
@@ -397,6 +524,7 @@ Deregister all accumulators under a name.
     pub async fn deregister_accumulator(&self, name: &str) {
         let mut inner = self.inner.write().await;
         inner.accumulators.remove(name);
+        inner.accumulator_meta.remove(name);
     }
 ```
 
@@ -825,6 +953,30 @@ Register a health watch receiver for an accumulator.
 
 
 
+##### `register_accumulator_freshness` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn register_accumulator_freshness (& self , name : String , handle : FreshnessHandle)
+```
+
+Register a freshness probe for an accumulator (CLOACI-T-0765): the shared events_total + last-event handle off its `BoundarySender`.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn register_accumulator_freshness(&self, name: String, handle: FreshnessHandle) {
+        let mut inner = self.inner.write().await;
+        inner.accumulator_freshness.insert(name, handle);
+    }
+```
+
+</details>
+
+
+
 ##### `get_accumulator_health` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
 
@@ -857,16 +1009,18 @@ Get the current health of an accumulator.
 
 
 ```rust
-async fn list_accumulators_with_health (& self) -> Vec < (String , AccumulatorHealth) >
+async fn list_accumulators_with_health (& self ,) -> Vec < (String , AccumulatorHealth , Option < FreshnessHandle >) >
 ```
 
-List all accumulators with their current health status.
+List all accumulators with their current health + freshness (CLOACI-T-0765).
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub async fn list_accumulators_with_health(&self) -> Vec<(String, AccumulatorHealth)> {
+    pub async fn list_accumulators_with_health(
+        &self,
+    ) -> Vec<(String, AccumulatorHealth, Option<FreshnessHandle>)> {
         let inner = self.inner.read().await;
         inner
             .accumulators
@@ -877,7 +1031,8 @@ List all accumulators with their current health status.
                     .get(name)
                     .map(|rx| rx.borrow().clone())
                     .unwrap_or(AccumulatorHealth::Live); // default for accumulators without health tracking
-                (name.clone(), health)
+                let fresh = inner.accumulator_freshness.get(name).cloned();
+                (name.clone(), health, fresh)
             })
             .collect()
     }
@@ -892,7 +1047,7 @@ List all accumulators with their current health status.
 
 
 ```rust
-async fn list_accumulators_with_health_for_key (& self , ctx : & KeyContext < '_ > ,) -> Vec < (String , AccumulatorHealth) >
+async fn list_accumulators_with_health_for_key (& self , ctx : & KeyContext < '_ > ,) -> Vec < (String , AccumulatorHealth , Option < FreshnessHandle >) >
 ```
 
 CLOACI-T-0579: list accumulators authorized for the given caller. Filters by each accumulator's `AccumulatorAuthPolicy::is_authorized` against the caller's `KeyContext`. Admin keys see everything; tenant-scoped keys see only their own accumulators; producer-pin keys see whichever they're explicitly allowed on.
@@ -909,7 +1064,7 @@ A's accumulator names.
     pub async fn list_accumulators_with_health_for_key(
         &self,
         ctx: &KeyContext<'_>,
-    ) -> Vec<(String, AccumulatorHealth)> {
+    ) -> Vec<(String, AccumulatorHealth, Option<FreshnessHandle>)> {
         let inner = self.inner.read().await;
         inner
             .accumulators
@@ -931,7 +1086,8 @@ A's accumulator names.
                     .get(name)
                     .map(|rx| rx.borrow().clone())
                     .unwrap_or(AccumulatorHealth::Live);
-                (name.clone(), health)
+                let fresh = inner.accumulator_freshness.get(name).cloned();
+                (name.clone(), health, fresh)
             })
             .collect()
     }
@@ -958,6 +1114,12 @@ A's accumulator names.
 | `accumulator_policies` | `HashMap < String , AccumulatorAuthPolicy >` | Accumulator name → auth policy. |
 | `reactor_policies` | `HashMap < String , ReactorAuthPolicy >` | Reactor name → auth policy. |
 | `accumulator_health` | `HashMap < String , watch :: Receiver < AccumulatorHealth > >` | Accumulator name → health watch receiver. |
+| `accumulator_freshness` | `HashMap < String , FreshnessHandle >` | Accumulator name → freshness probe (events_total + last-event), CLOACI-T-0765. |
+| `accumulator_meta` | `HashMap < String , AccumulatorDescriptor >` | Accumulator name → discoverability descriptor (CLOACI-I-0128 follow-up). |
+| `accumulator_injects` | `HashMap < String , (u64 , i64) >` | Accumulator name → `(operator-inject count, last-inject epoch ms)`
+(CLOACI-T-0776). Every `send_to_accumulator` is an operator inject — real
+source events arrive on the accumulator's own socket, not here — so this
+counts manual interventions for the UI to mark. |
 
 
 

@@ -73,6 +73,8 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 | `pause_reason` | `Option < String >` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
+| `trigger_origin` | `Option < String >` | How this run was triggered (CLOACI-T-0776); `Some("manual")` for an
+operator REST run, `None` otherwise. |
 
 
 
@@ -408,6 +410,12 @@ Unified delivery-outbox row: durable, ack-tracked, recipient-addressed push deli
 | `last_poll_at` | `Option < UniversalTimestamp >` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
+| `paused` | `UniversalBool` | Transient operator pause (CLOACI-T-0749). Distinct from `enabled`: a
+paused schedule is not fired by the scheduler but is otherwise intact. |
+| `paused_at` | `Option < UniversalTimestamp >` |  |
+| `params` | `Option < String >` | CLOACI-I-0116: fully-resolved bound instance params (JSON object) +
+human instance name; both None for anonymous schedules. |
+| `instance_name` | `Option < String >` |  |
 
 
 
@@ -437,6 +445,8 @@ Unified delivery-outbox row: durable, ack-tracked, recipient-addressed push deli
 | `next_run_at` | `Option < UniversalTimestamp >` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
+| `params` | `Option < String >` |  |
+| `instance_name` | `Option < String >` |  |
 
 
 
@@ -550,6 +560,9 @@ Unified delivery-outbox row: durable, ack-tracked, recipient-addressed push deli
 | `build_error` | `Option < String >` |  |
 | `build_claimed_at` | `Option < UniversalTimestamp >` |  |
 | `compiled_at` | `Option < UniversalTimestamp >` |  |
+| `paused` | `UniversalBool` | Transient operator pause (CLOACI-T-0749): blocks new executions of this
+workflow regardless of source. In-flight executions are unaffected. |
+| `paused_at` | `Option < UniversalTimestamp >` |  |
 
 
 
@@ -582,6 +595,101 @@ Unified delivery-outbox row: durable, ack-tracked, recipient-addressed push deli
 | `build_error` | `Option < String >` |  |
 | `build_claimed_at` | `Option < UniversalTimestamp >` |  |
 | `compiled_at` | `Option < UniversalTimestamp >` |  |
+
+
+
+### `cloacina::dal::unified::models::PackageArtifact`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Queryable`, `Selectable`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `UniversalUuid` |  |
+| `package_name` | `String` |  |
+| `version` | `String` |  |
+| `tenant_id` | `Option < String >` |  |
+| `target_triple` | `String` |  |
+| `content_hash` | `String` |  |
+| `compiled_data` | `UniversalBinary` |  |
+| `created_at` | `UniversalTimestamp` |  |
+
+
+
+### `cloacina::dal::unified::models::NewPackageArtifact`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Insertable`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `UniversalUuid` |  |
+| `package_name` | `String` |  |
+| `version` | `String` |  |
+| `tenant_id` | `Option < String >` |  |
+| `target_triple` | `String` |  |
+| `content_hash` | `String` |  |
+| `compiled_data` | `UniversalBinary` |  |
+| `created_at` | `UniversalTimestamp` |  |
+
+
+
+### `cloacina::dal::unified::models::PackageProvider`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Queryable`, `Selectable`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `UniversalUuid` |  |
+| `package_name` | `String` |  |
+| `version` | `String` |  |
+| `tenant_id` | `Option < String >` |  |
+| `provider_name` | `String` |  |
+| `provider_version` | `String` |  |
+| `content_hash` | `String` |  |
+| `provider_data` | `UniversalBinary` |  |
+| `created_at` | `UniversalTimestamp` |  |
+| `target_triple` | `Option < String >` | CLOACI-T-0908: `None` = the primary build (arch-neutral for wasm, the
+compiler host's arch for native); `Some(triple)` = a per-arch NATIVE build. |
+| `runtime` | `String` | `"wasm"` (arch-neutral) or `"native"` (per-arch host cdylib). |
+
+
+
+### `cloacina::dal::unified::models::NewPackageProvider`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Insertable`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `UniversalUuid` |  |
+| `package_name` | `String` |  |
+| `version` | `String` |  |
+| `tenant_id` | `Option < String >` |  |
+| `provider_name` | `String` |  |
+| `provider_version` | `String` |  |
+| `content_hash` | `String` |  |
+| `provider_data` | `UniversalBinary` |  |
+| `created_at` | `UniversalTimestamp` |  |
+| `target_triple` | `Option < String >` |  |
+| `runtime` | `String` |  |
 
 
 
@@ -625,6 +733,97 @@ Unified delivery-outbox row: durable, ack-tracked, recipient-addressed push deli
 | `public_key` | `UniversalBinary` |  |
 | `key_fingerprint` | `String` |  |
 | `created_at` | `UniversalTimestamp` |  |
+
+
+
+### `cloacina::dal::unified::models::TenantDataKey`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Queryable`, `Selectable`
+
+Per-tenant data key (DEK) wrapped by the server KEK (envelope encryption, D-7).
+
+`wrapped_dek` is the 32-byte DEK encrypted under the server KEK via
+AES-256-GCM (`nonce || ciphertext || tag`). It is only ever unwrapped
+server-side; the plaintext DEK never leaves memory.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `UniversalUuid` |  |
+| `org_id` | `UniversalUuid` |  |
+| `wrapped_dek` | `UniversalBinary` |  |
+| `created_at` | `UniversalTimestamp` |  |
+
+
+
+### `cloacina::dal::unified::models::NewTenantDataKey`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Insertable`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `UniversalUuid` |  |
+| `org_id` | `UniversalUuid` |  |
+| `wrapped_dek` | `UniversalBinary` |  |
+| `created_at` | `UniversalTimestamp` |  |
+
+
+
+### `cloacina::dal::unified::models::Secret`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Queryable`, `Selectable`
+
+An encrypted, tenant-scoped named-field secret.
+
+`field_names` is plaintext metadata (a JSON array of the field names only —
+never the values). `encrypted_fields` is the `{field: value}` JSON encrypted
+under the tenant DEK (`nonce || ciphertext || tag`). Plaintext field values
+exist only transiently in memory during an internal resolve.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `UniversalUuid` |  |
+| `org_id` | `UniversalUuid` |  |
+| `name` | `String` |  |
+| `field_names` | `String` |  |
+| `encrypted_fields` | `UniversalBinary` |  |
+| `created_at` | `UniversalTimestamp` |  |
+| `updated_at` | `UniversalTimestamp` |  |
+
+
+
+### `cloacina::dal::unified::models::NewSecret`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Insertable`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `UniversalUuid` |  |
+| `org_id` | `UniversalUuid` |  |
+| `name` | `String` |  |
+| `field_names` | `String` |  |
+| `encrypted_fields` | `UniversalBinary` |  |
+| `created_at` | `UniversalTimestamp` |  |
+| `updated_at` | `UniversalTimestamp` |  |
 
 
 

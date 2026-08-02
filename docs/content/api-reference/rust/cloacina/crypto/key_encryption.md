@@ -160,3 +160,57 @@ pub fn decrypt_private_key(
 ```
 
 </details>
+
+
+
+### `cloacina::crypto::key_encryption::encrypt_bytes`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn encrypt_bytes (plaintext : & [u8] , key : & [u8]) -> Result < Vec < u8 > , KeyEncryptionError >
+```
+
+Encrypts arbitrary bytes using AES-256-GCM.
+
+This is a thin, intent-revealing alias for [`encrypt_private_key`]: the
+underlying AEAD is generic over the plaintext, so the same primitive that
+wraps signing keys also wraps a tenant data key (DEK) or a serialized
+`{field: value}` secret map (CLOACI-I-0133 / T-0857). Output format is
+`nonce (12 bytes) || ciphertext || tag (16 bytes)`.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn encrypt_bytes(plaintext: &[u8], key: &[u8]) -> Result<Vec<u8>, KeyEncryptionError> {
+    encrypt_private_key(plaintext, key)
+}
+```
+
+</details>
+
+
+
+### `cloacina::crypto::key_encryption::decrypt_bytes`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn decrypt_bytes (encrypted_data : & [u8] , key : & [u8]) -> Result < Vec < u8 > , KeyEncryptionError >
+```
+
+Decrypts bytes produced by [`encrypt_bytes`] (or [`encrypt_private_key`]).
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn decrypt_bytes(encrypted_data: &[u8], key: &[u8]) -> Result<Vec<u8>, KeyEncryptionError> {
+    decrypt_private_key(encrypted_data, key)
+}
+```
+
+</details>

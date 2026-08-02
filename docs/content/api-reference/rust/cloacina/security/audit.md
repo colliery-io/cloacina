@@ -589,7 +589,7 @@ pub fn log_compiler_build_started(
 
 
 ```rust
-fn log_compiler_build_finished (build_claim_id : UniversalUuid , package_name : & str , package_version : & str , cargo_toml_hash : & str , cargo_lock_hash : Option < & str > , compiler_instance_id : UniversalUuid , outcome : & str , exit_status : Option < i32 > , exit_signal : Option < & str > , wall_clock_ms : u64 , failure_reason : Option < & str > ,)
+fn log_compiler_build_finished (build_claim_id : UniversalUuid , package_name : & str , package_version : & str , cargo_toml_hash : & str , cargo_lock_hash : Option < & str > , compiler_instance_id : UniversalUuid , outcome : & str , exit_status : Option < i32 > , exit_signal : Option < & str > , wall_clock_ms : u64 , failure_reason : Option < & str > , sandbox_level : & str ,)
 ```
 
 Log a compiler build finished event. Emitted exactly once per build claim on every outcome path (`success`, `failed`, `timeout_killed`, `internal_error`). CLOACI-T-0576.
@@ -616,9 +616,13 @@ pub fn log_compiler_build_finished(
     exit_signal: Option<&str>,
     wall_clock_ms: u64,
     failure_reason: Option<&str>,
+    // CLOACI-I-0105 (T-0854): the isolation level this build ACTUALLY ran
+    // under — forensics can prove what contained a given build.
+    sandbox_level: &str,
 ) {
     tracing::info!(
         event_type = events::COMPILER_BUILD_FINISHED,
+        sandbox_level = %sandbox_level,
         build_claim_id = %build_claim_id,
         package_name = %package_name,
         package_version = %package_version,
@@ -633,6 +637,91 @@ pub fn log_compiler_build_finished(
         wall_clock_ms = wall_clock_ms,
         failure_reason = failure_reason.unwrap_or("<none>"),
         "Compiler build finished"
+    );
+}
+```
+
+</details>
+
+
+
+### `cloacina::security::audit::log_reactor_manual_fire`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn log_reactor_manual_fire (reactor : & str , key_id : UniversalUuid , key_name : & str , tenant_id : Option < & str > , mode : & str , sources : & [String] ,)
+```
+
+CLOACI-T-0751: log an operator manual reactor fire.
+
+Manual fires bypass the real event source, so the audit trail must mark
+the resulting graph activity as operator-injected. `mode` is the applied
+fire mode (`force_fire` / `fire_with`); `sources` are the source names
+whose values were injected (empty for a force-fire).
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn log_reactor_manual_fire(
+    reactor: &str,
+    key_id: UniversalUuid,
+    key_name: &str,
+    tenant_id: Option<&str>,
+    mode: &str,
+    sources: &[String],
+) {
+    tracing::warn!(
+        event_type = events::REACTOR_MANUAL_FIRE,
+        reactor = %reactor,
+        key_id = %key_id,
+        key_name = %key_name,
+        tenant_id = tenant_id.unwrap_or("<none>"),
+        mode = %mode,
+        sources = %sources.join(","),
+        operator_injected = true,
+        "Operator manually fired reactor"
+    );
+}
+```
+
+</details>
+
+
+
+### `cloacina::security::audit::log_accumulator_manual_inject`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn log_accumulator_manual_inject (accumulator : & str , key_id : UniversalUuid , key_name : & str , tenant_id : Option < & str > , delivered : usize ,)
+```
+
+Audit an operator's manual REST injection into an accumulator (CLOACI-T-0753).
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn log_accumulator_manual_inject(
+    accumulator: &str,
+    key_id: UniversalUuid,
+    key_name: &str,
+    tenant_id: Option<&str>,
+    delivered: usize,
+) {
+    tracing::warn!(
+        event_type = events::ACCUMULATOR_MANUAL_INJECT,
+        accumulator = %accumulator,
+        key_id = %key_id,
+        key_name = %key_name,
+        tenant_id = tenant_id.unwrap_or("<none>"),
+        delivered = delivered,
+        operator_injected = true,
+        "Operator manually injected an accumulator event"
     );
 }
 ```

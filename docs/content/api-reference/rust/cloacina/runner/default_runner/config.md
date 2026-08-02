@@ -62,6 +62,11 @@ when the existence check fails. Mirrors `cloacina-server`'s
 | `default_executor` | `String` | Executor key every task is dispatched to (CLOACI-T-0640). `"default"`
 (thread) unless the server opts into another registered executor (e.g.
 `"fleet"`). |
+| `tenant_id` | `String` | Tenant this runner serves (CLOACI-T-0781). Flows into the reconciler's
+`default_tenant_id`, so every task this runner registers is namespaced
+`tenant::package::workflow::task` — which is what the fleet executor
+routes on. `"public"` for the admin/global runner; a per-tenant runner
+sets it to its tenant so the tenant's tasks reach the tenant's agents. |
 
 #### Methods
 
@@ -564,6 +569,50 @@ CLOACI-T-0571: when true, the reconciler refuses to load packages with no matchi
 ```rust
     pub fn require_signatures(&self) -> bool {
         self.require_signatures
+    }
+```
+
+</details>
+
+
+
+##### `tenant_id` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn tenant_id (& self) -> & str
+```
+
+The tenant this runner serves (CLOACI-T-0781). Namespaces its tasks.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn tenant_id(&self) -> &str {
+        &self.tenant_id
+    }
+```
+
+</details>
+
+
+
+##### `set_tenant_id` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn set_tenant_id (& mut self , tenant_id : impl Into < String >)
+```
+
+Override the tenant — used by the per-tenant runner cache when cloning the base config for a tenant-scoped runner so its tasks namespace correctly.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn set_tenant_id(&mut self, tenant_id: impl Into<String>) {
+        self.tenant_id = tenant_id.into();
     }
 ```
 
@@ -1463,6 +1512,52 @@ Sets the heartbeat interval for claimed tasks.
 
 
 
+##### `stale_claim_threshold` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn stale_claim_threshold (mut self , value : Duration) -> Self
+```
+
+Sets how old a claimed task's heartbeat must be before its claim is considered stale and reclaimed by the sweeper. Must be greater than `heartbeat_interval` (enforced in `build()`). Lower values shorten the crash-recovery window (default 60s). (CLOACI-T-0667)
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn stale_claim_threshold(mut self, value: Duration) -> Self {
+        self.config.stale_claim_threshold = value;
+        self
+    }
+```
+
+</details>
+
+
+
+##### `stale_claim_sweep_interval` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn stale_claim_sweep_interval (mut self , value : Duration) -> Self
+```
+
+Sets how often the stale-claim sweeper runs (default 30s). Only has effect when claiming + recovery are enabled. (CLOACI-T-0667)
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn stale_claim_sweep_interval(mut self, value: Duration) -> Self {
+        self.config.stale_claim_sweep_interval = value;
+        self
+    }
+```
+
+</details>
+
+
+
 ##### `build` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
@@ -1556,6 +1651,10 @@ let tenant_b = DefaultRunnerBuilder::new()
 | `config` | `DefaultRunnerConfig` |  |
 | `runtime` | `Option < Runtime >` |  |
 | `runtime_arc` | `Option < Arc < Runtime > >` |  |
+| `secret_resolver` | `Option < Arc < dyn cloacina_workflow :: secret :: SecretResolver > >` | Optional secret resolution side channel (CLOACI-T-0858). Kept on the
+builder (not the `Clone`/`Debug` config) so the server KEK it carries is
+never printed. When set, the thread executor attaches it to every task
+context so `context.secret(...)` resolves. |
 
 #### Methods
 
@@ -1579,7 +1678,41 @@ Creates a new builder with default configuration
             config: DefaultRunnerConfig::default(),
             runtime: None,
             runtime_arc: None,
+            secret_resolver: None,
         }
+    }
+```
+
+</details>
+
+
+
+##### `secret_resolver` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn secret_resolver (mut self , resolver : Arc < dyn cloacina_workflow :: secret :: SecretResolver > ,) -> Self
+```
+
+Wire a secret resolution side channel (CLOACI-T-0858 / I-0133 D-1).
+
+On the embedded / in-process path the host configures this so packaged
+tasks can resolve tenant secrets via `context.secret("name")`. Construct
+one from [`crate::security::SecretStoreResolver`] — e.g.
+`SecretStoreResolver::from_env(store, org_id)` to source the server KEK
+from `CLOACINA_SECRET_KEK`. When unset, `context.secret(...)` returns a
+clear "secrets backend not configured" error.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn secret_resolver(
+        mut self,
+        resolver: Arc<dyn cloacina_workflow::secret::SecretResolver>,
+    ) -> Self {
+        self.secret_resolver = Some(resolver);
+        self
     }
 ```
 
@@ -1674,7 +1807,8 @@ Sets a scoped [`Runtime`] for this runner.
 
 When set, the runner (and all components it creates) will use this
 runtime's registries instead of the process-global registries.
-If not set, [`Runtime::from_global()`] is used as the default.
+If not set, a fresh inventory-seeded [`Runtime`] (i.e.
+[`Runtime::default`], equivalent to [`Runtime::new`]) is used.
 
 <details>
 <summary>Source</summary>
@@ -1848,7 +1982,10 @@ Builds the DefaultRunner
             Arc::new(crate::TaskRegistry::new()),
             runtime.clone(),
             executor_config,
-        );
+        )
+        // CLOACI-T-0858: thread the secret resolution side channel to the
+        // executor so task contexts can resolve secrets in-process.
+        .with_secret_resolver(self.secret_resolver.clone());
 
         // Configure dispatcher for push-based task execution. Every task is sent
         // to the one configured executor key (CLOACI-T-0640).
@@ -1866,6 +2003,7 @@ Builds the DefaultRunner
             config: self.config.clone(),
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
+            cron_change: Arc::new(tokio::sync::Notify::new()),
         };
 
         // Start the background services immediately

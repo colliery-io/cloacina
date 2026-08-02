@@ -125,12 +125,13 @@ unload pipeline (T-0554 Phase 2): the package's own reactors are
 torn down via `scheduler.unload_reactor` after subscribers have
 been unbound. Cross-package subscribers (graphs that bind to a
 reactor owned by another package) do NOT appear here. |
-| `cron_schedule_ids` | `Vec < String >` | Cron schedule IDs created when the reconciler registered this
-package's `#[trigger(cron = ...)]` declarations through an
-attached `CronWorkflowRegistrar`. Empty when no registrar is
-attached (e.g. the standalone daemon path runs cron registration
-out-of-band). Used by `unload_package` to drop the schedules
-when the package is removed. |
+| `cron_schedule_ids` | `Vec < String >` | Schedule IDs created when the reconciler registered this package's
+trigger declarations through an attached `CronWorkflowRegistrar` —
+both `#[trigger(cron = ...)]` (cron rows) and `#[trigger(poll_interval
+= ...)]` (poll rows, CLOACI-I-0124 / WS-6). Empty when no registrar is
+attached (e.g. the standalone daemon path registers out-of-band). Used
+by `unload_package` to drop the schedules when the package is removed
+(both kinds are deleted by id). |
 | `triggerless_graph_names` | `Vec < String >` | Trigger-less graph names registered through the FFI bridge for
 this package (T-0553 follow-up — Trigger-less CG FFI bridge).
 Populated by `step_load_triggerless_cgs` for cdylib packages;
@@ -207,6 +208,11 @@ time and deregisters at unload. Without it, cron triggers are a
 no-op (the standalone daemon historically did this out-of-band;
 server mode had no cron registration at all). Closes the gap
 where packaged cron triggers never fired under cloacina-server. |
+| `recompile_requested` | `std :: sync :: Mutex < std :: collections :: HashSet < WorkflowPackageId > >` | CLOACI-T-0835: packages this process already asked the compiler to
+rebuild after a stale-artifact load failure. One request per package
+per process — if the rebuilt artifact STILL fails (e.g. the compiler
+itself is the stale side), we do not ping-pong the row back to
+`pending` forever. |
 
 #### Methods
 
@@ -247,6 +253,7 @@ Create a new Registry Reconciler
             interval,
             graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
             cron_registrar: None,
+            recompile_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
         })
     }
 ```
@@ -600,6 +607,38 @@ Perform a single reconciliation operation
                             package_id, package_metadata.package_name, package_metadata.version, e
                         );
                         error!("{}", error_msg);
+
+                        // CLOACI-T-0835: a STALE-ARTIFACT failure (the cdylib
+                        // was built against an older plugin ABI / interface
+                        // version than this host expects) is fixable by a
+                        // rebuild from retained source — signal the compiler
+                        // by flipping the row back to `pending`. Once per
+                        // package per process, so a rebuild that comes back
+                        // still-stale doesn't ping-pong forever.
+                        if is_stale_artifact_error(&error_msg)
+                            && self.recompile_requested.lock().unwrap().insert(*package_id)
+                        {
+                            match self.registry.request_recompile(*package_id).await {
+                                Ok(true) => warn!(
+                                    "Package {} v{} has a STALE compiled artifact (ABI/interface \
+                                     mismatch) — requested a recompile from retained source; it \
+                                     will reload once the compiler rebuilds it",
+                                    package_metadata.package_name, package_metadata.version
+                                ),
+                                Ok(false) => debug!(
+                                    "Stale artifact for {} v{}, but this registry cannot \
+                                     schedule recompiles",
+                                    package_metadata.package_name, package_metadata.version
+                                ),
+                                Err(req_err) => warn!(
+                                    "Failed to request recompile for {} v{}: {}",
+                                    package_metadata.package_name,
+                                    package_metadata.version,
+                                    req_err
+                                ),
+                            }
+                        }
+
                         result.packages_failed.push((*package_id, error_msg));
 
                         if !self.config.continue_on_package_error {
@@ -700,6 +739,34 @@ Get the current reconciliation status
                 .collect(),
         }
     }
+```
+
+</details>
+
+
+
+
+
+## Functions
+
+### `cloacina::registry::reconciler::is_stale_artifact_error`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn is_stale_artifact_error (message : & str) -> bool
+```
+
+CLOACI-T-0835: does this load failure mean the compiled artifact is STALE (built against an older plugin ABI / interface version than this host expects) — i.e. a rebuild from source would fix it? Matches the two gates a version bump trips: fidius's ABI check ("incompatible ABI version") and its per-interface hash check ("interface hash mismatch"). Message-based because the typed fidius error is stringly-flattened by the loader layers; both strings are fidius-host error display texts, stable within a pinned fidius.
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn is_stale_artifact_error(message: &str) -> bool {
+    message.contains("incompatible ABI version") || message.contains("interface hash mismatch")
+}
 ```
 
 </details>

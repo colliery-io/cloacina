@@ -248,7 +248,15 @@ for deduplication and ordering guarantees.
 |------|------|-------------|
 | `inner` | `mpsc :: Sender < (SourceName , Vec < u8 >) >` |  |
 | `source_name` | `SourceName` |  |
-| `sequence` | `Arc < AtomicU64 >` | Monotonically increasing sequence counter (shared across clones). |
+| `sequence` | `Arc < AtomicU64 >` | Monotonically increasing sequence counter (shared across clones). This is
+also the accumulator's `events_total` (one boundary emitted per send). |
+| `last_event_ms` | `Arc < std :: sync :: atomic :: AtomicI64 >` | Wall-clock (unix millis) of the last successful emit; `0` = never
+(CLOACI-T-0765 freshness). Shared across clones. |
+| `buffer_depth` | `Arc < std :: sync :: atomic :: AtomicI64 >` | Current buffered-event count for buffering kinds (batch/state); `-1` =
+this accumulator kind doesn't buffer / untracked (CLOACI-T-0744).
+Shared across clones and into the `FreshnessHandle` the health API samples. |
+| `buffer_capacity` | `Arc < std :: sync :: atomic :: AtomicI64 >` | Declared buffer capacity for bounded kinds (state `capacity = N`, batch
+`max_buffer_size`); `<= 0` = unbounded / not applicable (CLOACI-T-0744). |
 
 #### Methods
 
@@ -268,6 +276,42 @@ fn new (sender : mpsc :: Sender < (SourceName , Vec < u8 >) > , source_name : So
             inner: sender,
             source_name,
             sequence: Arc::new(AtomicU64::new(0)),
+            last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            buffer_depth: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+            buffer_capacity: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+        }
+    }
+```
+
+</details>
+
+
+
+##### `with_freshness` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_freshness (sender : mpsc :: Sender < (SourceName , Vec < u8 >) > , source_name : SourceName , freshness : FreshnessHandle ,) -> Self
+```
+
+Create a sender that shares its events_total + last-event with a pre-made `FreshnessHandle` (CLOACI-T-0765), so the registry can sample freshness for the live accumulator.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_freshness(
+        sender: mpsc::Sender<(SourceName, Vec<u8>)>,
+        source_name: SourceName,
+        freshness: FreshnessHandle,
+    ) -> Self {
+        Self {
+            inner: sender,
+            source_name,
+            sequence: freshness.events_total.clone(),
+            last_event_ms: freshness.last_event_ms.clone(),
+            buffer_depth: freshness.buffer_depth.clone(),
+            buffer_capacity: freshness.buffer_capacity.clone(),
         }
     }
 ```
@@ -298,6 +342,9 @@ Create a sender with a specific starting sequence number (for restart recovery).
             inner: sender,
             source_name,
             sequence: Arc::new(AtomicU64::new(start_sequence)),
+            last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            buffer_depth: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+            buffer_capacity: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
         }
     }
 ```
@@ -328,6 +375,8 @@ Serialize and send a boundary to the reactor. Increments the sequence counter at
             .await
             .map_err(|e| AccumulatorError::Send(format!("channel send failed: {}", e)))?;
         self.sequence.fetch_add(1, Ordering::SeqCst);
+        // CLOACI-T-0765: stamp last-emit for the freshness probe.
+        self.last_event_ms.store(now_unix_ms(), Ordering::Relaxed);
         Ok(())
     }
 ```
@@ -373,6 +422,231 @@ Get the current sequence number (last emitted).
 ```rust
     pub fn sequence_number(&self) -> u64 {
         self.sequence.load(Ordering::SeqCst)
+    }
+```
+
+</details>
+
+
+
+##### `set_buffer_depth` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn set_buffer_depth (& self , depth : u64)
+```
+
+Record the current buffered-event count so the health API can report it (CLOACI-T-0744). Called by the buffering runtimes (batch/state) alongside the Prometheus gauge.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn set_buffer_depth(&self, depth: u64) {
+        self.buffer_depth
+            .store(depth as i64, std::sync::atomic::Ordering::Relaxed);
+    }
+```
+
+</details>
+
+
+
+##### `set_buffer_capacity` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn set_buffer_capacity (& self , capacity : u64)
+```
+
+Record the declared buffer capacity for bounded kinds (CLOACI-T-0744). Pass a positive value; unbounded/none kinds just never call this.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn set_buffer_capacity(&self, capacity: u64) {
+        self.buffer_capacity
+            .store(capacity as i64, std::sync::atomic::Ordering::Relaxed);
+    }
+```
+
+</details>
+
+
+
+##### `freshness` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn freshness (& self) -> FreshnessHandle
+```
+
+A shared freshness probe (events_total + last_event), for registration with the graph registry so the health endpoint can report freshness.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn freshness(&self) -> FreshnessHandle {
+        FreshnessHandle {
+            events_total: self.sequence.clone(),
+            last_event_ms: self.last_event_ms.clone(),
+            buffer_depth: self.buffer_depth.clone(),
+            buffer_capacity: self.buffer_capacity.clone(),
+        }
+    }
+```
+
+</details>
+
+
+
+
+
+### `cloacina::computation_graph::accumulator::FreshnessHandle`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Clone`
+
+Read-only freshness probe for an accumulator (CLOACI-T-0765): the monotonic emit count + the wall-clock of the last emit, shared (Arc) with the live `BoundarySender` so the registry/server can sample it without locking.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `events_total` | `Arc < AtomicU64 >` |  |
+| `last_event_ms` | `Arc < std :: sync :: atomic :: AtomicI64 >` |  |
+| `buffer_depth` | `Arc < std :: sync :: atomic :: AtomicI64 >` |  |
+| `buffer_capacity` | `Arc < std :: sync :: atomic :: AtomicI64 >` |  |
+
+#### Methods
+
+##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn new () -> Self
+```
+
+A fresh probe (zeroed counters). Share it into a `BoundarySender` via `BoundarySender::with_freshness` and register it with the graph registry.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn new() -> Self {
+        Self {
+            events_total: Arc::new(AtomicU64::new(0)),
+            last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            buffer_depth: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+            buffer_capacity: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+        }
+    }
+```
+
+</details>
+
+
+
+##### `events_total` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn events_total (& self) -> u64
+```
+
+Total boundaries emitted since load (monotonic).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn events_total(&self) -> u64 {
+        self.events_total.load(Ordering::Relaxed)
+    }
+```
+
+</details>
+
+
+
+##### `last_event_ms` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn last_event_ms (& self) -> Option < i64 >
+```
+
+Unix-millis of the last emit, or `None` if nothing has been emitted yet.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn last_event_ms(&self) -> Option<i64> {
+        let v = self.last_event_ms.load(Ordering::Relaxed);
+        if v > 0 {
+            Some(v)
+        } else {
+            None
+        }
+    }
+```
+
+</details>
+
+
+
+##### `buffer_depth` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn buffer_depth (& self) -> Option < u64 >
+```
+
+Buffered-event count for buffering kinds (batch/state), or `None` for kinds that don't buffer / runtimes predating the gauge (CLOACI-T-0744).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn buffer_depth(&self) -> Option<u64> {
+        let v = self.buffer_depth.load(Ordering::Relaxed);
+        if v >= 0 {
+            Some(v as u64)
+        } else {
+            None
+        }
+    }
+```
+
+</details>
+
+
+
+##### `buffer_capacity` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn buffer_capacity (& self) -> Option < u64 >
+```
+
+Declared buffer capacity for bounded kinds, or `None` when unbounded / not applicable (CLOACI-T-0744). The UI renders `depth/capacity`.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn buffer_capacity(&self) -> Option<u64> {
+        let v = self.buffer_capacity.load(Ordering::Relaxed);
+        if v > 0 {
+            Some(v as u64)
+        } else {
+            None
+        }
     }
 ```
 
@@ -501,6 +775,31 @@ pub fn health_channel() -> (
     watch::Receiver<AccumulatorHealth>,
 ) {
     watch::channel(AccumulatorHealth::Starting)
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::accumulator::now_unix_ms`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn now_unix_ms () -> i64
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn now_unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 ```
 
@@ -643,12 +942,21 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource>(
         let shutdown_source = ctx.shutdown.clone();
         let event_tx_source = event_tx.clone();
         let name_source = name_loop.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             match source.run(event_tx_source, shutdown_source).await {
                 Ok(()) => tracing::debug!(name = %name_source, "event source completed"),
                 Err(e) => tracing::error!(name = %name_source, "event source failed: {}", e),
             }
-        })
+        });
+        // Advance past Connecting to Live now that the source task is running.
+        // The reactor's startup gate only proceeds once every accumulator
+        // reports Live/SocketOnly; a stream accumulator that stayed Connecting
+        // gated the reactor forever, so it never consumed the boundaries the
+        // source delivered (CLOACI-T-0715). Optimistic + symmetric with the
+        // socket path below, which reports SocketOnly before any data arrives;
+        // the degraded-mode monitor downgrades health if the source later fails.
+        set_health(&ctx, AccumulatorHealth::Live);
+        handle
     } else {
         set_health(&ctx, AccumulatorHealth::SocketOnly);
         let mut shutdown_loop = ctx.shutdown.clone();
@@ -894,6 +1202,11 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
 ) {
     set_health(&ctx, AccumulatorHealth::Starting);
     set_accumulator_buffer_depth(&ctx, 0.0);
+    // CLOACI-T-0744: surface the bounded flush threshold as the buffer
+    // capacity so the health API can render fill (`depth/capacity`).
+    if let Some(cap) = config.max_buffer_size {
+        ctx.output.set_buffer_capacity(cap as u64);
+    }
 
     // Restore buffered events from checkpoint if available
     let mut buffer: Vec<Vec<u8>> = Vec::new();
@@ -1192,6 +1505,9 @@ fn set_accumulator_buffer_depth(ctx: &AccumulatorContext, depth: f64) {
         "accumulator" => ctx.name.clone(),
     )
     .set(depth);
+    // CLOACI-T-0744: mirror into the freshness probe so the polled health API
+    // reports the same gauge the Prometheus series carries.
+    ctx.output.set_buffer_depth(depth as u64);
 }
 ```
 
@@ -1252,6 +1568,41 @@ async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) 
 
 
 
+### `cloacina::computation_graph::accumulator::state_window_frame`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn state_window_frame < T : Serialize > (list : & [T]) -> Result < Vec < u8 > , String >
+```
+
+Run a state accumulator. Receives values via socket, appends to VecDeque, evicts if over capacity, persists to DAL, and emits the full list as boundary.
+
+On startup: loads from DAL and emits current list to reactor.
+Encode a state window for the boundary wire (CLOACI-T-0842).
+The window ships in the SAME shape passthrough events use —
+`bincode(Vec<u8>)` of JSON bytes (here, a JSON array) — because the
+previous `bincode(Vec<T>)` encoding was WRITE-ONLY for the
+`serde_json::Value` instantiation the factory uses: `Value` can't
+deserialize from bincode (non-self-describing, `deserialize_any`), so the
+fires log rendered `null`, the FFI cache conversion errored, and no
+consumer could read the window. One wire shape for every boundary means
+every existing decoder just works.
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn state_window_frame<T: Serialize>(list: &[T]) -> Result<Vec<u8>, String> {
+    serde_json::to_vec(list).map_err(|e| e.to_string())
+}
+```
+
+</details>
+
+
+
 ### `cloacina::computation_graph::accumulator::state_accumulator_runtime`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
@@ -1260,10 +1611,6 @@ async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) 
 ```rust
 async fn state_accumulator_runtime < T : Serialize + DeserializeOwned + Send + Clone + 'static > (mut acc : StateAccumulator < T > , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > ,)
 ```
-
-Run a state accumulator. Receives values via socket, appends to VecDeque, evicts if over capacity, persists to DAL, and emits the full list as boundary.
-
-On startup: loads from DAL and emits current list to reactor.
 
 <details>
 <summary>Source</summary>
@@ -1301,10 +1648,25 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
         // Emit current list to reactor immediately (so reactor has state on startup)
         if !acc.buffer.is_empty() && acc.capacity != 0 {
             let list: Vec<T> = acc.buffer.iter().cloned().collect();
-            if let Err(e) = ctx.output.send(&list).await {
-                tracing::error!(name = %ctx.name, "state accumulator initial emit failed: {}", e);
+            match state_window_frame(&list) {
+                Ok(frame) => {
+                    if let Err(e) = ctx.output.send(&frame).await {
+                        tracing::error!(name = %ctx.name, "state accumulator initial emit failed: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(name = %ctx.name, "state window encode failed: {}", e)
+                }
             }
         }
+    }
+
+    // CLOACI-T-0744: state buffers were previously invisible to BOTH the
+    // Prometheus gauge and the health API — report depth (incl. the restored
+    // buffer) and the bounded capacity so the UI can render `N/capacity`.
+    set_accumulator_buffer_depth(&ctx, acc.buffer.len() as f64);
+    if acc.capacity > 0 {
+        ctx.output.set_buffer_capacity(acc.capacity as u64);
     }
 
     set_health(&ctx, AccumulatorHealth::SocketOnly);
@@ -1327,6 +1689,7 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
                                 acc.buffer.pop_front();
                             }
                         }
+                        set_accumulator_buffer_depth(&ctx, acc.buffer.len() as f64);
 
                         // Persist to DAL
                         if let Some(ref handle) = ctx.checkpoint {
@@ -1355,10 +1718,17 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
                         // Emit full list as boundary (unless write-only mode)
                         if acc.capacity != 0 {
                             let list: Vec<T> = acc.buffer.iter().cloned().collect();
-                            if let Err(e) = ctx.output.send(&list).await {
-                                tracing::error!(name = %ctx.name, "state accumulator emit failed: {}", e);
-                            } else {
-                                persist_boundary(&ctx, &list).await;
+                            match state_window_frame(&list) {
+                                Ok(frame) => {
+                                    if let Err(e) = ctx.output.send(&frame).await {
+                                        tracing::error!(name = %ctx.name, "state accumulator emit failed: {}", e);
+                                    } else {
+                                        persist_boundary(&ctx, &list).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!(name = %ctx.name, "state window encode failed: {}", e)
+                                }
                             }
                         }
                     }

@@ -139,6 +139,9 @@ from the same package. No per-execution temp files or dlopen cycles.
 | `plugin` | `Arc < LoadedWorkflowPlugin >` | Shared handle to the loaded plugin library |
 | `task_name` | `String` | Name of the task within the package |
 | `dependencies` | `Vec < TaskNamespace >` | Task dependencies as fully qualified namespaces |
+| `trigger_rules` | `serde_json :: Value` | Trigger rules JSON for conditional execution, forwarded from the cdylib's
+FFI metadata (CLOACI-T-0721). Without this the host defaulted to `Always`
+and packaged workflows silently ignored conditional execution / skips. |
 
 #### Methods
 
@@ -171,7 +174,7 @@ Load a plugin library from bytes. Called once per package during registration.
 
 
 ```rust
-fn new (plugin : Arc < LoadedWorkflowPlugin > , task_name : String , dependencies : Vec < TaskNamespace > ,) -> Self
+fn new (plugin : Arc < LoadedWorkflowPlugin > , task_name : String , dependencies : Vec < TaskNamespace > , trigger_rules : serde_json :: Value ,) -> Self
 ```
 
 Create a new dynamic library task with a shared plugin handle.
@@ -184,11 +187,13 @@ Create a new dynamic library task with a shared plugin handle.
         plugin: Arc<LoadedWorkflowPlugin>,
         task_name: String,
         dependencies: Vec<TaskNamespace>,
+        trigger_rules: serde_json::Value,
     ) -> Self {
         Self {
             plugin,
             task_name,
             dependencies,
+            trigger_rules,
         }
     }
 ```

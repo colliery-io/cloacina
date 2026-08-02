@@ -19,6 +19,10 @@ Adapter that lets the registry reconciler register/unregister cron workflow sche
 | Name | Type | Description |
 |------|------|-------------|
 | `database` | `crate :: database :: Database` |  |
+| `cron_change` | `Arc < tokio :: sync :: Notify >` | Wakes the timer-driven cron scheduler after a schedule is registered or
+removed so it fires on time instead of waiting for the backstop
+(CLOACI-T-0743). Shared with the `Scheduler` via the runner's
+`cron_change` Notify. |
 
 #### Methods
 
@@ -26,15 +30,18 @@ Adapter that lets the registry reconciler register/unregister cron workflow sche
 
 
 ```rust
-fn new (database : crate :: database :: Database) -> Self
+fn new (database : crate :: database :: Database , cron_change : Arc < tokio :: sync :: Notify >) -> Self
 ```
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn new(database: crate::database::Database) -> Self {
-        Self { database }
+    pub fn new(database: crate::database::Database, cron_change: Arc<tokio::sync::Notify>) -> Self {
+        Self {
+            database,
+            cron_change,
+        }
     }
 ```
 

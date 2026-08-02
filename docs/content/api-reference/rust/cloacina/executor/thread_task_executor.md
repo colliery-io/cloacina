@@ -42,12 +42,62 @@ and uses a task registry to resolve task implementations.
 | `total_executed` | `Arc < AtomicU64 >` | Metrics: total tasks executed. `Arc` so clones — and the shared
 [`crate::executor::TaskResultHandler`] (T-0630) — see the same counter. |
 | `total_failed` | `Arc < AtomicU64 >` | Metrics: total tasks failed. |
-| `result_handler` | `crate :: executor :: TaskResultHandler` | Shared post-execution handler (T-0630). Holds the same DAL + counters
-+ runner_id as this executor; the upcoming `FleetExecutor` (T-0633)
+| `result_handler` | `crate :: executor :: TaskResultHandler` | Shared post-execution handler (T-0630). Holds the same DAL, counters,
+and runner_id as this executor; the upcoming `FleetExecutor` (T-0633)
 will construct an analogous handler so thread and fleet paths share
 one state-write sequence. |
+| `secret_resolver` | `Option < Arc < dyn cloacina_workflow :: secret :: SecretResolver > >` | Optional secret resolution side channel (CLOACI-T-0858). When set, the
+context built for each task carries it so a task body can call
+`context.secret(...)`. `None` when secrets aren't configured for this
+runner. |
 
 #### Methods
+
+##### `mark_failed_reliably` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn mark_failed_reliably (& self , task_execution_id : UniversalUuid , error_msg : & str , runner_id : Option < UniversalUuid > ,)
+```
+
+CLOACI-I-0140: terminal state writes must never be silently dropped — a lost `mark_failed` leaves the task row Running forever and hangs the workflow. Retries transient DB contention; screams on exhaustion.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn mark_failed_reliably(
+        &self,
+        task_execution_id: UniversalUuid,
+        error_msg: &str,
+        runner_id: Option<UniversalUuid>,
+    ) {
+        let result = super::result_handler::retry_transient(
+            5,
+            std::time::Duration::from_millis(100),
+            || async {
+                self.dal
+                    .task_execution()
+                    .mark_failed(task_execution_id, error_msg, runner_id)
+                    .await
+            },
+        )
+        .await;
+        if let Err(e) = result {
+            tracing::error!(
+                task_id = %task_execution_id,
+                error = %e,
+                "mark_failed FAILED after retries — task row stays Running until \
+                 the stale-claim sweeper recovers it; workflow completion is delayed"
+            );
+        }
+    }
+```
+
+</details>
+
+
 
 ##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
@@ -137,6 +187,7 @@ Creates a new ThreadTaskExecutor with a specific runtime.
             total_executed,
             total_failed,
             result_handler,
+            secret_resolver: None,
         }
     }
 ```
@@ -160,6 +211,32 @@ Sets the runtime for this executor, replacing the default.
 ```rust
     pub fn with_runtime(mut self, runtime: Arc<Runtime>) -> Self {
         self.runtime = runtime;
+        self
+    }
+```
+
+</details>
+
+
+
+##### `with_secret_resolver` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_secret_resolver (mut self , resolver : Option < Arc < dyn cloacina_workflow :: secret :: SecretResolver > > ,) -> Self
+```
+
+Sets the secret resolution side channel (CLOACI-T-0858). Every task this executor runs then receives a context that can resolve secrets via `context.secret(...)`.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_secret_resolver(
+        mut self,
+        resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
+    ) -> Self {
+        self.secret_resolver = resolver;
         self
     }
 ```
@@ -228,6 +305,7 @@ Result containing the task's execution context
         // thread executor and the fleet executor resolve dependency context
         // identically (same drift-elimination pattern as TaskResultHandler).
         crate::executor::TaskContextBuilder::new(self.dal.clone())
+            .with_secret_resolver(self.secret_resolver.clone())
             .build(claimed_task, dependencies)
             .await
     }

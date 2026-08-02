@@ -22,6 +22,12 @@ Metadata extracted from a workflow package.
 | Name | Type | Description |
 |------|------|-------------|
 | `package_name` | `String` | Package name |
+| `workflow_name` | `String` | Workflow name the package registers (the `#[workflow(name = "...")]`
+value) — the identifier the runner/cron scheduler executes by. Distinct
+from `package_name` (e.g. package `demo-slow-rust` → workflow
+`demo_slow_workflow`). Persisted so the API can expose it and callers
+can execute by it (CLOACI-T-0671 / T-0663). `#[serde(default)]` keeps
+older stored metadata (without this field) deserializable. |
 | `version` | `String` | Package version (extracted from library or defaults to "1.0.0") |
 | `description` | `Option < String >` | Package description |
 | `author` | `Option < String >` | Package author |
@@ -32,6 +38,23 @@ Metadata extracted from a workflow package.
 | `workflow_triggers` | `Vec < String >` | I-0102 / T-A: Trigger names this package's workflow subscribes to,
 sourced from `#[workflow(triggers = […])]`. The reconciler binds
 each named trigger to the workflow at load time. |
+| `declared_params` | `Vec < cloacina_api_types :: InputSlot >` | CLOACI-I-0128 / T-0756: declared workflow params (named, JSON-Schema-typed
+input slots) from `#[workflow(params(...))]`, read via the input-interface
+FFI entrypoint at extraction time. Empty for packages that declare none or
+predate the entrypoint. |
+| `declared_surfaces` | `Vec < cloacina_api_types :: DeclaredSurface >` | CLOACI-I-0128 / T-0758: declared input interfaces of the package's
+non-workflow injectable surfaces (computation graphs, reactors,
+accumulators), read from the same `get_input_interface` entrypoint. Lets
+the server validate operator injections (reactor fire / accumulator
+inject) against the surface's boundary types. Empty when none are declared
+or the package predates the entrypoint. |
+| `task_docs` | `std :: collections :: HashMap < String , TaskDocs >` | CLOACI-T-0754: the compiler's raw build-time doc parse (`what`/`why` per
+local task id), preserved verbatim so load paths that rebuild the task
+list AFTER build — the Python path has no cdylib, so its `tasks` are
+written by the reconciler at load — can re-merge docs instead of losing
+them. Rust packages get their docs overlaid onto `tasks` at build; this
+map is the durable source either way. Empty for undocumented packages
+and metadata predating the field. |
 
 
 
@@ -54,6 +77,30 @@ Individual task metadata.
 | `dependencies` | `Vec < String >` | Task dependencies as a list of local task IDs |
 | `description` | `String` | Human-readable description |
 | `source_location` | `String` | Source location information |
+| `doc_what` | `Option < String >` | CLOACI-T-0752 "what" — a short summary of what the task does, parsed
+from the author's doc-comment / docstring at build time. `None` when the
+task is undocumented. `#[serde(default)]` keeps older stored metadata
+deserializable. |
+| `doc_why` | `Option < String >` | CLOACI-T-0752 "why" — the rationale for the task (why it exists / when it
+matters), parsed from the doc-comment / docstring. `None` when absent. |
+
+
+
+### `cloacina::registry::loader::package_loader::TaskDocs`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Default`, `Serialize`, `Deserialize`
+
+Structured "what & why" documentation for a single task (CLOACI-T-0752), parsed compiler-side from the author's source (Rust doc-comments / Python docstrings) and overlaid onto the persisted [`TaskMetadata`]. Keyed by the task's local id.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `what` | `Option < String >` | Short summary of what the task does. |
+| `why` | `Option < String >` | Rationale — why the task exists / when it matters. |
 
 
 
@@ -300,9 +347,49 @@ The loaded library is cached to prevent dlclose — see struct-level docs.
                 reason: format!("Failed to call get_task_metadata: {}", e),
             })?;
 
-        // Keep the handle alive — dropping it triggers dlclose which corrupts
-        // the inventory linked list (see struct-level docs).
-        // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
+        // CLOACI-I-0128 / T-0756: pull the declared input interface (method index
+        // 9, optional since v3). Older packages return NotImplemented → no
+        // declared params. The workflow-surface entry's `slots_json` is a JSON
+        // array of InputSlot.
+        let iface_result: Result<
+            cloacina_workflow_plugin::InputInterfaceDescriptor,
+            fidius_host::CallError,
+        > = handle.call_method(cloacina_workflow_plugin::METHOD_GET_INPUT_INTERFACE, &());
+        let (declared_params, declared_surfaces): (
+            Vec<cloacina_api_types::InputSlot>,
+            Vec<cloacina_api_types::DeclaredSurface>,
+        ) = match iface_result {
+            Ok(desc) => {
+                let mut params: Vec<cloacina_api_types::InputSlot> = Vec::new();
+                let mut surfaces: Vec<cloacina_api_types::DeclaredSurface> = Vec::new();
+                for e in desc.entries {
+                    let slots =
+                        serde_json::from_str::<Vec<cloacina_api_types::InputSlot>>(&e.slots_json)
+                            .unwrap_or_default();
+                    if e.surface_kind == "workflow" {
+                        // Workflow params land in declared_params (T-0756).
+                        params.extend(slots);
+                    } else {
+                        // graph / reactor / accumulator surfaces (T-0758).
+                        surfaces.push(cloacina_api_types::DeclaredSurface {
+                            kind: e.surface_kind,
+                            name: e.surface_name,
+                            slots,
+                        });
+                    }
+                }
+                (params, surfaces)
+            }
+            Err(fidius_host::CallError::NotImplemented { .. }) => (Vec::new(), Vec::new()),
+            Err(e) => {
+                tracing::warn!(
+                    "get_input_interface failed: {:?}; treating as no declared interface",
+                    e
+                );
+                (Vec::new(), Vec::new())
+            }
+        };
+
         // Keep the handle alive — dropping it triggers dlclose which corrupts
         // the inventory linked list (see struct-level docs).
         // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
@@ -310,7 +397,10 @@ The loaded library is cached to prevent dlclose — see struct-level docs.
             cache.push(handle);
         }
 
-        self.convert_plugin_metadata_to_rust(ffi_metadata)
+        let mut pkg = self.convert_plugin_metadata_to_rust(ffi_metadata)?;
+        pkg.declared_params = declared_params;
+        pkg.declared_surfaces = declared_surfaces;
+        Ok(pkg)
     }
 ```
 
@@ -345,6 +435,10 @@ Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
                 dependencies: t.dependencies,
                 description: t.description,
                 source_location: t.source_location,
+                // FFI metadata carries no docs; the compiler overlays parsed
+                // doc-comments at build success (CLOACI-T-0752).
+                doc_what: None,
+                doc_why: None,
             })
             .collect();
 
@@ -381,6 +475,7 @@ Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
 
         Ok(PackageMetadata {
             package_name: meta.package_name,
+            workflow_name: meta.workflow_name,
             version: "1.0.0".to_string(),
             description: meta.package_description,
             author: meta.package_author,
@@ -389,6 +484,12 @@ Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
             architecture,
             symbols: vec!["fidius_get_registry".to_string()],
             workflow_triggers: meta.triggers,
+            // Populated by the caller via the input-interface entrypoint
+            // (extract_metadata_from_so); empty here.
+            declared_params: Vec::new(),
+            declared_surfaces: Vec::new(),
+            // Docs come from the compiler parse at build success (T-0754).
+            task_docs: Default::default(),
         })
     }
 ```
@@ -531,6 +632,78 @@ shell.
 
         let result = crate::computation_graph::packaging_bridge::call_get_reactor_metadata(&handle)
             .map_err(|e| LoaderError::MetadataExtraction { reason: e });
+
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        result
+    }
+```
+
+</details>
+
+
+
+##### `extract_constructor_metadata` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn extract_constructor_metadata (& self , package_data : & [u8] ,) -> Result < Vec < cloacina_workflow_plugin :: ConstructorPackageMetadata > , LoaderError >
+```
+
+Extract packaged `constructor!(...)` node declarations from compiled library bytes (CLOACI-T-0832).
+
+Calls `get_constructor_metadata()` (method index 10) on the fidius plugin.
+Plugins that predate trait v4 return `Ok(vec![])` here. Each returned
+[`cloacina_workflow_plugin::ConstructorPackageMetadata`] is resolved by the
+host (which links the WASM constructor loader) via `load_constructor_node`
+— applying the tenant capability grants — and injected into the rebuilt
+workflow DAG.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn extract_constructor_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "constructor_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        let result =
+            crate::computation_graph::packaging_bridge::call_get_constructor_metadata(&handle)
+                .map_err(|e| LoaderError::MetadataExtraction { reason: e });
 
         if let Ok(mut cache) = self.handle_cache.lock() {
             cache.push(handle);
