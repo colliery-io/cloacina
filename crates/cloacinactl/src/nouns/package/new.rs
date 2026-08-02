@@ -21,10 +21,9 @@
 //! hand-assembly. `--kind` selects the package shape:
 //! - `workflow` — `@cloaca.task` / `#[workflow]` tasks.
 //! - `graph` — a computation graph (`ComputationGraphBuilder` / `#[computation_graph]`).
-//! - `cron` — a workflow fired by a cron trigger. Only a Rust template exists;
-//!   Python packages fully support cron via `@cloaca.trigger(on=..., cron=...)`
-//!   declared in a `--kind workflow` package (see
-//!   `examples/features/workflows/python-cron`).
+//! - `cron` — a workflow fired by a cron trigger (`#[trigger(on, cron)]` /
+//!   `@cloaca.trigger(on=..., cron=...)`); the cron scheduler fires the `on`
+//!   workflow directly on the schedule.
 //!
 //! Python packages use bare decorators (the loader builds the workflow/graph
 //! context from `workflow_name`/`graph_name`); Rust packages depend on the
@@ -68,20 +67,6 @@ pub fn run(
     // The Python module / Rust workflow identifier derived from the package
     // name: hyphens aren't valid identifiers, so map them to underscores.
     let module = name.replace('-', "_");
-
-    // No Python cron TEMPLATE exists yet — the capability does. Python packages
-    // support cron triggers via `@cloaca.trigger(on=..., cron=...)` (routed to
-    // the cron scheduler by the reconciler); see
-    // examples/features/workflows/python-cron for a working packaged example.
-    if lang == ScaffoldLang::Python && kind == ScaffoldKind::Cron {
-        return Err(CliError::UserError(
-            "no Python cron scaffold template yet. Python packages DO support cron \
-             triggers: scaffold `--kind workflow` and declare \
-             `@cloaca.trigger(name=..., on=<workflow>, cron=\"<expr>\")` \
-             (see examples/features/workflows/python-cron)."
-                .to_string(),
-        ));
-    }
 
     let dir = path
         .map(Path::to_path_buf)
@@ -163,7 +148,7 @@ fn scaffold_python(
     match kind {
         ScaffoldKind::Workflow => scaffold_python_workflow(dir, name, module),
         ScaffoldKind::Graph => scaffold_python_graph(dir, name, module),
-        ScaffoldKind::Cron => unreachable!("python cron rejected in run()"),
+        ScaffoldKind::Cron => scaffold_python_cron(dir, name, module),
     }
 }
 
@@ -203,6 +188,48 @@ def goodbye(context):
     write(&dir.join("package.toml"), &package_toml)?;
     write(&dir.join(format!("workflow/{module}/__init__.py")), "")?;
     write(&dir.join(format!("workflow/{module}/tasks.py")), tasks_py)?;
+    Ok(())
+}
+
+fn scaffold_python_cron(dir: &Path, name: &str, module: &str) -> Result<(), CliError> {
+    // Mirrors examples/features/workflows/python-cron: bare @cloaca.task
+    // decorators plus a `@cloaca.trigger(on=..., cron=...)` declaration. The
+    // cron scheduler fires the `on` workflow directly on the schedule — the
+    // trigger function body is unused; its presence at import IS the
+    // declaration (there is no triggers section in package.toml).
+    let package_toml = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+
+[metadata]
+workflow_name = "{module}"
+description = "{name} cron workflow"
+"#
+    );
+
+    let tasks_py = format!(
+        r#"import cloaca
+
+
+@cloaca.task(id="beat", dependencies=[])
+def beat(context):
+    context.set("beat", True)
+    return context
+
+
+# Fires `{module}` on the schedule (5-field cron, optional leading seconds
+# field; add `timezone="..."` for non-UTC). The cron scheduler fires the `on`
+# workflow directly — this function body is unused.
+@cloaca.trigger(on="{module}", cron="* * * * *")
+def {module}_cron():
+    pass
+"#
+    );
+
+    write(&dir.join("package.toml"), &package_toml)?;
+    write(&dir.join(format!("workflow/{module}/__init__.py")), "")?;
+    write(&dir.join(format!("workflow/{module}/tasks.py")), &tasks_py)?;
     Ok(())
 }
 
@@ -645,20 +672,29 @@ mod tests {
     }
 
     #[test]
-    fn python_cron_is_rejected() {
+    fn python_cron_scaffold_binds_via_on_with_cron_schedule() {
         let tmp = TempDir::new().unwrap();
-        let err = run(
-            "x",
+        let dir = tmp.path().join("nightly-py");
+        run(
+            "nightly-py",
             ScaffoldLang::Python,
             ScaffoldKind::Cron,
-            Some(tmp.path()),
+            Some(&dir),
         )
-        .unwrap_err();
-        // T-0912: the refusal must say the TEMPLATE is missing (the capability
-        // exists) and point at the working @cloaca.trigger(cron=...) path.
-        let msg = format!("{err:?}");
-        assert!(msg.contains("no Python cron scaffold template"));
-        assert!(msg.contains("cron="));
+        .unwrap();
+
+        let manifest = fs::read_to_string(dir.join("package.toml")).unwrap();
+        assert!(manifest.contains("workflow_name = \"nightly_py\""));
+
+        let tasks = fs::read_to_string(dir.join("workflow/nightly_py/tasks.py")).unwrap();
+        // Cron binds the workflow via `on` + `cron` on the trigger decorator;
+        // mutually exclusive with poll_interval (crates/cloacina-python
+        // trigger.rs), so the scaffold must emit neither poll_interval nor a
+        // WorkflowBuilder (packaged loaders use bare decorators).
+        assert!(tasks.contains("@cloaca.trigger(on=\"nightly_py\", cron="));
+        assert!(!tasks.contains("poll_interval"));
+        assert!(!tasks.contains("WorkflowBuilder"));
+        assert!(dir.join("workflow/nightly_py/__init__.py").exists());
     }
 
     #[test]
