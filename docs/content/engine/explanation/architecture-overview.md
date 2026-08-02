@@ -201,33 +201,47 @@ The "Optional" entries are controlled by `DefaultRunnerConfig` flags like `enabl
 
 ## Crate Structure
 
-The project is organized into several crates, each with a focused responsibility:
+The workspace contains fifteen crates, each with a focused responsibility:
 
 | Crate | Purpose |
 |---|---|
-| `cloacina` | Core library: runner, scheduler, executor, dispatcher, DAL, context, models, registry, security, packaging, and Python bindings |
-| `cloacina-macros` | Procedural macros: `#[task]`, `#[trigger]`, and `#[workflow]` for ergonomic workflow definition with automatic code fingerprinting |
-| `cloacina-workflow` | The `Workflow` and `Task` traits as a standalone crate, used by macro-generated code to avoid circular dependencies |
-| `cloacina-build` | Build tooling for compiling packaged workflows from source into `.cloacina` packages |
-| `cloacina-testing` | Test utilities: database fixtures, test runners, and assertion helpers for workflow integration tests |
-| `cloacina-workflow-plugin` | Fidius plugin integration: defines `CloacinaMetadata` for `package.toml` manifests and the plugin interface for packaged workflows |
-| `cloacinactl` | CLI binary: `daemon`, `serve`, `config`, and `admin` subcommands |
+| `cloacina` | Core engine: runner, schedulers, executor, dispatcher, DAL, context, models, registry, security, packaging, computation-graph runtime |
+| `cloacina-workflow` | The `Task`/`Workflow`/`Trigger` traits, `Context`, retry policies, and the cron evaluator as a standalone crate — macro-generated code and packaged cdylibs reference it without pulling the full engine |
+| `cloacina-macros` | Procedural macros: `#[task]`, `#[workflow]`, `#[trigger]`, `#[computation_graph]`, `#[reactor]`, the five accumulator macros, and the constructor/provider macros |
+| `cloacina-computation-graph` | Computation-graph user types: `InputCache`, `GraphResult`, the `Reactor`/`Graph` traits, and the bincode wire helpers |
+| `cloacina-workflow-plugin` | The FFI plugin ABI: the `CloacinaPlugin` fidius interface (v5), the `package!()` shell, `CloacinaMetadata` manifest types, and the inventory entry types |
+| `cloacina-python` | The PyO3 bindings behind the `cloaca` Python module — split out of the core crate so `cloacina` itself carries no Python dependency |
+| `cloacina-api-types` | Shared wire types for the HTTP/WS APIs (`InputSlot`, health, reactor request/response types) |
+| `cloacina-client` | Rust SDK for the Cloacina HTTP API |
+| `cloacina-constructor-contract` | Serde-only constructor/provider contract types (`ConstructorManifest`, `ProviderManifest`); buildable for both host targets and `wasm32-wasip2` |
+| `cloacina-testing` | `TestRunner`, assertions, mock connections, and boundary emitters for testing workflows without a database |
+| `cloacina-build` | A small `build.rs` helper for binaries that link cloacina with PyO3 (libpython rpath configuration) — *not* a packaging tool |
+| `cloacinactl` | The operator CLI, organized as nouns: `server`, `daemon`, `package`, `tenant`, `workflow`, `execution`, `graph`, `trigger`, `reactor`, `accumulator`, `constructor`, `key`, `secret`, `compiler` |
+| `cloacina-server` | The multi-tenant HTTP API server |
+| `cloacina-agent` | The fleet execution agent |
+| `cloacina-compiler` | The server-side compile daemon that builds uploaded package sources into cdylib artifacts |
 
 ### Dependency Relationships
 
 ```mermaid
 graph LR
-    CW[cloacina-workflow] --> CM[cloacina-macros]
-    CM --> C[cloacina]
-    CW --> C
-    C --> CT[cloacina-testing]
-    C --> CB[cloacina-build]
-    C --> CWP[cloacina-workflow-plugin]
+    CM[cloacina-macros] -.generated code references.-> CW[cloacina-workflow]
+    CM -.-> CWP[cloacina-workflow-plugin]
+    CW --> C[cloacina]
+    CCG[cloacina-computation-graph] --> C
+    CWP --> C
+    C --> CPY[cloacina-python]
+    C --> CS[cloacina-server]
+    C --> CAG[cloacina-agent]
+    C --> CC[cloacina-compiler]
     C --> CTL[cloacinactl]
-    CWP --> CTL
+    CAT[cloacina-api-types] --> CCL[cloacina-client]
+    CCL --> CTL
+    CAT --> CS
+    CW --> CT[cloacina-testing]
 ```
 
-The `cloacina-workflow` crate exists specifically to break a circular dependency: macro-generated task code needs access to the `Task` trait and `Workflow` builder, but those types live in the main `cloacina` crate which depends on the macros. By extracting the core traits into `cloacina-workflow`, macro output can reference `cloacina_workflow::*` without depending on the full `cloacina` crate.
+The `cloacina-workflow` crate exists specifically to break a circular dependency: macro-generated task code needs access to the `Task` trait and `Workflow` builder, but those types live in the main `cloacina` crate which depends on the macros. By extracting the core traits into `cloacina-workflow`, macro output can reference `cloacina_workflow::*` without depending on the full `cloacina` crate. The same shape lets packaged workflow cdylibs stay engine-free: they depend on `cloacina-workflow` and `cloacina-workflow-plugin`, never on `cloacina` itself. Python bindings live in `cloacina-python` (not in `cloacina`) so Rust-only consumers never link libpython.
 
 ## Background Services
 

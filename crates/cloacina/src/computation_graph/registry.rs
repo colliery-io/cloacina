@@ -200,7 +200,7 @@ pub struct AccumulatorDescriptor {
 
 /// Registry mapping endpoint names to channel senders.
 ///
-/// Shared between the Reactive Scheduler (registers on spawn) and
+/// Shared between the computation graph scheduler (registers on spawn) and
 /// WebSocket handlers (look up on message receipt).
 #[derive(Clone)]
 pub struct EndpointRegistry {

@@ -77,22 +77,32 @@ flow (Rust + Python + the `declared_params` API surface).
 > declare those workflows' params with defaults (optional) to keep them firing
 > unattended.
 
-## Workflow Properties
+## Workflow Properties and Methods
 
-### Basic Properties
+The built `Workflow` object exposes three read-only properties and five
+inspection methods (`crates/cloacina-python/src/workflow.rs`, `PyWorkflow`):
+
+**Properties:**
 
 - `name` (str): Unique identifier for the workflow
 - `description` (str): Human-readable description of the workflow's purpose
-- `tasks` (list): List of tasks in the workflow
-- `dependencies` (dict): Task dependency mapping
+- `version` (str): Content-derived workflow version
 
-### Accessing Properties
+**Methods:**
+
+- `topological_sort()` → `list[str]` — task names in a valid execution order
+- `get_execution_levels()` → `list[list[str]]` — tasks grouped by parallel-executable level
+- `get_roots()` → `list[str]` — tasks with no dependencies
+- `get_leaves()` → `list[str]` — tasks nothing depends on
+- `validate()` — raises `ValueError` if the workflow structure is invalid
 
 ```python
 # Get workflow information
 print(f"Workflow name: {workflow.name}")
 print(f"Description: {workflow.description}")
-print(f"Number of tasks: {len(workflow.tasks)}")
+print(f"Version: {workflow.version}")
+print(f"Execution order: {workflow.topological_sort()}")
+print(f"Parallel levels: {workflow.get_execution_levels()}")
 ```
 
 ## Execution
@@ -111,7 +121,7 @@ context = cloaca.Context({"input_data": "example"})
 result = runner.execute("my_workflow", context)
 
 print(f"Execution status: {result.status}")
-print(f"Final context: {result.final_context.data}")
+print(f"Final context: {result.final_context.to_dict()}")
 ```
 
 ## Workflow Validation
@@ -122,7 +132,7 @@ Workflows are automatically validated during the build process:
 try:
     workflow = builder.build()
     print("Workflow is valid")
-except Exception as e:
+except ValueError as e:
     print(f"Validation failed: {e}")
 ```
 

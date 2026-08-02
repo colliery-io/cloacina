@@ -35,7 +35,7 @@ use super::reactor::{
 use super::registry::{AccumulatorAuthPolicy, EndpointRegistry, ReactorAuthPolicy};
 use super::types::{GraphResult, InputCache, SourceName};
 
-/// Declaration of a computation graph to be loaded by the Reactive Scheduler.
+/// Declaration of a computation graph to be loaded by the [`ComputationGraphScheduler`].
 #[derive(Clone)]
 pub struct ComputationGraphDeclaration {
     /// Unique name for this computation graph.
@@ -430,7 +430,8 @@ const BACKOFF_MAX_SECS: u64 = 60;
 /// Duration of successful operation before failure counter resets.
 const SUCCESS_RESET_SECS: u64 = 60;
 
-/// The Reactive Scheduler.
+/// The computation graph scheduler: loads reactors and computation graphs,
+/// supervises them, and routes operational commands to running instances.
 pub struct ComputationGraphScheduler {
     /// Endpoint registry for WebSocket routing.
     registry: EndpointRegistry,

@@ -29,7 +29,7 @@ if you need the concepts behind a symbol.
 
 ## Generated API reference
 
-Auto-generated from source (rustdoc / pdoc) — the authoritative symbol-level API:
+Auto-generated from source by [plissken](https://github.com/colliery-io/plissken) (`plissken.toml` at the repo root) — the authoritative symbol-level API:
 
 - [Rust API]({{< ref "/api-reference/rust" >}}) — `cloacina`, `cloacina-macros`, and the computation-graph crates.
 - [Python API (`cloaca`)]({{< ref "/api-reference/cloaca" >}}) — the PyO3 bindings.

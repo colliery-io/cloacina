@@ -59,7 +59,7 @@ These validations happen during compilation, catching errors before runtime.
 The `#[task]` macro transforms your async function into a fully-featured Cloacina task by:
 
 1. **Code Generation**: Creates a task struct that implements the `Task` trait
-2. **Registry Integration**: Registers the task in the global registry using `ctor`
+2. **Registry Integration**: Emits an `inventory::submit!` entry so the runtime registry picks the task up at startup
 3. **Validation**: Performs compile-time validation of dependencies and configuration
 4. **Fingerprinting**: Generates a unique code fingerprint for versioning
 
@@ -80,7 +80,7 @@ Behind the scenes, the macro generates code that:
 
 1. Implements the `Task` trait with proper error handling
 2. Creates a task struct with the specified configuration
-3. Sets up automatic registration using `ctor`
+3. Sets up automatic registration via `inventory::submit!` (consumed by `Runtime::seed_from_inventory()`)
 4. Implements retry logic based on the configuration
 
 This generated code is what enables the compile-time safety and automatic registration features.
@@ -89,7 +89,9 @@ This generated code is what enables the compile-time safety and automatic regist
 
 ### How It Works
 
-The `workflow!` macro creates a complete workflow implementation by:
+The `#[workflow]` attribute macro, applied to a `pub mod` containing `#[task]` functions, creates a complete workflow implementation by:
+
+(There is no function-like `workflow! { ... }` macro — only the attribute-on-module form exists.)
 
 1. **Task Validation**: Verifies all referenced tasks exist and are properly registered
 2. **Graph Analysis**: Performs topological sorting and cycle detection
@@ -112,7 +114,7 @@ The macro system requires several dependencies to be explicitly included in your
 
 ```toml
 [dependencies]
-cloacina = { version = "0.7.0", features = ["macros"] }
+cloacina = { version = "0.10", features = ["macros"] }
 async-trait = "0.1"    # Required for async task definitions
 serde_json = "1.0"    # Required for context data
 chrono = "0.4"        # Required for timestamps in errors and state tracking

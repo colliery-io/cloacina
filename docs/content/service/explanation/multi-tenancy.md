@@ -288,8 +288,8 @@ the API surface is in the [DatabaseAdmin API Reference]({{< ref "/reference/data
 ### Password Security
 
 - **Auto-Generation**: Empty password string triggers generation of 32-character secure password
-- **Character Set**: 94 characters including uppercase, lowercase, digits, and symbols
-- **Entropy**: ~202 bits of entropy for auto-generated passwords
+- **Character Set**: 62 alphanumeric characters (uppercase, lowercase, digits — symbols are excluded to keep passwords safe inside connection URLs)
+- **Entropy**: ~190 bits of entropy for auto-generated passwords
 - **PostgreSQL Hashing**: All passwords are hashed with SCRAM-SHA-256 by PostgreSQL
 - **No Storage**: Cloacina never stores passwords - they're passed to PostgreSQL and returned to admin
 

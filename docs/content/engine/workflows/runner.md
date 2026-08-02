@@ -27,7 +27,7 @@ You create one, execute workflows on it, and shut it down.
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 
 let runner = DefaultRunner::with_config(
-    "sqlite://app.db?mode=rwc&_journal_mode=WAL",
+    "sqlite://app.db",
     DefaultRunnerConfig::default(),
 ).await?;
 

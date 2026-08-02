@@ -35,6 +35,7 @@ releases the slot and polls until the condition returns `true`. `process_data`
 is an ordinary task that runs once the deferred task completes.
 
 ```rust
+use cloacina::executor::WorkflowExecutor; // brings `execute` into scope
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError, TaskHandle};
 use serde_json::json;

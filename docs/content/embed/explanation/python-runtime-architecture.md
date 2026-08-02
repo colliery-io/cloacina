@@ -21,13 +21,17 @@ The wheel (`cloaca`) wraps `cloacina-python`, which depends on `cloacina` at the
 
 Every Python call crosses into Rust. Some implications:
 
-- **Tasks run in the Rust async executor**, not the Python event loop. Python `async def` tasks are still polled by the Rust runtime — the PyO3 binding wraps the coroutine and drives it on the tokio executor.
+- **Task scheduling lives in the Rust async executor**, not a Python event loop. A Python task body is a synchronous callable; the runtime executes it on tokio's blocking-thread pool (`spawn_blocking`), acquiring the GIL only for the duration of the Python call. There is no asyncio integration — task bodies are plain `def` functions.
 - **Type marshalling is explicit.** Context values cross the boundary as JSON (or `serde_json::Value` equivalents in PyO3). Because that marshalling happens at every task boundary, large or binary state is expensive to round-trip through context repeatedly.
-- **The GIL is held while Python code runs.** Cloacina releases the GIL on async boundaries inside Rust (`Python::allow_threads`), but a single Python task body holds the GIL for its duration. Pure-CPU Python tasks will not parallelize across threads in the same way Rust tasks do.
+- **The GIL is held while Python code runs.** Cloacina releases the GIL before blocking on Rust futures (`Python::allow_threads` inside the bindings' single async→sync bridge), but a Python task body holds the GIL for its duration. Pure-CPU Python tasks will not parallelize across threads in the same way Rust tasks do.
+
+## One authoring surface, two entry points
+
+The `cloaca` module is materialized in two ways: the pip wheel (a maturin-built PyO3 module) and a synthetic module the server injects into its embedded interpreter when it loads a Python package. Both call the same registration function (`register_authoring` in `crates/cloacina-python/src/lib.rs`), so the authoring surface — `@cloaca.task`, `@cloaca.trigger`, `WorkflowBuilder`, and friends — is identical by construction. The wheel additionally exposes host-side symbols the server has no use for (`DefaultRunner`, `DefaultRunnerConfig`, `WorkflowResult`, and the postgres-only admin classes): inside the server, the server itself *is* the runner.
 
 ## What "feature parity" means
 
-Python is a first-class surface (see the user feedback memory: Python support is a core capability, not a feature flag). The Rust and Python surfaces aim to track each other 1:1 on every macro / decorator / runtime API:
+Python is a first-class surface of Cloacina, not an add-on. The Rust and Python surfaces aim to track each other 1:1 on every macro / decorator / runtime API:
 
 | Rust | Python equivalent |
 |---|---|

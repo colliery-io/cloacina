@@ -152,9 +152,7 @@ The `[[metadata.accumulators]]` array table declares each accumulator. Fields:
 You can mix `passthrough` and `stream` accumulators in the same graph. For example, one accumulator could receive WebSocket pushes while another pulls from a Kafka topic. Add another `[[metadata.accumulators]]` block for each additional accumulator.
 {{< /hint >}}
 
-## Step 5: Write `Cargo.toml` and `build.rs`
-
-`Cargo.toml`:
+## Step 5: Write `Cargo.toml`
 
 ```toml
 [package]
@@ -162,35 +160,19 @@ name = "kafka-price-signal"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-
-[features]
-default = ["packaged"]
-packaged = []
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
-cloacina-computation-graph = "0.7.0"
-cloacina-macros = "0.7.0"
-cloacina-workflow-plugin = "0.7.0"
+cloacina-workflow = { version = "0.10", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.10"
+cloacina-macros = "0.10"
+cloacina-computation-graph = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-async-trait = "0.1"
-tokio = { version = "1.0", features = ["full"] }
-
-[build-dependencies]
-cloacina-build = "0.7.0"
 ```
 
-`build.rs`:
-
-```rust
-fn main() {
-    cloacina_build::configure();
-}
-```
+No `[lib] crate-type`, no `[features]` section, no `build.rs` — the
+`cloacina-compiler` service injects the cdylib crate-type and the
+`packaged` feature at build time (see
+[03 — Packaged Workflows]({{< ref "/service/tutorials/03-packaged-workflows" >}})).
 
 ## Step 6: Write `src/lib.rs` — passthrough pattern
 
@@ -198,6 +180,9 @@ The simplest pattern: each Kafka message is deserialized as-is and forwarded to 
 
 ```rust
 use serde::{Deserialize, Serialize};
+
+// One invocation per package — emits the FFI plugin shell.
+cloacina_workflow_plugin::package!();
 
 /// Each Kafka message must be a JSON object matching this struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,20 +246,17 @@ pub mod kafka_price_signal {
 
 ```bash
 cd ..
-tar -cjf kafka-price-signal.cloacina \
-  --transform 's,^kafka-price-signal,kafka-price-signal-0.1.0,' \
-  kafka-price-signal/package.toml \
-  kafka-price-signal/Cargo.toml \
-  kafka-price-signal/build.rs \
-  kafka-price-signal/src/lib.rs
+cloacinactl package validate kafka-price-signal
+cloacinactl package pack kafka-price-signal
+# kafka-price-signal/kafka-price-signal.cloacina
 
 BASE_URL="http://localhost:8080"
 TOKEN="clk_your_token_here"
 
 curl -s -w "\nHTTP %{http_code}\n" \
-  -X POST "${BASE_URL}/tenants/public/workflows" \
+  -X POST "${BASE_URL}/v1/tenants/public/workflows" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -F "file=@kafka-price-signal.cloacina;type=application/octet-stream"
+  -F "file=@kafka-price-signal/kafka-price-signal.cloacina;type=application/octet-stream"
 ```
 
 Wait for compilation (60–120 seconds on first build):
@@ -318,18 +300,20 @@ Expected:
 {
   "name": "kafka_price_signal",
   "health": {
-    "state": "live"
+    "state": "running"
   },
   "accumulators": ["orderbook"],
-  "paused": false
+  "paused": false,
+  "fires": 1,
+  "last_fired_at": "2026-08-01T12:34:56Z"
 }
 ```
 
-The health endpoint reports the reactor's overall state — to confirm firings, scrape `/metrics` and watch `cloacina_reactor_fires_total{graph="kafka_price_signal"}`:
+The `fires` counter increments on every graph fire. For per-fire records (inputs, outputs, duration), list the reactor's recent fires:
 
 ```sh
-curl -sf "${BASE_URL}/metrics" -H "Authorization: Bearer ${TOKEN}" \
-  | grep '^cloacina_reactor_fires_total.*kafka_price_signal'
+curl -s "${BASE_URL}/v1/health/reactors/kafka_price_signal_reactor/fires" \
+  -H "Authorization: Bearer ${TOKEN}" | python3 -m json.tool
 ```
 
 Produce several more messages and watch the counter increment:
@@ -357,9 +341,9 @@ This tutorial covered the passthrough path, where each Kafka message fires the g
 
 ## Troubleshooting
 
-**Accumulator shows `"unhealthy"` and graph never fires**: The Kafka connection failed. Check the server logs for `provider stream accumulator FAILED` or `kafka_source[...]: poll error` messages. Verify `CLOACINA_VAR_KAFKA_BROKER` is set correctly and that the broker is reachable from the server process. If running the server inside a container, `localhost:9092` may not resolve correctly — use the Docker network hostname instead (e.g., `cloacina-kafka:9092`).
+**Accumulator shows a degraded `state` and graph never fires**: The Kafka connection failed. Check the server logs for `provider stream accumulator FAILED` or `kafka_source[...]: poll error` messages. Verify `CLOACINA_VAR_KAFKA_BROKER` is set correctly and that the broker is reachable from the server process. If running the server inside a container, `localhost:9092` may not resolve correctly — use the Docker network hostname instead (e.g., `cloacina-kafka:9092`).
 
-**Messages produce but `cloacina_reactor_fires_total{graph="kafka_price_signal"}` stays at 0**: The message payload is not valid JSON matching your boundary type. Verify with `kafka-console-consumer.sh`:
+**Messages produce but the graph's `fires` counter stays at 0**: The message payload is not valid JSON matching your boundary type. Verify with `kafka-console-consumer.sh`:
 
 ```bash
 docker exec cloacina-kafka \

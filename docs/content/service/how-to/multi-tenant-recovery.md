@@ -157,13 +157,11 @@ With SQLite, each tenant has a completely separate database file. Recovery chara
 - **Physical isolation**: A corrupt database file affects only one tenant
 - **Independent recovery**: Each tenant's file can be backed up and restored independently
 - **No failover complexity**: No connection pool invalidation since each file is self-contained
-- **WAL mode recommended**: Use WAL journal mode for better crash recovery
+- **WAL mode automatic**: Cloacina enables WAL journal mode and a 30-second busy timeout on every SQLite connection
 
 ```rust
 // SQLite: each tenant gets its own database file
-let runner = DefaultRunner::new(
-    "sqlite://./data/tenant_acme.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL"
-).await?;
+let runner = DefaultRunner::new("sqlite://./data/tenant_acme.db").await?;
 ```
 
 For SQLite tenants, if a database file becomes corrupt, you can restore from a backup without affecting other tenants:
@@ -268,12 +266,18 @@ let dev_tenant = DefaultRunner::with_schema(
     "test_tenant"
 ).await?;
 
-// Production: Full configuration
+// Production: Full configuration. Runtime knobs live on
+// DefaultRunnerConfig; hand the built config to the runner builder
+// via with_config.
+let config = DefaultRunnerConfig::builder()
+    .enable_recovery(true)
+    .max_concurrent_tasks(10)
+    .build()?;
+
 let prod_tenant = DefaultRunner::builder()
     .database_url(&production_url)
     .schema(&tenant_id)
-    .enable_recovery(true)
-    .max_concurrent_tasks(10)
+    .with_config(config)
     .build()
     .await?;
 ```
@@ -284,4 +288,4 @@ let prod_tenant = DefaultRunner::builder()
 - Examples: `tenant_001`, `acme_corp`, `customer_xyz`
 - Avoid special characters, spaces, or hyphens
 
-See the [multi-tenant example](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/workflows/service/06-multi-tenancy) for a working demonstration of these concepts.
+See the [multi-tenant example](https://github.com/colliery-io/cloacina/tree/main/examples/features/workflows/multi-tenant) for a working demonstration of these concepts.

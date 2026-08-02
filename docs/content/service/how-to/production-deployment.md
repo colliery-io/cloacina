@@ -180,7 +180,7 @@ For a directly-managed server (`cloacinactl server start` or the container image
 upgrade like this:
 
 1. **Back up the database first.** Run a fresh backup ([Back Up and Restore]({{< ref "/service/how-to/backup-and-restore" >}})) so you can roll back if a migration misbehaves.
-2. **Pin the new version.** Deploy a specific image tag (e.g. `ghcr.io/colliery-io/cloacina-server:0.7.0`), never `:latest`, so the rollout is reproducible.
+2. **Pin the new version.** Deploy a specific image tag (e.g. `ghcr.io/colliery-io/cloacina-server:0.10.0`), never `:latest`, so the rollout is reproducible.
 3. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed.
 4. **Gate traffic on readiness.** Wait for `GET /ready` to return 200 before re-enabling proxy traffic — it confirms the DB pool is reachable and no loaded graph crashed on boot.
 

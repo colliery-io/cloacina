@@ -69,6 +69,19 @@ import { WebSocket } from "ws";
 followExecutionEvents(client, id, { webSocket: WebSocket as never });
 ```
 
+**Stream operational metrics** (TypeScript-only helper — no Python/Rust equivalent):
+`followOpsMetrics(client, options)` yields server/compiler/fleet/reconciler
+metric snapshots from the admin-scoped `ops_metrics:global` recipient; render
+the most recent value.
+
+```ts
+import { followOpsMetrics } from "@cloacina/client";
+
+for await (const snapshot of followOpsMetrics(client)) {
+  render(snapshot); // latest wins
+}
+```
+
 **Reach past the shim** — the typed `openapi-fetch` client is exposed as `client.api`:
 
 ```ts

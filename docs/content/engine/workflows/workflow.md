@@ -93,13 +93,15 @@ pub mod report { /* … */ }
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
-The `@cloaca.workflow_params(...)` decorator; required is `name=type`, optional is
+The `@cloaca.workflow_params(...)` decorator, stacked above a `@cloaca.task`
+function in the workflow's packaged source; required is `name=type`, optional is
 `name=(type, default)`. It is parsed from source at build time (a runtime no-op),
 so it must be present in the packaged source:
 
 ```python
 @cloaca.workflow_params(account_id=str, window_days=(int, 30))
-with cloaca.WorkflowBuilder("report") as builder:
+@cloaca.task(id="prepare")
+def prepare(context):
     ...
 ```
 {{< /tab >}}

@@ -58,15 +58,21 @@ The dispatcher does not match tasks against patterns. Every task is dispatched t
 The `Dispatcher` trait defines the interface for handing task events to the configured executor:
 
 ```rust
+#[async_trait]
 pub trait Dispatcher: Send + Sync {
     /// Dispatch a task-ready event to the configured default executor.
-    fn dispatch(&self, event: TaskReadyEvent) -> Result<(), DispatchError>;
+    async fn dispatch(&self, event: TaskReadyEvent) -> Result<(), DispatchError>;
 
     /// Register an executor with a given key.
     fn register_executor(&self, key: &str, executor: Arc<dyn TaskExecutor>);
 
-    /// Check if the configured executor has capacity.
+    /// Check if the dispatcher has any executor with available capacity.
     fn has_capacity(&self) -> bool;
+
+    /// Get the executor key that would handle a given task.
+    fn resolve_executor_key(&self, task_name: &str) -> String;
+
+    // … plus an is-registered check
 }
 ```
 
@@ -77,9 +83,10 @@ There is no per-task routing decision: `dispatch` always forwards to the executo
 To implement a custom executor, implement the `TaskExecutor` trait:
 
 ```rust
+#[async_trait]
 pub trait TaskExecutor: Send + Sync {
     /// Execute a task and return the result.
-    fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>;
+    async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>;
 
     /// Check if this executor has capacity for more tasks.
     fn has_capacity(&self) -> bool;
@@ -98,16 +105,14 @@ When the scheduler determines a task is ready, it emits a `TaskReadyEvent`:
 
 ```rust
 pub struct TaskReadyEvent {
-    /// The pipeline execution this task belongs to
-    pub pipeline_execution_id: UniversalUuid,
     /// Unique identifier for this task execution record
     pub task_execution_id: UniversalUuid,
-    /// Full task namespace (e.g., "public::embedded::workflow::task_name")
-    pub task_namespace: String,
+    /// Parent workflow execution ID
+    pub workflow_execution_id: UniversalUuid,
+    /// Fully qualified task name (e.g., "public::embedded::workflow::task_name")
+    pub task_name: String,
     /// Current attempt number (1-based)
     pub attempt: i32,
-    /// Maximum allowed attempts
-    pub max_attempts: i32,
 }
 ```
 
@@ -145,37 +150,34 @@ impl MyCustomExecutor {
     }
 }
 
+#[async_trait::async_trait]
 impl TaskExecutor for MyCustomExecutor {
-    fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
+    async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
         self.active_tasks.fetch_add(1, Ordering::SeqCst);
+        let started = std::time::Instant::now();
 
-        // 1. Load context from database using event.pipeline_execution_id
-        // 2. Resolve the task implementation from registry
+        // 1. Load context from database using event.workflow_execution_id
+        // 2. Resolve the task implementation from registry (event.task_name)
         // 3. Execute the task in your custom environment
         // 4. Handle success/failure and update database
 
-        let result = match self.run_task(&event) {
+        let result = match self.run_task(&event).await {
             Ok(()) => {
                 self.total_executed.fetch_add(1, Ordering::SeqCst);
                 ExecutionResult {
                     task_execution_id: event.task_execution_id,
                     status: ExecutionStatus::Completed,
-                    error_message: None,
-                    should_retry: false,
+                    error: None,
+                    duration: started.elapsed(),
                 }
             }
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
-                let should_retry = event.attempt < event.max_attempts;
                 ExecutionResult {
                     task_execution_id: event.task_execution_id,
-                    status: if should_retry {
-                        ExecutionStatus::Retry
-                    } else {
-                        ExecutionStatus::Failed
-                    },
-                    error_message: Some(e.to_string()),
-                    should_retry,
+                    status: ExecutionStatus::Failed,
+                    error: Some(e.to_string()),
+                    duration: started.elapsed(),
                 }
             }
         };
@@ -185,14 +187,16 @@ impl TaskExecutor for MyCustomExecutor {
     }
 
     fn has_capacity(&self) -> bool {
-        self.active_tasks.load(Ordering::SeqCst) < self.max_concurrent as u64
+        (self.active_tasks.load(Ordering::SeqCst) as usize) < self.max_concurrent
     }
 
     fn metrics(&self) -> ExecutorMetrics {
         ExecutorMetrics {
-            active_tasks: self.active_tasks.load(Ordering::SeqCst),
+            active_tasks: self.active_tasks.load(Ordering::SeqCst) as usize,
+            max_concurrent: self.max_concurrent,
             total_executed: self.total_executed.load(Ordering::SeqCst),
             total_failed: self.total_failed.load(Ordering::SeqCst),
+            avg_duration_ms: 0, // track and report your own average
         }
     }
 

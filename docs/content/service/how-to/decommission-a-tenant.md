@@ -96,7 +96,7 @@ cloacinactl --profile prod --tenant tenant_acme workflow list
 
 ```sh
 journalctl -u cloacina-server --since "5 minutes ago" \
-  | grep -E "tenant_teardown_(keys_revoked|runner_evicted|db_cache_evicted|schema_dropped|complete)"
+  | grep -E "tenant\.teardown\.(keys_revoked|runner_evicted|db_cache_evicted|schema_dropped|completed|failed)"
 ```
 
 You should see five events for a successful teardown (one per step plus the overall outcome).

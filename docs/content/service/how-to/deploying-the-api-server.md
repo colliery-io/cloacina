@@ -27,33 +27,25 @@ If you do not have a PostgreSQL instance, use the project's Docker Compose file:
 docker compose -f .angreal/docker-compose.yaml up -d
 ```
 
-This starts PostgreSQL 16 on port 5432 with credentials `cloacina:cloacina` and database `cloacina`.
+This starts PostgreSQL 16 published on **host port 15432** (deliberately not 5432, to avoid colliding with other local Postgres instances) with credentials `cloacina:cloacina` and database `cloacina`.
 
 ### Step 2: Start the API Server
 
+`cloacinactl server start` execs the `cloacina-server` binary from your `PATH` — both binaries must be installed.
+
 ```bash
-cloacinactl server start --database-url postgresql://cloacina:cloacina@localhost:5432/cloacina
+cloacinactl server start --database-url postgresql://cloacina:cloacina@localhost:15432/cloacina
 ```
 
 The server binds to `127.0.0.1:8080` (loopback) by default. To accept remote connections — e.g. in a container or behind a proxy — set the bind address explicitly (`0.0.0.0:8080` for all interfaces):
 
 ```bash
 cloacinactl server start \
-  --database-url postgresql://cloacina:cloacina@localhost:5432/cloacina \
-  --bind 127.0.0.1:9090
+  --database-url postgresql://cloacina:cloacina@localhost:15432/cloacina \
+  --bind 0.0.0.0:8080
 ```
 
-On startup, the server connects to PostgreSQL, applies any pending migrations, and prints the available endpoints:
-
-```
-API server is running on http://0.0.0.0:8080
-  GET  /health     -- liveness check
-  GET  /ready      -- readiness check
-  GET  /metrics    -- Prometheus metrics
-  POST /auth/keys  -- create API key (auth required)
-  GET  /auth/keys  -- list API keys (auth required)
-  DEL  /auth/keys/:id -- revoke key (auth required)
-```
+On startup, the server connects to PostgreSQL, applies any pending migrations, and starts serving. The unauthenticated operational endpoints (`/health`, `/ready`, `/metrics`, `/openapi.json`) live at the root; everything else is under the `/v1` prefix (e.g. `POST /v1/auth/keys`).
 
 ### Step 3: Retrieve the Bootstrap Key
 
@@ -97,10 +89,10 @@ In all cases, the plaintext key is written to `~/.cloacina/bootstrap-key` (mode 
 Use the bootstrap key to create a named API key for regular use:
 
 ```bash
-curl -s -X POST http://localhost:8080/auth/keys \
+curl -s -X POST http://localhost:8080/v1/auth/keys \
   -H "Authorization: Bearer $(cat ~/.cloacina/bootstrap-key)" \
   -H "Content-Type: application/json" \
-  -d '{"name": "ci-deploy"}' | jq
+  -d '{"name": "ci-deploy", "role": "write"}' | jq
 ```
 
 Response:
@@ -110,12 +102,16 @@ Response:
   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "name": "ci-deploy",
   "key": "clk_abc123...",
-  "permissions": "admin",
+  "permissions": "write",
+  "tenant_id": "public",
+  "is_admin": false,
   "created_at": "2026-04-02T12:00:00+00:00"
 }
 ```
 
 The `key` field is returned exactly once. Store it in your secrets manager. All authenticated endpoints require an `Authorization: Bearer <key>` header.
+
+Keys minted on this global endpoint are scoped to the built-in `public` tenant. To create keys for a named tenant, use `POST /v1/tenants/{tenant_id}/keys` — see [Manage API Keys]({{< ref "/service/how-to/manage-api-keys" >}}).
 
 ## Health Checks
 
@@ -135,7 +131,7 @@ curl -s http://localhost:8080/health | jq
 
 ### Readiness: GET /ready
 
-Returns 200 if the server can acquire a database connection from the pool. Returns 503 if the database is unreachable.
+Returns 200 if the server can acquire a database connection from the pool **and** no loaded computation graph has crashed. Returns 503 with a `reason` field (`database unreachable` or `crashed computation graphs`) otherwise.
 
 ```bash
 curl -s http://localhost:8080/ready | jq
@@ -225,59 +221,82 @@ server {
 
 ### docker-compose.yaml
 
+The repository ships a canonical production-shape compose file at
+`deploy/docker-compose/cloacina.yml`: one Postgres, one
+`cloacina-server` (HTTP API + reconciler), and one `cloacina-compiler`
+(build worker — **required** for Rust package uploads to ever leave
+`pending`). The server and compiler coordinate only through the shared
+database.
+
 ```yaml
 services:
   postgres:
     image: postgres:16
-    container_name: cloacina-postgres
     environment:
       POSTGRES_USER: cloacina
       POSTGRES_PASSWORD: cloacina
       POSTGRES_DB: cloacina
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    command: postgres -c max_connections=500
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cloacina"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
 
-  api:
-    image: your-registry/cloacinactl:latest
+  cloacina-server:
+    image: ghcr.io/colliery-io/cloacina-server:latest
     command:
-      - serve
-      - --bind=0.0.0.0:8080
-      - --database-url=postgresql://cloacina:cloacina@postgres:5432/cloacina
-    ports:
-      - "8080:8080"
-    environment:
-      RUST_LOG: "info"
-    volumes:
-      - cloacina_home:/root/.cloacina
+      - "--bind"
+      - "0.0.0.0:8080"
+      - "--database-url"
+      - "postgres://cloacina:cloacina@postgres:5432/cloacina"
     depends_on:
       postgres:
         condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - server-home:/var/lib/cloacina
+
+  cloacina-compiler:
+    image: ghcr.io/colliery-io/cloacina-compiler:latest
+    command:
+      - "--bind"
+      - "0.0.0.0:9000"
+      - "--database-url"
+      - "postgres://cloacina:cloacina@postgres:5432/cloacina"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "9000:9000"
+    volumes:
+      - compiler-home:/var/lib/cloacina
 
 volumes:
-  postgres_data:
-    name: cloacina_postgres_data
-  cloacina_home:
-    name: cloacina_home
+  pgdata:
+  server-home:
+  compiler-home:
 ```
 
-Start with:
+Pin the image tags to a concrete version in real deployments. Start with:
 
 ```bash
-docker compose up -d
+docker compose -f deploy/docker-compose/cloacina.yml up -d
 ```
 
-Retrieve the bootstrap key from the container volume:
+Retrieve the bootstrap key from the server container (the server's home
+directory defaults to `$HOME/.cloacina`, so as root in the container the
+key lands at `/root/.cloacina/bootstrap-key`; pass `--home` to relocate
+it onto the mounted volume if you want it to survive container
+recreation):
 
 ```bash
-docker compose exec api cat /root/.cloacina/bootstrap-key
+docker compose -f deploy/docker-compose/cloacina.yml \
+  exec cloacina-server cat /root/.cloacina/bootstrap-key
 ```
 
 ## Graceful Shutdown
@@ -289,14 +308,14 @@ The server handles `SIGINT` (Ctrl+C) and `SIGTERM` for graceful shutdown, draini
 ### List Keys
 
 ```bash
-curl -s http://localhost:8080/auth/keys \
+curl -s http://localhost:8080/v1/auth/keys \
   -H "Authorization: Bearer $API_KEY" | jq
 ```
 
 ### Revoke a Key
 
 ```bash
-curl -s -X DELETE http://localhost:8080/auth/keys/a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
+curl -s -X DELETE http://localhost:8080/v1/auth/keys/a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
   -H "Authorization: Bearer $API_KEY" | jq
 ```
 

@@ -18,6 +18,11 @@ component that may expose **N members**, indexed by a `provider.json`. A consume
 selects a member with `constructor = "<name>"` and references the provider with
 `from = "<provider crate>"`.
 
+(A second, opt-in **native** tier exists for providers that must wrap C
+libraries — those run trusted and unsandboxed, and grants are *not* enforced
+for them. See [Capability Grants]({{< ref "grants.md" >}}) and the trust-tier
+table in [Author a Constructor Provider]({{< ref "author-a-provider.md" >}}).)
+
 ## How it flows
 
 Providers ride Cargo's dependency model — there is no separate provider registry

@@ -247,7 +247,7 @@ async fn main() {
     let result: GraphResult = pricing_pipeline_compiled(&cache).await;
 
     match result {
-        GraphResult::Completed { outputs } => {
+        GraphResult::Completed { outputs, .. } => {
             for output in &outputs {
                 if let Some(formatted) = output.downcast_ref::<FormattedOutput>() {
                     println!("Output: {}", formatted.message);
@@ -283,7 +283,7 @@ print(f"  Spread: {result.get('spread_bps', 'N/A')} bps")
 
 - `SourceName::new("orderbook")` must exactly match the accumulator name in the reactor declaration (`accumulators = [orderbook]`) and in the topology (`ingest(orderbook)`).
 - `serialize()` converts your value to `Vec<u8>` using the same codec the cache uses internally.
-- `GraphResult::Completed { outputs }` carries a `Vec<Box<dyn Any>>`. Use `downcast_ref::<T>()` to get your concrete type back.
+- `GraphResult::Completed { outputs, .. }` carries a `Vec<Box<dyn Any>>` (the `..` skips a JSON mirror of the outputs used for observability). Use `downcast_ref::<T>()` to get your concrete type back.
 - `GraphResult::Error(e)` carries a string describing what went wrong.
 
 In Python `execute()` takes a dict where each key is a source name and each value is the data placed in the cache for that source; it returns the terminal node's output dict directly (no `GraphResult` wrapper or downcast).
@@ -293,7 +293,7 @@ In Python `execute()` takes a dict where each key is a source name and each valu
 ## Expected output
 
 ```
-=== Tutorial 10: Your First Computation Graph ===
+=== Tutorial 07: Your First Computation Graph ===
 
 Input: OrderBookSnapshot { best_bid: 100.5, best_ask: 100.55, timestamp: 1234567890 }
 
@@ -302,8 +302,10 @@ Graph completed with 1 terminal output(s)
   Mid price: 100.52
   Spread: 4.9 bps
 
-=== Tutorial 10 Complete ===
+=== Tutorial 07 Complete ===
 ```
+
+(The banner says `07` because the on-disk example keeps its original number.)
 
 ---
 

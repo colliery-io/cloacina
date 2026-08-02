@@ -13,7 +13,7 @@ This guide explains how to use `when_all` reaction criteria to hold a computatio
 
 ## Prerequisites
 
-- Familiarity with the reactor model (see [tutorial 09 — full pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}}))
+- Familiarity with the reactor model (see [tutorial 12 — full multi-source pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}}))
 - A computation graph with multiple named inputs
 
 ## when_any vs when_all
@@ -87,7 +87,7 @@ let reactor = Reactor::new(
 
 ## Complete example
 
-The following example converts tutorial 09's `when_any` pipeline to `when_all`. The graph does not fire on the first order book push; it waits until the pricing source has also emitted.
+The following example converts tutorial 12's `when_any` pipeline to `when_all`. The graph does not fire on the first order book push; it waits until the pricing source has also emitted.
 
 ```rust
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -115,7 +115,7 @@ pub struct MarketView { pub spread: f64, pub mid_price: f64, pub pricing_mid: f6
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradingSignal { pub action: String, pub confidence: f64 }
 
-// Same wiring as tutorial 09, but the reactor now uses when_all
+// Same wiring as tutorial 12, but the reactor now uses when_all
 #[cloacina_macros::reactor(
     name = "market_pipeline_reactor",
     accumulators = [orderbook, pricing],
@@ -158,20 +158,25 @@ pub mod market_pipeline {
     pub async fn signal(input: &TradingSignal) -> TradingSignal { input.clone() }
 }
 
+// Accumulators receive raw event bytes and own deserialization.
+use cloacina::computation_graph::types::deserialize;
+
 struct OrderBookAccumulator;
 #[async_trait::async_trait]
 impl cloacina::computation_graph::Accumulator for OrderBookAccumulator {
-    type Event = OrderBookUpdate;
     type Output = OrderBookUpdate;
-    fn process(&mut self, event: OrderBookUpdate) -> Option<OrderBookUpdate> { Some(event) }
+    fn process(&mut self, event: Vec<u8>) -> Option<OrderBookUpdate> {
+        deserialize(&event).ok()
+    }
 }
 
 struct PricingAccumulator;
 #[async_trait::async_trait]
 impl cloacina::computation_graph::Accumulator for PricingAccumulator {
-    type Event = PricingUpdate;
     type Output = PricingUpdate;
-    fn process(&mut self, event: PricingUpdate) -> Option<PricingUpdate> { Some(event) }
+    fn process(&mut self, event: Vec<u8>) -> Option<PricingUpdate> {
+        deserialize(&event).ok()
+    }
 }
 
 #[tokio::main]

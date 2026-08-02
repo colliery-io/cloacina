@@ -151,8 +151,8 @@ admin.remove_tenant("tenant_xyz", "xyz_user")?;
 When `password` is an empty string, a cryptographically secure password is generated:
 
 - **Length**: 32 characters
-- **Character Set**: 94 characters (uppercase, lowercase, digits, symbols)
-- **Entropy**: ~202 bits
+- **Character Set**: 62 characters — uppercase, lowercase, and digits only (symbols are excluded to avoid URL/connection-string escaping issues)
+- **Entropy**: ~190 bits
 - **Generator**: Uses `rand::thread_rng()` for cryptographic randomness
 
 ### Password Handling

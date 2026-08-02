@@ -112,7 +112,7 @@ crate is faithful to it.
 
 The FFI vtable is the bridge across the boundary. Each plugin
 implements `CloacinaPlugin` (the [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}})
-macro emits this) and exposes nine methods. The plugin's
+macro emits this) and exposes eleven methods (interface v5). The plugin's
 implementation **does** see its own inventory section — it walks
 `inventory::iter::<TaskEntry>` etc. inside the cdylib and projects
 each entry into a wire-format type that fidius-host can serialize.

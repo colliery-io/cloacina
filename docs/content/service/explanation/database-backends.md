@@ -39,8 +39,8 @@ let runner = DefaultRunner::new("postgresql://user:pass@localhost:5432/mydb").aw
 Use an SQLite connection URL:
 
 ```rust
-// File-based database with optimizations
-let runner = DefaultRunner::new("sqlite://myapp.db?mode=rwc").await?;
+// File-based database (WAL mode and a 30s busy timeout are applied automatically)
+let runner = DefaultRunner::new("sqlite://myapp.db").await?;
 
 // In-memory database (for testing)
 let runner = DefaultRunner::new("sqlite://:memory:").await?;
@@ -52,7 +52,7 @@ Add Cloacina to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = "0.7.0"
+cloacina = "0.10"
 ```
 
 Both backends are included by default. No feature flags needed.
@@ -66,13 +66,13 @@ While Cloacina includes both backends by default for runtime flexibility, you ca
 **PostgreSQL only:**
 ```toml
 [dependencies]
-cloacina = { version = "0.7.0", default-features = false, features = ["postgres", "macros"] }
+cloacina = { version = "0.10", default-features = false, features = ["postgres", "macros"] }
 ```
 
 **SQLite only:**
 ```toml
 [dependencies]
-cloacina = { version = "0.7.0", default-features = false, features = ["sqlite", "macros"] }
+cloacina = { version = "0.10", default-features = false, features = ["sqlite", "macros"] }
 ```
 
 ### When to Use Single-Backend Builds
@@ -101,8 +101,8 @@ let runner = DefaultRunner::new("postgres://user:pass@localhost:5432/mydb").awai
 
 **SQLite:**
 ```rust
-// File-based database with optimizations
-let runner = DefaultRunner::new("sqlite://myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
+// File-based database
+let runner = DefaultRunner::new("sqlite://myapp.db").await?;
 
 // In-memory database (for testing)
 let runner = DefaultRunner::new("sqlite://:memory:").await?;
@@ -141,18 +141,20 @@ first-class choice for development, single-tenant, and embedded deployments.
 
 ## SQLite Configuration
 
-SQLite requires specific configuration for optimal performance. Here's the recommended setup:
+SQLite needs no tuning parameters in the connection string — Cloacina applies
+the concurrency-critical settings itself on every connection
+(`crates/cloacina/src/database/connection/mod.rs`):
 
 ```rust
-// Recommended connection string with optimizations
-let runner = DefaultRunner::new("sqlite://myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
+let runner = DefaultRunner::new("sqlite://myapp.db").await?;
 
-// Configuration details:
-// - WAL mode: Enables concurrent readers while writing
-// - Synchronous=NORMAL: Balances durability and performance
-// - Busy timeout: 5s wait for locks instead of immediate failure
-// - Connection pool: Use single connection (default)
+// Applied automatically on connect/migration:
+// - PRAGMA journal_mode=WAL   — concurrent readers while writing
+// - PRAGMA busy_timeout=30000 — wait 30s for locks instead of failing immediately
 ```
+
+Query parameters in the URL (`?mode=...`, `?_journal_mode=...`) are **not**
+interpreted — the path after `sqlite://` is used literally as the filename.
 
 ## Implementation Details
 

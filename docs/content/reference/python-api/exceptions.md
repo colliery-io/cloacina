@@ -1,6 +1,6 @@
 ---
 title: "Exceptions"
-description: "Exception classes for error handling in Cloaca workflows"
+description: "How cloaca reports errors: built-in Python exceptions only, no custom hierarchy"
 weight: 90
 aliases:
   - "/python/api-reference/exceptions/"
@@ -9,400 +9,105 @@ aliases:
 
 # Exceptions
 
-Cloaca provides a hierarchy of exception classes for handling different types of errors that can occur during workflow definition, execution, and management.
+The `cloaca` package defines **no custom exception classes**. There is no
+`CloacaException`, no `WorkflowError`, no `TaskError`, no `DatabaseError` — the
+bindings raise standard Python built-in exceptions, chosen by error category.
+Catch `ValueError`, `KeyError`, `RuntimeError`, and friends directly.
 
-## Exception Hierarchy
+The `CloacinaApiError` class you may see in other Cloacina code belongs to the
+separate **`cloacina-client`** service SDK (`pip install cloacina-client`), not
+to `cloaca`. See the [Python SDK]({{< ref "/reference/sdks/python/" >}})
+reference.
 
-```
-CloacaException (base)
-├── WorkflowError
-│   ├── WorkflowExecutionError
-│   └── WorkflowTimeoutError
-├── TaskError
-│   ├── TaskValidationError
-│   ├── TaskExecutionError
-│   └── TaskTimeoutError
-├── ContextError
-├── ConfigurationError
-└── DatabaseError
-    ├── ConnectionError
-    └── MigrationError
-```
+## Which built-in is raised when
 
-## Base Exception
+| Exception | Raised by |
+|-----------|-----------|
+| `ValueError` | Most validation and operational failures: invalid decorator arguments (`@cloaca.task`, `@cloaca.trigger`, `@cloaca.constructor`), `WorkflowBuilder.add_task` / `build()` / `__exit__` failures (unknown task, cycle, validation), invalid `DefaultRunnerConfig` values, `DefaultRunner.with_schema` given a non-PostgreSQL URL or a bad schema name, and every `DefaultRunner` operation that the runtime rejects — `execute()` on an unknown workflow, an invalid cron expression in `register_cron_workflow`, unknown schedule/trigger ids, and so on |
+| `KeyError` | `cloaca.var(name)` when `CLOACINA_VAR_<name>` is unset; `Context.update()`, `context[key]`, and `del context[key]` on a missing key; `Context.secret()` / `secret_field()` when the secret or field does not exist |
+| `RuntimeError` | `DefaultRunner` / `DatabaseAdmin` construction failures (bad URL, connection or migration failure, runtime thread died); `DatabaseAdmin.create_tenant` / `remove_tenant` failures; `Context.secret()` when no secret resolver is configured (`CLOACINA_SECRET_KEK` unset) or the secrets backend fails |
+| `PermissionError` | `Context.secret()` / `secret_field()` when the secret exists but is not granted to the workflow |
+| `TypeError` | Wrong argument types passed to binding functions (for example a non-dict where a dict is required) |
+| `AttributeError` | `ComputationGraphBuilder` exit when the topology references a node name with no matching `@cloaca.node` function |
 
-### CloacaException
+Source: `crates/cloacina-python/src` — the crate contains no
+`create_exception!` invocations; every error path maps onto one of the
+built-ins above (see `context.rs`, `bindings/runner.rs`, `bindings/admin.rs`,
+`computation_graph.rs`, `loader.rs`).
 
-Base exception class for all Cloaca-related errors.
+## Task failures are results, not exceptions
 
-```python
-import cloaca
-
-try:
-    # Cloaca operation
-    result = runner.execute("workflow", context)
-except cloaca.CloacaException as e:
-    print(f"Cloaca error: {e}")
-```
-
-## Workflow Exceptions
-
-### WorkflowError
-
-Base class for workflow-related errors.
-
-```python
-try:
-    workflow = builder.build()
-except cloaca.WorkflowError as e:
-    print(f"Workflow error: {e}")
-```
-
-### WorkflowExecutionError
-
-Raised when workflow execution fails unexpectedly.
-
-```python
-try:
-    result = runner.execute("my_workflow", context)
-except cloaca.WorkflowExecutionError as e:
-    print(f"Execution failed: {e}")
-    print(f"Workflow: {e.workflow_name}")
-    print(f"Execution ID: {e.execution_id}")
-```
-
-### WorkflowTimeoutError
-
-Raised when workflow execution exceeds the timeout limit.
+An exception raised *inside* a task body fails that task; the workflow engine
+records the failure (and applies the task's retry policy) rather than
+propagating the exception to the caller of `runner.execute()`. Inspect the
+returned [`WorkflowResult`]({{< ref "/reference/python-api/pipeline-result/" >}})
+instead:
 
 ```python
 import cloaca
 
-# Configure with timeout
-config = cloaca.DefaultRunnerConfig(task_timeout_seconds=30)
-runner = cloaca.DefaultRunner("sqlite:///:memory:", config)
+runner = cloaca.DefaultRunner("sqlite:///app.db")
+result = runner.execute("my_workflow", cloaca.Context())
 
-try:
-    result = runner.execute("long_workflow", context)
-except cloaca.WorkflowTimeoutError as e:
-    print(f"Workflow timed out after {e.timeout_seconds} seconds")
-    print(f"Partial result available: {e.partial_result}")
+if result.status != "Completed":
+    print(f"Workflow failed: {result.error_message}")
 ```
 
-## Task Exceptions
-
-### TaskError
-
-Base class for task-related errors.
+## Handling errors
 
 ```python
-@cloaca.task()
-def risky_task(context):
-    try:
-        # Risky operation
-        result = perform_operation()
-        context.set("result", result)
-    except Exception as e:
-        # Convert to TaskError
-        raise cloaca.TaskError(f"Task failed: {e}") from e
+import cloaca
 
-    return context
-```
-
-### TaskValidationError
-
-Raised when task definition is invalid.
-
-```python
-try:
-    @cloaca.task(id="")  # Empty ID
-    def invalid_task(context):
-        return context
-except cloaca.TaskValidationError as e:
-    print(f"Invalid task definition: {e}")
-```
-
-### TaskExecutionError
-
-Raised when task execution fails.
-
-```python
-@cloaca.task()
-def failing_task(context):
-    try:
-        # Operation that might fail
-        result = risky_operation()
-        context.set("result", result)
-    except Exception as e:
-        # Wrap in TaskExecutionError with context
-        raise cloaca.TaskExecutionError(
-            f"Task execution failed: {e}",
-            task_id="failing_task",
-            context=context
-        ) from e
-
-    return context
-```
-
-### TaskTimeoutError
-
-Raised when individual task execution times out.
-
-```python
-@cloaca.task(timeout_seconds=60)
-def slow_task(context):
-    # This will raise TaskTimeoutError if it takes > 60 seconds
-    time.sleep(120)  # Simulates long operation
-    return context
-
-try:
-    result = runner.execute("workflow_with_slow_task", context)
-except cloaca.TaskTimeoutError as e:
-    print(f"Task {e.task_id} timed out after {e.timeout_seconds} seconds")
-```
-
-## Context Exceptions
-
-### ContextError
-
-Raised for context-related errors.
-
-```python
-try:
-    # Try to get non-existent required data
-    value = context.get_required("missing_key")
-except cloaca.ContextError as e:
-    print(f"Context error: {e}")
-    # Handle missing required data
-```
-
-## Configuration Exceptions
-
-### ConfigurationError
-
-Raised for invalid configuration.
-
-```python
-try:
-    config = cloaca.DefaultRunnerConfig(
-        max_concurrent_workflows=-5  # Invalid negative value
-    )
-except cloaca.ConfigurationError as e:
-    print(f"Configuration error: {e}")
-```
-
-## Database Exceptions
-
-### DatabaseError
-
-Base class for database-related errors.
-
-```python
-try:
-    runner = cloaca.DefaultRunner("invalid://database/url")
-except cloaca.DatabaseError as e:
-    print(f"Database error: {e}")
-```
-
-### ConnectionError
-
-Raised when database connection fails.
-
-```python
+# Construction errors: RuntimeError
 try:
     runner = cloaca.DefaultRunner("postgresql://user:pass@nonexistent:5432/db")
-    result = runner.execute("workflow", context)
-except cloaca.ConnectionError as e:
-    print(f"Database connection failed: {e}")
-    print(f"Database URL: {e.database_url}")
-```
+except RuntimeError as e:
+    print(f"Could not start runner: {e}")
 
-### MigrationError
-
-Raised when database migration fails.
-
-```python
+# Operational errors: ValueError
 try:
-    runner = cloaca.DefaultRunner("sqlite:///readonly.db")
-except cloaca.MigrationError as e:
-    print(f"Database migration failed: {e}")
-    print(f"Migration version: {e.target_version}")
-```
-
-## Error Handling Patterns
-
-### Comprehensive Error Handling
-
-```python
-import cloaca
-
-def execute_workflow_safely(runner, workflow_name, context):
-    """Execute workflow with comprehensive error handling."""
-    try:
-        result = runner.execute(workflow_name, context)
-
-        if result.status == "Completed":
-            return result.final_context
-        else:
-            raise cloaca.WorkflowExecutionError(
-                f"Workflow failed with status: {result.status}"
-            )
-
-    except cloaca.TaskTimeoutError as e:
-        print(f"Task {e.task_id} timed out")
-        return None
-
-    except cloaca.WorkflowTimeoutError as e:
-        print(f"Workflow timed out after {e.timeout_seconds}s")
-        return e.partial_result
-
-    except cloaca.DatabaseError as e:
-        print(f"Database error: {e}")
-        return None
-
-    except cloaca.CloacaException as e:
-        print(f"Unexpected Cloaca error: {e}")
-        return None
-
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        return None
-```
-
-### Retry with Exception Handling
-
-```python
-import time
-import random
-
-def execute_with_retry(runner, workflow_name, context, max_attempts=3):
-    """Execute workflow with retry logic."""
-    for attempt in range(max_attempts):
-        try:
-            return runner.execute(workflow_name, context)
-
-        except cloaca.ConnectionError as e:
-            if attempt < max_attempts - 1:
-                wait_time = (2 ** attempt) + random.uniform(0, 1)
-                print(f"Connection failed, retrying in {wait_time:.1f}s...")
-                time.sleep(wait_time)
-                continue
-            else:
-                print(f"All {max_attempts} attempts failed")
-                raise
-
-        except cloaca.TaskTimeoutError as e:
-            print(f"Task timeout on attempt {attempt + 1}")
-            if attempt < max_attempts - 1:
-                continue
-            else:
-                raise
-
-        except cloaca.ConfigurationError:
-            # Don't retry validation or configuration errors
-            raise
-
-        except cloaca.CloacaException as e:
-            print(f"Cloaca error on attempt {attempt + 1}: {e}")
-            if attempt < max_attempts - 1:
-                time.sleep(1)
-                continue
-            else:
-                raise
-```
-
-### Custom Exception Handling
-
-```python
-class WorkflowManager:
-    """Workflow manager with custom error handling."""
-
-    def __init__(self, runner):
-        self.runner = runner
-        self.error_handlers = {
-            cloaca.TaskTimeoutError: self._handle_task_timeout,
-            cloaca.WorkflowTimeoutError: self._handle_workflow_timeout,
-            cloaca.DatabaseError: self._handle_database_error,
-        }
-
-    def execute_workflow(self, name, context):
-        """Execute workflow with custom error handling."""
-        try:
-            return self.runner.execute(name, context)
-        except Exception as e:
-            # Find appropriate handler
-            for exception_type, handler in self.error_handlers.items():
-                if isinstance(e, exception_type):
-                    return handler(e, name, context)
-
-            # No specific handler found
-            return self._handle_generic_error(e, name, context)
-
-    def _handle_task_timeout(self, error, workflow_name, context):
-        print(f"Task {error.task_id} timed out in workflow {workflow_name}")
-        # Could implement partial result recovery
-        return None
-
-    def _handle_workflow_timeout(self, error, workflow_name, context):
-        print(f"Workflow {workflow_name} timed out")
-        return error.partial_result  # Return partial results
-
-    def _handle_database_error(self, error, workflow_name, context):
-        print(f"Database error during {workflow_name}: {error}")
-        # Could implement fallback to different database
-        return None
-
-    def _handle_generic_error(self, error, workflow_name, context):
-        print(f"Unexpected error in {workflow_name}: {error}")
-        return None
-```
-
-## Best Practices
-
-### Exception Information
-
-Always preserve exception context:
-
-```python
-try:
-    result = runner.execute("workflow", context)
-except cloaca.TaskExecutionError as e:
-    # Access exception details
-    print(f"Task ID: {e.task_id}")
-    print(f"Error message: {e}")
-    print(f"Original exception: {e.__cause__}")
-
-    # Access context if available
-    if hasattr(e, 'context'):
-        error_context = e.context
-        print(f"Context at error: {error_context.data}")
-```
-
-### Logging Exceptions
-
-Implement proper logging:
-
-```python
-import logging
-
-logger = logging.getLogger(__name__)
+    result = runner.execute("nonexistent_workflow", cloaca.Context())
+except ValueError as e:
+    print(f"Execution rejected: {e}")
 
 try:
-    result = runner.execute("workflow", context)
-except cloaca.CloacaException as e:
-    logger.error(
-        "Workflow execution failed",
-        extra={
-            "workflow_name": getattr(e, 'workflow_name', 'unknown'),
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        },
-        exc_info=True
-    )
+    runner.register_cron_workflow("daily_report", "not a cron expr", "UTC")
+except ValueError as e:
+    print(f"Invalid cron expression: {e}")
+
+# Variable registry: KeyError
+try:
+    url = cloaca.var("DATABASE_URL")   # reads CLOACINA_VAR_DATABASE_URL
+except KeyError:
+    url = "sqlite:///default.db"
 ```
+
+Because the categories are built-ins, standard Python patterns apply — there is
+no package-specific base class to catch. If you need a catch-all around a
+`cloaca` call, catch `Exception` and inspect the message.
+
+## Service-client errors (`cloacina-client`, not `cloaca`)
+
+Code that talks to a running `cloacina-server` over HTTP uses the separate
+`cloacina-client` SDK, whose typed error **does** exist:
+
+```python
+from cloacina_client import Client, CloacinaApiError
+
+client = Client("http://localhost:8080", api_key="...")
+try:
+    client.get_workflow("missing")
+except CloacinaApiError as e:
+    print(e.status, e.code, e.message)   # 404 workflow_not_found ...
+```
+
+`CloacinaApiError` carries the canonical `{error, code}` envelope
+(`clients/python/src/cloacina_client/_client.py`). It is never raised by
+`cloaca`.
 
 ## See Also
 
-- **[Task Decorator]({{< ref "/reference/python-api/task/" >}})** - Task-level error handling
-- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** - Workflow execution and errors
-- **[Configuration]({{< ref "/reference/python-api/configuration/" >}})** - Configuration validation errors
+- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** — runner construction and operation errors
+- **[Context]({{< ref "/reference/python-api/context/" >}})** — key and secret access errors
+- **[WorkflowResult]({{< ref "/reference/python-api/pipeline-result/" >}})** — inspecting failed executions
+- **[Python SDK]({{< ref "/reference/sdks/python/" >}})** — `CloacinaApiError` and the service client

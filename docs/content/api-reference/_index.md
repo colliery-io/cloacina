@@ -11,7 +11,7 @@ Auto-generated from source code by [plissken](https://github.com/colliery-io/pli
 ## Rust Crates
 
 - [cloacina]({{< ref "/api-reference/rust/cloacina" >}}) — Core workflow and computation graph engine
-- [cloacina-computation-graph]({{< ref "/api-reference/rust/cloacina-computation-graph" >}}) — Reactive graph runtime types
+- [cloacina-computation-graph]({{< ref "/api-reference/rust/cloacina-computation-graph" >}}) — Computation graph runtime types (reactors, accumulators, traversal)
 - [cloacina-workflow]({{< ref "/api-reference/rust/cloacina-workflow" >}}) — Shared workflow types
 
 ## Python (Cloaca)
@@ -20,4 +20,8 @@ Auto-generated from source code by [plissken](https://github.com/colliery-io/pli
 
 ---
 
-*Regenerate with `plissken render` from the project root.*
+*Every page under this section is generated — do not hand-edit. The pipeline is
+configured by `plissken.toml` at the repository root; regenerate the whole tree
+with `plissken render` from the project root and commit the output. See
+[Documentation]({{< ref "/contributing/documentation" >}}) for how this pipeline
+fits alongside the other generated documentation surfaces.*

@@ -13,6 +13,16 @@ detect tampering and verify authenticity. This guide covers the library-side
 tasks: enabling verification, generating and trusting keys, signing, verifying,
 and rotating keys.
 
+{{< hint type=warning title="No CLI signing path yet" >}}
+There is currently **no end-to-end CLI flow** for signing `.cloacina`
+workflow packages: `cloacinactl package pack --sign` (and
+`package publish --sign`) **fail hard** with an error — the flag is
+tracked under I-0103 and not implemented. What exists today is the
+**library-side** signing/verification API documented on this page, plus
+server-side *enforcement* (`--require-signatures`, which will reject
+uploads you have no CLI means to sign). Plan deployments accordingly.
+{{< /hint >}}
+
 - For the **trust model and why signing is optional**, see
   [Security Model]({{< ref "/service/explanation/security-model" >}}#signing-keys-and-the-trust-model).
 - For the **full API surface** (method catalog, signature format, error
@@ -29,14 +39,20 @@ use cloacina::security::SecurityConfig;
 
 let config = SecurityConfig {
     require_signatures: true,
-    key_encryption_key: Some(load_key_from_env("CLOACINA_KEY_ENCRYPTION_KEY")),
+    // 32-byte master key; only needed when SIGNING with database-stored
+    // keys — verification-only loading doesn't require it.
+    key_encryption_key: Some(master_key_bytes),
+    // The org whose trusted keys uploads are verified against. With
+    // require_signatures = true and no org set, verification fails safe
+    // (all uploads rejected).
+    verification_org_id: Some(org_id),
 };
 ```
 
 When `require_signatures` is `true`, unsigned packages and packages signed by an
 untrusted or tampered key fail to load.
 
-The `key_encryption_key` is a 32-byte AES-256 key used to encrypt private signing
+The `key_encryption_key` is a 32-byte key used to encrypt private signing
 keys at rest in the database. Store it in a secrets manager and provide it at
 runtime.
 

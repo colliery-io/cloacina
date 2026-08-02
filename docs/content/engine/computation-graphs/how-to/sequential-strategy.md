@@ -13,7 +13,7 @@ This guide explains when to use `InputStrategy::Sequential` instead of the defau
 
 ## Prerequisites
 
-- Familiarity with the reactor model (see [tutorial 09 — full pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}}))
+- Familiarity with the reactor model (see [tutorial 12 — full multi-source pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}}))
 - A working accumulator-reactor pipeline
 
 ## Latest vs Sequential
@@ -141,16 +141,16 @@ pub mod audit_pipeline {
     }
 }
 
-// Passthrough accumulator — events arrive via socket
+// Passthrough accumulator — events arrive via socket as raw bytes;
+// the implementor owns deserialization.
 struct ActionAccumulator;
 
 #[async_trait::async_trait]
 impl cloacina::computation_graph::Accumulator for ActionAccumulator {
-    type Event = UserAction;
     type Output = UserAction;
 
-    fn process(&mut self, event: UserAction) -> Option<UserAction> {
-        Some(event)
+    fn process(&mut self, event: Vec<u8>) -> Option<UserAction> {
+        cloacina::computation_graph::types::deserialize(&event).ok()
     }
 }
 
@@ -183,7 +183,7 @@ async fn main() {
         let p = processed_inner.clone();
         Box::pin(async move {
             let result = audit_pipeline_compiled(&cache).await;
-            if let GraphResult::Completed { ref outputs } = result {
+            if let GraphResult::Completed { ref outputs, .. } = result {
                 p.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 for output in outputs {
                     if let Some(record) = output.downcast_ref::<AuditRecord>() {

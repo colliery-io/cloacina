@@ -18,6 +18,15 @@ stack.
 > dashboards, correlating a failing API request to a specific
 > backend log line, exporting traces to your APM tool.
 
+> **Scope:** these surfaces are exposed by the deployed processes —
+> `cloacina-server` and `cloacinactl daemon`. If you embed the
+> library directly in your own process, there is no `/metrics`
+> endpoint or request middleware; observe executions through the
+> runner's own APIs instead — see
+> [Monitoring Executions]({{< ref "/embed/how-to/monitoring-executions" >}}) —
+> and wire `cloacina::init_logging` (or your own `tracing`
+> subscriber) into your service's log pipeline.
+
 ## The Four Surfaces
 
 | Surface | What it answers | Production-readiness |
@@ -100,12 +109,14 @@ scrape_configs:
 
 ## Surface 2: Structured Logs
 
-`cloacina-server` (and `cloacina-daemon`) emit dual logs:
+`cloacina-server` and `cloacinactl daemon` emit dual logs:
 
 - **stderr** — human-readable lines, suitable for `journalctl` or
   Docker logs.
-- **`~/.cloacina/logs/cloacina-server.log`** — JSON-structured,
-  daily-rotated. The JSON shape is stable across releases.
+- **`~/.cloacina/logs/`** — JSON-structured, daily-rotated files:
+  `cloacina-server.YYYY-MM-DD.log` for the server,
+  `cloacina.YYYY-MM-DD.log` for the daemon. The JSON shape is stable
+  across releases.
 
 Every log line includes:
 
@@ -138,17 +149,17 @@ The JSON log is a stream of one object per line. Standard tools:
 
 ```bash
 # All errors in the last hour
-jq 'select(.level == "ERROR")' ~/.cloacina/logs/cloacina-server.log
+jq 'select(.level == "ERROR")' ~/.cloacina/logs/cloacina-server.$(date +%F).log
 
 # All logs for a specific request_id
 jq --arg rid "$REQUEST_ID" \
     'select(.request_id == $rid)' \
-    ~/.cloacina/logs/cloacina-server.log
+    ~/.cloacina/logs/cloacina-server.$(date +%F).log
 
 # All logs for a specific workflow execution
 jq --arg eid "$EXEC_ID" \
     'select(.execution_id == $eid)' \
-    ~/.cloacina/logs/cloacina-server.log
+    ~/.cloacina/logs/cloacina-server.$(date +%F).log
 ```
 
 ## Surface 3: Request-ID Correlation
@@ -175,7 +186,7 @@ REQUEST_ID="3f6c3dde-8e22-4f4a-bd15-1bea4c2b4f59"
 # 2. Pull every log line for that request.
 jq --arg rid "$REQUEST_ID" \
     'select(.request_id == $rid)' \
-    ~/.cloacina/logs/cloacina-server.log
+    ~/.cloacina/logs/cloacina-server.$(date +%F).log
 ```
 
 The trace will include any `WARN` / `ERROR` lines emitted while the

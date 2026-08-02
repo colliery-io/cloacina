@@ -11,7 +11,15 @@ aliases:
 
 # Database Admin API
 
-The Database Admin API provides Python bindings for multi-tenant database administration in PostgreSQL deployments. These classes are only available when using the `cloaca_postgres` backend.
+The Database Admin API provides Python bindings for multi-tenant database administration in PostgreSQL deployments.
+
+These classes (`DatabaseAdmin`, `TenantConfig`, `TenantCredentials`) are
+**wheel-only** and gated behind the wheel's `postgres` Cargo feature
+(`crates/cloacina-python/src/lib.rs`). The published PyPI wheel enables both
+backends, so `pip install cloaca` includes them; they are absent from a
+SQLite-only custom build and from the authoring surface inside packaged
+workflows. At runtime the constructor additionally rejects non-PostgreSQL
+URLs.
 
 ## DatabaseAdmin
 
@@ -24,7 +32,7 @@ DatabaseAdmin(database_url: str)
 ```
 
 **Parameters:**
-- `database_url` (str): PostgreSQL connection string with administrative privileges
+- `database_url` (str): PostgreSQL connection string with administrative privileges. The URL must start with `postgres://` or `postgresql://` and include a database name in the path; anything else raises `RuntimeError`.
 
 **Example:**
 ```python
@@ -49,17 +57,39 @@ Creates a new tenant with dedicated schema and database user.
 **Returns:**
 - `TenantCredentials`: Credentials and connection information for the new tenant
 
+**Raises:** `RuntimeError` on failure (insufficient privileges, schema or
+username already exists, connection issues, invalid schema/username).
+
 **Example:**
 ```python
 config = cloaca.TenantConfig(
     schema_name="tenant_acme",
     username="acme_user",
-    password=""  # Auto-generate secure password
+    # password omitted — auto-generate a secure password
 )
 
 credentials = admin.create_tenant(config)
 print(f"Tenant created with schema: {credentials.schema_name}")
 print(f"Connection string: {credentials.connection_string}")
+```
+
+#### remove_tenant
+
+```python
+remove_tenant(schema_name: str, username: str) -> None
+```
+
+Drops the tenant's schema and database user.
+
+**Parameters:**
+- `schema_name` (str): Schema of the tenant to remove
+- `username` (str): The tenant's database username
+
+**Raises:** `RuntimeError` on failure.
+
+**Example:**
+```python
+admin.remove_tenant("tenant_acme", "acme_user")
 ```
 
 ## TenantConfig
@@ -69,13 +99,13 @@ Configuration object for creating new tenants.
 ### Constructor
 
 ```python
-TenantConfig(schema_name: str, username: str, password: str)
+TenantConfig(schema_name: str, username: str, password: str | None = None)
 ```
 
 **Parameters:**
 - `schema_name` (str): Name of the PostgreSQL schema for this tenant
 - `username` (str): Database username for this tenant
-- `password` (str): Password for the user, or empty string to auto-generate
+- `password` (str, optional): Password for the user. Omitted, `None`, or empty string means auto-generate a secure 32-character password at `create_tenant` time
 
 **Example:**
 ```python
@@ -90,15 +120,14 @@ config = cloaca.TenantConfig(
 config = cloaca.TenantConfig(
     schema_name="tenant_acme",
     username="acme_user",
-    password=""  # Will generate secure 32-character password
 )
 ```
 
-### Attributes
+### Attributes (read-only)
 
 - `schema_name` (str): The schema name for the tenant
 - `username` (str): The database username for the tenant
-- `password` (str): The password (may be auto-generated)
+- `password` (str): The password as configured (empty string when auto-generation was requested; the generated password is returned on `TenantCredentials`)
 
 ## TenantCredentials
 
@@ -206,12 +235,14 @@ Generated connection strings use unencoded passwords. The underlying database dr
 
 ## Error Handling
 
+All admin failures surface as `RuntimeError`
+(see [Exceptions]({{< ref "/reference/python-api/exceptions/" >}})):
+
 ```python
 try:
     credentials = admin.create_tenant(config)
-except Exception as e:
+except RuntimeError as e:
     print(f"Failed to create tenant: {e}")
-    # Handle tenant creation failure
     # Common causes:
     # - Admin user lacks necessary privileges
     # - Schema or username already exists

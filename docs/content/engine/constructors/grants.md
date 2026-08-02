@@ -27,14 +27,15 @@ grants = {
 grants={"fs": ["ro:/data"], "env": ["API_REGION"]}
 ```
 
-## The four kinds
+## The five kinds
 
 | Kind | Pattern | Effect |
 | --- | --- | --- |
-| `fs` | `ro:<path>` / `rw:<path>` | Pre-opens the directory read-only / read-write. Everything outside stays invisible. |
+| `fs` | `ro:<path>` / `rw:<path>` | Pre-opens the directory read-only / read-write. Everything outside stays invisible. A bare path with no `ro:`/`rw:` prefix is a hard error — the load fails closed. |
 | `env` | `<NAME>` | Passes the **host's** value of that variable through by name (skipped silently if unset). Literal values are not supported. |
 | `http` | `<host>[:port][/path-glob]`, `*` globs | Grants the http capability plus a per-request egress policy matching host/port/path. |
 | `tcp` | `<host>:<port>`, `*:<port>`, `*` | Grants raw sockets plus a per-connection policy. A DNS host is resolved once at load and matched by `(ip, port)`. |
+| `secrets` | `<name>` | Allow-lists the named secrets the member may resolve through the secret store; anything not listed is denied (`NotGranted`, distinct from `NotFound`). |
 
 ## Semantics worth knowing
 
@@ -50,6 +51,19 @@ grants={"fs": ["ro:/data"], "env": ["API_REGION"]}
 - **Load-time lint.** If the provider package declares a capability intent the
   consumer didn't grant, the loader logs a warning at load — the mismatch will
   deny at runtime, so it's surfaced early rather than as a mystery failure.
+
+## Native providers bypass enforcement
+
+Grant enforcement applies **only to WASM providers**. A provider packaged with
+`runtime = native` runs **trusted and unsandboxed, in-process** — no WASI
+sandbox, no capability allow-list, no egress policy
+(`ProviderRuntime::grants_enforced()` returns true only for `Wasm`; the native
+load path takes no grants at all). Any `grants` you write at a native
+constructor's instantiation site are advisory documentation, not a security
+boundary. Treat installing a native provider like adding a normal Rust
+dependency: review it, pin it, and trust it — or use a WASM provider instead.
+`cloacinactl constructor package --native` prints this trust tier at packaging
+time.
 
 The runnable `examples/constructor-contract/fs-grant-demo` demonstrates all
 three outcomes side by side: a granted read, the same read denied without the

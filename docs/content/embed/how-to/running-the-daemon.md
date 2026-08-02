@@ -48,11 +48,11 @@ Copy `.cloacina` package files into any watched directory:
 cp my-workflow.cloacina ~/.cloacina/packages/
 ```
 
-The daemon detects the new file via filesystem events, loads the package through the registry reconciler, and registers any cron or trigger schedules defined in the package manifest. You will see log output confirming the load:
+The daemon detects the new file via filesystem events, loads the package through the registry reconciler, and registers any cron or trigger schedules the package declares **in code** — `#[trigger(cron = "...", on = "...")]` / `#[trigger(poll_interval = "...", on = "...")]` in Rust, `@cloaca.trigger(...)` in Python. (Schedules do *not* live in `package.toml`: the manifest is a closed schema, and a `[[triggers]]` section is rejected at load — trigger declarations were moved to code in CLOACI-I-0102.) You will see log output confirming the load:
 
 ```
 Reconciliation: 1 loaded, 0 unloaded
-Registered cron schedule: 'nightly-cleanup' -> workflow 'cleanup' (cron: 0 0 * * *, id: ...)
+Package my-workflow v1.0.0: registered cron schedule for workflow 'cleanup' (trigger 'nightly_cleanup', cron='0 0 * * *', id=...)
 ```
 
 To remove a workflow, delete its `.cloacina` file from the watched directory. The daemon will unload it on the next reconciliation cycle.
@@ -80,7 +80,8 @@ watcher_debounce_ms = 500
 # Trigger scheduler base poll interval in milliseconds
 trigger_poll_interval_ms = 1000
 
-# Maximum cron catchup executions after downtime (omit for unlimited)
+# Maximum cron catchup executions after downtime
+# (omit to use the runner default of 100)
 # cron_max_catchup = 10
 
 # Cron recovery check interval in seconds
@@ -128,7 +129,7 @@ cloacinactl daemon --poll-interval 2000
 The daemon writes logs to two destinations simultaneously:
 
 - **stderr**: human-readable format for interactive use
-- **File**: JSON-structured logs at `~/.cloacina/logs/cloacina.log` (daily rotation)
+- **File**: JSON-structured logs in `~/.cloacina/logs/` (daily rotation; files are named `cloacina.YYYY-MM-DD.log`)
 
 ### Controlling Log Verbosity
 
@@ -152,11 +153,11 @@ log_level = "debug"
 ### Reading the Log File
 
 ```bash
-# Tail the current log file
-tail -f ~/.cloacina/logs/cloacina.log
+# Tail today's log file
+tail -f ~/.cloacina/logs/cloacina.$(date +%F).log
 
 # Parse JSON logs with jq
-tail -f ~/.cloacina/logs/cloacina.log | jq '.fields.message'
+tail -f ~/.cloacina/logs/cloacina.$(date +%F).log | jq '.fields.message'
 ```
 
 ## Signal Handling
@@ -193,22 +194,22 @@ Configuration reload complete.
 1. Verify the file has a `.cloacina` extension and is in a watched directory.
 2. Check the daemon logs for reconciliation errors:
    ```bash
-   grep -i "failed" ~/.cloacina/logs/cloacina.log | tail -20
+   grep -i "failed" ~/.cloacina/logs/cloacina.$(date +%F).log | tail -20
    ```
 3. If the package was built against a different platform or has a corrupted archive, the reconciler will report a failure with the package ID and error message.
 4. Ensure the daemon has read permissions on the package file and the watched directory.
 
 ### Cron Schedule Not Firing
 
-1. Confirm the schedule was registered by looking for `Registered cron schedule` in the logs.
-2. Check that `cron_max_catchup` is not set too low if the daemon was down for a period. When omitted, the daemon runs all missed executions.
-3. Verify the cron expression is valid (standard 5-field format: minute, hour, day-of-month, month, day-of-week).
+1. Confirm the schedule was registered by looking for `registered cron schedule` in the logs. Cron schedules come from `#[trigger(cron = "...")]` / `@cloaca.trigger(cron=..., on=...)` declarations compiled into the package — if the package has no cron trigger in code, nothing is registered. (Note: `cloacinactl package new --kind cron` only scaffolds a Rust template, but Python packages declare cron triggers the same way in code — see the `python-cron` example.)
+2. Check that `cron_max_catchup` is not set too low if the daemon was down for a period. When omitted, the runner default of 100 catchup executions applies.
+3. Verify the cron expression is valid: 5-field format (minute, hour, day-of-month, month, day-of-week), with an optional leading seconds field for 6-field expressions.
 4. If the daemon was recently restarted, recovery runs after `cron_recovery_interval_s` seconds (default 300).
 
 ### Trigger Not Polling
 
-1. The trigger must have a registered `Trigger` implementation in the package. If only a `cron_expression` is defined in `package.toml`, it is treated as a cron schedule, not a poll trigger.
-2. Look for the warning `Trigger '...' declared in package.toml but no Trigger impl found in registry` in the logs.
+1. Poll triggers are declared in package code with `#[trigger(poll_interval = "...", on = "...")]` (or `@cloaca.trigger(poll_interval=..., on=...)`). Confirm the load logged `registered poll-trigger schedule for workflow '...'` — a trigger with a `cron` attribute is registered as a cron schedule instead, not polled.
+2. Check the logs for reconciler warnings mentioning the trigger name — a failed schedule registration is logged as a warning with the package name and error.
 3. Adjust `trigger_poll_interval_ms` if the default 1000ms polling is too frequent or too slow.
 
 ### High CPU or Disk I/O

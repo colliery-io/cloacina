@@ -48,19 +48,18 @@ Trigger-less CGs use the same `#[computation_graph]` macro, but with
 no `trigger` argument at all:
 
 ```rust
-#[computation_graph(
-    graph = {
-        score: { inputs: ["context"], next: "decide" },
-        decide: { next: "publish" },
-        publish: {},
-    },
-)]
-mod decision_graph {
+#[computation_graph(graph = {
+    score -> decide,
+    decide -> publish,
+})]
+pub mod decision_graph {
     use super::*;
 
-    pub async fn score(ctx: &Context<Value>) -> ScoreOutput { ... }
-    pub async fn decide(scored: ScoreOutput) -> Decision { ... }
-    pub async fn publish(decision: Decision) -> Value { ... }
+    // Entry node of a trigger-less graph: reads the invoking task's
+    // Context directly.
+    pub async fn score(ctx: &Context<Value>) -> ScoreOutput { /* … */ }
+    pub async fn decide(scored: &ScoreOutput) -> Decision { /* … */ }
+    pub async fn publish(decision: &Decision) -> Value { /* … */ }
 }
 ```
 
@@ -71,7 +70,7 @@ a reactor-bound `ComputationGraphEntry`.
 A workflow task then invokes the graph by name:
 
 ```rust
-#[task(invokes = "decision_graph")]
+#[task(invokes = computation_graph("decision_graph"))]
 async fn score_inputs(ctx: &mut Context<Value>) -> Result<(), TaskError> {
     // Task body. The graph runs after the body returns; terminal
     // outputs are written to the context as keys named after the
@@ -99,7 +98,7 @@ invoked from the host. The bridge is two FFI vtable methods:
   (name + terminal-node-output names) and builds host-side
   `TriggerlessGraphRegistration` adapters per graph.
 - **Method 8** (`invoke_triggerless_graph`) — when a workflow task
-  with `invokes = "graph_name"` finishes, the host adapter calls
+  with `invokes = computation_graph("graph_name")` finishes, the host adapter calls
   this method on the cdylib. The plugin runs the graph on its own
   tokio runtime, serializes the terminal outputs, and returns them.
   The host deserializes and writes them into the workflow context.
@@ -134,17 +133,17 @@ failed, `on_failure` callbacks fire, retry policies apply.
 1. **Plugin returns `success: false` but no `error` message.** This
    happens if the cdylib's panic handler caught a panic but couldn't
    extract a useful message. The host inserts a generic placeholder
-   (`"trigger-less graph invocation failed (plugin returned no
-   error message)"`) so the workflow task still sees a failure
-   string. Diagnose by checking the plugin's stderr/log output —
-   the panic backtrace will be there.
+   (`"Graph '<name>' returned !success without an error message"`)
+   so the workflow task still sees a failure string. Diagnose by
+   checking the plugin's stderr/log output — the panic backtrace
+   will be there.
 
 2. **FFI dispatch itself fails** (the cdylib was unloaded, fidius
    serialization broke, the host couldn't reach the plugin). The
-   host wraps this as `GraphError::Execution("FFI dispatch failed:
-   ...")` with the underlying fidius error. Treat these as
-   infrastructure failures; the plugin probably needs to be
-   reloaded.
+   host wraps this as `GraphError::Execution("FFI
+   invoke_triggerless_graph for '<name>' failed: ...")` with the
+   underlying fidius error. Treat these as infrastructure failures;
+   the plugin probably needs to be reloaded.
 
 For embedded trigger-less graphs (no FFI), errors flow directly
 from the user's `Result<...>` into the same `GraphError::Execution`

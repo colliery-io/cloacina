@@ -26,7 +26,7 @@ A workflow named `greeting` with one task that writes a message into the
 {{< tab "Rust" >}}
 ```toml
 [dependencies]
-cloacina = "0.7"
+cloacina = "0.10"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 ```
@@ -91,12 +91,13 @@ the workflow by name.
 {{< tabs "t01-run" >}}
 {{< tab "Rust" >}}
 ```rust
+use cloacina::executor::WorkflowExecutor; // brings `execute` into scope
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runner = DefaultRunner::with_config(
-        "sqlite://app.db?mode=rwc",
+        "sqlite://app.db",
         DefaultRunnerConfig::default(),
     ).await?;
 

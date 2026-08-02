@@ -1,6 +1,6 @@
 ---
 title: "Guaranteed Cron Scheduling"
-description: "Understanding the differences between PostgreSQL and SQLite backends in Cloacina"
+description: "How Cloacina guarantees cron executions: two-phase commit, atomic claiming, and recovery of lost executions"
 weight: 25
 aliases:
   - "/workflows/explanation/guaranteed-execution-architecture/"

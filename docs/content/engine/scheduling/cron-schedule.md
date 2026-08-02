@@ -44,13 +44,20 @@ runner.delete_cron_schedule(schedule_id)
 
 ## Key facts
 
+- **Expression format:** standard 5-field cron (`minute hour day month weekday`)
+  with an **optional leading seconds field** (6-field, e.g. `*/3 * * * * *` =
+  every 3 seconds). Parsed by the `croner` crate with seconds-optional enabled;
+  evaluated timezone-aware (`CronEvaluator` in `cloacina-workflow`).
 - **Catch-up policy:** `skip` or `run-all` (run-all is bounded by a max-catchup
   count).
 - **Schedule dicts (Python):** `id`, `workflow_name`, `cron_expression`,
   `timezone`, `enabled`, `catchup_policy`, `next_run_at`, `last_run_at`,
   `created_at`, `updated_at`.
-- **Parity:** Python has the full runtime cron API but **no packaged cron-trigger
-  decorator** (Rust-only) — tracked in [CLOACI-T-0688].
+- **Parity:** Python packages can also declare cron triggers —
+  `@cloaca.trigger(on="...", cron="...", timezone="...")` (added in
+  CLOACI-T-0688; the reconciler routes cron-bearing triggers to the cron
+  scheduler). Note `cloacinactl package new` offers a cron scaffold for Rust
+  only — hand-author the decorator in a Python package.
 
 ## See also
 

@@ -175,10 +175,11 @@ The `DefaultRunner` can be configured with or without workflow package support:
 // Embedded workflows only
 let runner = DefaultRunner::new(&database_url).await?;
 
-// With workflow package support
-let mut config = DefaultRunnerConfig::default();
-config.enable_registry_reconciler = true;
-config.registry_storage_path = Some(PathBuf::from("/path/to/storage"));
+// With workflow package support (fields are private — use the builder)
+let config = DefaultRunnerConfig::builder()
+    .enable_registry_reconciler(true)
+    .registry_storage_path(Some(PathBuf::from("/path/to/storage")))
+    .build()?;
 
 let runner = DefaultRunner::with_config(&database_url, config).await?;
 ```
@@ -270,12 +271,12 @@ impl DefaultRunner {
 
 Workflow packages use hierarchical namespaces to prevent conflicts:
 
-**Format**: `{tenant}.{package}.{workflow}.{task_id}`
+**Format**: `{tenant}::{package}::{workflow}::{task_id}` (the `TaskNamespace` `Display` format, `crates/cloacina-workflow/src/namespace.rs`)
 
 **Examples**:
-- `acme.data_processor.etl_pipeline.extract_data`
-- `acme.data_processor.etl_pipeline.transform_data`
-- `beta_corp.ml_trainer.model_pipeline.train_model`
+- `acme::data_processor::etl_pipeline::extract_data`
+- `acme::data_processor::etl_pipeline::transform_data`
+- `beta_corp::ml_trainer::model_pipeline::train_model`
 
 ### Namespace Isolation
 
@@ -346,30 +347,36 @@ let runner_b = DefaultRunnerBuilder::new()
 Each tenant can have isolated storage for workflow packages:
 
 ```rust
-// Tenant-specific storage paths
-config.registry_storage_path = Some(PathBuf::from("/storage/tenant_a"));
+// Tenant-specific storage paths (builder setter)
+let config = DefaultRunnerConfig::builder()
+    .registry_storage_path(Some(PathBuf::from("/storage/tenant_a")))
+    .build()?;
 ```
 
 ## Crate Structure
 
-Cloacina is organized into eleven crates so each concern is independently buildable, testable, and (for the packaging story below) skippable for binaries that don't need it:
+Cloacina is organized into fifteen workspace crates so each concern is independently buildable, testable, and (for the packaging story below) skippable for binaries that don't need it:
 
 ```
 crates/
   cloacina/                      # Full runtime: executor, scheduler, DAL, runner, registry, multi-tenancy
   cloacina-workflow/             # Slim author-facing types (Trigger trait, RetryPolicy, error types)
-  cloacina-workflow-plugin/      # FFI vtable trait shared by host + plugin (the nine-method CloacinaPlugin)
-  cloacina-computation-graph/    # Computation-graph runtime: reactors, accumulators, scheduler
-  cloacina-macros/               # Procedural macros: #[task], #[workflow], #[trigger], #[reactor], #[computation_graph], #[accumulator]
-  cloacina-build/                # Build-script helper for cdylib linker flags / rpath
+  cloacina-workflow-plugin/      # FFI vtable trait shared by host + plugin (the eleven-method CloacinaPlugin, interface v5)
+  cloacina-computation-graph/    # Computation-graph user types: InputCache, GraphResult, Reactor/Graph traits
+  cloacina-macros/               # Procedural macros: #[task], #[workflow], #[trigger], #[reactor], #[computation_graph], accumulator + constructor macros
+  cloacina-constructor-contract/ # Serde-only constructor/provider contract types (host + wasm32-wasip2)
+  cloacina-api-types/            # Shared HTTP/WS wire types (InputSlot, health, reactor request/response)
+  cloacina-client/               # Rust SDK for the HTTP API
+  cloacina-build/                # Build-script helper for binaries linking PyO3 (libpython rpath)
   cloacina-compiler/             # Standalone build worker (cargo build for .cloacina packages)
   cloacina-server/               # HTTP API server binary
+  cloacina-agent/                # Fleet execution agent
   cloacina-python/               # PyO3 wheel runtime (the `cloaca` Python module) — isolated per T-0529 so non-Python binaries don't transitively link pyo3
   cloacina-testing/              # Test fixtures: TestRunner, BoundaryEmitter
   cloacinactl/                   # CLI binary (noun-verb command structure per I-0098)
 ```
 
-The cleanest framing: `cloacina-workflow` + `cloacina-workflow-plugin` are the **author surface** (small, no DB, no executor), `cloacina` is the **embedded runtime** (full engine), `cloacina-server` and `cloacina-compiler` and `cloacinactl` are the **service binaries**, `cloacina-python` is the **Python wrapper**, and `cloacina-build` + `cloacina-testing` + `cloacina-macros` + `cloacina-computation-graph` are **supporting crates** that other workspace members depend on.
+The cleanest framing: `cloacina-workflow` + `cloacina-workflow-plugin` are the **author surface** (small, no DB, no executor), `cloacina` is the **embedded runtime** (full engine), `cloacina-server`, `cloacina-agent`, `cloacina-compiler`, and `cloacinactl` are the **service binaries**, `cloacina-python` is the **Python wrapper**, and the rest (`cloacina-build`, `cloacina-testing`, `cloacina-macros`, `cloacina-computation-graph`, `cloacina-constructor-contract`, `cloacina-api-types`, `cloacina-client`) are **supporting crates** that other workspace members depend on.
 
 ### cloacina-workflow (slim author crate)
 
@@ -387,7 +394,7 @@ Contains only the types needed to compile workflows:
 
 ### cloacina-workflow-plugin (FFI vtable)
 
-The interface contract for `.cloacina` cdylib plugins (per CLOACI-I-0102's unified shell). Defines the nine-method `CloacinaPlugin` trait and the magic-byte / ABI-hash invariants that fidius uses to reject mismatched plugins at load time. Both the plugin author and the host depend on exactly this crate, which is what makes the ABI hash check meaningful.
+The interface contract for `.cloacina` cdylib plugins (per CLOACI-I-0102's unified shell). Defines the eleven-method `CloacinaPlugin` trait (interface version 5) and the magic-byte / ABI-hash invariants that fidius uses to reject mismatched plugins at load time. Both the plugin author and the host depend on exactly this crate, which is what makes the ABI hash check meaningful.
 
 ### cloacina (full embedded runtime)
 
@@ -453,13 +460,14 @@ Most production systems use both workflow types strategically:
 ### Deployment Strategy
 
 ```rust
-// Production configuration
-let mut config = DefaultRunnerConfig::default();
-config.max_concurrent_tasks = 50;
-config.task_timeout = Duration::from_mins(30);
-config.enable_registry_reconciler = true;
-config.enable_cron_scheduling = true;
-config.enable_recovery = true;
+// Production configuration (builder — fields are private)
+let config = DefaultRunnerConfig::builder()
+    .max_concurrent_tasks(50)
+    .task_timeout(Duration::from_secs(30 * 60))
+    .enable_registry_reconciler(true)
+    .enable_cron_scheduling(true)
+    .enable_recovery(true)
+    .build()?;
 
 let runner = DefaultRunner::with_config(&database_url, config).await?;
 ```

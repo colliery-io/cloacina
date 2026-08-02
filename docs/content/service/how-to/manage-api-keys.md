@@ -31,13 +31,18 @@ cloacinactl key create ci-bot --role write \
 `--role` is one of `read`, `write`, or `admin` (default `read`). The response
 prints the secret **once** — store it immediately; it cannot be retrieved again.
 
-**Tenant scope:** the new key is scoped to the tenant of the key you authenticate
-with. To mint a key for a specific tenant, authenticate with an admin key and pass
-the global `--tenant <name>` flag:
+**Tenant scope:** `key create` calls the global `POST /v1/auth/keys`
+endpoint, which is restricted to platform-admin (god-mode) keys and
+always mints keys scoped to the built-in **`public`** tenant. To mint a
+key for a **named** tenant, use the tenant-scoped endpoint (available
+to that tenant's admins as well as the platform admin) — the plaintext
+is in the `key` field of the response:
 
 ```bash
-cloacinactl key create acme-bot --role write --tenant acme \
-  --server http://127.0.0.1:8080 --api-key "$ADMIN_KEY"
+curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "acme-bot", "role": "write"}' | jq -r '.key'
 ```
 
 ## List keys
@@ -65,12 +70,10 @@ The CLI is a thin wrapper over these endpoints (full details in the
 
 | Action | Method + path |
 |--------|---------------|
-| Create | `POST /v1/auth/keys` (body: `{ "name": ..., "role": ... }`; tenant scope from the calling key) |
-| List | `GET /v1/auth/keys` |
-| Revoke | `DELETE /v1/auth/keys/{key_id}` |
-
-`POST /v1/tenants/{tenant_id}/keys` is also available for admin-key callers that
-need to name the target tenant explicitly.
+| Create (public tenant) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": ... }`; platform-admin only, always scoped to `public`) |
+| Create (named tenant) | `POST /v1/tenants/{tenant_id}/keys` (same body; tenant-admin or platform-admin) |
+| List | `GET /v1/auth/keys` (platform-admin) or `GET /v1/tenants/{tenant_id}/keys` (tenant-admin) |
+| Revoke | `DELETE /v1/auth/keys/{key_id}` or `DELETE /v1/tenants/{tenant_id}/keys/{key_id}` |
 
 ## See also
 

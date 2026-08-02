@@ -74,7 +74,7 @@ The server's startup banner now mentions the verification org. If you misconfigu
 
 ### 4. Sign your packages before uploading
 
-> **Current limitation (2026-05):** `cloacinactl package pack --sign <key>` is a **fail-hard stub** — it accepts the flag and returns an error pointing operators at the library-side signing API. The CLI wire-up is tracked as a follow-up to CLOACI-I-0103. Until it lands, signing is done programmatically via `cloacina::security::package_signer` or out-of-band (e.g., as part of your CI pipeline using the library API in a small Rust program). See [Package signing]({{< ref "security/package-signing" >}}) for the signing recipe.
+> **Current limitation:** `cloacinactl package pack --sign <key>` (and `package publish --sign`) **fail hard** — the flag returns an error pointing operators at the library-side signing API. The CLI wire-up is tracked under CLOACI-I-0103 and has not shipped. Until it lands, signing is done programmatically via `cloacina::security::package_signer` or out-of-band (e.g., as part of your CI pipeline using the library API in a small Rust program). There is no supported end-to-end "sign from the CLI, upload, verify" flow today — enabling `--require-signatures` commits you to a library-driven signing pipeline. See [Package signing]({{< ref "security/package-signing" >}}) for the signing recipe.
 
 Once you have a signed package and its `.sig` sidecar, upload as normal:
 
@@ -115,10 +115,10 @@ Every verification attempt (successful or failed) is logged to the structured au
 
 ```sh
 journalctl -u cloacina-server --since "10 minutes ago" \
-  | grep -E "package_(verified|verification_failed)"
+  | grep -E "package\.load\.(success|failure)"
 ```
 
-Successful uploads emit `package_verified` with the org id, package fingerprint, and verifying key id. Failures emit `package_verification_failed` with the same context plus the failure reason (`invalid_signature`, `signature_not_found`, etc.).
+Successful uploads emit a `package.load.success` audit event with the org id and package path context. Failures emit `package.load.failure` with the same context plus the failure reason (`invalid_signature`, `signature_not_found`, etc.). The library-level verification calls additionally emit `verification.success` / `verification.failure` events — the full event catalog is in the [Package Signing API Reference]({{< ref "/reference/package-signing-api" >}}).
 
 ## Recovery: "I locked myself out by enabling signatures with no trusted keys"
 
@@ -126,7 +126,7 @@ Successful uploads emit `package_verified` with the org id, package fingerprint,
 
 **Recovery options, in order of safety:**
 
-1. **Register a trusted key without restarting.** The trusted-key DAL is hot — registering a new `(org_id, public_key)` row makes the key available for subsequent uploads immediately. Run a one-shot Rust program against the same database that calls `DbKeyManager::add_trusted_key(org_id, public_key)`. Subsequent uploads with packages signed by that key succeed.
+1. **Register a trusted key without restarting.** The trusted-key DAL is hot — registering a new `(org_id, public_key)` row makes the key available for subsequent uploads immediately. Run a one-shot Rust program against the same database that calls `DbKeyManager`'s `trust_public_key(org_id, &public_key_bytes, Some("label"))`. Subsequent uploads with packages signed by that key succeed.
 
 2. **Restart with `--require-signatures` off** (emergency only). Removes enforcement entirely. After register a key, re-enable. **Do not leave the server running without enforcement in production.**
 

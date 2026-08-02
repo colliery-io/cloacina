@@ -24,6 +24,11 @@ builds embed compressed bytes; debug builds read from disk so UI iteration
 doesn't require recompiling Rust). A stale bundle is impossible by
 construction. The default `cargo build` remains Node-free and serves no UI.
 
+Container builds that pre-build the SPA in a separate Node stage can set
+`CLOACINA_EMBEDDED_UI_SKIP_NPM=1` to make `build.rs` use the existing
+`ui/dist` instead of invoking npm (the Rust build stage then needs no
+Node toolchain).
+
 ## Behavior
 
 - `GET /` and any client-routed path (e.g. `/executions/abc`) serve the SPA

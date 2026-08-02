@@ -32,7 +32,7 @@ each tenant in complete isolation.
 {{< tab "Rust" >}}
 ```rust
 use cloacina::runner::DefaultRunner;
-use cloacina::executor::WorkflowStatus;
+use cloacina::executor::{WorkflowExecutor, WorkflowStatus}; // WorkflowExecutor brings `execute` into scope
 use cloacina::{task, workflow, Context, TaskError};
 use serde_json::json;
 use std::collections::HashMap;

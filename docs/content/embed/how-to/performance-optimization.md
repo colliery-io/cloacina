@@ -10,8 +10,8 @@ aliases:
 # Performance Optimization
 
 This guide covers the concrete Cloacina-specific knobs you can turn to tune a
-production runner: connection-pool parameters on the database URL and
-`DefaultRunnerConfig` sizing.
+production runner: `DefaultRunnerConfig` sizing and connection parameters on the
+database URL.
 
 > **Why these knobs matter — and why workflow design matters more.** The largest
 > performance lever is how you decompose work into tasks, structure
@@ -21,53 +21,36 @@ production runner: connection-pool parameters on the database URL and
 
 ## Tune the connection pool
 
-Connection-pool parameters are passed as query parameters on a PostgreSQL URL.
-Size the pool to your concurrency and set timeouts so connections don't hang:
-
-```python
-import cloaca
-
-runner = cloaca.DefaultRunner(
-    "postgresql://user:pass@host:5432/cloacina?"
-    "pool_min_size=5&"      # minimum idle connections
-    "pool_max_size=20&"     # maximum connections
-    "pool_timeout=30&"      # seconds to wait for a free connection
-    "pool_recycle=3600"     # recycle connections after 1 hour
-)
-```
-
-For a production runner, drive these from the environment so they can be tuned
-per-deployment without code changes:
+The runner's connection pool is sized by **`db_pool_size` on
+`DefaultRunnerConfig`** (default 10) — not by URL query parameters. Cloacina
+does not read `pool_*`-style parameters from the connection URL:
 
 ```python
 import os
 import cloaca
 
-def create_runner():
-    base_url = os.getenv("DATABASE_URL")
-    if not base_url:
-        raise ValueError("DATABASE_URL environment variable required")
-
-    params = {
-        "pool_min_size": os.getenv("DB_POOL_MIN_SIZE", "10"),
-        "pool_max_size": os.getenv("DB_POOL_MAX_SIZE", "50"),
-        "pool_timeout": os.getenv("DB_POOL_TIMEOUT", "30"),
-        "pool_recycle": os.getenv("DB_POOL_RECYCLE", "7200"),
-        "connect_timeout": os.getenv("DB_CONNECT_TIMEOUT", "10"),
-        "application_name": os.getenv("APP_NAME", "cloacina_prod"),
-    }
-    param_string = "&".join(f"{k}={v}" for k, v in params.items())
-    separator = "&" if "?" in base_url else "?"
-    return cloaca.DefaultRunner(f"{base_url}{separator}{param_string}")
+config = cloaca.DefaultRunnerConfig(
+    db_pool_size=int(os.getenv("DB_POOL_SIZE", "20")),
+)
+runner = cloaca.DefaultRunner.with_config(os.environ["DATABASE_URL"], config)
 ```
 
-In multi-tenant deployments, cap the per-tenant pool so a single tenant cannot
-exhaust the database's connection budget:
+PostgreSQL URL query parameters *are* passed through to the PostgreSQL client
+library, so standard libpq connection parameters work on the URL — for example
+`sslmode=require`, `connect_timeout=10`, or `application_name=cloacina_prod`:
 
 ```python
-tenant_url = f"{base_url}?pool_max_size=10"
-runner = cloaca.DefaultRunner.with_schema(tenant_url, tenant_id)
+runner = cloaca.DefaultRunner.with_config(
+    "postgresql://user:pass@host:5432/cloacina?"
+    "sslmode=require&connect_timeout=10&application_name=cloacina_prod",
+    config,
+)
 ```
+
+Note for multi-tenant deployments: `DefaultRunner.with_schema(url, schema)` does
+not currently take a config, so each schema-scoped runner uses the default pool
+size of 10. Budget your database's `max_connections` for ~10 connections per
+tenant runner.
 
 ## Size the runner with DefaultRunnerConfig
 
@@ -81,7 +64,7 @@ config = cloaca.DefaultRunnerConfig()
 config.max_concurrent_tasks = 16        # parallel task executions
 config.db_pool_size = 20                # runner-side connection pool
 config.task_timeout_seconds = 1800      # 30 min per task
-config.pipeline_timeout_seconds = 7200  # 2 hr per workflow
+config.workflow_timeout_seconds = 7200  # 2 hr per workflow
 
 runner = cloaca.DefaultRunner.with_config(database_url, config)
 ```
@@ -91,7 +74,7 @@ runner = cloaca.DefaultRunner.with_config(database_url, config)
   with `db_pool_size` so tasks aren't starved waiting on connections.
 - **`db_pool_size`** — runner-side connection pool. Should be at least
   `max_concurrent_tasks` for high-concurrency PostgreSQL workloads.
-- **`task_timeout_seconds`** / **`pipeline_timeout_seconds`** — bound how long a
+- **`task_timeout_seconds`** / **`workflow_timeout_seconds`** — bound how long a
   single task or an entire workflow may run before it is considered timed out.
 
 See the [Configuration Reference]({{< ref "/reference/python-api/configuration/" >}})

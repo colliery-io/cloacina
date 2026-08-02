@@ -172,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap();
 
-    let runner = DefaultRunner::with_config("sqlite://triggers.db?mode=rwc", config).await?;
+    let runner = DefaultRunner::with_config("sqlite://triggers.db", config).await?;
 
     // `#[trigger]` already auto-registered `file_watcher` into the runtime
     // inventory, so look it up by name rather than constructing it.

@@ -11,7 +11,12 @@ aliases:
 
 > This is the **service client** (`pip install cloacina-client`, `import cloacina_client`). The embedded workflow runtime is the separate [`cloaca`](https://pypi.org/project/cloaca/) package.
 
-Generated from the server's OpenAPI contract by a pinned `openapi-python-client`, wrapped in a hand-written shim. Python 3.10+.
+Generated from the server's OpenAPI contract by a pinned `openapi-python-client`, wrapped in a hand-written shim.
+
+**Python version:** `cloacina-client` requires **Python >= 3.10**
+(`clients/python/pyproject.toml`). Note the asymmetry with the embedded
+runtime: the `cloaca` wheel is abi3 and supports **Python >= 3.9** — a 3.9
+interpreter can author and run workflows but cannot use this service SDK.
 
 ## Tutorial: execute a workflow and follow its events
 
@@ -65,6 +70,11 @@ async for push in aclient.subscribe_delivery("exec_events:<id>"):
 ```
 
 Reconnection, dedup-on-row-id, and acks are handled inside the iterator; a `4426` close raises `ProtocolVersionError` (upgrade the SDK).
+
+The Python WS surface is `subscribe_delivery` and `follow_execution_events`
+only — the ops-metrics stream helper (`followOpsMetrics`) exists in the
+TypeScript SDK only; from Python, subscribe to the `ops_metrics:global`
+recipient via `subscribe_delivery` with an admin-scoped key.
 
 **Reach past the shim** — the generated `openapi-python-client` is exposed as `client.generated` for anything the helpers don't cover.
 

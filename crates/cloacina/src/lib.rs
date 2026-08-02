@@ -36,7 +36,9 @@
 //! - **Standalone Service**: Not a separate process you deploy and manage
 //! - **Distributed Scheduler**: Doesn't coordinate tasks across multiple machines
 //! - **Web Platform**: No built-in UI or REST API (though you can build one)
-//! - **Cron Replacement**: Use proper schedulers for time-based triggering
+//! - **General-Purpose Cron**: Built-in cron triggers schedule *workflows* (see
+//!   [`DefaultRunner::register_cron_workflow`](runner::DefaultRunner::register_cron_workflow)),
+//!   not arbitrary system jobs
 //! - **Message Queue**: Not designed for high-throughput message processing
 //! - **State Machine**: Focuses on task execution rather than state transitions
 //!
@@ -72,54 +74,60 @@
 //!
 //! ### Building a Workflow
 //!
-//! Create workflows with the `workflow!` macro:
+//! Group related tasks into a workflow by applying the `#[workflow]` attribute
+//! macro to a module. The workflow registers itself by name; you execute it
+//! through a runner (next section):
 //!
 //! ```rust,ignore
 //! use cloacina::*;
 //!
-//! #[task(id = "extract", dependencies = [])]
-//! async fn extract_data(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-//!     ctx.insert("raw_data", serde_json::json!({"users": [1, 2, 3]}))?;
-//!     Ok(())
-//! }
+//! #[workflow(
+//!     name = "etl_pipeline",
+//!     description = "Extract, Transform, Load workflow"
+//! )]
+//! pub mod etl_pipeline {
+//!     use super::*;
 //!
-//! #[task(id = "transform", dependencies = ["extract"])]
-//! async fn transform_data(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-//!     if let Some(data) = ctx.get("raw_data") {
-//!         ctx.insert("transformed_data", serde_json::json!({"processed": data}))?;
+//!     #[task(id = "extract", dependencies = [])]
+//!     pub async fn extract_data(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+//!         ctx.insert("raw_data", serde_json::json!({"users": [1, 2, 3]}))?;
+//!         Ok(())
 //!     }
-//!     Ok(())
-//! }
 //!
-//! #[task(id = "load", dependencies = ["transform"])]
-//! async fn load_data(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-//!     println!("Loading data to warehouse...");
-//!     Ok(())
-//! }
+//!     #[task(id = "transform", dependencies = ["extract"])]
+//!     pub async fn transform_data(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+//!         if let Some(data) = ctx.get("raw_data") {
+//!             ctx.insert("transformed_data", serde_json::json!({"processed": data}))?;
+//!         }
+//!         Ok(())
+//!     }
 //!
-//! // Create the workflow
-//! let workflow = workflow! {
-//!     name: "etl_pipeline",
-//!     description: "Extract, Transform, Load workflow",
-//!     tasks: [extract_data, transform_data, load_data]
-//! };
+//!     #[task(id = "load", dependencies = ["transform"])]
+//!     pub async fn load_data(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+//!         println!("Loading data to warehouse...");
+//!         Ok(())
+//!     }
+//! }
 //! ```
 //!
 //! ### Execution with Database Persistence
 //!
 //! ```rust,ignore
-//! use cloacina::runner::{DefaultRunner, WorkflowExecutor};
+//! use cloacina::executor::WorkflowExecutor;
+//! use cloacina::runner::DefaultRunner;
+//! use cloacina::Context;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Initialize executor with database connection
+//!     // Initialize the runner with a database connection
 //!     let runner = DefaultRunner::new("postgresql://user:pass@localhost/mydb").await?;
 //!
 //!     // Execute workflow with automatic state persistence
 //!     let context = Context::new();
-//!     let result = executor.execute("etl_pipeline", context).await?;
+//!     let result = runner.execute("etl_pipeline", context).await?;
 //!
 //!     println!("Workflow completed: {:?}", result.status);
+//!     runner.shutdown().await?;
 //!     Ok(())
 //! }
 //! ```
@@ -176,9 +184,8 @@
 //! #[task(
 //!     id = "my_task",
 //!     dependencies = ["other_task_id"],
-//!     retry_policy = RetryPolicy::builder()
-//!         .max_attempts(3)
-//!         .build()
+//!     retry_attempts = 3,
+//!     retry_backoff = "exponential"
 //! )]
 //! async fn my_task(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
 //!     // Task implementation
@@ -187,9 +194,11 @@
 //! ```
 //!
 //! Task attributes:
-//! - `id`: Unique identifier for the task
+//! - `id`: Unique identifier for the task (defaults to the function name)
 //! - `dependencies`: List of task IDs that must complete before this task runs
-//! - `retry_policy`: Optional configuration for automatic retries
+//! - `retry_attempts`, `retry_delay_ms`, `retry_max_delay_ms`, `retry_jitter`,
+//!   `retry_backoff` (`"fixed"` | `"linear"` | `"exponential"`),
+//!   `retry_condition`: Optional configuration for automatic retries
 //! - `trigger_rules`: Optional conditions for task execution
 //!
 //! ### Context
@@ -459,7 +468,7 @@ pub extern crate cloacina_workflow_plugin;
 /// - Retry configuration: [`RetryPolicy`], [`BackoffStrategy`]
 /// - Task state and scheduling: [`TaskState`], [`TriggerRule`]
 /// - Execution: [`DefaultRunner`], [`WorkflowExecutor`]
-/// - Macros: `#[task]` and `workflow!` (when "macros" feature is enabled)
+/// - Macros: `#[task]` and `#[workflow]` (when "macros" feature is enabled)
 pub mod prelude {
     // Core types
     pub use crate::context::Context;

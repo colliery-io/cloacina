@@ -47,11 +47,12 @@ The macro emits, gated on `#[cfg(feature = "packaged")]`:
 
 - A `CloacinaPackagePlugin` struct.
 - An `impl cloacina_workflow_plugin::CloacinaPlugin for
-  CloacinaPackagePlugin` block — all nine FFI vtable methods (indices
-  0–8). Each method walks the cdylib's local
+  CloacinaPackagePlugin` block — all eleven FFI vtable methods (indices
+  0–10). Each method walks the cdylib's local
   `inventory::iter::<TaskEntry>` /
   `<TriggerEntry>` / `<ReactorEntry>` /
-  `<ComputationGraphEntry>` / `<TriggerlessGraphEntry>` section and
+  `<ComputationGraphEntry>` / `<TriggerlessGraphEntry>` /
+  `<WorkflowDescriptorEntry>` / `<ConstructorEntry>` section and
   projects matching entries into the corresponding wire types.
 - A `fidius_plugin_registry!` registration so fidius-host can discover
   the plugin at load time.
@@ -84,12 +85,21 @@ for the full mechanism.
 
 ## Versioning
 
-The `CloacinaPlugin` trait is versioned. Methods 4–8 are marked
-`#[optional(since = 2)]`, so plugins built against an older version of
-`cloacina-workflow-plugin` compile and load against newer hosts; the
-unsupported methods return `CallError::NotImplemented`, which the
-reconciler treats as "package declares no reactors / triggers /
-trigger-less graphs."
+The `CloacinaPlugin` trait is versioned — the current interface
+version is **5** (`#[fidius::plugin_interface(version = 5)]`).
+Methods 4–8 are marked `#[optional(since = 2)]`, method 9
+(`get_input_interface`) is `#[optional(since = 3)]`, and method 10
+(`get_constructor_metadata`) is `#[optional(since = 4)]`, so plugins
+built against an older version of `cloacina-workflow-plugin` load
+against newer hosts for those additive bumps; the unsupported methods
+return `CallError::NotImplemented`, which the reconciler treats as
+"package declares no reactors / triggers / trigger-less graphs /
+declared interfaces / constructor nodes."
+
+The **4 → 5** bump is different: `TaskExecutionRequest` gained the
+`resolved_secrets` field (CLOACI-T-0895) — a bincode wire-layout
+change, so pre-v5 artifacts fail the version gate at load rather than
+mis-decode.
 
 The trait's `INTERFACE_HASH` is checked at load time. If it doesn't
 match, fidius-host refuses to load the plugin — preventing the

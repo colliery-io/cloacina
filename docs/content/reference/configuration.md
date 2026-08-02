@@ -9,7 +9,7 @@ aliases:
 
 # Configuration Reference
 
-This page documents all configuration options for the Cloacina runtime. Configuration is specified programmatically via `DefaultRunnerConfig` (Rust API), through `~/.cloacina/config.toml` (daemon/server), or via environment variables.
+This page documents all configuration options for the Cloacina runtime. Configuration is specified programmatically via `DefaultRunnerConfig` (Rust API), through `~/.cloacina/config.toml` (read by `cloacinactl` — the daemon, and `server start` forwarding), or via command-line flags and environment variables (the `cloacina-server` binary has no config file).
 
 ## Server flags (`cloacina-server`)
 
@@ -25,11 +25,25 @@ command-line flags (most also accept an environment variable). The
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject unsigned package uploads. Requires `--verification-org-id`. |
 | `--verification-org-id` | `CLOACINA_VERIFICATION_ORG_ID` | — | Trusted org UUID for signature verification (mandatory when signatures are required). |
 | `--tenant-runner-cache-size` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | LRU cap on cached per-tenant runners. |
-| `--default-executor` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to; set `fleet` to route to the execution-agent fleet. |
+| `--tenant-deletion-drain-timeout-s` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Seconds to drain in-flight work before a tenant's runner is hard-evicted on `DELETE /v1/tenants/{name}`. |
+| `--default-executor` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to; set `fleet` to route to the execution-agent fleet. An unknown key fails startup fast. |
+| `--agent-heartbeat-interval-s` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Fleet-agent heartbeat cadence advertised to agents. |
+| `--agent-liveness-misses` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Missed heartbeats before an agent is considered dead (dead-after = interval × misses). |
+| `--cors-allowed-origins` | `CLOACINA_CORS_ALLOWED_ORIGINS` | unset | Comma-separated origins (`*` allowed). Unset means **CORS is disabled** — browser clients on other origins are blocked. |
+| `--cors-allowed-methods` | `CLOACINA_CORS_ALLOWED_METHODS` | `GET,POST,DELETE,OPTIONS` | Applies only when CORS is enabled. |
+| `--cors-allowed-headers` | `CLOACINA_CORS_ALLOWED_HEADERS` | `authorization,content-type` | Applies only when CORS is enabled. |
 | `--reconcile-interval-s` | — | runtime default | Seconds between reconciler passes. |
 | `--log-retention-days` | — | `14` | Daily-rotated log files to keep (`0` = unbounded). |
 | `--home` | — | `~/.cloacina` | Home directory for keys, logs, config. |
 | `-v`, `--verbose` | — | off | Debug logging (overrides `RUST_LOG`). |
+
+The server binary has **no config file** of its own — flags and
+environment variables are the whole surface. `~/.cloacina/config.toml`
+belongs to `cloacinactl`, whose `server start` resolves
+`[server].default_executor` and `database_url` from it and forwards
+them as flags. The one subcommand is `cloacina-server emit-openapi`,
+which prints the OpenAPI 3.1 document to stdout without needing a
+database.
 
 For the full deployment walkthrough see [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) and [Running the server image]({{< ref "/service/how-to/running-the-server-image" >}}).
 
@@ -45,8 +59,14 @@ let config = DefaultRunnerConfig::builder()
     .max_concurrent_tasks(8)
     .task_timeout(Duration::from_secs(600))
     .enable_cron_scheduling(false)
-    .build();
+    .build()?;
 ```
+
+`build()` returns `Result<DefaultRunnerConfig, ConfigError>` — it
+validates the configuration (see [Validation
+constraints](#validation-constraints)). The struct is
+`#[non_exhaustive]` with private fields: read values through the
+same-named getter methods, and construct only through the builder.
 
 ### Concurrency
 
@@ -55,7 +75,7 @@ let config = DefaultRunnerConfig::builder()
 | `max_concurrent_tasks` | `usize` | `4` | Maximum number of task executions running simultaneously. Controls the semaphore size for the task executor. |
 | `scheduler_poll_interval` | `Duration` | `100ms` | How often the task scheduler checks for tasks whose dependencies are satisfied and are ready to execute. |
 | `task_timeout` | `Duration` | `300s` (5 min) | Maximum time allowed for a single task to execute before it is considered timed out. |
-| `pipeline_timeout` | `Option<Duration>` | `Some(3600s)` (1 hr) | Maximum time for an entire pipeline execution. `None` disables the pipeline-level timeout. |
+| `workflow_timeout` | `Option<Duration>` | `Some(3600s)` (1 hr) | Maximum time the blocking `execute()` call waits for a workflow execution to finish. `None` disables the timeout. Applies only to `execute()`'s wait loop — `execute_async` handles are not bounded by it. |
 | `db_pool_size` | `u32` | `10` | Number of database connections in the connection pool. |
 | `enable_recovery` | `bool` | `true` | Whether the stale-claim sweeper runs to reclaim task executions whose runner heartbeats expired. The sweeper is the *sole* task-recovery path — recovery is heartbeat-driven only. Disable only if you're running outside the standard runner loop. |
 
@@ -65,7 +85,7 @@ let config = DefaultRunnerConfig::builder()
 |---|---|---|---|
 | `enable_cron_scheduling` | `bool` | `true` | Master switch for cron scheduling. When disabled, no cron schedules are evaluated. |
 | `cron_poll_interval` | `Duration` | `30s` | How often the cron scheduler checks for schedules that are due. |
-| `cron_max_catchup_executions` | `usize` | `usize::MAX` | Maximum number of missed cron executions to catch up on after downtime. Set to a finite value to cap catchup behavior. |
+| `cron_max_catchup_executions` | `usize` | `100` | Maximum number of missed cron executions to catch up on after downtime. The builder rejects values above `1000`. |
 | `cron_enable_recovery` | `bool` | `true` | Whether recovery of lost/failed cron executions is enabled. |
 | `cron_recovery_interval` | `Duration` | `300s` (5 min) | How often the recovery system scans for lost cron executions. |
 | `cron_lost_threshold_minutes` | `i32` | `10` | Minutes after which a started-but-not-completed cron execution is considered lost. |
@@ -84,11 +104,11 @@ let config = DefaultRunnerConfig::builder()
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `enable_registry_reconciler` | `bool` | `true` | Whether the background registry reconciler runs to detect new/removed workflow packages. |
-| `registry_reconcile_interval` | `Duration` | `60s` | How often the reconciler scans for changes. |
+| `enable_registry_reconciler` | `bool` | `true` | Whether the background registry reconciler runs to detect new/removed workflow packages. If the registry backend fails to construct, the runner logs an error and continues **without** a registry — packaged workflows then never load. |
+| `registry_reconcile_interval` | `Duration` | `5s` | How often the reconciler scans for changes. |
 | `registry_enable_startup_reconciliation` | `bool` | `true` | Whether to run a full reconciliation pass on startup. |
-| `registry_storage_path` | `Option<PathBuf>` | `None` | Custom path for filesystem-based registry storage. `None` uses the default location. |
-| `registry_storage_backend` | `String` | `"filesystem"` | Storage backend type. Options: `"filesystem"`, `"database"`. The `server start` command uses `"database"`. |
+| `registry_storage_path` | `Option<PathBuf>` | `None` | Path for filesystem-based registry storage. `None` falls back to `std::env::temp_dir()/cloacina_registry` — a temp location that can be cleared on reboot. |
+| `registry_storage_backend` | `String` | `"filesystem"` | Storage backend type. Options: `"filesystem"`, `"sqlite"`, `"postgres"`, `"database"` (the last three all select unified database storage). Any other value is an error. The server uses `"database"`. |
 
 ### Task Claiming
 
@@ -108,62 +128,52 @@ Task claiming enables horizontal scaling by allowing multiple runner instances t
 | `runner_id` | `Option<String>` | `None` | Optional unique identifier for this runner instance. Used in logs and claim ownership. |
 | `runner_name` | `Option<String>` | `None` | Optional human-readable name for this runner instance. |
 
-### Tuning the cron knobs
+### Package Signing
 
-The defaults work for most deployments. The cases where you should
-deviate:
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `require_signatures` | `bool` | `false` | When `true`, the registry reconciler refuses to load packages that have no stored signature. |
+| `verification_org_id` | `Option<UniversalUuid>` | `None` | Trusted org UUID used for signature-verification audit logging. |
 
-- **`cron_max_catchup_executions`** (default `usize::MAX` — unbounded)
-  caps how many missed cron firings are caught up after downtime. The
-  default replays *every* missed firing; a daemon offline for an hour
-  with a per-minute cron schedule will replay 60 executions on
-  startup. Set this to a small finite value (e.g. `10`) for
-  workflows where missed firings are stale and should be skipped, not
-  recovered. Examples: dashboards, hourly aggregations whose
-  inputs have already advanced.
-- **`cron_recovery_interval`** (default `300s`) is how often the
-  recovery scanner looks for lost cron executions. Lower it
-  (e.g. `60s`) for high-frequency cron schedules where a
-  5-minute detection delay is too long. Raise it if recovery scans
-  contend with primary workload.
-- **`cron_lost_threshold_minutes`** (default `10`) is the heartbeat-
-  miss window before a started-but-not-completed cron execution is
-  reclaimed. Increase it if your cron tasks legitimately take longer
-  than 10 minutes; otherwise the recovery system will reclaim a still-
-  running execution and start a duplicate. Decrease it for fast cron
-  workloads where 10 minutes is too long to tolerate a stuck task.
-- **`cron_max_recovery_age`** (default `86400s` — 24h) caps how old
-  an execution can be before recovery gives up. Raise it if you
-  expect long outages from which you genuinely want full recovery.
-  Lower it on systems where stale executions are noise rather than
-  signal.
-- **`cron_max_recovery_attempts`** (default `3`) limits how many times
-  recovery will retry a failing reclaim before abandoning it. Raise
-  for transient-error tolerance; lower for fast failure isolation.
+### Executor Routing
 
-Example: a daemon scheduling hourly summary jobs that should never
-duplicate or backfill more than the last hour:
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `default_executor` | `String` | `"default"` | Executor key every task is dispatched to. `"default"` is the in-process thread executor; the server registers `"fleet"` for the agent fleet. |
 
-```rust
-DefaultRunnerConfig::builder()
-    .cron_max_catchup_executions(1)
-    .cron_recovery_interval(Duration::from_secs(60))
-    .cron_lost_threshold_minutes(15)  // Allow up to 15 min for the job
-    .cron_max_recovery_age(Duration::from_secs(3600))
-    .build()
-```
+### Tenant
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `tenant_id` | `String` | `"public"` | Tenant namespace applied to reconciled package tasks (`tenant::package::workflow::task`). Getter `tenant_id()`, setter `set_tenant_id()`. |
+
+### Validation constraints
+
+`DefaultRunnerConfigBuilder::build()` returns
+`Result<DefaultRunnerConfig, ConfigError>` and rejects:
+
+| Constraint | Rule |
+|---|---|
+| `max_concurrent_tasks` | must be `> 0` |
+| `scheduler_poll_interval` | must be `>= 10ms` |
+| `db_pool_size` | must be `> 0` |
+| `cron_max_catchup_executions` | must be `<= 1000` |
+| `stale_claim_threshold` | must be greater than `heartbeat_interval` |
 
 ## DefaultRunnerConfigBuilder
 
-All builder methods consume and return `self` for chaining. Each method corresponds directly to a config field:
+All builder methods consume and return `self` for chaining. Every
+config field except `tenant_id` has a same-named builder setter
+(`tenant_id` is set after `build()` via
+`config.set_tenant_id(...)`):
 
 ```rust
-DefaultRunnerConfig::builder()
+let config = DefaultRunnerConfig::builder()
     // Concurrency
     .max_concurrent_tasks(8)
     .scheduler_poll_interval(Duration::from_millis(200))
     .task_timeout(Duration::from_secs(600))
-    .pipeline_timeout(Some(Duration::from_secs(7200)))
+    .workflow_timeout(Some(Duration::from_secs(7200)))
     .db_pool_size(20)
     .enable_recovery(true)
 
@@ -189,20 +199,24 @@ DefaultRunnerConfig::builder()
     .registry_storage_path(Some(PathBuf::from("/custom/path")))
     .registry_storage_backend("database")
 
+    // Signing
+    .require_signatures(false)
+    .verification_org_id(None)
+
     // Claiming
     .enable_claiming(true)
     .heartbeat_interval(Duration::from_secs(10))
-    // Note: stale_claim_sweep_interval and stale_claim_threshold are struct
-    // fields on DefaultRunnerConfig but are NOT available as builder methods.
-    // They use their default values (30s and 60s respectively) when using
-    // the builder. To customize them, modify the struct fields directly
-    // after calling .build().
+    .stale_claim_sweep_interval(Duration::from_secs(30))
+    .stale_claim_threshold(Duration::from_secs(60))
+
+    // Executor routing
+    .default_executor("default")
 
     // Identity
     .runner_id(Some("runner-01".to_string()))
     .runner_name(Some("Primary Runner".to_string()))
 
-    .build();
+    .build()?;
 ```
 
 ## DefaultRunnerBuilder
@@ -229,15 +243,25 @@ let tenant_runner = DefaultRunnerBuilder::new()
 
 | Method | Description |
 |---|---|
-| `database_url(&str)` | Sets the database connection URL (required) |
-| `schema(&str)` | Sets the PostgreSQL schema for multi-tenant isolation. Must be alphanumeric + underscores. PostgreSQL only. |
+| `database_url(&str)` | Sets the database connection URL (required — `build()` errors without it) |
+| `schema(&str)` | Sets the PostgreSQL schema for multi-tenant isolation. Must be alphanumeric + underscores. PostgreSQL only — combining `schema` with a SQLite URL is a build-time `Configuration` error. |
 | `with_config(DefaultRunnerConfig)` | Sets the full runner configuration |
-| `runtime(Runtime)` | Sets a scoped `Runtime` for this runner. When set, the runner and all its components use this runtime's registries instead of the process-global registries. If not set, `Runtime::from_global()` is used. |
-| `build()` | Builds and starts the runner (creates DB, runs migrations, starts background services) |
+| `runtime(Runtime)` | Sets a scoped `Runtime` for this runner; its registries are used instead of a fresh one. If neither `runtime` nor `runtime_arc` is set, the default is a fresh inventory-seeded `Runtime` (`Runtime::default()`). |
+| `runtime_arc(Arc<Runtime>)` | Shares an existing `Arc<Runtime>`; wins over `runtime(...)` when both are set. |
+| `secret_resolver(Arc<dyn SecretResolver>)` | Wires the resolver behind `context.secret(...)`. Unset means secrets fail closed with "secrets backend not configured". |
+| `default_executor(impl Into<String>)` | Executor key for dispatch (default `"default"`). |
+| `build()` | `async` — returns `Result<DefaultRunner, WorkflowExecutionError>`. Runs migrations (or `setup_schema` when `schema` is set) and **starts background services immediately** — a freshly built runner is already polling. Call `shutdown()` before dropping; `Drop` only logs a warning. |
 
 ## config.toml
 
-The daemon and server read `~/.cloacina/config.toml`. See the [CLI Reference]({{< ref "cli" >}}) for the full schema and key paths.
+`~/.cloacina/config.toml` belongs to **cloacinactl**: the daemon reads
+it directly, and `cloacinactl server start` resolves values from it
+before exec'ing the `cloacina-server` binary (which itself never reads
+a config file). See the [CLI Reference]({{< ref "cli" >}}) for the
+full schema and key paths. Note the load behavior: a missing file
+yields silent defaults, and a file that fails to parse (including one
+unknown key — the schema is `deny_unknown_fields`) is logged as a
+warning and **ignored entirely**, falling back to defaults.
 
 ### Mapping to DefaultRunnerConfig
 
@@ -245,9 +269,9 @@ The daemon maps `config.toml` values to `DefaultRunnerConfig` fields:
 
 | config.toml Key | DefaultRunnerConfig Field |
 |---|---|
-| `daemon.poll_interval_ms` | `cron_poll_interval` (via CLI `--poll-interval`) |
+| `daemon.poll_interval_ms` | `cron_poll_interval` (via CLI `--poll-interval`); also drives the daemon's registry-reconcile interval |
 | `daemon.trigger_poll_interval_ms` | `trigger_base_poll_interval` |
-| `daemon.cron_max_catchup` | `cron_max_catchup_executions` |
+| `daemon.cron_max_catchup` | `cron_max_catchup_executions` (unset = not overridden; the runtime default `100` applies) |
 | `daemon.cron_recovery_interval_s` | `cron_recovery_interval` |
 
 > **Note:** `daemon.cron_lost_threshold_min` exists in `config.toml` but is not currently wired to `DefaultRunnerConfig` in the daemon command. The `cron_lost_threshold_minutes` field uses its default value (10 minutes).

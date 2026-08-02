@@ -168,7 +168,7 @@ The `max_concurrent_tasks` setting controls how many tasks can execute simultane
 
 ### Why Database Backend Choice Matters
 
-SQLite and PostgreSQL have fundamentally different concurrency models. SQLite uses a single-writer lock, meaning all write operations are serialized regardless of how many tasks are running. This is perfectly adequate for single-node deployments and development, but becomes the primary bottleneck under parallel load. Enabling WAL mode (`_journal_mode=WAL`) and setting `_busy_timeout=5000` helps reduce contention failures but does not eliminate the serialization.
+SQLite and PostgreSQL have fundamentally different concurrency models. SQLite uses a single-writer lock, meaning all write operations are serialized regardless of how many tasks are running. This is perfectly adequate for single-node deployments and development, but becomes the primary bottleneck under parallel load. Cloacina automatically enables WAL mode and a 30-second busy timeout on every SQLite connection, which reduces contention failures but does not eliminate the serialization.
 
 PostgreSQL uses multi-version concurrency control (MVCC), allowing multiple writers to proceed concurrently. Combined with connection pooling and schema-based tenant isolation, this makes PostgreSQL the better choice for production multi-tenant deployments where throughput matters.
 

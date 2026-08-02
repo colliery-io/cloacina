@@ -85,10 +85,10 @@ On the agent:
 The agent reporting wakes the rendezvous registered in step 5, so the original
 executor invocation resumes and finalizes the task.
 
-> **Wire format follows the build profile.** fidius serializes in JSON for debug
-> builds and bincode for release builds, so an agent must load a cdylib built
-> with the *same* profile it runs. Production images are release builds; build
-> your workflow packages release too.
+> **Wire format is always bincode.** fidius serializes with bincode in every
+> build profile — there is no debug/JSON split, so agents and packages don't
+> need matching build profiles. What must match is the CPU architecture: a
+> cdylib only runs on the target triple it was built for (see below).
 
 ## Multi-architecture dispatch
 

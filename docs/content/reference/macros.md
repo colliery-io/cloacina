@@ -9,10 +9,10 @@ aliases:
 
 # Macro Reference
 
-Cloacina provides five procedural attribute macros for authoring workflows and reactive computation graphs. These macros generate trait implementations, registration code, and compile-time validation.
+Cloacina provides five procedural attribute macros for authoring workflows and computation graphs. These macros generate trait implementations, registration code, and compile-time validation.
 
 - **`#[task]`**, **`#[workflow]`**, and **`#[trigger]`** define the workflow-authoring surface and are documented in full below.
-- **`#[computation_graph]`** and **`#[reactor]`** define the reactive computation-graph layer. They are summarized under [Computation-graph macros](#computation-graph-macros) and documented in full in the [Computation Graph Reference]({{< ref "computation-graphs" >}}).
+- **`#[computation_graph]`** and **`#[reactor]`** define the computation-graph authoring surface. They are summarized under [Computation-graph macros](#computation-graph-macros) and documented in full in the [Computation Graph Reference]({{< ref "computation-graphs" >}}).
 
 (The crate also ships accumulator and constructor attribute macros used to build computation-graph sources and WASM providers; those are covered in the [Computation Graph Reference]({{< ref "computation-graphs" >}}) and the constructor guides.)
 
@@ -50,7 +50,7 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 
 | Attribute | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `id` | string literal | yes | -- | Unique identifier for the task within its workflow. Used for dependency references. |
+| `id` | string literal | no | function name | Unique identifier for the task within its workflow. Used for dependency references. Optional since CLOACI-T-0732 — when omitted it defaults to the function name. |
 | `dependencies` | array of string literals | no | `[]` | List of task IDs that must complete before this task runs. |
 | `retry_attempts` | integer | no | `3` | Maximum number of retry attempts on failure. |
 | `retry_backoff` | string literal | no | `"exponential"` | Backoff strategy between retries. See [Backoff Strategies](#backoff-strategies). |
@@ -72,6 +72,10 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 | `"linear"` | Delay increases by `retry_delay_ms` each attempt (1x, 2x, 3x, ...) |
 | `"exponential"` | Delay doubles each attempt (base 2, multiplier 1.0), capped at `retry_max_delay_ms` |
 
+Any other `retry_backoff` string is **silently treated as
+`"exponential"`** — there is no compile error for a typo like
+`"expnential"`.
+
 ### Retry Conditions
 
 | Value | Behavior |
@@ -80,6 +84,10 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 | `"all"` | Retry on all errors |
 | `"transient"` | Retry only on transient errors |
 | `"pattern1,pattern2"` | Retry only when the error message matches one of the comma-separated patterns |
+
+Any string other than the three keywords is parsed as a
+comma-separated error-pattern list — a typo like `"trnsient"` becomes
+a pattern matcher that matches nothing, not a compile error.
 
 ### Trigger Rules
 
@@ -222,6 +230,7 @@ pub mod etl_pipeline {
 | `author` | string literal | no | -- | Author information. |
 | `triggers` | list of string literals | no | -- | Trigger names this workflow subscribes to; the reconciler binds each named trigger to this workflow at load. |
 | `params` | param list | no | -- | Declared, typed execute-time inputs (see below). |
+| `secrets` | name list | no | -- | `secrets( name1, name2, ... )` — required encrypted inputs (CLOACI-I-0133). Each must be bound at execute time with `{"$secret": "secret-name"}`. A name that collides with a declared param is a compile error. |
 
 ### Declared params
 
@@ -256,7 +265,7 @@ The `#[workflow]` macro generates different code depending on compilation featur
 | Mode | Feature Flag | Behavior |
 |---|---|---|
 | **Embedded** | (default) | Emits `inventory::submit!` entries for the workflow + each task. `cloacina::Runtime::seed_from_inventory()` walks those entries at startup and populates the runtime registry. (Pre-I-0096 docs may reference `#[ctor]`; that path is gone — no `ctor` dependency is required.) |
-| **Packaged** | `features = ["packaged"]` | Generates FFI exports for `.cloacina` packages. Pair with the [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}}) shell at the cdylib crate root. The workflow is loaded dynamically at runtime by the reconciler. |
+| **Packaged** | `packaged` feature on `cloacina-workflow` (injected by the compiler) | Generates FFI exports for `.cloacina` packages. Pair with the [`cloacina_workflow_plugin::package!()`]({{< ref "/reference/package-shell-macro" >}}) shell at the cdylib crate root. The workflow is loaded dynamically at runtime by the reconciler. |
 
 ### Compile-Time Validation
 
@@ -298,20 +307,27 @@ pub async fn nightly_report() {}
 
 | Attribute | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `on` | string literal | yes (unless `upstream`) | -- | Name of the workflow to trigger. |
-| `poll_interval` | string literal | one of the firing-source attributes | -- | Poll frequency. Format: `100ms`, `5s`, `2m`, `1h`. |
-| `cron` | string literal | one of the firing-source attributes | -- | Cron expression (5-7 fields). Validated at compile time. |
-| `upstream` | call-expression | one of the firing-source attributes | -- | Declare a reactor as this trigger's upstream. Form: `upstream = reactor("name")`. The workflow fires durably (at-least-once) on every reactor firing, via the DB-backed subscription fan-out. See [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}) for the recipe. |
+| `on` | string literal | yes | -- | Name of the workflow to trigger. |
+| `poll_interval` | string literal | exactly one of `poll_interval` / `cron` | -- | Poll frequency. Format: `100ms`, `5s`, `2m`, `1h`. |
+| `cron` | string literal | exactly one of `poll_interval` / `cron` | -- | Cron expression (5-7 fields: minute hour day month weekday, optional year and seconds). Validated at compile time. |
 | `timezone` | string literal | no | `"UTC"` | IANA timezone for cron evaluation (e.g., `"America/New_York"`). Only applies to cron triggers. |
 | `allow_concurrent` | boolean | no | `false` | Whether multiple trigger firings can overlap. |
 | `name` | string literal | no | function name | Override the trigger name (used for registration and schedule records). |
 
+These six keys are the whole surface — an unknown key is a compile
+error listing the valid set (`on, poll_interval, cron, timezone,
+allow_concurrent, name`).
+
 **Validation rules:**
 
-- Exactly one of `poll_interval`, `cron`, or `upstream` must be specified (not multiple, not none).
+- `on` is required; exactly one of `poll_interval` or `cron` must be specified (both or neither is a compile error).
 - Cron expressions must have 5-7 fields with valid characters (`0-9`, `,`, `-`, `*`, `/`).
 - Poll interval must use a recognized unit suffix (`ms`, `s`, `m`, `h`).
-- `upstream = reactor("name")` requires the named reactor to be loaded at registration time. The check happens when the workflow's runner starts.
+
+There is no macro attribute for binding a workflow to a **reactor** —
+that is a runtime subscription made via
+`runner.subscribe_workflow_to_reactor(reactor, workflow, tenant, predicate)`.
+See [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}).
 
 ### Poll Interval Format
 
@@ -324,8 +340,8 @@ pub async fn nightly_report() {}
 
 ## Computation-graph macros
 
-Two further attribute macros author Cloacina's **reactive computation-graph**
-layer — the event-driven primitive that fires node DAGs when upstream data
+Two further attribute macros author Cloacina's **computation graphs**
+— the event-driven primitive that fires node DAGs when upstream data
 arrives. They are represented here for completeness; their attributes,
 generated code, and delivery-mode behavior are documented in full in the
 [Computation Graph Reference]({{< ref "computation-graphs" >}}).
@@ -335,11 +351,13 @@ generated code, and delivery-mode behavior are documented in full in the
 | `#[reactor]` | a unit struct | Declares a named firing primitive: the accumulator sources it consumes plus a `criteria = when_any(...) \| when_all(...)` firing rule. Graphs bind to it by string name. |
 | `#[computation_graph]` | a `mod` of async node functions | Compiles the module's node functions into a single async graph function, declares its topology, and subscribes it to a reactor via `trigger = reactor("name")`. |
 
-A workflow task can embed a computation graph with the `#[task]`
-`invokes = computation_graph("name")` attribute, and a `#[trigger]` can declare
-a reactor as its `upstream = reactor("name")` — see those sections above. For
-the full macro syntax, the accumulator source macros, node-function rules, and
-runtime types, see the [Computation Graph Reference]({{< ref "computation-graphs" >}}).
+A workflow task can embed a trigger-less computation graph with the
+`#[task]` `invokes = computation_graph("name")` attribute — see that
+section above. For the full macro syntax, the accumulator source macros
+(`#[passthrough_accumulator]`, `#[stream_accumulator]`,
+`#[batch_accumulator]`, `#[polling_accumulator]`,
+`#[state_accumulator]`), node-function rules, and runtime types, see
+the [Computation Graph Reference]({{< ref "computation-graphs" >}}).
 
 ## Code Fingerprinting
 

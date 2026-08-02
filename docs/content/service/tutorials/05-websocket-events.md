@@ -11,16 +11,16 @@ In this tutorial you'll push events into the `orderbook` accumulator of the `pri
 
 ## What you'll learn
 
-- The accumulator WebSocket endpoint URL and query-parameter auth
-- The wire format: text or binary frames containing JSON (debug mode) or raw bytes (release mode)
+- The accumulator WebSocket endpoint URL and its two auth paths (Bearer header, single-use ticket)
+- The wire format: text or binary frames containing JSON events
 - How to open a connection, send events, and close cleanly using Python's standard library
 - How to verify the graph fired by polling `/v1/health/graphs`
-- The reactor WebSocket endpoint for manual commands (`ForceFire`, `GetState`, `Pause`, `Resume`)
+- The reactor WebSocket endpoint for manual commands (`force_fire`, `get_state`, `pause`, `resume`)
 
 ## Prerequisites
 
 - Tutorial 04 complete — the `price_signal` graph must be loaded and accumulators healthy
-- Your PAK token exported as `TOKEN`
+- Your API key exported as `TOKEN`
 - Python 3.9+ available (no third-party packages needed)
 - `curl` available for quick health checks
 
@@ -40,16 +40,16 @@ GET /v1/ws/accumulator/{name}
 
 The server upgrades the connection to WebSocket after validating the auth token. Once upgraded, the server forwards every incoming frame to all accumulators registered under that name (there is one per graph that declared an accumulator with that name).
 
-**Authentication** is checked on the HTTP upgrade request — before the WebSocket handshake completes. You can supply the PAK token in two ways:
+**Authentication** is checked on the HTTP upgrade request — before the WebSocket handshake completes. There are two paths:
 
-| Method | Example |
-|---|---|
-| Query parameter | `?token=clk_...` |
-| Authorization header | `Authorization: Bearer clk_...` |
+| Method | Example | Notes |
+|---|---|---|
+| Authorization header | `Authorization: Bearer clk_...` | Your regular API key. Preferred for server-side clients. |
+| Query parameter | `?token=<ticket>` | A **single-use ticket** (60-second TTL) minted via `POST /v1/auth/ws-ticket` — **not** a raw API key. Raw API keys in the query string are rejected. |
 
-Browsers must use the query parameter because they cannot set custom headers on WebSocket upgrade requests. Server-to-server clients should prefer the header.
+Browsers must use the ticket path because they cannot set custom headers on WebSocket upgrade requests: call `POST /v1/auth/ws-ticket` with your API key, then open the WebSocket with `?token=<ticket>`. The scripts in this tutorial run server-side and use the header.
 
-**Frame format**: the server accepts both binary (`0x82`) and text (`0x81`) frames. The accumulator deserializes the payload as `serde_json::Value` — in debug builds this is plain JSON; in release builds the payload is expected to be bincode. For this tutorial the server is assumed to be running in debug mode, so all payloads are JSON.
+**Frame format**: the server accepts both binary (`0x82`) and text (`0x81`) frames. The payload is a JSON event — the accumulator deserializes it into the graph's declared boundary type.
 
 ---
 
@@ -63,24 +63,26 @@ curl -s "${BASE_URL}/v1/health/accumulators" \
   -H "Authorization: Bearer ${TOKEN}" | python3 -m json.tool
 ```
 
-You should see:
+You should see (abridged):
 
 ```json
 {
-  "accumulators": [
+  "items": [
     {
       "name": "orderbook",
-      "status": "healthy"
+      "state": "live",
+      "reactor": "price_signal_rx"
     }
-  ]
+  ],
+  "total": 1
 }
 ```
 
-If the accumulator is not listed or shows `"unhealthy"`, revisit Tutorial 04 before continuing.
+If the accumulator is not listed or shows a degraded `state`, revisit Tutorial 04 before continuing.
 
 ---
 
-## Step 2: Send a single event with curl's `--unix-socket` workaround
+## Step 2: Understand the frame layout
 
 `curl` does not support WebSocket upgrades in versions before 7.86. A reliable, dependency-free approach is a small Python script. We'll build up to a full client; start by understanding the wire protocol.
 
@@ -120,10 +122,11 @@ def send_accumulator_event(host, port, accumulator_name, token, event):
 
     sock = socket.create_connection((host, port), timeout=10)
 
-    # HTTP/1.1 upgrade request — token in query string
+    # HTTP/1.1 upgrade request — API key in the Authorization header
     request = (
-        f"GET {path}?token={token} HTTP/1.1\r\n"
+        f"GET {path} HTTP/1.1\r\n"
         f"Host: {host}:{port}\r\n"
+        f"Authorization: Bearer {token}\r\n"
         f"Upgrade: websocket\r\n"
         f"Connection: Upgrade\r\n"
         f"Sec-WebSocket-Key: {ws_key}\r\n"
@@ -227,20 +230,29 @@ curl -s "${BASE_URL}/v1/health/graphs/price_signal" \
   -H "Authorization: Bearer ${TOKEN}" | python3 -m json.tool
 ```
 
-The response includes the reactor's live state:
+The response includes the graph's live state and fire counters (abridged):
 
 ```json
 {
   "name": "price_signal",
   "health": {
-    "state": "live"
+    "state": "running"
   },
   "accumulators": ["orderbook"],
-  "paused": false
+  "paused": false,
+  "fires": 1,
+  "last_fired_at": "2026-08-01T12:34:56Z"
 }
 ```
 
-The `/v1/health/graphs/{name}` endpoint reports the reactor's overall state — it does not currently surface per-firing counters. To verify the event reached the reactor and the graph fired, scrape `/metrics` and inspect `cloacina_reactor_fires_total{graph="price_signal"}` (the counter increments on every successful firing); if it stays at zero, the event did not reach the reactor — check the server logs for deserialization errors. See [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) for the full reactor metric set.
+The `fires` counter increments on every graph fire — if it stays at zero after your event, the event did not reach the reactor; check the server logs for deserialization errors. For a per-fire record (inputs, outputs, duration, outcome), list recent fires:
+
+```bash
+curl -s "${BASE_URL}/v1/health/reactors/price_signal_rx/fires" \
+  -H "Authorization: Bearer ${TOKEN}" | python3 -m json.tool
+```
+
+See [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) for the Prometheus-side reactor metric set.
 
 {{< hint type=warning title="Type mismatch errors" >}}
 The accumulator deserializes the payload into the boundary type declared in your graph (`OrderBook` in Tutorial 04). If the JSON keys don't match the struct fields exactly, deserialization fails silently and the reactor does not fire. Double-check field names: `best_bid` and `best_ask`.
@@ -275,8 +287,9 @@ class AccumulatorClient:
         self.sock = socket.create_connection((host, port), timeout=timeout)
 
         request = (
-            f"GET {path}?token={token} HTTP/1.1\r\n"
+            f"GET {path} HTTP/1.1\r\n"
             f"Host: {host}:{port}\r\n"
+            f"Authorization: Bearer {token}\r\n"
             f"Upgrade: websocket\r\n"
             f"Connection: Upgrade\r\n"
             f"Sec-WebSocket-Key: {ws_key}\r\n"
@@ -381,20 +394,20 @@ python3 persistent_producer.py "${TOKEN}"
 Operators can also send commands directly to a reactor via the reactor WebSocket:
 
 ```
-GET /v1/ws/reactor/{name}?token=...
+GET /v1/ws/reactor/{name}
 ```
 
-Unlike the accumulator endpoint (which accepts arbitrary payloads), the reactor endpoint expects JSON `ReactorCommand` messages and responds with `ReactorResponse` JSON. Commands are text frames.
+Unlike the accumulator endpoint (which accepts arbitrary JSON events), the reactor endpoint expects JSON `ReactorCommand` messages (tagged with a `command` field, snake_case) and responds with `ReactorResponse` JSON (tagged with a `type` field). Commands are text frames.
 
 Supported commands:
 
 | Command | Effect |
 |---|---|
-| `{"type":"ForceFire"}` | Execute the graph immediately, ignoring the firing condition |
-| `{"type":"FireWith","cache":{...}}` | Execute with a specific `InputCache` snapshot |
-| `{"type":"GetState"}` | Return the current `InputCache` state |
-| `{"type":"Pause"}` | Stop the reactor from firing |
-| `{"type":"Resume"}` | Resume a paused reactor |
+| `{"command":"force_fire"}` | Execute the graph immediately with the current cache, ignoring the firing condition |
+| `{"command":"fire_with","cache":{...}}` | Execute with a specific input-cache snapshot (full replace) |
+| `{"command":"get_state"}` | Return the current input-cache state |
+| `{"command":"pause"}` | Stop the reactor from firing |
+| `{"command":"resume"}` | Resume a paused reactor |
 
 Example — force a manual fire from Python:
 
@@ -407,8 +420,9 @@ def reactor_command(host, port, reactor_name, token, command):
     sock = socket.create_connection((host, port), timeout=10)
 
     request = (
-        f"GET {path}?token={token} HTTP/1.1\r\n"
+        f"GET {path} HTTP/1.1\r\n"
         f"Host: {host}:{port}\r\n"
+        f"Authorization: Bearer {token}\r\n"
         f"Upgrade: websocket\r\n"
         f"Connection: Upgrade\r\n"
         f"Sec-WebSocket-Key: {ws_key}\r\n"
@@ -439,26 +453,28 @@ def reactor_command(host, port, reactor_name, token, command):
     # The JSON starts after the 2-byte frame header
     print(json.loads(resp[2:]))
 
-reactor_command("localhost", 8080, "price_signal", token, {"type": "ForceFire"})
+reactor_command("localhost", 8080, "price_signal_rx", token, {"command": "force_fire"})
 ```
 
 Expected response:
 
 ```json
-{"type": "Fired"}
+{"type": "fired"}
 ```
+
+(A CLI shortcut exists for this: `cloacinactl reactor force-fire price_signal_rx`.)
 
 ---
 
 ## Troubleshooting
 
-**HTTP 401 on upgrade**: The token is missing or invalid. Make sure you're passing it as `?token=...` in the URL, not as a header, if using a browser WebSocket client. Server-side clients should use `Authorization: Bearer ...`.
+**HTTP 401 on upgrade**: The credential is missing or invalid. Server-side clients send the API key as `Authorization: Bearer ...`. Browser clients cannot set headers on WebSocket upgrades — mint a single-use ticket via `POST /v1/auth/ws-ticket` and pass it as `?token=<ticket>` (raw API keys in the query string are rejected; tickets expire after 60 seconds and are consumed on first use).
 
-**HTTP 403 on upgrade**: The PAK is valid but not authorized for this accumulator. Admin keys have access to all accumulators. Tenant-scoped keys can only push to accumulators registered under their tenant.
+**HTTP 403 on upgrade**: The key is valid but not authorized for this accumulator. Admin keys have access to all accumulators. Tenant-scoped keys can only push to accumulators registered under their tenant.
 
 **Close frame `4404` after connecting**: The accumulator name in the URL does not match any registered accumulator. Check the exact name (case-sensitive) against `/v1/health/accumulators`.
 
-**`cloacina_reactor_fires_total{graph="..."}` stays at 0 after sending events**: The payload deserialization is failing. The accumulator forwards the raw bytes to the reactor, which attempts to deserialize them as the boundary type. Make sure the JSON keys exactly match the Rust struct field names as seen by `serde` (by default, the snake_case field names). The accumulator metric `cloacina_accumulator_events_total{accumulator="..."}` will still increment for arrival — the failure is downstream of arrival.
+**`fires` stays at 0 after sending events**: The payload deserialization is failing. The accumulator forwards the event to the reactor, which attempts to deserialize it as the boundary type. Make sure the JSON keys exactly match the Rust struct field names as seen by `serde` (by default, the snake_case field names). The accumulator's `events_total` in `/v1/health/accumulators` will still increment for arrival — the failure is downstream of arrival.
 
 ---
 

@@ -152,9 +152,24 @@ cloacina_up 1
 
 ### GET /openapi.json
 
-Machine-readable OpenAPI contract for the server. This is the same document the `cloacinactl server emit-openapi` subcommand writes to disk.
+Machine-readable OpenAPI contract for the server, generated from the
+handlers' utoipa annotations. This is the same document the
+`cloacina-server emit-openapi` subcommand (on the **server binary**,
+not cloacinactl; needs no database) prints to stdout; a committed copy
+lives at `docs/static/openapi.json` and `angreal docs spec-check` gates
+drift between them.
 
 **Response:** `200 OK` with `Content-Type: application/json` — the OpenAPI spec.
+
+> **Coverage note:** the spec describes only utoipa-annotated routes.
+> Several route families documented on this page are mounted in code
+> but not yet annotated, so they are absent from `openapi.json`:
+> tenant fleet (`/v1/tenants/{id}/fleet*`), tenant limits
+> (`/v1/tenants/{id}/limits`), the agent protocol (`/v1/agent/*`),
+> the OIDC login pair (`/v1/auth/oidc/login`, `/v1/auth/callback`),
+> and all `/v1/ws/*` endpoints (the WebSocket flows are deliberately
+> out of the spec's scope). This page is the superset; the spec is the
+> machine-checked subset.
 
 ## Login and Sessions
 
@@ -579,7 +594,7 @@ Upload a workflow package.
 **Example (curl):**
 
 ```bash
-curl -X POST http://localhost:8080/tenants/tenant_acme/workflows \
+curl -X POST http://localhost:8080/v1/tenants/tenant_acme/workflows \
   -H "Authorization: Bearer clk_a1b2c3d4..." \
   -F "file=@my_workflow.cloacina"
 ```
@@ -606,12 +621,13 @@ curl -X POST http://localhost:8080/tenants/tenant_acme/workflows \
 
 List all registered workflows for a tenant.
 
-**Response:** `200 OK`
+**Response:** `200 OK` — `{tenant_id, items, total}` envelope
+(`total` is the page size, not a table count).
 
 ```json
 {
   "tenant_id": "tenant_acme",
-  "workflows": [
+  "items": [
     {
       "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
       "package_name": "etl_pipeline",
@@ -620,7 +636,8 @@ List all registered workflows for a tenant.
       "tasks": ["extract", "transform", "load"],
       "created_at": "2026-04-01T10:00:00+00:00"
     }
-  ]
+  ],
+  "total": 1
 }
 ```
 
@@ -856,7 +873,7 @@ were silently discarded).
 ```json
 {
   "tenant_id": "tenant_acme",
-  "executions": [
+  "items": [
     {
       "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
       "pipeline_name": "etl_pipeline",
@@ -864,7 +881,8 @@ were silently discarded).
       "started_at": "2026-04-02T14:35:00+00:00",
       "completed_at": null
     }
-  ]
+  ],
+  "total": 1
 }
 ```
 
@@ -1207,20 +1225,31 @@ List accumulators visible to the caller, with health **and freshness**
 
 List loaded computation graphs with their health status. `paused` reports the pause state of the graph's reactor.
 
-**Response:** `200 OK`
+**Response:** `200 OK` — unified `{items, total}` envelope (CLOACI-T-0594 / API-03).
 
 ```json
 {
-  "graphs": [
+  "items": [
     {
       "name": "pricing_graph",
       "health": {"state": "running"},
       "accumulators": ["market_data", "risk_params"],
-      "paused": false
+      "paused": false,
+      "reactor": "pricing_reactor",
+      "reaction_mode": "when_any",
+      "input_strategy": "latest",
+      "fires": 42,
+      "last_fired_at": "2026-08-01T12:00:00Z",
+      "topology": {"nodes": [], "edges": []},
+      "source_package": null
     }
-  ]
+  ],
+  "total": 1
 }
 ```
+
+`source_package` is populated only on the single-graph detail endpoint;
+the list leaves it `null`.
 
 ### GET /v1/health/graphs/{name}
 
@@ -1519,8 +1548,9 @@ limit/provision surface that decides how many agents a tenant runs, see
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/v1/agent/register` | An agent announces itself and its advertised heartbeat interval. |
+| `POST` | `/v1/agent/register` | An agent announces itself and its advertised heartbeat interval (plus a pool of one-time ephemeral secret keys). |
 | `POST` | `/v1/agent/heartbeat` | Liveness heartbeat; missing heartbeats let the sweeper evict the agent and reassign its in-flight work. |
+| `POST` | `/v1/agent/keys` | An agent replenishes its one-time ephemeral secret-key pool (used for HPKE-wrapped secret delivery, CLOACI-T-0861). |
 | `POST` | `/v1/agent/result` | An agent returns the outcome of a dispatched unit of work. |
 | `GET`  | `/v1/agent/artifact/{digest}` | An agent fetches a content-addressed package artifact by digest. |
 | `GET`  | `/v1/agent/source/{digest}` | An agent fetches a content-addressed **source** bundle by digest (for build-on-agent flows). |
@@ -1571,7 +1601,7 @@ The API server also exposes WebSocket endpoints for real-time interaction with c
 
 - **`/v1/ws/accumulator/{name}`** -- push events into a graph accumulator
 - **`/v1/ws/reactor/{name}`** -- send commands (force-fire, pause, resume) and query reactor state
-- **`/v1/ws/delivery/{recipient}`** -- subscribe to at-least-once outbox deliveries (how execution events reach `cloacinactl execution follow` and SDK subscribers)
+- **`/v1/ws/delivery/{recipient}`** -- subscribe to at-least-once outbox deliveries (how execution events reach `cloacinactl execution events --follow` and SDK subscribers)
 
 WebSocket connections authenticate via a single-use ticket obtained from `POST /v1/auth/ws-ticket`. See the [WebSocket Protocol]({{< ref "websocket-protocol" >}}) reference for connection details and message formats.
 
@@ -1675,9 +1705,11 @@ been removed.
   is set, the server verifies package signatures at upload via
   `cloacina::security::verify_package_bytes()`. The verification
   requires a signature row in the `package_signatures` table — the
-  server does **not** sign packages, only verifies. Signing is done
-  offline (e.g., `cloacinactl pack --sign <key>` once the side-car
-  generation is wired up).
+  server does **not** sign packages, only verifies. Client-side signing
+  is **not implemented yet** (`cloacinactl package pack --sign` fails
+  hard by design, CLOACI-I-0103) — signature rows must currently be
+  inserted out-of-band, so `--require-signatures` cannot be satisfied
+  by the CLI packing path today.
 - A signature row keyed by the configured `verification_org_id` must
   exist before upload. Missing signature → `403 Forbidden`.
 

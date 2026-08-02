@@ -9,7 +9,7 @@ aliases:
 
 # WebSocket Protocol Reference
 
-Cloacina exposes three WebSocket endpoints. The **accumulator** endpoint allows external producers to push events into graph accumulators. The **reactor** endpoint allows operators to send manual commands (force-fire, pause, resume) and query reactor state. The **substrate delivery** endpoint streams at-least-once push deliveries from the server's transactional outbox to a named recipient — this is how execution events reach `cloacinactl execution follow` and SDK subscribers.
+Cloacina exposes three WebSocket endpoints. The **accumulator** endpoint allows external producers to push events into graph accumulators. The **reactor** endpoint allows operators to send manual commands (force-fire, pause, resume) and query reactor state. The **substrate delivery** endpoint streams at-least-once push deliveries from the server's transactional outbox to a named recipient — this is how execution events reach `cloacinactl execution events --follow` and SDK subscribers.
 
 All endpoints authenticate on the HTTP upgrade request before promoting to a WebSocket connection.
 
@@ -102,18 +102,19 @@ The accumulator endpoint is a **write-only** interface for external producers. C
 
 ### Client to Server: Event Submission
 
-The server accepts both **binary** (opcode `0x82`) and **text** (opcode `0x81`) frames.
+The server accepts **binary** frames only (opcode `0x82`). A text
+frame (opcode `0x81`) is not forwarded — the server logs "text frames
+not supported — send JSON as binary frame" and ignores it.
 
-**Payload format:**
+**Payload format:** JSON, carried in the binary frame. The payload
+bytes are forwarded as-is to the accumulator, which deserializes the
+JSON into its declared boundary type (e.g., `OrderBook`) at the socket
+boundary — the build profile is irrelevant (the *internal*
+computation-graph wire is always bincode; the conversion happens
+server-side). Field names must exactly match the Rust struct's `serde`
+field names (snake_case by default).
 
-- In debug builds: JSON-serialized `serde_json::Value`
-- In release builds: bincode-serialized data matching the accumulator's boundary type
-
-Production servers use release builds (bincode). When testing against a debug server, send JSON.
-
-The payload bytes are forwarded as-is to the accumulator's deserialization layer. The accumulator attempts to deserialize the payload into its declared boundary type (e.g., `OrderBook`). Field names must exactly match the Rust struct's `serde` field names (snake_case by default).
-
-**Example JSON payload (debug mode):**
+**Example JSON payload:**
 
 ```json
 {"best_bid": 100.10, "best_ask": 100.15}
@@ -163,6 +164,16 @@ Commands are sent as **text frames** containing JSON. The command type is indica
 | Get State | `{"command": "get_state"}` | Return the current input cache state |
 | Pause | `{"command": "pause"}` | Stop the reactor from firing (continues accepting boundaries) |
 | Resume | `{"command": "resume"}` | Resume a paused reactor |
+
+> **Pause/resume is WebSocket-only.** There is no REST route for
+> pausing or resuming a reactor — the HTTP surface offers only manual
+> fire (`POST /v1/health/reactors/{name}/fire`) and read-only
+> inspection. Likewise, **reactor → workflow subscriptions have no
+> HTTP API at all**: subscriptions are managed exclusively through the
+> embedded runner APIs
+> (`subscribe_workflow_to_reactor` / `unsubscribe_workflow_from_reactor` /
+> `list_reactor_subscriptions` in Rust, and their `cloaca` Python
+> equivalents).
 
 **FireWith cache format:**
 
@@ -294,7 +305,7 @@ Workflow execution events are delivered through this endpoint using the recipien
 exec_events:<execution_id>
 ```
 
-Flow (this is exactly what `cloacinactl execution follow <id>` does):
+Flow (this is exactly what `cloacinactl execution events <id> --follow` does):
 
 1. `POST /v1/auth/ws-ticket` to mint a single-use ticket.
 2. Connect to `wss://host/v1/ws/delivery/exec_events%3A<execution_id>?token=<ticket>` (the `:` may be percent-encoded as `%3A`; both forms are accepted).
@@ -316,7 +327,7 @@ JSON Schema (draft 2020-12) for every message variant, served by this documentat
 | [`reactor-command.schema.json`](/schemas/ws/reactor-command.schema.json) | `force_fire`, `fire_with`, `get_state`, `pause`, `resume` |
 | [`reactor-response.schema.json`](/schemas/ws/reactor-response.schema.json) | `fired`, `state`, `paused`, `resumed`, `error` |
 
-Accumulator frames have no fixed schema — the payload is the registered boundary type's serialization (JSON in debug builds, bincode in release builds).
+Accumulator frames have no fixed schema — the payload is JSON matching the registered boundary type's shape, sent as a binary frame (the server converts to the internal bincode wire).
 
 ---
 
@@ -600,7 +611,7 @@ websocat "ws://localhost:8080/v1/ws/reactor/price_signal?token=${TOKEN}"
 |---|---|---|
 | Direction | Client -> Server (unidirectional) | Bidirectional (command/response) |
 | Client frame type | Binary (`0x82`) or Text (`0x81`) | Text (`0x81`) only |
-| Client payload | Serialized boundary data (JSON or bincode) | JSON `ReactorCommand` |
+| Client payload | JSON boundary data in a binary frame | JSON `ReactorCommand` |
 | Server responses | None (close frame on error only) | JSON `ReactorResponse` per command |
 | Multiplexing | Broadcast to all accumulators with same name | Single reactor per name |
 | Masking | Required (RFC 6455) | Required (RFC 6455) |

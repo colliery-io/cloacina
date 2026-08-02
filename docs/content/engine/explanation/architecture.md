@@ -23,7 +23,7 @@ Consider a market-making system with three real-time data feeds: an order book, 
 
 The computation graph system was designed specifically for this pattern: **multiple independent event streams, correlated into a single decision snapshot, executed as one compiled function**.
 
-## The Reactive Model
+## The Event-Driven Model
 
 The core model is: accumulators feed a cached input snapshot, reaction criteria decide when to fire, and a compiled graph function runs to completion.
 
@@ -128,18 +128,18 @@ For workloads where every boundary must produce exactly one graph execution, the
 | Latency floor | Channel hops (~1-10ms) | Database polling (varies) |
 | Recovery unit | Cache snapshot (restore and continue) | Task retry (re-execute failed step) |
 
-The ontology is deliberately distinct. A "node" in a computation graph is not a "task" in a workflow. A "reactor" is not a "trigger". These are different concepts serving different workloads, and the naming reflects that.
+The ontology is deliberately distinct. A "node" in a computation graph is not a "task" in a workflow. A **reactor** is a *specialized* trigger — where an ordinary workflow trigger polls or follows a cron schedule, a reactor consumes accumulator boundary events and fires a computation graph when its reaction criteria are met. Same family, different firing model — and the naming reflects that.
 
 ## Where the Graph Scheduler Lives
 
-The graph scheduler runs inside the API server process (Postgres-only). It is loaded by the reconciler when packages containing computation graphs are registered. The same API server hosts:
+The graph scheduler (`ComputationGraphScheduler`) runs **in-process, wherever the runner runs** — inside an embedded application, inside `cloacinactl daemon`, or inside the API server. Embedded graphs register through the macro inventory (or the `EmbeddedGraph` wrapper); packaged graphs are loaded by the reconciler when packages containing computation graphs are registered. In a server deployment the same process hosts:
 
 - The unified scheduler (cron + triggers, database-backed, horizontally scalable)
 - The graph scheduler (computation graphs, event-driven, per-graph processes)
 - The WebSocket layer (auth, accumulator and reactor endpoints)
-- The shared DAL (Postgres)
+- The shared DAL
 
-The two schedulers share the same tokio runtime and DAL but have no other coupling. A detector running on the unified scheduler can write to an accumulator via the API server WebSocket — the same path as any external producer, with the same auth — but the schedulers themselves are architecturally separate.
+The two schedulers share the same tokio runtime and DAL but have no other coupling. A detector running on the unified scheduler can write to an accumulator via the API server WebSocket — the same path as any external producer, with the same auth — but the schedulers themselves are architecturally separate. Note that unlike the unified scheduler, graph state is per-process: each replica runs its own reactors and accumulators.
 
 ## Recovery
 
@@ -151,6 +151,6 @@ For more details on the recovery sequence and what each accumulator type checkpo
 
 ## Further Reading
 
-- [Accumulator Design]({{< ref "accumulator-design" >}}) — how accumulators work, the four types, and state management
+- [Accumulator Design]({{< ref "accumulator-design" >}}) — how accumulators work, the five types, and state management
 - [Packaging & FFI]({{< ref "packaging" >}}) — how packaged computation graphs are compiled and loaded
 - [Performance Characteristics]({{< ref "performance" >}}) — throughput and latency baseline numbers

@@ -14,7 +14,7 @@ Packaged computation graphs are different. They are compiled separately into a s
 
 ## Why a Separate Crate
 
-The `cloacina` crate is the full engine. It includes the DAL, the workflow scheduler, the API server infrastructure, PyO3 bindings, and everything else. Compiled as a dependency, it adds significant weight.
+The `cloacina` crate is the full engine. It includes the DAL, the workflow scheduler, the registry and reconciler, packaging, security, and everything else. (Python bindings live in the separate `cloacina-python` crate.) Compiled as a dependency, it adds significant weight.
 
 A packaged computation graph compiles into a shared library that the host loads at runtime. If that library had to link against the full `cloacina` crate, it would be ~60MB per plugin. Every graph deployed to the cluster would carry the entire engine as baggage.
 
@@ -22,7 +22,7 @@ A packaged computation graph compiles into a shared library that the host loads 
 
 - `SourceName`, `InputCache`, `GraphResult`, `GraphError` — the data types
 - `CompiledGraphFn` — the type alias for the compiled graph function
-- `serialize` / `deserialize` — the profile-aware wire format helpers
+- `serialize` / `deserialize` — the bincode wire-format helpers
 - `ComputationGraphEntry` — the inventory entry type that the
   `#[computation_graph]` macro submits in embedded mode; the host's
   `cloacina::Runtime::seed_from_inventory()` walks these at startup.
@@ -34,7 +34,7 @@ The `#[computation_graph]` macro expands into code that references types from th
 
 ## The FFI Boundary: fidius
 
-Cloacina uses [fidius](https://github.com/colliery-software/fidius) as its plugin system. fidius provides a stable ABI for calling methods on loaded plugins by positional index. The unified `cloacina::package!()` shell exposes nine methods on the `CloacinaPlugin` trait; the canonical mapping (defined as constants in `cloacina-workflow-plugin`) is:
+Cloacina uses [fidius](https://crates.io/crates/fidius) as its plugin system. fidius provides a stable ABI for calling methods on loaded plugins by positional index. The `CloacinaPlugin` trait is declared at **interface version 5** and the unified `cloacina::package!()` shell implements its **eleven methods**; the canonical mapping (defined as `METHOD_*` constants in `crates/cloacina-workflow-plugin/src/lib.rs`) is:
 
 | Method index | Constant | What it does |
 |---|---|---|
@@ -47,8 +47,10 @@ Cloacina uses [fidius](https://github.com/colliery-software/fidius) as its plugi
 | 6 | `METHOD_INVOKE_TRIGGER_POLL` | Polls a named trigger across the FFI boundary |
 | 7 | `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` | Returns trigger-less computation graphs declared by the package |
 | 8 | `METHOD_INVOKE_TRIGGERLESS_GRAPH` | Invokes a named trigger-less computation graph |
+| 9 | `METHOD_GET_INPUT_INTERFACE` | Returns declared workflow params / injectable surfaces (CLOACI-I-0128) |
+| 10 | `METHOD_GET_CONSTRUCTOR_METADATA` | Returns packaged `constructor!(...)` node declarations (CLOACI-T-0832) |
 
-Methods 4–8 are marked `#[optional(since = 2)]` on the trait — older plugins that pre-date these methods return `CallError::NotImplemented`, which the host treats as "package declares no reactors / triggers / trigger-less graphs." See the [FFI vtable reference]({{< ref "/reference/ffi-vtable" >}}) for the full surface.
+Methods 4–8 are marked `#[optional(since = 2)]`, method 9 `#[optional(since = 3)]`, and method 10 `#[optional(since = 4)]` on the trait — older plugins that pre-date these methods return `CallError::NotImplemented`, which the host treats as "package declares none of that kind." (The version 4 → 5 bump was a `TaskExecutionRequest` bincode layout change — `resolved_secrets`, CLOACI-T-0895 — not a new method.) See the [FFI vtable reference]({{< ref "/reference/ffi-vtable" >}}) for the full surface.
 
 `GraphPackageMetadata` is the FFI handshake. It tells the host everything needed to wire up the graph without the host knowing anything about the graph's internal types:
 
@@ -59,18 +61,22 @@ pub struct GraphPackageMetadata {
     pub reaction_mode: String,   // "when_any" or "when_all"
     pub input_strategy: String,  // "latest" or "sequential"
     pub accumulators: Vec<AccumulatorDeclarationEntry>,
+    /// Some(name) = shared-reactor binding (T-0544 fan-out);
+    /// None = per-graph synthesized reactor.
+    pub trigger_reactor: Option<String>,
+    // … plus the serialized node/edge topology as JSON
 }
 
 pub struct AccumulatorDeclarationEntry {
     pub name: String,
-    pub accumulator_type: String,  // "passthrough" or "stream"
+    pub accumulator_type: String,  // e.g. "passthrough" or "stream"
     pub config: HashMap<String, String>,
 }
 ```
 
 The accumulator list tells the host what sources the graph expects. The host creates one accumulator per entry, wires them to the reactor, and passes the assembled cache to `execute_graph` when the reactor fires.
 
-Wire format at the FFI boundary uses JSON in debug builds and bincode in release builds — the same profile-aware pattern used throughout the boundary channel. At the FFI call itself, `execute_graph` receives `GraphExecutionRequest { cache: HashMap<String, String> }` — the cache serialized to JSON strings, regardless of build profile. This ensures the FFI boundary is always inspectable and avoids bincode compatibility issues across separately-compiled binaries.
+The fidius wire format is **bincode** — always, in both debug and release builds. Inside that envelope, `execute_graph` receives `GraphExecutionRequest { cache: HashMap<String, String> }` — the cache *values* are JSON-serialized boundary strings. Using self-describing JSON for the boundary values keeps them inspectable and avoids type-layout coupling between separately-compiled binaries, while the call framing itself stays bincode.
 
 ## Load-Once: The LoadedGraphPlugin
 
@@ -114,13 +120,14 @@ When a package is unloaded (via the reconciler), the reactor is shut down and th
 When a package is uploaded to the registry, the reconciler performs these steps:
 
 ```
-Package uploaded
+Package uploaded (source archive; cloacina-compiler builds the
+cdylib artifact server-side and stores it in the registry)
       │
       ▼
 1. Write archive to temp file
 2. Unpack via fidius_core::package::unpack_package
 3. Load package.toml → CloacinaMetadata
-4. Compile source with `cargo build --lib`
+4. Select the compiled artifact for this host's architecture
 5. Read compiled library bytes
 6. register_package_tasks (workflow plugin path)
 7. register_package_workflows (workflow plugin path)
@@ -170,7 +177,6 @@ version = "1.0.0"
 
 [metadata]
 language = "rust"
-type = "computation_graph"
 graph_name = "market_maker"
 
 [[metadata.accumulators]]
@@ -195,7 +201,7 @@ In both cases, the host's accumulator is a dumb byte forwarder. All type-aware p
 
 ## Python Computation Graphs
 
-Python computation graphs follow a different path. Instead of FFI via fidius, they are loaded via PyO3. The reconciler extracts the Python package, imports the entry module, and the `@computation_graph` decorator registers the graph's executor in the same global registry as Rust graphs. The graph scheduler then handles them identically.
+Python computation graphs follow a different path. Instead of FFI via fidius, they are loaded via PyO3. The reconciler extracts the Python package, imports the entry module, and the `cloaca.ComputationGraphBuilder` context manager (with its `@cloaca.node` functions) registers the graph's executor in the same global registry as Rust graphs. The graph scheduler then handles them identically.
 
 The Python path bypasses the `LoadedGraphPlugin` / fidius mechanism entirely. Graph execution happens in the Python interpreter (via `spawn_blocking` to avoid blocking the async runtime), with the cache passed across the PyO3 boundary as a `HashMap<String, String>`.
 
