@@ -72,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // before the reconciler finishes loading tasks.
     let db_path = "/tmp/cloacina_demo.db";
     let _ = std::fs::remove_file(db_path);
-    let db_url = format!("sqlite://{}?mode=rwc", db_path);
+    let db_url = format!("sqlite://{}", db_path);
     println!("📋 Using fresh database at: {}", db_path);
 
     let database = Database::new(&db_url, "", 5);

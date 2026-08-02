@@ -6,7 +6,7 @@
 # Image
 # ---------------------------------------------------------------------------
 image:
-  repository: ghcr.io/colliery-software/cloacina-ui
+  repository: ghcr.io/colliery-io/cloacina-ui
   # Defaults to .Chart.AppVersion when empty.
   tag: ""
   pullPolicy: IfNotPresent

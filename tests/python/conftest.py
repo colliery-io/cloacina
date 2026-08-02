@@ -37,7 +37,10 @@ def get_test_db_url():
         # Create a temporary database file for SQLite
         with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
             db_path = tmp.name
-        return f"sqlite://{db_path}?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
+        # No query params: they are not interpreted (WAL + busy_timeout are
+        # applied as pragmas automatically) and pre-T-0912 they leaked into
+        # the literal filename.
+        return f"sqlite://{db_path}"
     else:
         raise ValueError(f"Unsupported backend: {backend}. Set CLOACA_BACKEND to 'sqlite' or 'postgres'.")
 

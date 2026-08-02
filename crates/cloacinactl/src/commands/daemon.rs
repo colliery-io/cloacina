@@ -190,7 +190,26 @@ pub async fn run(
 
     // 3. Create/open SQLite database
     let db_path = home.join("cloacina.db");
-    let db_url = format!("sqlite://{}?mode=rwc&_journal_mode=WAL", db_path.display());
+    // Pre-T-0912 daemons appended `?mode=rwc&_journal_mode=WAL` to the URL,
+    // and those bytes leaked into the literal on-disk filename (query params
+    // were never interpreted — WAL + busy_timeout are pragmas). Migrate the
+    // junk-named database (and its WAL sidecars) to the clean name so
+    // existing daemon state survives the URL cleanup.
+    for suffix in ["", "-wal", "-shm"] {
+        let legacy = home.join(format!("cloacina.db?mode=rwc&_journal_mode=WAL{suffix}"));
+        let clean = home.join(format!("cloacina.db{suffix}"));
+        if legacy.exists() && !clean.exists() {
+            match std::fs::rename(&legacy, &clean) {
+                Ok(()) => info!("migrated legacy database file to {}", clean.display()),
+                Err(e) => warn!(
+                    "could not migrate legacy database file {}: {}",
+                    legacy.display(),
+                    e
+                ),
+            }
+        }
+    }
+    let db_url = format!("sqlite://{}", db_path.display());
     info!("Database: {}", db_path.display());
 
     // 4. Create DefaultRunner with SQLite backend and configured poll intervals
