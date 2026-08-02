@@ -17,7 +17,6 @@
 //! Recovery operations for orphaned and failed tasks.
 
 use super::{RetryStats, TaskExecutionDAL};
-use crate::dal::unified::models::UnifiedTaskExecution;
 use crate::database::schema::unified::task_executions;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
@@ -25,17 +24,11 @@ use crate::models::task_execution::TaskExecution;
 use diesel::prelude::*;
 
 impl<'a> TaskExecutionDAL<'a> {
-    /// Retrieves tasks that are stuck in "Running" state (orphaned tasks).
-    pub async fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let orphaned_tasks: Vec<UnifiedTaskExecution> =
-            crate::interact_on_backend!(self.dal, |conn| {
-                task_executions::table
-                    .filter(task_executions::status.eq("Running"))
-                    .load(conn)
-            })?;
-
-        Ok(orphaned_tasks.into_iter().map(Into::into).collect())
-    }
+    // NOTE (CLOACI-T-0914): `get_orphaned_tasks` (an unfiltered scan of all
+    // Running rows, claim-blind) was removed — it had no production callers
+    // and misleadingly suggested a recovery path that doesn't exist. Orphan
+    // recovery is the StaleClaimSweeper's job: heartbeat-based, claim-aware,
+    // and capped via `reset_task_for_recovery` / `mark_abandoned` below.
 
     /// Resets a task from "Running" to "Ready" state for recovery.
     pub async fn reset_task_for_recovery(
@@ -183,34 +176,6 @@ mod tests {
             .await
             .unwrap()
             .id
-    }
-
-    // ── get_orphaned_tasks ─────────────────────────────────────────
-
-    #[cfg(feature = "sqlite")]
-    #[tokio::test]
-    async fn test_get_orphaned_tasks_none() {
-        let dal = unique_dal().await;
-        let workflow_id = create_workflow(&dal).await;
-        create_task(&dal, workflow_id, "pending_task", "NotStarted", 1, 3).await;
-        create_task(&dal, workflow_id, "ready_task", "Ready", 1, 3).await;
-
-        let orphaned = dal.task_execution().get_orphaned_tasks().await.unwrap();
-        assert!(orphaned.is_empty());
-    }
-
-    #[cfg(feature = "sqlite")]
-    #[tokio::test]
-    async fn test_get_orphaned_tasks_finds_running() {
-        let dal = unique_dal().await;
-        let workflow_id = create_workflow(&dal).await;
-        let running_id = create_task(&dal, workflow_id, "stuck_task", "Running", 1, 3).await;
-        create_task(&dal, workflow_id, "ok_task", "Completed", 1, 3).await;
-
-        let orphaned = dal.task_execution().get_orphaned_tasks().await.unwrap();
-        assert_eq!(orphaned.len(), 1);
-        assert_eq!(orphaned[0].id, running_id);
-        assert_eq!(orphaned[0].status, "Running");
     }
 
     // ── reset_task_for_recovery ────────────────────────────────────

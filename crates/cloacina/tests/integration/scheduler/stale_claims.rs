@@ -33,9 +33,53 @@ fn test_sweeper(dal: Arc<DAL>, threshold: Duration) -> StaleClaimSweeper {
     let config = StaleClaimSweeperConfig {
         sweep_interval: Duration::from_millis(100),
         stale_threshold: threshold,
+        ..StaleClaimSweeperConfig::default()
     };
     let (_tx, rx) = watch::channel(false);
     StaleClaimSweeper::new(dal, config, rx)
+}
+
+/// Helper: create a workflow execution + task in the given state with a
+/// runner claim (claimed_by + heartbeat_at set), simulating a task whose
+/// claiming runner has since crashed.
+async fn create_claimed_task_with_status(
+    dal: &DAL,
+    wf_name: &str,
+    task_name: &str,
+    status: &str,
+) -> (UniversalUuid, UniversalUuid) {
+    let wf_exec = dal
+        .workflow_execution()
+        .create(NewWorkflowExecution {
+            workflow_name: wf_name.to_string(),
+            workflow_version: "1.0".to_string(),
+            status: "Running".to_string(),
+            context_id: None,
+        })
+        .await
+        .expect("Failed to create workflow execution");
+
+    let task = dal
+        .task_execution()
+        .create(NewTaskExecution {
+            workflow_execution_id: wf_exec.id,
+            task_name: task_name.to_string(),
+            status: status.to_string(),
+            attempt: 1,
+            max_attempts: 3,
+            trigger_rules: r#"{"type":"Always"}"#.to_string(),
+            task_configuration: "{}".to_string(),
+        })
+        .await
+        .expect("Failed to create task");
+
+    let runner_id = uuid::Uuid::new_v4();
+    dal.task_execution()
+        .claim_for_runner(task.id, UniversalUuid(runner_id))
+        .await
+        .expect("Failed to claim task");
+
+    (wf_exec.id, task.id)
 }
 
 /// Helper: create a workflow execution + task in "Running" state with a runner claim.
@@ -226,6 +270,142 @@ async fn test_sweep_multiple_stale_tasks() {
     }
 }
 
+/// CLOACI-T-0914 finding 1: a crash between `claim_for_runner` and
+/// `mark_started` leaves a `Ready`+claimed row. The sweeper must recover it
+/// (release the claim so dispatch re-selects it) — before the fix it filtered
+/// `status='Running'` and this row was permanently stuck.
+#[tokio::test]
+async fn test_sweep_recovers_ready_claimed_task() {
+    for (backend, fixture) in get_all_fixtures().await {
+        tracing::info!(
+            "Running test_sweep_recovers_ready_claimed_task on {}",
+            backend
+        );
+
+        let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
+        guard.reset_database().await;
+        guard.initialize().await;
+
+        let database = guard.get_database();
+        let dal = Arc::new(DAL::new(database.clone()));
+
+        // Crash-in-claim-window shape: status still Ready, claim + heartbeat set.
+        let (_exec_id, task_id) =
+            create_claimed_task_with_status(&dal, "ready-claimed-test", "task1", "Ready").await;
+
+        // Age the heartbeat past the threshold, then get past the grace period.
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let sweeper = test_sweeper(dal.clone(), Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+
+        sweeper.sweep().await;
+
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(task.status, "Ready", "Task should remain Ready");
+        assert_eq!(
+            task.recovery_attempts, 1,
+            "Recovery must be counted against the cap"
+        );
+        // The claim must be gone: a fresh runner can claim it again, which is
+        // exactly what re-dispatch does.
+        let reclaim = dal
+            .task_execution()
+            .claim_for_runner(task_id, UniversalUuid(uuid::Uuid::new_v4()))
+            .await
+            .unwrap();
+        assert!(
+            matches!(
+                reclaim,
+                cloacina::dal::unified::task_execution::RunnerClaimResult::Claimed
+            ),
+            "Swept task must be claimable again (claim was released)"
+        );
+    }
+}
+
+/// CLOACI-T-0914 finding 2: recycling is capped. A task that has exhausted
+/// `max_recovery_attempts` is abandoned — terminal `Failed` with an
+/// `ABANDONED:` error — instead of being re-Readied forever.
+#[tokio::test]
+async fn test_sweep_abandons_after_recovery_cap() {
+    for (backend, fixture) in get_all_fixtures().await {
+        tracing::info!(
+            "Running test_sweep_abandons_after_recovery_cap on {}",
+            backend
+        );
+
+        let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
+        guard.reset_database().await;
+        guard.initialize().await;
+
+        let database = guard.get_database();
+        let dal = Arc::new(DAL::new(database.clone()));
+
+        let (_exec_id, task_id) = create_claimed_task(&dal, "abandon-test", "runner-killer").await;
+
+        // Burn the recovery budget (default cap 3).
+        for _ in 0..3 {
+            dal.task_execution()
+                .reset_task_for_recovery(task_id)
+                .await
+                .unwrap();
+        }
+
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let sweeper = test_sweeper(dal.clone(), Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+
+        sweeper.sweep().await;
+
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(
+            task.status, "Failed",
+            "Cap-exhausted task must be terminally Failed, not re-Readied"
+        );
+        let details = task.error_details.unwrap_or_default();
+        assert!(
+            details.starts_with("ABANDONED:"),
+            "Failure must carry the ABANDONED: prefix (got: {details})"
+        );
+    }
+}
+
+/// A crash after a terminal write but before claim release leaves a claim on
+/// a Completed row. The sweeper must never resurrect it.
+#[tokio::test]
+async fn test_sweep_ignores_terminal_claimed_task() {
+    for (backend, fixture) in get_all_fixtures().await {
+        tracing::info!(
+            "Running test_sweep_ignores_terminal_claimed_task on {}",
+            backend
+        );
+
+        let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
+        guard.reset_database().await;
+        guard.initialize().await;
+
+        let database = guard.get_database();
+        let dal = Arc::new(DAL::new(database.clone()));
+
+        let (_exec_id, task_id) =
+            create_claimed_task_with_status(&dal, "terminal-claimed-test", "task1", "Completed")
+                .await;
+
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let sweeper = test_sweeper(dal.clone(), Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+
+        sweeper.sweep().await;
+
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(
+            task.status, "Completed",
+            "Terminal rows with leftover claims must not be re-Readied"
+        );
+        assert_eq!(task.recovery_attempts, 0, "No recovery must be recorded");
+    }
+}
+
 #[tokio::test]
 async fn test_sweeper_run_loop_stops_on_shutdown() {
     for (backend, fixture) in get_all_fixtures().await {
@@ -244,6 +424,7 @@ async fn test_sweeper_run_loop_stops_on_shutdown() {
         let config = StaleClaimSweeperConfig {
             sweep_interval: Duration::from_millis(50),
             stale_threshold: Duration::from_millis(0),
+            ..StaleClaimSweeperConfig::default()
         };
         let (tx, rx) = watch::channel(false);
         let mut sweeper = StaleClaimSweeper::new(dal, config, rx);

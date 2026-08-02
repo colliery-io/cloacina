@@ -298,6 +298,7 @@ impl DefaultRunner {
         let sweeper_config = StaleClaimSweeperConfig {
             sweep_interval: self.config.stale_claim_sweep_interval(),
             stale_threshold: self.config.stale_claim_threshold(),
+            ..StaleClaimSweeperConfig::default()
         };
 
         let dal = DAL::new(self.database.clone());

@@ -463,6 +463,17 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// Returns tasks where `claimed_by` is not NULL and `heartbeat_at` is
     /// older than `now - threshold`.
+    ///
+    /// Covers `Running` AND `Ready` rows (CLOACI-T-0914): the claim is taken
+    /// while the task is still `Ready` (`claim_for_runner` — status flips to
+    /// `Running` only at `mark_started`, after the semaphore wait), so a
+    /// crash in that window used to leave a `Ready`+claimed row that neither
+    /// this sweeper (then Running-only) nor dispatch (`claimed_by IS NULL`)
+    /// would ever touch. The heartbeat starts at claim time, so a stale
+    /// heartbeat is a true death signal in both states. Terminal rows can
+    /// also retain a claim (crash after the terminal write, before release) —
+    /// they must NOT be re-Readied, hence the explicit status list rather
+    /// than claim-presence alone.
     pub async fn find_stale_claims(
         &self,
         threshold: std::time::Duration,
@@ -476,7 +487,7 @@ impl<'a> TaskExecutionDAL<'a> {
             task_executions::table
                 .filter(task_executions::claimed_by.is_not_null())
                 .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
-                .filter(task_executions::status.eq("Running"))
+                .filter(task_executions::status.eq_any(vec!["Running", "Ready"]))
                 .load(conn)
         })?;
 
@@ -487,6 +498,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_id: t.id,
                     claimed_by: t.claimed_by?,
                     heartbeat_at: t.heartbeat_at?.0,
+                    recovery_attempts: t.recovery_attempts,
                 })
             })
             .collect())
