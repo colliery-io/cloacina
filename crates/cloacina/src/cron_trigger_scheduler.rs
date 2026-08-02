@@ -1165,7 +1165,7 @@ impl Scheduler {
             // logged warn and treated as skip — fail-closed semantics
             // mirror the spec: a broken filter shouldn't fire workflows.
             if let Some(expr) = predicate_expr {
-                match self.evaluate_predicate(sub.id, expr, &context) {
+                match self.evaluate_predicate(sub.id, expr, &sub.tenant_id, &context) {
                     Ok(true) => {} // proceed to dispatch
                     Ok(false) => {
                         debug!(
@@ -1290,6 +1290,7 @@ impl Scheduler {
         &self,
         sub_id: UniversalUuid,
         expr: &str,
+        tenant: &str,
         context: &Context<serde_json::Value>,
     ) -> Result<bool, String> {
         // Cache lookup. Re-compile only when the stored expression
@@ -1309,7 +1310,7 @@ impl Scheduler {
                 }
             }
         };
-        eval_cel_predicate_program(&program, context)
+        eval_cel_predicate_program(&program, tenant, context)
     }
 
     /// TTL prune of `reactor_firings` (CLOACI-I-0100 / T-0601).
@@ -1407,6 +1408,7 @@ impl Scheduler {
 /// evaluation logic can be tested independently.
 fn eval_cel_predicate_program(
     program: &cel_interpreter::Program,
+    tenant: &str,
     context: &Context<serde_json::Value>,
 ) -> Result<bool, String> {
     use cel_interpreter::{Context as CelContext, Value as CelValue};
@@ -1428,8 +1430,11 @@ fn eval_cel_predicate_program(
             context.get("reactor_name").cloned().unwrap_or_default(),
         )
         .map_err(|e| format!("cel add_variable(reactor): {}", e))?;
+    // CLOACI-T-0915: bind the real tenant id — this was a `""` stub while
+    // the docs advertised the tenant, so any predicate referencing `tenant`
+    // silently never matched (and, fail-closed, silently never fired).
     cel_ctx
-        .add_variable("tenant", serde_json::Value::String(String::new()))
+        .add_variable("tenant", serde_json::Value::String(tenant.to_string()))
         .map_err(|e| format!("cel add_variable(tenant): {}", e))?;
 
     match program.execute(&cel_ctx) {
@@ -1783,14 +1788,14 @@ mod tests {
             "quote",
             serde_json::json!({"price": 150, "region": "us-east"}),
         )]);
-        assert!(eval_cel_predicate_program(&prog, &ctx).unwrap());
+        assert!(eval_cel_predicate_program(&prog, "public", &ctx).unwrap());
     }
 
     #[test]
     fn cel_predicate_false_when_payload_does_not_match() {
         let prog = cel_interpreter::Program::compile("payload.quote.price > 100").unwrap();
         let ctx = ctx_with_payload(&[("quote", serde_json::json!({"price": 50}))]);
-        assert!(!eval_cel_predicate_program(&prog, &ctx).unwrap());
+        assert!(!eval_cel_predicate_program(&prog, "public", &ctx).unwrap());
     }
 
     #[test]
@@ -1805,14 +1810,28 @@ mod tests {
             .unwrap();
         // With the bookkeeping keys stripped, payload.reactor_name
         // doesn't exist → has() returns false.
-        assert!(!eval_cel_predicate_program(&prog, &ctx).unwrap());
+        assert!(!eval_cel_predicate_program(&prog, "public", &ctx).unwrap());
+    }
+
+    #[test]
+    fn cel_predicate_tenant_binds_real_tenant_id() {
+        // CLOACI-T-0915: `tenant` was a stub bound to "" — any predicate
+        // referencing it silently never matched. It must carry the
+        // subscription's tenant id.
+        let prog = cel_interpreter::Program::compile("tenant == 'acme'").unwrap();
+        let ctx = ctx_with_payload(&[("quote", serde_json::json!({"price": 50}))]);
+        assert!(eval_cel_predicate_program(&prog, "acme", &ctx).unwrap());
+        assert!(!eval_cel_predicate_program(&prog, "public", &ctx).unwrap());
+        // The historical stub value must no longer match a real predicate.
+        let prog_empty = cel_interpreter::Program::compile("tenant == ''").unwrap();
+        assert!(!eval_cel_predicate_program(&prog_empty, "acme", &ctx).unwrap());
     }
 
     #[test]
     fn cel_predicate_non_bool_result_is_error() {
         let prog = cel_interpreter::Program::compile("payload.quote.price").unwrap();
         let ctx = ctx_with_payload(&[("quote", serde_json::json!({"price": 50}))]);
-        let err = eval_cel_predicate_program(&prog, &ctx).unwrap_err();
+        let err = eval_cel_predicate_program(&prog, "public", &ctx).unwrap_err();
         assert!(
             err.contains("must evaluate to bool"),
             "expected bool-type error, got: {}",

@@ -614,12 +614,19 @@ impl Reactor {
             let _ = health.send(ReactorHealth::Starting);
         }
 
-        // Load cache from DAL if available (instant recovery)
+        // Load cache from DAL if available (instant recovery). Dirty flags
+        // and the sequential queue are restored too (CLOACI-T-0915): they
+        // were persisted before every drain precisely so a crash mid-drain
+        // doesn't lose items, but the restore path used to discard both —
+        // making Sequential's no-loss promise and WhenAll's accumulated
+        // dirty state per-process-lifetime only.
         let cache = self.cache.clone();
+        let mut restored_dirty: Option<HashMap<SourceName, bool>> = None;
+        let mut restored_seq: Option<VecDeque<(SourceName, Vec<u8>)>> = None;
         if let Some(ref dal) = self.dal {
             if !self.graph_name.is_empty() {
                 match dal.checkpoint().load_reactor_state(&self.graph_name).await {
-                    Ok(Some((cache_data, _dirty_data, _seq_queue))) => {
+                    Ok(Some((cache_data, dirty_data, seq_data))) => {
                         // Restore cache — deserialize the entries map
                         if let Ok(entries) =
                             serde_json::from_slice::<HashMap<SourceName, Vec<u8>>>(&cache_data)
@@ -629,6 +636,30 @@ impl Reactor {
                                 c.update(source, bytes);
                             }
                             tracing::info!(graph = %self.graph_name, "reactor cache restored from DAL");
+                        }
+                        match serde_json::from_slice::<HashMap<SourceName, bool>>(&dirty_data) {
+                            Ok(flags) => restored_dirty = Some(flags),
+                            Err(e) => {
+                                tracing::warn!(graph = %self.graph_name, "persisted dirty flags unreadable (starting clean): {}", e);
+                            }
+                        }
+                        if let Some(seq_bytes) = seq_data {
+                            match serde_json::from_slice::<VecDeque<(SourceName, Vec<u8>)>>(
+                                &seq_bytes,
+                            ) {
+                                Ok(q) if !q.is_empty() => {
+                                    tracing::info!(
+                                        graph = %self.graph_name,
+                                        items = q.len(),
+                                        "sequential queue restored from DAL"
+                                    );
+                                    restored_seq = Some(q);
+                                }
+                                Ok(_) => {}
+                                Err(e) => {
+                                    tracing::warn!(graph = %self.graph_name, "persisted sequential queue unreadable (starting empty): {}", e);
+                                }
+                            }
                         }
                     }
                     Ok(None) => {
@@ -641,12 +672,23 @@ impl Reactor {
             }
         }
 
-        let dirty = if self.expected_sources.is_empty() {
-            Arc::new(RwLock::new(DirtyFlags::new()))
-        } else {
-            Arc::new(RwLock::new(DirtyFlags::with_sources(
-                &self.expected_sources,
-            )))
+        let dirty = {
+            let mut flags = if self.expected_sources.is_empty() {
+                DirtyFlags::new()
+            } else {
+                DirtyFlags::with_sources(&self.expected_sources)
+            };
+            if let Some(restored) = restored_dirty {
+                // Overlay restored flags. When an expected-source list exists,
+                // only overlay sources still expected — a stale flag for a
+                // de-scoped source must not poison `all_set()`.
+                for (source, set) in restored {
+                    if self.expected_sources.is_empty() || flags.flags.contains_key(&source) {
+                        flags.set(source, set);
+                    }
+                }
+            }
+            Arc::new(RwLock::new(flags))
         };
 
         // Startup gating — wait for all accumulators to become healthy before going Live
@@ -770,7 +812,9 @@ impl Reactor {
         let input_strategy = self.input_strategy.clone();
 
         // Sequential queue — only used when InputStrategy::Sequential
-        let seq_queue: SeqQueue = Arc::new(RwLock::new(VecDeque::new()));
+        // Seed with any queue restored from the last checkpoint (T-0915):
+        // items persisted before a crash mid-drain resume from here.
+        let seq_queue: SeqQueue = Arc::new(RwLock::new(restored_seq.unwrap_or_default()));
 
         let (strategy_tx, mut strategy_rx) = mpsc::channel::<StrategySignal>(64);
 
