@@ -21,8 +21,10 @@
 //! hand-assembly. `--kind` selects the package shape:
 //! - `workflow` — `@cloaca.task` / `#[workflow]` tasks.
 //! - `graph` — a computation graph (`ComputationGraphBuilder` / `#[computation_graph]`).
-//! - `cron` — a workflow fired by a cron `#[trigger(on, cron)]` (Rust only;
-//!   Python has no cron trigger — it uses poll `@cloaca.trigger`).
+//! - `cron` — a workflow fired by a cron trigger. Only a Rust template exists;
+//!   Python packages fully support cron via `@cloaca.trigger(on=..., cron=...)`
+//!   declared in a `--kind workflow` package (see
+//!   `examples/features/workflows/python-cron`).
 //!
 //! Python packages use bare decorators (the loader builds the workflow/graph
 //! context from `workflow_name`/`graph_name`); Rust packages depend on the
@@ -67,11 +69,16 @@ pub fn run(
     // name: hyphens aren't valid identifiers, so map them to underscores.
     let module = name.replace('-', "_");
 
-    // Python has no cron trigger — poll triggers only.
+    // No Python cron TEMPLATE exists yet — the capability does. Python packages
+    // support cron triggers via `@cloaca.trigger(on=..., cron=...)` (routed to
+    // the cron scheduler by the reconciler); see
+    // examples/features/workflows/python-cron for a working packaged example.
     if lang == ScaffoldLang::Python && kind == ScaffoldKind::Cron {
         return Err(CliError::UserError(
-            "cron triggers are Rust-only. Python packages use poll triggers — add a \
-             `@cloaca.trigger(name=..., poll_interval=...)` to a `--kind workflow` package."
+            "no Python cron scaffold template yet. Python packages DO support cron \
+             triggers: scaffold `--kind workflow` and declare \
+             `@cloaca.trigger(name=..., on=<workflow>, cron=\"<expr>\")` \
+             (see examples/features/workflows/python-cron)."
                 .to_string(),
         ));
     }
@@ -281,7 +288,10 @@ with cloaca.ComputationGraphBuilder(
 // ---------------------------------------------------------------------------
 
 fn scaffold_rust(dir: &Path, name: &str, module: &str, kind: ScaffoldKind) -> Result<(), CliError> {
-    write(&dir.join("Cargo.toml"), &rust_cargo_toml(name))?;
+    write(
+        &dir.join("Cargo.toml"),
+        &rust_cargo_toml(name, kind == ScaffoldKind::Graph),
+    )?;
     match kind {
         ScaffoldKind::Workflow => {
             write(
@@ -308,7 +318,20 @@ fn scaffold_rust(dir: &Path, name: &str, module: &str, kind: ScaffoldKind) -> Re
     Ok(())
 }
 
-fn rust_cargo_toml(name: &str) -> String {
+fn rust_cargo_toml(name: &str, graph: bool) -> String {
+    // The graph template invokes `#[cloacina_macros::reactor]` /
+    // `#[cloacina_macros::computation_graph]` directly (cloacina-workflow
+    // re-exports only task/trigger/workflow) and the expansion references
+    // computation-graph runtime types, so the graph kind carries the same
+    // two extra deps the CI-built packaged-graph example does.
+    let graph_deps = if graph {
+        format!(
+            "cloacina-computation-graph = \"{ver}\"\ncloacina-macros = \"{ver}\"\n",
+            ver = CLOACINA_CRATE_VERSION
+        )
+    } else {
+        String::new()
+    };
     format!(
         r#"[package]
 name = "{name}"
@@ -320,7 +343,7 @@ edition = "2021"
 # companions (async-trait, chrono, computation-graph) through the crates
 # below — no build.rs, no cloacina-build, no four-crate ceremony.
 [dependencies]
-cloacina-workflow = {{ version = "{ver}", features = ["packaged", "macros"] }}
+{graph_deps}cloacina-workflow = {{ version = "{ver}", features = ["packaged", "macros"] }}
 cloacina-workflow-plugin = "{ver}"
 serde = {{ version = "1.0", features = ["derive"] }}
 serde_json = "1.0"
@@ -612,6 +635,13 @@ mod tests {
         assert!(lib.contains("cloacina_macros::reactor"));
         assert!(lib.contains("cloacina_macros::computation_graph"));
         assert!(lib.contains("pub struct MyGraphReactor"));
+
+        // The lib invokes cloacina_macros directly and its expansion needs the
+        // computation-graph runtime — both must be real deps or the scaffold
+        // doesn't compile as generated (CLOACI-T-0912).
+        let cargo = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("cloacina-macros = "));
+        assert!(cargo.contains("cloacina-computation-graph = "));
     }
 
     #[test]
@@ -624,7 +654,11 @@ mod tests {
             Some(tmp.path()),
         )
         .unwrap_err();
-        assert!(format!("{err:?}").contains("Rust-only"));
+        // T-0912: the refusal must say the TEMPLATE is missing (the capability
+        // exists) and point at the working @cloaca.trigger(cron=...) path.
+        let msg = format!("{err:?}");
+        assert!(msg.contains("no Python cron scaffold template"));
+        assert!(msg.contains("cron="));
     }
 
     #[test]

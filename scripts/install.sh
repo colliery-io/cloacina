@@ -23,7 +23,7 @@ set -euo pipefail
 # Configuration
 # ---------------------------------------------------------------------------
 
-REPO="${CLOACINA_REPO:-colliery-software/cloacina}"
+REPO="${CLOACINA_REPO:-colliery-io/cloacina}"
 DEFAULT_PREFIX="${HOME}/.cloacina"
 BINARY="cloacinactl"
 

@@ -69,7 +69,7 @@ use std::sync::Arc;
 #[cfg(feature = "sqlite")]
 use tempfile::NamedTempFile;
 use thiserror::Error;
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 
 #[cfg(feature = "postgres")]
@@ -505,12 +505,18 @@ impl Database {
     /// Resolve a SQLite connection string into (url, optional tempfile owner).
     ///
     /// `:memory:` (with or without the `sqlite://` prefix) is substituted
-    /// for a per-Database tempfile on disk. This is the only reliable way
-    /// to get multi-connection sharing under diesel — the standard
-    /// `file::memory:?cache=shared` form requires `SQLITE_OPEN_URI`, which
-    /// diesel's open path doesn't set. Without that flag, sqlite silently
-    /// creates a file literally named `:memory:` in CWD and the supposed
-    /// "shared cache" never happens.
+    /// for a per-Database tempfile on disk. Diesel 2.3+ does set
+    /// `SQLITE_OPEN_URI` (and rewrites a leading `sqlite://` to `file:`),
+    /// but this crate strips the scheme before diesel sees the string, so
+    /// the path is always opened literally — the tempfile substitution
+    /// remains the reliable way to get multi-connection sharing here.
+    ///
+    /// Query parameters after a `sqlite://` scheme are dropped with a
+    /// warning: they were never interpreted on this path (WAL and
+    /// busy_timeout are applied as pragmas on every connection), and
+    /// historically they leaked into the on-disk filename
+    /// (`app.db?mode=rwc` the file — CLOACI-T-0912). Bare paths pass
+    /// through byte-for-byte.
     ///
     /// The returned `NamedTempFile` must be held for the lifetime of the
     /// Database (we wrap it in `Arc` and stash it on `Self` so Clone'd
@@ -523,9 +529,25 @@ impl Database {
     fn materialize_sqlite_connection(
         connection_string: &str,
     ) -> Result<(String, Option<Arc<NamedTempFile>>), DatabaseError> {
-        let stripped = connection_string
-            .strip_prefix("sqlite://")
-            .unwrap_or(connection_string);
+        let (stripped, had_scheme) = match connection_string.strip_prefix("sqlite://") {
+            Some(rest) => (rest, true),
+            None => (connection_string, false),
+        };
+        let stripped = if had_scheme {
+            match stripped.split_once('?') {
+                Some((path, params)) => {
+                    warn!(
+                        "ignoring query parameters in sqlite:// URL (they are not \
+                         interpreted; WAL + busy_timeout are set automatically): ?{}",
+                        params
+                    );
+                    path
+                }
+                None => stripped,
+            }
+        } else {
+            stripped
+        };
         if stripped != ":memory:" {
             return Ok((stripped.to_string(), None));
         }
@@ -1053,6 +1075,25 @@ mod tests {
             Database::materialize_sqlite_connection("sqlite:///path/to/db.sqlite").unwrap();
         assert_eq!(url, "/path/to/db.sqlite");
         assert!(owner.is_none());
+
+        // Query params after the sqlite:// scheme are dropped — they were
+        // never interpreted, and must not leak into the filename
+        // (CLOACI-T-0912).
+        let (url, owner) =
+            Database::materialize_sqlite_connection("sqlite://app.db?mode=rwc&_journal_mode=WAL")
+                .unwrap();
+        assert_eq!(url, "app.db");
+        assert!(owner.is_none());
+
+        // ...but a bare path keeps its bytes (no scheme, no query semantics).
+        let (url, _) = Database::materialize_sqlite_connection("weird?name.db").unwrap();
+        assert_eq!(url, "weird?name.db");
+
+        // `sqlite://:memory:?cache=shared` still hits the tempfile path.
+        let (url, owner) =
+            Database::materialize_sqlite_connection("sqlite://:memory:?cache=shared").unwrap();
+        assert_ne!(url, ":memory:");
+        assert!(owner.is_some());
     }
 
     #[cfg(feature = "sqlite")]

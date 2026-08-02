@@ -12,7 +12,7 @@
 replicaCount: 2
 
 image:
-  repository: ghcr.io/colliery-software/cloacina-agent
+  repository: ghcr.io/colliery-io/cloacina-agent
   # Defaults to the chart's appVersion when empty. Pin with --set image.tag=X.Y.Z.
   tag: ""
   pullPolicy: IfNotPresent

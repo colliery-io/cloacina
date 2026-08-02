@@ -108,9 +108,10 @@ You can modify the example to:
 
 ## Database
 
-The example uses SQLite with WAL mode for better concurrency:
+The example uses SQLite (Cloacina enables WAL mode and a 30s busy timeout
+automatically on every connection):
 ```
-cron-example.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000
+cron-example.db
 ```
 
 You can examine the database contents to see:

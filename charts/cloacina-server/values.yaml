@@ -6,7 +6,7 @@
 # Image
 # ---------------------------------------------------------------------------
 image:
-  repository: ghcr.io/colliery-software/cloacina-server
+  repository: ghcr.io/colliery-io/cloacina-server
   # Defaults to .Chart.AppVersion when empty so a `helm install` without
   # --set image.tag pins to the chart's stated app version.
   tag: ""
@@ -159,7 +159,7 @@ fleet:
   actuator: none
 
   # Agent image the actuator runs for each tenant (CLOACINA_AGENT_IMAGE).
-  agentImage: ghcr.io/colliery-software/cloacina-agent:latest
+  agentImage: ghcr.io/colliery-io/cloacina-agent:latest
 
   # Server URL injected into spawned agents as CLOACINA_SERVER
   # (CLOACINA_AGENT_SERVER_URL). Empty → the release's in-cluster Service FQDN

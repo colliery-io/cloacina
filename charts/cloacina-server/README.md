@@ -1,7 +1,7 @@
 # cloacina-server Helm chart
 
 Official Helm chart for the [Cloacina](https://cloacina.dev) HTTP API
-server. Pairs with the `ghcr.io/colliery-software/cloacina-server` image.
+server. Pairs with the `ghcr.io/colliery-io/cloacina-server` image.
 
 CLOACI-I-0111 / T-0605.
 
@@ -11,7 +11,7 @@ CLOACI-I-0111 / T-0605.
 
 ```sh
 helm install cloacina \
-  oci://ghcr.io/colliery-software/charts/cloacina-server \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
   --set database.url=postgres://user:pass@host:5432/cloacina
 ```
@@ -41,7 +41,7 @@ The chart fails fast if you don't configure exactly one of:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `image.repository` | `ghcr.io/colliery-software/cloacina-server` | Image to pull |
+| `image.repository` | `ghcr.io/colliery-io/cloacina-server` | Image to pull |
 | `image.tag` | `Chart.AppVersion` | Image tag (override to pin a server release) |
 | `replicaCount` | `1` | Pod replicas |
 | `database.url` | `""` | Plaintext Postgres URL |
@@ -82,7 +82,7 @@ the Prometheus operator. The chart scrapes `:8080/metrics` every 30s.
 ## Upgrades
 
 ```sh
-helm upgrade cloacina oci://ghcr.io/colliery-software/charts/cloacina-server \
+helm upgrade cloacina oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.2.0 \
   --reuse-values
 ```
