@@ -25,6 +25,45 @@ OQ-6 fail-closed: the `FleetExecutor` only assigns work whose
 `ArtifactRef::build_target_triple` matches this. |
 | `capabilities` | `Vec < String >` | Free-form capability tags the `FleetExecutor` can route on
 (e.g. `gpu`, `large_memory`). |
+| `ephemeral_public_key` | `Option < String >` | CLOACI-T-0861 (superseded by `ephemeral_key_pool`) — a single ephemeral
+X25519 **public** key (base64 standard). Retained for wire back-compat
+with a pre-pool agent; a modern agent leaves this `None` and advertises
+`ephemeral_key_pool` instead. `None` + empty pool ⇒ the agent advertised
+no key and the server MUST NOT wrap secrets to it. |
+| `ephemeral_key_pool` | `Vec < EphemeralKeyEntry >` | CLOACI-T-0861 / I-0133 **D-5 (one-time key pool)** — a pool of one-time
+ephemeral X25519 public keys, each with a `key_id`. The server persists
+this pool against the agent and CONSUMES exactly one entry per
+secret-bearing dispatch (wrapping that execution's secrets to it, stamping
+the `key_id` on the [`WorkPacket::secret_key_id`]); the agent holds the
+paired private keys and, on receiving the packet, unwraps ONCE with the
+matching key then discards it. This gives true per-execution forward
+secrecy over the push protocol (no per-dispatch round-trip needed). The
+agent tops the pool up via [`AgentKeyReplenishRequest`] when the server
+signals low ([`AgentHeartbeatResponse::replenish_keys`]) or proactively. |
+
+
+
+### `cloacina::fleet::protocol::EphemeralKeyEntry`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`, `Eq`
+
+CLOACI-T-0861 / D-5 — one entry in an agent's one-time ephemeral key pool.
+
+The `key_id` is an opaque agent-minted handle (a UUID) the server stamps onto
+the dispatch it wraps to that key; the agent uses it to find the matching
+private key. `public_key_b64` is the serialized X25519 public key (base64
+standard). A pool entry is used AT MOST ONCE end to end: the server consumes
+it for a single dispatch, the agent unwraps once and discards the private key.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `key_id` | `String` | Opaque one-time handle (agent-minted UUID). |
+| `public_key_b64` | `String` | Serialized X25519 public key, base64 (standard). |
 
 
 
@@ -80,6 +119,52 @@ multiple of missed intervals. |
 | Name | Type | Description |
 |------|------|-------------|
 | `protocol_version` | `u32` |  |
+| `replenish_keys` | `u32` | CLOACI-T-0861 / D-5 — the server's one-time-key-pool replenish signal:
+how many fresh [`EphemeralKeyEntry`]s it would like the agent to top up
+(because consumption has drawn the persisted pool below its low-water
+mark). `0` (the serde default, so pre-pool servers read as `0`) ⇒ the pool
+is healthy. The agent responds by POSTing an [`AgentKeyReplenishRequest`]. |
+
+
+
+### `cloacina::fleet::protocol::AgentKeyReplenishRequest`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
+
+CLOACI-T-0861 / D-5 — the agent tops up its server-side one-time key pool.
+
+Sent either in response to a [`AgentHeartbeatResponse::replenish_keys`] signal
+or proactively when the agent's local pool drops below its own threshold. Each
+carried [`EphemeralKeyEntry`] is a fresh one-time public key the server appends
+to the agent's unused pool.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `protocol_version` | `u32` |  |
+| `agent_id` | `String` |  |
+| `keys` | `Vec < EphemeralKeyEntry >` | Fresh one-time public keys to append to the agent's server-side pool. |
+
+
+
+### `cloacina::fleet::protocol::AgentKeyReplenishResponse`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `protocol_version` | `u32` |  |
+| `accepted` | `u32` | How many keys the server accepted into the pool (0 if the agent was
+unknown / needs to re-register). |
 
 
 
@@ -114,6 +199,82 @@ REST reference; OQ-1.) |
 | `tenant_id` | `Option < String >` | Tenant scope. The agent's authenticated context must match this to
 even receive the packet; included here so the agent can pass it into
 the runtime when constructing the task's execution scope. |
+| `language` | `Option < String >` | Package language, so the agent loads it the right way: `"rust"` (or
+absent, for older servers) → `dlopen` the cdylib at `artifact`;
+`"python"` → fetch the source archive and import it via PyO3. Defaults
+to `"rust"` when missing so a packet from a pre-CLOACI-T-0716 server is
+still handled as before. (CLOACI-T-0716) |
+| `wrapped_secrets` | `Vec < WrappedSecret >` | CLOACI-T-0861 — secrets this task needs, each HPKE-wrapped to the target
+agent's advertised ephemeral public key. ONLY ciphertext crosses the wire
+(NFR-001/NFR-003); the agent unwraps with its ephemeral private key into
+the in-memory `Secrets` accessor. Empty/absent ⇒ no secrets for this task. |
+| `secret_key_id` | `Option < String >` | CLOACI-T-0861 / D-5 — which pooled one-time key the `wrapped_secrets` are
+wrapped to (the [`EphemeralKeyEntry::key_id`] the server consumed for this
+dispatch). The agent looks up the matching private key, unwraps ONCE, and
+discards it (one-time use). `None` ⇒ no secrets / pre-pool wrap. ALL
+secrets in one dispatch wrap to the SAME key (this execution's key). |
+
+
+
+### `cloacina::fleet::protocol::WrappedSecret`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
+
+One at-rest secret resolved by the server and HPKE-wrapped to a single agent's ephemeral public key for one dispatch (CLOACI-T-0861).
+
+The plaintext field-map is serialized to JSON then sealed; only `enc_b64`
+(the HPKE encapsulated key) and `ciphertext_b64` (the AEAD ciphertext) travel
+on the wire. The wrap is bound via AEAD associated data to the execution id +
+secret name (see `security::fleet_secret::secret_aad`), so a captured blob
+cannot be replayed against a different execution or secret even to the same
+agent key.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `name` | `String` | The secret name (the lookup key the task resolves via `ctx.secret(name)`).
+A NAME only — never a value. |
+| `enc_b64` | `String` | HPKE encapsulated key, base64 (standard). |
+| `ciphertext_b64` | `String` | HPKE AEAD ciphertext of the JSON `{field: value}` map, base64 (standard). |
+
+
+
+### `cloacina::fleet::protocol::GraphWorkPacket`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
+
+One reactor firing shipped to an agent for whole-graph execution (CLOACI-T-0722). The server pre-converts the reactor's `InputCache` snapshot into the FFI cache shape (source name → JSON string), so the agent's job is: fetch the cdylib by digest, `execute_graph(cache)`, report the outcome via the standard `/v1/agent/result` rendezvous keyed by `firing_id`. Accumulators + reactor state never leave the server — only the compute does.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `protocol_version` | `u32` |  |
+| `firing_id` | `String` | Rendezvous key: a fresh UUID per firing. The agent reports it back as
+the `task_execution_id` of its `AgentResultRequest` (the coordinator
+is a plain uuid→result rendezvous; graph firings reuse it). |
+| `graph_name` | `String` | The graph (== reactor) name inside the package. |
+| `cache` | `std :: collections :: HashMap < String , String >` | The firing's input snapshot in FFI shape: source name → UTF-8 JSON. |
+| `artifact` | `ArtifactRef` | Pointer to the cdylib artifact the agent must `dlopen`. |
+| `timeout_seconds` | `u32` | Per-firing execution timeout. |
+| `tenant_id` | `Option < String >` | Tenant scope (same semantics as [`WorkPacket::tenant_id`]). |
+| `language` | `Option < String >` | Package language (CLOACI-T-0841): `"rust"`/absent → dlopen the cdylib
+and FFI `execute_graph`; `"python"` → fetch the SOURCE archive, import
+it (registering the graph executors), and execute via the Python
+graph executor. Mirrors [`WorkPacket::language`]. |
+| `wrapped_secrets` | `Vec < WrappedSecret >` | CLOACI-T-0861 — secrets the graph needs, HPKE-wrapped to the agent's
+ephemeral public key. Same semantics as [`WorkPacket::wrapped_secrets`];
+the AAD binds each blob to `firing_id` + secret name. |
+| `secret_key_id` | `Option < String >` | CLOACI-T-0861 / D-5 — which pooled one-time key the `wrapped_secrets` are
+wrapped to. Same semantics as [`WorkPacket::secret_key_id`]; AAD uses
+`firing_id` as the execution id. |
 
 
 

@@ -100,9 +100,13 @@ for logs and embedded into the returned `ExecutionResult`.
     ) -> ExecutionResult {
         match outcome {
             Ok(result_context) => {
-                match self
-                    .complete_task_transaction(claimed_task, result_context)
-                    .await
+                // CLOACI-I-0140: retry transient DB contention — a sqlite-busy
+                // context save was failing tasks that SUCCEEDED (the reproduced
+                // 'Failed' == 'Completed' assertion flake class).
+                match retry_transient(5, Duration::from_millis(100), || {
+                    self.complete_task_transaction(claimed_task, result_context.clone_data())
+                })
+                .await
                 {
                     Ok(()) => {
                         self.total_executed.fetch_add(1, Ordering::SeqCst);
@@ -117,12 +121,30 @@ for logs and embedded into the returned `ExecutionResult`.
                     Err(e) => {
                         self.total_failed.fetch_add(1, Ordering::SeqCst);
                         let error_msg = format!("Failed to save context: {}", e);
-                        // Mark failed in DB — executor owns all state transitions
-                        let _ = self
-                            .dal
-                            .task_execution()
-                            .mark_failed(event.task_execution_id, &error_msg, self.runner_id)
-                            .await;
+                        // Mark failed in DB — executor owns all state transitions.
+                        // CLOACI-I-0140: retried + NEVER silently swallowed — a
+                        // dropped mark_failed leaves the task Running forever and
+                        // hangs the workflow (the reproduced hang class).
+                        if let Err(mark_err) =
+                            retry_transient(5, Duration::from_millis(100), || async {
+                                self.dal
+                                    .task_execution()
+                                    .mark_failed(
+                                        event.task_execution_id,
+                                        &error_msg,
+                                        self.runner_id,
+                                    )
+                                    .await
+                            })
+                            .await
+                        {
+                            error!(
+                                task_id = %event.task_execution_id,
+                                error = %mark_err,
+                                "mark_failed FAILED after retries — task row stays Running until \
+                                 the stale-claim sweeper recovers it; workflow completion is delayed"
+                            );
+                        }
                         ExecutionResult::failure(event.task_execution_id, error_msg, duration)
                     }
                 }
@@ -134,24 +156,81 @@ for logs and embedded into the returned `ExecutionResult`.
                     .unwrap_or(false);
 
                 if should_retry {
-                    if let Err(e) = self.schedule_task_retry(claimed_task, retry_policy).await {
-                        warn!(
-                            task_id = %event.task_execution_id,
-                            error = %e,
-                            "Failed to schedule retry"
-                        );
+                    // CLOACI-I-0140: schedule_retry is a terminal state write too —
+                    // dropping it on sqlite-busy left the task Running forever (the
+                    // scenario-33 hang the first fix round missed). Retry it, and if
+                    // it STILL fails, fail the task rather than leave it in limbo.
+                    match retry_transient(5, Duration::from_millis(100), || {
+                        self.schedule_task_retry(claimed_task, retry_policy)
+                    })
+                    .await
+                    {
+                        Ok(()) => {
+                            self.total_executed.fetch_add(1, Ordering::SeqCst);
+                            ExecutionResult::retry(
+                                event.task_execution_id,
+                                error.to_string(),
+                                duration,
+                            )
+                        }
+                        Err(sched_err) => {
+                            warn!(
+                                task_id = %event.task_execution_id,
+                                error = %sched_err,
+                                "Failed to schedule retry after retries — failing task \
+                                 instead of leaving it Running"
+                            );
+                            self.total_failed.fetch_add(1, Ordering::SeqCst);
+                            let error_str =
+                                format!("{} (retry scheduling failed: {})", error, sched_err);
+                            if let Err(mark_err) =
+                                retry_transient(5, Duration::from_millis(100), || async {
+                                    self.dal
+                                        .task_execution()
+                                        .mark_failed(
+                                            event.task_execution_id,
+                                            &error_str,
+                                            self.runner_id,
+                                        )
+                                        .await
+                                })
+                                .await
+                            {
+                                error!(
+                                    task_id = %event.task_execution_id,
+                                    error = %mark_err,
+                                    "mark_failed FAILED after retries — task row stays Running \
+                                     until the stale-claim sweeper recovers it; workflow \
+                                     completion is delayed"
+                                );
+                            }
+                            ExecutionResult::failure(event.task_execution_id, error_str, duration)
+                        }
                     }
-                    self.total_executed.fetch_add(1, Ordering::SeqCst);
-                    ExecutionResult::retry(event.task_execution_id, error.to_string(), duration)
                 } else {
                     self.total_failed.fetch_add(1, Ordering::SeqCst);
-                    // Mark failed in DB — executor owns all state transitions
-                    let _ = self
-                        .dal
-                        .task_execution()
-                        .mark_failed(event.task_execution_id, &error.to_string(), self.runner_id)
-                        .await;
-                    ExecutionResult::failure(event.task_execution_id, error.to_string(), duration)
+                    // Mark failed in DB — executor owns all state transitions.
+                    // CLOACI-I-0140: retried + never swallowed (see above) — THIS
+                    // was the primary hang site: the callback scenarios' tasks fail
+                    // by design, and a sqlite-busy here left them Running forever.
+                    let error_str = error.to_string();
+                    if let Err(mark_err) =
+                        retry_transient(5, Duration::from_millis(100), || async {
+                            self.dal
+                                .task_execution()
+                                .mark_failed(event.task_execution_id, &error_str, self.runner_id)
+                                .await
+                        })
+                        .await
+                    {
+                        error!(
+                            task_id = %event.task_execution_id,
+                            error = %mark_err,
+                            "mark_failed FAILED after retries — task row stays Running until \
+                             the stale-claim sweeper recovers it; workflow completion is delayed"
+                        );
+                    }
+                    ExecutionResult::failure(event.task_execution_id, error_str, duration)
                 }
             }
         }
@@ -414,6 +493,88 @@ Schedules a task for retry via the DAL, computing the delay from the retry polic
 
         Ok(())
     }
+```
+
+</details>
+
+
+
+
+
+## Functions
+
+### `cloacina::executor::result_handler::is_transient_db_error`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">pub(crate)</span>
+
+
+```rust
+fn is_transient_db_error (msg : & str) -> bool
+```
+
+CLOACI-I-0140: is this a TRANSIENT database-contention error worth retrying? SQLite under concurrent writers surfaces `database is locked` (SQLITE_BUSY, after `busy_timeout` elapses) or `database table is locked` (SQLITE_LOCKED); postgres has its own transient shapes (serialization/deadlock). Terminal task-state transitions must not be dropped on these — a swallowed `mark_failed` left the task Running FOREVER, which is the reproduced scenario-flake HANG (the workflow future never resolves, the Python `execute()` blocks on its oneshot, pytest-timeout is silenced).
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub(crate) fn is_transient_db_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("database is locked")
+        || m.contains("database table is locked")
+        || m.contains("deadlock detected")
+        || m.contains("could not serialize access")
+}
+```
+
+</details>
+
+
+
+### `cloacina::executor::result_handler::retry_transient`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">pub(crate)</span>
+
+
+```rust
+async fn retry_transient < T , E , F , Fut > (attempts : u32 , base_delay : Duration , mut op : F ,) -> Result < T , E > where E : std :: fmt :: Display , F : FnMut () -> Fut , Fut : std :: future :: Future < Output = Result < T , E > > ,
+```
+
+Retry an async DB write on transient contention errors: `attempts` tries, linear backoff (`base_delay * attempt`). Non-transient errors return immediately; exhaustion returns the last error.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub(crate) async fn retry_transient<T, E, F, Fut>(
+    attempts: u32,
+    base_delay: Duration,
+    mut op: F,
+) -> Result<T, E>
+where
+    E: std::fmt::Display,
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+{
+    let mut last: Option<E> = None;
+    for attempt in 1..=attempts {
+        match op().await {
+            Ok(v) => return Ok(v),
+            Err(e) if is_transient_db_error(&e.to_string()) && attempt < attempts => {
+                warn!(
+                    attempt,
+                    attempts,
+                    error = %e,
+                    "transient DB contention on task-state write — retrying"
+                );
+                tokio::time::sleep(base_delay * attempt).await;
+                last = Some(e);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last.expect("retry_transient: attempts >= 1"))
+}
 ```
 
 </details>

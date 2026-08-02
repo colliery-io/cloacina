@@ -35,6 +35,9 @@ Represents a workflow execution record (domain type).
 | `pause_reason` | `Option < String >` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
+| `trigger_origin` | `Option < String >` | How this run was triggered (CLOACI-T-0776). `Some("manual")` for an
+operator run via the REST execute endpoint; `None` for cron/trigger/
+reactor-driven runs (and rows created before the column existed). |
 
 
 

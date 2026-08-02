@@ -145,6 +145,50 @@ Returns the connection pool.
 
 
 
+##### `agent_limits` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn agent_limits (& self) -> AgentLimitsDAL < '_ >
+```
+
+Returns an agent-capacity-limits DAL (Postgres only). CLOACI-T-0808.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn agent_limits(&self) -> AgentLimitsDAL<'_> {
+        AgentLimitsDAL::new(self)
+    }
+```
+
+</details>
+
+
+
+##### `agent_desired` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn agent_desired (& self) -> AgentDesiredDAL < '_ >
+```
+
+Returns an agent-desired-count DAL (Postgres only). CLOACI-T-0809.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn agent_desired(&self) -> AgentDesiredDAL<'_> {
+        AgentDesiredDAL::new(self)
+    }
+```
+
+</details>
+
+
+
 ##### `api_keys` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
@@ -160,6 +204,72 @@ Returns an API key DAL (Postgres only).
 ```rust
     pub fn api_keys(&self) -> ApiKeyDAL<'_> {
         ApiKeyDAL::new(self)
+    }
+```
+
+</details>
+
+
+
+##### `oidc_sessions` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn oidc_sessions (& self) -> OidcSessionDAL < '_ >
+```
+
+Returns an OIDC refresh-session DAL (Postgres only). CLOACI-T-0793.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn oidc_sessions(&self) -> OidcSessionDAL<'_> {
+        OidcSessionDAL::new(self)
+    }
+```
+
+</details>
+
+
+
+##### `local_accounts` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn local_accounts (& self) -> LocalAccountDAL < '_ >
+```
+
+Returns a local-accounts DAL (Postgres only). CLOACI-T-0795.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn local_accounts(&self) -> LocalAccountDAL<'_> {
+        LocalAccountDAL::new(self)
+    }
+```
+
+</details>
+
+
+
+##### `oidc_login_flows` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn oidc_login_flows (& self) -> OidcLoginFlowDAL < '_ >
+```
+
+Returns an OIDC login-flow-state DAL (Postgres only). CLOACI-T-0801.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn oidc_login_flows(&self) -> OidcLoginFlowDAL<'_> {
+        OidcLoginFlowDAL::new(self)
     }
 ```
 

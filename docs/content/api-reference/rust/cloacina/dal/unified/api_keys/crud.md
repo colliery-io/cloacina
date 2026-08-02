@@ -26,6 +26,8 @@ Diesel model for reading api_keys rows.
 | `revoked_at` | `Option < chrono :: NaiveDateTime >` |  |
 | `tenant_id` | `Option < String >` |  |
 | `is_admin` | `bool` |  |
+| `expires_at` | `Option < chrono :: NaiveDateTime >` |  |
+| `issued_via` | `Option < String >` |  |
 
 
 
@@ -48,6 +50,30 @@ Diesel model for inserting api_keys rows.
 | `permissions` | `String` |  |
 | `tenant_id` | `Option < String >` |  |
 | `is_admin` | `bool` |  |
+
+
+
+### `cloacina::dal::unified::api_keys::crud::MintApiKey`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+**Derives:** `Insertable`
+
+Insertable for a minted (short-TTL, provenance-tagged) key (CLOACI-T-0792).
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `Uuid` |  |
+| `key_hash` | `String` |  |
+| `name` | `String` |  |
+| `permissions` | `String` |  |
+| `tenant_id` | `Option < String >` |  |
+| `is_admin` | `bool` |  |
+| `expires_at` | `Option < chrono :: NaiveDateTime >` |  |
+| `issued_via` | `Option < String >` |  |
 
 
 
@@ -75,6 +101,8 @@ fn to_info(row: ApiKeyRow) -> ApiKeyInfo {
         revoked: row.revoked_at.is_some(),
         tenant_id: row.tenant_id,
         is_admin: row.is_admin,
+        expires_at: row.expires_at.map(|t| t.and_utc()),
+        issued_via: row.issued_via,
     }
 }
 ```
@@ -137,6 +165,64 @@ pub async fn create_key(
 
 
 
+### `cloacina::dal::unified::api_keys::crud::mint_key`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+async fn mint_key (dal : & DAL , key_hash : & str , name : & str , tenant_id : Option < & str > , role : & str , expires_at : chrono :: DateTime < Utc > , issued_via : & str ,) -> Result < ApiKeyInfo , ValidationError >
+```
+
+CLOACI-T-0792: mint a short-TTL, provenance-tagged key (OIDC / local login). Like `create_key` but sets `expires_at` + `issued_via`; `is_admin` is always false — minted keys are never god-mode. The minted row is an ordinary `api_keys` row that flows through `validate_hash` + the bearer path unchanged (and is rejected once `expires_at` passes).
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub async fn mint_key(
+    dal: &DAL,
+    key_hash: &str,
+    name: &str,
+    tenant_id: Option<&str>,
+    role: &str,
+    expires_at: chrono::DateTime<Utc>,
+    issued_via: &str,
+) -> Result<ApiKeyInfo, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let new_key = MintApiKey {
+        id: Uuid::new_v4(),
+        key_hash: key_hash.to_string(),
+        name: name.to_string(),
+        permissions: role.to_string(),
+        tenant_id: tenant_id.map(|s| s.to_string()),
+        is_admin: false,
+        expires_at: Some(expires_at.naive_utc()),
+        issued_via: Some(issued_via.to_string()),
+    };
+
+    let row: ApiKeyRow = conn
+        .interact(move |conn| {
+            diesel::insert_into(api_keys::table)
+                .values(&new_key)
+                .get_result(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(to_info(row))
+}
+```
+
+</details>
+
+
+
 ### `cloacina::dal::unified::api_keys::crud::validate_hash`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
@@ -161,11 +247,18 @@ pub async fn validate_hash(
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
     let hash = key_hash.to_string();
+    // CLOACI-T-0792: reject expired minted keys (NULL expiry = never expires).
+    let now = Utc::now().naive_utc();
     let result: Option<ApiKeyRow> = conn
         .interact(move |conn| {
             api_keys::table
                 .filter(api_keys::key_hash.eq(&hash))
                 .filter(api_keys::revoked_at.is_null())
+                .filter(
+                    api_keys::expires_at
+                        .is_null()
+                        .or(api_keys::expires_at.gt(now)),
+                )
                 .first(conn)
                 .optional()
         })
@@ -248,6 +341,85 @@ pub async fn list_keys(dal: &DAL) -> Result<Vec<ApiKeyInfo>, ValidationError> {
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
     Ok(results.into_iter().map(to_info).collect())
+}
+```
+
+</details>
+
+
+
+### `cloacina::dal::unified::api_keys::crud::list_keys_for_tenant`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+async fn list_keys_for_tenant (dal : & DAL , tenant_id : & str ,) -> Result < Vec < ApiKeyInfo > , ValidationError >
+```
+
+CLOACI-T-0784: list keys scoped to a single tenant (tenant-admin view). Includes revoked rows (like `list_keys`); the caller renders the `revoked` flag.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub async fn list_keys_for_tenant(
+    dal: &DAL,
+    tenant_id: &str,
+) -> Result<Vec<ApiKeyInfo>, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let tenant_owned = tenant_id.to_string();
+    let results: Vec<ApiKeyRow> = conn
+        .interact(move |conn| {
+            api_keys::table
+                .filter(api_keys::tenant_id.eq(Some(tenant_owned)))
+                .order(api_keys::created_at.desc())
+                .load(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(results.into_iter().map(to_info).collect())
+}
+```
+
+</details>
+
+
+
+### `cloacina::dal::unified::api_keys::crud::get_key`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+async fn get_key (dal : & DAL , id : Uuid) -> Result < Option < ApiKeyInfo > , ValidationError >
+```
+
+CLOACI-T-0784: fetch a single key's info by id (used by the tenant-scoped revoke path to verify the target key belongs to the caller's tenant before revoking). Returns `None` if no such key exists.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub async fn get_key(dal: &DAL, id: Uuid) -> Result<Option<ApiKeyInfo>, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let result: Option<ApiKeyRow> = conn
+        .interact(move |conn| api_keys::table.find(id).first(conn).optional())
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(result.map(to_info))
 }
 ```
 

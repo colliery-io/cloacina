@@ -163,6 +163,314 @@ fn clear_all (& mut self)
 
 
 
+### `cloacina::computation_graph::reactor::FireRecord`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`
+
+Handle to a running reactor — exposes shared state for WebSocket queries.
+
+Returned by `Reactor::handle()` before calling `run()`.
+Operational counters for a reactor, shared between the running reactor and
+its [`ReactorHandle`] so the scheduler/API can report live activity
+(CLOACI-I-0124 / WS-10): total graph fires + the wall-clock time of the last
+fire. Throughput is derived by the caller from successive `fires` samples.
+One recorded reactor fire (CLOACI-T-0766) — the observable unit behind the
+operational view's "Recent fires". Captures outcome + wall time + duration.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `fired_at_ms` | `i64` | Unix-epoch millis when the fire completed. |
+| `ok` | `bool` | Whether the graph execution completed (false = errored). |
+| `error` | `Option < String >` | Error detail for a failed fire. |
+| `duration_ms` | `u64` | Graph execution wall-clock for this fire. |
+| `inputs` | `std :: collections :: HashMap < String , serde_json :: Value >` | Input boundary values that triggered this fire: source name → value
+(CLOACI-T-0775). The snapshot the graph ran on. |
+| `outputs` | `Vec < serde_json :: Value >` | Terminal outputs the graph produced, as JSON (CLOACI-T-0775). Empty when
+the executor can't serialize them (e.g. the Python reactor path) or on a
+failed fire. |
+| `manual` | `bool` | Whether this fire was triggered by a manual operator command
+(`force_fire`/`fire_with`) rather than the reactor's criteria over real
+boundary events (CLOACI-T-0776). Surfaced so the UI can mark it. |
+
+
+
+### `cloacina::computation_graph::reactor::ReactorStats`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Default`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `fires` | `std :: sync :: atomic :: AtomicU64` |  |
+| `failures` | `std :: sync :: atomic :: AtomicU64` | Failed fires (graph execution errored), CLOACI-T-0766. |
+| `last_fire_unix_ms` | `std :: sync :: atomic :: AtomicI64` | Unix-epoch millis of the last fire; `0` means "never fired". |
+| `recent` | `std :: sync :: Mutex < std :: collections :: VecDeque < FireRecord > >` | Ring of recent fires (newest at the back), CLOACI-T-0766. |
+| `buckets` | `std :: sync :: Mutex < std :: collections :: VecDeque < (i64 , u32) > >` | Per-minute fire counts: `(minute_epoch, count)`, ascending minute. |
+
+#### Methods
+
+##### `record_fire` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn record_fire (& self , duration_ms : u64 , inputs : std :: collections :: HashMap < String , serde_json :: Value > , outputs : Vec < serde_json :: Value > , manual : bool ,) -> u64
+```
+
+Record a successful graph fire with its I/O; returns the new completed total (CLOACI-T-0766; I/O CLOACI-T-0775).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn record_fire(
+        &self,
+        duration_ms: u64,
+        inputs: std::collections::HashMap<String, serde_json::Value>,
+        outputs: Vec<serde_json::Value>,
+        manual: bool,
+    ) -> u64 {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.last_fire_unix_ms
+            .store(now, std::sync::atomic::Ordering::Relaxed);
+        self.push(FireRecord {
+            fired_at_ms: now,
+            ok: true,
+            error: None,
+            duration_ms,
+            inputs,
+            outputs,
+            manual,
+        });
+        self.fires
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1
+    }
+```
+
+</details>
+
+
+
+##### `record_failure` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn record_failure (& self , duration_ms : u64 , error : String , inputs : std :: collections :: HashMap < String , serde_json :: Value > , manual : bool ,)
+```
+
+Record a failed graph fire (CLOACI-T-0766). Inputs are still captured so an operator can see what triggered the failing fire (CLOACI-T-0775).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn record_failure(
+        &self,
+        duration_ms: u64,
+        error: String,
+        inputs: std::collections::HashMap<String, serde_json::Value>,
+        manual: bool,
+    ) {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.last_fire_unix_ms
+            .store(now, std::sync::atomic::Ordering::Relaxed);
+        self.push(FireRecord {
+            fired_at_ms: now,
+            ok: false,
+            error: Some(error),
+            duration_ms,
+            inputs,
+            outputs: Vec::new(),
+            manual,
+        });
+        self.failures
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+```
+
+</details>
+
+
+
+##### `push` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn push (& self , record : FireRecord)
+```
+
+Append to the recent ring + bump the current per-minute bucket.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn push(&self, record: FireRecord) {
+        let minute = record.fired_at_ms / 60_000;
+        if let Ok(mut recent) = self.recent.lock() {
+            recent.push_back(record);
+            while recent.len() > FIRE_LOG_CAP {
+                recent.pop_front();
+            }
+        }
+        if let Ok(mut buckets) = self.buckets.lock() {
+            match buckets.back_mut() {
+                Some((m, c)) if *m == minute => *c += 1,
+                _ => buckets.push_back((minute, 1)),
+            }
+            // Keep a little more than the window so reads can align cleanly.
+            while buckets.len() > FIRE_BUCKETS + 4 {
+                buckets.pop_front();
+            }
+        }
+    }
+```
+
+</details>
+
+
+
+##### `fires` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn fires (& self) -> u64
+```
+
+Total successful fires so far.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn fires(&self) -> u64 {
+        self.fires.load(std::sync::atomic::Ordering::Relaxed)
+    }
+```
+
+</details>
+
+
+
+##### `failures` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn failures (& self) -> u64
+```
+
+Total failed fires so far.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn failures(&self) -> u64 {
+        self.failures.load(std::sync::atomic::Ordering::Relaxed)
+    }
+```
+
+</details>
+
+
+
+##### `last_fire_unix_ms` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn last_fire_unix_ms (& self) -> Option < i64 >
+```
+
+Unix-epoch millis of the last fire, or `None` if it hasn't fired yet.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn last_fire_unix_ms(&self) -> Option<i64> {
+        match self
+            .last_fire_unix_ms
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            0 => None,
+            v => Some(v),
+        }
+    }
+```
+
+</details>
+
+
+
+##### `recent_fires` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn recent_fires (& self , limit : usize) -> Vec < FireRecord >
+```
+
+The most recent fires, newest first, up to `limit` (CLOACI-T-0766).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn recent_fires(&self, limit: usize) -> Vec<FireRecord> {
+        self.recent
+            .lock()
+            .map(|r| r.iter().rev().take(limit).cloned().collect())
+            .unwrap_or_default()
+    }
+```
+
+</details>
+
+
+
+##### `fire_timeseries` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn fire_timeseries (& self) -> Vec < u32 >
+```
+
+Fires per minute for the last `FIRE_BUCKETS` minutes, oldest→newest, gaps filled with 0 and aligned to the current minute (CLOACI-T-0766).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn fire_timeseries(&self) -> Vec<u32> {
+        let now_min = chrono::Utc::now().timestamp_millis() / 60_000;
+        let counts: std::collections::HashMap<i64, u32> = self
+            .buckets
+            .lock()
+            .map(|b| b.iter().copied().collect())
+            .unwrap_or_default();
+        (0..FIRE_BUCKETS as i64)
+            .map(|i| {
+                let minute = now_min - (FIRE_BUCKETS as i64 - 1 - i);
+                counts.get(&minute).copied().unwrap_or(0)
+            })
+            .collect()
+    }
+```
+
+</details>
+
+
+
+
+
 ### `cloacina::computation_graph::reactor::ReactorHandle`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
@@ -170,16 +478,13 @@ fn clear_all (& mut self)
 
 **Derives:** `Clone`
 
-Handle to a running reactor — exposes shared state for WebSocket queries.
-
-Returned by `Reactor::handle()` before calling `run()`.
-
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
 | `cache` | `Arc < RwLock < InputCache > >` | Shared cache — readable by WebSocket handlers for GetState. |
 | `paused` | `Arc < AtomicBool >` | Pause flag — when true, executor skips graph execution. |
+| `stats` | `Arc < ReactorStats >` | Live fire counters (CLOACI-I-0124 / WS-10). |
 
 #### Methods
 
@@ -200,6 +505,28 @@ Read the current cache as a JSON-friendly map.
     pub async fn get_state(&self) -> HashMap<String, String> {
         let cache = self.cache.read().await;
         cache.entries_as_json()
+    }
+```
+
+</details>
+
+
+
+##### `stats` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn stats (& self) -> (u64 , Option < i64 >)
+```
+
+Live operational counters: `(total_fires, last_fire_unix_ms)`.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn stats(&self) -> (u64, Option<i64>) {
+        (self.stats.fires(), self.stats.last_fire_unix_ms())
     }
 ```
 
@@ -303,6 +630,14 @@ The Reactor.
 | `health` | `Option < watch :: Sender < ReactorHealth > >` | Health state reporter. None when health tracking not needed. |
 | `accumulator_health_rxs` | `Vec < (String , watch :: Receiver < super :: accumulator :: AccumulatorHealth > ,) >` | Accumulator health receivers for startup gating and degraded mode detection. |
 | `batch_flush_senders` | `Vec < mpsc :: Sender < () > >` | Flush senders for batch accumulators — signalled after graph execution. |
+| `stats` | `Arc < ReactorStats >` | Live fire counters, shared with the `ReactorHandle` (WS-10). |
+| `evaluator` | `Option < Arc < dyn ReactorFireDecider > >` | Optional pluggable firing-decision hook (CLOACI-T-0828). When set, the
+executor consults this instead of the `WhenAny`/`WhenAll` dirty-flag
+criteria on the `Latest` path — this is the seam a WASM reactor
+constructor's `evaluate` plugs into. |
+| `graph_executor` | `Arc < dyn super :: graph_executor :: GraphExecutor >` | Where firings execute (CLOACI-T-0722): in-process by default, or the
+server's fleet executor (whole-graph dispatch to an agent). Every fire
+event carries the compiled closure as the executor's fallback. |
 
 #### Methods
 
@@ -341,7 +676,64 @@ fn new (graph : CompiledGraphFn , criteria : ReactionCriteria , input_strategy :
             health: None,
             accumulator_health_rxs: Vec::new(),
             batch_flush_senders: Vec::new(),
+            stats: Arc::new(ReactorStats::default()),
+            evaluator: None,
+            graph_executor: super::graph_executor::in_process_graph_executor(),
         }
+    }
+```
+
+</details>
+
+
+
+##### `with_graph_executor` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_graph_executor (mut self , executor : Arc < dyn super :: graph_executor :: GraphExecutor > ,) -> Self
+```
+
+Set where firings execute (CLOACI-T-0722): the server injects its fleet executor here when `--default-executor fleet`; embedded and default paths keep the in-process executor.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_graph_executor(
+        mut self,
+        executor: Arc<dyn super::graph_executor::GraphExecutor>,
+    ) -> Self {
+        self.graph_executor = executor;
+        self
+    }
+```
+
+</details>
+
+
+
+##### `with_evaluator` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_evaluator (mut self , evaluator : Arc < dyn ReactorFireDecider >) -> Self
+```
+
+Set a pluggable firing-decision hook (CLOACI-T-0828).
+
+When present, the executor consults `evaluator.should_fire(snapshot)` on
+every received boundary (the `Latest` path) instead of the built-in
+`WhenAny`/`WhenAll` dirty-flag criteria — so a WASM reactor constructor's
+`evaluate` becomes the reactor's firing criteria.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_evaluator(mut self, evaluator: Arc<dyn ReactorFireDecider>) -> Self {
+        self.evaluator = Some(evaluator);
+        self
     }
 ```
 
@@ -539,6 +931,7 @@ for GetState, Pause, and Resume operations.
         ReactorHandle {
             cache: self.cache.clone(),
             paused: self.paused.clone(),
+            stats: self.stats.clone(),
         }
     }
 ```
@@ -822,23 +1215,43 @@ Run the reactor. Spawns receiver + executor tasks.
         let tenant_id_exec = self.tenant_id.clone();
         let graph_name_exec = self.graph_name.clone();
         let batch_flush = self.batch_flush_senders.clone();
-        let fire_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        // Shared with the ReactorHandle so the scheduler/API can report live
+        // fire counts + last-fire time (WS-10).
+        let fire_counter = self.stats.clone();
         // Consecutive persist failures — drives the I-0108 / T-0590
         // watchdog that flips the reactor to `Degraded` after 5 in a row.
         let persist_streak = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let health_exec = self.health.clone();
+        // CLOACI-T-0828: when set, replaces the WhenAny/WhenAll criteria on the
+        // Latest path with an external firing decision (a WASM reactor `evaluate`).
+        let evaluator = self.evaluator.clone();
+        // CLOACI-T-0722: firings run through the pluggable executor (in-process
+        // by default; the fleet executor ships them to an agent).
+        let graph_executor = self.graph_executor.clone();
 
         loop {
             tokio::select! {
                 Some(signal) = strategy_rx.recv() => {
+                    // CLOACI-T-0776: a ForceFire signal is only sent for a manual
+                    // operator command (force_fire/fire_with), so the resulting
+                    // fire is a manual intervention.
+                    let is_manual = matches!(signal, StrategySignal::ForceFire);
                     match input_strategy {
                         InputStrategy::Latest => {
                             let should_run = match signal {
                                 StrategySignal::BoundaryReceived => {
-                                    let d = dirty_exec.read().await;
-                                    match &criteria {
-                                        ReactionCriteria::WhenAny => d.any_set(),
-                                        ReactionCriteria::WhenAll => d.all_set(),
+                                    // CLOACI-T-0828: a plugged-in evaluator (e.g. a
+                                    // WASM reactor `evaluate`) decides firing when
+                                    // present; otherwise the dirty-flag criteria do.
+                                    if let Some(ref ev) = evaluator {
+                                        let snap = cache_exec.read().await.snapshot();
+                                        ev.should_fire(&snap).await
+                                    } else {
+                                        let d = dirty_exec.read().await;
+                                        match &criteria {
+                                            ReactionCriteria::WhenAny => d.any_set(),
+                                            ReactionCriteria::WhenAll => d.all_set(),
+                                        }
                                     }
                                 }
                                 StrategySignal::ForceFire => true,
@@ -851,7 +1264,17 @@ Run the reactor. Spawns receiver + executor tasks.
                                 write_reactor_firing(
                                     &dal_exec, &tenant_id_exec, &graph_name_exec, &snapshot,
                                 ).await;
-                                let result = (graph)(snapshot).await;
+                                // CLOACI-T-0775: capture the triggering inputs before
+                                // the snapshot is moved into the graph call.
+                                let fire_inputs = capture_fire_inputs(&snapshot);
+                                let result = graph_executor
+                                    .execute(super::graph_executor::GraphFireEvent {
+                                        graph_name: graph_name_exec.clone(),
+                                        tenant_id: tenant_id_exec.clone(),
+                                        snapshot,
+                                        in_process: graph.clone(),
+                                    })
+                                    .await;
                                 metrics::counter!(
                                     "cloacina_reactor_fires_total",
                                     "graph" => graph_name_exec.clone(),
@@ -866,8 +1289,13 @@ Run the reactor. Spawns receiver + executor tasks.
                                 )
                                 .record(fire_started.elapsed().as_secs_f64());
                                 match &result {
-                                    GraphResult::Completed { .. } => {
-                                        let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                                    GraphResult::Completed { outputs_json, .. } => {
+                                        let fires = fire_counter.record_fire(
+                                            fire_started.elapsed().as_millis() as u64,
+                                            fire_inputs,
+                                            outputs_json.clone(),
+                                            is_manual,
+                                        );
                                         tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                         persist_reactor_state(
                                             &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
@@ -878,6 +1306,12 @@ Run the reactor. Spawns receiver + executor tasks.
                                         }
                                     }
                                     GraphResult::Error(e) => {
+                                        fire_counter.record_failure(
+                                            fire_started.elapsed().as_millis() as u64,
+                                            e.to_string(),
+                                            fire_inputs,
+                                            is_manual,
+                                        );
                                         tracing::error!(graph = %graph_name_exec, "graph execution failed: {}", e);
                                     }
                                 }
@@ -904,7 +1338,16 @@ Run the reactor. Spawns receiver + executor tasks.
                                         write_reactor_firing(
                                             &dal_exec, &tenant_id_exec, &graph_name_exec, &snapshot,
                                         ).await;
-                                        let result = (graph)(snapshot).await;
+                                        // CLOACI-T-0775: capture inputs before the move.
+                                        let fire_inputs = capture_fire_inputs(&snapshot);
+                                        let result = graph_executor
+                                            .execute(super::graph_executor::GraphFireEvent {
+                                                graph_name: graph_name_exec.clone(),
+                                                tenant_id: tenant_id_exec.clone(),
+                                                snapshot,
+                                                in_process: graph.clone(),
+                                            })
+                                            .await;
                                         metrics::counter!(
                                             "cloacina_reactor_fires_total",
                                             "graph" => graph_name_exec.clone(),
@@ -919,8 +1362,13 @@ Run the reactor. Spawns receiver + executor tasks.
                                         )
                                         .record(fire_started.elapsed().as_secs_f64());
                                         match &result {
-                                            GraphResult::Completed { .. } => {
-                                                let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                                            GraphResult::Completed { outputs_json, .. } => {
+                                                let fires = fire_counter.record_fire(
+                                                    fire_started.elapsed().as_millis() as u64,
+                                                    fire_inputs,
+                                                    outputs_json.clone(),
+                                                    is_manual,
+                                                );
                                                 tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                                 persist_reactor_state(
                                                     &dal_exec, &graph_name_exec, &cache_exec,
@@ -933,6 +1381,12 @@ Run the reactor. Spawns receiver + executor tasks.
                                                 }
                                             }
                                             GraphResult::Error(e) => {
+                                                fire_counter.record_failure(
+                                                    fire_started.elapsed().as_millis() as u64,
+                                                    e.to_string(),
+                                                    fire_inputs,
+                                                    is_manual,
+                                                );
                                                 tracing::error!("graph execution failed: {}", e);
                                             }
                                         }
@@ -983,18 +1437,6 @@ Health state of a reactor.
 
 
 
-### `cloacina::computation_graph::reactor::ReactionCriteria` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-Reaction criteria — when to fire the graph.
-
-#### Variants
-
-- **`WhenAny`** - Fire if any dirty flag is set.
-- **`WhenAll`** - Fire if all dirty flags are set.
-
-
-
 ### `cloacina::computation_graph::reactor::InputStrategy` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
@@ -1015,7 +1457,8 @@ Signals sent from receiver to executor.
 #### Variants
 
 - **`BoundaryReceived`** - A boundary was received — check reaction criteria.
-- **`ForceFire`** - Force-fire regardless of criteria.
+- **`ForceFire`** - Force-fire regardless of criteria (only sent for a manual operator
+command — `force_fire`/`fire_with`). CLOACI-T-0776.
 
 
 
@@ -1028,36 +1471,6 @@ Manual commands accepted by the reactor.
 
 - **`ForceFire`** - Fire with current cache state.
 - **`FireWith`** - Fire with injected state (replaces cache).
-
-
-
-### `cloacina::computation_graph::reactor::ReactorCommand` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-Commands sent by WebSocket operators to a reactor.
-
-#### Variants
-
-- **`ForceFire`**
-- **`FireWith`**
-- **`GetState`**
-- **`Pause`**
-- **`Resume`**
-
-
-
-### `cloacina::computation_graph::reactor::ReactorResponse` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-Responses sent back to WebSocket operators.
-
-#### Variants
-
-- **`Fired`**
-- **`State`**
-- **`Paused`**
-- **`Resumed`**
-- **`Error`**
 
 
 
@@ -1080,6 +1493,45 @@ Create a reactor health reporting channel.
 ```rust
 pub fn reactor_health_channel() -> (watch::Sender<ReactorHealth>, watch::Receiver<ReactorHealth>) {
     watch::channel(ReactorHealth::Starting)
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::reactor::capture_fire_inputs`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">pub(crate)</span>
+
+
+```rust
+fn capture_fire_inputs (snapshot : & cloacina_computation_graph :: InputCache ,) -> std :: collections :: HashMap < String , serde_json :: Value >
+```
+
+Decode a fire's input snapshot to `source → JSON value` for the fire log (CLOACI-T-0775). Each cache entry is a boundary frame `bincode(json_bytes)` (the `encode_boundary_input` format the FFI bridge decodes), so unwrap the bincode `Vec<u8>` then parse it as JSON. Falls back to parsing the frame directly (untyped/raw sources), then to null.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub(crate) fn capture_fire_inputs(
+    snapshot: &cloacina_computation_graph::InputCache,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    snapshot
+        .entries_raw()
+        .iter()
+        .map(|(name, frame)| {
+            let value = bincode::deserialize::<Vec<u8>>(frame)
+                .ok()
+                .and_then(|json_bytes| {
+                    serde_json::from_slice::<serde_json::Value>(&json_bytes).ok()
+                })
+                .or_else(|| serde_json::from_slice::<serde_json::Value>(frame).ok())
+                .unwrap_or(serde_json::Value::Null);
+            (name.as_str().to_string(), value)
+        })
+        .collect()
 }
 ```
 

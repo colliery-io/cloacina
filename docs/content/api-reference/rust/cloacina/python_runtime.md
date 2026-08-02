@@ -16,6 +16,22 @@ with a clear `not attached` error at reconcile time.
 
 ## Structs
 
+### `cloacina::python_runtime::PythonTaskNode`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+One task in a loaded Python workflow, with its dependency edges — captured host-side (from the scoped Runtime, before it is dropped) so the reconciler can persist the task DAG into package metadata and the UI can render it like Rust workflows. (CLOACI-T-0672)
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `String` | Local task id (e.g. `"finish"`). |
+| `dependencies` | `Vec < String >` | Local ids of the tasks this task depends on (e.g. `["prepare"]`). |
+
+
+
 ### `cloacina::python_runtime::LoadedPythonWorkflow`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
@@ -29,6 +45,8 @@ Result of loading a Python workflow package.
 |------|------|-------------|
 | `task_namespaces` | `Vec < TaskNamespace >` | Tasks registered in the global task registry under their fully-qualified
 namespace. The reconciler tracks these so it can unregister on unload. |
+| `tasks` | `Vec < PythonTaskNode >` | Per-task dependency edges (local ids), for persisting/rendering the task
+DAG. Mirrors the Rust path's `PackageMetadata.tasks`. (CLOACI-T-0672) |
 | `workflow_name` | `String` | Name of the workflow registered in the global workflow registry. |
 
 

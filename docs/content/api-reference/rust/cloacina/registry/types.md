@@ -32,6 +32,7 @@ let metadata = WorkflowMetadata {
     id: Uuid::new_v4(),
     registry_id: Uuid::new_v4(),
     package_name: "analytics_pipeline".to_string(),
+    workflow_name: "analytics_workflow".to_string(),
     version: "1.0.0".to_string(),
     description: Some("Customer analytics workflow".to_string()),
     author: Some("Data Team".to_string()),
@@ -39,6 +40,7 @@ let metadata = WorkflowMetadata {
     schedules: vec!["daily_analytics".to_string()],
     created_at: Utc::now(),
     updated_at: Utc::now(),
+    paused: false,
 };
 ```
 
@@ -49,13 +51,81 @@ let metadata = WorkflowMetadata {
 | `id` | `WorkflowPackageId` | Unique identifier for this workflow package |
 | `registry_id` | `Uuid` | Foreign key to the workflow_registry table |
 | `package_name` | `String` | Name of the workflow package (e.g., "analytics_pipeline") |
+| `workflow_name` | `String` | Name of the executable workflow inside the package (e.g.,
+"analytics_workflow"). This is the identifier the runner registry is
+keyed by and is what callers must use to execute the workflow. It often
+differs from `package_name` (package `demo-slow-rust` →
+workflow `demo_slow_workflow`). (CLOACI-T-0671) |
 | `version` | `String` | Semantic version of the package (e.g., "1.0.0") |
 | `description` | `Option < String >` | Optional human-readable description |
 | `author` | `Option < String >` | Optional author information |
 | `tasks` | `Vec < String >` | List of task IDs included in this package |
+| `task_graph` | `Vec < WorkflowTaskNode >` | The task dependency graph: one node per task with its upstream
+dependencies, so consumers (the UI) can render the full DAG. Derived
+from the persisted package metadata's task list. Empty for packages
+predating task-graph persistence. (CLOACI-T-0663) |
 | `schedules` | `Vec < String >` | List of schedule names defined in this package |
 | `created_at` | `DateTime < Utc >` | When this package was registered |
 | `updated_at` | `DateTime < Utc >` | When this package metadata was last updated |
+| `paused` | `bool` | Whether this workflow is paused (CLOACI-T-0749). When true, new
+executions are refused at the execute chokepoint. Defaults to false for
+older serialized data and non-DB registry backends. |
+| `declared_params` | `Vec < cloacina_api_types :: InputSlot >` | CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the
+workflow accepts at execute time. Empty when the workflow declares none
+or predates the input-interface entrypoint. |
+| `declared_surfaces` | `Vec < cloacina_api_types :: DeclaredSurface >` | CLOACI-I-0128 (T-0758): declared input interfaces of the package's
+non-workflow injectable surfaces (graphs/reactors/accumulators), used to
+validate operator injections. Empty when none are declared. |
+| `workflow_triggers` | `Vec < String >` | CLOACI-T-0777: trigger names this workflow subscribes to, from
+`#[workflow(triggers = […])]`. A manual trigger fire fans out to every
+workflow whose list includes the fired trigger — this is the runtime
+source of truth for that fan-out (schedules carry only the trigger's
+primary `on` workflow). Empty when the workflow subscribes to none. |
+
+
+
+### `cloacina::registry::types::WorkflowSourceFile`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`
+
+A single source file extracted from a package's retained `.cloacina` archive for read-only display (CLOACI-T-0750).
+
+`path` is relative to the package source root (e.g. `"src/lib.rs"`,
+`"package.toml"`) and always uses forward slashes. Only UTF-8 text files
+are represented; binary and oversized files are omitted by the extractor.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `path` | `String` | Path relative to the package source root, using forward slashes. |
+| `contents` | `String` | UTF-8 file contents. |
+
+
+
+### `cloacina::registry::types::WorkflowTaskNode`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`
+
+One node in a workflow's task dependency graph (CLOACI-T-0663).
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `String` | Local task id (the node id), e.g. `"validate"`. |
+| `dependencies` | `Vec < String >` | Local ids of the tasks this task depends on (its incoming edges). |
+| `description` | `Option < String >` | Optional human-readable task description. |
+| `doc_what` | `Option < String >` | CLOACI-T-0752 "what" — short summary parsed from the task's
+doc-comment/docstring. `None` when undocumented. |
+| `doc_why` | `Option < String >` | CLOACI-T-0752 "why" — rationale parsed from the doc-comment/docstring.
+`None` when undocumented. |
 
 
 

@@ -29,6 +29,9 @@ Information about an API key (never includes the hash).
 | `revoked` | `bool` |  |
 | `tenant_id` | `Option < String >` |  |
 | `is_admin` | `bool` |  |
+| `expires_at` | `Option < chrono :: DateTime < chrono :: Utc > >` | CLOACI-T-0792: minted-key expiry (`None` for manual keys = no expiry). |
+| `issued_via` | `Option < String >` | CLOACI-T-0792: minted-key provenance (e.g. `oidc:<issuer>:<sub>` /
+`local:<account_id>`; `None` for manual keys). |
 
 
 

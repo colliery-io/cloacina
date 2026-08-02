@@ -23,7 +23,13 @@ Configuration for the unified scheduler.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `cron_poll_interval` | `Duration` | How often to check for due cron schedules. |
+| `cron_poll_interval` | `Duration` | Backstop for the timer-driven cron loop (CLOACI-T-0743). The scheduler
+sleeps until the next due schedule's exact instant; this caps that sleep
+so the loop still re-checks the DB at least this often even absent a
+change notification — a safety net for missed notifies and the
+multi-instance case (an in-process notify only wakes the local replica).
+It is NOT a fixed poll: when the next fire is sooner than this, the loop
+wakes exactly at the fire time, not on this interval. |
 | `max_catchup_executions` | `usize` | Maximum number of missed executions to run in catchup mode. |
 | `max_acceptable_delay` | `Duration` | Maximum acceptable delay for cron (used for observability / alerting). |
 | `trigger_base_poll_interval` | `Duration` | Base poll interval — the tick rate of the run loop. |
@@ -66,7 +72,10 @@ The scheduler runs a single polling loop that:
 | `shutdown` | `watch :: Receiver < bool >` |  |
 | `runtime` | `Arc < Runtime >` | Scoped runtime used to look up trigger constructors. |
 | `last_poll_times` | `HashMap < String , Instant >` | Tracks when each trigger was last polled (by trigger name). |
-| `last_cron_check` | `Option < Instant >` | Tracks when cron schedules were last checked. |
+| `cron_change` | `Arc < Notify >` | Wakes the timer-driven cron loop when schedules change (registered,
+enabled/disabled, deleted) so a new schedule fires on time instead of
+waiting for the backstop (CLOACI-T-0743). Shared with the cron registrar
+/ runner cron API, which call `notify_one` after mutating schedules. |
 | `last_reactor_poll` | `Option < Instant >` | Tracks when reactor subscriptions were last polled
 (CLOACI-I-0100 / T-0599). |
 | `last_reactor_prune` | `Option < Instant >` | Tracks when the `reactor_firings` TTL prune last ran
@@ -83,7 +92,7 @@ Arc<Mutex> for shared interior mutability across Scheduler clones
 
 
 ```rust
-fn new (dal : Arc < DAL > , executor : Arc < dyn WorkflowExecutor > , config : SchedulerConfig , shutdown : watch :: Receiver < bool > , runtime : Arc < Runtime > ,) -> Self
+fn new (dal : Arc < DAL > , executor : Arc < dyn WorkflowExecutor > , config : SchedulerConfig , shutdown : watch :: Receiver < bool > , runtime : Arc < Runtime > , cron_change : Arc < Notify > ,) -> Self
 ```
 
 Creates a new unified scheduler.
@@ -108,6 +117,7 @@ Creates a new unified scheduler.
         config: SchedulerConfig,
         shutdown: watch::Receiver<bool>,
         runtime: Arc<Runtime>,
+        cron_change: Arc<Notify>,
     ) -> Self {
         Self {
             dal,
@@ -115,8 +125,8 @@ Creates a new unified scheduler.
             config,
             shutdown,
             runtime,
+            cron_change,
             last_poll_times: HashMap::new(),
-            last_cron_check: None,
             last_reactor_poll: None,
             last_reactor_prune: None,
             predicate_cache: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -147,7 +157,14 @@ Creates a new unified scheduler with default configuration.
         shutdown: watch::Receiver<bool>,
         runtime: Arc<Runtime>,
     ) -> Self {
-        Self::new(dal, executor, SchedulerConfig::default(), shutdown, runtime)
+        Self::new(
+            dal,
+            executor,
+            SchedulerConfig::default(),
+            shutdown,
+            runtime,
+            Arc::new(Notify::new()),
+        )
     }
 ```
 
@@ -184,29 +201,26 @@ The loop continues until a shutdown signal is received.
         let mut interval = tokio::time::interval(self.config.trigger_base_poll_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+        // Timer-driven cron (CLOACI-T-0743): instead of sweeping every
+        // `cron_poll_interval`, cache the next due instant and sleep until it.
+        // Recomputed only after a fire or a `cron_change` notification, so the
+        // 1 s trigger/reactor tick does NOT re-query the DB for cron.
+        let mut next_cron_due = self.query_next_cron_due().await;
+
         loop {
+            let cron_delay = self.cron_sleep_delay(next_cron_due);
+            let cron_sleep = tokio::time::sleep(cron_delay);
+            tokio::pin!(cron_sleep);
+
             tokio::select! {
                 _ = interval.tick() => {
-                    // --- Cron ---
-                    let now = Instant::now();
-                    let should_check_cron = match self.last_cron_check {
-                        Some(last) => now.duration_since(last) >= self.config.cron_poll_interval,
-                        None => true,
-                    };
-
-                    if should_check_cron {
-                        self.last_cron_check = Some(now);
-                        if let Err(e) = self.check_and_execute_cron_schedules().await {
-                            error!("Error processing cron schedules: {}", e);
-                        }
-                    }
-
                     // --- Triggers ---
                     if let Err(e) = self.check_and_process_triggers().await {
                         error!("Error processing triggers: {}", e);
                     }
 
                     // --- Reactor subscriptions (CLOACI-I-0100 / T-0599) ---
+                    let now = Instant::now();
                     let should_poll_reactors = match self.last_reactor_poll {
                         Some(last) => now.duration_since(last) >= self.config.reactor_poll_interval,
                         None => true,
@@ -230,6 +244,18 @@ The loop continues until a shutdown signal is received.
                         self.prune_reactor_firings().await;
                     }
                 }
+                // --- Cron: wake exactly at the next due instant (or backstop) ---
+                _ = &mut cron_sleep => {
+                    if let Err(e) = self.check_and_execute_cron_schedules().await {
+                        error!("Error processing cron schedules: {}", e);
+                    }
+                    next_cron_due = self.query_next_cron_due().await;
+                }
+                // --- Cron schedule changed (registered/enabled/deleted): re-arm ---
+                _ = self.cron_change.notified() => {
+                    debug!("Cron change notification — recomputing next due time");
+                    next_cron_due = self.query_next_cron_due().await;
+                }
                 _ = self.shutdown.changed() => {
                     if *self.shutdown.borrow() {
                         info!("Unified scheduler received shutdown signal");
@@ -241,6 +267,57 @@ The loop continues until a shutdown signal is received.
 
         info!("Unified scheduler polling loop stopped");
         Ok(())
+    }
+```
+
+</details>
+
+
+
+##### `query_next_cron_due` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn query_next_cron_due (& self) -> Option < DateTime < Utc > >
+```
+
+Query the earliest `next_run_at` over enabled cron schedules. Errors are logged and treated as "unknown" (`None`) so a transient DB hiccup falls back to the backstop rather than stalling the loop (CLOACI-T-0743).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn query_next_cron_due(&self) -> Option<DateTime<Utc>> {
+        match self.dal.schedule().next_cron_due_time().await {
+            Ok(due) => due,
+            Err(e) => {
+                warn!("Failed to query next cron due time: {}", e);
+                None
+            }
+        }
+    }
+```
+
+</details>
+
+
+
+##### `cron_sleep_delay` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn cron_sleep_delay (& self , next_due : Option < DateTime < Utc > >) -> Duration
+```
+
+How long to sleep before the next cron check, given the cached next-due instant. Sleeps exactly until the due time when it's known and sooner than the backstop; otherwise caps at `cron_poll_interval` (the backstop) so the loop still re-checks periodically. A due time in the past yields `ZERO` (fire immediately). (CLOACI-T-0743)
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn cron_sleep_delay(&self, next_due: Option<DateTime<Utc>>) -> Duration {
+        compute_cron_sleep_delay(next_due, Utc::now(), self.config.cron_poll_interval)
     }
 ```
 
@@ -282,10 +359,22 @@ Checks for due cron schedules and executes them.
 
         info!("Found {} due cron schedule(s)", due_schedules.len());
 
+        // Process each due schedule on its own task (CLOACI-T-0743). The handoff
+        // `executor.execute(...)` blocks until the workflow runs, so processing
+        // sequentially made a second schedule due at the same instant wait for
+        // the first workflow's entire execution before it was even picked up
+        // (observed: ~3–10s, the first workflow's run time). Spawning keeps the
+        // scheduler loop non-blocking ("move on immediately" per this module's
+        // contract) so co-due schedules dispatch concurrently and the loop
+        // returns to its sleep immediately. Per-row `claim_and_update_cron` is
+        // atomic, so concurrent processing of distinct schedules is safe.
         for schedule in due_schedules {
-            if let Err(e) = self.process_cron_schedule(&schedule, now).await {
-                error!("Failed to process cron schedule {}: {}", schedule.id, e);
-            }
+            let this = self.clone();
+            tokio::spawn(async move {
+                if let Err(e) = this.process_cron_schedule(&schedule, now).await {
+                    error!("Failed to process cron schedule {}: {}", schedule.id, e);
+                }
+            });
         }
 
         Ok(())
@@ -604,6 +693,16 @@ Executes a cron workflow by handing it off to the workflow executor.
         scheduled_time: DateTime<Utc>,
     ) -> Result<UniversalUuid, WorkflowExecutionError> {
         let mut context = Context::new();
+        // CLOACI-I-0116: a named instance's bound params are delivered as
+        // flat context keys; the reserved scheduler keys below are stamped
+        // AFTER (merge skips them), so a binding can never spoof them.
+        if let Some(ref params_json) = schedule.params {
+            crate::workflow_instance::merge_instance_params(&mut context, params_json).map_err(
+                |e| WorkflowExecutionError::ExecutionFailed {
+                    message: format!("instance params merge: {}", e),
+                },
+            )?;
+        }
         context
             .insert(
                 "scheduled_time",
@@ -984,6 +1083,16 @@ Executes a trigger workflow by handing it off to the workflow executor.
     ) -> Result<UniversalUuid, WorkflowExecutionError> {
         let trigger_name = schedule.trigger_name.as_deref().unwrap_or("unknown");
 
+        // CLOACI-I-0116: bound instance params override same-named keys in
+        // the trigger-produced payload (OQ-3); reserved keys stamped after.
+        if let Some(ref params_json) = schedule.params {
+            crate::workflow_instance::merge_instance_params(&mut context, params_json).map_err(
+                |e| WorkflowExecutionError::ExecutionFailed {
+                    message: format!("instance params merge: {}", e),
+                },
+            )?;
+        }
+
         context
             .insert("trigger_name", serde_json::json!(trigger_name))
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {
@@ -995,6 +1104,16 @@ Executes a trigger workflow by handing it off to the workflow executor.
                 message: format!("Context error: {}", e),
             })?;
 
+        // CLOACI-T-0778: snapshot the context before executing so every
+        // fanned-out workflow receives an identical copy (Context isn't Clone).
+        let ctx_json = context
+            .to_json()
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+                message: format!("Context serialize error: {}", e),
+            })?;
+
+        // Primary: the trigger's `on` workflow. Drives the audit record + return
+        // value, and propagates its error (unchanged behavior).
         let result = self
             .executor
             .execute(&schedule.workflow_name, context)
@@ -1004,6 +1123,47 @@ Executes a trigger workflow by handing it off to the workflow executor.
             "Successfully handed off workflow '{}' to executor (execution_id: {})",
             schedule.workflow_name, result.execution_id
         );
+
+        // CLOACI-T-0778: fan out to every OTHER workflow subscribed to this
+        // trigger via `#[workflow(triggers = […])]` — a trigger is a single point
+        // that multiple workflows link to, and an auto-fire must reach all of them
+        // (matching the manual fire, CLOACI-T-0777). Best-effort: a secondary
+        // failure is logged, never fails the primary. Skipped for cron schedules
+        // (no trigger_name) — they bind exactly one workflow.
+        if schedule.trigger_name.is_some() {
+            let storage = UnifiedRegistryStorage::new(self.dal.database().clone());
+            if let Ok(registry) = WorkflowRegistryImpl::new(storage, self.dal.database().clone()) {
+                match registry.find_trigger_subscribers(trigger_name).await {
+                    Ok(subscribers) => {
+                        for wf in subscribers {
+                            if wf == schedule.workflow_name {
+                                continue;
+                            }
+                            match Context::from_json(ctx_json.clone()) {
+                                Ok(ctx) => match self.executor.execute(&wf, ctx).await {
+                                    Ok(r) => debug!(
+                                        "trigger '{}' fan-out: fired '{}' (execution_id: {})",
+                                        trigger_name, wf, r.execution_id
+                                    ),
+                                    Err(e) => warn!(
+                                        "trigger '{}' fan-out: failed to fire '{}': {}",
+                                        trigger_name, wf, e
+                                    ),
+                                },
+                                Err(e) => warn!(
+                                    "trigger '{}' fan-out: context rebuild failed for '{}': {}",
+                                    trigger_name, wf, e
+                                ),
+                            }
+                        }
+                    }
+                    Err(e) => warn!(
+                        "trigger '{}' fan-out: subscriber lookup failed: {}",
+                        trigger_name, e
+                    ),
+                }
+            }
+        }
 
         Ok(UniversalUuid(result.execution_id))
     }
@@ -1513,6 +1673,38 @@ Enables a trigger by name.
 
 
 ## Functions
+
+### `cloacina::cron_trigger_scheduler::compute_cron_sleep_delay`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn compute_cron_sleep_delay (next_due : Option < DateTime < Utc > > , now : DateTime < Utc > , backstop : Duration ,) -> Duration
+```
+
+How long the timer-driven cron loop should sleep before its next check (CLOACI-T-0743), given the next due instant, the current time, and the backstop. Pure so it's deterministically testable: - next due in the future, sooner than the backstop → sleep until it - next due in the future, beyond the backstop → sleep the backstop (re-check) - next due now/past → `ZERO` (fire immediately) - no schedules (`None`) → sleep the backstop
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn compute_cron_sleep_delay(
+    next_due: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+    backstop: Duration,
+) -> Duration {
+    match next_due {
+        Some(t) if t <= now => Duration::ZERO,
+        Some(t) => (t - now).to_std().unwrap_or(Duration::ZERO).min(backstop),
+        None => backstop,
+    }
+}
+```
+
+</details>
+
+
 
 ### `cloacina::cron_trigger_scheduler::eval_cel_predicate_program`
 

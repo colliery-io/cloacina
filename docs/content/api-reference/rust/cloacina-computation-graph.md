@@ -401,6 +401,66 @@ trigger-less graphs. |
 
 
 
+### `cloacina-computation-graph::ReactorConstructorRef`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`
+
+A reference to a packaged WASM reactor **constructor** carried by a reactor declaration (CLOACI-T-0830).
+
+When present, the reactor's firing decision is delegated to the named WASM
+constructor's `evaluate` (installed on the live `Reactor` via
+`with_evaluator`), REPLACING the built-in `WhenAny`/`WhenAll` dirty-flag
+criteria. The fields mirror the `constructor!(...)` consumer surface added for
+task/trigger in CLOACI-T-0829, so a reactor constructor is authored/resolved
+the same way:
+* `from` — the provider package, `"name[@version]"`, resolved against the
+T-0829 provider search path (`CLOACINA_PROVIDER_PATH` / `./providers` /
+the process override);
+* `constructor` — which constructor inside that provider (validated against
+the provider's `constructor.json` `name`);
+* `config` — the author's `config = { name = value }` kwargs as
+`(name, value)` pairs in WRITTEN order, bound BY NAME at load.
+Resolution happens in the CG scheduler (`load_reactor`) behind the
+`constructors-wasm` feature; this type itself is always compiled (it carries
+only `String`/`serde_json::Value`, no wasmtime types).
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `from` | `String` | Provider package reference, `"name[@version]"`. |
+| `constructor` | `String` | The constructor's `constructor.json` name inside the provider. |
+| `config` | `Vec < (String , serde_json :: Value) >` | Author config as `(name, value)` pairs in written order; bound by name. |
+| `grants` | `Vec < (String , Vec < String >) >` | Tenant capability grants as raw `(kind, patterns)` pairs (kinds: `http`,
+`tcp`, `fs`, `env`) — the `grants = { .. }` literal from the reactor's
+consumer surface (CLOACI-T-0834). Carried opaquely (like `config`) and
+translated to a fidius `EgressPolicy` + capability allow-list at load.
+Empty ⇒ default-closed (the constructor reaches nothing). |
+
+
+
+### `cloacina-computation-graph::AccumulatorSpec`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`
+
+The authored KIND + config of one accumulator a reactor consumes (CLOACI-T-0839). Carried on [`ReactorRegistration`] so runtime-walking load paths (notably packaged Python, where `@cloaca.state_accumulator` is the only declaration) can spawn the right accumulator runtime instead of defaulting to passthrough. `config` is the same String-keyed map the manifest override channel uses (e.g. `capacity` for state accumulators).
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `name` | `String` |  |
+| `accumulator_type` | `String` | "passthrough" | "stream" | "polling" | "batch" | "state". |
+| `config` | `std :: collections :: HashMap < String , String >` |  |
+
+
+
 ### `cloacina-computation-graph::ReactorRegistration`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
@@ -418,7 +478,16 @@ Populated by the `#[reactor]` macro's emitted inventory entry.
 |------|------|-------------|
 | `name` | `String` |  |
 | `accumulator_names` | `Vec < String >` |  |
+| `accumulator_specs` | `Vec < AccumulatorSpec >` | Authored accumulator kinds/configs for (a subset of) `accumulator_names`
+(CLOACI-T-0839). Empty on paths where the kind travels out-of-band
+(Rust packaged reactors carry it in the FFI metadata); populated by the
+Python `@cloaca.reactor` path from the module's accumulator decorators.
+Consumers fall back to manifest overrides, then passthrough. |
 | `reaction_mode` | `ReactionMode` |  |
+| `constructor` | `Option < ReactorConstructorRef >` | Optional packaged WASM reactor-constructor reference (CLOACI-T-0830).
+`Some(..)` makes the WASM guest's `evaluate` the reactor's firing
+criteria; `None` is the native dirty-flag reactor. Defaults to `None`
+so every pre-existing construction site stays valid. |
 
 
 

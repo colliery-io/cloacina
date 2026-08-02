@@ -30,6 +30,11 @@ Builds a task's input context by loading + merging its dependency contexts (or t
 | Name | Type | Description |
 |------|------|-------------|
 | `dal` | `DAL` |  |
+| `secret_resolver` | `Option < Arc < dyn SecretResolver > >` | Optional secret resolution side channel (CLOACI-T-0858). When set, every
+context this builder produces carries the resolver so a task body can
+call `context.secret(...)`. It is attached to the runtime-only,
+never-serialized handle on `Context`, so it cannot leak into the durable
+context. `None` on paths that don't configure secrets. |
 
 #### Methods
 
@@ -45,7 +50,33 @@ fn new (dal : DAL) -> Self
 
 ```rust
     pub fn new(dal: DAL) -> Self {
-        Self { dal }
+        Self {
+            dal,
+            secret_resolver: None,
+        }
+    }
+```
+
+</details>
+
+
+
+##### `with_secret_resolver` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_secret_resolver (mut self , resolver : Option < Arc < dyn SecretResolver > >) -> Self
+```
+
+Attach the secret resolver every built context should carry (T-0858).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_secret_resolver(mut self, resolver: Option<Arc<dyn SecretResolver>>) -> Self {
+        self.secret_resolver = resolver;
+        self
     }
 ```
 
@@ -86,6 +117,14 @@ a hard `ContextLoadFailed` (COR-11) — never a silent partial context.
         );
 
         let mut context = Context::new();
+
+        // Attach the secret resolution side channel (T-0858) to whichever
+        // context we return below. This is the runtime-only, never-serialized
+        // handle — resolved secrets are returned to the task, never written into
+        // `data`.
+        if let Some(resolver) = &self.secret_resolver {
+            context.set_secret_resolver(resolver.clone());
+        }
 
         // Load initial workflow context if task has no dependencies.
         if dependencies.is_empty() {

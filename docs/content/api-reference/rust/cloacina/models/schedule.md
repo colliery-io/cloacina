@@ -41,6 +41,11 @@ to the `schedule_type` will be `None`.
 | `last_poll_at` | `Option < UniversalTimestamp >` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
+| `paused` | `UniversalBool` | Transient operator pause (CLOACI-T-0749). When set, the scheduler does
+not fire this schedule. Distinct from `enabled` (deliberate on/off). |
+| `paused_at` | `Option < UniversalTimestamp >` |  |
+| `params` | `Option < String >` |  |
+| `instance_name` | `Option < String >` |  |
 
 #### Methods
 
@@ -132,6 +137,50 @@ Returns true if the schedule is enabled.
 
 
 
+##### `is_paused` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn is_paused (& self) -> bool
+```
+
+Returns true if the schedule is paused (CLOACI-T-0749). A paused schedule is skipped by the scheduler even when `enabled`.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn is_paused(&self) -> bool {
+        self.paused.is_true()
+    }
+```
+
+</details>
+
+
+
+##### `is_active` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn is_active (& self) -> bool
+```
+
+Returns true if the schedule should currently fire: enabled and not paused. Callers in the scheduler use this as the single gate.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn is_active(&self) -> bool {
+        self.is_enabled() && !self.is_paused()
+    }
+```
+
+</details>
+
+
+
 ##### `poll_interval` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
@@ -207,6 +256,8 @@ Structure for creating new schedule records.
 | `poll_interval_ms` | `Option < i32 >` |  |
 | `allow_concurrent` | `Option < UniversalBool >` |  |
 | `next_run_at` | `Option < UniversalTimestamp >` |  |
+| `params` | `Option < String >` |  |
+| `instance_name` | `Option < String >` |  |
 
 #### Methods
 
@@ -241,6 +292,8 @@ Create a new cron schedule.
             poll_interval_ms: None,
             allow_concurrent: None,
             next_run_at: Some(next_run_at),
+            params: None,
+            instance_name: None,
         }
     }
 ```
@@ -276,6 +329,8 @@ Create a new trigger schedule.
             poll_interval_ms: Some(poll_interval.as_millis() as i32),
             allow_concurrent: Some(UniversalBool::new(false)),
             next_run_at: None,
+            params: None,
+            instance_name: None,
         }
     }
 ```

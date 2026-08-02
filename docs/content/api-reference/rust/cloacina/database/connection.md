@@ -218,6 +218,8 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
                 let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
                 let pool = PgPool::builder(manager)
                     .max_size(max_size as usize)
+                    .runtime(PgRuntime::Tokio1)
+                    .wait_timeout(Some(POOL_WAIT_TIMEOUT))
                     .build()
                     .map_err(|e| DatabaseError::PoolCreation {
                         backend: "PostgreSQL",
@@ -256,9 +258,11 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
                 // poll + firings pruner, both added under I-0100/T-0602),
                 // which on macOS CI was producing contention severe
                 // enough to look like a deadlock.
-                let sqlite_pool_size = 4;
+                let sqlite_pool_size = SQLITE_POOL_SIZE;
                 let pool = SqlitePool::builder(manager)
                     .max_size(sqlite_pool_size)
+                    .runtime(SqliteRuntime::Tokio1)
+                    .wait_timeout(Some(POOL_WAIT_TIMEOUT))
                     .build()
                     .map_err(|e| DatabaseError::PoolCreation {
                         backend: "SQLite",
@@ -286,6 +290,8 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
             let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
             let pool = PgPool::builder(manager)
                 .max_size(max_size as usize)
+                .runtime(PgRuntime::Tokio1)
+                .wait_timeout(Some(POOL_WAIT_TIMEOUT))
                 .build()
                 .map_err(|e| DatabaseError::PoolCreation {
                     backend: "PostgreSQL",
@@ -314,9 +320,11 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
             let (connection_url, memory_tempfile) =
                 Self::materialize_sqlite_connection(connection_string)?;
             let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
-            let sqlite_pool_size = 1;
+            let sqlite_pool_size = SQLITE_POOL_SIZE;
             let pool = SqlitePool::builder(manager)
                 .max_size(sqlite_pool_size)
+                .runtime(SqliteRuntime::Tokio1)
+                .wait_timeout(Some(POOL_WAIT_TIMEOUT))
                 .build()
                 .map_err(|e| DatabaseError::PoolCreation {
                     backend: "SQLite",
@@ -475,13 +483,38 @@ fn build_postgres_url (base_url : & str , database_name : & str) -> Result < Str
 
 Builds a PostgreSQL connection URL.
 
+Respects an explicit database name already present in `base_url` (e.g.
+`postgres://host/mydb`); only falls back to the `database_name`
+parameter when the URL carries no database (empty path or just `/`).
+Previously this unconditionally called `set_path(database_name)`, so a
+`--database-url postgres://…/mydb` silently connected to the
+caller-supplied `database_name` (the server hardcodes `"cloacina"`)
+while logging `mydb` — data landed in the wrong database (CLOACI-T-0649).
+
 <details>
 <summary>Source</summary>
 
 ```rust
     fn build_postgres_url(base_url: &str, database_name: &str) -> Result<String, url::ParseError> {
         let mut url = Url::parse(base_url)?;
-        url.set_path(database_name);
+        let has_explicit_db = !url.path().trim_start_matches('/').is_empty();
+        if !has_explicit_db {
+            url.set_path(database_name);
+        }
+        // CLOACI-T-0910: default `gssencmode=disable` (caller's explicit value
+        // wins). libpq's GSSAPI negotiation walks libkrb5 init on every new
+        // connection, which is getenv-heavy — and glibc's getenv is unlocked,
+        // so it segfaults if ANY other thread setenv/putenv's concurrently
+        // (e.g. Python `os.environ[...] = ...` while a pool thread opens a
+        // connection). This was the rotating CI segfault class: symbolized
+        // core showed SIGSEGV in __GI_getenv("KRB5_TRACE") under
+        // PQconnectdb ← deadpool Manager::create on a tokio blocking thread.
+        // Disabling GSS encryption skips the krb5 path entirely; anyone who
+        // actually needs GSSAPI sets gssencmode explicitly in their URL.
+        let has_gssencmode = url.query_pairs().any(|(k, _)| k == "gssencmode");
+        if !has_gssencmode {
+            url.query_pairs_mut().append_pair("gssencmode", "disable");
+        }
         Ok(url.to_string())
     }
 ```
@@ -500,12 +533,17 @@ fn materialize_sqlite_connection (connection_string : & str ,) -> Result < (Stri
 Resolve a SQLite connection string into (url, optional tempfile owner).
 
 `:memory:` (with or without the `sqlite://` prefix) is substituted
-for a per-Database tempfile on disk. This is the only reliable way
-to get multi-connection sharing under diesel — the standard
-`file::memory:?cache=shared` form requires `SQLITE_OPEN_URI`, which
-diesel's open path doesn't set. Without that flag, sqlite silently
-creates a file literally named `:memory:` in CWD and the supposed
-"shared cache" never happens.
+for a per-Database tempfile on disk. Diesel 2.3+ does set
+`SQLITE_OPEN_URI` (and rewrites a leading `sqlite://` to `file:`),
+but this crate strips the scheme before diesel sees the string, so
+the path is always opened literally — the tempfile substitution
+remains the reliable way to get multi-connection sharing here.
+Query parameters after a `sqlite://` scheme are dropped with a
+warning: they were never interpreted on this path (WAL and
+busy_timeout are applied as pragmas on every connection), and
+historically they leaked into the on-disk filename
+(`app.db?mode=rwc` the file — CLOACI-T-0912). Bare paths pass
+through byte-for-byte.
 The returned `NamedTempFile` must be held for the lifetime of the
 Database (we wrap it in `Arc` and stash it on `Self` so Clone'd
 Databases share ownership and the file is deleted only when the
@@ -520,9 +558,25 @@ Returns `(url, Some(handle))` for `:memory:` requests; otherwise
     fn materialize_sqlite_connection(
         connection_string: &str,
     ) -> Result<(String, Option<Arc<NamedTempFile>>), DatabaseError> {
-        let stripped = connection_string
-            .strip_prefix("sqlite://")
-            .unwrap_or(connection_string);
+        let (stripped, had_scheme) = match connection_string.strip_prefix("sqlite://") {
+            Some(rest) => (rest, true),
+            None => (connection_string, false),
+        };
+        let stripped = if had_scheme {
+            match stripped.split_once('?') {
+                Some((path, params)) => {
+                    warn!(
+                        "ignoring query parameters in sqlite:// URL (they are not \
+                         interpreted; WAL + busy_timeout are set automatically): ?{}",
+                        params
+                    );
+                    path
+                }
+                None => stripped,
+            }
+        } else {
+            stripped
+        };
         if stripped != ":memory:" {
             return Ok((stripped.to_string(), None));
         }
