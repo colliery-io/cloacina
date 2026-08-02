@@ -654,7 +654,11 @@ mod tests {
             Some(tmp.path()),
         )
         .unwrap_err();
-        assert!(format!("{err:?}").contains("Rust-only"));
+        // T-0912: the refusal must say the TEMPLATE is missing (the capability
+        // exists) and point at the working @cloaca.trigger(cron=...) path.
+        let msg = format!("{err:?}");
+        assert!(msg.contains("no Python cron scaffold template"));
+        assert!(msg.contains("cron="));
     }
 
     #[test]
