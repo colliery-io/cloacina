@@ -23,7 +23,7 @@ Add `cloacina-testing` as a dev dependency:
 
 ```toml
 [dev-dependencies]
-cloacina-testing = { path = "../crates/cloacina-testing" }
+cloacina-testing = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -33,7 +33,7 @@ Register your tasks with `TestRunner` and call `run()`. Tasks execute in depende
 
 ```rust
 use cloacina_testing::TestRunner;
-use cloacina_workflow::Context;
+use cloacina::Context;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -177,14 +177,9 @@ async fn test_inspect_outcomes() {
 }
 ```
 
-## Testing with BoundaryEmitter (Continuous Feature)
+## Testing with BoundaryEmitter
 
-If you're testing continuous/event-driven tasks, enable the `continuous` feature and use `BoundaryEmitter` to simulate detector output.
-
-```toml
-[dev-dependencies]
-cloacina-testing = { path = "../crates/cloacina-testing", features = ["continuous"] }
-```
+If you're testing continuous/event-driven tasks, use `BoundaryEmitter` to simulate detector output. It ships in the crate by default — no extra feature flag.
 
 ```rust
 use cloacina_testing::BoundaryEmitter;

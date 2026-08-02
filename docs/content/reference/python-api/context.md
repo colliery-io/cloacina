@@ -254,6 +254,45 @@ context = cloaca.Context.from_json(json_data)
 name = context.get("name")  # "Alice"
 ```
 
+## Secret Access
+
+Inside a workflow whose package declares secrets
+(`@cloaca.workflow_secrets(...)`), tasks read them through the context. The
+resolved value is returned to the caller only — it is never written into the
+context's serialized data, so it cannot leak into schedules, fire logs, or
+execution history.
+
+### `secret(name)`
+
+Read all fields of a named secret.
+
+**Parameters:**
+- `name` (str): The declared local binding name or the concrete secret name (alias-aware)
+
+**Returns:** dict mapping field names to values
+
+**Raises:** `RuntimeError` if no secret resolver is configured
+(`CLOACINA_SECRET_KEK` unset) or the backend fails; `KeyError` if the secret
+does not exist; `PermissionError` if the secret is not granted to this
+workflow.
+
+### `secret_field(name, field)`
+
+Read a single field of a named secret.
+
+**Returns:** str
+
+**Raises:** As `secret()`, plus `KeyError` when the secret exists but has no
+field of that name.
+
+```python
+@cloaca.task()
+def use_db(context):
+    creds = context.secret("db_prod")          # {"username": ..., "password": ...}
+    password = context.secret_field("db_prod", "password")
+    return context
+```
+
 ## Data Types
 
 Context can store any JSON-serializable Python data:
@@ -385,11 +424,11 @@ def accumulate_results(context):
 
 ## Thread Safety
 
-- **Read operations** (`get`, `to_dict`, `in`, `len`): Thread-safe
-- **Write operations** (`set`, `insert`, `update`, `remove`): Use locks for concurrent access
-- **Dictionary operations**: Follow same thread safety rules
+Access to a `Context` is serialized by the Python interpreter, but the class
+provides no atomicity across compound operations (read-modify-write). If you
+share one `Context` object across threads outside the engine, guard mutation
+with your own lock:
 
-**Example with threading:**
 ```python
 import threading
 
@@ -399,9 +438,10 @@ lock = threading.Lock()
 def safe_update(key, value):
     with lock:
         context.set(key, value)
-
-# Use safe_update for concurrent writes
 ```
+
+Within a workflow, tasks receive the context as an argument and return it —
+the engine manages that flow, so task bodies do not need locking.
 
 ## Performance Considerations
 

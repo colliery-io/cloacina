@@ -78,10 +78,12 @@ To fire the workflow only on a subset of reactor firings, register the subscript
 runner.subscribe_workflow_to_reactor(
     "pricing_pipeline_reactor",        // reactor name
     "price_signal_processing",         // workflow name
-    "price_signal_workflow_trigger",   // trigger name
+    None,                              // tenant (None = "public")
     Some("payload.value > 100"),       // CEL predicate (None = fire every time)
 ).await?;
 ```
+
+The call is idempotent: subscribing twice with the same `(reactor, workflow, tenant)` upserts, and the later call's predicate replaces the earlier one's.
 
 CEL variables available to the predicate:
 

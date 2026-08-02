@@ -23,7 +23,7 @@ This guide walks through converting an existing embedded Rust workflow into a pa
 | Macro | `#[workflow]` | `#[workflow]` (same) plus a one-line `cloacina_workflow_plugin::package!()` shell in `lib.rs` |
 | Crate type | `bin` or `lib` | `cdylib` — but you don't declare it; the compiler injects the `cdylib` crate-type + `packaged` feature at build time |
 | Dependencies | `cloacina` (full crate) | `cloacina-workflow` (with `packaged`, `macros` features) + `cloacina-workflow-plugin` |
-| Registration | `inventory::submit!` entries seeded into `Runtime` at startup via `seed_from_inventory()` | FFI vtable exports (9 methods, indices 0–8) loaded dynamically; the unified [`cloacina_workflow_plugin::package!()`]({{< ref "/reference/package-shell-macro" >}}) shell macro emits the entry points |
+| Registration | `inventory::submit!` entries seeded into `Runtime` at startup via `seed_from_inventory()` | FFI vtable exports (11 methods, indices 0–10) loaded dynamically; the unified [`cloacina_workflow_plugin::package!()`]({{< ref "/reference/package-shell-macro" >}}) shell macro emits the entry points |
 | Runtime | Your `#[tokio::main]` | Daemon or server loads and runs it |
 | Build | `cargo build` | `cloacinactl package pack` archives the source; the compiler compiles it |
 
@@ -62,7 +62,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina = { version = "0.7.0", features = ["macros", "sqlite"] }
+cloacina = { version = "0.10", features = ["macros", "sqlite"] }
 async-trait = "0.1"
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
@@ -76,8 +76,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina-workflow = { version = "0.7", features = ["packaged", "macros"] }
-cloacina-workflow-plugin = "0.7"
+cloacina-workflow = { version = "0.10", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ```
@@ -199,7 +199,7 @@ Or upload to the server:
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
-  -F "package=@my-workflow.cloacina" \
+  -F "file=@my-workflow.cloacina" \
   https://cloacina.example.com/v1/tenants/my_tenant/workflows
 ```
 

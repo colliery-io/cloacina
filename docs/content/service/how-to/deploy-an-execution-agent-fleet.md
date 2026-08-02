@@ -93,10 +93,12 @@ free capacity. Useful options (full list in the [CLI reference]({{< ref "/refere
   cache across restarts to skip re-fetching artifacts.
 - `--capabilities a,b` — advertise free-form tags at registration.
 
-> **Build profile must match.** Agents `dlopen` the compiler's cdylibs, and the
-> fidius wire format depends on the build profile (debug = JSON, release =
-> bincode). Release agents need release-built packages. Production images are
-> release; build your workflow packages release too.
+> **Architecture must match.** Agents `dlopen` the compiler's cdylibs — native
+> code that only runs on the target triple it was built for. The fidius wire
+> format is always bincode regardless of build profile, so debug/release
+> mixing is not a compatibility concern; matching the CPU architecture is (see
+> the [multi-architecture dispatch]({{< ref "/service/explanation/execution-agent-fleet" >}}#multi-architecture-dispatch)
+> story).
 
 ## 3. Verify it's running on the fleet
 

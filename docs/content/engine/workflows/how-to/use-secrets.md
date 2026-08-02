@@ -44,12 +44,15 @@ pub mod reach_out {
 A declared secret name may not collide with a declared param name, and duplicate
 secret names are rejected at compile time.
 
-**Python** — apply `@cloaca.workflow_secrets(...)`:
+**Python** — apply `@cloaca.workflow_secrets(...)`, stacked above a
+`@cloaca.task` function in the workflow's packaged source (the same placement
+convention as `@cloaca.workflow_params`; there is no `@cloaca.workflow`
+decorator):
 
 ```python
 @cloaca.workflow_secrets("db_prod", "stripe_key")
-@cloaca.workflow("reach_out")
-def build():
+@cloaca.task(id="call_api")
+def call_api(context):
     ...
 ```
 

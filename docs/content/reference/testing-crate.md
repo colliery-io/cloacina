@@ -22,9 +22,12 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dev-dependencies]
-cloacina-testing = { path = "../crates/cloacina-testing" }
+cloacina-testing = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
+
+(Inside the cloacina repo itself, workspace members use a `path`
+dependency instead.)
 
 ## TestRunner
 
@@ -131,14 +134,13 @@ pub enum TestRunnerError {
 }
 ```
 
-## Continuous Feature (Feature-Gated)
+## Boundary and Mock Utilities
 
-The following types are available behind the `continuous` feature flag.
-
-```toml
-[dev-dependencies]
-cloacina-testing = { path = "../crates/cloacina-testing", features = ["continuous"] }
-```
+The following types ship unconditionally (the crate defines no cargo
+features). `BoundaryEmitter` and `MockDataConnection` are re-exported
+at the crate root; `ComputationBoundary` and `ConnectionDescriptor`
+live at `cloacina_testing::boundary::ComputationBoundary` and
+`cloacina_testing::mock::ConnectionDescriptor`.
 
 ### BoundaryEmitter
 

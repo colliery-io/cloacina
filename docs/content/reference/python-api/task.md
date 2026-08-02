@@ -26,13 +26,11 @@ def my_task(context):
 
 ## Decorator Parameters
 
-### Required Parameters
+All parameters are keyword-only and optional
+(`crates/cloacina-python/src/task.rs`):
 
-- `id` (str): Unique identifier for the task within the workflow
-
-### Optional Parameters
-
-- `dependencies` (list): List of task IDs that must complete before this task runs
+- `id` (str): Unique identifier for the task within the workflow. Defaults to the decorated function's name.
+- `dependencies` (list): List of task IDs (strings or task function references) that must complete before this task runs
 - `retry_attempts` (int): Number of retry attempts on failure
 - `retry_backoff` (str): Backoff strategy: "fixed", "linear", or "exponential"
 - `retry_delay_ms` (int): Initial delay between retries in milliseconds
@@ -41,7 +39,9 @@ def my_task(context):
 - `retry_jitter` (bool): Add random jitter to retry delays
 - `on_success` (callable): Callback function called when task succeeds
 - `on_failure` (callable): Callback function called when task fails
-- `trigger_rules` (rule): Conditional gate — when the rule evaluates false (and the task's dependencies are otherwise satisfied), the task lands in the real `Skipped` state and its body never runs. Python parity with Rust's `#[task(trigger_rules = …)]`.
+- `invokes` (ComputationGraphBuilder): A **trigger-less** computation graph this task invokes: after the task body succeeds, the engine executes the graph with the task's context. The referenced `with ComputationGraphBuilder(...)` block must run before the decorator, or the decorator raises `ValueError`. Python parity with Rust's `#[task(invokes = …)]`.
+- `post_invocation` (callable): Callback run after the invoked graph completes; only meaningful with `invokes=` (setting it alone raises `ValueError`).
+- `trigger_rules` (rule): Conditional gate — when the rule evaluates false (and the task's dependencies are otherwise satisfied), the task lands in the real `Skipped` state and its body never runs. Python parity with Rust's `#[task(trigger_rules = …)]`. Default: always run.
 
 ## Trigger rules
 
@@ -118,20 +118,17 @@ def process_data(context):
     return context
 ```
 
-## Async Tasks
+## Task Functions Are Synchronous
 
-Tasks can be defined as async functions for non-blocking operations:
+Task bodies are plain (synchronous) functions. The executor runs each body on
+a blocking worker thread and expects the return value to be the `Context` (or
+`None` to keep the incoming context unchanged) —
+`async def` bodies are not awaited, so an async task fails when its coroutine
+return value cannot be converted back into a `Context`
+(`crates/cloacina-python/src/task.rs`).
 
-```python
-import asyncio
-
-@cloaca.task()
-async def async_task(context):
-    """Example async task."""
-    await asyncio.sleep(1)  # Simulate async operation
-    context.set("async_result", "Async operation completed")
-    return context
-```
+To wait on an external condition without holding a concurrency slot, use a
+[TaskHandle](#taskhandle) with `defer_until` instead of `await`.
 
 ## Error Handling
 

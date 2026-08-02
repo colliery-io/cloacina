@@ -74,29 +74,29 @@ Errors from workflow graph validation and dependency resolution.
 |---|---|---|
 | `CyclicDependency` | `cycle: Vec<String>` | The dependency graph contains a cycle. Lists the task IDs forming the cycle. |
 | `MissingDependency` | `task: String`, `dependency: String` | A task declares a dependency on a task ID that is not registered. |
-| `MissingDependencyOld` | `task_id: String`, `dependency: String` | Legacy variant of `MissingDependency`. |
-| `CircularDependency` | `cycle: String` | String representation of a circular dependency. |
 | `DuplicateTaskId` | `String` | Two tasks in the same workflow have the same ID. |
 | `EmptyWorkflow` | -- | The workflow contains no tasks. |
 | `InvalidGraph` | `message: String` | General graph structure error. |
 | `WorkflowNotFound` | `String` | The requested workflow is not registered. |
-| `ExecutionFailed` | `message: String` | A pipeline execution failed during validation-triggered execution. |
+| `ExecutionFailed` | `message: String` | A workflow execution failed during validation-triggered execution. |
 | `TaskSchedulingFailed` | `task_id: String` | Failed to schedule a task for execution. |
 | `InvalidTriggerRule` | `String` | A trigger rule expression could not be parsed. |
+| `InvalidPredicate` | `String` | A reactor-subscription CEL predicate failed to compile (rejected before the subscription is written; CLOACI-T-0602). |
 | `InvalidTaskName` | `String` | A task name does not conform to naming rules. |
 | `ContextEvaluationFailed` | `key: String` | A context value referenced in a trigger rule could not be evaluated. |
 | `RecoveryFailed` | `message: String` | A recovery operation failed. |
 | `TaskRecoveryAbandoned` | `task_id: String`, `attempts: i32` | Recovery for this task was abandoned after exceeding the retry limit. |
-| `PipelineRecoveryFailed` | `pipeline_id: Uuid` | Pipeline-level recovery failed. |
+| `WorkflowRecoveryFailed` | `workflow_execution_id: Uuid` | Workflow-level recovery failed. |
 | `DatabaseConnection` | `message: String` | Could not connect to the database. |
 | `DatabaseQuery` | `message: String` | A database query failed. |
 | `Database` | `diesel::result::Error` | A diesel database error. |
 | `ConnectionPool` | `String` | Failed to acquire a database pool connection. |
+| `InvalidStateTransition` | `id: i64`, `from: String`, `to: String` | An execution row was asked to move between states in an illegal order. |
 | `Context` | `ContextError` | A context error occurred during validation. |
 
 **Common causes:**
 
-- `CyclicDependency` / `CircularDependency` -- Review the `dependencies` arrays in `#[task]` attributes and remove the cycle.
+- `CyclicDependency` -- Review the `dependencies` arrays in `#[task]` attributes and remove the cycle.
 - `MissingDependency` -- A task depends on an ID that does not exist. Check for typos.
 - `DuplicateTaskId` -- Two tasks share the same `id`. Task IDs must be unique within a workflow.
 - `WorkflowNotFound` -- The workflow was not registered. Ensure the `#[workflow]` module is compiled and linked.
@@ -115,11 +115,13 @@ Errors during task execution and pipeline management.
 | `TaskExecution` | `TaskError` | A task returned an error during execution. |
 | `Context` | `ContextError` | A context operation failed. |
 | `TaskTimeout` | -- | A task exceeded its timeout (no task ID available at this level). |
+| `ClaimLost` | -- | The runner's claim on the task was lost (heartbeat expired and another runner reclaimed it). |
 | `Semaphore` | `tokio::sync::AcquireError` | Failed to acquire the concurrency semaphore. Indicates the runtime is shutting down. |
-| `PipelineNotFound` | `Uuid` | No pipeline execution exists with this ID. |
+| `WorkflowExecutionNotFound` | `Uuid` | No workflow execution exists with this ID. |
 | `Serialization` | `serde_json::Error` | Failed to serialize or deserialize execution state. |
 | `InvalidScope` | `String` | Invalid execution scope. |
 | `Validation` | `ValidationError` | A validation error surfaced during execution. |
+| `ContextLoadFailed` | `String` | The stored context for an execution could not be loaded. |
 
 **Common causes:**
 
@@ -186,8 +188,8 @@ Top-level errors for workflow execution.
 |---|---|---|
 | `DatabaseConnection` | `message: String` | Failed to connect to the database. |
 | `WorkflowNotFound` | `workflow_name: String` | The workflow is not registered. |
-| `ExecutionFailed` | `message: String` | The pipeline execution failed. |
-| `Timeout` | `timeout_seconds: u64` | The pipeline exceeded its timeout. |
+| `ExecutionFailed` | `message: String` | The workflow execution failed. |
+| `Timeout` | `timeout_seconds: u64` | The workflow execution exceeded `workflow_timeout`. |
 | `Validation` | `ValidationError` | A validation error occurred. |
 | `TaskExecution` | `TaskError` | A task execution error bubbled up. |
 | `Executor` | `ExecutorError` | An executor-level error occurred. |
@@ -196,7 +198,7 @@ Top-level errors for workflow execution.
 **Common causes:**
 
 - `WorkflowNotFound` -- Pass the correct workflow name to `runner.execute()`. Check registration.
-- `Timeout` -- Increase `pipeline_timeout` in `DefaultRunnerConfig`.
+- `Timeout` -- Increase `workflow_timeout` in `DefaultRunnerConfig`.
 - `Configuration` -- Check database URL and schema name formats.
 
 ## CronError

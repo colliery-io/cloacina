@@ -114,26 +114,43 @@ The `post_invocation` callback runs after the graph completes, with the merged o
 
 ### 4. (Python equivalent)
 
-The Python surface mirrors the Rust shape. Declare a graph with the `ComputationGraphBuilder` context manager (no `reactor=` kwarg, since this is the embedded form), then bind it from a task with `invokes=`:
+The Python surface mirrors the Rust shape. Declare a graph with the `ComputationGraphBuilder` context manager (no `reactor=` kwarg, since this is the embedded form), define the nodes with `@cloaca.node` inside the `with` block (node names come from the function names and must match the graph dict's keys), then bind the **builder object** from a task with `invokes=`:
 
 ```python
 import cloaca
 
-# Embedded graph — no reactor= kwarg.
-with cloaca.ComputationGraphBuilder("decision_graph", graph={
-    "score": {"inputs": ["orderbook", "pricing"], "next": "normalize"},
-    "normalize": {"inputs": ["score"], "next": "dispatch"},
-    "dispatch": {"inputs": ["normalize"]},
-}) as builder:
-    builder.add_node("score", score_node)
-    builder.add_node("normalize", normalize_node)
-    builder.add_node("dispatch", dispatch_node)
+# Embedded graph — no reactor= kwarg. Edges wire node outputs to the next
+# node; a task-invoked graph's entry node receives the task Context.
+decision_graph = cloaca.ComputationGraphBuilder("decision_graph", graph={
+    "score": {"next": "normalize"},
+    "normalize": {"next": "dispatch"},
+    "dispatch": {},
+})
 
-@cloaca.task(invokes="decision_graph")
+with decision_graph:
+    @cloaca.node
+    def score(ctx):            # entry node: gets the invoking task's Context
+        return {"score": 0.7}
+
+    @cloaca.node
+    def normalize(score):      # downstream nodes: one arg per upstream output
+        return {"normalized": score["score"]}
+
+    @cloaca.node
+    def dispatch(normalized):  # terminal: its return value lands in the task
+        return normalized      # context under the node's name ("dispatch")
+
+@cloaca.task(invokes=decision_graph)
 def score_inputs(ctx):
     # Same as Rust — the decorator's expansion handles invocation wiring.
     pass
 ```
+
+Notes on the Python surface:
+
+- Node names come from the decorated function names and must match the graph dict's keys.
+- `invokes=` takes the `ComputationGraphBuilder` instance (anything exposing a `NAME` attribute), not a string.
+- The `with` block must have run before the `@cloaca.task` decorator that references it — the decorator validates at decoration time that the graph is registered and trigger-less (graphs declared with `reactor=` are rejected).
 
 See [Python CG tutorial]({{< ref "/embed/tutorials/10-computation-graph" >}}) for the Python authoring side.
 

@@ -142,18 +142,20 @@ let config = DefaultRunnerConfig::builder()
 | Optimal concurrency | 4-8 workers | 16-64 workers |
 | Connection overhead | Minimal (file-based) | Per-connection memory (~5-10MB) |
 | Network latency | None (in-process) | Present (even on localhost) |
-| WAL mode | Enabled by default in URLs | N/A (uses MVCC) |
+| WAL mode | Enabled automatically on every connection | N/A (uses MVCC) |
 | Best for | Development, single-node, low concurrency | Production, multi-node, high concurrency |
 
 ### SQLite WAL configuration
 
-Cloacina SQLite URLs should include WAL mode and busy timeout:
+No URL parameters are needed (or interpreted): Cloacina sets
+`PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=30000` on every SQLite
+connection automatically (`crates/cloacina/src/database/connection/mod.rs`).
 
 ```
-sqlite:///path/to/cloacina.db?_journal_mode=WAL&_busy_timeout=5000
+sqlite:///path/to/cloacina.db
 ```
 
-WAL mode allows concurrent readers during writes. The busy timeout (5000ms) prevents immediate `SQLITE_BUSY` errors under contention.
+WAL mode allows concurrent readers during writes. The busy timeout (30s) prevents immediate `SQLITE_BUSY` errors under contention.
 
 ### Connection pool behavior
 
@@ -407,8 +409,8 @@ Cloacina emits the following metrics via the `metrics` crate:
 
 | Metric | Type | Labels | What it tells you |
 |--------|------|--------|-------------------|
-| `cloacina_tasks_total` | Counter | `status=completed\|failed` | Task completion rates |
-| `cloacina_pipelines_total` | Counter | `status=completed\|failed` | Workflow completion rates |
+| `cloacina_tasks_total` | Counter | `status`, `reason` | Task completion rates |
+| `cloacina_workflows_total` | Counter | `status`, `reason` | Workflow completion rates |
 
 Monitor these alongside system metrics:
 - **Queue depth**: Number of workflows in `Pending` + tasks in `Ready` state (query the database)
@@ -490,8 +492,8 @@ let config = DefaultRunnerConfig::builder()
     .enable_claiming(true)
     .heartbeat_interval(Duration::from_secs(10))
     .build();
-// Note: stale_claim_sweep_interval (default 30s) and stale_claim_threshold
-// (default 60s) are struct defaults, not builder methods.
+// stale_claim_sweep_interval (default 30s) and stale_claim_threshold
+// (default 60s) also have builder setters if you need to tune failover.
 ```
 
 Requirements:
@@ -584,8 +586,8 @@ let config = DefaultRunnerConfig::builder()
     .max_concurrent_tasks(16)
     .enable_claiming(true)
     .heartbeat_interval(Duration::from_secs(10))
-    // stale_claim_sweep_interval (30s) and stale_claim_threshold (60s)
-    // use struct defaults — not available as builder methods
+    .stale_claim_threshold(Duration::from_secs(60))     // must exceed heartbeat_interval
+    .stale_claim_sweep_interval(Duration::from_secs(30))
     .runner_id(Some("runner-east-1".to_string()))
     .runner_name(Some("East Region Runner 1".to_string()))
     .build();

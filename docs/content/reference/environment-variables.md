@@ -17,7 +17,7 @@ This page documents all environment variables recognized by Cloacina components.
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `DATABASE_URL` | PostgreSQL connection URL for the server and admin commands. Can also be set via `--database-url` CLI flag or `database_url` in `config.toml`. | None | `postgresql://cloacina:cloacina@localhost:5432/cloacina` | Server, Admin CLI | Yes (for `serve` and `admin` subcommands) |
+| `DATABASE_URL` | Database connection URL (PostgreSQL or SQLite) for the server, compiler, and admin commands. Can also be set via `--database-url` CLI flag or `database_url` in `config.toml`. | None | `postgresql://cloacina:cloacina@localhost:5432/cloacina` | Server, Compiler, Admin CLI | Yes (for `server start`, `compiler start`, and `admin` commands) |
 
 ### Resolution Order
 
@@ -31,7 +31,7 @@ If none of these are set, the command exits with an error message listing all th
 
 ### Notes
 
-- The URL must begin with `postgresql://` or `postgres://`.
+- Scheme selects the backend: `postgresql://` / `postgres://` for PostgreSQL; `sqlite://`, a bare file path, or `:memory:` for SQLite.
 - The daemon does **not** use `DATABASE_URL`; it uses an embedded SQLite database at `~/.cloacina/`.
 - For multi-tenant deployments, the URL points to a shared PostgreSQL instance and schema isolation is configured separately via the API.
 
@@ -129,7 +129,7 @@ These server-side variables drive the **agent self-management control plane**: t
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_FLEET_ACTUATOR` | Substrate the fleet actuator reconciles each tenant's running agent count on: `none` (actuation off), `docker` (dev-only — spawns labelled `cloacina-agent` containers), or `kubernetes` (scales a per-tenant `cloacina-agent` Deployment in the tenant's own namespace). Validated fail-closed against the host at boot. | `none` | `kubernetes` | Server | No |
-| `CLOACINA_AGENT_IMAGE` | Agent image the actuator runs for each tenant. | `cloacina-agent:latest` | `ghcr.io/colliery-software/cloacina-agent:latest` | Server (actuator) | No |
+| `CLOACINA_AGENT_IMAGE` | Agent image the actuator runs for each tenant. | `cloacina-agent:latest` | `ghcr.io/colliery-io/cloacina-agent:latest` | Server (actuator) | No |
 | `CLOACINA_AGENT_SERVER_URL` | Server URL injected into each spawned agent as `CLOACINA_SERVER` (the agent's registration target). | `http://server:8080` | `http://cloacina-server:8080` | Server (actuator) | No |
 | `CLOACINA_AGENT_NETWORK` | **Docker actuator only.** Docker network attached to each spawned agent container so it can reach the server (e.g. the compose network). Unset = the daemon default. Ignored by the Kubernetes actuator (in-cluster pods reach the server by Service DNS). | None | `cloacina_net` | Server (docker actuator) | No |
 
@@ -300,17 +300,23 @@ Cargo features are controlled via `--features` flags at build time, not environm
 | `macros` | `cloacina` | Enables `#[workflow]` and `#[task]` proc macros |
 | `auth` | `cloacina` | Enables API key authentication (requires `postgres`) |
 | `telemetry` | `cloacinactl` | Enables OpenTelemetry OTLP tracing export |
-| `extension-module` | `cloacina` | Enables PyO3 extension module (used by maturin build) |
+| `extension-module` | `cloacina-python` | Enables the PyO3 extension module (the switch maturin flips on when building the `cloaca` wheel) |
+| `constructor-packaging` | `cloacina` | Provider archive assemble/sign/pack path — wasmtime-free |
+| `constructors-wasm` | `cloacina` | WASM constructor loader + executor bridge (pulls wasmtime/cranelift, ~55 crates); implies `constructor-packaging`; **off by default** |
 
-Default features for `cloacina`: `macros`, `postgres`, `sqlite`, `kafka`
+Default features for `cloacina`: `macros`, `postgres`, `sqlite`
 
-Default features for `cloacinactl`: `postgres`, `sqlite`, `kafka`
+Default features for `cloacinactl`: `postgres`, `sqlite`
+
+There is **no `kafka` feature** — event-source backends ship as
+constructor provider crates (e.g. `cloacina-provider-kafka`), not as
+core cargo features.
 
 ### Test Configuration
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `DATABASE_URL` | PostgreSQL URL for integration tests. | `postgres://cloacina:cloacina@localhost:5432/cloacina` | `postgres://user:pass@ci-host:5432/testdb` | Integration tests | No (uses default) |
+| `DATABASE_URL` | PostgreSQL URL for integration tests. | `postgres://cloacina:cloacina@localhost:15432/cloacina` | `postgres://user:pass@ci-host:5432/testdb` | Integration tests | No (uses default) |
 | `CLOACINA_TEST_SCHEMA` | PostgreSQL schema for test isolation. When unset, a unique UUID-based schema is generated per test session. Useful in CI for parallelism. | Auto-generated (`test_{uuid}`) | `test_ci_job_42` | Integration tests | No |
 
 ---
@@ -321,7 +327,7 @@ The Python wheel (`cloaca`) is built using [maturin](https://github.com/PyO3/mat
 
 | Variable | Purpose | Default | Example | Context |
 |----------|---------|---------|---------|---------|
-| `CARGO_PKG_VERSION` | Embedded at compile time as `CLOACINA_VERSION` in the built binary. Set automatically by Cargo. | From `Cargo.toml` | `0.7.0` | Build-time (Cargo) |
+| `CARGO_PKG_VERSION` | Embedded at compile time as `CLOACINA_VERSION` in the built binary. Set automatically by Cargo. | From `Cargo.toml` | `0.10.0` | Build-time (Cargo) |
 
 ### Build Commands
 
@@ -356,10 +362,12 @@ The development docker-compose (`.angreal/docker-compose.yaml`) provisions local
 | `POSTGRES_PASSWORD` | `cloacina` | PostgreSQL superuser password |
 | `POSTGRES_DB` | `cloacina` | Default database name |
 
-Exposed on `localhost:5432`. This matches the default `DATABASE_URL` used by tests:
+Exposed on host port **15432** (mapped to 5432 in-container) so it
+never collides with a locally installed PostgreSQL. This matches the
+default `DATABASE_URL` used by tests:
 
 ```
-postgres://cloacina:cloacina@localhost:5432/cloacina
+postgres://cloacina:cloacina@localhost:15432/cloacina
 ```
 
 ### Kafka
@@ -385,6 +393,7 @@ Exposed on `localhost:9092`.
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Wall-clock cap on a single cargo build (seconds). | `600` | Compiler | Past timeout, the build is killed and the row is left for the stale-build sweeper to reclaim. |
 | `CLOACINA_COMPILER_VENDOR_DIR` | `CARGO_HOME` for the cargo subprocess — point it at a curated pre-vendored source tree. | (cargo's usual `~/.cargo` when unset) | Compiler | Combined with `--frozen --offline` so package builds resolve only what the operator has allowed. |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. |
+| `CLOACINA_COMPILER_DEV_WORKSPACE` | **Dev escape hatch** (CLOACI-T-0887): injects `[patch.crates-io]` entries pointing at a local workspace so package builds resolve local dev crates instead of crates.io. Not for production. | (unset) | Compiler | Also settable via `--dev-workspace`. The demo compose uses it because cloacina crates aren't on crates.io yet. |
 
 ### Compiler tenant / target scoping (also accept env vars)
 
@@ -400,9 +409,11 @@ These `cloacina-compiler` CLI flags accept env-var equivalents (via `clap`'s `en
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `CLOACINACTL_VERSION` | Pin to a specific release tag. Equivalent to `--version` on the one-liner. | (latest) |
-| `INSTALL_DIR` | Override install root. Equivalent to `--prefix`. | `$HOME/.cloacina` |
-| `CLOACINA_REPO` | Install from a fork instead of `colliery-io/cloacina`. | `colliery-io/cloacina` |
+| `CLOACINACTL_VERSION` | Pin to a specific release tag (e.g. `v0.3.2`). | (latest release via the GitHub API) |
+| `INSTALL_DIR` | Where to put the `cloacinactl` binary. | `$HOME/.local/bin` |
+
+The script has no flags and no repo override — it always installs
+`cloacinactl` (only) from GitHub Releases of `colliery-io/cloacina`.
 
 ## Summary Table
 
@@ -410,7 +421,7 @@ Quick reference of all Cloacina-specific environment variables:
 
 | Variable | Component | Purpose |
 |----------|-----------|---------|
-| `DATABASE_URL` | Server, Admin, Tests | PostgreSQL connection URL |
+| `DATABASE_URL` | Server, Compiler, Admin, Tests | Database connection URL (PostgreSQL or SQLite) |
 | `CLOACINA_BOOTSTRAP_KEY` | Server | First-run admin API key |
 | `CLOACINA_REQUIRE_SIGNATURES` | Server | Toggle package signature enforcement |
 | `CLOACINA_VERIFICATION_ORG_ID` | Server | Trusted org UUID for signature verification |
@@ -459,9 +470,11 @@ Quick reference of all Cloacina-specific environment variables:
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Server (telemetry) | OTLP collector endpoint |
 | `OTEL_SERVICE_NAME` | Server (telemetry) | Service name in traces |
 | `CLOACINA_TEST_SCHEMA` | Tests | Schema isolation for CI |
+| `CLOACINA_COMPILER_DEV_WORKSPACE` | Compiler (dev) | `[patch.crates-io]` escape hatch to local crates — not for production |
+| `CLOACINA_DEMO_TENANT_KEYS` | Server (demo) | Deterministic tenant-scoped key seeding, `tenant:key:role,…` — demo stacks only |
+| `CLOACINA_EMBEDDED_UI_SKIP_NPM` | Server build | Skip the npm SPA rebuild when compiling with the `embedded-ui` feature (container builds prebuild `ui/dist`) |
 | `CLOACINACTL_VERSION` | Install script | Pin to a release tag |
 | `INSTALL_DIR` | Install script | Override install root |
-| `CLOACINA_REPO` | Install script | Install from a fork |
 
 ---
 

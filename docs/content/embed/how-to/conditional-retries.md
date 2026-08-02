@@ -33,6 +33,24 @@ The transient matcher is intentionally string-based on the error's
 `Display` impl. That keeps the policy serializable for packaged
 workflows — no closure or trait-object plumbing.
 
+## Watch out: unknown strings fall back silently
+
+Neither retry attribute rejects an unrecognized string at compile time:
+
+- **`retry_condition`**: any value other than the keywords `"all"`,
+  `"never"`, or `"transient"` is parsed as a comma-separated substring
+  pattern list — that is how the pattern form works, but it also means a
+  **typo is not an error**. `retry_condition = "transiant"` becomes a
+  pattern that matches errors containing the literal text "transiant",
+  which in practice means the task never retries.
+- **`retry_backoff`**: only `"fixed"`, `"linear"`, and `"exponential"`
+  are recognized. Any other string (e.g. `"exponental"`) **silently
+  falls back to exponential** — no error, no warning.
+
+If retries behave unexpectedly, re-check these two strings first. Both
+behaviors are implemented in
+[`generate_retry_policy_code`](https://github.com/colliery-io/cloacina/blob/main/crates/cloacina-macros/src/tasks.rs).
+
 ## Rust
 
 ```rust

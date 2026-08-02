@@ -14,6 +14,11 @@ crates = [
     "crates/cloacina-workflow",
 ]
 
+# Python (cloaca) API pages are generated from the PyO3 binding source.
+# The bindings moved out of crates/cloacina into the dedicated
+# crates/cloacina-python crate (T-0529); keep this path pointed there.
+# Regenerate the whole api-reference tree with `plissken render` from the
+# project root and commit the output.
 [python]
 package = "cloaca"
-source = "crates/cloacina/src/python"
+source = "crates/cloacina-python/src"

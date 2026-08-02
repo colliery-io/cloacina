@@ -356,8 +356,10 @@ fn previous_outputs() -> VecDeque<DecisionOutput>;
 ```
 
 The buffer keeps the last `capacity` entries, evicting the oldest as new
-boundaries arrive. Because it is DAL-persisted, a restarted graph resumes with
-its prior history intact. See the
+boundaries arrive. Capacity is signed: a positive value bounds the window, a
+negative value (e.g. `-1`) makes it unbounded, and `0` makes the accumulator a
+write-only sink that emits no history back. Because it is DAL-persisted, a
+restarted graph resumes with its prior history intact. See the
 [Computation Graphs reference]({{< ref "/reference/computation-graphs" >}})
 for the generated runtime details.
 
@@ -379,6 +381,6 @@ Pass a health sender via `AccumulatorContext::health` to enable reporting. The r
 
 ## Related
 
-- [Computation graphs tutorial 09 — full pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}})
+- [Computation graphs tutorial 12 — full multi-source pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}})
 - [How to monitor computation graph health]({{< ref "/engine/computation-graphs/how-to/computation-graph-health" >}})
 - [How to use when_all reaction criteria]({{< ref "/engine/computation-graphs/how-to/when-all-criteria" >}})

@@ -1,6 +1,6 @@
 ---
 title: "FFI Vtable Reference"
-description: "Method-by-method specification of the CloacinaPlugin FFI vtable: indices 0-9, optional-since-v2/v3 semantics, and wire types."
+description: "Method-by-method specification of the CloacinaPlugin FFI vtable: indices 0-10, interface version 5, optional-since semantics, and wire types."
 weight: 31
 aliases:
   - "/platform/reference/ffi-vtable/"
@@ -12,10 +12,14 @@ aliases:
 Cloacina plugins (`.cloacina` packages) export a fixed FFI vtable that
 the host calls by **positional index**. The vtable is declared by the
 `CloacinaPlugin` trait in `crates/cloacina-workflow-plugin/src/lib.rs`
-and is dispatched at runtime by [fidius](https://github.com/colliery-software/fidius)
-— the plugin framework Cloacina uses to load shared libraries and
-call into them by index. The host-side fidius API is provided by the
-`fidius-host` crate; the plugin-side helpers come from `fidius-core`.
+and is dispatched at runtime by fidius — the plugin framework Cloacina
+uses to load shared libraries and call into them by index (published on
+crates.io as the `fidius` / `fidius-core` / `fidius-host` family). The
+host-side fidius API is provided by the `fidius-host` crate; the
+plugin-side helpers come from `fidius-core`. The fidius crates are the
+ABI authority: the descriptor layout (`PluginDescriptor` /
+`PluginRegistry`, the `FIDIUS\0\0` magic, the FNV-1a `interface_hash`
+drift detector) is defined there, and the wire format is **bincode**.
 
 The canonical method indices are exported as constants from
 `cloacina-workflow-plugin`:
@@ -31,6 +35,7 @@ pub const METHOD_INVOKE_TRIGGER_POLL: usize = 6;
 pub const METHOD_GET_TRIGGERLESS_GRAPH_METADATA: usize = 7;
 pub const METHOD_INVOKE_TRIGGERLESS_GRAPH: usize = 8;
 pub const METHOD_GET_INPUT_INTERFACE: usize = 9;
+pub const METHOD_GET_CONSTRUCTOR_METADATA: usize = 10;
 ```
 
 Both the trait declaration and the constants live in the same file, so
@@ -56,7 +61,7 @@ this at load time (step 6 of the [reconciler pipeline]({{< ref "/service/explana
 
 | | |
 |---|---|
-| Wire input | `TaskExecutionRequest { task_name: String, context_json: String }` |
+| Wire input | `TaskExecutionRequest { task_name: String, context_json: String, resolved_secrets: BTreeMap<String, BTreeMap<String, String>> }` |
 | Wire output | `Result<TaskExecutionResult, PluginError>` (with `success: bool`, `context_json: Option<String>`, `error: Option<String>`) |
 | Optional since | — |
 
@@ -64,6 +69,15 @@ Executes a named task with a JSON-serialized context. The host calls
 this on the executor's blocking thread; the cdylib runs the task on
 its own tokio runtime. The result's `context_json` carries the updated
 context back across the boundary.
+
+`resolved_secrets` (added in interface version 5, CLOACI-T-0895) carries
+the values of every `{"$secret"}`-referenced secret, keyed by concrete
+secret name → `{field: value}`: a resolver object cannot cross the
+plugin boundary, so the host resolves secrets up front and the plugin
+shell re-attaches them via a `MapSecretResolver` so `context.secret(...)`
+works identically inside the package. The map is empty when the task
+references no secrets; the struct's hand-written `Debug` impl prints
+secret names only, never values.
 
 ## Method Index 2 — `get_graph_metadata`
 
@@ -155,7 +169,7 @@ while user `poll()` code runs.
 Returns trigger-less computation graphs declared by the package.
 Trigger-less CGs are *not* bound to a reactor and don't consume
 accumulator boundaries; they're invoked directly by workflow tasks
-via `#[task(invokes = "graph_name")]`. The metadata entry carries the
+via `#[task(invokes = computation_graph("graph_name"))]`. The metadata entry carries the
 graph name and its terminal-node-output names; the reconciler builds
 host-side `TriggerlessGraphRegistration` adapters that dispatch
 invocation through method 8.
@@ -199,12 +213,34 @@ The host (`package_loader`) calls this at load time and treats
 `CallError::NotImplemented` — or any other call error — as **"no
 declared interface"** (an empty descriptor): `surface_kind == "workflow"`
 entries flow into the package's declared params, and other kinds become
-declared surfaces. Consequently a **v2 package still loads against a
-0.9.0 host** — it simply declares no params and exposes no typed
-interfaces. To declare params or expose typed interfaces, a package must
-be **recompiled against 0.9.0** (interface version 3), so the unified
-`cloacina::package!()` shell emits this method and walks
-`inventory::iter::<WorkflowDescriptorEntry>` to populate it.
+declared surfaces. To declare params or expose typed interfaces, a
+package must be compiled against interface version 3 or later — the
+unified `cloacina_workflow_plugin::package!()` shell emits this method
+and walks `inventory::iter::<WorkflowDescriptorEntry>` to populate it.
+
+## Method Index 10 — `get_constructor_metadata`
+
+| | |
+|---|---|
+| Wire input | `()` |
+| Wire output | `Result<Vec<ConstructorPackageMetadata>, PluginError>` |
+| Optional since | **v4** — pre-v4 plugins return `CallError::NotImplemented` |
+
+Returns the package's declared `constructor!(...)` DAG nodes
+(CLOACI-T-0832). A packaged cdylib cannot link the WASM constructor
+loader, so it *declares* each node here; the host — which links
+wasmtime — resolves the provider via
+`load_constructor_node(.., GrantSpec::from_pairs(grants))` and injects
+the resulting task into the rebuilt workflow DAG. Each
+`ConstructorPackageMetadata` carries `{ workflow, id, from, constructor,
+config: Vec<(String, String)>, grants: Vec<(String, Vec<String>)>,
+dependencies }`; `config` values are JSON-encoded *strings* (not
+`serde_json::Value` — `deserialize_any` is unsupported on the fidius
+bincode wire), and the host parses each value back with
+`serde_json::from_str` before binding. The host treats `NotImplemented`
+as "package declares no constructor nodes". The unified
+`cloacina_workflow_plugin::package!()` shell walks
+`inventory::iter::<ConstructorEntry>` to populate it.
 
 ## Python Plugins and Host-Build Requirements
 
@@ -227,19 +263,28 @@ language-neutral.
 
 ## ABI Stability and Versioning
 
-- The trait is annotated `#[fidius::plugin_interface(version = 3,
+- The trait is annotated `#[fidius::plugin_interface(version = 5,
   buffer = PluginAllocated)]`. fidius-host computes an
   `INTERFACE_HASH` from the trait shape; mismatched hashes are
   rejected at load time, preventing silent ABI drift.
-- **0.9.0 bumped the interface version 2 → 3** (CLOACI-I-0128 / T-0756)
-  to add `get_input_interface` at method index 9. The bump is
-  backward-compatible: the method is `#[optional(since = 3)]`, so v2
-  packages still load — the host reads their `NotImplemented` as an
-  empty interface — but a package must be recompiled against 0.9.0 to
-  declare params or expose typed interfaces.
+- Version history:
+  - **2 → 3** (CLOACI-I-0128 / T-0756): added `get_input_interface`
+    at method index 9, `#[optional(since = 3)]`.
+  - **3 → 4** (CLOACI-T-0832): added `get_constructor_metadata` at
+    method index 10, `#[optional(since = 4)]`.
+  - **4 → 5** (CLOACI-T-0895): no new method — `TaskExecutionRequest`
+    gained the `resolved_secrets` wire field, a **bincode layout
+    change**. Unlike the additive bumps, this one is a hard gate:
+    stale pre-v5 artifacts must fail the version check at load rather
+    than mis-decode the request.
+- Method-additive bumps are backward-compatible: methods 4–8 are
+  `#[optional(since = 2)]`, 9 is `#[optional(since = 3)]`, 10 is
+  `#[optional(since = 4)]`; older plugins return
+  `CallError::NotImplemented` for methods they don't emit and the host
+  treats that as "declares none".
 - Adding a method requires bumping the version, marking the new
   method `#[optional(since = N)]`, and adding the canonical method-index
-  constant in the same edit. The unified [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}})
+  constant in the same edit. The unified [`cloacina_workflow_plugin::package!()`]({{< ref "/reference/package-shell-macro" >}})
   shell macro emits the new method automatically.
 - Deleting or reordering a method is a hard breaking change. Don't.
 

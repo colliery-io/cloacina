@@ -8,34 +8,38 @@ aliases:
 
 # Accumulator Design
 
-An accumulator is the boundary between the outside world and the computation graph. It is a long-lived tokio task that owns a connection to a data source, transforms raw events into typed boundary values, and pushes those values to the reactor. This document explains the four accumulator types, why each exists, and how the runtime manages state and health.
+An accumulator is the boundary between the outside world and the computation graph. It is a long-lived tokio task that owns a connection to a data source, transforms raw events into typed boundary values, and pushes those values to the reactor. This document explains the five accumulator types, why each exists, and how the runtime manages state and health.
 
 ## The Core Problem
 
-Computation graphs need data from heterogeneous sources. Some data comes from a Kafka broker with durable replay. Some comes from external systems that can only be polled periodically. Some arrives via direct push from another process. Some needs complex aggregation before it means anything.
+Computation graphs need data from heterogeneous sources. Some data comes from a Kafka broker with durable replay. Some comes from external systems that can only be polled periodically. Some arrives via direct push from another process. Some needs complex aggregation before it means anything. Some is the graph's own output, fed back as a rolling window.
 
-A single abstraction cannot serve all of these without becoming complex and leaky. The four accumulator types — Passthrough, Stream, Polling, and Batch — each address one specific data ingestion pattern. Choosing the right type for a source means the accumulator is simple and the complexity lives where it belongs (the broker, the polling interval, the aggregation logic).
+A single abstraction cannot serve all of these without becoming complex and leaky. The five accumulator types — Passthrough, Stream, Polling, Batch, and State — each address one specific data ingestion pattern. Choosing the right type for a source means the accumulator is simple and the complexity lives where it belongs (the broker, the polling interval, the aggregation logic).
 
 ## The Accumulator Trait
 
-All four types implement the same trait:
+The event-driven types implement the same trait (`cloacina::computation_graph::Accumulator`):
 
 ```rust
 pub trait Accumulator: Send + 'static {
-    type Event: DeserializeOwned + Send + 'static;
+    /// The typed boundary produced for the reactor.
     type Output: Serialize + Send + 'static;
 
-    fn process(&mut self, event: Self::Event) -> Option<Self::Output>;
+    /// Process raw event bytes and optionally produce a boundary.
+    /// The implementor owns deserialization — the runtime is format-agnostic.
+    fn process(&mut self, event: Vec<u8>) -> Option<Self::Output>;
 
-    async fn init(&mut self, ctx: &AccumulatorContext) -> Result<(), AccumulatorError> {
+    /// Called on startup before first receive.
+    /// Use to restore state from last checkpoint.
+    async fn init(&mut self, _ctx: &AccumulatorContext) -> Result<(), AccumulatorError> {
         Ok(())
     }
 }
 ```
 
-`process()` is called once per event. It receives the raw event type and returns `Option<Output>` — `Some(boundary)` to forward to the reactor, `None` to suppress. This is where user-defined transformation and aggregation logic lives. `process()` is called sequentially by the processor task, so `&mut self` access to state is safe without locks.
+`process()` is called once per event. It receives the raw event **bytes** — the implementor owns deserialization, which keeps the runtime format-agnostic — and returns `Option<Output>`: `Some(boundary)` to forward to the reactor, `None` to suppress. This is where user-defined transformation and aggregation logic lives. `process()` is called sequentially by the processor task, so `&mut self` access to state is safe without locks. In practice you rarely write this impl by hand: the `#[passthrough_accumulator]`, `#[stream_accumulator]`, `#[batch_accumulator]`, and friends generate it, including the deserialize step, from a typed function you write.
 
-`init()` is called once at startup before any events are processed. It is the place to restore persisted state from a checkpoint.
+`init()` is called once at startup before any events are processed. It is the place to restore persisted state from a checkpoint. (A trait-level default `process` body over a `DeserializeOwned` bound was investigated and rejected — it would tighten the format-agnostic contract; the boilerplate-free path is the `#[passthrough_accumulator]` macro, which generates the method. See CLOACI-T-0739.)
 
 ## The Runtime: Two Input Paths, One Processor
 
@@ -53,13 +57,13 @@ With event source (stream / polling):
   [socket task]   ──mpsc──┘
 ```
 
-The **socket task** is always active. It receives raw bytes pushed in from outside (via WebSocket or mpsc channel), deserializes them to the `Event` type, and forwards them to the merge channel. This means every accumulator type, regardless of its primary source, can also receive push events from external producers — useful for testing and ops injection.
+The **socket task** is always active. It receives raw bytes pushed in from outside (via WebSocket or mpsc channel) and forwards them to the merge channel; `process()` deserializes them. This means every accumulator type, regardless of its primary source, can also receive push events from external producers — useful for testing and ops injection.
 
 The **event source** (optional) is an independently running task that actively pulls from a backend (Kafka, a timer, a database) and pushes events into the same merge channel. It owns `self` rather than `&mut self` so it can run concurrently with the processor without borrowing conflicts.
 
 The **processor task** runs on the current task (not spawned). It owns `&mut acc` and calls `process()` for every event from the merge channel.
 
-## The Four Types
+## The Five Types
 
 ### Passthrough — Zero State, Lowest Latency
 
@@ -111,11 +115,13 @@ A polling accumulator fires on a timer interval and queries an external source. 
 
 ```rust
 #[polling_accumulator(interval = "5s")]
-async fn config(ctx: &PollingContext) -> Option<ConfigData> {
-    let row = ctx.db.query("SELECT ...").await.ok()?;
-    Some(ConfigData { ... })
+async fn config() -> Option<ConfigData> {
+    let row = query_config_source().await.ok()?;
+    Some(ConfigData { /* … */ })
 }
 ```
+
+The poll function takes no arguments and returns `Option<T>` — it owns its own connection to whatever it queries.
 
 **When to use it**: databases, REST APIs, or any system that cannot push data and must be queried. The interval is the latency floor — a `5s` polling interval means up to 5 seconds before the reactor sees a change. This is appropriate for configuration, reference data, or slowly-changing dimensions.
 
@@ -125,11 +131,24 @@ async fn config(ctx: &PollingContext) -> Option<ConfigData> {
 
 ### Batch — Buffer and Flush
 
-A batch accumulator buffers incoming events and flushes them as a single aggregated boundary when the reactor signals for a drain. Unlike the other types, batch accumulators do not emit boundaries autonomously — they wait for the reactor's flush signal, which comes after each successful graph execution.
+A batch accumulator buffers incoming events and flushes them as a single aggregated boundary. A flush happens on any of three conditions: the `flush_interval` timer elapses, the buffer reaches `max_buffer_size`, or the reactor sends a flush signal (which it does after each successful graph execution, via its batch-flush channels).
 
 **When to use it**: aggregation windows, rate limiting, or cases where you want one graph execution per batch rather than one per event. For example: collecting 100 order fill events into a single aggregate before the decision engine runs, rather than running it 100 times.
 
-**The flush signal**: after graph execution completes, the reactor sends a signal to all batch accumulator flush channels. The accumulator drains its buffer and emits the aggregated boundary.
+**The flush signal**: after graph execution completes, the reactor sends a signal to all batch accumulator flush channels. The accumulator drains its buffer and emits the aggregated boundary. The timer and size cap mean a batch accumulator still emits even when the reactor has not fired recently — configure `flush_interval`/`max_buffer_size` to bound staleness and memory.
+
+### State — The Graph's Own Output, Fed Back
+
+A state accumulator (`#[state_accumulator(capacity = N)]`) holds a bounded `VecDeque<T>` that receives values written by the computation graph itself (a collector node or mid-graph write), persists the window to the DAL on every write, and re-emits the full window as a boundary. It enables cyclic patterns where the graph's output on one execution becomes an input on the next — e.g., a rolling window of recent ticks.
+
+Capacity is signed: `capacity > 0` is a bounded window (oldest evicted at capacity); `capacity < 0` is unbounded; `capacity == 0` is a write-only sink that emits no history back. Declared as a bodyless function returning the window type:
+
+```rust
+#[state_accumulator(capacity = 100)]
+fn tick_window() -> VecDeque<Tick>;
+```
+
+On startup the runtime loads the persisted window from the DAL and emits it to the reactor, so cyclic state survives restarts. Python parity exists as `@cloaca.state_accumulator(capacity=N)` — see `examples/features/computation-graphs/python-stateful-graph` for a packaged example.
 
 ## State Management and the CheckpointHandle
 
@@ -150,7 +169,7 @@ impl CheckpointHandle {
 
 The checkpoint is keyed by `(graph_name, accumulator_name)`. It is written after each boundary is emitted — not after each event — which means the checkpoint represents a causally consistent point: state was checkpointed after we successfully notified the reactor. On restart, `init()` calls `checkpoint.load()` and restores the state before event processing begins.
 
-Wire format matches the rest of the system: JSON in debug builds (human-readable, inspectable in logs), bincode in release builds (fast, compact). The format is controlled by `#[cfg(debug_assertions)]` and is transparent to accumulator authors.
+Checkpoint serialization uses the bincode wire format — always, in both debug and release builds — and is transparent to accumulator authors.
 
 ## The StreamBackend Trait
 
@@ -165,20 +184,23 @@ pub trait StreamBackend: Send + 'static {
 }
 ```
 
-The Kafka implementation (`KafkaStreamBackend`, behind the `kafka` feature flag) uses `rdkafka` (a librdkafka wrapper). It sets `enable.auto.commit = false` so offset commits happen explicitly after the graph executes — this is the "at-least-once" delivery guarantee. A message is not committed until the graph that processed it completes.
+There is deliberately no `kafka` feature (or any broker implementation) in the core crate — event-source backends ship as constructor **provider** crates. The Kafka implementation lives in `cloacina-provider-kafka`, a native provider that wraps `rdkafka` and exposes the `kafka_source` stream-accumulator constructor. Core stays broker-free (CLOACI-T-0898).
 
-The `StreamBackendRegistry` is a global map from type name to factory function. Registering a custom backend:
+The `StreamBackendRegistry` maps type names to factory functions; backends register through the `Runtime`:
 
 ```rust
-register_stream_backend("my-broker", Box::new(|config| {
-    Box::pin(async move {
-        let backend = MyBrokerBackend::connect(&config).await?;
-        Ok(Box::new(backend) as Box<dyn StreamBackend>)
-    })
-}));
+runtime.register_stream_backend(
+    "my-broker".to_string(),
+    Box::new(|config| {
+        Box::pin(async move {
+            let backend = MyBrokerBackend::connect(&config).await?;
+            Ok(Box::new(backend) as Box<dyn StreamBackend>)
+        })
+    }),
+);
 ```
 
-In packaged deployments, the `StreamBackendAccumulatorFactory` in the packaging bridge looks up backends in this registry by the type name specified in `package.toml` (e.g., `type = "kafka"`). The broker address is resolved at runtime via the `CLOACINA_VAR_` convention (e.g., `CLOACINA_VAR_KAFKA_BROKER`) — this avoids embedding connection strings in the compiled package.
+A `#[stream_accumulator(type = "my-broker", ...)]` declaration resolves its backend by that type name at graph load — from an inventory-submitted `StreamBackendEntry` in embedded builds, or from what the runtime has registered. Broker addresses are resolved at runtime (e.g., via the `CLOACINA_VAR_` variable-registry convention) rather than embedded in the compiled package.
 
 ## Accumulator Health States
 

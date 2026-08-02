@@ -682,7 +682,8 @@ impl DefaultRunnerBuilder {
     ///
     /// When set, the runner (and all components it creates) will use this
     /// runtime's registries instead of the process-global registries.
-    /// If not set, [`Runtime::from_global()`] is used as the default.
+    /// If not set, a fresh inventory-seeded [`Runtime`] (i.e.
+    /// [`Runtime::default`], equivalent to [`Runtime::new`]) is used.
     pub fn runtime(mut self, runtime: Runtime) -> Self {
         self.runtime = Some(runtime);
         self

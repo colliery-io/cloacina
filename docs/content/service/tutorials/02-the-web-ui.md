@@ -127,7 +127,7 @@ graph's health and topology at a glance.
 
 ![Graphs list](/cloacina/images/web-ui/07-graphs.png)
 
-A graph's detail is the **operational view** for the reactive layer: a
+A graph's detail is the **operational view** for a running computation graph: a
 status strip (health, throughput, last fire, total fires, healthy sources,
 fire failures), a **fire-activity** heatmap (fires per minute, last hour),
 **reactor readiness** (per-source fresh/stale), an **accumulators** table

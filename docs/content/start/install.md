@@ -13,6 +13,11 @@ aliases:
 the daemon as a subcommand (`cloacinactl daemon`), so a single install
 gives you both.
 
+The installer below installs **only the CLI**. Embedding the engine in
+your own application needs no installer at all — it's a dependency:
+see [Rust users](#rust-users-embedding-the-library) and
+[Python users](#python-users) below.
+
 ## One-liner (Linux + macOS)
 
 ```sh
@@ -28,7 +33,7 @@ add to your shell rc.
 ### Pinning a version
 
 ```sh
-curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.7.0
+curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.10.0
 ```
 
 Use a specific tag from the releases page. Any release that has the
@@ -97,25 +102,45 @@ cargo install --git https://github.com/colliery-io/cloacina cloacinactl
 ```
 
 This builds from the `main` branch tip. Pass `--tag vX.Y.Z` to pin a release.
+`cloacinactl` is also published to crates.io, so `cargo install cloacinactl`
+works too.
+
+## Rust users (embedding the library)
+
+The engine is a crate — no CLI required. Add it to your `Cargo.toml`:
+
+```toml
+[dependencies]
+cloacina = "0.10"
+cloacina-workflow = "0.10"   # macro-generated task code references this crate directly
+tokio = { version = "1", features = ["full"] }
+serde_json = "1.0"
+```
+
+Both database backends (PostgreSQL and SQLite) are compiled in by default
+and selected at runtime by connection URL. See the
+[embedded quick start]({{< ref "/embed/quick-start" >}}) for usage.
 
 ## Python users
 
 The Python bindings ship as a wheel — no separate installer needed:
 
 ```sh
-pip install cloaca               # default (both backends)
-pip install cloaca[sqlite]       # SQLite only
-pip install cloaca[postgres]     # PostgreSQL only
+pip install cloaca
 ```
 
-See the [Python quick start]({{< ref "/embed/quick-start" >}}) for usage.
+The wheel bundles both database backends; the one you use is chosen at
+runtime by connection URL. Wheels are published for Linux and macOS and
+support CPython 3.9+. See the
+[embedded quick start]({{< ref "/embed/quick-start" >}}) for usage.
 
 ## Docker
 
-The server is published as a container image on every release:
+The server is published as a multi-arch container image (linux/amd64 +
+linux/arm64) on every release, tagged `X.Y.Z`, `X.Y`, and `latest`:
 
 ```sh
-docker pull ghcr.io/colliery-io/cloacina-server:v0.7.0
+docker pull ghcr.io/colliery-io/cloacina-server:0.10.0
 ```
 
 See [Running the server image]({{< ref "/service/how-to/running-the-server-image" >}}) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.

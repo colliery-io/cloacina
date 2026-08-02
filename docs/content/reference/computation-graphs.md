@@ -453,19 +453,19 @@ Error variants that can occur during graph execution.
 
 ### serialize / deserialize
 
-Profile-aware serialization helpers used by the cache and wire format.
+Serialization helpers used by the cache and wire format. The wire is
+**bincode in every build profile** — debug and release encode
+identically, so mixed-profile producers and consumers interoperate.
 
 ```rust
 use cloacina::computation_graph::types::{serialize, deserialize};
 
-// Serialize: JSON in debug builds, bincode in release builds
+// Serialize: bincode (all build profiles)
 let bytes: Vec<u8> = serialize(&my_value)?;
 
 // Deserialize: matches the serialize format
 let value: MyType = deserialize(&bytes)?;
 ```
-
-This means debug builds produce human-readable JSON (inspectable in logs), while release builds use compact binary (fast, smaller payloads).
 
 ---
 
@@ -820,7 +820,7 @@ socket_tx.send(serialize(&my_event).unwrap()).await.unwrap();
 
 Registration is inventory-driven. Each `#[reactor]` and `#[computation_graph]`
 macro emits an `inventory::submit!` entry (`ReactorEntry` /
-`ComputationGraphEntry`; see [Registration & Discovery](#registration--discovery)
+`ComputationGraphEntry`; see [Generated Registration](#generated-registration)
 above). At startup the runtime registers each reactor and graph by name from
 those entries — `Runtime::seed_from_inventory()` in embedded mode, or walked at
 FFI-load time via `cloacina_workflow_plugin::package!()` in packaged mode. Declaring the macros
@@ -843,8 +843,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina-workflow = { version = "0.7", features = ["packaged", "macros"] }
-cloacina-workflow-plugin = "0.7"
+cloacina-workflow = { version = "0.10", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ```
@@ -901,7 +901,7 @@ The manifest schema is validated with `deny_unknown_fields`, so a legacy `[packa
 4. On each reactor fire, `execute_graph()` is called via FFI on the loaded plugin
 5. The plugin deserializes the cache, runs the compiled graph, and returns serialized terminal outputs
 
-The FFI boundary always uses JSON strings regardless of build profile. The plugin internally re-serializes using the graph's native format (JSON in debug, bincode in release).
+The FFI boundary always uses JSON strings regardless of build profile. The plugin internally re-serializes into the graph's native wire format, which is bincode in all build profiles.
 
 ---
 

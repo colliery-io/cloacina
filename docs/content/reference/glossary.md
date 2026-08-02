@@ -19,7 +19,7 @@ A long-lived component that connects to an external data source, receives events
 
 ### ApiError
 
-The standardized error response envelope returned by every `/v1/...` HTTP route. Per CLOACI-I-0107, all error responses share the shape `{"error": "human-readable message", "code": "MACHINE_CODE"}` regardless of HTTP status; the `code` is stable and tied to the failure class (`AUTH_INVALID_TOKEN`, `TENANT_NOT_FOUND`, `SIGNATURE_REQUIRED`, etc.) so clients can branch on it without parsing the message. See [API Error Envelope]({{< ref "/reference/api-error-envelope" >}}).
+The standardized error response envelope returned by every `/v1/...` HTTP route. Per CLOACI-I-0107, all error responses share the shape `{"error": "human-readable message", "code": "machine_code"}` regardless of HTTP status; the `code` is a stable lowercase snake_case string tied to the failure class (`unauthorized`, `tenant_access_denied`, `signature_not_found`, etc.) so clients can branch on it without parsing the message. See [API Error Envelope]({{< ref "/reference/api-error-envelope" >}}).
 
 ### Backoff Strategy
 
@@ -43,11 +43,11 @@ The core Rust workflow orchestration and computation graph engine. Cloacina prov
 
 ### `cloacinactl`
 
-The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Install with `curl -fsSL https://get.cloacina.dev/install.sh | bash`. See [CLI Reference]({{< ref "/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/start/install" >}}).
+The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Installed via `install.sh` (repo root) or from GitHub Releases. See [CLI Reference]({{< ref "/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/start/install" >}}).
 
 ### `cloacina-compiler`
 
-The compilation service that produces `.cloacina` archives from a source manifest. Runs as a long-lived service (`cloacinactl compiler ...` invokes its API) with timeouts, offline-mode, and `setrlimit`-based sandboxing per CLOACI-I-0104. Exposes its own `/metrics` (`cloacina_compiler_*` namespace). See [Compiler Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}).
+The server-side build service that compiles uploaded `.cloacina` source archives into cdylib artifacts. It polls the shared database for packages with `build_status = pending` (there is no HTTP coordination with the server), builds them with timeouts, offline-mode two-phase dependency resolution, and `setrlimit`-based sandboxing per CLOACI-I-0104, and writes results back to the database. Exposes its own health listener with `/health`, `/v1/status`, and `/metrics` (`cloacina_compiler_*` namespace) — which is what `cloacinactl compiler status|health` probe. See [Compiler Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}).
 
 ### `cloacina-server`
 
@@ -123,7 +123,7 @@ A reactor → workflow subscription with an attached CEL predicate. Only firings
 
 ### fidius
 
-The binary serialization and packaging library used internally by Cloacina. fidius transforms Rust traits into stable C ABI plugins, handling serialization across the FFI boundary. It uses JSON encoding in debug builds for readability and bincode (a compact binary format) in release builds for performance. See [FFI System]({{< ref "/engine/explanation/ffi-system" >}}).
+The binary serialization and packaging library used internally by Cloacina. fidius transforms Rust traits into stable C ABI plugins, handling serialization across the FFI boundary. The wire format is **bincode** (a compact binary format) in all build profiles — debug and release encode identically. See [FFI System]({{< ref "/engine/explanation/ffi-system" >}}).
 
 ### GraphResult
 
@@ -139,7 +139,7 @@ A map from SourceName to serialized bytes that feeds entry nodes in computation 
 
 ### Install script
 
-The one-line installer at `https://get.cloacina.dev/install.sh` (sourced from `install.sh` at the repo root). Downloads the latest release tarball for the host OS+arch from GitHub Releases, verifies its SHA256, and lands `cloacinactl` in `~/.cloacina/bin` (or `--prefix`). See [Installing cloacinactl]({{< ref "/start/install" >}}).
+The installer script (`install.sh` at the repo root). Downloads a release tarball for the host OS+arch (Linux/macOS, x86_64/aarch64) from GitHub Releases of `colliery-io/cloacina`, verifies its SHA256 when a checksum tool is available, and installs **only `cloacinactl`** into `~/.local/bin` (override with `INSTALL_DIR`; pin a version with `CLOACINACTL_VERSION`). The server, agent, and compiler binaries ship separately via container images or cargo. See [Installing cloacinactl]({{< ref "/start/install" >}}).
 
 ### Inventory (registration)
 
@@ -151,7 +151,7 @@ A persistent record of execution events used by the continuous scheduling system
 
 ### Method-Index Vtable
 
-The positional dispatch table that the host uses to call into a packaged cdylib over the FFI boundary. The `CloacinaPlugin` trait declares nine methods (indices 0–8); `cloacina-workflow-plugin` exports canonical constants (`METHOD_GET_TASK_METADATA = 0` through `METHOD_INVOKE_TRIGGERLESS_GRAPH = 8`) so call sites and trait declarations cannot drift. Methods 4–8 are marked `#[optional(since = 2)]`, so plugins built against trait v1 return `CallError::NotImplemented` for those slots — the host treats that as "package declares no reactors / triggers / trigger-less graphs." See [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}).
+The positional dispatch table that the host uses to call into a packaged cdylib over the FFI boundary. The `CloacinaPlugin` trait (interface version 5) declares eleven methods (indices 0–10); `cloacina-workflow-plugin` exports canonical constants (`METHOD_GET_TASK_METADATA = 0` through `METHOD_GET_CONSTRUCTOR_METADATA = 10`) so call sites and trait declarations cannot drift. Methods 4–8 are `#[optional(since = 2)]`, method 9 (`get_input_interface`) is `#[optional(since = 3)]`, and method 10 (`get_constructor_metadata`) is `#[optional(since = 4)]`; older plugins return `CallError::NotImplemented` for slots they don't emit, which the host treats as "package declares none." See [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}).
 
 ### Multi-tenancy
 
@@ -163,19 +163,19 @@ A function within a computation graph that transforms data from its inputs to an
 
 ### Pipeline
 
-In some code paths, metric names (e.g., `cloacina_pipelines_total`), and internal APIs, "pipeline" is used as a synonym for a workflow execution. The documentation uses "workflow" as the standard term. If you encounter "pipeline" in logs, metrics, or configuration fields, read it as "workflow execution."
+In some code paths and internal APIs, "pipeline" is used as a synonym for a workflow execution. The documentation uses "workflow" as the standard term, and the live metric names use it too (`cloacina_workflows_total`, not the retired `cloacina_pipelines_*` family — see the [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}})). If you encounter "pipeline" in logs or internal identifiers, read it as "workflow execution."
 
 ### Package (.cloacina)
 
-A distributable workflow artifact containing compiled code (as a platform-specific shared library — .so on Linux, .dylib on macOS) and metadata. Packages are uploaded to the runner's registry and loaded at runtime by the reconciler. They enable shipping workflows independently of the host application. See [Package Format]({{< ref "/engine/explanation/package-format" >}}).
+A distributable workflow artifact: a tar + bzip2 **source** archive containing `package.toml` plus the Rust crate source (`Cargo.toml`, `src/`) or Python `workflow/` tree, and an optional `package.sig`. A `.cloacina` archive never contains a compiled library — the platform-specific cdylib is compiled server-side by `cloacina-compiler` and stored in the database. Packages are uploaded to the registry and loaded at runtime by the reconciler, enabling shipping workflows independently of the host application. See [Package Format]({{< ref "/engine/explanation/package-format" >}}).
 
 ### `package!()` Macro
 
-The unified plugin shell macro `cloacina::package!()` that goes at the crate root of a packaged cdylib (gated on `feature = "packaged"`). It emits the full `CloacinaPlugin` trait implementation — all nine FFI methods (indices 0–8) — by walking the cdylib's local `inventory::iter::<TaskEntry>`, `<TriggerEntry>`, `<ReactorEntry>`, `<ComputationGraphEntry>`, and `<TriggerlessGraphEntry>` sections at FFI call time. Replaces the per-macro `_ffi` emission path that pre-I-0102 packages used. A duplicate-invocation guard prevents accidentally calling `package!()` twice in the same crate. See [Package Shell Macro Reference]({{< ref "/reference/package-shell-macro" >}}).
+The unified plugin shell macro `cloacina_workflow_plugin::package!()` that goes at the crate root of a packaged cdylib (its expansion is gated on `feature = "packaged"`, which the compiler injects). It emits the full `CloacinaPlugin` trait implementation — all eleven FFI methods (indices 0–10) — by walking the cdylib's local `inventory::iter::<TaskEntry>`, `<TriggerEntry>`, `<ReactorEntry>`, `<ComputationGraphEntry>`, `<TriggerlessGraphEntry>`, `<WorkflowDescriptorEntry>`, and `<ConstructorEntry>` sections at FFI call time. Invoke it by the `cloacina_workflow_plugin::` path — `cloacina::package!()` does not resolve. Replaces the per-macro `_ffi` emission path that pre-I-0102 packages used. A duplicate-invocation guard prevents accidentally calling `package!()` twice in the same crate. See [Package Shell Macro Reference]({{< ref "/reference/package-shell-macro" >}}).
 
 ### Reactor
 
-The runtime orchestrator for computation graphs. The reactor owns the InputCache, evaluates reaction criteria after each accumulator update, and fires the compiled graph function when criteria are met. It manages the lifecycle of all computation graphs registered with a runner.
+A specialized trigger that consumes accumulator boundary events and fires the computation graph bound to it. Each reactor is declared standalone (`#[reactor(name = ..., accumulators = [...], criteria = ...)]`); it owns the InputCache for its declared accumulators, re-evaluates its firing criteria (`when_any` / `when_all`) after each boundary arrives, and fires the bound graph function as a single traversal when the criteria are met. A reactor is one node in the system, not a subsystem: computation-graph lifecycle is managed by the graph scheduler, and workflows can subscribe to a reactor's firings (see [Filtered subscription](#filtered-subscription)). Per CLOACI-S-0011.
 
 ### Reconciler
 
@@ -252,7 +252,7 @@ Conditional execution criteria for individual tasks within a workflow. Trigger r
 
 ### Trigger-Less Computation Graph
 
-A computation graph that is *not* bound to a reactor and is not driven by accumulator boundaries. Instead of being fired by upstream events, it is invoked directly by a workflow task (via `#[task(invokes = "graph_name")]`) or by a Python task. The graph's entry nodes receive workflow context as input rather than `InputCache` boundaries, and terminal outputs are written back into the post-invocation context by name. Surfaced over the FFI vtable via `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` (index 7) and `METHOD_INVOKE_TRIGGERLESS_GRAPH` (index 8). See [Trigger-less Computation Graphs]({{< ref "/engine/explanation/trigger-less-graphs" >}}).
+A computation graph that is *not* bound to a reactor and is not driven by accumulator boundaries. Instead of being fired by upstream events, it is invoked directly by a workflow task (via `#[task(invokes = computation_graph("graph_name"))]`) or by a Python task. The graph's entry nodes receive workflow context as input rather than `InputCache` boundaries, and terminal outputs are written back into the post-invocation context by name. Surfaced over the FFI vtable via `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` (index 7) and `METHOD_INVOKE_TRIGGERLESS_GRAPH` (index 8). See [Trigger-less Computation Graphs]({{< ref "/engine/explanation/trigger-less-graphs" >}}).
 
 ### UniversalUuid
 

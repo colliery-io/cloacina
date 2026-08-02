@@ -13,6 +13,15 @@ aliases:
 
 The `DefaultRunner` class is the main execution engine for Cloaca workflows. It manages database connections, task scheduling, execution, and provides cron scheduling capabilities.
 
+{{< hint type="note" title="Wheel-only" >}}
+`DefaultRunner` (with `WorkflowResult` and `DefaultRunnerConfig`) exists only in
+the pip-installed `cloaca` wheel. It is not available inside packaged
+`.cloacina` workflows — there the server or agent is the runner. The runner
+runs its async runtime on a dedicated OS thread; every method releases the GIL
+while waiting, and an `atexit` hook joins all runner threads at interpreter
+exit even if you forget `shutdown()`.
+{{< /hint >}}
+
 ## Constructors
 
 ### `DefaultRunner(database_url)`
@@ -68,7 +77,7 @@ Create a runner with PostgreSQL schema isolation (multi-tenancy).
 
 **Returns:** DefaultRunner instance
 
-**Raises:** ValueError if schema name is invalid
+**Raises:** ValueError if the URL is not PostgreSQL or the schema name is invalid
 
 **Example:**
 ```python
@@ -81,11 +90,10 @@ tenant_runner = cloaca.DefaultRunner.with_schema(
 )
 ```
 
-**Schema Naming Rules:**
-- Must start with a letter
-- Can contain letters, numbers, and underscores
-- Cannot be PostgreSQL reserved names
-- Maximum 63 characters
+**Schema Naming Rules** (validated by the binding):
+- Must not be empty
+- May contain only alphanumeric characters and underscores
+- The database URL must start with `postgres://` or `postgresql://` — SQLite is rejected
 
 ## Workflow Execution
 
@@ -97,7 +105,9 @@ Execute a workflow with the given context.
 - `workflow_name` (str): Name of the registered workflow
 - `context` (Context): Initial workflow context
 
-**Returns:** PipelineResult with execution details
+**Returns:** [WorkflowResult]({{< ref "/reference/python-api/pipeline-result/" >}}) with execution details
+
+**Raises:** ValueError if the workflow is unknown or execution is rejected
 
 **Example:**
 ```python
@@ -117,6 +127,11 @@ else:
 ```
 
 ## Cron Scheduling
+
+Cron expressions are validated by the engine's `CronEvaluator`
+(`crates/cloacina-workflow/src/cron_evaluator.rs`): standard **5-field**
+expressions (`minute hour day month weekday`), with an optional leading
+seconds field also accepted.
 
 ### `register_cron_workflow(workflow_name, cron_expression, timezone)`
 
@@ -161,6 +176,32 @@ print(f"Scheduled with ID: {schedule_id}")
 - `"0 2 * * 1"` - Weekly on Monday at 2 AM
 - `"*/15 * * * *"` - Every 15 minutes
 - `"0 9-17 * * 1-5"` - Hourly during business hours, weekdays only
+
+### `register_workflow_instance(workflow_name, instance_name, cron_expression, timezone, params)`
+
+Register a **named, parameterized** cron instance (CLOACI-I-0116). `params` is
+a `Context` whose contents are the instance's fully-resolved bound parameters,
+merged into the run context under flat top-level keys at every fire.
+
+**Parameters:**
+- `workflow_name` (str): Name of the workflow to schedule
+- `instance_name` (str): Name for this schedule instance
+- `cron_expression` (str): Cron expression
+- `timezone` (str): Timezone name
+- `params` (Context): Bound parameters for this instance
+
+**Returns:** str - Schedule ID (UUID)
+
+**Example:**
+```python
+schedule_id = runner.register_workflow_instance(
+    "daily_report",
+    "daily_report_emea",
+    "0 6 * * *",
+    "Europe/Berlin",
+    cloaca.Context({"region": "emea"}),
+)
+```
 
 ### `list_cron_schedules(enabled_only=None, limit=None, offset=None)`
 
@@ -264,7 +305,9 @@ Get execution history for a cron schedule.
 - `limit` (int, optional): Maximum number of results
 - `offset` (int, optional): Number of results to skip
 
-**Returns:** List[dict] - List of execution records
+**Returns:** List[dict] - List of execution records. Each dict has the keys
+`id`, `schedule_id`, `scheduled_time`, `claimed_at`, `workflow_execution_id`,
+`created_at`, `updated_at`.
 
 **Example:**
 ```python
@@ -274,7 +317,7 @@ history = runner.get_cron_execution_history(schedule_id, limit=20)
 for execution in history:
     print(f"Scheduled: {execution['scheduled_time']}")
     print(f"Claimed: {execution['claimed_at']}")
-    print(f"Pipeline: {execution['pipeline_execution_id']}")
+    print(f"Workflow execution: {execution['workflow_execution_id']}")
 ```
 
 ### `get_cron_execution_stats(since)`
@@ -282,9 +325,10 @@ for execution in history:
 Get execution statistics since a given timestamp.
 
 **Parameters:**
-- `since` (str): ISO 8601 timestamp to calculate stats from
+- `since` (str): RFC 3339 timestamp to calculate stats from (invalid formats raise `ValueError`)
 
-**Returns:** dict - Execution statistics
+**Returns:** dict with the keys `total_executions`, `successful_executions`,
+`lost_executions`, `success_rate`
 
 **Example:**
 ```python
@@ -336,7 +380,9 @@ Get details of a specific trigger schedule.
 **Parameters:**
 - `trigger_name` (str): Name of the trigger
 
-**Returns:** dict - Trigger schedule details
+**Returns:** dict with the keys `id`, `trigger_name`, `workflow_name`,
+`poll_interval_ms`, `allow_concurrent`, `enabled`, `last_poll_at`,
+`created_at`, `updated_at` — or `None` if no trigger by that name exists
 
 **Example:**
 ```python
@@ -376,7 +422,9 @@ Get execution history for a trigger.
 - `limit` (int, optional): Maximum number of results
 - `offset` (int, optional): Number of results to skip
 
-**Returns:** List[dict] - List of execution records
+**Returns:** List[dict] - List of execution records. Each dict has the keys
+`id`, `schedule_id`, `context_hash`, `workflow_execution_id`, `started_at`,
+`completed_at`, `created_at`.
 
 **Example:**
 ```python
@@ -387,8 +435,52 @@ for execution in history:
     print(f"Started: {execution['started_at']}")
     print(f"Completed: {execution['completed_at']}")
     print(f"Context hash: {execution['context_hash']}")
-    print(f"Pipeline ID: {execution['pipeline_execution_id']}")
+    print(f"Workflow execution: {execution['workflow_execution_id']}")
 ```
+
+## Reactor Subscriptions
+
+A workflow can subscribe to a [reactor]({{< ref "/reference/python-api/computation-graphs/" >}})
+so that every reactor firing executes the workflow, optionally filtered by a
+CEL predicate over the firing payload.
+
+### `subscribe_workflow_to_reactor(reactor, workflow, tenant=None, *, when=None)`
+
+Subscribe a workflow to a reactor's firings.
+
+**Parameters:**
+- `reactor` (str): Reactor name
+- `workflow` (str): Workflow name to execute on each firing
+- `tenant` (str, optional): Tenant id (defaults to the runner's tenant)
+- `when` (str, optional, keyword-only): CEL filter over the firing payload; the workflow runs only when it evaluates true
+
+**Returns:** str - Subscription ID
+
+**Example:**
+```python
+# Fire on every reactor firing
+runner.subscribe_workflow_to_reactor("pricing", "alert")
+
+# Fire only when the boundary's quote source carries a price above $100
+runner.subscribe_workflow_to_reactor(
+    "pricing", "alert",
+    when="payload.quote.price > 100 && payload.quote.region == 'us-east'",
+)
+```
+
+### `unsubscribe_workflow_from_reactor(reactor, workflow, tenant=None)`
+
+Remove a subscription.
+
+**Returns:** bool - `True` if a subscription was deleted, `False` if none matched
+
+### `list_reactor_subscriptions(tenant=None)`
+
+List enabled reactor subscriptions for a tenant.
+
+**Returns:** List[dict] - Each dict has the keys `id`, `reactor_name`,
+`workflow_name`, `tenant_id`, `enabled`, `last_seen_fired_at`, `created_at`,
+`updated_at`.
 
 ## Lifecycle Management
 
@@ -443,14 +535,15 @@ See [DefaultRunnerConfig]({{< ref "/reference/python-api/configuration/" >}}) fo
 
 ### SQLite
 ```python
-# File database
+# Relative path
+"sqlite://app.db"
+
+# Absolute path
 "sqlite:///path/to/database.db"
 
-# In-memory database (testing only)
-"sqlite:///:memory:"
-
-# With options
-"sqlite:///app.db?mode=rwc&_journal_mode=WAL"
+# In-memory database (testing only) — replaced internally with a per-runner
+# tempfile so all pool connections share one database
+"sqlite://:memory:"
 ```
 
 ### PostgreSQL
@@ -486,15 +579,16 @@ result_b = tenant_b.execute("workflow", context_b)
 
 ## Error Handling
 
-DefaultRunner operations can raise various exceptions:
+Construction failures raise `RuntimeError`; rejected operations raise
+`ValueError` (see [Exceptions]({{< ref "/reference/python-api/exceptions/" >}})):
 
 ```python
 import cloaca
 
 try:
     runner = cloaca.DefaultRunner("invalid://connection/string")
-except ValueError as e:
-    print(f"Invalid database URL: {e}")
+except RuntimeError as e:
+    print(f"Could not start runner: {e}")
 
 try:
     result = runner.execute("nonexistent_workflow", context)
@@ -535,7 +629,7 @@ runner = cloaca.DefaultRunner.with_config(database_url, config)
 # Configure timeouts
 config = cloaca.DefaultRunnerConfig()
 config.task_timeout_seconds = 1800      # 30 minutes per task
-config.pipeline_timeout_seconds = 7200  # 2 hours per workflow
+config.workflow_timeout_seconds = 7200  # 2 hours per workflow
 
 runner = cloaca.DefaultRunner.with_config(database_url, config)
 ```
@@ -649,5 +743,5 @@ runner.shutdown()
 
 - **[Context]({{< ref "/reference/python-api/context/" >}})** - Data passed to execute()
 - **[DefaultRunnerConfig]({{< ref "/reference/python-api/configuration/" >}})** - Configuration options
-- **[PipelineResult]({{< ref "/reference/python-api/pipeline-result/" >}})** - Execution results
+- **[WorkflowResult]({{< ref "/reference/python-api/pipeline-result/" >}})** - Execution results
 - **[WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}})** - Build workflows to execute

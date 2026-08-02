@@ -37,7 +37,7 @@ These flags apply to every subcommand.
 | `--tenant <NAME>` | `public` | Tenant name for tenant-scoped commands. Defaults to the admin "public" schema if unset. |
 | `--json` | `false` | Shorthand for `-o json`. |
 | `-o`, `--output <FORMAT>` | `table` | Output format: `table`, `json`, `yaml`, or `id`. |
-| `--no-color` | `false` | Disable ANSI colors in table output. |
+| `--no-color` | `false` | Accepted, but currently a no-op — no code path reads it yet. |
 
 ## API Key Schemes
 
@@ -48,13 +48,13 @@ These flags apply to every subcommand.
 | Raw | `clk_a1b2c3...` | The literal API key. |
 | `env:VAR` | `env:CLOACINA_API_KEY` | Read the key from the named environment variable. Errors if the variable is unset or empty. |
 | `file:PATH` | `file:/etc/cloacina/key` | Read the first non-empty line of the file. Whitespace is trimmed. |
-| `keyring:NAME` | `keyring:prod` | **Reserved for v1.1**; rejected today with a clear error message. |
+| `keyring:NAME` | `keyring:prod` | Deferred; rejected today with a clear error message. |
 
 ## Output Formats
 
 | Format | Behavior |
 |---|---|
-| `table` (default) | Human-readable aligned columns. Long strings are truncated with `…`. Respects `--no-color`. Auto-infers columns from the first object's keys; not ideal for deeply-nested resources. |
+| `table` (default) | Human-readable aligned columns. Long strings are truncated with `…`. Auto-infers columns from the first object's keys; not ideal for deeply-nested resources. |
 | `json` | Pretty-printed JSON, one document per response. |
 | `yaml` | YAML output, one document per response. |
 | `id` | One ID per line. Extracts the `id` or `name` field from each object. Useful in shell pipelines: `cloacinactl execution list -o id \| xargs -n1 cloacinactl execution status`. |
@@ -83,14 +83,19 @@ distinguish failure modes:
 | `RUST_LOG` | All commands | Log filter directive (e.g., `info`, `debug`, `cloacina=debug`). Overridden by `-v` / `--verbose`. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `server start` | If set, enables OpenTelemetry tracing to the named gRPC collector. |
 | `OTEL_SERVICE_NAME` | `server start` | Service name in OpenTelemetry spans. Default: `cloacina`. |
-| `CLOACINA_VAR_<NAME>` | Workflow context | Read by `cloaca.var("NAME")` in Python; the `CLOACINA_VAR_` prefix is mandatory. |
+| `CLOACINA_VAR_<NAME>` | Workflow context | Read by `cloacina::var("NAME")` / `var_or` in Rust and `cloaca.var("NAME")` in Python; the `CLOACINA_VAR_` prefix is mandatory. |
+| `CLOACINA_DEFAULT_EXECUTOR` | `server start` | Executor key for dispatch (`default` or `fleet`). Overridden by `--default-executor`; overrides `[server].default_executor`. |
 
 ---
 
 # Service Commands
 
-These commands manage local services. They exec long-running binaries
-in the foreground or stop them via PID file.
+These commands manage local services. `daemon start` runs the daemon
+**in the foreground, in-process** (there is no built-in daemonize);
+`server start` and `compiler start` **exec** the corresponding binary
+from `PATH`. All write a PID file under `--home` first, and `stop` /
+`status` / `health` resolve that same `--home` — mixing `--home`
+values between start and stop silently misses the process.
 
 ## `daemon`
 
@@ -196,12 +201,16 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 | `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. CLOACI-I-0109 / T-0592. |
 
 This subcommand was renamed from `serve` in an earlier release; older
-docs may still mention the old name. The reconciler poll interval, the
-multi-tenant cache knobs, and the default executor are exposed via
-`cloacinactl server start` (the wrapper forwards them to the underlying
-`cloacina-server` binary). Other runtime-tuning knobs are not surfaced
-through the wrapper — if you need to tune them, invoke `cloacina-server`
-directly.
+docs may still mention the old name.
+
+`server start` **execs the `cloacina-server` binary from `PATH`**
+(after writing `<home>/server.pid`). The install script installs only
+`cloacinactl` — if `cloacina-server` is not separately installed
+(container image or cargo), `server start` fails with "failed to exec
+cloacina-server". The wrapper resolves `database_url` and
+`[server].default_executor` from `config.toml` and forwards them as
+flags; other runtime-tuning knobs are not surfaced through the wrapper
+— if you need to tune them, invoke `cloacina-server` directly.
 
 ### Default executor (`cloacinactl server start` + `cloacina-server`)
 
@@ -228,13 +237,18 @@ These flags tune the [execution-agent fleet]({{< ref "/service/explanation/execu
 ### `server stop` / `status` / `health`
 
 Same shape as the daemon equivalents, but use the server's PID file
-and HTTP-based status (`GET /v1/health/status`) and health (`GET
-/health`) probes instead of a Unix socket.
+for `stop` and HTTP probes for the rest: both `status` and `health`
+hit `GET /health` on the resolved profile server (`status` prints
+"server: unconfigured" when no profile/`--server` is set; `health`
+exits 0 if up, 2 otherwise).
 
 ## `compiler`
 
 The compilation service (`cloacina-compiler`). Polls the database for
-pending package builds and produces signed `.cloacina` archives.
+uploaded packages with `build_status = pending` and compiles their
+source into cdylib artifacts stored back in the database. Like
+`server start`, `compiler start` **execs the `cloacina-compiler`
+binary from `PATH`** (after writing `<home>/compiler.pid`).
 
 ### `compiler start` / `stop` / `status` / `health`
 
@@ -257,7 +271,11 @@ cloacinactl compiler start [--bind <ADDR>] [--database-url <URL>]
 
 `stop` / `status` / `health` follow the same pattern as `server`: PID
 file for stop, HTTP `GET /v1/status` for status, HTTP `GET /health`
-for health.
+for health. Note: `compiler status` / `health` probe the address in
+`[compiler].local_addr` from `config.toml` (default `127.0.0.1:9000`),
+**not** the `--bind` you passed to `compiler start` — if you started
+the compiler on a non-default bind, set `compiler.local_addr` to match
+or status will report unreachable.
 
 ## `agent`
 
@@ -299,46 +317,99 @@ respect the global `--profile` / `--server` / `--api-key` /
 
 ## `package`
 
+### `package new <NAME> [--lang <LANG>] [--kind <KIND>] [--path <DIR>]`
+
+Scaffolds a canonical package source tree. Local-only.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--lang <python\|rust>` | `python` | Source language to scaffold. |
+| `--kind <workflow\|graph\|cron>` | `workflow` | Package shape. **`cron` is Rust-only** — `--lang python --kind cron` errors (Python packages cannot declare cron triggers; use a poll trigger). |
+| `--path <DIR>` | `./<name>` | Directory to create. |
+
 ### `package build <DIR> [--release]`
 
 Runs `cargo build` in `<DIR>` (must contain a `Cargo.toml` and
-`package.toml`). With `--release`, builds the release profile.
-Local-only; does not contact the server. Exits 1 on missing files or
-build failure.
+`package.toml`). With `--release`, builds the release profile. Default
+is debug. Local-only; does not contact the server. Exits 1 on missing
+files or build failure. A no-op for Python packages.
+
+### `package validate <PATH>`
+
+Validates a package — a source directory or a `.cloacina` archive —
+against the canonical format without uploading. Checks the resolved
+manifest (closed schema), the language layout (Rust
+`Cargo.toml`+`src/lib.rs` vs Python `workflow/` tree), and lints
+known footguns (unrewritten `__WORKSPACE__` placeholders,
+`#[computation_graph]` without `graph_name`, a cron trigger duplicated
+in `#[workflow(triggers = ...)]`). Local-only.
 
 ### `package pack <DIR> [--out <PATH>] [--sign <KEY>]`
 
-Calls `fidius_core::package::pack_package()` to produce a `.cloacina`
-archive. The `--sign <KEY>` flag is **accepted but currently ignored**
-— detached signature side-car generation is not implemented in the CLI
-yet (the side-car infrastructure exists in
-`cloacina::security::package_signer`, the wiring is pending).
+Packs the source directory into a `.cloacina` archive (tar + bzip2
+**source** archive — no compiled artifacts). `--out` defaults to
+`<dir>/<name>.cloacina`. Runs the same validation as
+`package validate` first.
+
+`--sign <KEYFILE>` **fails hard by design**: workflow-package signing
+is not yet implemented (tracked under CLOACI-I-0103), so passing
+`--sign` produces an error rather than a silently unsigned archive.
+Note the asymmetry: the server's `--require-signatures` enforcement
+exists, so a server requiring signatures cannot accept packages packed
+by this CLI until I-0103 lands (signature rows must be inserted
+out-of-band).
 
 ### `package publish <DIR> [--release] [--sign <KEY>]`
 
-`build` → `pack` → `upload` in one shot.
+`build` → `pack` → `upload` in one shot. `--sign` fails hard, same as
+`package pack`.
 
 ### `package upload <FILE>`
 
-POSTs a `.cloacina` archive to `/v1/tenants/<tenant>/workflows`.
-Requires `--api-key` + `--server`. Server-side signature verification
-is enforced if the server was started with `--require-signatures`.
-Exit codes: 1 (user error), 2 (network), 4 (auth), 5 (server reject).
+Multipart POST of a `.cloacina` archive to
+`/v1/tenants/<tenant>/workflows`. Requires a resolved server + API key
+(profile or flags). Server-side signature verification is enforced if
+the server was started with `--require-signatures`. Exit codes: 1
+(user error), 2 (network), 4 (auth), 5 (server reject).
 
 ### `package list [--filter <SUBSTRING>]`
 
-`GET /v1/packages`. The `--filter` is applied client-side as a
-substring match on the package name.
+`GET /v1/tenants/<tenant>/workflows`. The `--filter` is applied
+client-side as a substring match on the package name.
 
 ### `package inspect <ID>`
 
-`GET /v1/packages/<id>`. Prints a single object respecting
-`--output`.
+`GET /v1/tenants/<tenant>/workflows/<id>`. Prints a single object
+respecting `--output`.
 
 ### `package delete <ID> [--force]`
 
-`DELETE /v1/packages/<id>`. Interactive confirmation unless
-`--force`.
+Resolves the package via `GET /v1/tenants/<tenant>/workflows/<id>`,
+then issues
+`DELETE /v1/tenants/<tenant>/workflows/<name>/<version>`. Interactive
+confirmation unless `--force`.
+
+## `constructor`
+
+Packages a `#[constructor]` **provider** crate into a `.cloacina`
+provider archive (CLOACI-T-0827). Providers are the plugin crates that
+`constructor!(from = "provider@version", ...)` nodes resolve against.
+Local-only (builds with cargo; no server contact).
+
+### `constructor package <CRATE-DIR>`
+
+```text
+cloacinactl constructor package <CRATE-DIR> [--out <PATH>]
+    [--sign-key <FILE>] [--manifest-bin <NAME>] [--debug] [--native]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--out <PATH>` | `<name>-<version>.cloacina` in CWD | Output archive path. |
+| `--sign-key <FILE>` | (none) | Ed25519 secret key (32 raw bytes) used to sign the provider archive (`package.sig`). This provider-side signing scheme **is** implemented — distinct from the unimplemented workflow-package `--sign`. |
+| `--manifest-bin <NAME>` | `emit_manifest` | Name of the provider crate's `[[bin]]` that prints the generated provider manifest JSON. |
+| `--debug` | off | Build the component in debug profile (default is release). |
+| `--native` | off | Package a **native host cdylib** provider instead of a sandboxed wasm32-wasip2 component (CLOACI-T-0903). Native providers run trusted and unsandboxed in-process — capability grants are advisory, not enforced. The crate must declare a `native` cargo feature plus fidius-core/fidius-macro host deps. The command prints the trust tier to stderr. |
 
 ## `workflow`
 
@@ -352,14 +423,17 @@ substring match on the package name.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `execution list [--workflow <F>] [--status <S>] [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/executions?status=…&workflow=…&limit=…&offset=…` | Default limit: 100, max 1000. `--status` and `--workflow` map to the server query params of the same names (CLOACI-T-0594 / API-02). |
+| `execution list [--workflow <F>] [--status <S>] [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/executions?status=…&workflow=…&limit=…&offset=…` | Default limit: 50, server cap 1000; default offset 0. `--status` and `--workflow` map to the server query params of the same names (CLOACI-T-0594 / API-02). |
 | `execution status <ID>` | `GET /v1/tenants/<tenant>/executions/<id>` | Returns Pending / Running / Completed / Failed / Cancelled / Paused. |
 | `execution events <ID> [--since <DURATION>] [--follow]` | `GET /v1/tenants/<tenant>/executions/<id>/events?since=<dur>` | `--follow` streams live events over the server's WebSocket delivery substrate (CLOACI-I-0115) until interrupted. `--since` cannot be combined with `--follow` (cursor support is future work); use `--since` on a non-follow call for the historical snapshot. |
 
 ## `graph`
 
-Per CLOACI-S-0011, *graph* is the unit of scheduling; *reactor* is a
-node inside the graph.
+Per CLOACI-S-0011, `graph` is the current inspection noun for
+computation graphs (*graph* is the unit of scheduling; a *reactor* is
+a specialized trigger node inside it). The `reactor` noun below
+survives **only** for operator manual fire — docs or scripts using
+`reactor` as the inspection noun are stale.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
@@ -396,7 +470,7 @@ Requires an admin-role key.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `tenant create <NAME> [--description <STR>]` | `POST /v1/tenants` | Creates a new Postgres schema (per-tenant). The schema's password is **never returned** — it's set during provisioning and not surfaced. |
+| `tenant create <NAME> [--description <STR>] [--password <PW>]` | `POST /v1/tenants` | Creates a new Postgres schema (per-tenant). `--password` sets the tenant DB password; omitted, the server auto-generates one. The password is **never returned** — it's set during provisioning and not surfaced. |
 | `tenant list` | `GET /v1/tenants` | Lists tenant schema names. |
 | `tenant delete <NAME> [--force]` | `DELETE /v1/tenants/<name>` | Triggers the 4-step teardown orchestration (revoke keys → evict runner cache → evict DB cache → drop schema). Each step emits an audit event. The drain step is bounded by `--tenant-deletion-drain-timeout-s` (server flag, default 30s); past that, the runner is hard-evicted. Interactive confirmation unless `--force`. CLOACI-T-0581. |
 
@@ -404,9 +478,15 @@ Requires an admin-role key.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `key create <NAME> [--role <ROLE>]` | `POST /v1/auth/keys` (or `/v1/tenants/<tenant>/keys` if tenant-scoped) | Roles: `admin`, `write`, `read`. Default `read`. **The plaintext key is shown exactly once.** Save it; it cannot be retrieved later. |
+| `key create <NAME> [--role <ROLE>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`. Default `read`. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
 | `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at). No hashes, no plaintext. |
-| `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. The server clears its **entire** auth cache on revoke (not just the revoked key) so revocation is immediate; subsequent requests re-validate against the database. |
+| `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. Confirmation unless `--force`. |
+
+The `key` noun always uses the **global** `/v1/auth/keys` surface,
+which is restricted to platform-admin (god-mode) keys since
+CLOACI-T-0784. Tenant admins mint tenant-scoped keys via the HTTP API
+directly (`POST /v1/tenants/{tenant}/keys`) — there is no cloacinactl
+verb for that surface today.
 
 ## `trigger`
 
@@ -495,7 +575,12 @@ directory or source it from your rcfile.
 
 Located at `~/.cloacina/config.toml` (or `<home>/config.toml` if
 `--home` is set). Optional; all fields have defaults. The parser
-**rejects unknown fields** to catch typos early.
+**rejects unknown fields** (`deny_unknown_fields`) — but note the
+load behavior: a file that fails to parse (including one with a single
+unknown key) is logged as a warning and **ignored entirely**, falling
+back to defaults. Because most client commands don't initialize
+tracing, the warning is usually invisible — a typo'd config manifests
+as "no server configured", not as a parse error.
 
 ```toml
 # Top-level
@@ -523,9 +608,12 @@ log_level = "info"                  # NOTE: not currently wired to runtime loggi
 shutdown_timeout_s = 30             # Graceful drain timeout
 watcher_debounce_ms = 500           # Filesystem watcher debounce
 trigger_poll_interval_ms = 1000     # Custom-poll trigger base interval
-# cron_max_catchup = 100            # Max cron catchup executions; omit for unlimited
+# cron_max_catchup = 100            # Max cron catchup executions; omit to use
+                                    # the runtime default (100)
 cron_recovery_interval_s = 300      # Cron recovery sweeper cadence
-cron_lost_threshold_min = 10        # Lost-task threshold before reclaim
+cron_lost_threshold_min = 10        # Lost-task threshold (present in the schema
+                                    # but not currently forwarded to the runner
+                                    # config; the runtime default of 10 applies)
 
 # Compiler settings (used by `compiler status` / `compiler health` probes).
 [compiler]
@@ -534,6 +622,10 @@ local_addr = "127.0.0.1:9000"
 # Additional package directories for the daemon (~ expansion supported).
 [watch]
 directories = ["~/my-workflows", "/opt/cloacina/packages"]
+
+# Server settings read by `cloacinactl server start`.
+[server]
+default_executor = "default"        # "default" (in-process) or "fleet"
 ```
 
 ## Profile Resolution

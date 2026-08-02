@@ -237,7 +237,7 @@ let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
     Box::pin(async move {
         fc.fetch_add(1, Ordering::SeqCst);
         let result = market_pipeline_compiled(&cache).await;
-        if let GraphResult::Completed { outputs } = &result {
+        if let GraphResult::Completed { outputs, .. } = &result {
             for output in outputs {
                 if let Some(signal) = output.downcast_ref::<TradingSignal>() {
                     println!(

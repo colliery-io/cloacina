@@ -9,7 +9,9 @@ aliases:
 
 # Cron Scheduling Architecture
 
-Cloacina provides a robust cron scheduling system built on PostgreSQL with automatic recovery, distributed execution support, and strong consistency guarantees.
+Cloacina provides a robust cron scheduling system with automatic recovery, distributed execution support, and strong consistency guarantees. It runs on both database backends — PostgreSQL for server deployments (where `FOR UPDATE SKIP LOCKED` claiming enables multi-replica scheduling) and SQLite for embedded and daemon deployments.
+
+> **A note on the code excerpts below.** The `impl` blocks in this document are *illustrative pseudo-code* sketching the internal control flow — they are not the literal source. The user-facing API surface is `runner.register_cron_workflow(...)` and friends (see the [cron tutorial]({{< ref "/embed/tutorials/05-cron-scheduling/" >}})); the real internals live in `crates/cloacina/src/cron_trigger_scheduler.rs`, `crates/cloacina/src/cron_recovery.rs`, and `crates/cloacina-workflow/src/cron_evaluator.rs`.
 
 ## Overview
 
@@ -62,17 +64,14 @@ graph TB
 ### 1. Schedule Registration
 
 ```rust
-// Register a cron schedule
-let schedule = CronSchedule {
-    id: "backup_daily".to_string(),
-    workflow_name: "daily_backup".to_string(),
-    cron_expression: "0 2 * * *".to_string(), // 2 AM daily
-    timezone: "UTC".to_string(),
-    enabled: true,
-    context: Context::new(),
-};
-
-runner.add_cron_schedule(schedule).await?;
+// Register a cron schedule (the real user-facing API)
+let schedule_id = runner
+    .register_cron_workflow(
+        "daily_backup",  // workflow name
+        "0 2 * * *",     // cron expression — 2 AM daily
+        "UTC",           // timezone
+    )
+    .await?;
 ```
 
 **What happens internally:**
@@ -224,7 +223,7 @@ impl CronExecutor {
 
 While execution is at-least-once, Cloacina provides mechanisms for exactly-once semantics:
 
-```rust
+```python
 @cloaca.task()
 def idempotent_backup(context):
     """Example of idempotent task design."""
@@ -329,23 +328,27 @@ When a scheduler starts after downtime and finds firings whose `next_execution_a
 The cron recovery service (`crates/cloacina/src/cron_recovery.rs`) inspects `last_executed_at` against the cron expression and applies the policy on each recovery tick (cadence: `cron_recovery_interval`, default 5min). Set the policy at schedule-registration time via the DAL — the field is not currently exposed on `register_cron_workflow` and is set during direct row insert.
 
 See [Configuration Reference]({{< ref "/reference/configuration" >}}) for the related knobs:
-`cron_max_catchup_executions` (default unbounded), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).
+`cron_max_catchup_executions` (default 100), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).
 
 
 ## Cron Expression Parsing
 
 ### Supported Format
 
-Cloacina uses the standard cron format with timezone support:
+Cloacina parses expressions with the [`croner`](https://crates.io/crates/croner) crate, configured with **optional seconds** (`CronEvaluator`, `crates/cloacina-workflow/src/cron_evaluator.rs`). Both the standard 5-field form and a 6-field form with a leading seconds field are accepted, with timezone support:
 
 ```
-┌───────────── minute (0 - 59)
-│ ┌───────────── hour (0 - 23)
-│ │ ┌───────────── day of month (1 - 31)
-│ │ │ ┌───────────── month (1 - 12)
-│ │ │ │ ┌───────────── day of week (0 - 6) (Sunday to Saturday)
-│ │ │ │ │
-* * * * *
+              ┌───────────── minute (0 - 59)
+              │ ┌───────────── hour (0 - 23)
+              │ │ ┌───────────── day of month (1 - 31)
+              │ │ │ ┌───────────── month (1 - 12)
+              │ │ │ │ ┌───────────── day of week (0 - 6) (Sunday to Saturday)
+              │ │ │ │ │
+              * * * * *      # 5-field (standard)
+
+┌───────────── second (0 - 59, optional)
+│             │
+*             * * * * *      # 6-field (leading seconds), e.g. "*/3 * * * * *"
 ```
 
 ### Expression Examples
@@ -513,8 +516,8 @@ For the full namespace + PromQL recipes, see [Metrics Catalog]({{< ref "/referen
 
 ### Schedule Design
 
-```rust
-// Good: Idempotent with clear failure handling
+```python
+# Good: Idempotent with clear failure handling
 @cloaca.task()
 def robust_backup(context):
     backup_id = context.get("backup_id")
@@ -536,7 +539,7 @@ def robust_backup(context):
 
     return context
 
-// Avoid: Non-idempotent operations
+# Avoid: Non-idempotent operations
 @cloaca.task()
 def bad_counter(context):
     # This will cause issues if executed multiple times

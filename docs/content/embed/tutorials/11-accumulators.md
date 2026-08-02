@@ -39,10 +39,10 @@ angreal demos tutorials rust 08
 > The on-disk example keeps its original number (`08`); these tutorials were renumbered, so the command number won't match the tutorial number — that's expected.
 {{< /tab >}}
 {{< tab "Python" >}}
-[`examples/tutorials/engine/computation-graphs/10_accumulators.py`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/engine/computation-graphs/10_accumulators.py)
+[`examples/tutorials/python/computation-graphs/10_accumulators.py`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/python/computation-graphs/10_accumulators.py)
 
 ```bash
-python examples/tutorials/engine/computation-graphs/10_accumulators.py
+python examples/tutorials/python/computation-graphs/10_accumulators.py
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -231,7 +231,7 @@ The function name (`pricing`) becomes the source name. This must match the key y
 
 In Rust, `process()` receives the raw serialized bytes off the socket channel — deserialize them to your event type, then return the `Output` the accumulator emits to the boundary channel. In Python the function receives a raw event dict and returns the processed dict. In both languages, returning `None` silently drops the event — useful for filtering or deduplication.
 
-Cloacina ships four accumulator decorators in Python — `@cloaca.passthrough_accumulator`, `@cloaca.stream_accumulator`, `@cloaca.polling_accumulator`, and `@cloaca.batch_accumulator`. The Rust `Accumulator` trait additionally supports a `#[state_accumulator]` form that has no Python equivalent yet (tracked in CLOACI-T-0688).
+Cloacina ships five accumulator decorators in Python — `@cloaca.passthrough_accumulator`, `@cloaca.stream_accumulator`, `@cloaca.polling_accumulator`, `@cloaca.batch_accumulator`, and `@cloaca.state_accumulator(capacity=N)` — mirroring the five Rust accumulator macros.
 
 ---
 
@@ -247,7 +247,7 @@ The runtime model uses three channels:
 | **Boundary** | Accumulator → Reactor | Accumulator pushes typed, named data here |
 | **Manual** | External → Reactor | Direct cache injection (unused in this tutorial) |
 
-There is also a **shutdown** signal — a broadcast channel that all components watch.
+There is also a **shutdown** signal — a watch channel that all components observe.
 
 ```rust
 // Boundary channel: accumulator sends named data to reactor
@@ -390,7 +390,7 @@ for i, event in enumerate(events, 1):
     print(f"  Graph result: {result.get('message', 'N/A')}\n")
 ```
 
-Calling `pricing(event)` invokes your accumulator function and returns the transformed dict. You then pass that dict to `builder.execute()` under the same source name (`"pricing"`). In a reactive deployment the runtime handles this automatically — the accumulator feeds the boundary channel and the reactor calls `execute()` for you — but calling them manually here makes the data flow explicit.
+Calling `pricing(event)` invokes your accumulator function and returns the transformed dict. You then pass that dict to `builder.execute()` under the same source name (`"pricing"`). In a live deployment the runtime handles this automatically — the accumulator feeds the boundary channel and the reactor calls `execute()` for you — but calling them manually here makes the data flow explicit.
 {{< /tab >}}
 {{< /tabs >}}
 
@@ -455,7 +455,7 @@ You've wired your first live computation pipeline:
 
 - **`Accumulator`** transforms raw events into typed outputs, optionally filtering them with `None`
 - **`BoundarySender`** tags each output with a `SourceName` so the reactor knows which cache slot to update
-- **`accumulator_runtime()`** drives the accumulator: deserialize → `process()` → serialize → send
+- **`accumulator_runtime()`** drives the accumulator: raw bytes → `process()` (which deserializes them itself) → serialize → send
 - **`Reactor`** listens on the boundary channel, fires the compiled graph when criteria are met
 - **`shutdown_signal()`** gives you coordinated teardown across all components
 
@@ -463,4 +463,4 @@ The pattern you've learned here — socket channel → accumulator → boundary 
 
 ## What's next?
 
-- [Tutorial 12 — Full Reactive Pipeline]({{< ref "/embed/tutorials/12-full-pipeline/" >}}): connect multiple accumulators to one reactor and handle optional inputs in the graph
+- [Tutorial 12 — Full Multi-Source Pipeline]({{< ref "/embed/tutorials/12-full-pipeline/" >}}): connect multiple accumulators to one reactor and handle optional inputs in the graph

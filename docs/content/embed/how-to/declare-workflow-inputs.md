@@ -29,7 +29,7 @@ Add a `params( … )` clause to the `#[workflow]` attribute. Each entry is
 `name: Type`, optionally `= default`:
 
 ```rust
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina::{task, workflow, Context, TaskError};
 
 #[workflow(
     name = "analytics_workflow",

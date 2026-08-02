@@ -18,37 +18,31 @@ Cloaca selects its backend at runtime from the connection URL you pass to
 
 ## Configure a SQLite URL
 
+Everything after the `sqlite://` prefix is used as the database file path (a
+bare path with no prefix also works). The file is created if it does not exist.
+
 ```python
 import cloaca
 
-# File-based database
-runner = cloaca.DefaultRunner("sqlite:///workflows.db")
+# File in the working directory
+runner = cloaca.DefaultRunner("sqlite://workflows.db")
 
-# Custom path
-runner = cloaca.DefaultRunner("sqlite:///./data/workflows.db")
+# Relative or absolute path
+runner = cloaca.DefaultRunner("sqlite://./data/workflows.db")
 
 # In-memory (testing only)
-runner = cloaca.DefaultRunner("sqlite:///:memory:")
+runner = cloaca.DefaultRunner("sqlite://:memory:")
 ```
 
-### Enable WAL mode and a busy timeout
+`:memory:` is materialized as a per-runner temporary file so all pooled
+connections share one database; it is deleted when the runner is dropped.
 
-For better concurrency and to avoid immediate "database is locked" failures,
-enable WAL journaling and set a busy timeout:
+### WAL mode and busy timeout are automatic
 
-```python
-runner = cloaca.DefaultRunner(
-    "sqlite:///workflows.db?"
-    "mode=rwc&"
-    "_journal_mode=WAL&"
-    "_synchronous=NORMAL&"
-    "_busy_timeout=5000"
-)
-```
-
-- `_journal_mode=WAL` — allows concurrent readers while a write is in progress.
-- `_synchronous=NORMAL` — balances durability against write throughput.
-- `_busy_timeout=5000` — wait up to 5s for a lock instead of failing immediately.
+Cloaca configures SQLite for concurrency itself — it sets
+`PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=30000` on every pooled
+connection. You do not need to (and cannot) tune these through URL query
+parameters: Cloaca does not parse query parameters on SQLite URLs.
 
 ## Configure a PostgreSQL URL
 
@@ -65,15 +59,12 @@ runner = cloaca.DefaultRunner.with_schema(
 )
 ```
 
-### Connection pooling, SSL, and timeouts
+### SSL and timeouts
+
+PostgreSQL URL query parameters are passed through to the PostgreSQL client
+library (libpq), so its standard connection parameters work:
 
 ```python
-# Connection pool sizing
-runner = cloaca.DefaultRunner(
-    "postgresql://user:password@localhost:5432/cloacina?"
-    "pool_min_size=5&pool_max_size=20&pool_timeout=30"
-)
-
 # Require SSL
 runner = cloaca.DefaultRunner(
     "postgresql://user:password@host:5432/db?sslmode=require"
@@ -85,7 +76,9 @@ runner = cloaca.DefaultRunner(
 )
 ```
 
-For connection-pool and runner sizing guidance, see
+Connection-pool size is **not** a URL parameter — it is the `db_pool_size`
+field on `DefaultRunnerConfig` (default 10), passed via
+`DefaultRunner.with_config`. See
 [Performance Optimization]({{< ref "/embed/how-to/performance-optimization/" >}}).
 
 ## Select the URL from the environment
@@ -100,9 +93,9 @@ import cloaca
 def create_runner():
     env = os.getenv("ENVIRONMENT", "development")
     if env == "development":
-        return cloaca.DefaultRunner("sqlite:///dev_workflows.db")
+        return cloaca.DefaultRunner("sqlite://dev_workflows.db")
     if env == "testing":
-        return cloaca.DefaultRunner("sqlite:///:memory:")
+        return cloaca.DefaultRunner("sqlite://:memory:")
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:

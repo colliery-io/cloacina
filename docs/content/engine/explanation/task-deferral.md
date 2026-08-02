@@ -274,16 +274,17 @@ The condition closure must be:
 
 ## Python Bindings
 
-The Python `TaskHandle` class (`PyTaskHandle` in `crates/cloacina/src/python/task.rs`) exposes the same `defer_until` interface. The condition is a Python callable returning `bool`, and `poll_interval_ms` is specified in milliseconds:
+The Python `TaskHandle` class (`PyTaskHandle` in `crates/cloacina-python/src/task.rs`) exposes the same `defer_until` interface. The condition is a Python callable returning `bool`, and `poll_interval_ms` (default 1000) is specified in milliseconds. The call is a plain blocking method — it bridges to the async runtime internally, so there is no `await`:
 
 ```python
-@task(id="wait_for_approval")
-async def wait_for_approval(context, handle):
-    await handle.defer_until(
-        condition=lambda: check_approval_status(context["job_id"]),
+@cloaca.task(id="wait_for_approval")
+def wait_for_approval(context, handle):
+    handle.defer_until(
+        lambda: check_approval_status(context.get("job_id")),
         poll_interval_ms=10000,
     )
     # Slot reclaimed, continue processing
+    return context
 ```
 
 See the [Python TaskHandle reference]({{< ref "/reference/python-api/task" >}}) for the full API.

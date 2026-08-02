@@ -8,7 +8,14 @@
   <img src="https://github.com/colliery-io/cloacina/raw/main/docs/static/images/image.png" alt="Cloacina Logo" width="400">
 </div>
 
-Cloacina is a workflow orchestration platform for Rust, built by [Colliery Software](https://colliery.io). It runs in two complementary modes — as a **library embedded inside your application** for the simplest deployments, or as a **standalone server** (`cloacina-server`) that loads packaged workflows uploaded via a CLI and HTTP API. The same engine, the same packaging format, the same multi-tenant model — you pick the deployment shape that matches the team and the workload.
+Cloacina is a **workflow orchestration engine for Rust and Python**, built by [Colliery Software](https://colliery.io). Its only hard dependency is a database — PostgreSQL or SQLite. No broker, no queue, no coordinator.
+
+You run the same engine **two co-equal ways**:
+
+- **Embed the library** — add `cloacina` (Rust) or `cloaca` (Python) as a dependency and run orchestration inside your application, against a database you already operate. Embedding is a permanent, production-legitimate end-state — not a starter mode you graduate from.
+- **Run the service** — operate `cloacina-server` as a multi-tenant control plane with an HTTP/WebSocket API and web UI, and ship workflows to it as `.cloacina` packages.
+
+Cloacina is embedded-first by design: the engine is a genuine standalone library, and the server is built on top of it — not the other way around.
 
 Cloacina exposes **two execution primitives**:
 
@@ -17,22 +24,22 @@ Cloacina exposes **two execution primitives**:
 
 Both surfaces share the runtime and compose: workflows can subscribe to reactor firings, and workflow tasks can invoke embedded computation graphs.
 
-**Cloaca** is the Python wheel that ships full parity with the Rust surface for both primitives — first-class, not a feature flag.
+**Cloaca** is the Python package — the same engine with a first-class Python authoring and runtime surface, not a wrapper around a subset.
 
-New here? Start with [When to use Cloacina (and when not)](https://colliery-io.github.io/cloacina/quick-start/when-to-use/), then the [Features overview](https://colliery-io.github.io/cloacina/quick-start/features/).
+New here? Start with [Is Cloacina for you?](https://colliery-io.github.io/cloacina/start/is-cloacina-for-you/), then the [Features Overview](https://colliery-io.github.io/cloacina/start/features/).
 
 > Why "Cloacina" and "Cloaca" ? Named after the Roman goddess of sewers and drainage systems, Cloacina reflects the library's purpose: efficiently moving data through processing pipelines, just as ancient Roman infrastructure managed the flow of sewage out of the city. Cloaca is the latin noun for the drain, the Cloaca Maxima is the system Cloacina presided over. (Don't read too much into it, apparently there aren't many deities of "plumbing"!)
 
 ## Features
 
-- **Two deployment modes** — Embedded library inside your app, or `cloacina-server` loading packaged `.cloacina` archives over HTTP / WebSocket.
+- **Two ways to run it** — Embedded library inside your app, or `cloacina-server` loading packaged `.cloacina` archives over HTTP / WebSocket.
 - **Two execution primitives** — Durable workflows and in-process computation graphs; pick one or compose both on the same firing.
 - **Resilient execution** — Automatic retries, failure recovery, atomic task-completion commits, heartbeat-driven stale-claim recovery.
-- **Type-safe workflows** — Compile-time validation of task dependencies and data flow via the `#[task]` / `workflow!` macros.
+- **Type-safe workflows** — Compile-time validation of task dependencies and data flow via the `#[task]` / `#[workflow]` attribute macros.
 - **Database-backed** — PostgreSQL or SQLite, selected at runtime by connection URL.
 - **Multi-tenant** — PostgreSQL schema-based isolation; fail-closed `search_path` enforcement; 4-step decommission orchestration on the server.
-- **Packaged workflows** — Ship `.cloacina` packages (Rust compiled to a cdylib on load, Python as a source module tree); scaffold/validate/pack with `cloacinactl package`; load via HTTP API, signed (optional `--require-signatures`) or unsigned.
-- **First-class Python** — `cloaca` PyPI wheel exposes the full surface; not a feature flag.
+- **Packaged workflows** — Ship `.cloacina` source packages (Rust compiled server-side by `cloacina-compiler`, Python loaded as a source module tree); scaffold/validate/pack with `cloacinactl package`; upload via CLI or HTTP API.
+- **First-class Python** — the `cloaca` PyPI wheel embeds the engine in your Python process; not a feature flag.
 - **Client SDKs** — Rust, Python, and TypeScript clients for calling a running server over HTTP/WebSocket.
 - **Web UI** — Operate and observe a server: workflows, executions (live event stream), triggers, computation-graph health, package upload, and API-key management.
 - **Horizontal scaling** — A `cloacina-compiler` build service and a `cloacina-agent` execution fleet scale the server out; stateless schedulers coordinate through the database.
@@ -48,10 +55,10 @@ Add Cloacina to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = "0.7.0"
-
-async-trait = "0.1"    # Required for async task definitions
-serde_json = "1.0"    # Required for context data serialization
+cloacina = "0.10"
+cloacina-workflow = "0.10"   # macro-generated task code references this crate directly
+tokio = { version = "1", features = ["full"] }
+serde_json = "1.0"
 ```
 
 Cloacina supports both PostgreSQL and SQLite backends. The backend is selected automatically at runtime based on your connection URL - no compile-time configuration needed.
@@ -62,21 +69,19 @@ For smaller binaries, you can compile with only the backend you need:
 
 ```toml
 # PostgreSQL only
-cloacina = { version = "0.7.0", default-features = false, features = ["postgres", "macros"] }
+cloacina = { version = "0.10", default-features = false, features = ["postgres", "macros"] }
 
 # SQLite only
-cloacina = { version = "0.7.0", default-features = false, features = ["sqlite", "macros"] }
+cloacina = { version = "0.10", default-features = false, features = ["sqlite", "macros"] }
 ```
 
 ### Python bindings (`cloaca`)
 
 ```sh
-pip install cloaca               # default (both backends)
-pip install cloaca[sqlite]       # SQLite only
-pip install cloaca[postgres]     # PostgreSQL only
+pip install cloaca
 ```
 
-See the [Python quick start](https://colliery-io.github.io/cloacina/python/quick-start/) for usage.
+The wheel bundles both database backends; the one you use is chosen at runtime by connection URL, same as Rust. See the [embedded quick start](https://colliery-io.github.io/cloacina/embed/quick-start/) for usage.
 
 ### `cloacinactl` CLI
 
@@ -86,42 +91,71 @@ The operator + developer CLI (bundling the daemon as `cloacinactl daemon`):
 curl -fsSL https://get.cloacina.dev/install.sh | bash
 ```
 
-See [Installing cloacinactl](https://colliery-io.github.io/cloacina/quick-start/install/) for version pinning, system-wide installs, and supported platforms.
+See [Installing cloacinactl](https://colliery-io.github.io/cloacina/start/install/) for version pinning, system-wide installs, and supported platforms.
 
 ## Quick Start
 
-Here's a simple example that demonstrates the basic usage:
+A one-task workflow, run in-process against SQLite:
 
 ```rust
-use cloacina::*;
+use cloacina::executor::WorkflowExecutor;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
+use cloacina::{task, workflow, Context, TaskError};
 
-// Define a simple task
-#[task(
-    id = "process_data",
-    dependencies = []
-)]
-async fn process_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    // Your business logic here
-    context.insert("processed", serde_json::json!(true))?;
-    println!("Data processed successfully!");
-    Ok(())
+#[workflow(name = "my_workflow", description = "A simple workflow")]
+pub mod my_workflow {
+    use super::*;
+
+    #[task(id = "process_data", dependencies = [])]
+    pub async fn process_data(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        // Your business logic here
+        context.insert("processed", serde_json::json!(true))?;
+        println!("Data processed successfully!");
+        Ok(())
+    }
 }
 
-// Create the workflow
-let workflow = workflow! {
-    name: "my_workflow",
-    description: "A simple workflow",
-    tasks: [process_data]
-};
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Backend chosen by URL scheme: sqlite://... or postgresql://...
+    let runner = DefaultRunner::with_config(
+        "sqlite://my_app.db",
+        DefaultRunnerConfig::default(),
+    )
+    .await?;
 
-// Initialize the runner with a database
-let runner = DefaultRunner::new("postgresql://user:pass@localhost/dbname").await?;
+    // Blocks until the workflow reaches a terminal state (or times out)
+    let result = runner.execute("my_workflow", Context::new()).await?;
+    println!("status: {:?}", result.status);
 
-// Execute the workflow (await blocks until terminal state or timeout)
-let result = runner.execute("my_workflow", Context::new()).await?;
+    runner.shutdown().await?;
+    Ok(())
+}
 ```
 
-For service-mode usage (running `cloacina-server`, uploading packaged workflows, executing over the HTTP API), see the [platform tutorials](https://colliery-io.github.io/cloacina/platform/tutorials/).
+The same workflow in Python:
+
+```python
+import cloaca
+
+with cloaca.WorkflowBuilder("my_workflow") as builder:
+    builder.description("A simple workflow")
+
+    @cloaca.task(id="process_data")
+    def process_data(context):
+        context.set("processed", True)
+        return context
+
+if __name__ == "__main__":
+    runner = cloaca.DefaultRunner("sqlite://my_app.db")
+    result = runner.execute("my_workflow", cloaca.Context())
+    print("status:", result.status)
+    runner.shutdown()
+```
+
+For service-mode usage (running `cloacina-server`, uploading packaged workflows, executing over the HTTP API), see [Run the Service](https://colliery-io.github.io/cloacina/service/).
 
 ## Multi-Tenancy
 
@@ -164,7 +198,7 @@ cloacinactl --profile prod tenant create acme
 cloacinactl --profile prod tenant delete acme
 ```
 
-See [Configure a Multi-Tenant Deployment](https://colliery-io.github.io/cloacina/platform/how-to-guides/configure-multi-tenant-deployment/) for the operational surface and [Decommission a Tenant](https://colliery-io.github.io/cloacina/platform/how-to-guides/decommission-a-tenant/) for the teardown recipe.
+See [Configure a Multi-Tenant Deployment](https://colliery-io.github.io/cloacina/service/how-to/configure-multi-tenant-deployment/) for the operational surface and [Decommission a Tenant](https://colliery-io.github.io/cloacina/service/how-to/decommission-a-tenant/) for the teardown recipe.
 
 ### SQLite file-based isolation (single-tenant per file)
 
@@ -186,26 +220,33 @@ let tenant_b = DefaultRunner::new("sqlite://./tenant_b.db").await?;
 
 ```
 cloacina/
-  crates/                          # 11 Rust crates
+  crates/                          # 15 Rust crates
     cloacina/                      # Core workflow + computation graph engine
-    cloacina-macros/               # Procedural macros (#[task], #[workflow], #[reactor], ...)
-    cloacina-build/                # Build-time helpers shared across packaged-workflow crates
+    cloacina-agent/                # Execution-agent fleet worker
+    cloacina-api-types/            # Shared API types
+    cloacina-build/                # build.rs helper for crates that link pyo3
+    cloacina-client/               # Rust client SDK for the server API
     cloacina-compiler/             # cloacina-compiler service (compiles .cloacina archives)
-    cloacina-computation-graph/    # CG runtime helpers
+    cloacina-computation-graph/    # CG runtime types
+    cloacina-constructor-contract/ # Constructor-provider contract types
+    cloacina-macros/               # Procedural macros (#[task], #[workflow], #[reactor], ...)
     cloacina-python/               # PyO3 bindings (PyPI: cloaca)
     cloacina-server/               # cloacina-server HTTP+WS service
-    cloacina-testing/              # Shared test fixtures
-    cloacina-workflow/             # Workflow plugin trait + types (host-side)
-    cloacina-workflow-plugin/      # Workflow plugin trait + 9-method FFI vtable
+    cloacina-testing/              # Test harness (TestRunner, assertions)
+    cloacina-workflow/             # Task/workflow authoring types (host-side)
+    cloacina-workflow-plugin/      # FFI plugin interface for .cloacina packages
     cloacinactl/                   # CLI (operator + developer + bundled daemon)
+  providers/                       # Constructor provider crates (fs, kafka, ...)
+  clients/                         # Python + TypeScript client SDKs
   charts/cloacina-server/          # Helm chart (with embedded local Postgres subchart)
+  ui/                              # Web UI (ships embedded in the server)
   examples/
     tutorials/                     # Step-by-step learning path
     features/                      # Feature showcases (filtered-reactor, multi-tenant, ...)
     performance/                   # Benchmarks
   tests/python/                    # Python integration tests
   docs/                            # Documentation site
-  install.sh                       # One-line installer (served at get.cloacina.dev)
+  scripts/install.sh               # One-line installer (served at get.cloacina.dev)
 ```
 
 ## Documentation
@@ -214,19 +255,18 @@ cloacina/
 
 Start here:
 
-- [Quick Start](https://colliery-io.github.io/cloacina/quick-start/) — Pick the right tutorial track for your goal.
-- [Installing cloacinactl](https://colliery-io.github.io/cloacina/quick-start/install/) — CLI one-liner + Docker + Helm.
-- [Workflows · Tutorials](https://colliery-io.github.io/cloacina/workflows/tutorials/) — Rust library tutorials.
-- [Computation Graphs · Tutorials](https://colliery-io.github.io/cloacina/computation-graphs/tutorials/) — Event-driven DAG tutorials.
-- [Python · Tutorials](https://colliery-io.github.io/cloacina/python/workflows/tutorials/) — Python-side tutorials (mirror Rust 1:1).
-- [Platform · How-to Guides](https://colliery-io.github.io/cloacina/platform/how-to-guides/) — Multi-tenant, signed packages, CLI profiles, Helm.
+- [Start Here](https://colliery-io.github.io/cloacina/start/) — what Cloacina is, whether it fits, and which door to pick.
+- [Installing cloacinactl](https://colliery-io.github.io/cloacina/start/install/) — CLI one-liner + Docker + Helm.
+- [Embed the Library](https://colliery-io.github.io/cloacina/embed/) — quick start and tutorials for Rust and Python, in-process.
+- [Run the Service](https://colliery-io.github.io/cloacina/service/) — deploy and operate `cloacina-server`.
+- [Engine & Primitives](https://colliery-io.github.io/cloacina/engine/) — workflows, computation graphs, and the objects they're built from.
+- [Reference](https://colliery-io.github.io/cloacina/reference/) — APIs, CLI, HTTP/WebSocket, configuration.
 
 Additional resources:
 - [API Reference](https://docs.rs/cloacina) (Rust docs).
 - [Tutorial sources](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials).
 - [Feature examples](https://github.com/colliery-io/cloacina/tree/main/examples/features) — including `filtered-reactor`, `multi-tenant`, `packaged-graph`.
-- [Compiler + Server Deployment Runbook](https://colliery-io.github.io/cloacina/platform/how-to-guides/compiler-deployment-runbook/).
-- [Glossary](https://colliery-io.github.io/cloacina/glossary/) — Every term in one place.
+- [Glossary](https://colliery-io.github.io/cloacina/reference/glossary/) — Every term in one place.
 
 ## Contributing
 

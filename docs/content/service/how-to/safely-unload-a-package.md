@@ -94,9 +94,11 @@ cloacinactl graph list --tenant subscriber-tenant
 # 2. Unload the subscriber package.
 cloacinactl package delete <package-B-id> --tenant subscriber-tenant
 
-# 3. Confirm the reactor is now unbound.
-cloacinactl graph status R --tenant publisher-tenant
-# Should show subscribers: 0
+# 3. Confirm the reactor is now unbound — its bound_graphs list is
+#    empty in the reactors health listing.
+curl -s "$SERVER/v1/health/reactors" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | select(.name == "R") | .bound_graphs'
+# []
 
 # 4. Unload the publisher.
 cloacinactl package delete <package-A-id> --tenant publisher-tenant

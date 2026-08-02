@@ -9,7 +9,7 @@ aliases:
 
 # Trigger Decorator
 
-The `@trigger` decorator is used to define event-driven triggers that poll user-defined conditions and fire workflows when those conditions are met. Unlike cron scheduling (time-based), event triggers allow reactive workflow execution based on custom logic.
+The `@trigger` decorator is used to define event-driven triggers that poll user-defined conditions and fire workflows when those conditions are met, based on custom logic rather than a fixed clock.
 
 ## Basic Usage
 
@@ -17,7 +17,7 @@ The `@trigger` decorator is used to define event-driven triggers that poll user-
 import cloaca
 
 @cloaca.trigger(
-    workflow="my_workflow",
+    on="my_workflow",
     poll_interval="5s"
 )
 def my_trigger():
@@ -29,15 +29,27 @@ def my_trigger():
 
 ## Decorator Parameters
 
-### Required Parameters
+All parameters are keyword-only
+(`crates/cloacina-python/src/trigger.rs`, mirroring Rust's `#[trigger]` macro,
+CLOACI-T-0688):
 
-- `workflow` (str): Name of the workflow to trigger when the condition is met
-
-### Optional Parameters
-
+- `on` (str): Name of the workflow this trigger fires. **Required for cron triggers**; a poll trigger may omit it when workflows bind to the trigger by subscription instead.
 - `name` (str): Unique identifier for the trigger (defaults to function name)
-- `poll_interval` (str): How often to poll the trigger condition (e.g., "5s", "100ms", "1m"). Defaults to "5s"
+- `poll_interval` (str): How often to poll the trigger condition (e.g., "5s", "100ms", "1m"). Defaults to "30s". Mutually exclusive with `cron`.
+- `cron` (str): Cron expression — instead of polling, the framework schedules the `on` workflow on this expression and the function body is unused. Mutually exclusive with `poll_interval`.
+- `timezone` (str): Timezone for the `cron` schedule.
 - `allow_concurrent` (bool): Whether to allow concurrent executions of the same trigger. Defaults to `False`
+
+Setting both `cron` and `poll_interval`, or `cron` without `on`, raises
+`ValueError`.
+
+{{< hint type="note" title="Cron scaffolding is Rust-only; cron triggers are not" >}}
+`cloacinactl package new --kind cron` only generates a Rust template and
+refuses `--language python` (`crates/cloacinactl/src/nouns/package/new.rs`).
+Packaged Python workflows still fully support cron: declare
+`@cloaca.trigger(cron=..., on=...)` in a `--kind workflow` package — see
+`examples/features/workflows/python-cron`.
+{{< /hint >}}
 
 ## TriggerResult Class
 
@@ -72,7 +84,7 @@ Pass data from the trigger to the workflow via context:
 
 ```python
 @cloaca.trigger(
-    workflow="file_processor",
+    on="file_processor",
     name="file_watcher",
     poll_interval="10s",
     allow_concurrent=False
@@ -123,7 +135,7 @@ When `allow_concurrent=False` (the default), the trigger scheduler prevents dupl
 
 ```python
 @cloaca.trigger(
-    workflow="order_processor",
+    on="order_processor",
     allow_concurrent=False  # Default - prevents duplicate processing
 )
 def order_trigger():
@@ -141,7 +153,7 @@ Set `allow_concurrent=True` for triggers that should scale horizontally:
 
 ```python
 @cloaca.trigger(
-    workflow="queue_worker",
+    on="queue_worker",
     poll_interval="1s",
     allow_concurrent=True  # Allow parallel queue processing
 )
@@ -164,7 +176,7 @@ Fire recovery workflow after consecutive failures:
 failure_count = 0
 
 @cloaca.trigger(
-    workflow="service_recovery",
+    on="service_recovery",
     poll_interval="30s"
 )
 def health_check():
@@ -192,7 +204,7 @@ Fire when a metric exceeds a threshold:
 
 ```python
 @cloaca.trigger(
-    workflow="scale_up",
+    on="scale_up",
     poll_interval="10s",
     allow_concurrent=True
 )
@@ -216,14 +228,14 @@ The poll function should be quick and avoid heavy processing:
 
 ```python
 # Good: Quick check
-@cloaca.trigger(workflow="processor", poll_interval="5s")
+@cloaca.trigger(on="processor", poll_interval="5s")
 def good_trigger():
     if file_exists("/inbox/trigger.flag"):
         return cloaca.TriggerResult.fire()
     return cloaca.TriggerResult.skip()
 
 # Bad: Heavy processing in poll
-@cloaca.trigger(workflow="processor", poll_interval="5s")
+@cloaca.trigger(on="processor", poll_interval="5s")
 def bad_trigger():
     data = download_large_file()  # Don't do this!
     process_data(data)
@@ -251,7 +263,7 @@ return cloaca.TriggerResult.fire()  # All fires look identical!
 Errors in trigger functions are logged and polling continues:
 
 ```python
-@cloaca.trigger(workflow="data_sync", poll_interval="1m")
+@cloaca.trigger(on="data_sync", poll_interval="1m")
 def resilient_trigger():
     """Trigger with error handling."""
     try:
@@ -267,7 +279,7 @@ def resilient_trigger():
 Query and control triggers programmatically:
 
 ```python
-runner = cloaca.DefaultRunner("sqlite://workflows.db")
+runner = cloaca.DefaultRunner("sqlite:///workflows.db")
 
 # List all triggers
 schedules = runner.list_trigger_schedules()

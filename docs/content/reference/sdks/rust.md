@@ -9,13 +9,13 @@ aliases:
 
 # Rust SDK (`cloacina-client`)
 
-The same client `cloacinactl` is built on, published as a crate. DTOs come from `cloacina-api-types` — the crate the server's handlers build their responses from, so request/response shapes cannot drift.
+The same client `cloacinactl` is built on, published as a crate. DTOs come from `cloacina-api-types` — the crate the server's handlers build their responses from, so request/response shapes cannot drift. Pin the crate to your server's minor version (version lockstep: SDK `X.Y.Z` is supported only on `cloacina-server X.Y.Z`).
 
 ## Tutorial: execute a workflow and follow its events
 
 ```toml
 [dependencies]
-cloacina-client = "0.7"
+cloacina-client = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"
 serde_json = "1"

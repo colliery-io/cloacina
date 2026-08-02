@@ -359,7 +359,7 @@ Each handler receives the payload from the decision node as its sole argument â€
 
 Because only one branch runs per execution, the result will contain either a trade confirmation or an audit record â€” never both.
 
-In Rust, `GraphResult::Completed { outputs }` carries type-erased outputs, so you `downcast_ref` for each possible terminal type and handle whichever is present:
+In Rust, `GraphResult::Completed { outputs, .. }` carries type-erased outputs, so you `downcast_ref` for each possible terminal type and handle whichever is present:
 
 ```rust
 let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
@@ -367,7 +367,7 @@ let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
     Box::pin(async move {
         fc.fetch_add(1, Ordering::SeqCst);
         let result = market_maker_compiled(&cache).await;
-        if let GraphResult::Completed { outputs } = &result {
+        if let GraphResult::Completed { outputs, .. } = &result {
             for output in outputs {
                 if let Some(confirm) = output.downcast_ref::<TradeConfirmation>() {
                     println!("    [TRADE] {}", confirm.message);
@@ -429,7 +429,7 @@ let _pr = tokio::spawn(accumulator_runtime(
 
 ## Step 7: Five scenarios, two branches
 
-The same five scenarios exercise both branches. In Rust each event is pushed onto an accumulator channel and the graph fires reactively; in Python each call to `builder.execute()` supplies the inputs directly and returns the chosen handler's dict.
+The same five scenarios exercise both branches. In Rust each event is pushed onto an accumulator channel and the graph fires as the event arrives; in Python each call to `builder.execute()` supplies the inputs directly and returns the chosen handler's dict.
 
 {{< tabs "t13-scenarios" >}}
 {{< tab "Rust" >}}

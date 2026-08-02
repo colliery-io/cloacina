@@ -21,7 +21,7 @@ nothing drops the event (filtering/dedup).
 | **stream** | Consumes from a stream backend (e.g. Kafka `topic`/`group`). |
 | **polling** | Pulls from a source on a timer (`interval`). |
 | **batch** | Buffers events, flushes on `flush_interval` / `max_buffer_size`. |
-| **state** | A bounded, DAL-persisted history buffer (`capacity`). **Rust-only.** |
+| **state** | A bounded, DAL-persisted history buffer (`capacity`). |
 
 ## Interfaces
 
@@ -32,7 +32,7 @@ nothing drops the event (filtering/dedup).
 #[stream_accumulator(type = "...", topic = "...", group = "...")]
 #[polling_accumulator(interval = "...")]
 #[batch_accumulator(flush_interval = "...", max_buffer_size = 100)]
-#[state_accumulator(capacity = 64)]   // Rust-only
+#[state_accumulator(capacity = 64)]
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
@@ -41,13 +41,10 @@ nothing drops the event (filtering/dedup).
 @cloaca.stream_accumulator(type="...", topic="...", group="...")
 @cloaca.polling_accumulator(interval="5s")
 @cloaca.batch_accumulator(flush_interval="1s", max_buffer_size=100)
+@cloaca.state_accumulator(capacity=64)
 ```
 
-{{< hint type=warning title="Parity gap" >}}
-Python exposes **four** accumulator types. The Rust-only `#[state_accumulator]`
-(a bounded DAL-persisted history buffer) has **no Python decorator** yet — tracked
-in [CLOACI-T-0688]. Until it lands, author state accumulators in Rust.
-{{< /hint >}}
+All five accumulator types have Python decorator parity.
 {{< /tab >}}
 {{< /tabs >}}
 

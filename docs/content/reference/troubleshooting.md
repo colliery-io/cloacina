@@ -49,14 +49,12 @@ The database has not been initialized with the required schema, or the connectio
    ls -la /path/to/your/database.sqlite
    ```
 
-2. Run migrations. Cloacina applies migrations automatically on startup via the `Database::new()` constructor. If you need to run them manually:
+2. Run migrations. Cloacina applies migrations automatically on startup (e.g. `DefaultRunner::new` / builder `build()`). If you need to run them manually:
    ```bash
-   # Using the angreal task
-   angreal db migrate
-
-   # Or directly via diesel
+   # Directly via diesel
    diesel migration run --database-url "$DATABASE_URL"
    ```
+   Note: `DefaultRunner::with_database(...)` does **not** run migrations — the caller must have migrated first.
 
 3. If you see `__diesel_schema_migrations does not exist`, the database was likely created but never had migrations applied. Drop and recreate:
    ```bash
@@ -157,7 +155,13 @@ A runner instance crashed (or was killed with SIGKILL) while holding task claims
 
 1. **Wait for automatic recovery.** The stale claim sweeper runs at `stale_claim_sweep_interval` (default 30s) and marks claims as stale if the heartbeat is older than `stale_claim_threshold` (default 60s). Once released, the task will be rescheduled.
 
-2. **Tune thresholds** for faster detection. The `stale_claim_sweep_interval` and `stale_claim_threshold` fields use defaults (30s and 60s respectively) and are not exposed on the builder. Restart the runner to pick up a fresh sweep cycle.
+2. **Tune thresholds** for faster detection. Both are builder methods on `DefaultRunnerConfigBuilder` (defaults 30s and 60s respectively). Note that `stale_claim_threshold` must exceed `heartbeat_interval` or `build()` fails:
+   ```rust
+   let config = DefaultRunnerConfig::builder()
+       .stale_claim_sweep_interval(Duration::from_secs(15))
+       .stale_claim_threshold(Duration::from_secs(30))
+       .build()?;
+   ```
 
 3. **Manual intervention** — if you need immediate recovery, reset stuck tasks:
    ```sql
@@ -199,11 +203,11 @@ This happens when:
 
 **Solution:**
 
-1. **Check the reconciler interval.** After package registration, the reconciler must run before the workflow is available in-memory. Default interval is 60 seconds:
+1. **Check the reconciler interval.** After package registration, the reconciler must run before the workflow is available in-memory. Default interval is 5 seconds:
    ```rust
    let config = DefaultRunnerConfig::builder()
        .registry_reconcile_interval(Duration::from_secs(10))
-       .build();
+       .build()?;
    ```
 
 2. **Verify the exact workflow name** including any namespace prefix:
@@ -346,8 +350,8 @@ Tasks or entire pipelines are forcibly terminated after the timeout period.
 **Cause:**
 
 The default timeouts are:
-- **Task timeout:** 300 seconds (5 minutes)
-- **Pipeline timeout:** 3600 seconds (1 hour)
+- **Task timeout** (`task_timeout`): 300 seconds (5 minutes)
+- **Workflow timeout** (`workflow_timeout`): 3600 seconds (1 hour) — applies only to the blocking `execute()` wait loop, not to `execute_async` handles.
 
 Tasks that perform long-running operations (large data transfers, external API calls with retries, ML training) may exceed these limits.
 
@@ -357,21 +361,21 @@ Tasks that perform long-running operations (large data transfers, external API c
    ```rust
    let config = DefaultRunnerConfig::builder()
        .task_timeout(Duration::from_secs(1800))  // 30 minutes
-       .build();
+       .build()?;
    ```
 
-2. **Increase pipeline timeout:**
+2. **Increase workflow timeout:**
    ```rust
    let config = DefaultRunnerConfig::builder()
-       .pipeline_timeout(Some(Duration::from_secs(7200)))  // 2 hours
-       .build();
+       .workflow_timeout(Some(Duration::from_secs(7200)))  // 2 hours
+       .build()?;
    ```
 
-3. **Disable pipeline timeout** for unbounded workflows:
+3. **Disable workflow timeout** for unbounded workflows:
    ```rust
    let config = DefaultRunnerConfig::builder()
-       .pipeline_timeout(None)
-       .build();
+       .workflow_timeout(None)
+       .build()?;
    ```
 
 4. **Better approach — break long tasks into smaller steps.** Save intermediate results to context keys so progress is recoverable:
@@ -451,14 +455,14 @@ The `#[computation_graph]` macro expands into code that references types from th
 2. **For packaged mode** (standalone cdylib), add the dependency explicitly:
    ```toml
    [dependencies]
-   cloacina-computation-graph = { version = "0.7.0" }
-   cloacina-macros = { version = "0.7.0" }
+   cloacina-computation-graph = { version = "0.10" }
+   cloacina-macros = { version = "0.10" }
    ```
 
-3. **Verify the feature flags** — computation graph support requires the `macros` feature:
+3. **Verify the feature flags** — computation graph support requires the `macros` feature (on by default):
    ```toml
    [dependencies]
-   cloacina = { version = "0.7.0", features = ["macros"] }
+   cloacina = { version = "0.10", features = ["macros"] }
    ```
 
 ---
@@ -538,12 +542,7 @@ The accumulator's internal channel was closed because:
 
 3. **Verify source names match exactly** between the publisher and the graph declaration. Source names are case-sensitive and use the `SourceName` type.
 
-4. **Debug serialization format mismatch.** In debug builds, data is serialized as JSON; in release builds, as bincode. Ensure producer and consumer are built with the same profile:
-   ```
-   // Debug: JSON wire format
-   // Release: bincode wire format
-   // Mixing profiles will cause deserialization failures
-   ```
+4. **Check the payload encoding.** The computation-graph wire format is **bincode in all build profiles** (debug and release encode identically), so a debug producer feeding a release consumer is fine. If deserialization fails, the payload's Rust type doesn't match the accumulator's declared boundary type — compare the producer's serialized struct against the entry node's parameter type.
 
 ---
 
@@ -581,15 +580,17 @@ The tenant schema has not been provisioned. In Cloacina's multi-tenant PostgreSQ
    }).await?;
    ```
 
-2. **Via Python bindings:**
+2. **Via Python bindings** (PostgreSQL URLs only — `DatabaseAdmin` rejects SQLite):
    ```python
-   from cloaca import Admin
+   import cloaca
 
-   admin = Admin(database_url)
-   creds = admin.create_tenant(
-       schema_name="tenant_acme",
-       username="acme_user",
+   admin = cloaca.DatabaseAdmin(database_url)
+   config = cloaca.TenantConfig(
+       "tenant_acme",
+       "acme_user",
+       None,  # omitted password auto-generates a secure one
    )
+   creds = admin.create_tenant(config)
    ```
 
 3. **Verify the schema exists:**
@@ -612,11 +613,13 @@ Each runner instance is bound to a specific tenant via its `search_path` or conn
 
 **Solution:**
 
-1. **Each tenant requires its own runner instance** with a dedicated connection string:
+1. **Each tenant requires its own runner instance** bound to its schema:
    ```rust
-   // Tenant-specific connection
-   let db = Database::new("postgresql://acme_user:pass@host/db?options=-c search_path=tenant_acme").await?;
-   let runner = DefaultRunner::new(db, config).await?;
+   // Tenant-specific runner (PostgreSQL schema isolation)
+   let runner = DefaultRunner::with_schema(
+       "postgresql://acme_user:pass@host/db",
+       "tenant_acme",
+   ).await?;
    ```
 
 2. **Never share a `DefaultRunner` across tenants.** The runner's database pool is tied to one schema.
@@ -697,30 +700,24 @@ Workflow packages are compiled as `cdylib` (dynamic libraries), not binary execu
 
 **Solution:**
 
-1. **Packages are not meant to be run directly.** Instead, register and load them:
-   ```rust
-   runner.register_package("/path/to/my_package.so").await?;
-   ```
-
-2. **For testing your package**, create a separate binary crate that loads it:
-   ```toml
-   # In a test binary's Cargo.toml
-   [[bin]]
-   name = "test_runner"
-   path = "src/main.rs"
-   ```
-
-3. **Ensure your Cargo.toml declares the correct crate type:**
-   ```toml
-   [lib]
-   crate-type = ["cdylib"]
-   ```
-
-4. **To build the package:**
+1. **Packages are not meant to be run directly.** Pack the source
+   into a `.cloacina` archive and register it (upload to a server, or
+   drop it in a daemon watch directory):
    ```bash
-   cargo build --release
-   # Output: target/release/libmy_package.so (Linux)
-   # Output: target/release/libmy_package.dylib (macOS)
+   cloacinactl package pack ./my-package
+   cloacinactl package upload ./my-package/my-package.cloacina
+   ```
+
+2. **Do not hand-add `[lib] crate-type` or a `packaged` feature.** In
+   the current authoring model the compiler injects the `cdylib`
+   crate-type and the `packaged` feature when it builds the package —
+   your source crate stays a plain library with
+   `cloacina_workflow_plugin::package!()` at the crate root. See the
+   [package! macro reference]({{< ref "/reference/package-shell-macro" >}}).
+
+3. **To check your package compiles locally:**
+   ```bash
+   cloacinactl package build ./my-package --release
    ```
 
 ---
@@ -739,15 +736,15 @@ but no corresponding "loaded workflow" message.
 
 **Cause:**
 
-The registry reconciler polls for new packages on a fixed interval (default: 60 seconds). After registration in the database, there is a delay before the in-memory registry is updated.
+The registry reconciler polls for new packages on a fixed interval (default: 5 seconds). After registration in the database, there is a short delay before the in-memory registry is updated. For Rust packages there is also a compile step in between: the workflow only loads once a `cloacina-compiler` instance has built it to `build_status = 'success'`.
 
 **Solution:**
 
-1. **Reduce the reconcile interval** for faster feedback during development:
+1. **Tune the reconcile interval** if needed:
    ```rust
    let config = DefaultRunnerConfig::builder()
        .registry_reconcile_interval(Duration::from_secs(5))
-       .build();
+       .build()?;
    ```
 
 2. **Ensure startup reconciliation is enabled** (default: true). This runs a full reconciliation before the runner starts accepting work:
@@ -791,10 +788,12 @@ Cloacina enforces unique `(package_name, version)` pairs. Re-registering the sam
    version = "0.1.1"  # Increment from 0.1.0
    ```
 
-2. **Unregister the old version first** if you intentionally want to replace it:
+2. **Unregister the old version first** if you intentionally want to replace it (the registry trait methods are `unregister_workflow` / `register_workflow`, reached via the runner's registry handle):
    ```rust
-   runner.unregister_package("my_workflow", "0.1.0").await?;
-   runner.register_package("/path/to/updated_package.so").await?;
+   let registry = runner.get_workflow_registry().await
+       .expect("registry reconciler enabled");
+   registry.unregister_workflow("my_workflow", "0.1.0").await?;
+   registry.register_workflow(std::fs::read("updated.cloacina")?).await?;
    ```
 
 3. **Check for active executions** — a package cannot be unregistered while workflows are running:
@@ -934,25 +933,21 @@ exit races with the connection pool drop path.
 **Symptom:**
 
 ```python
->>> from cloaca import Runner
+>>> import cloaca
+>>> runner = cloaca.DefaultRunner("postgresql://...")
 RuntimeError: Backend not available: postgres support was not compiled into this wheel
 ```
 
-or
-
-```python
->>> runner = Runner("postgresql://...")
-RuntimeError: Backend not available: sqlite support was not compiled into this wheel
-```
+or the same for a `sqlite://...` URL on a Postgres-only wheel.
 
 **Cause:**
 
-The Cloaca Python wheel is built with specific Cargo feature flags. The pre-built wheels may not include all backends. The available features are:
+The Cloaca Python wheel is built with specific Cargo feature flags. A pre-built wheel may not include both backends:
 
 - `postgres` — PostgreSQL support (requires libpq)
 - `sqlite` — SQLite support (bundled libsqlite3)
-- `kafka` — Kafka integration (requires librdkafka)
-- `extension-module` — Required for building as a Python extension
+
+(There is no `kafka` feature — event-source backends ship as constructor provider crates, not core features.)
 
 **Solution:**
 
@@ -962,22 +957,21 @@ The Cloaca Python wheel is built with specific Cargo feature flags. The pre-buil
 
    ```sh
    pip show cloaca           # see installed wheel metadata
-   pip install cloaca[postgres]   # ensure postgres backend
-   pip install cloaca[sqlite]     # ensure sqlite backend
+   pip install cloaca
    ```
 
-   The published wheels ship both backends by default; the per-backend extras above are useful when you want a leaner install.
+   The published wheel ships **both** backends (the wheel's maturin build enables `postgres`, `sqlite`, `macros`, and `extension-module`). There are no `cloaca[postgres]` / `cloaca[sqlite]` pip extras — the package defines no optional dependencies.
 
 2. **Build from source with required features:**
    ```bash
    # Install maturin
    pip install maturin
 
-   # Build with all features
-   maturin build --release --features "extension-module,postgres,sqlite,kafka"
+   # Build (defaults match the published wheel)
+   maturin build --release --features "extension-module,postgres,sqlite,macros"
 
    # Or develop mode
-   maturin develop --features "extension-module,postgres,sqlite"
+   maturin develop --features "extension-module,postgres,sqlite,macros"
    ```
 
 3. **For PostgreSQL on Linux**, ensure `libpq-dev` is installed:
@@ -1064,8 +1058,8 @@ The scheduler polls for ready tasks at a fixed interval. The default `scheduler_
 1. **Check and tune the poll interval:**
    ```rust
    let config = DefaultRunnerConfig::builder()
-       .scheduler_poll_interval(Duration::from_millis(50))  // Faster polling
-       .build();
+       .scheduler_poll_interval(Duration::from_millis(50))  // Faster polling (min 10ms)
+       .build()?;
    ```
 
 2. **Monitor database query time.** If each poll takes >50ms, the bottleneck is the database:
@@ -1129,21 +1123,17 @@ After the runner restarts from extended downtime, hundreds or thousands of workf
 
 **Cause:**
 
-When a cron schedule has `catchup_policy = "run_all"` (or uses the default `max_catchup_executions = MAX`), the scheduler calculates all missed execution times during the downtime window and enqueues them all.
+When a cron schedule row has `catchup_policy = "run_all"`, the scheduler calculates missed execution times during the downtime window and enqueues them, bounded by `cron_max_catchup_executions` (default 100, builder cap 1000). The per-schedule default policy is `"skip"` — a storm means a schedule was explicitly set to `run_all`.
 
 **Solution:**
 
-1. **Set a catchup policy of "skip"** for schedules that do not need historical backfill:
-   ```rust
-   Schedule::cron("hourly_report", "0 * * * *")
-       .catchup_policy(CatchupPolicy::Skip)
-   ```
+1. **Set the schedule's catchup policy back to `"skip"`** (the `catchup_policy` column on the schedule row) for schedules that do not need historical backfill.
 
 2. **Limit catchup executions:**
    ```rust
    let config = DefaultRunnerConfig::builder()
        .cron_max_catchup_executions(5)  // At most 5 missed runs
-       .build();
+       .build()?;
    ```
 
 3. **Set maximum recovery age** to ignore ancient missed executions:
@@ -1200,8 +1190,9 @@ The repository enforces:
 
 3. **Run the full check locally before committing:**
    ```bash
-   angreal ci lint
+   angreal lint all
    ```
+   (For the fuller pre-push loop, `angreal ci fast` runs lint + unit tests without Docker.)
 
 4. **For Clippy failures**, fix warnings or add targeted allow attributes:
    ```rust
@@ -1232,9 +1223,10 @@ API changes in the core crates may not be reflected in the tutorial and example 
    cargo doc --open -p cloacina
    ```
 
-2. **Run the tutorial tests** to identify all breakages:
+2. **Run the tutorial demos** to identify all breakages:
    ```bash
-   angreal test tutorials
+   angreal demos tutorials rust 01
+   angreal demos tutorials python 01
    ```
 
 3. **Common API migration patterns:**
@@ -1289,11 +1281,106 @@ Another process (often a local PostgreSQL or Kafka installation) is already boun
    ```bash
    export DATABASE_URL="postgresql://user:pass@localhost:5433/cloacina"
    ```
+   Note: the repo's own dev stack (`.angreal/docker-compose.yaml`) already does this — its Postgres publishes on host port **15432** precisely to avoid colliding with a local Postgres on 5432; harness and test `DATABASE_URL`s use `localhost:15432`.
 
 4. **For CI environments**, ensure the service startup order is correct and previous containers are cleaned up:
    ```bash
    docker compose down -v && docker compose up -d
    ```
+
+---
+
+## Service Mode
+
+### 28. Rust package uploads stay "pending" forever
+
+**Symptom:**
+
+You upload a Rust `.cloacina` package (`cloacinactl package upload` or `POST /v1/tenants/{t}/workflows`), the upload succeeds, but the workflow never becomes executable. `cloacinactl workflow list` never shows it, and the package row stays at `build_status = "pending"` indefinitely.
+
+**Cause:**
+
+A `.cloacina` archive contains **source**, not a compiled library. Rust packages must be compiled by a running `cloacina-compiler` service, which polls the same database for `build_status = pending` rows. Without a compiler, nothing ever transitions the row — and the server emits no warning about the missing compiler.
+
+**Solution:**
+
+1. **Run a compiler service** against the same database:
+   ```bash
+   cloacinactl compiler start --database-url "$DATABASE_URL"
+   ```
+   (The Helm chart's `compiler.enabled` defaults to **false** — enable it, or uploads stay pending.)
+
+2. **Check compiler health and backlog:**
+   ```bash
+   cloacinactl compiler status        # probes [compiler].local_addr
+   ```
+   Admins can also hit `GET /v1/compiler/status` on the server for `{status, pending, building, seconds_since_heartbeat, ...}`.
+
+3. **Python packages are unaffected** — the server installs the Python runtime itself and loads them without a compiler.
+
+---
+
+### 29. `default_executor=fleet` with no matching agents — silent non-execution
+
+**Symptom:**
+
+The server runs with `--default-executor fleet`, workflows accept executions, but nothing ever runs. Executions sit in Pending/Running with no task progress and no errors.
+
+**Cause:**
+
+The fleet executor dispatches **only to live agents registered under the same tenant** as the work. A tenant with zero registered agents gets no execution — work waits (and eventually times out) rather than failing fast. Note that `public` is a real tenant: work in the `public` tenant needs agents whose API key is scoped to `public` specifically; an agent keyed to another tenant (or a tenant-less key) serves nothing.
+
+**Solution:**
+
+1. **Check the roster** (admin): `GET /v1/agents` — confirm at least one live agent exists for the tenant in question.
+2. **Start an agent with a key scoped to that tenant:**
+   ```bash
+   cloacina-agent --server http://localhost:8080 --api-key <tenant-scoped-key>
+   ```
+3. **Or fall back to in-process execution** by starting the server with `--default-executor default`.
+
+---
+
+### 30. Pagination: `total` is the page size, not the collection count
+
+**Symptom:**
+
+A script pages through `GET /v1/tenants/{t}/executions` (or any list endpoint) using `total` to decide when to stop, and terminates after the first page — or loops forever.
+
+**Cause:**
+
+List envelopes are `{"items": [...], "total": N}`, but `total` is set to the **size of the returned page**, not the table count. You cannot infer "more pages exist" from it.
+
+**Solution:**
+
+Page with `limit`/`offset` and stop when a page comes back with fewer than `limit` items:
+
+```bash
+# Stop when items.length < limit
+cloacinactl execution list --limit 50 --offset 0
+cloacinactl execution list --limit 50 --offset 50
+```
+
+---
+
+### 31. Broken `config.toml` silently ignored
+
+**Symptom:**
+
+You edited `~/.cloacina/config.toml` (added a profile, set a key), but cloacinactl behaves as if the file doesn't exist — typically failing with "no server configured" despite a `default_profile` being set.
+
+**Cause:**
+
+The config schema is `deny_unknown_fields`, so a single unknown or misspelled key rejects the **whole file** — and the loader treats a parse failure as "no config": it logs a `warn!` and falls back to defaults instead of erroring. Because most client commands don't initialize tracing, that warning is never printed.
+
+**Solution:**
+
+1. **Re-check the file against the schema** in the [CLI Reference]({{< ref "/reference/cli" >}}) — every key must be known; check section names (`[daemon]`, `[compiler]`, `[watch]`, `[server]`, `[profiles.<name>]`).
+2. **Run with `-v`** so the parse warning is actually emitted:
+   ```bash
+   cloacinactl -v status
+   ```
+3. **Prefer `cloacinactl config set` / `config profile set`** over hand-editing — they write only known keys.
 
 ---
 
@@ -1314,6 +1401,10 @@ Another process (often a local PostgreSQL or Kafka installation) is already boun
 | `Backend not available` | [#20 Missing feature flags](#20-backend-not-available--missing-feature-flags-in-wheel) |
 | `schema "X" does not exist` | [#13 First-time tenant setup](#13-schema-does-not-exist--first-time-setup) |
 | `No bin target available` | [#16 Library vs binary crates](#16-no-bin-target-available-for-cargo-run--library-vs-binary-crates) |
+| Rust upload stuck at `build_status = pending` | [#28 No compiler service](#28-rust-package-uploads-stay-pending-forever) |
+| Fleet executor runs nothing | [#29 No same-tenant agents](#29-default_executorfleet-with-no-matching-agents--silent-non-execution) |
+| Pagination stops early / loops | [#30 `total` is page size](#30-pagination-total-is-the-page-size-not-the-collection-count) |
+| Edited config.toml has no effect | [#31 Broken config silently ignored](#31-broken-configtoml-silently-ignored) |
 
 ---
 

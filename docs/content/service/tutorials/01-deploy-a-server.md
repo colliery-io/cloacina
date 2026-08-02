@@ -31,17 +31,14 @@ the pieces fit together.
 - PostgreSQL 14+ accessible from the server, **or** willingness to
   use SQLite for this tutorial. Multi-tenant production deployments
   require Postgres; for a single-tenant first-run, SQLite is fine.
-- A pre-built `.cloacina` package — the example below uses
-  `examples/features/workflows/packaged-workflow/` from the Cloacina
-  repository. See [Use cloacina-compiler Locally]({{< ref "/service/how-to/use-cloacina-compiler-locally" >}})
-  if you need to build one.
-- `curl` for ad-hoc HTTP calls. Optional: `jq` for prettier JSON
-  responses.
+- `curl` and `jq` for ad-hoc HTTP calls and JSON field extraction.
+
+You do **not** need a pre-built `.cloacina` package — you'll scaffold
+one with `cloacinactl package new` in Step 7.
 
 ## Time estimate
 
-15–25 minutes (most of which is waiting for the first package
-build).
+15–20 minutes.
 
 ---
 
@@ -134,7 +131,7 @@ cloacinactl tenant create acme \
 Response (the password is **not** returned per security policy):
 
 ```json
-{"schema_name": "acme", "username": "acme_user"}
+{"name": "acme", "username": "acme_user", "description": null}
 ```
 
 List tenants to confirm:
@@ -149,23 +146,29 @@ cloacinactl tenant list \
 ## Step 5: Create a tenant-scoped API key
 
 Tenant-scoped keys are how application clients authenticate. They
-can't escalate to other tenants.
+can't escalate to other tenants. Keys for a **named** tenant are
+minted on the tenant-scoped endpoint
+`POST /v1/tenants/{tenant_id}/keys` — the plaintext is in the `key`
+field of the response:
 
 ```bash
-ACME_KEY=$(cloacinactl key create acme-tutorial \
-    --role write \
-    --tenant acme \
-    --server http://127.0.0.1:8080 \
-    --api-key "$ADMIN_KEY" \
-    --output id)
+ACME_KEY=$(curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \
+    -H "Authorization: Bearer $ADMIN_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"name": "acme-tutorial", "role": "write"}' | jq -r '.key')
 
 echo "Acme key captured: ${ACME_KEY:0:8}..."
 ```
 
-> The `key create` response shows the plaintext **exactly once**.
-> Capture it now or recreate it later. The server returns metadata
-> (ID, name, role) on subsequent `key list` calls, but never the
-> plaintext.
+> The response shows the plaintext `key` **exactly once**. Capture it
+> now or recreate it later. Subsequent key listings return metadata
+> (`id`, `name`, role) but never the plaintext — the `id` UUID is
+> *not* the key.
+>
+> Note: `cloacinactl key create` hits the global `POST /v1/auth/keys`
+> endpoint, which always mints keys for the built-in `public` tenant.
+> For a named tenant like `acme`, use the tenant-scoped endpoint as
+> above.
 
 ## Step 6: Configure a profile
 
@@ -187,20 +190,27 @@ Schemes]({{< ref "/reference/cli" >}}#api-key-schemes).
 
 ## Step 7: Upload a packaged workflow
 
-Build the example packaged workflow if you haven't already:
+Scaffold a Python packaged workflow (Python is the default `--lang`;
+it needs no compiler service — the server loads Python packages
+directly, while Rust packages additionally require a running
+`cloacina-compiler` service to build them):
 
 ```bash
-# From the Cloacina repo root
-cd examples/features/workflows/packaged-workflow
-cloacinactl package build .
-cloacinactl package pack .
-# Produces packaged-workflow-<version>.cloacina
+cloacinactl package new hello-world
+# created python workflow package at hello-world
+# next: cloacinactl package validate hello-world
+
+cloacinactl package validate hello-world
+cloacinactl package pack hello-world
+# Prints the path of the produced .cloacina archive
 ```
 
-Upload it:
+The scaffold contains a two-task workflow named `hello_world`
+(`hello` → `goodbye`) using bare `@cloaca.task` decorators — the
+canonical packaged-workflow shape. Upload the archive:
 
 ```bash
-cloacinactl package upload packaged-workflow-*.cloacina --tenant acme
+cloacinactl package upload hello-world/hello-world.cloacina --tenant acme
 ```
 
 Response:
@@ -220,7 +230,7 @@ DEBUG step_load_custom_triggers: 0 triggers
 DEBUG step_load_reactors: 0 reactors
 DEBUG step_load_triggerless_cgs: 0 trigger-less graphs
 DEBUG step_load_reactor_bound_cgs: 0 graphs
-DEBUG step_load_workflows: 1 workflow registered (my_workflow)
+DEBUG step_load_workflows: 1 workflow registered (hello_world)
 INFO  package loaded successfully
 ```
 
@@ -234,13 +244,18 @@ reconciler to run if you're polling immediately after upload):
 
 ```bash
 cloacinactl workflow list --tenant acme
-# my_workflow  v0.1.0  (description, task count)
+# hello_world  v0.1.0  (description, task count)
 ```
 
 ## Step 8: Run an execution
 
+`--context` takes a **file path** (or `-` for stdin) containing the
+initial context JSON — not inline JSON:
+
 ```bash
-cloacinactl workflow run my_workflow --tenant acme --context '{"input": "hello"}'
+echo '{"input": "hello"}' > /tmp/context.json
+
+cloacinactl workflow run hello_world --tenant acme --context /tmp/context.json
 # 7d8e9f0a-1b2c-3d4e-5f60-718293a4b5c6   (the execution ID)
 ```
 
@@ -278,11 +293,11 @@ Expected output (numbers vary):
 
 ```text
 cloacina_workflows_total{status="completed",reason="ok"} 1
-cloacina_tasks_total{status="completed",reason="ok"} 3
+cloacina_tasks_total{status="completed",reason="ok"} 2
 ```
 
-The `1` counts your one execution; `3` counts the three tasks in
-the example workflow.
+The `1` counts your one execution; `2` counts the two tasks in
+the scaffolded workflow.
 
 ## Step 10: Verify via structured logs
 

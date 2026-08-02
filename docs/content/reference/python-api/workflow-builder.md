@@ -29,12 +29,19 @@ This page documents patterns 1 and 2 (in-process). For pattern 3, see the packag
 
 ## Constructor
 
-### `WorkflowBuilder(name)`
+### `WorkflowBuilder(name, *, tenant=None, package=None, workflow=None)`
 
 Create a new workflow builder.
 
 **Parameters:**
 - `name` (str): Unique workflow name
+- `tenant` (str, optional, keyword-only): Tenant id for the task namespace. Defaults to `"public"`.
+- `package` (str, optional, keyword-only): Package name for the task namespace. Defaults to `"embedded"`.
+- `workflow` (str, optional, keyword-only): Workflow id for the task namespace. Defaults to `name`.
+
+The keyword arguments set the namespace context in which `@cloaca.task`
+functions register while the builder is active; the defaults are right for
+in-process use.
 
 **Example:**
 ```python

@@ -80,31 +80,18 @@ name = "pricing-publisher"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = ["packaged"]
-packaged = []
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
-cloacina-macros = "0.7.0"
-cloacina-workflow = { version = "0.7.0", features = ["packaged"] }
-cloacina-workflow-plugin = "0.7.0"
-async-trait = "0.1"
+cloacina-workflow = { version = "0.10", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.10"
+cloacina-macros = "0.10"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-[build-dependencies]
-cloacina-build = "0.7.0"
 ```
 
-### `build.rs`
-
-```rust
-fn main() {
-    cloacina_build::configure();
-}
-```
+No `[lib] crate-type`, no `[features]`, no `build.rs` — the
+`cloacina-compiler` service injects the cdylib crate-type and the
+`packaged` feature at build time (see
+[03 — Packaged Workflows]({{< ref "/service/tutorials/03-packaged-workflows" >}})).
 
 ### `package.toml`
 
@@ -118,11 +105,12 @@ description = "Publishes a normalized price stream via a standalone reactor"
 ### `src/lib.rs`
 
 ```rust
-use cloacina_workflow::*;
-use cloacina_workflow_plugin::*;
+use cloacina_macros::{passthrough_accumulator, reactor};
 
-// The reactor declaration. This is a unit struct with ACCUMULATORS
-// + REACTION_MODE consts. The macro emits a ReactorEntry inventory
+// The plugin shell. Emits the FFI vtable the server loads at runtime.
+cloacina_workflow_plugin::package!();
+
+// The reactor declaration. The macro emits a ReactorEntry inventory
 // submission so the reconciler can discover it.
 #[reactor(
     name = "PriceReactor",
@@ -143,10 +131,6 @@ pub async fn raw_prices(value: serde_json::Value) -> serde_json::Value {
 pub async fn normalized_prices(value: serde_json::Value) -> serde_json::Value {
     value
 }
-
-// The unified plugin shell. Emits the FFI vtable for fidius-host.
-#[cfg(feature = "packaged")]
-cloacina::package!();
 ```
 
 ### Build and pack
@@ -154,13 +138,13 @@ cloacina::package!();
 ```bash
 cloacinactl package build .
 cloacinactl package pack .
-# pricing-publisher-0.1.0.cloacina
+# ./pricing-publisher.cloacina
 ```
 
 ### Upload
 
 ```bash
-cloacinactl package upload pricing-publisher-0.1.0.cloacina --tenant acme
+cloacinactl package upload pricing-publisher.cloacina --tenant acme
 ```
 
 Watch the server log: you'll see step 3 of the reconciler pipeline
@@ -168,11 +152,13 @@ register `PriceReactor` (and its two accumulators) into the
 computation-graph scheduler. The reactor is now live and listening
 for boundary events on `raw_prices` and `normalized_prices`.
 
-Verify:
+Verify — a reactor with no graph bound yet appears in the **reactors**
+listing (not the graphs listing):
 
 ```bash
-cloacinactl graph list --tenant acme
-# Includes "PriceReactor" with its accumulators
+curl -s http://127.0.0.1:8080/v1/health/reactors \
+    -H "Authorization: Bearer $ACME_KEY" | jq '.items[] | {name, accumulators, bound_graphs}'
+# { "name": "PriceReactor", "accumulators": ["raw_prices", "normalized_prices"], "bound_graphs": [] }
 ```
 
 ## Step 2: Build the subscriber package
@@ -183,18 +169,26 @@ cargo new --lib pricing-subscriber
 cd pricing-subscriber
 ```
 
-### `Cargo.toml`, `build.rs`, `package.toml`
+### `Cargo.toml`, `package.toml`
 
-Same shape as the publisher. Different `name`/`version`.
+Same shape as the publisher (add `cloacina-computation-graph = "0.10"`
+to the dependencies for the graph macro's runtime types). Different
+`name`/`version`. No build wiring here either.
 
 ### `src/lib.rs`
 
 ```rust
-use cloacina_workflow::*;
-use cloacina_workflow_plugin::*;
+use serde::{Deserialize, Serialize};
+
+cloacina_workflow_plugin::package!();
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoreOutput {
+    pub ratio: f64,
+}
 
 // This is the cross-package binding. The macro references
-// `reactor(PriceReactor)` by name — but PriceReactor is declared
+// `reactor("PriceReactor")` by name — but PriceReactor is declared
 // in the publisher package, NOT here. The reconciler resolves the
 // reference at load time by looking up "PriceReactor" in the host
 // runtime's reactor registry.
@@ -204,44 +198,30 @@ use cloacina_workflow_plugin::*;
 // validates this at compile time within a single crate, but
 // across packages the reconciler enforces it at load time and
 // rejects the load with a clear error if the binding is invalid.
-#[computation_graph(
+#[cloacina_macros::computation_graph(
     trigger = reactor("PriceReactor"),
     graph = {
-        score: { inputs: ["raw_prices", "normalized_prices"], next: "publish" },
-        publish: {},
-    },
+        score(raw_prices, normalized_prices) -> publish,
+    }
 )]
 pub mod price_consumer {
     use super::*;
 
+    /// Entry node: receives the latest boundary from each accumulator.
     pub async fn score(
-        raw: serde_json::Value,
-        normalized: serde_json::Value,
+        raw_prices: Option<&serde_json::Value>,
+        normalized_prices: Option<&serde_json::Value>,
     ) -> ScoreOutput {
-        // Compute a derived signal from the two upstream feeds.
-        ScoreOutput {
-            ratio: extract_ratio(&raw, &normalized),
-        }
+        // Stand-in business logic over the two upstream feeds.
+        let _ = (raw_prices, normalized_prices);
+        ScoreOutput { ratio: 0.0 }
     }
 
-    pub async fn publish(scored: ScoreOutput) -> serde_json::Value {
-        // Terminal node — output is collected by the host.
+    /// Terminal node — output is collected by the host.
+    pub async fn publish(scored: &ScoreOutput) -> serde_json::Value {
         serde_json::json!({"signal": scored.ratio})
     }
 }
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct ScoreOutput {
-    pub ratio: f64,
-}
-
-fn extract_ratio(raw: &serde_json::Value, normalized: &serde_json::Value) -> f64 {
-    // Stand-in business logic.
-    0.0
-}
-
-#[cfg(feature = "packaged")]
-cloacina::package!();
 ```
 
 ### Build, pack, upload
@@ -249,7 +229,7 @@ cloacina::package!();
 ```bash
 cloacinactl package build .
 cloacinactl package pack .
-cloacinactl package upload pricing-subscriber-0.1.0.cloacina --tenant acme
+cloacinactl package upload pricing-subscriber.cloacina --tenant acme
 ```
 
 This time, watch the server log carefully. The reconciler will:
@@ -275,11 +255,15 @@ The reconciler refuses to bind to an absent reactor. Operators must
 load the publisher first (or the reconciler will retry on the next
 poll once the publisher arrives).
 
-Verify the subscriber is bound:
+Verify the subscriber is bound — the reactor's `bound_graphs` now
+lists the graph, and the graph itself appears in the graphs listing:
 
 ```bash
-cloacinactl graph status PriceReactor --tenant acme
-# Shows subscribers: 1 (price_consumer)
+curl -s http://127.0.0.1:8080/v1/health/reactors \
+    -H "Authorization: Bearer $ACME_KEY" | jq '.items[] | {name, bound_graphs}'
+# { "name": "PriceReactor", "bound_graphs": ["price_consumer"] }
+
+cloacinactl graph status price_consumer --tenant acme
 ```
 
 ## Step 3: Drive an event through

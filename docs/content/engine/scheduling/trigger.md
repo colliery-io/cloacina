@@ -31,6 +31,10 @@ subscribe to its name. Two kinds of firing rule:
   (no trigger name) still binds exactly one workflow. The scheduler's auto-poll
   and a manual fire (`POST /v1/tenants/{t}/triggers/{name}/fire`, server mode)
   fan out the same way.
+- **Operator controls** (server mode): triggers can be paused and resumed over
+  REST — `POST /v1/tenants/{t}/triggers/{name}/pause` and `.../resume` — and
+  listed/inspected via `GET /v1/tenants/{t}/triggers[/{name}]`. (Reactors, by
+  contrast, are paused/resumed over their WebSocket channel only.)
 
 ## Interfaces
 
@@ -49,22 +53,29 @@ struct DailyTrigger;
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
-Python exposes **poll** triggers as a decorator:
+Both kinds are decorators in Python too:
 
 ```python
 import cloaca
 
-@cloaca.trigger(name="my_poll", poll_interval="30s")
-def my_poll(context):
-    return context   # return to fire; raise/None semantics per the API
+# poll trigger — return TriggerResult.fire(ctx) to fire, .skip() otherwise
+# (a plain bool also works: True = fire with no context)
+@cloaca.trigger(name="my_poll", on="my_workflow", poll_interval="30s")
+def my_poll():
+    return cloaca.TriggerResult.skip()
+
+# cron trigger — the function body is unused; `on` is required
+@cloaca.trigger(on="my_workflow", cron="0 9 * * *", timezone="UTC")
+def daily():
+    pass
 ```
 
-{{< hint type=warning title="Parity gap" >}}
-There is **no packaged/decorator cron trigger** in Python — `#[trigger(cron=…)]`
-is Rust-only. Python does full cron **at the runner API** instead
-(`register_cron_workflow`, …); see [Cron schedule]({{< ref "/engine/scheduling/cron-schedule" >}}).
-Tracked in [CLOACI-T-0688].
-{{< /hint >}}
+Cron support on `@cloaca.trigger` was added in CLOACI-T-0688 — the reconciler
+routes cron-bearing triggers to the cron scheduler. Python also has the full
+runtime cron API (`register_cron_workflow`, …); see
+[Cron schedule]({{< ref "/engine/scheduling/cron-schedule" >}}). Note
+`cloacinactl package new` only scaffolds cron packages for Rust — hand-author
+the decorator in Python.
 {{< /tab >}}
 {{< /tabs >}}
 

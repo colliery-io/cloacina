@@ -9,7 +9,7 @@ aliases:
 
 # Computation Graphs
 
-Computation graphs are reactive, directed acyclic graphs (DAGs) of processing nodes. Unlike workflows (which are task-based pipelines driven by a runner), computation graphs react to data arriving at accumulators and propagate results through a fixed topology of nodes.
+Computation graphs are directed acyclic graphs (DAGs) of processing nodes. Unlike workflows (which are task-based pipelines driven by a runner), computation graphs execute when data arrives at accumulators and their reactor's firing criterion is met, propagating results through a fixed topology of nodes.
 
 The Python API mirrors the Rust computation graph system, using decorators and a context-manager builder instead of macros and modules.
 
@@ -30,8 +30,18 @@ cloaca.ComputationGraphBuilder(name, *, reactor, graph)
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | `str` | Yes | Unique name for the computation graph. Used to identify the graph at execution time. |
-| `reactor` | class decorated with `@cloaca.reactor` | Yes (for reactor-triggered graphs) | The reactor that fires this graph. Its `accumulators` and `mode` determine when the graph runs. Omit for a trigger-less graph invoked via `builder.execute()` only. |
+| `reactor` | class decorated with `@cloaca.reactor` | Yes (for reactor-triggered graphs) | The reactor that fires this graph. Its `accumulators` and `mode` determine when the graph runs. Omit for a **trigger-less** graph, invoked via `@cloaca.task(invokes=...)` or `builder.execute()`. |
 | `graph` | `dict` | Yes | Topology dict mapping node names to their configuration. See [Topology Dict](#topology-dict). |
+
+The old bundled `react={...}` kwarg is still *accepted* by the signature but
+raises `ValueError` unconditionally, pointing at the split `reactor=` form
+(CLOACI-I-0101).
+
+**Trigger-less graphs:** when `reactor` is omitted, no node may declare
+`inputs=[...]` — those cache inputs only exist when a reactor feeds the graph.
+A trigger-less graph receives its data through the invoking task's `Context`
+(or the `execute()` argument); declaring `inputs` raises `ValueError` at the
+end of the `with` block.
 
 **Returns:** `ComputationGraphBuilder` instance (used as a context manager)
 
@@ -126,7 +136,7 @@ Context manager protocol. `__enter__` establishes the active graph context so `@
 
 **Raises:**
 - `AttributeError` -- if a node name in the topology has no matching `@cloaca.node` function
-- `ValueError` -- if a `@cloaca.node` function does not appear in the topology
+- `ValueError` -- if a `@cloaca.node` function does not appear in the topology, if a trigger-less graph declares `inputs`, or if a node references a cache input that is not among the reactor's `accumulators`
 
 #### `execute(inputs)`
 
@@ -140,7 +150,7 @@ builder.execute(inputs)
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `inputs` | `dict[str, dict]` | Yes | Maps source/accumulator names to their data dicts. Each key must match a name from the `react` accumulators list. |
+| `inputs` | `dict[str, dict]` | Yes | Maps source/accumulator names to their data dicts. Each key must match a name from the reactor's `accumulators` list. |
 
 **Returns:** `dict` -- the terminal node's return value
 
@@ -270,9 +280,23 @@ Mismatches raise `AttributeError` or `ValueError`.
 
 ## Accumulator Decorators
 
-Accumulators sit between raw data sources and the computation graph. They receive events, optionally transform or buffer them, and emit the processed values that entry nodes consume. In a reactive deployment the runtime manages accumulators automatically; in tutorials and tests you can call the decorated function directly.
+Accumulators sit between raw data sources and the computation graph. They receive events, optionally transform or buffer them, and emit the processed values that entry nodes consume. In a packaged deployment the runtime manages accumulators automatically; in tutorials and tests you can call the decorated function directly.
 
-The function name of each accumulator becomes its **source name**, which must match entries in the `react` accumulators list and the `inputs` lists in the topology.
+The function name of each accumulator becomes its **source name**, which must match entries in the reactor's `accumulators` list and the `inputs` lists in the topology.
+
+To declare the typed shape of an accumulator's boundary (so the web UI and
+inject/fire APIs render typed forms), stack the Python-only
+`@cloaca.boundary_schema(field=type, ...)` decorator above the accumulator
+decorator:
+
+```python
+@cloaca.boundary_schema(bid=float, ask=float)
+@cloaca.passthrough_accumulator
+def orderbook(event): ...
+```
+
+At runtime `boundary_schema` is a no-op pass-through; the compiler parses it
+from source at build time (CLOACI-T-0770).
 
 ### @cloaca.passthrough_accumulator
 
@@ -414,6 +438,33 @@ def trade_events(events):
     }
 ```
 
+### @cloaca.state_accumulator
+
+Registers a function as a **state** accumulator: a bounded queue that receives
+values, persists them on every write, and emits the full retained list back as
+the boundary — enabling cyclic feedback patterns. Mirrors Rust's
+`#[state_accumulator(capacity = …)]`.
+
+```python
+@cloaca.state_accumulator(capacity=...)
+def source_name(values):
+    ...
+```
+
+**Parameters (keyword-only):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `capacity` | `int` | Yes | `> 0`: bounded — evicts the oldest entry when at capacity. `< 0`: unbounded — grows without limit. `0`: write-only sink — no history emitted back. |
+
+**Example:**
+```python
+@cloaca.state_accumulator(capacity=100)
+def signal_history(values):
+    """Receives the retained history of signals."""
+    return {"history": values}
+```
+
 ### Accumulator Comparison
 
 | Decorator | Buffering | Trigger | Use Case |
@@ -422,6 +473,7 @@ def trade_events(events):
 | `@stream_accumulator` | None | Each message from stream backend | Kafka/Redpanda subscriptions |
 | `@polling_accumulator` | None | Fixed interval | Periodic data fetch (APIs, sensors) |
 | `@batch_accumulator` | Yes | Interval or buffer size | Aggregation, high-throughput reduction |
+| `@state_accumulator` | Persistent, capacity-bounded | Each write; emits full retained history | Feedback loops, rolling windows |
 
 ---
 
@@ -439,9 +491,9 @@ with cloaca.ComputationGraphBuilder("my_graph", ...) as builder:
 result = builder.execute({"source_name": {"key": "value"}})
 ```
 
-The `inputs` dict maps source names to data dicts. Each key should match an accumulator name from the `react` configuration. The return value is the terminal node's output dict.
+The `inputs` dict maps source names to data dicts. Each key should match an accumulator name from the reactor's `accumulators` list. The return value is the terminal node's output dict.
 
-### Reactive Execution (Packaged Deployment)
+### Runtime-Driven Execution (Packaged Deployment)
 
 In a packaged deployment, computation graphs run inside the graph scheduler. The runtime:
 

@@ -14,11 +14,14 @@ Pick your language — the engine is the same.
 
 {{< tabs "embed-quickstart" >}}
 {{< tab "Rust" >}}
-Add the dependency (`cloacina = "0.7"`, plus `tokio`, `serde_json`), then:
+Add the dependencies — `cloacina = "0.10"` and `cloacina-workflow = "0.10"`
+(the task macro generates code that references it directly), plus `tokio` and
+`serde_json` — then:
 
 ```rust
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
+use cloacina::{task, workflow, Context, TaskError};
 
 #[workflow(name = "greeting", description = "Say hello")]
 pub mod greeting {
@@ -34,7 +37,7 @@ pub mod greeting {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runner = DefaultRunner::with_config(
-        "sqlite://app.db?mode=rwc",
+        "sqlite://app.db",
         DefaultRunnerConfig::default(),
     ).await?;
 
@@ -63,7 +66,7 @@ with cloaca.WorkflowBuilder("greeting") as builder:
         return context
 
 if __name__ == "__main__":
-    runner = cloaca.DefaultRunner("sqlite:///app.db")
+    runner = cloaca.DefaultRunner("sqlite://app.db")
     result = runner.execute("greeting", cloaca.Context())
     print("status:", result.status)
     runner.shutdown()

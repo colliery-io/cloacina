@@ -57,10 +57,21 @@ class PricingReactor:
 
 ## Key facts
 
+- **A reactor is a specialized trigger** (CLOACI-S-0011): where a workflow
+  trigger polls or follows a cron schedule, a reactor consumes accumulator
+  boundary events and fires a computation graph.
 - **Criteria:** `when_any` / `when_all` over the named accumulator sources.
-- **Input strategy:** `latest` or `sequential` (Rust `InputStrategy`).
+- **Input strategy:** `latest` or `sequential` (Rust `InputStrategy`). There is
+  **no `input_strategy` clause on the `#[reactor]` macro** — set it
+  programmatically or in the package manifest; see
+  [Sequential input strategy]({{< ref "/engine/computation-graphs/how-to/sequential-strategy" >}}).
 - **Naming:** the `accumulators` names must match the accumulator source names and
   the graph's entry-node source names.
+- **Operator controls:** manual fire is REST
+  (`POST /v1/health/reactors/{name}/fire`, `cloacinactl reactor fire|force-fire`);
+  pause/resume is **WebSocket-only** (`/v1/ws/reactor/{name}`) — there is no REST
+  pause route, and reactor→workflow subscriptions have no HTTP API at all
+  (runner API only).
 
 ## See also
 

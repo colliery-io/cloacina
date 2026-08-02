@@ -124,9 +124,11 @@ first if those terms are new.
   OpenTelemetry export. See
   [Observability]({{< ref "/service/explanation/observability" >}}) and the
   [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}).
-- **Package signing** — optional signature verification, enforced when the server
-  runs with signatures required; signing private keys are encrypted at rest
-  (AES-256-GCM). See
+- **Package signature enforcement** — the server can require signatures on
+  uploaded packages and manages signing keys (private keys encrypted at rest
+  with AES-256-GCM). Producing a signed workflow package from the CLI is not
+  yet available — `cloacinactl package pack --sign` fails with a clear error
+  rather than silently producing an unsigned archive. See
   [Package Signing]({{< ref "/service/how-to/security/package-signing" >}})
   and [Require Signed Packages]({{< ref "/service/how-to/require-signed-packages" >}}).
 - **Build sandboxing** — the compiler builds untrusted packages in an isolated

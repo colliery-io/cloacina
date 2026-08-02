@@ -1,6 +1,6 @@
 ---
 title: "Use cloacina-compiler Locally"
-description: "Build, pack, and inspect .cloacina packages without running the compiler service."
+description: "Build, validate, and pack .cloacina packages without running the compiler service."
 weight: 27
 aliases:
   - "/platform/how-to-guides/use-cloacina-compiler-locally/"
@@ -10,45 +10,46 @@ aliases:
 # How to Use `cloacina-compiler` Locally
 
 This guide shows how to use the `cloacinactl package` commands to
-build and pack `.cloacina` archives on your laptop or in CI, without
-running the long-lived `cloacina-compiler` service. This is the path
-most developers want for iterating on a workflow before deploying it.
+check, validate, and pack `.cloacina` archives on your laptop or in
+CI, without running the long-lived `cloacina-compiler` service. This
+is the path most developers want for iterating on a workflow before
+deploying it.
 
-> **When to use this:** local development, CI builds, ad-hoc
-> packaging, smoke-testing a workflow's manifest before uploading to
-> a server. **When NOT to use this:** production-grade signed
-> packaging with audit trails — for that, run
-> `cloacinactl compiler start` against the database build queue.
+> **The key fact:** a `.cloacina` archive is a **source** archive
+> (tar + bzip2). The shared library is compiled **server-side** by the
+> `cloacina-compiler` service after upload — nothing you build locally
+> ships in the archive. Local `package build` is purely a
+> catch-errors-early compile check.
 
 ## Prerequisites
 
-- Rust toolchain (the version specified in `rust-toolchain.toml` if
-  present, or stable).
+- Rust toolchain (stable) for Rust packages; nothing extra for Python
+  packages.
 - `cloacinactl` on your `PATH`.
-- A workflow crate that follows the [packaged workflow Cargo.toml
-  layout]({{< ref "/service/how-to/migrating-to-service-mode" >}}):
-  `crate-type = ["cdylib", "rlib"]`, the `packaged` feature, and a
-  `cloacina_build::configure()` call in `build.rs`.
+- A package source tree in the canonical shape — scaffold one with
+  `cloacinactl package new` (see
+  [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}})).
+  Rust packages need **no** `[lib] crate-type`, no `packaged` feature,
+  and no `build.rs`: the compiler service injects the build wiring.
 
 ## The Three-Step Local Loop
 
 ```bash
 cd path/to/my-workflow
 
-# 1. Compile the cdylib.
+# 1. (Rust only) Compile check — catches errors before upload.
 cloacinactl package build .
 
-# 2. Pack the cdylib + manifest into a .cloacina archive.
-cloacinactl package pack .
+# 2. Validate the source tree against the canonical package format.
+cloacinactl package validate .
 
-# 3. (Optional) Smoke-test by inspecting the archive metadata.
-cloacinactl package inspect ./my-workflow.cloacina --offline
+# 3. Pack the source + manifest into a .cloacina archive.
+cloacinactl package pack .
 ```
 
-Step 3 inspect requires a server in the current implementation;
-operators who want offline metadata extraction can use the
-`fidius-host` CLI directly (the same loader the server uses). For
-local development, `package pack` succeeding is usually enough.
+`package validate` also accepts a packed archive
+(`cloacinactl package validate ./my-workflow.cloacina`), so you can
+smoke-test the artifact you're about to upload.
 
 ## Step 1: `package build`
 
@@ -56,71 +57,65 @@ local development, `package pack` succeeding is usually enough.
 cloacinactl package build <DIR> [--release]
 ```
 
-This is a thin wrapper over `cargo build` that verifies the crate's
-shape:
+A thin wrapper over `cargo build` run in `<DIR>`. For Python packages
+(`[metadata].language = "python"` or inferred) it is a no-op — there
+is nothing to compile locally.
 
-- `<DIR>/Cargo.toml` exists.
-- `<DIR>/package.toml` exists (this is the Cloacina-specific manifest
-  that `cloacina_build::configure()` consumes).
-- `[lib]` declares `crate-type = ["cdylib", "rlib"]`.
-- The `packaged` feature is enabled (or the default).
-
-By default it builds the `dev` profile (faster, larger binary). For
-production-grade builds:
-
-```bash
-cloacinactl package build . --release
-```
-
-Build artifacts land in `target/{debug,release}/` per cargo
-conventions; `package pack` finds the right one.
+This step is optional: the server-side compiler performs the real
+build. Running it locally just means you find compile errors on your
+laptop instead of in the server's build queue.
 
 **Common failure modes:**
 
-- `Cargo.toml` missing the `cdylib` crate type → cargo emits an
-  `rlib`-only artifact, `package pack` errors with "no cdylib found".
-- `package.toml` missing → `package build` errors before invoking
+- `package.toml` missing → the language probe errors before invoking
   cargo.
 - Dependencies still reference `cloacina` (the full crate) instead of
-  the slim service-mode trio (`cloacina-workflow` +
-  `cloacina-macros` + `cloacina-workflow-plugin`) → cdylib bloats to
-  ~60 MB. Functional but expensive.
+  the slim packaged pair (`cloacina-workflow` +
+  `cloacina-workflow-plugin`) → slow builds and a bloated artifact.
+  See [Migrating to Service Mode]({{< ref "/service/how-to/migrating-to-service-mode" >}}).
 
-## Step 2: `package pack`
+## Step 2: `package validate`
+
+```text
+cloacinactl package validate <DIR | ARCHIVE>
+```
+
+Checks the source tree (or archive) against the canonical package
+format without uploading: manifest schema, Python `workflow/` module
+layout, rejected legacy keys (`package_type`, `[[metadata.triggers]]`),
+and common footguns.
+
+## Step 3: `package pack`
 
 ```text
 cloacinactl package pack <DIR> [--out <PATH>] [--sign <KEY>]
 ```
 
-Calls `fidius_core::package::pack_package()` to combine the cdylib
-and the manifest into a single `.cloacina` archive (a zip file with
-a Cloacina-specific layout).
+Validates, then packs the **source tree** into a `.cloacina` archive
+(tar + bzip2, manifest resolved to its full form). Build output, VCS
+dirs, and prior archives are excluded automatically.
 
 ```bash
-# Default output: <crate-name>-<version>.cloacina in the current dir
+# Default output: <DIR>/<name>.cloacina
 cloacinactl package pack .
 
 # Custom output path
 cloacinactl package pack . --out /tmp/my-workflow-1.0.0.cloacina
-
-# With sign — currently fail-hard (see note below)
-cloacinactl package pack . --sign /path/to/private-key.pem
 ```
 
-> **`--sign` is currently a fail-hard stub in the CLI.** The flag is
-> accepted but `cloacinactl package pack` exits non-zero with an
-> error message pointing operators at the library-side signing API
-> (CLOACI-I-0103 wire-up is pending). The signature infrastructure
-> exists at `cloacina::security::package_signer`
-> (it produces a sidecar `.sig` file at `<archive>.sig`), but the
-> CLI is not yet wired to invoke it. The flag is accepted to keep
-> existing scripts compiling; the sidecar is not produced. This
-> will be wired in a future release.
+> **`--sign` fails hard.** Workflow-package signing is not implemented
+> (tracked under I-0103): passing `--sign` makes `package pack` (and
+> `package publish`) exit non-zero with an error telling you to remove
+> the flag. Do not script around it — there is currently no way to
+> produce a signed workflow package from the CLI, even though the
+> server can *require* signatures (`--require-signatures`). See
+> [Package Signing]({{< ref "/service/how-to/security/package-signing" >}})
+> for the current state.
 
-The packed archive is the artifact you upload to the server (`package
-upload`) or drop into a daemon's watch directory.
+The packed archive is the artifact you upload to the server
+(`package upload`) or drop into a daemon's watch directory.
 
-## Step 3: `package publish` (One-Shot)
+## One-Shot: `package publish`
 
 When you want build + pack + upload in a single command:
 
@@ -132,64 +127,41 @@ cloacinactl package publish . \
     --api-key env:CLOACINA_API_KEY
 ```
 
-Equivalent to running `package build`, `package pack`, and `package
-upload` in sequence with the same arguments. Useful in deploy
-scripts.
+Equivalent to running `package build`, `package pack`, and
+`package upload` in sequence. Useful in deploy scripts. (Remember the
+upload only becomes runnable once a `cloacina-compiler` service builds
+it — see below.)
 
-## When to Run `cloacina-compiler` Instead
+## When You Still Need `cloacina-compiler`
 
-The compiler service (`cloacinactl compiler start`) exists for a
-different use case: a long-running process that polls a database for
-pending build rows submitted by a remote workflow author. Use it
-when:
+The compiler service is not optional for **running** Rust packages: an
+uploaded Rust package sits at `build_status = pending` until a
+`cloacina-compiler` process polling the same database claims and
+builds it. What's local-optional is only the pre-upload authoring
+loop above.
 
+Run the service (locally or in your deployment) when:
+
+- You want an uploaded Rust package to actually load and execute.
 - Multiple authors submit packages and you want centralized,
   reproducible builds.
-- You need an audit trail of who built which package version when.
-- You want signing to happen server-side with a hardware-backed key
-  rather than on developer laptops.
-- You want to enforce build-time policy (toolchain version, allowed
-  dependencies, etc.).
+- You want to enforce build-time policy (vendored dependencies,
+  resource limits, timeouts).
 
-For everything else — local iteration, CI builds, exploratory
-packaging — `cloacinactl package build` and `pack` are simpler and
-faster.
+```bash
+cloacinactl compiler start --database-url "$DATABASE_URL"
+```
+
+Python packages skip the compiler entirely — the server imports them
+directly at reconcile time.
 
 See [Run cloacina-compiler in Production]({{< ref "/service/how-to/running-the-compiler" >}}) for the service-side deployment posture: threat model, vendor curation, resource limits, audit-event reference.
 
-## Local Loader Sanity Check
-
-If you want to verify your `.cloacina` archive loads cleanly without
-running a full server, the simplest path today is to point a
-`cloacinactl daemon` instance at it:
-
-```bash
-# Set up an isolated home so this doesn't pollute your real config
-export CLOACINA_HOME=/tmp/local-test
-mkdir -p $CLOACINA_HOME/packages
-cp my-workflow.cloacina $CLOACINA_HOME/packages/
-
-# Start the daemon (will reconcile and load the package)
-cloacinactl --home $CLOACINA_HOME daemon start &
-DAEMON_PID=$!
-
-# Watch the logs for load success/failure
-tail -f $CLOACINA_HOME/logs/cloacina.log
-
-# Clean up
-kill $DAEMON_PID
-rm -rf $CLOACINA_HOME
-```
-
-A successful load logs `package_loaded package_id=...
-package_name=my-workflow version=1.0.0`. A failure logs the
-specific reconciler step (cron triggers / custom triggers / reactors
-/ trigger-less CGs / reactor-bound CGs / workflows) that errored.
-
 ## Related
 
-- [Migrating to Service Mode]({{< ref "/service/how-to/migrating-to-service-mode" >}}) — full Cargo.toml + build.rs setup for packaged workflows.
-- [`package!()` Macro Reference]({{< ref "/reference/package-shell-macro" >}}) — what the cdylib actually exports.
+- [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}}) — scaffold → validate → pack → upload from zero.
+- [Migrating to Service Mode]({{< ref "/service/how-to/migrating-to-service-mode" >}}) — converting an embedded workflow crate to the packaged shape.
+- [`package!()` Macro Reference]({{< ref "/reference/package-shell-macro" >}}) — what the compiled plugin actually exports.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — what happens when a package is loaded.
 - [CLI Reference]({{< ref "/reference/cli" >}}) — full `cloacinactl package` flag list.
 - [Compiler Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}) — running `cloacina-compiler` as a service.

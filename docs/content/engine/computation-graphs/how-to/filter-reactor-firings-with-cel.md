@@ -38,20 +38,18 @@ runner
 
 Pass `None` as the fourth argument for an unfiltered subscription (every firing dispatches). The `subscribe_workflow_to_reactor` call is idempotent on `(reactor_name, workflow_name, tenant_id)` — re-subscribing replaces the predicate.
 
-### 2. (Alternative) Register via configuration / package metadata
+Reactor subscriptions are a **runner-API surface only** — there is no
+`package.toml` section and no HTTP route for managing them. Rust uses
+`runner.subscribe_workflow_to_reactor(...)` as above; Python uses
+`runner.subscribe_workflow_to_reactor(reactor=..., workflow=..., tenant=None, when=...)`.
 
-If the subscription lives in a packaged workflow's manifest, declare it there — the `subscribe_workflow_to_reactor` call is invoked by the package loader on registration. Consult the package's `package.toml` reactor-subscriptions section for the per-package surface.
+### 2. Verify
 
-### 3. Verify
-
-```sh
-cloacinactl --profile prod trigger list --tenant public --workflow alert_workflow
-```
-
-The trigger row's metadata should show the predicate string. Once the reactor fires, only matching firings produce workflow executions:
+Fire the reactor and confirm that only matching firings produce workflow
+executions:
 
 ```sh
-cloacinactl --profile prod execution list --tenant public --workflow alert_workflow
+cloacinactl --profile prod execution list --tenant public
 ```
 
 For the runnable end-to-end version of this exact recipe (insert four firings with values `[50, 150, 80, 200]` and see two `alert_workflow` rows), run:
@@ -126,7 +124,9 @@ pub async fn process_firing(ctx: &mut Context<Value>) -> Result<(), TaskError> {
     let firing_id = ctx
         .get("reactor_firing_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| TaskError::missing("reactor_firing_id"))?
+        .ok_or_else(|| TaskError::ValidationFailed {
+            message: "context missing reactor_firing_id".to_string(),
+        })?
         .to_string();
 
     // Upsert keyed on firing_id — a second delivery is a no-op.

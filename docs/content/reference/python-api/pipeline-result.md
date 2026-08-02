@@ -1,258 +1,102 @@
 ---
-title: "PipelineResult"
-description: "Results from workflow execution"
+title: "WorkflowResult"
+description: "The result object returned by DefaultRunner.execute()"
 weight: 80
 aliases:
   - "/python/api-reference/pipeline-result/"
 
 ---
 
-# PipelineResult
+# WorkflowResult
 
-The `PipelineResult` class contains the outcome and metadata from a workflow execution. It provides information about execution status, timing, errors, and the final context state.
+`DefaultRunner.execute()` returns a `WorkflowResult` — the outcome of one
+workflow execution. There is no `PipelineResult` class in `cloaca`; the class
+is named `WorkflowResult` (`crates/cloacina-python/src/bindings/runner.rs`,
+`#[pyclass(name = "WorkflowResult")]`).
+
+`WorkflowResult` is **wheel-only**: it exists in the pip-installed `cloaca`
+package alongside `DefaultRunner`, and is not part of the authoring surface
+available inside packaged workflows (where the server is the runner).
 
 ## Properties
 
-### Basic Properties
+All properties are read-only.
 
-- `status` (str): The final execution status (e.g., `"Completed"`, `"Failed"`)
-- `workflow_name` (str): Name of the executed workflow
-- `execution_id` (str): Unique identifier for this execution
-- `final_context` (Context): The context after all tasks completed
-- `start_time` (datetime): When execution began
-- `end_time` (datetime): When execution finished
-- `duration` (timedelta): Total execution time
+| Property | Type | Meaning |
+|----------|------|---------|
+| `status` | `str` | Final execution status (see values below) |
+| `start_time` | `str` | Execution start, RFC 3339 timestamp string |
+| `end_time` | `str` or `None` | Execution end, RFC 3339 timestamp string; `None` if not recorded |
+| `final_context` | `Context` | The context after execution finished |
+| `error_message` | `str` or `None` | Failure message when the workflow did not complete; `None` on success |
 
-### Status Information
+Timestamps are strings, not `datetime` objects — parse with
+`datetime.fromisoformat()` if you need arithmetic. There is no `duration`,
+`workflow_name`, or `execution_id` property.
 
-```python
-import cloaca
+## Status values
 
-# Execute workflow
-runner = cloaca.DefaultRunner("sqlite:///:memory:")
-result = runner.execute("my_workflow", context)
+`status` is the string form of the engine's workflow status enum
+(`crates/cloacina/src/executor/workflow_executor.rs`, `WorkflowStatus`):
 
-# Check execution status
-print(f"Status: {result.status}")
-print(f"Workflow: {result.workflow_name}")
-print(f"Execution ID: {result.execution_id}")
-print(f"Duration: {result.duration}")
-```
+- `"Completed"` — all tasks finished successfully
+- `"Failed"` — the workflow failed
+- `"Pending"`, `"Running"`, `"Cancelled"`, `"Paused"` — the remaining enum
+  states; a synchronous `execute()` call normally returns only a terminal
+  status
 
-## Status Values
-
-The `status` property is a string indicating the outcome of workflow execution:
-
-- `"Completed"`: All tasks completed successfully
-- `"Failed"`: One or more tasks failed
-
-### Status Checking
-
-```python
-if result.status == "Completed":
-    print("Workflow completed successfully!")
-    # Process successful result
-    final_data = result.final_context.get("output_data")
-
-elif result.status == "Failed":
-    print("Workflow failed!")
-    # Handle failure
-    error_info = result.final_context.get("error")
-```
-
-## Context Access
-
-Access the final context state after execution:
-
-```python
-# Get final context data
-final_context = result.final_context
-
-# Extract specific results
-if result.status == "Completed":
-    output_data = final_context.get("processed_data")
-    record_count = final_context.get("records_processed", 0)
-
-    print(f"Processed {record_count} records")
-    print(f"Output: {output_data}")
-```
-
-## Error Information
-
-When workflows fail, error information is available:
-
-```python
-if result.status == "Failed":
-    # Check for error information in context
-    error_message = result.final_context.get("error_message")
-    failed_task = result.final_context.get("failed_task")
-
-    if error_message:
-        print(f"Error: {error_message}")
-    if failed_task:
-        print(f"Failed task: {failed_task}")
-```
-
-## Timing Information
-
-Analyze execution performance:
-
-```python
-# Execution timing
-print(f"Started: {result.start_time}")
-print(f"Finished: {result.end_time}")
-print(f"Duration: {result.duration}")
-
-# Calculate performance metrics
-if result.duration:
-    seconds = result.duration.total_seconds()
-    print(f"Execution took {seconds:.2f} seconds")
-
-    if seconds > 300:  # 5 minutes
-        print("Long-running execution detected")
-```
-
-## Task-Level Results
-
-Access individual task results (if available):
-
-```python
-# Get task execution details
-task_results = result.final_context.get("task_results", {})
-
-for task_id, task_result in task_results.items():
-    print(f"Task {task_id}:")
-    print(f"  Status: {task_result.get('status')}")
-    print(f"  Duration: {task_result.get('duration')}")
-
-    if task_result.get('error'):
-        print(f"  Error: {task_result['error']}")
-```
-
-## Complete Example
+## Usage
 
 ```python
 import cloaca
 from datetime import datetime
 
-@cloaca.task()
-def process_data(context):
-    """Example task that processes data."""
-    input_data = context.get("input_data", [])
-
-    # Simulate processing
-    processed = [x * 2 for x in input_data]
-
-    context.set("processed_data", processed)
-    context.set("records_processed", len(processed))
-    context.set("processing_complete", True)
-
-    return context
-
-# Create and execute workflow
-def create_workflow():
-    builder = cloaca.WorkflowBuilder("data_processing")
-    builder.description("Process input data")
-    builder.add_task("process_data")
-    return builder.build()
-
-# Execute and analyze result
 runner = cloaca.DefaultRunner("sqlite:///:memory:")
-cloaca.register_workflow_constructor("data_processing", create_workflow)
+result = runner.execute("my_workflow", cloaca.Context({"input": 42}))
 
-input_context = cloaca.Context({"input_data": [1, 2, 3, 4, 5]})
-result = runner.execute("data_processing", input_context)
+print(result)  # WorkflowResult(status=Completed, error=None)
 
-# Comprehensive result analysis
-def analyze_result(result):
-    """Analyze workflow execution result."""
-    print("=== Workflow Execution Result ===")
-    print(f"Workflow: {result.workflow_name}")
-    print(f"Status: {result.status}")
-    print(f"Execution ID: {result.execution_id}")
+if result.status == "Completed":
+    output = result.final_context.get("output_data")
+    print(f"Output: {output}")
+else:
+    print(f"Workflow failed: {result.error_message}")
 
-    if result.start_time and result.end_time:
-        duration = result.end_time - result.start_time
-        print(f"Duration: {duration.total_seconds():.2f} seconds")
-
-    if result.status == "Completed":
-        print("\n=== Successful Execution ===")
-        records = result.final_context.get("records_processed", 0)
-        processed_data = result.final_context.get("processed_data")
-
-        print(f"Records processed: {records}")
-        print(f"Output data: {processed_data}")
-
-    elif result.status == "Failed":
-        print("\n=== Failed Execution ===")
-        error = result.final_context.get("error_message")
-        if error:
-            print(f"Error: {error}")
-
-    return result.status == "Completed"
-
-# Analyze the result
-success = analyze_result(result)
-print(f"\nExecution successful: {success}")
+# Timing (timestamps are RFC 3339 strings)
+started = datetime.fromisoformat(result.start_time)
+if result.end_time is not None:
+    finished = datetime.fromisoformat(result.end_time)
+    print(f"Took {(finished - started).total_seconds():.2f}s")
 ```
 
-## Best Practices
+## Accessing the final context
 
-### Result Validation
-
-Always check the execution status before processing results:
+`final_context` is a regular [`Context`]({{< ref "/reference/python-api/context/" >}})
+— use `get()`, `to_dict()`, and the dictionary-style operations:
 
 ```python
-def process_workflow_result(result):
-    """Safely process workflow result."""
-    if result.status != "Completed":
-        raise RuntimeError(f"Workflow failed with status: {result.status}")
+final = result.final_context
 
-    # Safe to process successful result
-    return result.final_context.get("output_data")
+records = final.get("records_processed", 0)
+everything = final.to_dict()
 ```
 
-### Error Handling
+## Failure inspection
 
-Implement comprehensive error handling:
-
-```python
-def handle_workflow_result(result):
-    """Handle workflow result with proper error handling."""
-    try:
-        if result.status == "Completed":
-            return process_successful_result(result)
-        elif result.status == "Failed":
-            return handle_failed_result(result)
-        else:
-            raise ValueError(f"Unexpected status: {result.status}")
-
-    except Exception as e:
-        print(f"Error handling result: {e}")
-        return None
-```
-
-### Performance Monitoring
-
-Track execution performance:
+When `status` is not `"Completed"`, `error_message` carries the engine's
+failure message. Task-level detail (which task failed and why) lives in the
+execution records in the database, not on the result object; anything a task
+wrote into the context before the failure is still visible in
+`final_context`.
 
 ```python
-def monitor_performance(result):
-    """Monitor workflow performance."""
-    if result.duration:
-        seconds = result.duration.total_seconds()
-
-        # Performance thresholds
-        if seconds > 600:  # 10 minutes
-            print(f"WARNING: Slow execution ({seconds:.1f}s)")
-        elif seconds < 1:
-            print(f"Very fast execution ({seconds:.3f}s)")
-        else:
-            print(f"Normal execution time ({seconds:.1f}s)")
+if result.status == "Failed":
+    print(f"Error: {result.error_message}")
+    partial = result.final_context.to_dict()
 ```
 
 ## See Also
 
-- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** - Execute workflows and get results
-- **[Context]({{< ref "/reference/python-api/context/" >}})** - Access final context data
-- **[Workflow]({{< ref "/reference/python-api/workflow/" >}})** - Workflows that produce results
+- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** — `execute()` returns this object
+- **[Context]({{< ref "/reference/python-api/context/" >}})** — the type of `final_context`
+- **[Exceptions]({{< ref "/reference/python-api/exceptions/" >}})** — task failures are results, binding errors are exceptions

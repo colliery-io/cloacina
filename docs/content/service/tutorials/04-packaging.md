@@ -1,29 +1,28 @@
 ---
 title: "04 — Packaging a Computation Graph"
-description: "Compile a computation graph as a cdylib plugin, upload it to the server, and watch the reconciler load it"
+description: "Author a computation graph package, upload it to the server, and watch it compile and load"
 weight: 14
 aliases:
   - "/computation-graphs/tutorials/service/07-packaging/"
 
 ---
 
-In this tutorial you'll take a computation graph from Rust source code all the way to a running graph loaded inside the Cloacina server. You'll build it as a shared library, package it into a `.cloacina` source archive, upload it via the REST API, and verify that the reconciler compiles and loads it automatically.
+In this tutorial you'll take a computation graph from Rust source code all the way to a running graph loaded inside the Cloacina server. You'll author it from the canonical scaffold, pack it into a `.cloacina` source archive, upload it via the REST API, and verify that the compiler service builds it and the reconciler loads it.
 
 ## What you'll learn
 
 - The directory layout and `package.toml` fields for a computation graph package
-- The `Cargo.toml` configuration for `cdylib` output
 - How to write a minimal single-accumulator graph with `#[computation_graph]`
-- Packaging the source into a `.cloacina` archive and uploading via `POST /tenants/public/workflows`
+- Packing the source into a `.cloacina` archive and uploading via `POST /v1/tenants/public/workflows`
 - Polling the health endpoints to confirm the graph is live
 
 ## Prerequisites
 
 - Completion of the library tutorial [07 - Your First Computation Graph]({{< ref "/embed/tutorials/10-computation-graph/" >}})
-- The Cloacina server running and reachable (see the workflow service tutorials for server setup)
-- A valid PAK token (bootstrap key or one created via `POST /auth/keys`)
+- The Cloacina server running and reachable, **with a `cloacina-compiler` service attached to the same database** (Rust packages stay `pending` forever without one — see [03 — Packaged Workflows]({{< ref "/service/tutorials/03-packaged-workflows" >}}))
+- A valid API key (bootstrap key or one created via the key endpoints)
 - Rust toolchain installed (`rustc`, `cargo`)
-- `curl` and `tar` available in your shell
+- `curl` available in your shell
 
 ## Time estimate
 
@@ -33,22 +32,32 @@ In this tutorial you'll take a computation graph from Rust source code all the w
 
 ## Background: how packaged graphs work
 
-A computation graph package is a Rust crate compiled as a `cdylib`. The server's reconciler watches for newly uploaded `.cloacina` archives, extracts the source, compiles it, and loads the resulting shared library via fidius FFI. Once loaded, the graph's accumulators and reactor are registered with the `ComputationGraphScheduler` and start accepting events.
+A `.cloacina` package is a **source archive** (tar + bzip2). After upload, the separate `cloacina-compiler` service claims the pending package, compiles the crate to a shared library, and writes the result back to the database; the server's reconciler then loads the library via fidius FFI. Once loaded, the graph's accumulators and reactor are registered with the `ComputationGraphScheduler` and start accepting events.
 
-The key distinction from a packaged workflow: the graph plugin exposes an `execute_graph()` FFI method that receives a serialized `InputCache` snapshot and returns the terminal node outputs. The host server owns all accumulator channels and the reactor loop — your plugin only contains the pure computation logic.
+The key distinction from a packaged workflow: the graph plugin exposes graph-execution FFI methods that receive a serialized input-cache snapshot and return the terminal node outputs. The host server owns all accumulator channels and the reactor loop — your plugin only contains the pure computation logic.
 
 ---
 
-## Step 1: Create the project directory
+## Step 1: Scaffold the package
 
 ```bash
-mkdir my-price-signal
+cloacinactl package new my-price-signal --lang rust --kind graph
 cd my-price-signal
 ```
 
-## Step 2: Write `package.toml`
+This emits the canonical graph package layout:
 
-`package.toml` is the Cloacina package manifest. Identity metadata only — package shape (workflow vs computation graph vs reactor) is now derived from the FFI metadata the cdylib produces, not from manifest keys.
+```
+my-price-signal/
+├── Cargo.toml
+├── package.toml
+└── src/
+    └── lib.rs
+```
+
+## Step 2: The `package.toml` manifest
+
+The scaffolded manifest identifies the package and declares the graph's firing behavior:
 
 ```toml
 [package]
@@ -59,9 +68,11 @@ interface_version = 1
 extension = "cloacina"
 
 [metadata]
-graph_name = "price_signal"
 language = "rust"
-description = "Compute a mid-price signal from order book snapshots"
+graph_name = "my_price_signal"
+description = "my-price-signal computation graph"
+reaction_mode = "when_any"
+input_strategy = "latest"
 ```
 
 The `[metadata]` fields for computation graph packages:
@@ -69,12 +80,16 @@ The `[metadata]` fields for computation graph packages:
 | Field | Required | Meaning |
 |---|---|---|
 | `graph_name` | Yes | Identifier used for accumulator and reactor names |
-| `language` | Yes | `"rust"` — tells the reconciler how to compile |
+| `language` | Yes | `"rust"` — tells the compiler service how to build |
 | `description` | No | Human-readable package description |
+| `reaction_mode` | No | Firing criteria: `"when_any"` or `"when_all"` |
+| `input_strategy` | No | `"latest"` or `"sequential"` |
 
-**Note**: Earlier versions accepted `package_type = ["computation_graph"]` and `[[triggers]]` stanzas in `[metadata]`. Both are now hard-rejected at load time — package classification flows through FFI metadata (`get_graph_metadata`, `get_reactor_metadata`, `get_trigger_metadata`) and trigger declarations live on `#[trigger]` macros in the cdylib. Reaction mode and input strategy are read from the `#[computation_graph(reaction = ..., strategy = ...)]` attributes on the macro itself.
+**Note**: Earlier versions accepted `package_type = ["computation_graph"]` and `[[triggers]]` stanzas in `[metadata]`. Both are now hard-rejected at load time — package classification flows through the FFI metadata the compiled plugin reports, and trigger declarations live on macros in the source.
 
-## Step 3: Write `Cargo.toml`
+## Step 3: The `Cargo.toml`
+
+The scaffold's `Cargo.toml` carries only dependencies. Add the two graph crates (`cloacina-macros` for the graph/reactor attribute macros, `cloacina-computation-graph` for the runtime types) so the full dependency list reads:
 
 ```toml
 [package]
@@ -82,56 +97,28 @@ name = "my-price-signal"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-
-[features]
-default = ["packaged"]
-packaged = []
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
-cloacina-computation-graph = "0.7.0"
-cloacina-macros = "0.7.0"
-cloacina-workflow = { version = "0.7.0", features = ["packaged"] }
-cloacina-workflow-plugin = "0.7.0"
+cloacina-workflow = { version = "0.10", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.10"
+cloacina-macros = "0.10"
+cloacina-computation-graph = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-async-trait = "0.1"
-tokio = { version = "1.0", features = ["full"] }
-
-[build-dependencies]
-cloacina-build = "0.7.0"
 ```
 
-{{< hint type=info title="Why both cdylib and rlib?" >}}
-`cdylib` produces the shared library (`.so`/`.dylib`/`.dll`) that the server loads at runtime. `rlib` lets you run `cargo test` against the crate — tests cannot link against a `cdylib` directly.
+{{< hint type=important title="No build wiring — the compiler injects it" >}}
+There is no `[lib] crate-type`, no `[features]` section, and no `build.rs` — the `cloacina-compiler` service injects `crate-type = ["cdylib", "rlib"]` and the `packaged` feature at build time. Older documentation showed graph packages declaring these plus a `cloacina-build` build-dependency; that model is retired.
 {{< /hint >}}
 
-## Step 4: Write `build.rs`
+## Step 4: Write `src/lib.rs`
 
-`cloacina-build` generates the FFI glue that fidius needs to call your `execute_graph()` function.
-
-```rust
-fn main() {
-    cloacina_build::configure();
-}
-```
-
-## Step 5: Write `src/lib.rs`
-
-Create a minimal graph: a single `orderbook` accumulator drives a `compute_signal` entry node which produces a `PriceSignal` terminal output.
+Replace the scaffolded example with a minimal graph: a single `orderbook` accumulator drives a `compute_signal` entry node which produces a `PriceSignal` terminal output.
 
 ```rust
-use cloacina_macros::reactor;
 use serde::{Deserialize, Serialize};
 
-// One invocation per cdylib — emits the unified FFI plugin shell that
-// the reconciler calls (`get_task_metadata`, `get_graph_metadata`,
-// `get_reactor_metadata`, `get_trigger_metadata`,
-// `invoke_trigger_poll`, `get_triggerless_graph_metadata`,
-// `invoke_triggerless_graph`).
+// One invocation per package — emits the FFI plugin shell the server
+// loads at runtime.
 cloacina_workflow_plugin::package!();
 
 // --- Boundary types ---
@@ -152,7 +139,7 @@ pub struct PriceSignal {
 
 // --- Reactor: publishes the orderbook accumulator ---
 
-#[reactor(
+#[cloacina_macros::reactor(
     name = "price_signal_rx",
     accumulators = [orderbook],
     criteria = when_any(orderbook),
@@ -200,92 +187,69 @@ The topology `compute_signal(orderbook) -> emit` means:
 - `emit` is a **terminal node** — it receives the output of `compute_signal` and its return value is the final graph output
 - The reactor fires when the `orderbook` accumulator delivers a new value (`when_any`)
 
-## Step 6: Build the shared library locally (optional verification)
+Update `package.toml` so `graph_name = "price_signal"` matches the module name.
 
-Before packaging, verify the crate compiles:
-
-```bash
-cargo build --lib
-```
-
-On success you'll see the shared library in:
-
-```
-target/debug/libmy_price_signal.dylib   # macOS
-target/debug/libmy_price_signal.so      # Linux
-target/debug/my_price_signal.dll        # Windows
-```
-
-You don't need to ship this file — the server compiles from source.
-
-## Step 7: Create the source archive
-
-The server expects a `.cloacina` file, which is a bz2-compressed tar archive. The archive must have a top-level directory named `{package-name}-{version}/` containing all source files.
+## Step 5: Check it compiles locally (optional)
 
 ```bash
-cd ..   # go one level above my-price-signal/
-tar -cjf my-price-signal.cloacina \
-  --transform 's,^my-price-signal,my-price-signal-0.1.0,' \
-  my-price-signal/package.toml \
-  my-price-signal/Cargo.toml \
-  my-price-signal/build.rs \
-  my-price-signal/src/lib.rs
+cloacinactl package build .
 ```
 
-Verify the archive structure:
+This runs a plain `cargo build` to catch errors before upload. You won't get a shared library out of it — the cdylib is produced **server-side** by the compiler service, which injects the crate-type at build time.
+
+## Step 6: Validate and pack
 
 ```bash
-tar -tjf my-price-signal.cloacina
+cd ..
+cloacinactl package validate my-price-signal
+cloacinactl package pack my-price-signal
+# my-price-signal/my-price-signal.cloacina
 ```
 
-Expected output:
-```
-my-price-signal-0.1.0/package.toml
-my-price-signal-0.1.0/Cargo.toml
-my-price-signal-0.1.0/build.rs
-my-price-signal-0.1.0/src/lib.rs
-```
+`pack` produces the `.cloacina` source archive with the layout the server expects — no hand-rolled `tar` invocations needed.
 
-{{< hint type=warning title="Archive structure matters" >}}
-The reconciler expects a single top-level directory named `{name}-{version}`. If the paths inside the archive don't match this layout, the extract step will fail and the package will be rejected.
-{{< /hint >}}
+## Step 7: Upload the package
 
-## Step 8: Upload the package
-
-Set your server base URL and PAK token:
+Set your server base URL and API key:
 
 ```bash
 BASE_URL="http://localhost:8080"
 TOKEN="clk_your_bootstrap_or_api_key_here"
 ```
 
-Upload via multipart form:
+Upload via multipart form — the multipart field **must** be named `file`:
 
 ```bash
 curl -s -w "\nHTTP %{http_code}\n" \
-  -X POST "${BASE_URL}/tenants/public/workflows" \
+  -X POST "${BASE_URL}/v1/tenants/public/workflows" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -F "file=@my-price-signal.cloacina;type=application/octet-stream"
+  -F "file=@my-price-signal/my-price-signal.cloacina;type=application/octet-stream"
 ```
 
 Expected response (HTTP 201):
 
 ```json
 {
-  "id": "a1b2c3d4-...",
-  "name": "my-price-signal",
-  "version": "0.1.0",
-  "status": "pending"
+  "package_id": "a1b2c3d4-...",
+  "tenant_id": "public"
 }
 ```
 
-The `status: "pending"` means the reconciler has accepted the archive and queued the compile job.
+(The CLI equivalent is `cloacinactl package upload my-price-signal/my-price-signal.cloacina`.)
 
-## Step 9: Wait for the reconciler to compile and load
+The package row lands with `build_status = pending` — the compiler service picks it up from there.
 
-The first Rust compile of a new package typically takes 60–120 seconds. The reconciler runs `cargo build --lib` with the Cloacina workspace available as a path dependency, then loads the resulting shared library into the server process.
+## Step 8: Wait for the compile and load
 
-Poll the reactor health endpoint until your graph appears:
+The first Rust compile of a new package typically takes 60–120 seconds. The compiler service claims the pending row, injects the build wiring, runs the cargo build, and writes back success; the server's reconciler then loads the shared library.
+
+Check compiler progress:
+
+```bash
+cloacinactl compiler status
+```
+
+Poll the graph health endpoint until your graph appears:
 
 ```bash
 # Poll every 5 seconds for up to 2 minutes
@@ -298,7 +262,7 @@ for i in $(seq 1 24); do
 done
 ```
 
-While compiling you'll see an empty reactor list:
+While compiling you'll see an empty graph list:
 
 ```json
 { "items": [], "total": 0 }
@@ -311,7 +275,7 @@ Once loaded:
   "items": [
     {
       "name": "price_signal",
-      "health": { "state": "live" },
+      "health": { "state": "running" },
       "accumulators": ["orderbook"],
       "paused": false
     }
@@ -320,52 +284,54 @@ Once loaded:
 }
 ```
 
-## Step 10: Check accumulator health
+## Step 9: Check accumulator health
 
 ```bash
 curl -s "${BASE_URL}/v1/health/accumulators" \
   -H "Authorization: Bearer ${TOKEN}" | python3 -m json.tool
 ```
 
-Expected:
+Expected (abridged):
 
 ```json
 {
   "items": [
     {
       "name": "orderbook",
-      "status": "live"
+      "state": "live",
+      "reactor": "price_signal_rx"
     }
   ],
   "total": 1
 }
 ```
 
-If the accumulator is `"live"` and the reactor is `"live"`, your packaged computation graph is ready to receive events. (See [Monitoring Computation Graph Health]({{< ref "/engine/computation-graphs/how-to/computation-graph-health" >}}) for the full state set.)
+If the accumulator is `"live"` and the graph is `"running"`, your packaged computation graph is ready to receive events. (See [Monitoring Computation Graph Health]({{< ref "/engine/computation-graphs/how-to/computation-graph-health" >}}) for the full state set.)
 
 ---
 
-## How the reconciler compiles your package
+## How your package gets compiled and loaded
 
-When the server receives a `.cloacina` source package, the reconciler:
+When you upload a `.cloacina` source package:
 
-1. Extracts the archive to a temporary build directory
-2. Injects a `[patch.crates-io]` section into `Cargo.toml` so path dependencies resolve to the server's bundled Cloacina version
-3. Runs `cargo build --lib --release` (or `--debug` depending on server mode)
-4. Calls `build_declaration_from_ffi()` to convert the `GraphPackageMetadata` returned by the FFI plugin into a `ComputationGraphDeclaration`
-5. Calls `ComputationGraphScheduler::load_graph()` to spawn the accumulator tasks and reactor loop
+1. The server stores it in `workflow_packages` with `build_status = pending`
+2. The `cloacina-compiler` service (a separate process polling the same database) claims the row, extracts the source, injects the cdylib crate-type + `packaged` feature, and runs the cargo build
+3. On success the compiled shared library is written back and `build_status` becomes `success`
+4. The server's registry reconciler picks up the built package, loads it via fidius FFI, converts the reported graph metadata into a `ComputationGraphDeclaration`, and calls `ComputationGraphScheduler::load_graph()` to spawn the accumulator tasks and reactor loop
 
-The FFI boundary uses JSON (debug builds) or bincode (release builds) for the `InputCache` snapshot passed to `execute_graph()`.
+The fidius FFI boundary always uses **bincode** for serialized values — there is no debug/release wire-format split.
 
 ---
 
 ## Troubleshooting
 
-**HTTP 400 on upload**: The archive is malformed. Check that the top-level directory matches `{name}-{version}` and that `package.toml` is present.
+**HTTP 400 on upload**: The archive is malformed. Re-produce it with `cloacinactl package pack` and check `package.toml` is present at the archive root.
 
-**Graph never appears in `/v1/health/graphs`**: Check the server logs. Look for `cargo build` errors — the most common cause is a version mismatch in `Cargo.toml`. Make sure `cloacina-computation-graph`, `cloacina-macros`, `cloacina-workflow-plugin`, and `cloacina-build` all use the same version.
+**Package stays `pending` forever**: No `cloacina-compiler` service is running against the server's database. Start one (`cloacinactl compiler start --database-url ...`).
 
-**Accumulator shows `"unhealthy"`**: The accumulator task crashed, usually due to a deserialization failure on the first event. Check that the event payload you send matches the boundary type (`OrderBook` in this example).
+**Graph never appears in `/v1/health/graphs`**: Check the compiler and server logs. Look for `cargo build` errors — the most common cause is a version mismatch in `Cargo.toml`. Make sure `cloacina-workflow`, `cloacina-workflow-plugin`, `cloacina-macros`, and `cloacina-computation-graph` all use the same version.
+
+**Accumulator shows a degraded state**: The accumulator task crashed, usually due to a deserialization failure on the first event. Check that the event payload you send matches the boundary type (`OrderBook` in this example).
 
 ---
 
