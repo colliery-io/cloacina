@@ -201,7 +201,7 @@ Configuration reload complete.
 
 ### Cron Schedule Not Firing
 
-1. Confirm the schedule was registered by looking for `registered cron schedule` in the logs. Cron schedules come from `#[trigger(cron = "...")]` / `@cloaca.trigger(cron=..., on=...)` declarations compiled into the package — if the package has no cron trigger in code, nothing is registered. (Note: `cloacinactl package new --kind cron` only scaffolds a Rust template, but Python packages declare cron triggers the same way in code — see the `python-cron` example.)
+1. Confirm the schedule was registered by looking for `registered cron schedule` in the logs. Cron schedules come from `#[trigger(cron = "...")]` / `@cloaca.trigger(cron=..., on=...)` declarations compiled into the package — if the package has no cron trigger in code, nothing is registered. (`cloacinactl package new --kind cron` scaffolds this shape for both languages — see the `python-cron` example for a worked Python package.)
 2. Check that `cron_max_catchup` is not set too low if the daemon was down for a period. When omitted, the runner default of 100 catchup executions applies.
 3. Verify the cron expression is valid: 5-field format (minute, hour, day-of-month, month, day-of-week), with an optional leading seconds field for 6-field expressions.
 4. If the daemon was recently restarted, recovery runs after `cron_recovery_interval_s` seconds (default 300).

@@ -324,7 +324,7 @@ Scaffolds a canonical package source tree. Local-only.
 | Flag | Default | Description |
 |---|---|---|
 | `--lang <python\|rust>` | `python` | Source language to scaffold. |
-| `--kind <workflow\|graph\|cron>` | `workflow` | Package shape. **`cron` is Rust-only** — `--lang python --kind cron` errors (Python packages cannot declare cron triggers; use a poll trigger). |
+| `--kind <workflow\|graph\|cron>` | `workflow` | Package shape. All three kinds scaffold for both languages; `cron` emits a workflow bound to a cron trigger (`#[trigger(on, cron)]` in Rust, `@cloaca.trigger(on=..., cron=...)` in Python). |
 | `--path <DIR>` | `./<name>` | Directory to create. |
 
 ### `package build <DIR> [--release]`
