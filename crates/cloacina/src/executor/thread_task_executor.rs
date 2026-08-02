@@ -422,11 +422,23 @@ impl TaskExecutor for ThreadTaskExecutor {
                     return Ok(ExecutionResult::skipped(event.task_execution_id));
                 }
                 Err(e) => {
+                    // Fail CLOSED (CLOACI-T-0914): executing without a claim
+                    // means no heartbeat guard, claim-guarded terminal writes
+                    // that match nothing, and a genuine double-run window on
+                    // Postgres. The task stays Ready with claimed_by NULL, so
+                    // the scheduler re-selects it next tick — a transient DB
+                    // error costs one dispatch cycle, not correctness.
+                    metrics::counter!(
+                        "cloacina_scheduler_claim_attempts_total",
+                        "outcome" => "error",
+                    )
+                    .increment(1);
                     tracing::warn!(
                         task_id = %event.task_execution_id,
                         error = %e,
-                        "Failed to claim task — proceeding without claim"
+                        "Failed to claim task — skipping dispatch (will retry next tick)"
                     );
+                    return Ok(ExecutionResult::skipped(event.task_execution_id));
                 }
             }
         }

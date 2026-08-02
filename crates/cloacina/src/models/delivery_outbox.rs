@@ -20,10 +20,10 @@
 //! recipient-addressed push-delivery outbox of the interservice communication
 //! substrate (spec CLOACI-S-0012, decided in CLOACI-A-0006).
 //!
-//! Unlike [`crate::models::task_outbox`] (a transient, competing-consumer
-//! claim queue deleted on claim), delivery-outbox rows are addressed to a
-//! specific recipient, carry a payload, and are retained until acked. The
-//! substrate is Postgres-only at runtime.
+//! Unlike the historical `task_outbox` (a transient, competing-consumer claim
+//! queue deleted on claim, removed in CLOACI-T-0914), delivery-outbox rows are
+//! addressed to a specific recipient, carry a payload, and are retained until
+//! acked. The substrate is Postgres-only at runtime.
 
 use crate::database::universal_types::UniversalTimestamp;
 use serde::{Deserialize, Serialize};

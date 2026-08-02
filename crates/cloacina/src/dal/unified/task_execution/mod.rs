@@ -88,6 +88,10 @@ pub struct StaleClaim {
     pub claimed_by: UniversalUuid,
     /// Last heartbeat timestamp.
     pub heartbeat_at: chrono::DateTime<chrono::Utc>,
+    /// How many times this task has already been recovered from a stale
+    /// claim. Lets the sweeper cap recycling (CLOACI-T-0914) instead of
+    /// re-Readying a runner-killing task forever.
+    pub recovery_attempts: i32,
 }
 
 /// Data access layer for task execution operations with runtime backend selection.

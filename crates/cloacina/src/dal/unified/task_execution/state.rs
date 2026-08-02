@@ -21,12 +21,7 @@
 
 use super::TaskExecutionDAL;
 use crate::dal::unified::models::{NewUnifiedExecutionEvent, UnifiedTaskExecution};
-// Only the sqlite mark_ready sets created_at explicitly (no column default on
-// sqlite); the postgres path now relies on DEFAULT CURRENT_TIMESTAMP, so this is
-// unused under postgres-only builds without the gate.
-#[cfg(feature = "sqlite")]
-use crate::dal::unified::models::NewUnifiedTaskOutbox;
-use crate::database::schema::unified::{execution_events, task_executions, task_outbox};
+use crate::database::schema::unified::{execution_events, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
@@ -177,37 +172,15 @@ impl<'a> TaskExecutionDAL<'a> {
 
     /// Marks a task as ready for execution.
     ///
-    /// This operation is transactional: the status update, execution event,
-    /// and outbox entry are written atomically. If any fail, all are rolled back.
+    /// This operation is transactional: the status update and execution event
+    /// are written atomically. If either fails, both are rolled back.
     ///
-    /// The outbox entry enables push-based work distribution (Postgres LISTEN/NOTIFY)
-    /// or polling-based distribution (SQLite).
+    /// Ready tasks are picked up by the push dispatcher's ready-task scan
+    /// (`get_ready_for_retry`); there is no separate work-distribution queue.
     pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        // KEPT AS EXPLICIT TWINS (CLOACI-I-0135): the outbox-insert bodies genuinely
-        // diverge. Postgres lets the DB stamp `created_at` via
-        // `DEFAULT CURRENT_TIMESTAMP` (so the claim filter `created_at <= NOW()` and
-        // the write both source the DB clock, avoiding app/DB clock skew); SQLite
-        // writes `created_at = now` from the app clock. This is not a backend-agnostic
-        // body, so it does not collapse to `interact_on_backend!`.
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.mark_ready_postgres(task_id).await,
-            self.mark_ready_sqlite(task_id).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn mark_ready_postgres(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
+        crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
@@ -240,98 +213,19 @@ impl<'a> TaskExecutionDAL<'a> {
                     .values(&event)
                     .execute(conn)?;
 
-                // Insert outbox entry for work distribution. Let the DB stamp
-                // created_at via its `DEFAULT CURRENT_TIMESTAMP` instead of the
-                // app clock: claim_ready_task (postgres) filters
-                // `created_at <= NOW()` using the DB clock, so an app-side
-                // timestamp makes a fresh row look future-dated whenever the app
-                // and DB clocks diverge (Docker VM drift, or a non-UTC session
-                // TZ applied to the naive TIMESTAMP column) — and the task is
-                // never claimed. Sourcing both write and filter from the DB
-                // clock removes the skew. (schedule_retry still sets created_at
-                // = retry_at on purpose — an intentional future delay.)
-                diesel::insert_into(task_outbox::table)
-                    .values(task_outbox::task_execution_id.eq(task_id))
-                    .execute(conn)?;
-
                 Ok(())
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })?;
 
-        tracing::debug!(task_id = %task_id, "Task marked as Ready with outbox entry");
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn mark_ready_sqlite(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
-
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
-
-                // Update task status
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
-                        task_executions::status.eq("Ready"),
-                        task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
-
-                // Insert execution event
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    workflow_execution_id: task.workflow_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskMarkedReady.as_str().to_string(),
-                    event_data: None,
-                    worker_id: None,
-                    created_at: now,
-                    request_id: None,
-                    runner_id: None,
-                    tenant_id: None,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
-
-                // Insert outbox entry for work distribution
-                let outbox_entry = NewUnifiedTaskOutbox {
-                    task_execution_id: task_id,
-                    created_at: now,
-                };
-                diesel::insert_into(task_outbox::table)
-                    .values(&outbox_entry)
-                    .execute(conn)?;
-
-                Ok(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        tracing::debug!(task_id = %task_id, "Task marked as Ready with outbox entry");
+        tracing::debug!(task_id = %task_id, "Task marked as Ready");
         Ok(())
     }
 
     /// Stamps a task's `started_at` (and flips it to `Running`) at the moment
     /// execution begins, idempotently.
     ///
-    /// The distributed/claiming path stamps `started_at` inside
-    /// `claim_ready_task`/`claim_for_runner`, but the embedded single-runner
+    /// The distributed/claiming path stamps `started_at` via
+    /// `claim_for_runner`, but the embedded single-runner
     /// path executes with claiming disabled and never went through a claim — so
     /// `started_at` stayed NULL and the per-task timeline (the Gantt view) had
     /// no real start offset. This is called from the executor before a task

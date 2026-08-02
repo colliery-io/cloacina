@@ -4,15 +4,15 @@ level: task
 title: "Execution-core crash-edge defects — unsweepable claim window, dead Abandoned machinery, fail-open claim errors"
 short_code: "CLOACI-T-0914"
 created_at: 2026-08-02T16:33:13.496800+00:00
-updated_at: 2026-08-02T16:33:13.496800+00:00
+updated_at: 2026-08-02T18:36:21.576816+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -52,3 +52,4 @@ Close the crash-edge recovery gaps in the execution core found by the 2026-08-02
 ## Status Updates
 
 - 2026-08-02: Filed from the architecture deep dive (execution-core report; DEEPDIVE.md risk register R-high entries). Findings verified against main @ 5216e632.
+- 2026-08-02: ACTIVE on fix/t-0914-execution-crash-edges. Verified plan: (a) heartbeat starts AT CLAIM (claim_for_runner sets heartbeat_at; heartbeat loop spawns before semaphore acquire) so stale heartbeat on Ready+claimed is a true death signal — broadening find_stale_claims is safe, BUT must be status IN (Running, Ready), never claim-only: a crash after mark_completed leaves a claim on a terminal row that must not be re-Readied. (b) Terminal set is exactly {Completed, Failed, Skipped} (queries.rs:85, state_manager.rs:135) — a literal Abandoned status would hang workflows; HOWEVER mark_abandoned already writes status=Failed + ABANDONED: error prefix + TaskAbandoned event transactionally (state.rs:421-469), and check_workflow_failure already queries that convention — the machinery was designed for this cap and never wired. PLAN: sweeper gains max_recovery_attempts (default 3, mirroring cron); StaleClaim carries recovery_attempts; per claim: release + (attempts >= cap ? mark_abandoned : reset_task_for_recovery — which Ready-resets AND increments, replacing mark_ready). Delete get_orphaned_tasks (misleading, zero callers). Sweeper writes stay warn+continue (30s re-sweep = natural retry). (c) Claim Err at thread_task_executor.rs:424-430 -> return skipped (stays Ready+unclaimed, re-selected next tick) + metric outcome=error. (d) task_outbox: verify no non-test readers, stop writing + prune (no schema migration). (e) cron: link audit row at handoff. Implementing a,b,c then d,e.

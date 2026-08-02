@@ -43,6 +43,12 @@ pub struct StaleClaimSweeperConfig {
     /// How old a heartbeat must be to consider the claim stale (default 60s).
     /// Must be greater than the heartbeat interval.
     pub stale_threshold: Duration,
+    /// How many stale-claim recoveries a single task gets before it is
+    /// abandoned (marked `Failed` with an `ABANDONED:` error) instead of
+    /// re-Readied (default 3, mirroring `cron_max_recovery_attempts`).
+    /// Without a cap, a task that reliably kills its runner recycles
+    /// forever (CLOACI-T-0914).
+    pub max_recovery_attempts: i32,
 }
 
 impl Default for StaleClaimSweeperConfig {
@@ -50,6 +56,7 @@ impl Default for StaleClaimSweeperConfig {
         Self {
             sweep_interval: Duration::from_secs(30),
             stale_threshold: Duration::from_secs(60),
+            max_recovery_attempts: 3,
         }
     }
 }
@@ -163,8 +170,44 @@ impl StaleClaimSweeper {
                 continue;
             }
 
-            // Reset task status to Ready for re-execution
-            if let Err(e) = self.dal.task_execution().mark_ready(claim.task_id).await {
+            // Recovery cap (CLOACI-T-0914): a task that has already burned
+            // its recovery budget is abandoned — `mark_abandoned` writes the
+            // terminal `Failed` status with an `ABANDONED:` error prefix and
+            // a TaskAbandoned audit event in one transaction — instead of
+            // being re-Readied forever. Failures here warn-and-continue: the
+            // next sweep retries naturally.
+            if claim.recovery_attempts >= self.config.max_recovery_attempts {
+                let reason = format!(
+                    "{} stale-claim recoveries exhausted (cap {}); last runner {}, heartbeat {}s stale",
+                    claim.recovery_attempts,
+                    self.config.max_recovery_attempts,
+                    claim.claimed_by,
+                    age.num_seconds()
+                );
+                if let Err(e) = self
+                    .dal
+                    .task_execution()
+                    .mark_abandoned(claim.task_id, &reason)
+                    .await
+                {
+                    warn!("Failed to abandon task {}: {}", claim.task_id, e);
+                    continue;
+                }
+                metrics::counter!("cloacina_scheduler_tasks_abandoned_total").increment(1);
+                warn!("Abandoned task {}: {}", claim.task_id, reason);
+                continue;
+            }
+
+            // Reset to Ready for re-execution. `reset_task_for_recovery`
+            // (not `mark_ready`) so the attempt is counted against the cap:
+            // it re-Readies, clears started_at, increments recovery_attempts,
+            // and stamps last_recovery_at.
+            if let Err(e) = self
+                .dal
+                .task_execution()
+                .reset_task_for_recovery(claim.task_id)
+                .await
+            {
                 warn!(
                     "Failed to reset task {} to Ready after stale claim release: {}",
                     claim.task_id, e
@@ -175,10 +218,12 @@ impl StaleClaimSweeper {
             metrics::counter!("cloacina_scheduler_stale_claims_swept_total").increment(1);
 
             info!(
-                "Released stale claim: task {} (runner {}, last heartbeat {}s ago)",
+                "Released stale claim: task {} (runner {}, last heartbeat {}s ago, recovery {}/{})",
                 claim.task_id,
                 claim.claimed_by,
-                age.num_seconds()
+                age.num_seconds(),
+                claim.recovery_attempts + 1,
+                self.config.max_recovery_attempts
             );
         }
 
@@ -198,6 +243,7 @@ mod tests {
         let config = StaleClaimSweeperConfig::default();
         assert_eq!(config.sweep_interval, Duration::from_secs(30));
         assert_eq!(config.stale_threshold, Duration::from_secs(60));
+        assert_eq!(config.max_recovery_attempts, 3);
     }
 
     #[test]
@@ -205,9 +251,11 @@ mod tests {
         let config = StaleClaimSweeperConfig {
             sweep_interval: Duration::from_secs(10),
             stale_threshold: Duration::from_secs(120),
+            max_recovery_attempts: 5,
         };
         assert_eq!(config.sweep_interval, Duration::from_secs(10));
         assert_eq!(config.stale_threshold, Duration::from_secs(120));
+        assert_eq!(config.max_recovery_attempts, 5);
     }
 
     #[test]
