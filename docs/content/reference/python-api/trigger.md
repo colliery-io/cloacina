@@ -43,11 +43,11 @@ CLOACI-T-0688):
 Setting both `cron` and `poll_interval`, or `cron` without `on`, raises
 `ValueError`.
 
-{{< hint type="note" title="Cron scaffolding is Rust-only; cron triggers are not" >}}
-`cloacinactl package new --kind cron` only generates a Rust template and
-refuses `--language python` (`crates/cloacinactl/src/nouns/package/new.rs`).
-Packaged Python workflows still fully support cron: declare
-`@cloaca.trigger(cron=..., on=...)` in a `--kind workflow` package — see
+{{< hint type="note" title="Scaffolding a cron package" >}}
+`cloacinactl package new <name> --language python --kind cron` scaffolds a
+ready-to-pack package with this shape: one bare `@cloaca.task` plus a
+`@cloaca.trigger(on=..., cron=...)` declaration
+(`crates/cloacinactl/src/nouns/package/new.rs`). A worked example lives at
 `examples/features/workflows/python-cron`.
 {{< /hint >}}
 
