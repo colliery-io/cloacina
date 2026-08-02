@@ -23,8 +23,8 @@ use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
     key_trust_acls, package_artifacts, package_providers, package_signatures, reactor_state,
     recovery_events, schedule_executions, schedules, secrets, signing_keys,
-    state_accumulator_buffers, task_execution_metadata, task_executions, task_outbox,
-    tenant_data_keys, trusted_keys, workflow_executions, workflow_packages, workflow_registry,
+    state_accumulator_buffers, task_execution_metadata, task_executions, tenant_data_keys,
+    trusted_keys, workflow_executions, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -242,27 +242,6 @@ pub struct NewUnifiedExecutionEvent {
     /// (server) or the current tenant context. `None` on the daemon path
     /// and on background-scheduler emissions that don't have a tenant.
     pub tenant_id: Option<String>,
-}
-
-// ============================================================================
-// Task Outbox Models
-// ============================================================================
-
-/// Unified task outbox model for work distribution.
-/// Transient: rows are deleted immediately upon claiming.
-#[derive(Debug, Clone, Queryable, Selectable)]
-#[diesel(table_name = task_outbox)]
-pub struct UnifiedTaskOutbox {
-    pub id: i64,
-    pub task_execution_id: UniversalUuid,
-    pub created_at: UniversalTimestamp,
-}
-
-#[derive(Debug, Insertable)]
-#[diesel(table_name = task_outbox)]
-pub struct NewUnifiedTaskOutbox {
-    pub task_execution_id: UniversalUuid,
-    pub created_at: UniversalTimestamp,
 }
 
 // ============================================================================

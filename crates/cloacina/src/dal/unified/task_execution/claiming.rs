@@ -19,30 +19,14 @@
 //! All operations are transactional: state changes and execution events
 //! are written atomically. If either fails, both are rolled back.
 
-use super::{ClaimResult, HeartbeatResult, RunnerClaimResult, StaleClaim, TaskExecutionDAL};
+use super::{HeartbeatResult, RunnerClaimResult, StaleClaim, TaskExecutionDAL};
 use crate::dal::unified::models::{NewUnifiedExecutionEvent, UnifiedTaskExecution};
-use crate::database::schema::unified::{execution_events, task_executions, task_outbox};
+use crate::database::schema::unified::{execution_events, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
 use crate::models::task_execution::TaskExecution;
 use diesel::prelude::*;
-use uuid::Uuid;
-
-/// CLOACI-T-0622: best-effort detection of a transient SQLite
-/// busy/locked condition, used to drive retries inside the sqlite
-/// claim path. Diesel surfaces sqlite busy as
-/// `DatabaseError(DatabaseErrorKind::Unknown, info)` with an info
-/// message like "database is locked" — sqlite's stable strings.
-#[cfg(feature = "sqlite")]
-fn is_sqlite_busy(err: &diesel::result::Error) -> bool {
-    use diesel::result::{DatabaseErrorKind, Error};
-    if let Error::DatabaseError(DatabaseErrorKind::Unknown, info) = err {
-        let msg = info.message();
-        return msg.contains("database is locked") || msg.contains("database table is locked");
-    }
-    false
-}
 
 impl<'a> TaskExecutionDAL<'a> {
     /// Updates a task's retry schedule with a new attempt count and retry time.
@@ -55,7 +39,6 @@ impl<'a> TaskExecutionDAL<'a> {
         retry_at: UniversalTimestamp,
         new_attempt: i32,
     ) -> Result<(), ValidationError> {
-        use crate::dal::unified::models::NewUnifiedTaskOutbox;
         use diesel::connection::Connection;
 
         crate::interact_on_backend!(self.dal, |conn| {
@@ -100,277 +83,11 @@ impl<'a> TaskExecutionDAL<'a> {
                     .values(&event)
                     .execute(conn)?;
 
-                // Insert outbox entry for work distribution
-                // Use retry_at as created_at so workers won't claim until retry time
-                let outbox_entry = NewUnifiedTaskOutbox {
-                    task_execution_id: task_id,
-                    created_at: retry_at,
-                };
-                diesel::insert_into(task_outbox::table)
-                    .values(&outbox_entry)
-                    .execute(conn)?;
-
                 Ok(())
             })
         })?;
 
         Ok(())
-    }
-
-    /// Atomically claims up to `limit` ready tasks for execution.
-    ///
-    /// This operation is transactional: the status update and execution events
-    /// are written atomically for all claimed tasks.
-    pub async fn claim_ready_task(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<ClaimResult>, ValidationError> {
-        // KEPT AS EXPLICIT TWINS (CLOACI-I-0135): the two backends implement
-        // atomic claiming with fundamentally different mechanisms. Postgres uses a
-        // single raw `sql_query` CTE with `FOR UPDATE SKIP LOCKED`; SQLite has no
-        // such primitive and instead runs a `BEGIN IMMEDIATE` transaction wrapped in
-        // a busy-retry loop (CLOACI-T-0622). These bodies are not backend-agnostic
-        // Diesel, so they do not collapse to `interact_on_backend!`.
-        crate::dispatch_backend!(
-            self.dal.backend(),
-            self.claim_ready_task_postgres(limit).await,
-            self.claim_ready_task_sqlite(limit).await
-        )
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn claim_ready_task_postgres(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<ClaimResult>, ValidationError> {
-        use diesel::connection::Connection;
-
-        let conn = self
-            .dal
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let limit = limit as i64;
-
-        #[derive(Debug, QueryableByName, Clone)]
-        #[diesel(check_for_backend(diesel::pg::Pg))]
-        struct PgClaimResult {
-            #[diesel(sql_type = diesel::sql_types::Uuid)]
-            id: Uuid,
-            #[diesel(sql_type = diesel::sql_types::Uuid)]
-            workflow_execution_id: Uuid,
-            #[diesel(sql_type = diesel::sql_types::Text)]
-            task_name: String,
-            #[diesel(sql_type = diesel::sql_types::Integer)]
-            attempt: i32,
-        }
-
-        let pg_results: Vec<PgClaimResult> = conn
-            .interact(move |conn| {
-                conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                    let now = UniversalTimestamp::now();
-
-                    // Claim tasks from outbox with FOR UPDATE SKIP LOCKED:
-                    // 1. Select outbox entries with lock (skip locked rows)
-                    //    - Filter by created_at <= NOW() to respect retry delays
-                    // 2. Delete those outbox entries
-                    // 3. Update corresponding task_executions to Running
-                    // 4. Return task details
-                    let claimed: Vec<PgClaimResult> = diesel::sql_query(format!(
-                        r#"
-                        WITH claimed_outbox AS (
-                            DELETE FROM task_outbox
-                            WHERE id IN (
-                                SELECT id FROM task_outbox
-                                WHERE created_at <= NOW()
-                                ORDER BY created_at ASC
-                                LIMIT {}
-                                FOR UPDATE SKIP LOCKED
-                            )
-                            RETURNING task_execution_id
-                        )
-                        UPDATE task_executions
-                        SET status = 'Running', started_at = NOW(), updated_at = NOW()
-                        FROM claimed_outbox
-                        WHERE task_executions.id = claimed_outbox.task_execution_id
-                        RETURNING task_executions.id, task_executions.workflow_execution_id, task_executions.task_name, task_executions.attempt
-                        "#,
-                        limit
-                    ))
-                    .load(conn)?;
-
-                    // Insert execution events for all claimed tasks
-                    for task in &claimed {
-                        let event = NewUnifiedExecutionEvent {
-                            id: UniversalUuid::new_v4(),
-                            workflow_execution_id: UniversalUuid(task.workflow_execution_id),
-                            task_execution_id: Some(UniversalUuid(task.id)),
-                            event_type: ExecutionEventType::TaskClaimed.as_str().to_string(),
-                            event_data: None,
-                            worker_id: None,
-                            created_at: now,
-                            request_id: None,
-                            runner_id: None,
-                            tenant_id: None,
-                        };
-                        diesel::insert_into(execution_events::table)
-                            .values(&event)
-                            .execute(conn)?;
-                    }
-
-                    Ok(claimed)
-                })
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(pg_results
-            .into_iter()
-            .map(|pg| ClaimResult {
-                id: UniversalUuid(pg.id),
-                workflow_execution_id: UniversalUuid(pg.workflow_execution_id),
-                task_name: pg.task_name,
-                attempt: pg.attempt,
-            })
-            .collect())
-    }
-
-    #[cfg(feature = "sqlite")]
-    async fn claim_ready_task_sqlite(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<ClaimResult>, ValidationError> {
-        use crate::dal::unified::models::UnifiedTaskOutbox;
-
-        let conn = self
-            .dal
-            .database
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let limit = limit as i64;
-
-        // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use an IMMEDIATE transaction
-        // to acquire a write lock at the start, preventing race conditions between workers.
-        // This serializes concurrent claim attempts, ensuring each task is claimed exactly once.
-        //
-        // CLOACI-T-0622: was previously using `conn.transaction(...)`, which starts
-        // a DEFERRED transaction — the lock is only acquired on the first write
-        // statement, leaving a TOCTOU window between the SELECT and the DELETE.
-        // With `sqlite_pool_size = 1` the pool itself serialised callers, hiding
-        // the bug; with the pool size bumped to 4 the dal::task_claiming concurrency
-        // test surfaced it. `immediate_transaction` issues `BEGIN IMMEDIATE`,
-        // which takes the RESERVED lock up front, restoring the intent.
-        //
-        // Retry loop (CLOACI-T-0622): under burst contention, even with
-        // `busy_timeout=30000` set per-connection, diesel can still
-        // surface `database is locked` from `BEGIN IMMEDIATE` (the busy
-        // handler is invoked on the open call, but some sqlite paths
-        // bypass it on transient WAL contention). Callers above us
-        // silently drop these errors and let the outbox row sit, so we
-        // retry transparently here with exponential backoff. Five
-        // retries × max-200ms = ~1s of contention headroom on top of
-        // the 30s busy_timeout, which is plenty for normal load.
-        let mut backoff = std::time::Duration::from_millis(10);
-        let mut attempts: u32 = 0;
-        let tasks: Vec<UnifiedTaskExecution> = loop {
-            let result: Result<Vec<UnifiedTaskExecution>, diesel::result::Error> = conn
-            .interact(
-                move |conn| -> Result<Vec<UnifiedTaskExecution>, diesel::result::Error> {
-                    conn.immediate_transaction::<Vec<UnifiedTaskExecution>, diesel::result::Error, _>(
-                        |conn| {
-                            let now = UniversalTimestamp::now();
-
-                            // Select oldest outbox entries within the transaction
-                            // Filter by created_at <= NOW() to respect retry delays
-                            let outbox_entries: Vec<UnifiedTaskOutbox> = task_outbox::table
-                                .filter(task_outbox::created_at.le(now))
-                                .order(task_outbox::created_at.asc())
-                                .limit(limit)
-                                .load(conn)?;
-
-                            if outbox_entries.is_empty() {
-                                return Ok(Vec::new());
-                            }
-
-                            // Collect task execution IDs and outbox IDs
-                            let task_ids: Vec<_> =
-                                outbox_entries.iter().map(|o| o.task_execution_id).collect();
-                            let outbox_ids: Vec<_> = outbox_entries.iter().map(|o| o.id).collect();
-
-                            // Delete outbox entries
-                            diesel::delete(task_outbox::table)
-                                .filter(task_outbox::id.eq_any(&outbox_ids))
-                                .execute(conn)?;
-
-                            // Load task executions for the claimed tasks
-                            let claimed_tasks: Vec<UnifiedTaskExecution> = task_executions::table
-                                .filter(task_executions::id.eq_any(&task_ids))
-                                .load(conn)?;
-
-                            // Batch update all tasks to Running in a single query
-                            diesel::update(task_executions::table)
-                                .filter(task_executions::id.eq_any(&task_ids))
-                                .set((
-                                    task_executions::status.eq("Running"),
-                                    task_executions::started_at.eq(Some(now)),
-                                    task_executions::updated_at.eq(now),
-                                ))
-                                .execute(conn)?;
-
-                            // Insert execution events for all claimed tasks
-                            for task in &claimed_tasks {
-                                let event = NewUnifiedExecutionEvent {
-                                    id: UniversalUuid::new_v4(),
-                                    workflow_execution_id: task.workflow_execution_id,
-                                    task_execution_id: Some(task.id),
-                                    event_type: ExecutionEventType::TaskClaimed
-                                        .as_str()
-                                        .to_string(),
-                                    event_data: None,
-                                    worker_id: None,
-                                    created_at: now,
-                                    request_id: None,
-                                    runner_id: None,
-                                    tenant_id: None,
-                                };
-                                diesel::insert_into(execution_events::table)
-                                    .values(&event)
-                                    .execute(conn)?;
-                            }
-
-                            Ok(claimed_tasks)
-                        },
-                    )
-                },
-            )
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-            match result {
-                Ok(tasks) => break tasks,
-                Err(e) if is_sqlite_busy(&e) && attempts < 5 => {
-                    attempts += 1;
-                    tokio::time::sleep(backoff).await;
-                    backoff = std::cmp::min(backoff * 2, std::time::Duration::from_millis(200));
-                    continue;
-                }
-                Err(e) => return Err(ValidationError::from(e)),
-            }
-        };
-
-        Ok(tasks
-            .into_iter()
-            .map(|task| ClaimResult {
-                id: task.id,
-                workflow_execution_id: task.workflow_execution_id,
-                task_name: task.task_name,
-                attempt: task.attempt,
-            })
-            .collect())
     }
 
     // ========================================================================

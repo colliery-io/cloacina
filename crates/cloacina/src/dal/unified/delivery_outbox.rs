@@ -23,9 +23,9 @@
 //! `delivered → pending` as the redelivery path (sweeper reclaim / reconnect
 //! resync).
 //!
-//! Distinct from [`super::task_outbox`], the transient competing-consumer
-//! scheduler→executor claim queue. Rows here are addressed and retained until
-//! acked.
+//! Distinct from the historical `task_outbox` (a transient competing-consumer
+//! scheduler→executor claim queue, removed in CLOACI-T-0914). Rows here are
+//! addressed and retained until acked.
 //!
 //! State transitions are implemented as **atomic compare-and-set** updates
 //! (filter on the expected current state; zero rows affected ⇒ the transition

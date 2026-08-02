@@ -66,7 +66,6 @@ pub mod schedule;
 pub mod schedule_execution;
 pub mod task_execution;
 pub mod task_execution_metadata;
-pub mod task_outbox;
 pub mod workflow_execution;
 pub mod workflow_packages;
 pub mod workflow_registry_storage;
@@ -92,9 +91,8 @@ pub use reactor_subscriptions::{ReactorFiring, ReactorSubscription, ReactorSubsc
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;
 pub use schedule_execution::{ScheduleExecutionDAL, ScheduleExecutionStats};
-pub use task_execution::{ClaimResult, RetryStats, TaskExecutionDAL};
+pub use task_execution::{RetryStats, TaskExecutionDAL};
 pub use task_execution_metadata::TaskExecutionMetadataDAL;
-pub use task_outbox::TaskOutboxDAL;
 pub use workflow_execution::WorkflowExecutionDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
 pub use workflow_registry_storage::UnifiedRegistryStorage;
@@ -207,11 +205,6 @@ impl DAL {
     /// Returns a task execution metadata DAL for metadata operations.
     pub fn task_execution_metadata(&self) -> TaskExecutionMetadataDAL<'_> {
         TaskExecutionMetadataDAL::new(self)
-    }
-
-    /// Returns a task outbox DAL for work distribution operations.
-    pub fn task_outbox(&self) -> TaskOutboxDAL<'_> {
-        TaskOutboxDAL::new(self)
     }
 
     /// Returns a delivery outbox DAL for the interservice communication

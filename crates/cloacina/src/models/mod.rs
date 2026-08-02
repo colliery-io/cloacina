@@ -75,7 +75,6 @@ pub mod recovery_event;
 pub mod schedule;
 pub mod task_execution;
 pub mod task_execution_metadata;
-pub mod task_outbox;
 pub mod workflow_execution;
 pub mod workflow_packages;
 pub mod workflow_registry;

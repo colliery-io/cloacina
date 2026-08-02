@@ -130,19 +130,6 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
-        /// Task outbox table for work distribution.
-        /// Transient: rows are deleted immediately upon claiming.
-        task_outbox (id) {
-            id -> BigInt,
-            task_execution_id -> DbUuid,
-            created_at -> DbTimestamp,
-        }
-    }
-
-    diesel::table! {
-        use diesel::sql_types::*;
-        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
-
         /// Delivery outbox — durable, ack-tracked, recipient-addressed push
         /// delivery for the interservice communication substrate (S-0012).
         /// Postgres-only at runtime; present here for unified-schema parity.
@@ -475,7 +462,6 @@ mod unified_schema {
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
     diesel::joinable!(execution_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
-    diesel::joinable!(task_outbox -> task_executions (task_execution_id));
     diesel::joinable!(schedule_executions -> schedules (schedule_id));
     diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
 
@@ -538,7 +524,6 @@ mod unified_schema {
         state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
-        task_outbox,
         tenant_data_keys,
         trusted_keys,
         workflow_packages,
@@ -633,14 +618,6 @@ mod postgres_schema {
             request_id -> Nullable<Uuid>,
             runner_id -> Nullable<Uuid>,
             tenant_id -> Nullable<Text>,
-        }
-    }
-
-    diesel::table! {
-        task_outbox (id) {
-            id -> Int8,
-            task_execution_id -> Uuid,
-            created_at -> Timestamp,
         }
     }
 
@@ -875,7 +852,6 @@ mod postgres_schema {
     diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
     diesel::joinable!(execution_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
-    diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
     // API Keys table (server mode only — Postgres)
     diesel::table! {
@@ -971,7 +947,6 @@ mod postgres_schema {
         state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
-        task_outbox,
         trusted_keys,
         workflow_packages,
         workflow_registry,
@@ -996,7 +971,6 @@ mod postgres_schema {
         state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
-        task_outbox,
         trusted_keys,
         workflow_packages,
         workflow_registry,
@@ -1083,14 +1057,6 @@ mod sqlite_schema {
             request_id -> Nullable<Binary>,
             runner_id -> Nullable<Binary>,
             tenant_id -> Nullable<Text>,
-        }
-    }
-
-    diesel::table! {
-        task_outbox (id) {
-            id -> BigInt,
-            task_execution_id -> Binary,
-            created_at -> Text,
         }
     }
 
@@ -1292,7 +1258,6 @@ mod sqlite_schema {
     diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
     diesel::joinable!(execution_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
-    diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         accumulator_boundaries,
@@ -1310,7 +1275,6 @@ mod sqlite_schema {
         state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
-        task_outbox,
         trusted_keys,
     );
 }
