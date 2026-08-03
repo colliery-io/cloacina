@@ -4,15 +4,15 @@ level: task
 title: "CG runtime defects — CEL tenant stub, sequential-queue restore, lock-held supervisor backoff"
 short_code: "CLOACI-T-0915"
 created_at: 2026-08-02T16:33:18.144884+00:00
-updated_at: 2026-08-02T16:33:18.144884+00:00
+updated_at: 2026-08-02T22:23:04.124639+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,6 +40,10 @@ Fix three localized bug-shaped defects in the computation-graph runtime found by
 3. SUPERVISOR SLEEPS BACKOFF HOLDING THE REACTORS WRITE LOCK. Restart backoff (up to 60s, 5-failure circuit breaker) sleeps while holding the scheduler's reactors write lock (crates/cloacina/src/computation_graph/scheduler.rs:1165, 1222, 1405), so during a restart storm all loads, listings, and /v1/health/* graph reads block behind it — the health surface goes dark exactly when operators need it. Fix: drop the lock before sleeping; re-acquire for the restart attempt.
 
 Related but tracked elsewhere: cross-replica reactive state is T-0851; the crashed-CG-503s-/ready-replica-wide behavior is noted in T-0916.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

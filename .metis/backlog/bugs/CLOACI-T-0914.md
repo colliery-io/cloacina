@@ -4,7 +4,7 @@ level: task
 title: "Execution-core crash-edge defects — unsweepable claim window, dead Abandoned machinery, fail-open claim errors"
 short_code: "CLOACI-T-0914"
 created_at: 2026-08-02T16:33:13.496800+00:00
-updated_at: 2026-08-02T18:36:21.576816+00:00
+updated_at: 2026-08-02T22:55:39.932740+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -43,13 +43,16 @@ Close the crash-edge recovery gaps in the execution core found by the 2026-08-02
 
 ## Acceptance Criteria
 
-- [ ] Crash-in-claim-window test passes: task is re-dispatched/reclaimed within one sweep interval, never stuck
-- [ ] Re-Ready recycling is capped (or the cap is explicitly documented as a non-goal and the dead Abandoned code is removed)
-- [ ] Claim-write error path fails closed with retries
-- [ ] task_outbox has an owner: consumed or pruned or removed
-- [ ] Long-workflow cron duplicate-fire covered by a test
+## Acceptance Criteria
+
+- [x] Crash-in-claim-window test passes (test_sweep_recovers_ready_claimed_task incl. re-claimability; terminal-row immunity also pinned)
+- [x] Re-Ready recycling capped at 3 via revived reset_task_for_recovery + mark_abandoned (ABANDONED: Failed convention); get_orphaned_tasks deleted
+- [x] Claim-write error path fails closed (skip + re-select next tick; outcome=error metric)
+- [x] task_outbox REMOVED end to end (043_drop_task_outbox migrations both backends; no-duplicate-dispatch rests on claim_for_runner CAS)
+- [x] Long-workflow cron duplicate-fire covered (test_long_running_cron_workflow_not_duplicate_fired + genuinely-lost re-fire test)
 
 ## Status Updates
 
 - 2026-08-02: Filed from the architecture deep dive (execution-core report; DEEPDIVE.md risk register R-high entries). Findings verified against main @ 5216e632.
 - 2026-08-02: ACTIVE on fix/t-0914-execution-crash-edges. Verified plan: (a) heartbeat starts AT CLAIM (claim_for_runner sets heartbeat_at; heartbeat loop spawns before semaphore acquire) so stale heartbeat on Ready+claimed is a true death signal — broadening find_stale_claims is safe, BUT must be status IN (Running, Ready), never claim-only: a crash after mark_completed leaves a claim on a terminal row that must not be re-Readied. (b) Terminal set is exactly {Completed, Failed, Skipped} (queries.rs:85, state_manager.rs:135) — a literal Abandoned status would hang workflows; HOWEVER mark_abandoned already writes status=Failed + ABANDONED: error prefix + TaskAbandoned event transactionally (state.rs:421-469), and check_workflow_failure already queries that convention — the machinery was designed for this cap and never wired. PLAN: sweeper gains max_recovery_attempts (default 3, mirroring cron); StaleClaim carries recovery_attempts; per claim: release + (attempts >= cap ? mark_abandoned : reset_task_for_recovery — which Ready-resets AND increments, replacing mark_ready). Delete get_orphaned_tasks (misleading, zero callers). Sweeper writes stay warn+continue (30s re-sweep = natural retry). (c) Claim Err at thread_task_executor.rs:424-430 -> return skipped (stays Ready+unclaimed, re-selected next tick) + metric outcome=error. (d) task_outbox: verify no non-test readers, stop writing + prune (no schema migration). (e) cron: link audit row at handoff. Implementing a,b,c then d,e.
+- 2026-08-02: DONE — merged to main in PR #229 (squash). Plan deltas from implementation: (d) went further than prune — full subsystem removal incl. 043_drop_task_outbox migrations (down.sql restores 011/012 DDL incl. pg notify trigger), which also collapsed the mark_ready pg/sqlite twins (I-0135). (e) verified WORSE than filed: find_lost_executions checked only completed_at IS NULL + age, so EVERY cron workflow >10min was re-fired; bonus bug — successful recovery never complete()d the audit row, re-entering it into the lost set each sweep. Fixed via execute_async handoff-time linking + recovery consulting the live execution + re-fires completing the row. RESIDUALS (open): cron recovery attempt cap still in-memory (schedule_executions needs an attempts column — follow-up migration candidate); multi-instance recovery has no CAS on the audit row (pre-existing); scheduler completion waits no longer bounded by workflow_timeout (intentional — the old bound was itself a duplicate-fire vector).

@@ -4,15 +4,15 @@ level: task
 title: "Server HA truthfulness — in-memory agent roster and WS tickets contradict the chart HA claim"
 short_code: "CLOACI-T-0916"
 created_at: 2026-08-02T16:33:28.701827+00:00
-updated_at: 2026-08-02T16:33:28.701827+00:00
+updated_at: 2026-08-02T23:13:55.174712+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -41,6 +41,10 @@ Make the server's multi-replica story truthful. The deep dive found HA is "80% r
 4. charts/cloacina-server presents itself as HA-safe (deliberately no HPA but replica-count friendly) with no documented session-affinity requirement.
 
 Fix options (choose per component): move roster + tickets to DB rows (both are tiny, TTL-friendly; the delivery outbox pattern already exists), or gate replicas>1 in the chart behind documented sticky-session requirements. For /ready: scope readiness to platform health, report tenant-workload health via /v1/health/* instead. Reactive-layer HA (reactor state) stays T-0851 — reference, not duplicated here.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
