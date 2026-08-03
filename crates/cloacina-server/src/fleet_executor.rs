@@ -54,7 +54,7 @@ use cloacina::task::TaskNamespace;
 use cloacina::{Context, SecretResolver};
 use tracing::{debug, info, warn};
 
-use crate::agent_registry::{AgentRecord, AgentRegistry};
+use crate::agent_registry::{select_fleet_agent, AgentRegistry};
 use crate::fleet_coordinator::FleetCoordinator;
 
 /// Default ceiling on how long the executor will wait for an agent to report
@@ -440,7 +440,25 @@ impl TaskExecutor for FleetExecutor {
                 t.push(host_target_triple().to_string());
                 Some(t)
             };
-            let snapshot = self.agent_registry.snapshot();
+            // CLOACI-T-0916: selection reads the DB-backed roster
+            // (heartbeat-recency-filtered), so agents registered/heartbeating
+            // via ANY replica are eligible. Connection locality is a non-issue:
+            // the work packet rides the delivery outbox and is pushed by
+            // whichever replica holds the agent's delivery WebSocket.
+            let snapshot = match self.agent_registry.live_agents().await {
+                Ok(s) => s,
+                Err(e) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!("fleet roster read failed: {}", e),
+                        )
+                        .await);
+                }
+            };
             let Some(agent) = select_fleet_agent(&snapshot, &task_tenant, &runnable_triples) else {
                 warn!(
                     task_id = %event.task_execution_id,
@@ -784,14 +802,17 @@ impl TaskExecutor for FleetExecutor {
     }
 
     fn has_capacity(&self) -> bool {
+        // Sync trait method — served from the replica-local cache of the last
+        // DB roster read (refreshed on every roster touch + each sweeper
+        // tick). Selection itself always re-reads the DB.
         self.agent_registry
-            .snapshot()
+            .cached_agents()
             .iter()
             .any(|a| a.available_capacity > 0)
     }
 
     fn metrics(&self) -> ExecutorMetrics {
-        let snap = self.agent_registry.snapshot();
+        let snap = self.agent_registry.cached_agents();
         let total_max: u32 = snap.iter().map(|a| a.max_concurrency).sum();
         let total_in_flight: u32 = snap.iter().map(|a| a.in_flight).sum();
         ExecutorMetrics {
@@ -851,32 +872,9 @@ fn kind_of(v: &serde_json::Value) -> &'static str {
     }
 }
 
-/// Select a live fleet agent for a task: same tenant as the work, with spare
-/// capacity, AND a target triple this package has a cdylib for. Greedy on
-/// most-free-capacity so load spreads.
-///
-/// Tenant isolation (REQ-008) lives here: `a.tenant_id == *task_tenant` is the
-/// only cross-tenant gate, so an agent only ever receives work in its own tenant
-/// scope. CLOACI-T-0817: "public" is a real tenant — public work carries
-/// `Some("public")` and matches only `Some("public")` agents; a named tenant's
-/// work matches only that tenant's agents. `runnable_triples == None` means
-/// "any arch is fine" (interpreted package, e.g. Python).
-pub(crate) fn select_fleet_agent<'a>(
-    snapshot: &'a [AgentRecord],
-    task_tenant: &Option<String>,
-    runnable_triples: &Option<Vec<String>>,
-) -> Option<&'a AgentRecord> {
-    snapshot
-        .iter()
-        .filter(|a| {
-            a.available_capacity > 0
-                && &a.tenant_id == task_tenant
-                && runnable_triples
-                    .as_ref()
-                    .map_or(true, |ts| ts.iter().any(|t| t == &a.target_triple))
-        })
-        .max_by_key(|a| a.available_capacity)
-}
+// Agent selection lives in `crate::agent_registry::select_fleet_agent`
+// (CLOACI-T-0916): it operates on the DB-backed live roster shared by this
+// executor and the fleet graph executor.
 
 // Silence unused warning on UniversalUuid if later changes drop a use.
 const _: fn(UniversalUuid) = |_| {};
@@ -912,43 +910,33 @@ mod tests {
         assert_eq!(context_to_json(&ctx), v);
     }
 
-    // ── Agent selection / tenant isolation (CLOACI-T-0817) ──────────────────
-
-    fn agent(id: &str, cap: u32, tenant: Option<&str>) -> AgentRecord {
-        AgentRecord {
-            agent_id: id.to_string(),
-            max_concurrency: cap,
-            in_flight: 0,
-            available_capacity: cap,
-            target_triple: "aarch64-apple-darwin".to_string(),
-            capabilities: vec![],
-            last_heartbeat: std::time::Instant::now(),
-            tenant_id: tenant.map(str::to_string),
-            key_pool: cloacina::security::ServerKeyPool::new(),
-        }
-    }
-
     // ── D-5 one-time key pool: registry consume → wrap → agent unwrap ────────
 
     /// End-to-end at the SERVER boundary: the server consumes a one-time pooled
-    /// key from the agent's registry record, HPKE-wraps a secret to it, and the
-    /// agent unwraps with the matching pooled private key into `Context::secret`.
-    /// Only ciphertext + key_id cross the wire; the pool is one-time (a second
-    /// dispatch spends a different key; exhaustion then fails cleanly).
+    /// key from the agent's replica-local pool, HPKE-wraps a secret to it, and
+    /// the agent unwraps with the matching pooled private key into
+    /// `Context::secret`. Only ciphertext + key_id cross the wire; the pool is
+    /// one-time (a second dispatch spends a different key; exhaustion then
+    /// fails cleanly).
     #[tokio::test]
     async fn fleet_pool_wrap_unwrap_end_to_end_and_exhaustion() {
-        use cloacina::security::{
-            resolve_and_wrap_secrets, AgentKeyPool, InMemorySecretResolver, ServerKeyPool,
-        };
+        use cloacina::security::{resolve_and_wrap_secrets, AgentKeyPool, InMemorySecretResolver};
         use std::collections::BTreeMap;
 
-        // Agent mints a 1-key pool; server persists the public entries.
+        // Agent mints a 1-key pool; this replica's registry stores the public
+        // entries (CLOACI-T-0916: the pool is replica-local; the roster row
+        // itself lives in the DB and is not touched by the pool paths).
         let mut agent_pool = AgentKeyPool::new();
         let entries = agent_pool.mint(1);
-        let registry = AgentRegistry::new();
-        let mut record = agent("a1", 4, Some("public"));
-        record.key_pool = ServerKeyPool::from_entries(entries);
-        registry.register(record);
+        let registry = AgentRegistry::new(
+            cloacina::database::Database::new(
+                "postgres://cloacina:cloacina@localhost:15432/cloacina",
+                "cloacina",
+                1,
+            ),
+            std::time::Duration::from_secs(60),
+        );
+        assert_eq!(registry.replenish_secret_keys("a1", entries), 1);
 
         // The "gated resolver" the factory would return — here an in-memory one
         // holding the resolved plaintext (stands in for SecretStoreResolver).
@@ -985,54 +973,6 @@ mod tests {
         assert!(registry.consume_secret_key("a1").is_none());
     }
 
-    /// CLOACI-T-0817: public-namespace work (`task_tenant = Some("public")`,
-    /// which is what the `task_tenant` mapping now produces for the "public"
-    /// namespace) selects a `Some("public")` agent — and never a named tenant's
-    /// agent nor the bootstrap/admin `None` agent.
-    #[test]
-    fn public_work_selects_a_public_agent_only() {
-        let roster = vec![
-            agent("acme-1", 16, Some("acme")),
-            agent("public-1", 8, Some("public")),
-            agent("admin-1", 32, None), // bootstrap/admin-keyed agent
-        ];
-        let chosen = select_fleet_agent(&roster, &Some("public".to_string()), &None)
-            .expect("a public agent must be selectable for public work");
-        assert_eq!(chosen.agent_id, "public-1");
-    }
-
-    /// A named tenant's work matches only that tenant's agents — isolation is
-    /// preserved in both directions: public agents are not eligible for `acme`
-    /// work, and vice versa.
-    #[test]
-    fn named_tenant_work_is_isolated_from_public_and_others() {
-        let roster = vec![
-            agent("public-1", 32, Some("public")),
-            agent("acme-1", 4, Some("acme")),
-            agent("beta-1", 64, Some("beta")),
-        ];
-        // acme work -> only the acme agent, even though others have far more
-        // free capacity (the greedy selector must not cross the tenant gate).
-        let chosen = select_fleet_agent(&roster, &Some("acme".to_string()), &None)
-            .expect("acme work must select the acme agent");
-        assert_eq!(chosen.agent_id, "acme-1");
-
-        // A tenant with no agent in the roster gets nothing — never a fallback
-        // to public or another tenant.
-        assert!(
-            select_fleet_agent(&roster, &Some("gamma".to_string()), &None).is_none(),
-            "work for a tenant with no agents must not leak onto another tenant"
-        );
-    }
-
-    /// Public work must NOT fall back to a bootstrap/admin `None`-tenant agent
-    /// now that the `None == public` duality is retired.
-    #[test]
-    fn public_work_does_not_select_a_none_tenant_agent() {
-        let roster = vec![agent("admin-1", 32, None)];
-        assert!(
-            select_fleet_agent(&roster, &Some("public".to_string()), &None).is_none(),
-            "a None-tenant (bootstrap/admin) agent must not serve public work"
-        );
-    }
+    // Agent selection / tenant isolation tests (CLOACI-T-0817) moved to
+    // `crate::agent_registry` alongside `select_fleet_agent` (CLOACI-T-0916).
 }

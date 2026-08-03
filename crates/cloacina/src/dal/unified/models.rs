@@ -21,10 +21,10 @@
 
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
-    key_trust_acls, package_artifacts, package_providers, package_signatures, reactor_state,
-    recovery_events, schedule_executions, schedules, secrets, signing_keys,
+    fleet_agents, key_trust_acls, package_artifacts, package_providers, package_signatures,
+    reactor_state, recovery_events, schedule_executions, schedules, secrets, signing_keys,
     state_accumulator_buffers, task_execution_metadata, task_executions, tenant_data_keys,
-    trusted_keys, workflow_executions, workflow_packages, workflow_registry,
+    trusted_keys, workflow_executions, workflow_packages, workflow_registry, ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -275,6 +275,76 @@ pub struct NewUnifiedDeliveryOutbox {
     pub delivery_state: String,
     pub delivery_attempts: i32,
     pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Unified WS Ticket Models (CLOACI-T-0916)
+// ============================================================================
+
+/// Single-use WebSocket auth ticket row. DB-backed so a ticket minted on one
+/// server replica redeems on any other (no session affinity required).
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = ws_tickets)]
+pub struct UnifiedWsTicket {
+    pub ticket: String,
+    pub key_id: UniversalUuid,
+    pub key_name: String,
+    pub permissions: String,
+    pub tenant_id: Option<String>,
+    pub is_admin: UniversalBool,
+    pub created_at: UniversalTimestamp,
+    pub expires_at: UniversalTimestamp,
+    pub redeemed_at: Option<UniversalTimestamp>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = ws_tickets)]
+pub struct NewUnifiedWsTicket {
+    pub ticket: String,
+    pub key_id: UniversalUuid,
+    pub key_name: String,
+    pub permissions: String,
+    pub tenant_id: Option<String>,
+    pub is_admin: UniversalBool,
+    pub created_at: UniversalTimestamp,
+    pub expires_at: UniversalTimestamp,
+    pub redeemed_at: Option<UniversalTimestamp>,
+}
+
+// ============================================================================
+// Unified Fleet Agent Models (CLOACI-T-0916)
+// ============================================================================
+
+/// Execution-agent fleet roster row: register/heartbeat state persisted so
+/// selection, capacity views and dead-agent reclaim are multi-replica correct.
+/// `capabilities` is a JSON string array.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = fleet_agents)]
+pub struct UnifiedFleetAgent {
+    pub agent_id: String,
+    pub tenant_id: Option<String>,
+    pub target_triple: String,
+    pub capabilities: String,
+    pub max_concurrency: i32,
+    pub in_flight: i32,
+    pub available_capacity: i32,
+    pub registered_at: UniversalTimestamp,
+    pub last_heartbeat_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Clone, Insertable, AsChangeset)]
+#[diesel(table_name = fleet_agents)]
+#[diesel(treat_none_as_null = true)]
+pub struct NewUnifiedFleetAgent {
+    pub agent_id: String,
+    pub tenant_id: Option<String>,
+    pub target_triple: String,
+    pub capabilities: String,
+    pub max_concurrency: i32,
+    pub in_flight: i32,
+    pub available_capacity: i32,
+    pub registered_at: UniversalTimestamp,
+    pub last_heartbeat_at: UniversalTimestamp,
 }
 
 // ============================================================================

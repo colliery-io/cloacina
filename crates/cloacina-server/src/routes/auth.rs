@@ -301,20 +301,43 @@ struct WsTicket {
     expires_at: Instant,
 }
 
-/// Thread-safe store for WebSocket auth tickets.
+/// Store for single-use WebSocket auth tickets.
 ///
-/// Bounded to prevent memory exhaustion from repeated `POST /auth/ws-ticket`
-/// calls without consumption. Expired tickets are lazily evicted on `issue()`.
+/// **DB-backed when a `Database` is supplied** (CLOACI-T-0916): tickets live
+/// in the `ws_tickets` table, so a ticket minted on one server replica
+/// redeems on ANY replica — no session affinity, mirroring the OIDC
+/// login-flow precedent (T-0801). Single-use is an atomic compare-and-set in
+/// the DAL, so concurrent redeem attempts (even from different replicas)
+/// admit exactly one. Redemption happens once per WS connect, so the DB
+/// round-trip needs no in-memory hot path.
+///
+/// Falls back to an in-memory map when constructed without a DB
+/// (tests / single-process). The in-memory map is bounded to prevent memory
+/// exhaustion from repeated `POST /auth/ws-ticket` calls without consumption;
+/// expired tickets are lazily evicted on `issue()`. The DB path prunes
+/// expired rows opportunistically inside the DAL's `issue`.
 pub struct WsTicketStore {
+    db: Option<cloacina::database::Database>,
     tickets: Mutex<HashMap<String, WsTicket>>,
     ttl: Duration,
     max_capacity: usize,
 }
 
 impl WsTicketStore {
-    /// Create a new ticket store with the given TTL (e.g., 60 seconds).
+    /// In-memory store (single process / tests) with the given TTL.
     pub fn new(ttl: Duration) -> Self {
         Self {
+            db: None,
+            tickets: Mutex::new(HashMap::new()),
+            ttl,
+            max_capacity: 1024,
+        }
+    }
+
+    /// DB-backed store (multi-replica safe). CLOACI-T-0916.
+    pub fn with_db(db: cloacina::database::Database, ttl: Duration) -> Self {
+        Self {
+            db: Some(db),
             tickets: Mutex::new(HashMap::new()),
             ttl,
             max_capacity: 1024,
@@ -323,10 +346,35 @@ impl WsTicketStore {
 
     /// Issue a new ticket for the given authenticated key.
     /// Returns the ticket string (UUID).
-    ///
-    /// Evicts expired tickets before inserting. If the store is still at
-    /// capacity after eviction, the oldest ticket is removed.
     pub async fn issue(&self, auth: AuthenticatedKey) -> String {
+        if let Some(db) = &self.db {
+            let dal = cloacina::dal::DAL::new(db.clone());
+            match dal
+                .ws_tickets()
+                .issue(
+                    cloacina::dal::unified::WsTicketAuth {
+                        key_id: auth.key_id,
+                        name: auth.name.clone(),
+                        permissions: auth.permissions.clone(),
+                        tenant_id: auth.tenant_id.clone(),
+                        is_admin: auth.is_admin,
+                    },
+                    self.ttl,
+                )
+                .await
+            {
+                Ok(ticket) => return ticket,
+                Err(e) => {
+                    // Fail closed: an unpersisted ticket must not be handed
+                    // out (it would be unredeemable on other replicas). The
+                    // fresh UUID below is unknown to every store, so the
+                    // client's connect attempt fails cleanly with 401.
+                    warn!("ws-ticket persist failed: {e}");
+                    return uuid::Uuid::new_v4().to_string();
+                }
+            }
+        }
+
         let ticket = uuid::Uuid::new_v4().to_string();
         let entry = WsTicket {
             auth,
@@ -353,9 +401,28 @@ impl WsTicketStore {
         ticket
     }
 
-    /// Consume a ticket — returns the authenticated key if valid and not expired.
-    /// The ticket is removed on use (single-use).
+    /// Consume a ticket — returns the authenticated key if valid and not
+    /// expired. Single-use: exactly one of any number of concurrent consume
+    /// attempts (on any replica, in DB mode) succeeds.
     pub async fn consume(&self, ticket: &str) -> Option<AuthenticatedKey> {
+        if let Some(db) = &self.db {
+            let dal = cloacina::dal::DAL::new(db.clone());
+            return match dal.ws_tickets().redeem(ticket).await {
+                Ok(Some(auth)) => Some(AuthenticatedKey {
+                    key_id: auth.key_id,
+                    name: auth.name,
+                    permissions: auth.permissions,
+                    tenant_id: auth.tenant_id,
+                    is_admin: auth.is_admin,
+                }),
+                Ok(None) => None,
+                Err(e) => {
+                    warn!("ws-ticket redeem failed: {e}");
+                    None
+                }
+            };
+        }
+
         let mut store = self.tickets.lock().await;
         if let Some(entry) = store.remove(ticket) {
             if entry.expires_at > Instant::now() {
@@ -605,6 +672,7 @@ mod tests {
 
         // Issue a new ticket — should evict expired ones
         let store = WsTicketStore {
+            db: None,
             tickets: store.tickets,
             ttl: Duration::from_secs(60), // new tickets get long TTL
             max_capacity: store.max_capacity,

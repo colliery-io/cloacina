@@ -383,6 +383,25 @@ All horizontal scaling configuration is set through `DefaultRunnerConfig::builde
 - `stale_claim_threshold` should be at least 3x `heartbeat_interval` to avoid false positives from temporary delays
 - `stale_claim_sweep_interval` should be less than `stale_claim_threshold` to ensure timely detection
 
+## API Server Replicas: Shared State and Readiness
+
+Everything above concerns duplicate *task execution* across runners. Running multiple **API server** replicas behind a load balancer raises a second question: which per-request state must be shared, and which may stay replica-local? Cloacina's answer is the same as for task claiming — coordinate through PostgreSQL, never through sticky sessions.
+
+**No session affinity is required** for normal API and WebSocket traffic:
+
+- **WebSocket auth tickets** (`POST /auth/ws-ticket`) are stored in the `ws_tickets` table. A ticket minted on replica A redeems on replica B; single-use is enforced by an atomic compare-and-set (`UPDATE ... WHERE redeemed_at IS NULL`), so concurrent redemption attempts — even on different replicas — admit exactly one.
+- **The execution-agent fleet roster** lives in the `fleet_agents` table. Agent registration and heartbeats can land on any replica without flapping; same-tenant agent selection, capacity views, `GET /v1/agents`, autoscaler utilization, and dead-agent reclaim all read the shared table filtered by heartbeat recency. Dead-agent eviction uses a compare-and-set delete so exactly one replica owns each reclaim.
+- **Work-packet dispatch** does not care which replica holds an agent's WebSocket: packets are written to the durable `delivery_outbox` and delivered by whichever replica the agent's delivery socket is connected to (connection-ownership routing). A replica with no route simply leaves the row `pending` for the replica that has one.
+- **OIDC login flows** persist their state/nonce/PKCE in `oidc_login_flows`, so the callback may land on a different replica than the one that began the login.
+- Leader-gated loops (fleet autoscaler/reconciler) use a Postgres advisory lock plus DB wall-clock cooldowns, so replicas never double-drive them.
+
+**Readiness is platform-scoped.** `GET /ready` reports only platform health (database reachability). Tenant workload health — e.g. a crashed computation graph from a bad package — deliberately does not fail `/ready`: it would flip readiness false on *every* replica at once and eject the whole fleet from the load-balancer pool. Crashed graphs stay visible via `GET /v1/health/graphs` and metrics; `GET /health` remains a process-liveness check.
+
+**Residual replica-local state** (stated so it is not papered over):
+
+- **Fleet secret-delivery key pools.** The one-time ephemeral keys used to HPKE-wrap a task's secrets to an agent (D-5) are held per replica: a key must be consumed exactly once, by the replica performing the dispatch. The heartbeat replenish signal reports each replica's *own* pool deficit, so an agent talking through a load balancer establishes a pool on every replica it reaches over time. Until the dispatching replica has one, a secret-*referencing* fleet dispatch fails closed (clean failure + retry — never plaintext, never key reuse). Non-secret dispatches are unaffected.
+- **Reactive-layer (reactor/accumulator) placement.** A loaded computation graph's reactor runs on one replica, and an external producer's accumulator WebSocket push only feeds the reactor on the replica that holds it. Multi-replica reactive-layer HA is tracked separately (CLOACI-T-0851); until then, deployments relying on external WS pushes into accumulators should either run those graphs on a single replica or pin that traffic.
+
 ## See Also
 
 - [Architecture Overview]({{< relref "architecture-overview.md" >}}) -- System-wide component relationships

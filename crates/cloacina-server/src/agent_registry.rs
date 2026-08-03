@@ -14,162 +14,264 @@
  *  limitations under the License.
  */
 
-//! In-memory roster of registered execution agents (CLOACI-T-0631).
+//! Execution-agent fleet roster (CLOACI-T-0631, DB-backed in CLOACI-T-0916).
 //!
-//! Tracks the live fleet for the `FleetExecutor` (T-0633) to consult during
-//! capacity-aware selection. Per-replica: the roster is local to whichever
-//! `cloacina-server` instance the agent registered against. Heartbeat
-//! liveness sweeping lands in T-0634.
+//! The roster itself lives in the `fleet_agents` table (admin schema), so
+//! register/heartbeat state, same-tenant selection, capacity views and
+//! dead-agent reclaim are correct across server replicas behind a non-affine
+//! load balancer — the per-replica in-memory map it replaces made heartbeats
+//! flap and reclaim fire against agents alive on another replica. Reads are
+//! heartbeat-recency-filtered ([`AgentRegistry::live_agents`]).
+//!
+//! Two things deliberately stay replica-local:
+//!
+//! - **A cached roster snapshot** ([`AgentRegistry::cached_agents`]) for the
+//!   sync `TaskExecutor::has_capacity()` / `metrics()` calls, refreshed on
+//!   every async roster touch and on each fleet-sweeper tick — never used for
+//!   selection or reclaim decisions.
+//! - **The one-time ephemeral secret-key pools** (CLOACI-T-0861 / D-5). A
+//!   pooled key must be consumed exactly once, and the pool is seeded/topped
+//!   up by the replica that handles the agent's `register`/`keys` call. The
+//!   heartbeat replenish signal reports the LOCAL pool's deficit, so an agent
+//!   heartbeating through several replicas establishes a pool on each of them
+//!   over time; until the dispatching replica has one, a secret-bearing
+//!   dispatch fails CLOSED (clean failure + retry — never plaintext, never a
+//!   reused key). This is the documented residual of T-0916.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::{Mutex, RwLock};
+use std::time::Duration;
 
+use cloacina::dal::unified::{FleetAgent, FleetAgentRegistration};
+use cloacina::error::ValidationError;
 use cloacina::fleet::EphemeralKeyEntry;
 use cloacina::security::ServerKeyPool;
 
-/// Snapshot of a registered agent.
-#[derive(Debug, Clone)]
-pub struct AgentRecord {
-    pub agent_id: String,
-    pub max_concurrency: u32,
-    pub in_flight: u32,
-    pub available_capacity: u32,
-    pub target_triple: String,
-    pub capabilities: Vec<String>,
-    pub last_heartbeat: Instant,
-    /// Tenant scope inherited from the authenticated API key that registered
-    /// this agent. The `FleetExecutor` only assigns work whose tenant matches.
-    pub tenant_id: Option<String>,
-    /// CLOACI-T-0861 / D-5 — the agent's unused one-time ephemeral key pool. The
-    /// `FleetExecutor` consumes exactly one key per secret-bearing dispatch (via
-    /// [`AgentRegistry::consume_secret_key`], which mutates the LIVE record — a
-    /// `snapshot()` clone is read-only and never the consumption source). The
-    /// agent tops it up via `POST /v1/agent/keys` when the pool runs low.
-    pub key_pool: ServerKeyPool,
-}
-
-#[derive(Default)]
 pub struct AgentRegistry {
-    by_id: Mutex<HashMap<String, AgentRecord>>,
+    /// Admin (public-schema) database — the roster is server-global, like the
+    /// delivery outbox.
+    dal: cloacina::dal::DAL,
+    /// Heartbeat-recency window for "live": heartbeat interval × allowed
+    /// misses (CLOACI-T-0639).
+    liveness_timeout: Duration,
+    /// Per-replica one-time key pools (see module docs).
+    key_pools: Mutex<HashMap<String, ServerKeyPool>>,
+    /// Last-known live roster, for the sync `has_capacity()`/`metrics()` path.
+    cache: RwLock<Vec<FleetAgent>>,
 }
 
 impl AgentRegistry {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(database: cloacina::database::Database, liveness_timeout: Duration) -> Self {
+        Self {
+            dal: cloacina::dal::DAL::new(database),
+            liveness_timeout: liveness_timeout.max(Duration::from_secs(1)),
+            key_pools: Mutex::new(HashMap::new()),
+            cache: RwLock::new(Vec::new()),
+        }
     }
 
-    /// Insert or overwrite an entry (overwrite handles re-registration cleanly
-    /// after an agent restart with the same `agent_id`).
-    pub fn register(&self, record: AgentRecord) {
-        let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        g.insert(record.agent_id.clone(), record);
+    /// The heartbeat-recency window that defines "live" for every roster read.
+    pub fn liveness_timeout(&self) -> Duration {
+        self.liveness_timeout
     }
 
-    /// Update an existing entry's heartbeat fields. Returns `true` if the
-    /// agent is in the roster; `false` if the server should reject (the
-    /// agent likely needs to re-register).
-    pub fn record_heartbeat(
+    // ── roster (DB-backed, multi-replica) ──────────────────────────────────
+
+    /// Insert or overwrite an agent's registration (overwrite handles clean
+    /// re-registration after an agent restart with the same `agent_id`), and
+    /// seed this replica's one-time key pool for it wholesale.
+    pub async fn register(
+        &self,
+        reg: FleetAgentRegistration,
+        key_pool: ServerKeyPool,
+    ) -> Result<(), ValidationError> {
+        let agent_id = reg.agent_id.clone();
+        self.dal.fleet_agents().upsert_registration(reg).await?;
+        {
+            let mut pools = self.key_pools.lock().unwrap_or_else(|e| e.into_inner());
+            pools.insert(agent_id, key_pool);
+        }
+        self.refresh_cache().await;
+        Ok(())
+    }
+
+    /// Record a heartbeat (capacity + recency). Returns `true` iff the agent
+    /// is in the roster — on ANY replica; `false` means it must re-register.
+    pub async fn record_heartbeat(
         &self,
         agent_id: &str,
         in_flight: u32,
         available_capacity: u32,
-    ) -> bool {
-        let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(r) = g.get_mut(agent_id) {
-            r.in_flight = in_flight;
-            r.available_capacity = available_capacity;
-            r.last_heartbeat = Instant::now();
-            true
-        } else {
-            false
+    ) -> Result<bool, ValidationError> {
+        let known = self
+            .dal
+            .fleet_agents()
+            .record_heartbeat(agent_id, in_flight, available_capacity)
+            .await?;
+        if known {
+            self.refresh_cache().await;
         }
+        Ok(known)
     }
 
-    /// CLOACI-T-0785: the tenant an agent registered under, if it's in the
-    /// roster. `Some(tenant)` when registered (the tenant may itself be `None`
-    /// for a global agent); `None` when the agent is unknown. Backs the
-    /// caller-tenant guard on `heartbeat` / `result`.
-    pub fn agent_tenant(&self, agent_id: &str) -> Option<Option<String>> {
-        let g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        g.get(agent_id).map(|r| r.tenant_id.clone())
-    }
-
-    /// CLOACI-T-0861 / D-5 — consume exactly ONE unused one-time key from the
-    /// agent's pool (FIFO), removing it so it can never be handed out again.
-    /// Returns `None` if the agent is unknown OR its pool is exhausted — the
-    /// caller MUST then fail the dispatch cleanly (never plaintext, never reuse).
-    pub fn consume_secret_key(&self, agent_id: &str) -> Option<EphemeralKeyEntry> {
-        let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        g.get_mut(agent_id)?.key_pool.consume()
-    }
-
-    /// CLOACI-T-0861 / D-5 — append fresh one-time keys to the agent's pool (a
-    /// replenish top-up). Returns the number accepted (de-duped by key_id), or
-    /// `None` if the agent is unknown (it should re-register).
-    pub fn replenish_secret_keys(
+    /// The tenant an agent registered under, if it's in the roster (on any
+    /// replica). `Some(tenant)` when registered (the tenant may itself be
+    /// `None` for a global agent); `None` when the agent is unknown. Backs the
+    /// caller-tenant guard on `heartbeat` / `result` (CLOACI-T-0785).
+    pub async fn agent_tenant(
         &self,
         agent_id: &str,
-        entries: Vec<EphemeralKeyEntry>,
-    ) -> Option<usize> {
-        let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        g.get_mut(agent_id).map(|r| r.key_pool.replenish(entries))
+    ) -> Result<Option<Option<String>>, ValidationError> {
+        self.dal.fleet_agents().agent_tenant(agent_id).await
     }
 
-    /// CLOACI-T-0861 / D-5 — how many more keys the agent should top up to reach
-    /// `target` (0 if healthy / unknown). Backs the heartbeat replenish signal.
-    pub fn key_pool_deficit(&self, agent_id: &str, target: usize) -> usize {
-        let g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        g.get(agent_id)
-            .map(|r| r.key_pool.replenish_deficit(target))
-            .unwrap_or(0)
+    /// The live fleet (heartbeat within `liveness_timeout`), read from the
+    /// shared table — the source of truth for selection, capacity views,
+    /// operator listings and autoscaler utilization. Also refreshes the
+    /// replica-local cache.
+    pub async fn live_agents(&self) -> Result<Vec<FleetAgent>, ValidationError> {
+        let live = self
+            .dal
+            .fleet_agents()
+            .list_live(self.liveness_timeout)
+            .await?;
+        if let Ok(mut c) = self.cache.write() {
+            *c = live.clone();
+        }
+        Ok(live)
     }
 
-    /// Remove an entry. Idempotent.
-    pub fn deregister(&self, agent_id: &str) {
-        let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        g.remove(agent_id);
+    /// Replica-local snapshot of the last roster read, for the sync
+    /// `TaskExecutor::has_capacity()` / `metrics()` calls only. Refreshed by
+    /// every async roster touch and each fleet-sweeper tick; may lag the DB by
+    /// up to one heartbeat interval. Never used for selection or reclaim.
+    pub fn cached_agents(&self) -> Vec<FleetAgent> {
+        self.cache
+            .read()
+            .map(|c| c.clone())
+            .unwrap_or_else(|e| e.into_inner().clone())
     }
 
-    /// Remove agents whose last heartbeat is older than `timeout` and return
-    /// the evicted records (CLOACI-T-0634). Returning full `AgentRecord`s (not
-    /// just ids) lets the reclaim path match a dead agent's tenant when
-    /// re-targeting its in-flight work to a live agent (so reclaim respects
-    /// tenant isolation, REQ-008). Eviction itself is roster hygiene so
-    /// selection + `has_capacity()` stop counting a dead agent.
-    ///
-    /// `timeout` should be a small multiple of the heartbeat interval (e.g.
-    /// 3×) so a single missed beat doesn't evict a healthy agent.
-    pub fn sweep_dead(&self, timeout: Duration) -> Vec<AgentRecord> {
-        let now = Instant::now();
-        let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        let dead_ids: Vec<String> = g
-            .iter()
-            .filter(|(_, r)| now.duration_since(r.last_heartbeat) > timeout)
-            .map(|(id, _)| id.clone())
-            .collect();
-        let mut dead = Vec::with_capacity(dead_ids.len());
-        for id in &dead_ids {
-            if let Some(rec) = g.remove(id) {
-                dead.push(rec);
+    /// Re-read the live roster into the local cache (best-effort).
+    pub async fn refresh_cache(&self) {
+        if let Ok(live) = self
+            .dal
+            .fleet_agents()
+            .list_live(self.liveness_timeout)
+            .await
+        {
+            if let Ok(mut c) = self.cache.write() {
+                *c = live;
             }
         }
-        dead
     }
 
-    /// Snapshot the current roster. Used by `FleetExecutor` capacity
-    /// selection (T-0633) and by debug/metrics views.
-    pub fn snapshot(&self) -> Vec<AgentRecord> {
-        let g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
-        g.values().cloned().collect()
+    /// Evict agents whose heartbeat is older than `liveness_timeout`,
+    /// returning the records THIS replica evicted (per-row compare-and-set
+    /// delete in the DAL, so concurrent sweepers on other replicas never
+    /// double-own a reclaim). Also drops any local key pool for the evicted
+    /// agents and refreshes the cache.
+    pub async fn sweep_dead(&self) -> Result<Vec<FleetAgent>, ValidationError> {
+        let dead = self
+            .dal
+            .fleet_agents()
+            .sweep_dead(self.liveness_timeout)
+            .await?;
+        if !dead.is_empty() {
+            let mut pools = self.key_pools.lock().unwrap_or_else(|e| e.into_inner());
+            for rec in &dead {
+                pools.remove(&rec.agent_id);
+            }
+        }
+        self.refresh_cache().await;
+        Ok(dead)
     }
 
-    pub fn len(&self) -> usize {
-        self.by_id.lock().unwrap_or_else(|e| e.into_inner()).len()
+    /// Remove an agent from the roster (and this replica's key pool for it).
+    /// Idempotent.
+    pub async fn deregister(&self, agent_id: &str) -> Result<(), ValidationError> {
+        self.dal.fleet_agents().delete(agent_id).await?;
+        let mut pools = self.key_pools.lock().unwrap_or_else(|e| e.into_inner());
+        pools.remove(agent_id);
+        Ok(())
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    // ── one-time key pools (replica-local — see module docs) ───────────────
+
+    /// CLOACI-T-0861 / D-5 — consume exactly ONE unused one-time key from the
+    /// agent's LOCAL pool (FIFO), removing it so it can never be handed out
+    /// again. Returns `None` if this replica holds no pool for the agent OR
+    /// the pool is exhausted — the caller MUST then fail the dispatch cleanly
+    /// (never plaintext, never reuse).
+    pub fn consume_secret_key(&self, agent_id: &str) -> Option<EphemeralKeyEntry> {
+        let mut pools = self.key_pools.lock().unwrap_or_else(|e| e.into_inner());
+        pools.get_mut(agent_id)?.consume()
+    }
+
+    /// CLOACI-T-0861 / D-5 — append fresh one-time keys to this replica's pool
+    /// for the agent (creating the pool if this replica has none yet — that is
+    /// how pools self-establish on every replica the agent talks to). Returns
+    /// the number accepted (de-duped by key_id). The caller is responsible for
+    /// verifying the agent is registered (in the DB roster) first.
+    pub fn replenish_secret_keys(&self, agent_id: &str, entries: Vec<EphemeralKeyEntry>) -> usize {
+        let mut pools = self.key_pools.lock().unwrap_or_else(|e| e.into_inner());
+        pools
+            .entry(agent_id.to_string())
+            .or_insert_with(ServerKeyPool::new)
+            .replenish(entries)
+    }
+
+    /// CLOACI-T-0861 / D-5 — how many more keys the agent should top up to
+    /// reach `target` on THIS replica (a replica with no pool yet reports the
+    /// full target, which is what seeds it). Backs the heartbeat replenish
+    /// signal.
+    pub fn key_pool_deficit(&self, agent_id: &str, target: usize) -> usize {
+        let pools = self.key_pools.lock().unwrap_or_else(|e| e.into_inner());
+        pools
+            .get(agent_id)
+            .map(|p| p.replenish_deficit(target))
+            .unwrap_or(target)
+    }
+}
+
+/// Select a live fleet agent for a task: same tenant as the work, with spare
+/// capacity, AND a target triple this package has a cdylib for. Greedy on
+/// most-free-capacity so load spreads.
+///
+/// Tenant isolation (REQ-008) lives here: `a.tenant_id == *task_tenant` is the
+/// only cross-tenant gate, so an agent only ever receives work in its own
+/// tenant scope. CLOACI-T-0817: "public" is a real tenant — public work
+/// carries `Some("public")` and matches only `Some("public")` agents.
+/// `runnable_triples == None` means "any arch is fine" (interpreted package,
+/// e.g. Python).
+pub fn select_fleet_agent<'a>(
+    live: &'a [FleetAgent],
+    task_tenant: &Option<String>,
+    runnable_triples: &Option<Vec<String>>,
+) -> Option<&'a FleetAgent> {
+    live.iter()
+        .filter(|a| {
+            a.available_capacity > 0
+                && &a.tenant_id == task_tenant
+                && runnable_triples
+                    .as_ref()
+                    .map_or(true, |ts| ts.iter().any(|t| t == &a.target_triple))
+        })
+        .max_by_key(|a| a.available_capacity)
+}
+
+#[cfg(test)]
+pub(crate) fn test_fleet_agent(id: &str, cap: u32, tenant: Option<&str>) -> FleetAgent {
+    FleetAgent {
+        agent_id: id.to_string(),
+        tenant_id: tenant.map(str::to_string),
+        target_triple: "aarch64-apple-darwin".to_string(),
+        capabilities: vec![],
+        max_concurrency: cap,
+        in_flight: 0,
+        available_capacity: cap,
+        registered_at: cloacina::database::universal_types::UniversalTimestamp::now(),
+        last_heartbeat_at: cloacina::database::universal_types::UniversalTimestamp::now(),
     }
 }
 
@@ -177,39 +279,35 @@ impl AgentRegistry {
 mod tests {
     use super::*;
 
-    fn rec(id: &str, cap: u32, tenant: Option<&str>) -> AgentRecord {
-        AgentRecord {
-            agent_id: id.to_string(),
-            max_concurrency: cap,
-            in_flight: 0,
-            available_capacity: cap,
-            target_triple: "aarch64-apple-darwin".to_string(),
-            capabilities: vec![],
-            last_heartbeat: Instant::now(),
-            tenant_id: tenant.map(|s| s.to_string()),
-            key_pool: ServerKeyPool::new(),
-        }
+    // ── replica-local key pools (the deliberate residual) ────────────────────
+
+    fn pool_registry() -> AgentRegistry {
+        // The DB is never touched by the pool paths; any URL works unconnected.
+        AgentRegistry::new(
+            cloacina::database::Database::new(
+                "postgres://cloacina:cloacina@localhost:15432/cloacina",
+                "cloacina",
+                1,
+            ),
+            Duration::from_secs(60),
+        )
     }
 
-    fn rec_with_pool(id: &str, keys: &[&str]) -> AgentRecord {
-        let mut r = rec(id, 4, Some("public"));
-        r.key_pool = ServerKeyPool::from_entries(
-            keys.iter()
-                .map(|k| EphemeralKeyEntry {
-                    key_id: k.to_string(),
-                    public_key_b64: "AAAA".to_string(),
-                })
-                .collect(),
-        );
-        r
+    fn entries(keys: &[&str]) -> Vec<EphemeralKeyEntry> {
+        keys.iter()
+            .map(|k| EphemeralKeyEntry {
+                key_id: k.to_string(),
+                public_key_b64: "AAAA".to_string(),
+            })
+            .collect()
     }
 
     /// D-5: each dispatch consumes a distinct key; exhaustion yields None; a
-    /// replenish restores capacity. Consumption mutates the LIVE record.
+    /// replenish restores capacity.
     #[test]
     fn consume_secret_key_is_one_time_then_exhausts_and_replenishes() {
-        let r = AgentRegistry::new();
-        r.register(rec_with_pool("a1", &["k1", "k2"]));
+        let r = pool_registry();
+        assert_eq!(r.replenish_secret_keys("a1", entries(&["k1", "k2"])), 2);
 
         let first = r.consume_secret_key("a1").expect("k1");
         let second = r.consume_secret_key("a1").expect("k2");
@@ -223,107 +321,84 @@ mod tests {
         );
         assert_eq!(r.key_pool_deficit("a1", 4), 4);
 
-        // Top up; consumption works again.
-        let added = r
-            .replenish_secret_keys(
-                "a1",
-                vec![EphemeralKeyEntry {
-                    key_id: "k3".into(),
-                    public_key_b64: "AAAA".into(),
-                }],
-            )
-            .expect("known agent");
-        assert_eq!(added, 1);
+        assert_eq!(r.replenish_secret_keys("a1", entries(&["k3"])), 1);
         assert_eq!(r.consume_secret_key("a1").unwrap().key_id, "k3");
     }
 
+    /// A replica that has never seen the agent's register/keys call holds no
+    /// pool: consumption fails CLOSED, and the heartbeat replenish signal
+    /// reports the FULL deficit so the agent seeds a pool here.
     #[test]
-    fn consume_and_replenish_on_unknown_agent() {
-        let r = AgentRegistry::new();
-        assert!(r.consume_secret_key("ghost").is_none());
-        assert!(r.replenish_secret_keys("ghost", vec![]).is_none());
-        assert_eq!(r.key_pool_deficit("ghost", 8), 0);
+    fn poolless_replica_fails_closed_and_requests_full_target() {
+        let r = pool_registry();
+        assert!(r.consume_secret_key("elsewhere").is_none());
+        assert_eq!(
+            r.key_pool_deficit("elsewhere", 8),
+            8,
+            "a poolless replica must ask the agent for a full top-up"
+        );
+        // The top-up creates the local pool (self-healing across replicas).
+        assert_eq!(r.replenish_secret_keys("elsewhere", entries(&["k1"])), 1);
+        assert!(r.consume_secret_key("elsewhere").is_some());
+    }
+
+    // ── selection over the live (DB-read) roster ─────────────────────────────
+
+    use super::test_fleet_agent as agent;
+
+    /// CLOACI-T-0817: public-namespace work selects a `Some("public")` agent —
+    /// never a named tenant's agent nor the bootstrap/admin `None` agent.
+    #[test]
+    fn public_work_selects_a_public_agent_only() {
+        let roster = vec![
+            agent("acme-1", 16, Some("acme")),
+            agent("public-1", 8, Some("public")),
+            agent("admin-1", 32, None),
+        ];
+        let chosen = select_fleet_agent(&roster, &Some("public".to_string()), &None)
+            .expect("a public agent must be selectable for public work");
+        assert_eq!(chosen.agent_id, "public-1");
+    }
+
+    /// A named tenant's work matches only that tenant's agents — isolation is
+    /// preserved in both directions.
+    #[test]
+    fn named_tenant_work_is_isolated_from_public_and_others() {
+        let roster = vec![
+            agent("public-1", 32, Some("public")),
+            agent("acme-1", 4, Some("acme")),
+            agent("beta-1", 64, Some("beta")),
+        ];
+        let chosen = select_fleet_agent(&roster, &Some("acme".to_string()), &None)
+            .expect("acme work must select the acme agent");
+        assert_eq!(chosen.agent_id, "acme-1");
+
+        assert!(
+            select_fleet_agent(&roster, &Some("gamma".to_string()), &None).is_none(),
+            "work for a tenant with no agents must not leak onto another tenant"
+        );
     }
 
     #[test]
-    fn register_then_snapshot_roundtrips() {
-        let r = AgentRegistry::new();
-        r.register(rec("a1", 4, Some("t1")));
-        // CLOACI-T-0817: public agents register as Some("public"), not None
-        // (the None tenant now belongs solely to the admin/bootstrap key).
-        r.register(rec("a2", 2, Some("public")));
-        let snap = r.snapshot();
-        assert_eq!(snap.len(), 2);
-        assert!(snap
-            .iter()
-            .any(|x| x.agent_id == "a1" && x.max_concurrency == 4));
-        assert!(snap
-            .iter()
-            .any(|x| x.agent_id == "a2" && x.tenant_id.as_deref() == Some("public")));
+    fn public_work_does_not_select_a_none_tenant_agent() {
+        let roster = vec![agent("admin-1", 32, None)];
+        assert!(
+            select_fleet_agent(&roster, &Some("public".to_string()), &None).is_none(),
+            "a None-tenant (bootstrap/admin) agent must not serve public work"
+        );
     }
 
     #[test]
-    fn heartbeat_updates_capacity() {
-        let r = AgentRegistry::new();
-        r.register(rec("a1", 4, Some("public")));
-        assert!(r.record_heartbeat("a1", 3, 1));
-        let snap = r.snapshot();
-        assert_eq!(snap[0].in_flight, 3);
-        assert_eq!(snap[0].available_capacity, 1);
-    }
+    fn selection_skips_agents_without_capacity_or_runnable_arch() {
+        let mut full = agent("full", 4, Some("t1"));
+        full.available_capacity = 0;
+        let mut wrong_arch = agent("wrong-arch", 4, Some("t1"));
+        wrong_arch.target_triple = "x86_64-unknown-linux".to_string();
+        let ok = agent("ok", 2, Some("t1"));
+        let roster = vec![full, wrong_arch, ok];
 
-    #[test]
-    fn heartbeat_on_unknown_agent_returns_false() {
-        let r = AgentRegistry::new();
-        assert!(!r.record_heartbeat("never-registered", 0, 0));
-    }
-
-    #[test]
-    fn sweep_dead_removes_only_stale_agents() {
-        let r = AgentRegistry::new();
-        // Fresh agent (heartbeat = now).
-        r.register(rec("fresh", 1, Some("public")));
-        // Stale agent: register, then backdate its last_heartbeat.
-        r.register(rec("stale", 1, Some("public")));
-        {
-            let mut g = r.by_id.lock().unwrap();
-            g.get_mut("stale").unwrap().last_heartbeat = Instant::now() - Duration::from_secs(120);
-        }
-        let removed = r.sweep_dead(Duration::from_secs(60));
-        assert_eq!(removed.len(), 1);
-        assert_eq!(removed[0].agent_id, "stale");
-        let snap = r.snapshot();
-        assert_eq!(snap.len(), 1);
-        assert_eq!(snap[0].agent_id, "fresh");
-    }
-
-    #[test]
-    fn sweep_dead_noop_when_all_fresh() {
-        let r = AgentRegistry::new();
-        r.register(rec("a1", 1, Some("public")));
-        r.register(rec("a2", 1, Some("public")));
-        let removed = r.sweep_dead(Duration::from_secs(60));
-        assert!(removed.is_empty());
-        assert_eq!(r.len(), 2);
-    }
-
-    #[test]
-    fn deregister_is_idempotent() {
-        let r = AgentRegistry::new();
-        r.register(rec("a1", 1, None));
-        r.deregister("a1");
-        r.deregister("a1"); // no panic, no error
-        assert!(r.is_empty());
-    }
-
-    #[test]
-    fn register_same_id_overwrites() {
-        let r = AgentRegistry::new();
-        r.register(rec("a1", 1, None));
-        r.register(rec("a1", 8, Some("t1")));
-        let snap = r.snapshot();
-        assert_eq!(snap.len(), 1);
-        assert_eq!(snap[0].max_concurrency, 8);
-        assert_eq!(snap[0].tenant_id.as_deref(), Some("t1"));
+        let triples = Some(vec!["aarch64-apple-darwin".to_string()]);
+        let chosen = select_fleet_agent(&roster, &Some("t1".to_string()), &triples).unwrap();
+        assert_eq!(chosen.agent_id, "ok");
     }
 }

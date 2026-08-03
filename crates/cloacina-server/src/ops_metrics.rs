@@ -26,7 +26,7 @@
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cloacina_api_types::operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
 use cloacina_api_types::{AgentInfo, CompilerStatus, ServerMessage};
@@ -163,7 +163,10 @@ async fn gather(state: &AppState, view: Option<&str>) -> OpsMetricsEvent {
         None => state.database.clone(),
     };
 
-    // ── Server health (the /ready rollup), scoped to this view. ──
+    // ── Server health rollup, scoped to this view. Deliberately RICHER than
+    //    `/ready` (CLOACI-T-0916): the LB readiness probe is platform-scoped
+    //    (DB only), but the operations UI still wants crashed computation
+    //    graphs surfaced here — informational, not a pool-ejection signal. ──
     let db_ready = db.get_postgres_connection().await.is_ok();
     let graphs = state.graph_scheduler.list_graphs().await;
     let crashed: Vec<String> = graphs
@@ -223,11 +226,17 @@ async fn gather(state: &AppState, view: Option<&str>) -> OpsMetricsEvent {
         }
     };
 
-    // ── Fleet roster (same mapping as GET /v1/agents). ──
-    let now = Instant::now();
+    // ── Fleet roster (same mapping as GET /v1/agents). CLOACI-T-0916: read
+    //    from the DB-backed roster so the ops view spans every replica. ──
+    let now = chrono::Utc::now();
     let fleet: Vec<AgentInfo> = state
         .agent_registry
-        .snapshot()
+        .live_agents()
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "ops_metrics: fleet roster read failed");
+            Vec::new()
+        })
         .into_iter()
         .filter(|r| in_view(r.tenant_id.as_deref(), view))
         .map(|r| AgentInfo {
@@ -236,7 +245,7 @@ async fn gather(state: &AppState, view: Option<&str>) -> OpsMetricsEvent {
             max_concurrency: r.max_concurrency,
             in_flight: r.in_flight,
             available_capacity: r.available_capacity,
-            seconds_since_heartbeat: now.duration_since(r.last_heartbeat).as_secs(),
+            seconds_since_heartbeat: (now - r.last_heartbeat_at.0).num_seconds().max(0) as u64,
             capabilities: r.capabilities,
             tenant_id: r.tenant_id,
         })

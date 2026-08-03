@@ -207,9 +207,11 @@ pub struct AppState {
     /// Producers (CLI/agent handlers) wake this after enqueue / on reconnect
     /// resync, bypassing the LISTEN/NOTIFY round-trip for same-replica work.
     pub delivery_wake: cloacina::delivery::WakeHandle,
-    /// Execution-agent fleet (CLOACI-I-0114 / T-0631): in-memory roster of
-    /// registered agents. Consulted by the `FleetExecutor` (T-0633) for
-    /// capacity-aware selection.
+    /// Execution-agent fleet roster (CLOACI-I-0114 / T-0631). CLOACI-T-0916:
+    /// DB-backed (`fleet_agents` table) so registration/heartbeats/selection/
+    /// reclaim are multi-replica correct; consulted by the `FleetExecutor`
+    /// (T-0633) for capacity-aware selection. Holds the replica-local one-time
+    /// secret-key pools (D-5).
     pub agent_registry: Arc<crate::agent_registry::AgentRegistry>,
     /// Fleet (CLOACI-T-0633): rendezvous between the `FleetExecutor` and the
     /// agent's `POST /v1/agent/result` route. The executor registers a oneshot
@@ -218,6 +220,7 @@ pub struct AppState {
     pub fleet_coordinator: Arc<crate::fleet_coordinator::FleetCoordinator>,
     pub security_config: SecurityConfig,
     /// Short-lived WebSocket auth tickets (single-use, TTL-based).
+    /// CLOACI-T-0916: DB-backed — redeemable on any replica.
     pub ws_tickets: Arc<crate::routes::auth::WsTicketStore>,
     /// Prometheus metrics handle for rendering /metrics endpoint.
     pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
@@ -751,7 +754,17 @@ pub async fn run(
     // Fleet (CLOACI-I-0114 / T-0633): shared roster + result-rendezvous so the
     // FleetExecutor (registered on the runner's dispatcher below) and the agent
     // HTTP routes (which read the same AppState) operate on one instance each.
-    let agent_registry = Arc::new(crate::agent_registry::AgentRegistry::new());
+    // CLOACI-T-0916: the roster is DB-backed (`fleet_agents`, admin schema) so
+    // registration/heartbeats/selection/reclaim are correct across replicas;
+    // "live" = heartbeat within interval × allowed misses (T-0639). Only the
+    // one-time secret-key pools stay replica-local (see agent_registry.rs).
+    let agent_liveness_window = std::time::Duration::from_secs(
+        agent_heartbeat_interval_s.max(1) as u64 * agent_liveness_misses.max(1) as u64,
+    );
+    let agent_registry = Arc::new(crate::agent_registry::AgentRegistry::new(
+        runner.database().clone(),
+        agent_liveness_window,
+    ));
     let fleet_coordinator = Arc::new(crate::fleet_coordinator::FleetCoordinator::new());
 
     // CLOACI-T-0862: the per-tenant schema-scoped `Database` cache. Hoisted here
@@ -894,8 +907,9 @@ pub async fn run(
         "fleet actuator initialized"
     );
 
+    let admin_database = runner.database().clone();
     let state = AppState {
-        database: runner.database().clone(),
+        database: admin_database.clone(),
         default_max_agents,
         initial_agents,
         runner: Arc::new(runner),
@@ -911,7 +925,10 @@ pub async fn run(
             verification_org_id: verification_org_id.map(cloacina::UniversalUuid::from),
             ..SecurityConfig::default()
         },
-        ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::new(
+        // CLOACI-T-0916: DB-backed tickets — minted on any replica, redeemable
+        // on any replica (single-use via atomic CAS). No session affinity.
+        ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::with_db(
+            admin_database,
             std::time::Duration::from_secs(60),
         )),
         metrics_handle,
@@ -1048,23 +1065,36 @@ pub async fn run(
     // re-targeting its delivery_outbox rows to a live agent (otherwise the
     // rows stay pinned to a dead recipient and spin on NoRoute). Shares the
     // substrate shutdown channel.
+    //
+    // CLOACI-T-0916: eviction is a compare-and-set DELETE against the shared
+    // `fleet_agents` table, so when several replicas sweep concurrently each
+    // dead agent's reclaim is owned by exactly one of them; the reclaim
+    // target is chosen from the DB-read live roster (any replica's agents are
+    // eligible). Each tick also refreshes this replica's cached snapshot for
+    // the sync `has_capacity()`/`metrics()` path.
     {
         let sweep_registry = agent_registry.clone();
         let sweep_dal = unified_dal.clone();
         let sweep_wake = delivery_wake.clone();
         let mut sweep_shutdown = substrate_shutdown_rx.clone();
-        // Heartbeat interval the server advertises to agents + sweep cadence;
-        // evict after `agent_liveness_misses` missed beats (CLOACI-T-0639).
-        // Both clamped to >=1 so a 0 from the CLI can't wedge the ticker.
+        // Heartbeat interval the server advertises to agents = sweep cadence;
+        // the eviction window (interval × misses, CLOACI-T-0639) is baked into
+        // the registry's liveness timeout. Clamped to >=1 so a 0 from the CLI
+        // can't wedge the ticker.
         let beat = std::time::Duration::from_secs(agent_heartbeat_interval_s.max(1) as u64);
-        let dead_after = beat * agent_liveness_misses.max(1);
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(beat);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = ticker.tick() => {
-                        let dead = sweep_registry.sweep_dead(dead_after);
+                        let dead = match sweep_registry.sweep_dead().await {
+                            Ok(dead) => dead,
+                            Err(e) => {
+                                warn!(error = %e, "fleet: heartbeat sweep failed");
+                                continue;
+                            }
+                        };
                         if !dead.is_empty() {
                             info!(
                                 evicted = ?dead,
@@ -1084,7 +1114,22 @@ pub async fn run(
                             // still recovers the task (degraded, not lost).
                             for dead_rec in &dead {
                                 let dead_id = &dead_rec.agent_id;
-                                let snap = sweep_registry.snapshot();
+                                // CLOACI-T-0916: the reclaim target comes from
+                                // the DB-read live roster — an agent connected
+                                // to ANY replica is eligible (the reassigned
+                                // outbox rows are delivered by whichever
+                                // replica holds its socket).
+                                let snap = match sweep_registry.live_agents().await {
+                                    Ok(snap) => snap,
+                                    Err(e) => {
+                                        warn!(
+                                            dead_agent = %dead_id,
+                                            error = %e,
+                                            "fleet: reclaim roster read failed"
+                                        );
+                                        continue;
+                                    }
+                                };
                                 // Reclaim only to a live agent in the SAME tenant
                                 // as the dead one (REQ-008 tenant isolation),
                                 // greedy on most-free-capacity.
@@ -1208,7 +1253,16 @@ pub async fn run(
                         crate::autoscaler::leader::with_fleet_leadership(&loop_db, || async {
                             // (a) AUTOSCALE — adjust desired_count from utilization.
                             if autoscale_enabled {
-                                let utils = tenant_utilizations(&loop_registry.snapshot());
+                                // CLOACI-T-0916: utilization from the DB-backed live
+                                // roster — the WHOLE fleet, not this replica's slice.
+                                let live = match loop_registry.live_agents().await {
+                                    Ok(live) => live,
+                                    Err(e) => {
+                                        warn!(error = %e, "fleet autoscale: roster read failed; skipping autoscale step");
+                                        Vec::new()
+                                    }
+                                };
+                                let utils = tenant_utilizations(&live);
                                 // Tenant set = everyone with a desired_count row
                                 // PLUS any tenant with live registered agents.
                                 // `list_all_with_last` also carries each tenant's
@@ -1854,9 +1908,8 @@ fn build_router(state: AppState) -> Router {
 
     // Execution-agent fleet (CLOACI-I-0114 / T-0631). All endpoints share
     // the standard authed-route middleware; tenant + admin checks live in
-    // each handler. T-0633 will wire the FleetExecutor into these routes;
-    // for now register/heartbeat mutate the in-memory roster and result is
-    // a stub.
+    // each handler. Register/heartbeat persist to the DB-backed roster
+    // (CLOACI-T-0916); result rendezvouses with the FleetExecutor (T-0633).
     let agent_routes = axum::routing::Router::new()
         .route(
             "/agent/register",
@@ -2004,43 +2057,31 @@ async fn health() -> impl IntoResponse {
     Json(serde_json::json!({"status": "ok"}))
 }
 
-/// GET /ready — readiness check (verifies DB connection pool is healthy)
+/// GET /ready — readiness check, scoped to PLATFORM health only (DB
+/// reachable). CLOACI-T-0916: tenant-workload health is deliberately NOT part
+/// of readiness — one crashed computation graph used to flip `/ready` false on
+/// EVERY replica simultaneously, letting a single bad package eject the whole
+/// server fleet from the load-balancer pool. Crashed graphs remain visible via
+/// `GET /v1/health/graphs` (state `stopped`/`crashed`) and metrics.
 #[utoipa::path(
     get,
     path = "/ready",
     tag = "operational",
     responses(
-        (status = 200, description = "Ready — DB reachable, no crashed graphs"),
-        (status = 503, description = "Not ready — `reason` field explains (database unreachable / crashed computation graphs)"),
+        (status = 200, description = "Ready — DB reachable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."),
+        (status = 503, description = "Not ready — `reason` field explains (database unreachable)"),
     )
 )]
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // Verify we can acquire a connection from the pool
     let db_ready = state.database.get_postgres_connection().await.is_ok();
 
-    // Check if any computation graphs have crashed
-    let graphs = state.graph_scheduler.list_graphs().await;
-    let crashed_graphs: Vec<&str> = graphs
-        .iter()
-        .filter(|g| !g.running)
-        .map(|g| g.name.as_str())
-        .collect();
-
-    if db_ready && crashed_graphs.is_empty() {
+    if db_ready {
         (StatusCode::OK, Json(serde_json::json!({"status": "ready"})))
-    } else if !db_ready {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"status": "not ready", "reason": "database unreachable"})),
-        )
     } else {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "status": "not ready",
-                "reason": "crashed computation graphs",
-                "crashed_graphs": crashed_graphs,
-            })),
+            Json(serde_json::json!({"status": "not ready", "reason": "database unreachable"})),
         )
     }
 }
@@ -2285,18 +2326,25 @@ mod tests {
             _test_delivery_sink.clone(),
         );
         let _test_delivery_wake = _test_delivery_relay.wake_handle();
+        let database = runner.database().clone();
         AppState {
-            database: runner.database().clone(),
+            database: database.clone(),
             runner,
             key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
             endpoint_registry: EndpointRegistry::new(),
             graph_scheduler: Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new())),
             delivery_sink: _test_delivery_sink,
             delivery_wake: _test_delivery_wake,
-            agent_registry: Arc::new(crate::agent_registry::AgentRegistry::new()),
+            agent_registry: Arc::new(crate::agent_registry::AgentRegistry::new(
+                database.clone(),
+                std::time::Duration::from_secs(90),
+            )),
             fleet_coordinator: Arc::new(crate::fleet_coordinator::FleetCoordinator::new()),
             security_config: SecurityConfig::default(),
-            ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::new(
+            // CLOACI-T-0916: DB-backed, as in production — cross-replica
+            // ticket tests rely on it.
+            ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::with_db(
+                database,
                 std::time::Duration::from_secs(60),
             )),
             metrics_handle: test_metrics_handle,
@@ -2510,6 +2558,347 @@ mod tests {
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "ready");
+    }
+
+    // ── CLOACI-T-0916: multi-replica truthfulness ─────────────────────────
+    //
+    // "Two replicas" are simulated as two independent `Database` handles (two
+    // connection pools) against the one shared Postgres — exactly the state
+    // two server processes behind a load balancer would be in.
+
+    fn second_replica_db() -> cloacina::database::Database {
+        cloacina::database::Database::new(TEST_DB_URL, "cloacina", 2)
+    }
+
+    /// A WS ticket minted "on replica A" must redeem "on replica B" — and only
+    /// once, on either replica.
+    #[tokio::test]
+    #[serial]
+    async fn ws_ticket_minted_on_one_replica_redeems_on_another_once() {
+        let state = test_state().await;
+        let store_a = crate::routes::auth::WsTicketStore::with_db(
+            state.database.clone(),
+            std::time::Duration::from_secs(60),
+        );
+        let store_b = crate::routes::auth::WsTicketStore::with_db(
+            second_replica_db(),
+            std::time::Duration::from_secs(60),
+        );
+
+        let auth = crate::routes::auth::AuthenticatedKey {
+            key_id: uuid::Uuid::new_v4(),
+            name: "cross-replica-ticket".to_string(),
+            permissions: "read".to_string(),
+            tenant_id: Some("acme".to_string()),
+            is_admin: false,
+        };
+        let ticket = store_a.issue(auth).await;
+
+        let redeemed = store_b
+            .consume(&ticket)
+            .await
+            .expect("ticket minted on replica A must redeem on replica B");
+        assert_eq!(redeemed.name, "cross-replica-ticket");
+        assert_eq!(redeemed.tenant_id.as_deref(), Some("acme"));
+        assert!(!redeemed.is_admin);
+
+        // Single-use: replays fail on BOTH replicas.
+        assert!(store_a.consume(&ticket).await.is_none());
+        assert!(store_b.consume(&ticket).await.is_none());
+    }
+
+    /// Single-use must hold under CONCURRENT redemption attempts spread across
+    /// both replicas: exactly one wins the atomic CAS.
+    #[tokio::test]
+    #[serial]
+    async fn ws_ticket_single_use_under_concurrent_cross_replica_redeems() {
+        let state = test_state().await;
+        let store_a = Arc::new(crate::routes::auth::WsTicketStore::with_db(
+            state.database.clone(),
+            std::time::Duration::from_secs(60),
+        ));
+        let store_b = Arc::new(crate::routes::auth::WsTicketStore::with_db(
+            second_replica_db(),
+            std::time::Duration::from_secs(60),
+        ));
+
+        let auth = crate::routes::auth::AuthenticatedKey {
+            key_id: uuid::Uuid::new_v4(),
+            name: "contended-ticket".to_string(),
+            permissions: "read".to_string(),
+            tenant_id: None,
+            is_admin: false,
+        };
+        let ticket = store_a.issue(auth).await;
+
+        let mut handles = Vec::new();
+        for i in 0..8u32 {
+            let store = if i % 2 == 0 {
+                store_a.clone()
+            } else {
+                store_b.clone()
+            };
+            let ticket = ticket.clone();
+            handles.push(tokio::spawn(async move {
+                store.consume(&ticket).await.is_some()
+            }));
+        }
+        let mut successes = 0;
+        for h in handles {
+            if h.await.expect("redeem task must not panic") {
+                successes += 1;
+            }
+        }
+        assert_eq!(
+            successes, 1,
+            "exactly one concurrent redeemer may win the single-use CAS"
+        );
+    }
+
+    /// Roster reads (selection eligibility, tenant guard, heartbeats) must see
+    /// an agent that registered + heartbeats via a DIFFERENT replica; the
+    /// dead-agent sweep must likewise evict cross-replica, exactly once.
+    #[tokio::test]
+    #[serial]
+    async fn agent_roster_selection_and_reclaim_see_other_replicas_agents() {
+        let state = test_state().await;
+        let registry_a = crate::agent_registry::AgentRegistry::new(
+            state.database.clone(),
+            std::time::Duration::from_secs(60),
+        );
+        let registry_b = crate::agent_registry::AgentRegistry::new(
+            second_replica_db(),
+            std::time::Duration::from_secs(60),
+        );
+
+        let agent_id = format!("t0916-agent-{}", uuid::Uuid::new_v4().simple());
+        let tenant = format!("t0916-tenant-{}", uuid::Uuid::new_v4().simple());
+        registry_a
+            .register(
+                cloacina::dal::unified::FleetAgentRegistration {
+                    agent_id: agent_id.clone(),
+                    tenant_id: Some(tenant.clone()),
+                    target_triple: "aarch64-apple-darwin".to_string(),
+                    capabilities: vec![],
+                    max_concurrency: 4,
+                },
+                cloacina::security::ServerKeyPool::new(),
+            )
+            .await
+            .expect("registration must persist");
+
+        // Replica B sees the agent as live, with the right tenant.
+        let live_b = registry_b.live_agents().await.expect("roster read");
+        let seen = live_b
+            .iter()
+            .find(|a| a.agent_id == agent_id)
+            .expect("agent registered via replica A must be live on replica B");
+        assert_eq!(seen.tenant_id.as_deref(), Some(tenant.as_str()));
+        assert_eq!(
+            registry_b.agent_tenant(&agent_id).await.expect("lookup"),
+            Some(Some(tenant.clone())),
+            "cross-tenant guard must resolve the tenant on any replica"
+        );
+
+        // Same-tenant selection on replica B picks it.
+        let chosen =
+            crate::agent_registry::select_fleet_agent(&live_b, &Some(tenant.clone()), &None)
+                .expect("selection must see the other replica's agent");
+        assert_eq!(chosen.agent_id, agent_id);
+
+        // A heartbeat landing on replica B does NOT flap ("not registered").
+        assert!(
+            registry_b
+                .record_heartbeat(&agent_id, 2, 2)
+                .await
+                .expect("heartbeat persist"),
+            "heartbeat must succeed on a replica the agent did not register with"
+        );
+
+        // Dead-agent sweep: with a min (1s) liveness window on replica B, the
+        // agent goes stale after ~1s and the sweep — running on B — evicts the
+        // agent registered via A, exactly once.
+        let sweeper_b = crate::agent_registry::AgentRegistry::new(
+            second_replica_db(),
+            std::time::Duration::from_secs(1),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
+        let dead = sweeper_b.sweep_dead().await.expect("sweep");
+        assert!(
+            dead.iter().any(|a| a.agent_id == agent_id),
+            "sweep on replica B must evict the stale agent registered via A"
+        );
+        // Exactly once: a second sweep owns nothing for this agent.
+        let dead_again = sweeper_b.sweep_dead().await.expect("sweep");
+        assert!(
+            !dead_again.iter().any(|a| a.agent_id == agent_id),
+            "an evicted agent must not be reclaimable twice"
+        );
+        // And it is gone from every replica's live view.
+        let live_a = registry_a.live_agents().await.expect("roster read");
+        assert!(!live_a.iter().any(|a| a.agent_id == agent_id));
+    }
+
+    /// CLOACI-T-0916 acceptance: a crashed computation graph must NOT fail
+    /// `/ready` (previously one bad package ejected every replica from the LB
+    /// pool at once). The crash stays visible via `GET /v1/health/graphs`.
+    #[tokio::test]
+    #[serial]
+    async fn ready_stays_200_with_crashed_graph_visible_in_health_routes() {
+        use cloacina::computation_graph::accumulator::{
+            accumulator_runtime, Accumulator, AccumulatorContext, AccumulatorRuntimeConfig,
+            BoundarySender, CheckpointHandle,
+        };
+        use cloacina::computation_graph::reactor::{
+            CompiledGraphFn, InputStrategy, ReactionCriteria,
+        };
+        use cloacina::computation_graph::scheduler::{
+            AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig,
+            ComputationGraphDeclaration, ReactorDeclaration,
+        };
+        use cloacina::computation_graph::types::GraphResult;
+        use cloacina::computation_graph::{InputCache, SourceName};
+        use tokio::sync::{mpsc, watch};
+
+        /// Passthrough accumulator (mirrors the scheduler's own test factory).
+        struct PassthroughFactory;
+        impl AccumulatorFactory for PassthroughFactory {
+            fn spawn(
+                &self,
+                name: String,
+                boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+                shutdown_rx: watch::Receiver<bool>,
+                config: AccumulatorSpawnConfig,
+            ) -> (mpsc::Sender<Vec<u8>>, tokio::task::JoinHandle<()>) {
+                let (socket_tx, socket_rx) = mpsc::channel(64);
+
+                struct Passthrough;
+                #[async_trait::async_trait]
+                impl Accumulator for Passthrough {
+                    type Output = serde_json::Value;
+                    fn process(&mut self, event: Vec<u8>) -> Option<serde_json::Value> {
+                        serde_json::from_slice(&event).ok()
+                    }
+                }
+
+                let checkpoint = config
+                    .dal
+                    .map(|dal| CheckpointHandle::new(dal, config.graph_name.clone(), name.clone()));
+                let sender = BoundarySender::with_freshness(
+                    boundary_tx,
+                    SourceName::new(&name),
+                    config.freshness.clone(),
+                );
+                let ctx = AccumulatorContext {
+                    output: sender,
+                    name: name.clone(),
+                    shutdown: shutdown_rx,
+                    checkpoint,
+                    health: config.health_tx,
+                };
+                let handle = tokio::spawn(accumulator_runtime(
+                    Passthrough,
+                    ctx,
+                    socket_rx,
+                    AccumulatorRuntimeConfig::default(),
+                ));
+                (socket_tx, handle)
+            }
+        }
+
+        // Share ONE endpoint registry between the routes and the scheduler so
+        // both the event push and the health API see the same graph.
+        let mut state = test_state().await;
+        let registry = EndpointRegistry::new();
+        state.endpoint_registry = registry.clone();
+        state.graph_scheduler = Arc::new(ComputationGraphScheduler::new(registry.clone()));
+
+        // A graph whose compiled fn PANICS on fire — the reactor task dies,
+        // which is exactly the "crashed CG" condition that used to flip
+        // /ready false replica-wide.
+        let graph_fn: CompiledGraphFn = Arc::new(|_cache: InputCache| {
+            Box::pin(async {
+                panic!("t0916: deliberate graph crash");
+                #[allow(unreachable_code)]
+                GraphResult::completed(vec![])
+            })
+        });
+        let decl = ComputationGraphDeclaration {
+            name: "t0916_crash_graph".to_string(),
+            accumulators: vec![AccumulatorDeclaration {
+                name: "t0916_alpha".to_string(),
+                factory: Arc::new(PassthroughFactory),
+            }],
+            reactor: ReactorDeclaration {
+                criteria: ReactionCriteria::WhenAny,
+                strategy: InputStrategy::Latest,
+                graph_fn,
+                constructor: None,
+            },
+            tenant_id: None,
+            reactor_name: None,
+            topology: None,
+        };
+        state
+            .graph_scheduler
+            .load_graph(decl)
+            .await
+            .expect("graph loads");
+
+        // Fire it: push one event, then wait for the reactor task to die.
+        registry
+            .send_to_accumulator("t0916_alpha", b"{\"v\":1}".to_vec())
+            .await
+            .expect("event push");
+        let mut crashed = false;
+        for _ in 0..50 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let graphs = state.graph_scheduler.list_graphs().await;
+            if graphs
+                .iter()
+                .any(|g| g.name == "t0916_crash_graph" && !g.running)
+            {
+                crashed = true;
+                break;
+            }
+        }
+        assert!(crashed, "the deliberately-panicking graph must crash");
+
+        let admin_key = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        // /ready stays 200 — platform (DB) health only, not tenant workloads.
+        let (status, body) = send_request(
+            app.clone(),
+            axum::http::Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "a crashed CG must not fail /ready (got body: {body})"
+        );
+        assert_eq!(body["status"], "ready");
+
+        // ... while the crash IS visible via the graph-health route.
+        let (status, body) = send_request(
+            app,
+            axum::http::Request::builder()
+                .uri("/v1/health/graphs")
+                .header("Authorization", format!("Bearer {admin_key}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let items = body["items"].as_array().expect("items array");
+        assert!(
+            items.iter().any(|g| g["name"] == "t0916_crash_graph"),
+            "the crashed graph must remain visible via /v1/health/graphs: {body}"
+        );
     }
 
     #[tokio::test]

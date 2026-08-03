@@ -22,8 +22,9 @@
 //!   target the actuator (T-0810) and autoscaler (T-0811) reconcile/clamp to).
 //! - `provision` is `+1` while under the effective limit (else 409 "at
 //!   capacity"); `deprovision` is `−1` with a floor of 0.
-//! - `actual_count` is the number of agents currently registered for the tenant
-//!   in *this* server replica's roster (the registry is per-replica, T-0631).
+//! - `actual_count` is the number of agents currently live (heartbeat-recent)
+//!   for the tenant in the DB-backed roster — fleet-wide across every server
+//!   replica (CLOACI-T-0916).
 //!
 //! AuthZ (NFR-004, enforced by the authz table — no client-only trust):
 //! - `POST .../fleet/provision` / `.../fleet/deprovision` → **tenant-admin**
@@ -49,8 +50,9 @@ pub struct FleetScaleInfo {
     pub tenant_id: String,
     /// The tenant's requested agent count (self-service provisioning target).
     pub desired_count: u32,
-    /// Agents currently registered for this tenant in this replica's roster
-    /// (per-replica local view — the registry is not shared across replicas).
+    /// Agents currently live (heartbeat-recent) for this tenant, read from the
+    /// DB-backed roster — the WHOLE fleet, regardless of which server replica
+    /// each agent registered against (CLOACI-T-0916).
     pub actual_count: u32,
     /// The hard ceiling provisioning clamps to: the per-tenant override if set,
     /// else the platform default (T-0808 `effective_limit`).
@@ -59,17 +61,18 @@ pub struct FleetScaleInfo {
     pub default_max_agents: u32,
 }
 
-/// Count the agents registered for `tenant_id` in this replica's roster.
-///
-/// The `AgentRegistry` (T-0631) is an in-memory, per-replica roster; this is the
-/// local-replica view of how many agents are live for the tenant.
-fn actual_count_for(state: &AppState, tenant_id: &str) -> u32 {
-    state
-        .agent_registry
-        .snapshot()
+/// Count the live agents for `tenant_id` from the DB-backed roster
+/// (heartbeat-recency-filtered, CLOACI-T-0916) — a fleet-wide count no matter
+/// which replica each agent registered against.
+async fn actual_count_for(state: &AppState, tenant_id: &str) -> Result<u32, ApiError> {
+    let live = state.agent_registry.live_agents().await.map_err(|e| {
+        warn!("agent roster read failed: {}", e);
+        ApiError::internal("failed to read agent roster")
+    })?;
+    Ok(live
         .iter()
         .filter(|r| r.tenant_id.as_deref() == Some(tenant_id))
-        .count() as u32
+        .count() as u32)
 }
 
 /// Resolve the full fleet-scaling view for a tenant (desired + actual +
@@ -96,7 +99,7 @@ async fn fleet_info(state: &AppState, tenant_id: &str) -> Result<FleetScaleInfo,
     Ok(FleetScaleInfo {
         tenant_id: tenant_id.to_string(),
         desired_count,
-        actual_count: actual_count_for(state, tenant_id),
+        actual_count: actual_count_for(state, tenant_id).await?,
         effective_limit,
         default_max_agents: default,
     })

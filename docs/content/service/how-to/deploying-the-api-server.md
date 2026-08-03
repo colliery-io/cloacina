@@ -131,7 +131,9 @@ curl -s http://localhost:8080/health | jq
 
 ### Readiness: GET /ready
 
-Returns 200 if the server can acquire a database connection from the pool **and** no loaded computation graph has crashed. Returns 503 with a `reason` field (`database unreachable` or `crashed computation graphs`) otherwise.
+Returns 200 if the server can acquire a database connection from the pool. Returns 503 with a `reason` field (`database unreachable`) otherwise.
+
+Readiness is scoped to **platform health only**. Tenant workload health — for example a crashed computation graph from a bad package — deliberately does *not* fail `/ready`: with multiple replicas behind a load balancer, a single crashed graph would otherwise eject every replica from the pool simultaneously. Crashed graphs remain visible via `GET /v1/health/graphs` (and the `cloacina_component_health` metric).
 
 ```bash
 curl -s http://localhost:8080/ready | jq
