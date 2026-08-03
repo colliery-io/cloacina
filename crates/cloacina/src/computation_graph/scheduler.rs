@@ -430,6 +430,37 @@ const BACKOFF_MAX_SECS: u64 = 60;
 /// Duration of successful operation before failure counter resets.
 const SUCCESS_RESET_SECS: u64 = 60;
 
+/// A restart decided in phase 1 of
+/// [`ComputationGraphScheduler::check_and_restart_failed`] (under the
+/// reactors write lock) and executed afterwards with the lock released
+/// (CLOACI-T-0915): the backoff sleep and recovery-event write must never
+/// happen while the lock is held, or every list/health reader blocks behind
+/// them for up to [`BACKOFF_MAX_SECS`] during a restart storm.
+enum PlannedRestart {
+    /// The reactor task exited — full-graph restart (new channels,
+    /// re-spawned accumulators + reactor).
+    Reactor {
+        reactor_name: String,
+        /// `"{reactor}::reactor"` — recovery-event component key.
+        component_key: String,
+        /// Failure count at detection time (drives the recovery event).
+        attempt: u32,
+        backoff_secs: u64,
+        /// The finished handle, taken in phase 1 so phase 2 can classify
+        /// panic-vs-error without holding the lock.
+        dead: JoinHandle<()>,
+    },
+    /// An accumulator task exited — in-place respawn.
+    Accumulator {
+        reactor_name: String,
+        acc_name: String,
+        component_key: String,
+        attempt: u32,
+        backoff_secs: u64,
+        dead: JoinHandle<()>,
+    },
+}
+
 /// The computation graph scheduler: loads reactors and computation graphs,
 /// supervises them, and routes operational commands to running instances.
 pub struct ComputationGraphScheduler {
@@ -1161,222 +1192,97 @@ impl ComputationGraphScheduler {
     /// Individual accumulators are restarted in-place without tearing down the
     /// reactor. Reactor crashes trigger a full-graph restart. Failure counting
     /// with exponential backoff prevents infinite restart loops.
+    ///
+    /// Runs in three phases (CLOACI-T-0915): crash detection and
+    /// failure-count bookkeeping happen under the reactors write lock; the
+    /// recovery-event write and the exponential-backoff sleep happen with
+    /// the lock RELEASED so list/health readers (`list_graphs`,
+    /// `/v1/health/graphs`, package loads) stay responsive during a restart
+    /// storm; each restart then re-acquires the lock and re-validates that
+    /// the component is still down before acting.
     pub async fn check_and_restart_failed(&self) -> usize {
         let mut restarted = 0;
-        let mut graphs = self.reactors.write().await;
         let now = std::time::Instant::now();
 
-        for (graph_name, running) in graphs.iter_mut() {
-            // Reset failure counts for components that have been running successfully
-            let success_threshold = std::time::Duration::from_secs(SUCCESS_RESET_SECS);
-            let names_to_reset: Vec<String> = running
-                .last_success
-                .iter()
-                .filter(|(_, ts)| now.duration_since(**ts) >= success_threshold)
-                .map(|(name, _)| name.clone())
-                .collect();
-            for name in names_to_reset {
-                running.failure_counts.remove(&name);
-                running.last_success.remove(&name);
-            }
+        // Phase 1 — under the write lock: reset success bookkeeping, detect
+        // crashed components, take their dead handles, and collect a restart
+        // plan. NO sleeps and NO DB writes happen while the lock is held.
+        let plans: Vec<PlannedRestart> = {
+            let mut graphs = self.reactors.write().await;
+            let mut plans = Vec::new();
 
-            // Check reactor
-            if running.reactor_handle.is_finished() {
-                let reactor_key = format!("{}::reactor", graph_name);
-                let failures = running
-                    .failure_counts
-                    .entry(reactor_key.clone())
-                    .or_insert(0);
-                *failures += 1;
-
-                // Take ownership of the finished handle so we can inspect the
-                // JoinError (panic vs ordinary exit) without blocking. The
-                // handle is replaced by `tokio::spawn(reactor.run())` below;
-                // the dummy stays in place only briefly while we read the
-                // result.
-                let dead = std::mem::replace(&mut running.reactor_handle, tokio::spawn(async {}));
-                let reason = classify_join_result(dead.await);
-
-                if *failures > MAX_RECOVERY_ATTEMPTS {
-                    error!(
-                        graph = %graph_name,
-                        failures = *failures,
-                        "reactor permanently failed — circuit breaker open"
-                    );
-                    emit_component_health(graph_name, "reactor", "crashed");
-                    continue;
-                }
-
-                let backoff_secs =
-                    (BACKOFF_BASE_SECS * 2u64.pow(*failures - 1)).min(BACKOFF_MAX_SECS);
-                let backoff = std::time::Duration::from_secs(backoff_secs);
-                warn!(
-                    graph = %graph_name,
-                    attempt = *failures,
-                    backoff_secs = backoff_secs,
-                    "reactor crashed, restarting (full graph restart)"
-                );
-
-                // Record recovery event and wait for backoff
-                self.record_recovery_event(&reactor_key, *failures, backoff_secs)
-                    .await;
-                tokio::time::sleep(backoff).await;
-
-                // Full graph restart: new channels, re-spawn everything
-                let (shutdown_tx, shutdown_rx) = shutdown_signal();
-                let stored_shutdown_rx = shutdown_rx.clone();
-                let (boundary_tx, boundary_rx) = mpsc::channel(256);
-                let stored_boundary_tx = boundary_tx.clone();
-
-                let expected_sources: Vec<SourceName> = running
-                    .declaration
-                    .accumulators
+            for (graph_name, running) in graphs.iter_mut() {
+                // Reset failure counts for components that have been running successfully
+                let success_threshold = std::time::Duration::from_secs(SUCCESS_RESET_SECS);
+                let names_to_reset: Vec<String> = running
+                    .last_success
                     .iter()
-                    .map(|a| SourceName::new(&a.name))
+                    .filter(|(_, ts)| now.duration_since(**ts) >= success_threshold)
+                    .map(|(name, _)| name.clone())
                     .collect();
+                for name in names_to_reset {
+                    running.failure_counts.remove(&name);
+                    running.last_success.remove(&name);
+                }
 
-                let mut new_acc_handles = Vec::new();
-                let mut restart_acc_health_rxs: Vec<(
-                    String,
-                    watch::Receiver<super::accumulator::AccumulatorHealth>,
-                )> = Vec::new();
-                for acc_decl in &running.declaration.accumulators {
-                    let (health_tx, health_rx) = health_channel();
-                    restart_acc_health_rxs.push((acc_decl.name.clone(), health_rx.clone()));
-                    let freshness = super::accumulator::FreshnessHandle::new();
-                    let spawn_config = AccumulatorSpawnConfig {
-                        dal: self.dal.clone(),
-                        health_tx: Some(health_tx),
-                        graph_name: graph_name.clone(),
-                        freshness: freshness.clone(),
-                    };
-                    let (socket_tx, handle) = acc_decl.factory.spawn(
-                        acc_decl.name.clone(),
-                        boundary_tx.clone(),
-                        shutdown_rx.clone(),
-                        spawn_config,
+                // Check reactor
+                if running.reactor_handle.is_finished() {
+                    let reactor_key = format!("{}::reactor", graph_name);
+                    let failures = running
+                        .failure_counts
+                        .entry(reactor_key.clone())
+                        .or_insert(0);
+                    *failures += 1;
+
+                    // Take ownership of the finished handle so phase 2 can
+                    // inspect the JoinError (panic vs ordinary exit) without
+                    // blocking. The dummy stays in place until the phase-3
+                    // restart swaps in the re-spawned reactor.
+                    let dead =
+                        std::mem::replace(&mut running.reactor_handle, tokio::spawn(async {}));
+
+                    if *failures > MAX_RECOVERY_ATTEMPTS {
+                        error!(
+                            graph = %graph_name,
+                            failures = *failures,
+                            "reactor permanently failed — circuit breaker open"
+                        );
+                        emit_component_health(graph_name, "reactor", "crashed");
+                        drop(dead);
+                        continue;
+                    }
+
+                    let backoff_secs =
+                        (BACKOFF_BASE_SECS * 2u64.pow(*failures - 1)).min(BACKOFF_MAX_SECS);
+                    warn!(
+                        graph = %graph_name,
+                        attempt = *failures,
+                        backoff_secs = backoff_secs,
+                        "reactor crashed, restarting (full graph restart)"
                     );
-                    self.registry
-                        .register_accumulator(acc_decl.name.clone(), socket_tx)
-                        .await;
-                    self.registry
-                        .register_accumulator_health(acc_decl.name.clone(), health_rx)
-                        .await;
-                    self.registry
-                        .register_accumulator_freshness(acc_decl.name.clone(), freshness)
-                        .await;
-                    // CLOACI-I-0128 follow-up: re-register discoverability meta
-                    // on the restart path too (graph + tenant).
-                    self.registry
-                        .register_accumulator_meta(
-                            acc_decl.name.clone(),
-                            super::registry::AccumulatorDescriptor {
-                                reactor: graph_name.clone(),
-                                tenant_id: running.declaration.tenant_id.clone(),
-                            },
-                        )
-                        .await;
-                    new_acc_handles.push((acc_decl.name.clone(), handle));
-                }
 
-                let (manual_tx, manual_rx) = mpsc::channel(64);
-                let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
-                // Reuse the same subscriber map across restart so subscribers
-                // bound mid-life don't get dropped when the reactor restarts.
-                let restart_dispatcher =
-                    make_subscriber_dispatcher(graph_name.clone(), running.subscribers.clone());
-                let mut reactor = Reactor::new(
-                    restart_dispatcher,
-                    running.declaration.reactor.criteria.clone(),
-                    running.declaration.reactor.strategy.clone(),
-                    boundary_rx,
-                    manual_rx,
-                    shutdown_rx,
-                )
-                .with_graph_name(graph_name.clone())
-                .with_health(reactor_health_tx)
-                .with_expected_sources(expected_sources)
-                .with_accumulator_health(restart_acc_health_rxs)
-                .with_tenant_id(running.declaration.tenant_id.clone())
-                .with_graph_executor(self.graph_executor.read().await.clone());
-                // CLOACI-T-0830: re-install the reactor-constructor decider on
-                // restart. The decider was resolved once at load and is shared
-                // (`Arc<dyn ReactorFireDecider>`, `Send + Sync`), so the restart
-                // reuses it rather than re-loading the WASM component.
-                if let Some(ref ev) = running.evaluator {
-                    reactor = reactor.with_evaluator(ev.clone());
-                }
-                if let Some(ref dal) = self.dal {
-                    reactor = reactor.with_dal(dal.clone());
-                }
-                let reactor_shared = reactor.handle();
-                let reactor_handle = tokio::spawn(reactor.run());
-
-                // Re-register every endpoint-registry key the reactor was
-                // originally registered under (its own name + any back-compat
-                // aliases for bundled-form callers; T-0545 M1 stores these
-                // explicitly on RunningGraph instead of recovering from
-                // declaration.name).
-                for key in &running.endpoint_registry_keys {
-                    self.registry
-                        .register_reactor(key.clone(), manual_tx.clone(), reactor_shared.clone())
-                        .await;
-                }
-
-                // Re-set auth policies after restart
-                let restart_acc_policy = match &running.declaration.tenant_id {
-                    Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
-                    None => AccumulatorAuthPolicy::allow_all(),
-                };
-                let restart_reactor_policy = match &running.declaration.tenant_id {
-                    Some(tid) => ReactorAuthPolicy::for_tenant(tid),
-                    None => ReactorAuthPolicy::allow_all(),
-                };
-                for acc_decl in &running.declaration.accumulators {
-                    self.registry
-                        .set_accumulator_policy(acc_decl.name.clone(), restart_acc_policy.clone())
-                        .await;
-                }
-                for key in &running.endpoint_registry_keys {
-                    self.registry
-                        .set_reactor_policy(key.clone(), restart_reactor_policy.clone())
-                        .await;
-                }
-
-                running.shutdown_tx = shutdown_tx;
-                running.shutdown_rx = stored_shutdown_rx;
-                running.boundary_tx = stored_boundary_tx;
-                running.accumulator_handles = new_acc_handles;
-                running.reactor_handle = reactor_handle;
-                running.reactor_shared = reactor_shared;
-                running.reactor_health_rx = Some(reactor_health_rx);
-                running.last_success.insert(reactor_key, now);
-
-                metrics::counter!(
-                    "cloacina_supervisor_restarts_total",
-                    "graph" => graph_name.clone(),
-                    "component" => "reactor",
-                    "reason" => reason,
-                )
-                .increment(1);
-                emit_component_health(graph_name, "reactor", "starting");
-                restarted += 1;
-                info!(graph = %graph_name, "reactor restarted successfully");
-            } else {
-                // Check individual accumulators — restart them in-place
-                let mut new_handles = Vec::new();
-                let mut changed = false;
-
-                for (acc_name, handle) in running.accumulator_handles.drain(..) {
-                    if handle.is_finished() {
+                    plans.push(PlannedRestart::Reactor {
+                        reactor_name: graph_name.clone(),
+                        component_key: reactor_key,
+                        attempt: *failures,
+                        backoff_secs,
+                        dead,
+                    });
+                } else {
+                    // Check individual accumulators — plan in-place restarts.
+                    // Circuit-broken accumulators are dropped (abandoned)
+                    // right here; crashed-but-recoverable ones get a dummy
+                    // swapped into their slot and a plan entry.
+                    let mut idx = 0;
+                    while idx < running.accumulator_handles.len() {
+                        if !running.accumulator_handles[idx].1.is_finished() {
+                            idx += 1;
+                            continue;
+                        }
+                        let acc_name = running.accumulator_handles[idx].0.clone();
                         let acc_key = format!("{}::{}", graph_name, acc_name);
                         let failures = running.failure_counts.entry(acc_key.clone()).or_insert(0);
                         *failures += 1;
-
-                        // Non-blocking — handle is already finished. Inspect
-                        // JoinError to attribute panic vs error in the
-                        // restart counter label.
-                        let reason = classify_join_result(handle.await);
 
                         if *failures > MAX_RECOVERY_ATTEMPTS {
                             error!(
@@ -1386,7 +1292,8 @@ impl ComputationGraphScheduler {
                                 "accumulator permanently failed — circuit breaker open"
                             );
                             emit_component_health(graph_name, &acc_name, "crashed");
-                            // Don't add handle back — accumulator is abandoned
+                            // Remove the slot — accumulator is abandoned.
+                            running.accumulator_handles.remove(idx);
                             continue;
                         }
 
@@ -1400,97 +1307,370 @@ impl ComputationGraphScheduler {
                             "accumulator crashed, restarting individually"
                         );
 
-                        // Record recovery event and wait for backoff
-                        self.record_recovery_event(&acc_key, *failures, backoff_secs)
-                            .await;
-                        tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
-
-                        // Find the declaration for this accumulator
-                        if let Some(acc_decl) = running
-                            .declaration
-                            .accumulators
-                            .iter()
-                            .find(|d| d.name == *acc_name)
-                        {
-                            // Re-spawn with existing boundary_tx and shutdown_rx
-                            let (health_tx, health_rx) = health_channel();
-                            let freshness = super::accumulator::FreshnessHandle::new();
-                            let spawn_config = AccumulatorSpawnConfig {
-                                dal: self.dal.clone(),
-                                health_tx: Some(health_tx),
-                                graph_name: graph_name.clone(),
-                                freshness: freshness.clone(),
-                            };
-                            let (socket_tx, new_handle) = acc_decl.factory.spawn(
-                                acc_name.clone(),
-                                running.boundary_tx.clone(),
-                                running.shutdown_rx.clone(),
-                                spawn_config,
-                            );
-
-                            // Re-register socket, health, and auth policy in endpoint registry
-                            self.registry
-                                .register_accumulator(acc_name.clone(), socket_tx)
-                                .await;
-                            self.registry
-                                .register_accumulator_health(acc_name.clone(), health_rx)
-                                .await;
-                            self.registry
-                                .register_accumulator_freshness(acc_name.clone(), freshness)
-                                .await;
-                            let ind_acc_policy = match &running.declaration.tenant_id {
-                                Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
-                                None => AccumulatorAuthPolicy::allow_all(),
-                            };
-                            self.registry
-                                .set_accumulator_policy(acc_name.clone(), ind_acc_policy)
-                                .await;
-
-                            running.last_success.insert(acc_key, now);
-                            let restarted_name = acc_name.clone();
-                            metrics::counter!(
-                                "cloacina_supervisor_restarts_total",
-                                "graph" => graph_name.clone(),
-                                "component" => restarted_name.clone(),
-                                "reason" => reason,
-                            )
-                            .increment(1);
-                            emit_component_health(graph_name, &restarted_name, "starting");
-                            new_handles.push((acc_name, new_handle));
-                            restarted += 1;
-                            changed = true;
-
-                            info!(
-                                graph = %graph_name,
-                                accumulator = %restarted_name,
-                                "accumulator restarted individually"
-                            );
-                        } else {
-                            let lost_name = acc_name.clone();
-                            error!(
-                                graph = %graph_name,
-                                accumulator = %lost_name,
-                                "cannot restart: declaration not found"
-                            );
-                        }
-                    } else {
-                        new_handles.push((acc_name, handle));
+                        // Take the finished handle; the dummy stays in the
+                        // slot until the phase-3 respawn replaces it.
+                        let dead = std::mem::replace(
+                            &mut running.accumulator_handles[idx].1,
+                            tokio::spawn(async {}),
+                        );
+                        plans.push(PlannedRestart::Accumulator {
+                            reactor_name: graph_name.clone(),
+                            acc_name,
+                            component_key: acc_key,
+                            attempt: *failures,
+                            backoff_secs,
+                            dead,
+                        });
+                        idx += 1;
                     }
                 }
+            }
 
-                running.accumulator_handles = new_handles;
+            plans
+        };
 
-                if changed {
-                    // Mark accumulators that are still running as successful
-                    for (acc_name, _) in &running.accumulator_handles {
-                        let acc_key = format!("{}::{}", graph_name, acc_name);
-                        running.last_success.entry(acc_key).or_insert(now);
+        // Phases 2 and 3 — the reactors lock is NOT held here. Record the
+        // recovery event and sleep out the backoff unlocked (serial, matching
+        // the pre-T-0915 pacing), then re-acquire the lock per restart and
+        // re-validate before acting.
+        for plan in plans {
+            match plan {
+                PlannedRestart::Reactor {
+                    reactor_name,
+                    component_key,
+                    attempt,
+                    backoff_secs,
+                    dead,
+                } => {
+                    // Non-blocking: the handle already finished in phase 1.
+                    let reason = classify_join_result(dead.await);
+                    self.record_recovery_event(&component_key, attempt, backoff_secs)
+                        .await;
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                    if self
+                        .restart_reactor_after_backoff(&reactor_name, reason, now)
+                        .await
+                    {
+                        restarted += 1;
+                    }
+                }
+                PlannedRestart::Accumulator {
+                    reactor_name,
+                    acc_name,
+                    component_key,
+                    attempt,
+                    backoff_secs,
+                    dead,
+                } => {
+                    let reason = classify_join_result(dead.await);
+                    self.record_recovery_event(&component_key, attempt, backoff_secs)
+                        .await;
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                    if self
+                        .restart_accumulator_after_backoff(&reactor_name, &acc_name, reason, now)
+                        .await
+                    {
+                        restarted += 1;
                     }
                 }
             }
         }
 
         restarted
+    }
+
+    /// Phase 3 of [`check_and_restart_failed`]: after the unlocked backoff,
+    /// re-acquire the write lock and perform the full-graph restart.
+    ///
+    /// Re-validates before acting — while the lock was released the reactor
+    /// may have been unloaded, or replaced with a live task by another path
+    /// (e.g. unload + reload). Returns whether a restart actually happened.
+    async fn restart_reactor_after_backoff(
+        &self,
+        reactor_name: &str,
+        reason: &'static str,
+        now: std::time::Instant,
+    ) -> bool {
+        let mut graphs = self.reactors.write().await;
+        let Some(running) = graphs.get_mut(reactor_name) else {
+            info!(
+                graph = %reactor_name,
+                "reactor unloaded during restart backoff — skipping restart"
+            );
+            return false;
+        };
+        // Phase 1 swapped a finished dummy into `reactor_handle`. A live
+        // (unfinished) handle means another path already brought a reactor
+        // up under this name — don't stomp it.
+        if !running.reactor_handle.is_finished() {
+            info!(
+                graph = %reactor_name,
+                "reactor already replaced during restart backoff — skipping restart"
+            );
+            return false;
+        }
+
+        // Full graph restart: new channels, re-spawn everything
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+        let stored_shutdown_rx = shutdown_rx.clone();
+        let (boundary_tx, boundary_rx) = mpsc::channel(256);
+        let stored_boundary_tx = boundary_tx.clone();
+
+        let expected_sources: Vec<SourceName> = running
+            .declaration
+            .accumulators
+            .iter()
+            .map(|a| SourceName::new(&a.name))
+            .collect();
+
+        let mut new_acc_handles = Vec::new();
+        let mut restart_acc_health_rxs: Vec<(
+            String,
+            watch::Receiver<super::accumulator::AccumulatorHealth>,
+        )> = Vec::new();
+        for acc_decl in &running.declaration.accumulators {
+            let (health_tx, health_rx) = health_channel();
+            restart_acc_health_rxs.push((acc_decl.name.clone(), health_rx.clone()));
+            let freshness = super::accumulator::FreshnessHandle::new();
+            let spawn_config = AccumulatorSpawnConfig {
+                dal: self.dal.clone(),
+                health_tx: Some(health_tx),
+                graph_name: reactor_name.to_string(),
+                freshness: freshness.clone(),
+            };
+            let (socket_tx, handle) = acc_decl.factory.spawn(
+                acc_decl.name.clone(),
+                boundary_tx.clone(),
+                shutdown_rx.clone(),
+                spawn_config,
+            );
+            self.registry
+                .register_accumulator(acc_decl.name.clone(), socket_tx)
+                .await;
+            self.registry
+                .register_accumulator_health(acc_decl.name.clone(), health_rx)
+                .await;
+            self.registry
+                .register_accumulator_freshness(acc_decl.name.clone(), freshness)
+                .await;
+            // CLOACI-I-0128 follow-up: re-register discoverability meta
+            // on the restart path too (graph + tenant).
+            self.registry
+                .register_accumulator_meta(
+                    acc_decl.name.clone(),
+                    super::registry::AccumulatorDescriptor {
+                        reactor: reactor_name.to_string(),
+                        tenant_id: running.declaration.tenant_id.clone(),
+                    },
+                )
+                .await;
+            new_acc_handles.push((acc_decl.name.clone(), handle));
+        }
+
+        let (manual_tx, manual_rx) = mpsc::channel(64);
+        let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
+        // Reuse the same subscriber map across restart so subscribers
+        // bound mid-life don't get dropped when the reactor restarts.
+        let restart_dispatcher =
+            make_subscriber_dispatcher(reactor_name.to_string(), running.subscribers.clone());
+        let mut reactor = Reactor::new(
+            restart_dispatcher,
+            running.declaration.reactor.criteria.clone(),
+            running.declaration.reactor.strategy.clone(),
+            boundary_rx,
+            manual_rx,
+            shutdown_rx,
+        )
+        .with_graph_name(reactor_name.to_string())
+        .with_health(reactor_health_tx)
+        .with_expected_sources(expected_sources)
+        .with_accumulator_health(restart_acc_health_rxs)
+        .with_tenant_id(running.declaration.tenant_id.clone())
+        .with_graph_executor(self.graph_executor.read().await.clone());
+        // CLOACI-T-0830: re-install the reactor-constructor decider on
+        // restart. The decider was resolved once at load and is shared
+        // (`Arc<dyn ReactorFireDecider>`, `Send + Sync`), so the restart
+        // reuses it rather than re-loading the WASM component.
+        if let Some(ref ev) = running.evaluator {
+            reactor = reactor.with_evaluator(ev.clone());
+        }
+        if let Some(ref dal) = self.dal {
+            reactor = reactor.with_dal(dal.clone());
+        }
+        let reactor_shared = reactor.handle();
+        let reactor_handle = tokio::spawn(reactor.run());
+
+        // Re-register every endpoint-registry key the reactor was
+        // originally registered under (its own name + any back-compat
+        // aliases for bundled-form callers; T-0545 M1 stores these
+        // explicitly on RunningGraph instead of recovering from
+        // declaration.name).
+        for key in &running.endpoint_registry_keys {
+            self.registry
+                .register_reactor(key.clone(), manual_tx.clone(), reactor_shared.clone())
+                .await;
+        }
+
+        // Re-set auth policies after restart
+        let restart_acc_policy = match &running.declaration.tenant_id {
+            Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
+            None => AccumulatorAuthPolicy::allow_all(),
+        };
+        let restart_reactor_policy = match &running.declaration.tenant_id {
+            Some(tid) => ReactorAuthPolicy::for_tenant(tid),
+            None => ReactorAuthPolicy::allow_all(),
+        };
+        for acc_decl in &running.declaration.accumulators {
+            self.registry
+                .set_accumulator_policy(acc_decl.name.clone(), restart_acc_policy.clone())
+                .await;
+        }
+        for key in &running.endpoint_registry_keys {
+            self.registry
+                .set_reactor_policy(key.clone(), restart_reactor_policy.clone())
+                .await;
+        }
+
+        running.shutdown_tx = shutdown_tx;
+        running.shutdown_rx = stored_shutdown_rx;
+        running.boundary_tx = stored_boundary_tx;
+        running.accumulator_handles = new_acc_handles;
+        running.reactor_handle = reactor_handle;
+        running.reactor_shared = reactor_shared;
+        running.reactor_health_rx = Some(reactor_health_rx);
+        running
+            .last_success
+            .insert(format!("{}::reactor", reactor_name), now);
+
+        metrics::counter!(
+            "cloacina_supervisor_restarts_total",
+            "graph" => reactor_name.to_string(),
+            "component" => "reactor",
+            "reason" => reason,
+        )
+        .increment(1);
+        emit_component_health(reactor_name, "reactor", "starting");
+        info!(graph = %reactor_name, "reactor restarted successfully");
+        true
+    }
+
+    /// Phase 3 of [`check_and_restart_failed`]: after the unlocked backoff,
+    /// re-acquire the write lock and respawn a single accumulator in place.
+    ///
+    /// Re-validates before acting — while the lock was released the graph
+    /// may have been unloaded, or the slot replaced by a full-graph restart.
+    /// Returns whether a restart actually happened.
+    async fn restart_accumulator_after_backoff(
+        &self,
+        reactor_name: &str,
+        acc_name: &str,
+        reason: &'static str,
+        now: std::time::Instant,
+    ) -> bool {
+        let mut graphs = self.reactors.write().await;
+        let Some(running) = graphs.get_mut(reactor_name) else {
+            info!(
+                graph = %reactor_name,
+                accumulator = %acc_name,
+                "graph unloaded during restart backoff — skipping accumulator restart"
+            );
+            return false;
+        };
+        // Phase 1 left a finished dummy in this slot. A missing slot or a
+        // live handle means another path (unload, full-graph restart)
+        // already handled it — don't stomp.
+        let Some(slot) = running
+            .accumulator_handles
+            .iter()
+            .position(|(n, h)| n.as_str() == acc_name && h.is_finished())
+        else {
+            info!(
+                graph = %reactor_name,
+                accumulator = %acc_name,
+                "accumulator replaced or removed during restart backoff — skipping restart"
+            );
+            return false;
+        };
+
+        // Find the declaration for this accumulator
+        let Some(factory) = running
+            .declaration
+            .accumulators
+            .iter()
+            .find(|d| d.name == acc_name)
+            .map(|d| d.factory.clone())
+        else {
+            error!(
+                graph = %reactor_name,
+                accumulator = %acc_name,
+                "cannot restart: declaration not found"
+            );
+            running.accumulator_handles.remove(slot);
+            return false;
+        };
+
+        // Re-spawn with the CURRENT boundary_tx and shutdown_rx — the
+        // re-validation above guarantees the slot is still the dead one,
+        // and reading the live fields keeps the respawn wired to whatever
+        // channels the graph has now.
+        let (health_tx, health_rx) = health_channel();
+        let freshness = super::accumulator::FreshnessHandle::new();
+        let spawn_config = AccumulatorSpawnConfig {
+            dal: self.dal.clone(),
+            health_tx: Some(health_tx),
+            graph_name: reactor_name.to_string(),
+            freshness: freshness.clone(),
+        };
+        let (socket_tx, new_handle) = factory.spawn(
+            acc_name.to_string(),
+            running.boundary_tx.clone(),
+            running.shutdown_rx.clone(),
+            spawn_config,
+        );
+
+        // Re-register socket, health, and auth policy in endpoint registry
+        self.registry
+            .register_accumulator(acc_name.to_string(), socket_tx)
+            .await;
+        self.registry
+            .register_accumulator_health(acc_name.to_string(), health_rx)
+            .await;
+        self.registry
+            .register_accumulator_freshness(acc_name.to_string(), freshness)
+            .await;
+        let ind_acc_policy = match &running.declaration.tenant_id {
+            Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
+            None => AccumulatorAuthPolicy::allow_all(),
+        };
+        self.registry
+            .set_accumulator_policy(acc_name.to_string(), ind_acc_policy)
+            .await;
+
+        running
+            .last_success
+            .insert(format!("{}::{}", reactor_name, acc_name), now);
+        running.accumulator_handles[slot].1 = new_handle;
+        metrics::counter!(
+            "cloacina_supervisor_restarts_total",
+            "graph" => reactor_name.to_string(),
+            "component" => acc_name.to_string(),
+            "reason" => reason,
+        )
+        .increment(1);
+        emit_component_health(reactor_name, acc_name, "starting");
+
+        info!(
+            graph = %reactor_name,
+            accumulator = %acc_name,
+            "accumulator restarted individually"
+        );
+
+        // Mark accumulators that are still running as successful
+        for (name, _) in &running.accumulator_handles {
+            let key = format!("{}::{}", reactor_name, name);
+            running.last_success.entry(key).or_insert(now);
+        }
+        true
     }
 
     /// Start a background supervision loop that checks for crashed tasks.

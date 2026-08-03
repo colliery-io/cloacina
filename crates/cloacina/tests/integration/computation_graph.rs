@@ -2014,6 +2014,348 @@ mod resilience_tests {
 
         scheduler.shutdown_all().await;
     }
+
+    /// CLOACI-T-0915 finding 3: the supervisor must NOT hold the reactors
+    /// write lock across its restart-backoff sleeps — list/health reads have
+    /// to stay responsive while a restart is pending.
+    ///
+    /// Loads a graph whose graph_fn panics on every fire (killing the reactor
+    /// task), drives one supervised restart (1s backoff), crashes it again so
+    /// the next backoff is 2s, then — while `check_and_restart_failed` is
+    /// mid-backoff — asserts `list_graphs()` completes well under the backoff
+    /// duration. Before the fix, the read blocked behind the sleeping write
+    /// lock and this timeout fired.
+    #[tokio::test]
+    async fn test_health_reads_responsive_during_restart_backoff() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ComputationGraphScheduler::new(registry.clone()));
+
+        /// Plain passthrough factory — the crash lives in the graph_fn, not
+        /// the accumulator.
+        struct PassthroughFactory;
+
+        impl AccumulatorFactory for PassthroughFactory {
+            fn spawn(
+                &self,
+                name: String,
+                boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>,
+                shutdown_rx: tokio::sync::watch::Receiver<bool>,
+                config: AccumulatorSpawnConfig,
+            ) -> (tokio_mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+                let (socket_tx, socket_rx) = tokio_mpsc::channel(64);
+                let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+                let ctx = AccumulatorContext {
+                    output: sender,
+                    name: name.clone(),
+                    shutdown: shutdown_rx,
+                    checkpoint: None,
+                    health: config.health_tx,
+                };
+                let handle = tokio::spawn(accumulator_runtime(
+                    TestPassthroughAccumulator,
+                    ctx,
+                    socket_rx,
+                    AccumulatorRuntimeConfig::default(),
+                ));
+                (socket_tx, handle)
+            }
+        }
+
+        // A graph_fn that panics on every fire. The panic unwinds through the
+        // in-process executor and the reactor's executor loop, killing the
+        // reactor task — is_finished() goes true and the supervisor sees a
+        // reactor crash.
+        let fires = Arc::new(AtomicU32::new(0));
+        let f = fires.clone();
+        let graph_fn: CompiledGraphFn = Arc::new(move |_cache: InputCache| {
+            let f = f.clone();
+            Box::pin(async move {
+                let n = f.fetch_add(1, Ordering::SeqCst);
+                if n < u32::MAX {
+                    panic!("intentional reactor-killing panic (T-0915 backoff test)");
+                }
+                GraphResult::completed(vec![])
+            })
+        });
+
+        let decl = ComputationGraphDeclaration {
+            name: "t0915_backoff_graph".to_string(),
+            accumulators: vec![AccumulatorDeclaration {
+                name: "t0915_alpha".to_string(),
+                factory: Arc::new(PassthroughFactory),
+            }],
+            reactor: ReactorDeclaration {
+                criteria: ReactionCriteria::WhenAny,
+                strategy: InputStrategy::Latest,
+                graph_fn,
+                constructor: None,
+            },
+            tenant_id: None,
+            reactor_name: None,
+            topology: None,
+        };
+        scheduler.load_graph(decl).await.unwrap();
+
+        async fn crash_reactor(registry: &EndpointRegistry, scheduler: &ComputationGraphScheduler) {
+            registry
+                .send_to_accumulator(
+                    "t0915_alpha",
+                    serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
+                )
+                .await
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                let down = scheduler
+                    .list_graphs()
+                    .await
+                    .iter()
+                    .any(|g| g.name == "t0915_backoff_graph" && !g.running);
+                if down {
+                    return;
+                }
+                if std::time::Instant::now() > deadline {
+                    panic!("timed out waiting for the reactor task to crash");
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }
+
+        // Crash 1 → supervised restart (failure count 1, 1s backoff runs
+        // inside this call).
+        crash_reactor(&registry, &scheduler).await;
+        let mut restarted = 0;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            restarted = scheduler.check_and_restart_failed().await;
+            if restarted >= 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(restarted, 1, "first supervised reactor restart");
+
+        // Crash 2 → next restart backs off for 2s (failure count 2).
+        crash_reactor(&registry, &scheduler).await;
+        let sup_sched = scheduler.clone();
+        let supervisor = tokio::spawn(async move { sup_sched.check_and_restart_failed().await });
+
+        // Let the supervisor take the lock, plan the restart, release the
+        // lock, and enter its 2s backoff sleep.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // The health surface must answer while the backoff is pending.
+        let statuses = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            scheduler.list_graphs(),
+        )
+        .await
+        .expect("list_graphs must not block behind the supervisor's restart backoff (T-0915)");
+        assert!(
+            statuses.iter().any(|g| g.name == "t0915_backoff_graph"),
+            "graph should still be listed while its restart is pending"
+        );
+
+        // The pass itself still completes and restarts the reactor.
+        let restarted = tokio::time::timeout(std::time::Duration::from_secs(10), supervisor)
+            .await
+            .expect("supervisor pass should finish after the backoff")
+            .unwrap();
+        assert_eq!(
+            restarted, 1,
+            "supervisor should restart the crashed reactor after the unlocked backoff"
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    /// CLOACI-T-0915 finding 2: a sequential queue persisted before a crash
+    /// mid-drain must come back on a fresh `Reactor::run` and drain ahead of
+    /// new boundaries, in order.
+    #[tokio::test]
+    async fn test_reactor_restart_restores_sequential_queue() {
+        let dal = test_dal().await;
+        let graph = "t0915_seq_restore";
+
+        // Persist reactor state the way a crash mid-drain leaves it: two
+        // queued boundaries that were never applied to the cache.
+        let cache_entries: std::collections::HashMap<SourceName, Vec<u8>> = Default::default();
+        let dirty: std::collections::HashMap<SourceName, bool> = Default::default();
+        let queued: std::collections::VecDeque<(SourceName, Vec<u8>)> = vec![
+            (
+                SourceName::new("alpha"),
+                serialize(&AlphaData { value: 1.0 }).unwrap(),
+            ),
+            (
+                SourceName::new("alpha"),
+                serialize(&AlphaData { value: 2.0 }).unwrap(),
+            ),
+        ]
+        .into();
+        dal.checkpoint()
+            .save_reactor_state(
+                graph,
+                serde_json::to_vec(&cache_entries).unwrap(),
+                serde_json::to_vec(&dirty).unwrap(),
+                Some(serde_json::to_vec(&queued).unwrap()),
+            )
+            .await
+            .unwrap();
+
+        // Fresh reactor over the same DAL: the restored queue must seed the
+        // sequential executor.
+        let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+        let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let seen: Arc<tokio::sync::Mutex<Vec<f64>>> = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let seen_inner = seen.clone();
+        let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+            let seen = seen_inner.clone();
+            Box::pin(async move {
+                if let Some(Ok(alpha)) = cache.get::<AlphaData>("alpha") {
+                    seen.lock().await.push(alpha.value);
+                }
+                GraphResult::completed(vec![])
+            })
+        });
+
+        let reactor = Reactor::new(
+            graph_fn,
+            ReactionCriteria::WhenAny,
+            InputStrategy::Sequential,
+            boundary_rx,
+            manual_rx,
+            shutdown_rx,
+        )
+        .with_graph_name(graph.to_string())
+        .with_dal(dal.clone());
+        let reactor_handle = tokio::spawn(reactor.run());
+
+        // A sequential drain runs on the next strategy signal; send one live
+        // boundary so the restored items (1.0, 2.0) drain ahead of it.
+        boundary_tx
+            .send((
+                SourceName::new("alpha"),
+                serialize(&AlphaData { value: 3.0 }).unwrap(),
+            ))
+            .await
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while seen.lock().await.len() < 3 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            *seen.lock().await,
+            vec![1.0, 2.0, 3.0],
+            "restored queue items must drain first, in order, before the live boundary"
+        );
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), reactor_handle).await;
+    }
+
+    /// CLOACI-T-0915 finding 2 (dirty flags): persisted dirty flags must
+    /// overlay the expected-source seed on a fresh `Reactor::run`, so a
+    /// WhenAll graph that had seen `alpha` before the crash fires when only
+    /// `beta` arrives in the new life. A stale flag for a source that is no
+    /// longer expected must be dropped (it would otherwise wedge `all_set()`
+    /// forever).
+    #[tokio::test]
+    async fn test_reactor_restart_restores_dirty_flags() {
+        let dal = test_dal().await;
+        let graph = "t0915_dirty_restore";
+
+        // Persisted state from the previous life: alpha had arrived (cache
+        // entry + dirty flag) while WhenAll still waited on beta. The unset
+        // "gone" flag simulates a de-scoped source and must NOT be overlaid.
+        let mut cache_entries: std::collections::HashMap<SourceName, Vec<u8>> = Default::default();
+        cache_entries.insert(
+            SourceName::new("alpha"),
+            serialize(&AlphaData { value: 4.0 }).unwrap(),
+        );
+        let mut dirty: std::collections::HashMap<SourceName, bool> = Default::default();
+        dirty.insert(SourceName::new("alpha"), true);
+        dirty.insert(SourceName::new("gone"), false);
+        dal.checkpoint()
+            .save_reactor_state(
+                graph,
+                serde_json::to_vec(&cache_entries).unwrap(),
+                serde_json::to_vec(&dirty).unwrap(),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+        let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let fires = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let fires_inner = fires.clone();
+        let captured: Arc<tokio::sync::Mutex<Option<InputCache>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+        let captured_inner = captured.clone();
+        let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+            let fires = fires_inner.clone();
+            let captured = captured_inner.clone();
+            Box::pin(async move {
+                fires.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                *captured.lock().await = Some(cache.clone());
+                GraphResult::completed(vec![])
+            })
+        });
+
+        let reactor = Reactor::new(
+            graph_fn,
+            ReactionCriteria::WhenAll,
+            InputStrategy::Latest,
+            boundary_rx,
+            manual_rx,
+            shutdown_rx,
+        )
+        .with_graph_name(graph.to_string())
+        .with_expected_sources(vec![SourceName::new("alpha"), SourceName::new("beta")])
+        .with_dal(dal.clone());
+        let reactor_handle = tokio::spawn(reactor.run());
+
+        // Only beta arrives in this life. WhenAll can fire ONLY because
+        // alpha's dirty flag was restored from the checkpoint.
+        boundary_tx
+            .send((
+                SourceName::new("beta"),
+                serialize(&AlphaData { value: 5.0 }).unwrap(),
+            ))
+            .await
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while fires.load(std::sync::atomic::Ordering::SeqCst) < 1
+            && std::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            fires.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "WhenAll should fire on beta alone because alpha's dirty flag was restored"
+        );
+
+        let snapshot = captured.lock().await;
+        let cache = snapshot.as_ref().expect("fire should capture the cache");
+        assert_eq!(
+            cache.get::<AlphaData>("alpha").unwrap().unwrap().value,
+            4.0,
+            "restored cache should carry alpha from the previous life"
+        );
+        assert!(cache.has("beta"), "live beta boundary should be cached");
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), reactor_handle).await;
+    }
 } // mod resilience_tests
 
 // =============================================================================
