@@ -42,6 +42,52 @@ jobs:
     uses: ./.github/workflows/examples-docs.yml
 
   # -----------------------------------------------------------------------
+  # Constructor provider suite (CLOACI-T-0917)
+  #
+  # The 14 feature-gated test targets (constructors-wasm implies
+  # constructor-packaging) previously ran in NO lane — only wave-day certify
+  # exercised the path. Nightly (not per-PR): the tail targets compile
+  # fixture crates inside the tests (wasm components + native cdylibs),
+  # which blew the per-PR time budget in local measurement. This workflow is
+  # also the release gate (unified_release.yml calls it), so the suite is
+  # release-blocking.
+  #
+  # The packaging path shells out to `cargo build --target wasm32-wasip2`
+  # on the fixture crates under examples/constructor-contract (and builds
+  # host cdylibs for the native provider fixtures under providers/), so the
+  # wasm target must be installed. Targets are scoped ('*constructor*' +
+  # provider_bundle) because an unscoped `cargo test -p cloacina` would also
+  # run the postgres-backed `fixtures` target, which needs a live DB this
+  # job doesn't have.
+  # -----------------------------------------------------------------------
+
+  constructor-suite:
+    name: Constructor Suite (wasm + packaging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust (with wasm32-wasip2)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-constructor-suite"
+
+      - name: Install PostgreSQL dev libraries
+        # cloacina's default features include postgres → links libpq.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Run constructor suite
+        run: cargo test -p cloacina --features constructors-wasm --test '*constructor*' --test provider_bundle
+
+  # -----------------------------------------------------------------------
   # Code coverage — cargo-tarpaulin on cloacina core
   # -----------------------------------------------------------------------
 
@@ -321,7 +367,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -385,7 +431,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
     if: success()
     runs-on: ubuntu-latest
     permissions:
@@ -433,7 +479,7 @@ jobs:
 
   prune-caches:
     name: Prune Stale Caches
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
     if: always()
     runs-on: ubuntu-latest
     permissions:

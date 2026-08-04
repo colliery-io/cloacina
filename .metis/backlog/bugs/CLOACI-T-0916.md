@@ -4,7 +4,7 @@ level: task
 title: "Server HA truthfulness — in-memory agent roster and WS tickets contradict the chart HA claim"
 short_code: "CLOACI-T-0916"
 created_at: 2026-08-02T16:33:28.701827+00:00
-updated_at: 2026-08-02T23:13:55.174712+00:00
+updated_at: 2026-08-04T01:22:06.237472+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -46,13 +46,12 @@ Fix options (choose per component): move roster + tickets to DB rows (both are t
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] Agent heartbeats + selection correct behind a round-robin LB with 2 replicas (or chart hard-documents affinity and refuses/warns on replicas>1 without it)
-- [ ] WS tickets redeemable on any replica (or same affinity gate)
-- [ ] A crashed CG no longer fails /ready platform-wide; its state is visible via health routes
-- [ ] docs service/explanation/horizontal-scaling.md updated to the resulting truth
+- [x] Agent roster DB-backed (045_create_fleet_agents: upsert-register, CAS heartbeat, recency-filtered list_live, exactly-once CAS-delete sweep); all cross-replica reads converted; two-DAL-handle tests prove selection/reclaim see other replicas' agents
+- [x] WS tickets DB-backed (044_create_ws_tickets, LoginFlowStore pattern; atomic CAS redeem); cross-replica redeem + 8-concurrent-redeemers-exactly-one-wins tests
+- [x] /ready platform-scoped; crashed CG stays visible via /v1/health/graphs (test: /ready 200 with crashed graph listed)
+- [x] horizontal-scaling.md (+ api-server, kubernetes how-tos) updated; residual affinity STATED (key-pool self-heal for secret dispatch; reactive placement = T-0851)
 
 ## Status Updates
 
 - 2026-08-02: Filed from the architecture deep dive (control-plane report; DEEPDIVE.md risk register). Verified against main @ 5216e632.
+- 2026-08-03: DONE — merged to main in PR #231 (squash). Key verification that shaped the design: work packets already ride the delivery outbox and NoRoute leaves rows pending for the socket-holding replica (A-0006) — dispatch never needed affinity; the fix was reads-only. Deliberately replica-local: capacity snapshot for sync TaskExecutor trait methods; D-5 one-time key pools (now self-establishing on every replica via full-deficit reporting). Landing frictions worth remembering: the /ready reword changed the OpenAPI spec (spec-check gate) AND the generated TS client types (check:generated gate) — both regen steps are mandatory for any route-annotation change; and an unverified emit redirect truncated openapi.json to zero bytes once (always verify emitted artifacts before committing).

@@ -44,6 +44,7 @@ jobs:
       charts: ${{ steps.filter.outputs.charts }}
       api: ${{ steps.filter.outputs.api }}
       ui: ${{ steps.filter.outputs.ui }}
+      scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - uses: actions/checkout@v4
 
@@ -60,6 +61,20 @@ jobs:
               - 'crates/cloacina-testing/**'
               - 'crates/cloacina-workflow/**'
               - 'crates/cloacina-workflow-plugin/**'
+              # CLOACI-T-0917: these crates + the python surfaces were absent —
+              # a PR touching only them ran ZERO test lanes. Server lib/auth
+              # tests run in the integration lane (cloacina.yml), and the
+              # python bindings/scenarios/client are exercised by
+              # `angreal test integration`, so all of these must reach the
+              # reusable test matrix.
+              - 'crates/cloacina-agent/**'
+              - 'crates/cloacina-client/**'
+              - 'crates/cloacina-compiler/**'
+              - 'crates/cloacina-constructor-contract/**'
+              - 'crates/cloacina-python/**'
+              - 'crates/cloacina-server/**'
+              - 'tests/python/**'
+              - 'clients/python/**'
               - 'Cargo.*'
               - 'rust-toolchain.toml'
             workflows:
@@ -89,15 +104,21 @@ jobs:
               - 'ui/**'
               - 'clients/typescript/**'
               - 'docs/static/openapi.json'
+            # CLOACI-T-0917: CI guard scripts (credential-logging, version
+            # lockstep, publish tiers) must at minimum re-run quick-checks
+            # when they change.
+            scripts:
+              - 'scripts/**'
 
-  # Quick gate - only runs if code, harness, or workflows changed
+  # Quick gate - only runs if code, harness, scripts, or workflows changed
   quick-checks:
     name: Quick Checks
     needs: changes
     if: |
       needs.changes.outputs.rust == 'true' ||
       needs.changes.outputs.workflows == 'true' ||
-      needs.changes.outputs.harness == 'true'
+      needs.changes.outputs.harness == 'true' ||
+      needs.changes.outputs.scripts == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -120,6 +141,17 @@ jobs:
 
       - name: Credential-logging guard (OPS-03 / T-0443)
         run: python3 scripts/check_credential_logging.py
+
+      # CLOACI-T-0917: version lockstep was pre-commit-only (one --no-verify
+      # from drift reaching main). Stdlib-only script, no build needed.
+      - name: Version lockstep (single source of truth)
+        run: python3 .angreal/version_lockstep.py check
+
+      # CLOACI-T-0917: the hand-maintained crates.io publish tiers in
+      # unified_release.yml must cover every publishable workspace crate
+      # exactly once (0.10.0 postmortem 8961abb5 — two crates missing).
+      - name: Publish-tier completeness (unified_release.yml)
+        run: python3 scripts/check_publish_tiers.py
 
       - name: Check formatting
         run: cargo fmt --all -- --check

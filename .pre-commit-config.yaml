@@ -40,8 +40,10 @@ repos:
         pass_filenames: false
       # CLOACI-I-0134: single source of version truth. Fails if any core
       # version touchpoint (Rust workspace, npm, python, scaffold pin) has
-      # drifted from [workspace.package] version. CI runs pre-commit, so drift
-      # cannot reach main. `language: python` uses a pre-commit-managed
+      # drifted from [workspace.package] version. CI does NOT run pre-commit;
+      # the server-side enforcement is the same script run directly in ci.yml
+      # quick-checks (CLOACI-T-0917) — this hook is the fast local feedback.
+      # `language: python` uses a pre-commit-managed
       # interpreter (stdlib-only script) so it never depends on the ambient
       # python. Providers under examples/ are independently versioned (A-0010)
       # and deliberately excluded.
