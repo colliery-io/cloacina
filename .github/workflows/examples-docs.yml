@@ -129,6 +129,10 @@ jobs:
         with:
           compose-file: ".angreal/docker-compose.yaml"
 
+      # CLOACI-T-0917: retries kept deliberately — this leg runs a real docker
+      # stack + crates.io fetches, so INFRA flake tolerance is still warranted.
+      # Remove the retry wrapper if/when a run history shows attempts>1 is
+      # never what saves the leg (retries can mask real product flakes).
       - name: Run tutorial ${{ matrix.tutorial }}
         uses: nick-fields/retry@v3
         with:
@@ -238,6 +242,10 @@ jobs:
         with:
           compose-file: ".angreal/docker-compose.yaml"
 
+      # CLOACI-T-0917: retries kept deliberately — every example leg boots a
+      # real docker stack, so INFRA flake tolerance is still warranted. Remove
+      # the retry wrapper if/when a run history shows attempts>1 is never what
+      # saves the leg (retries can mask real product flakes).
       - name: Run ${{ matrix.example }} example
         uses: nick-fields/retry@v3
         with:
@@ -253,7 +261,9 @@ jobs:
     name: Python Tutorial Tests
     needs: [build-cache]
     timeout-minutes: 30
-    continue-on-error: true
+    # CLOACI-T-0917: continue-on-error: true removed — it dated from the
+    # PyO3/tokio GIL flake era; post-I-0140 that flake class is closed, so
+    # python tutorial failures must fail CI like every other lane.
     strategy:
       fail-fast: false
       matrix:
@@ -363,6 +373,11 @@ jobs:
         with:
           compose-file: ".angreal/docker-compose.yaml"
 
+      # CLOACI-T-0917: retries kept deliberately — the postgres legs run a
+      # real docker stack and every leg fetches deps, so INFRA flake tolerance
+      # is still warranted. Now that continue-on-error is gone this retry is
+      # the ONLY tolerance channel on this lane; remove it if/when run history
+      # shows attempts>1 is never what saves the leg.
       - name: Run Python tutorial ${{ matrix.tutorial }} (${{ matrix.backend }})
         uses: nick-fields/retry@v3
         with:

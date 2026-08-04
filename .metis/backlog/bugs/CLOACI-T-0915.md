@@ -4,7 +4,7 @@ level: task
 title: "CG runtime defects — CEL tenant stub, sequential-queue restore, lock-held supervisor backoff"
 short_code: "CLOACI-T-0915"
 created_at: 2026-08-02T16:33:18.144884+00:00
-updated_at: 2026-08-02T22:23:04.124639+00:00
+updated_at: 2026-08-03T01:32:47.536198+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -45,12 +45,11 @@ Related but tracked elsewhere: cross-replica reactive state is T-0851; the crash
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] Predicate referencing `tenant` matches the firing tenant (test with two tenants: one matches, one skips)
-- [ ] Reactor restart after crash restores seq queue + dirty flags (or persistence removed + docs state ephemerality)
-- [ ] Health endpoints respond during a forced restart-backoff storm (test holds a failing reactor and asserts /v1/health/graphs latency)
+- [x] Predicate referencing `tenant` matches the firing tenant (cel_predicate_tenant_binds_real_tenant_id: match, non-match, and stub-value-no-longer-matches)
+- [x] Reactor restart restores seq queue + dirty flags (test_reactor_restart_restores_sequential_queue: restored items drain first in order; test_reactor_restart_restores_dirty_flags: WhenAll fires from restored flag, stale de-scoped flag not overlaid)
+- [x] Health reads responsive during restart backoff (test_health_reads_responsive_during_restart_backoff: <500ms mid-backoff vs ~1.5s blocked before)
 
 ## Status Updates
 
 - 2026-08-02: Filed from the architecture deep dive (cg-runtime report; DEEPDIVE.md risk register). Findings verified against main @ 5216e632.
+- 2026-08-02: DONE — merged to main in PR #230 (squash). (1) tenant threaded from the subscription row through evaluate_predicate into the CEL context. (2) Both persisted states now restore: seq queue seeds the executor VecDeque; dirty flags overlay the expected-source seed, only for sources still expected (stale flag cannot wedge all_set). (3) check_and_restart_failed restructured to plan-under-lock -> classify/record/sleep unlocked -> re-acquire per restart with re-validation (entry unloaded or live handle installed while unlocked -> skip); restart bodies verbatim. Intended nuance: crashes during another component's backoff wait for the next supervision tick. NOT done here (deliberate): the load-time lint for unbound predicate variables (finding 1 'consider') and the CEL-error watermark/dead-letter behavior — that is DEEPDIVE register #5, still unticketed as its own item.

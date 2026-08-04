@@ -4,15 +4,15 @@ level: task
 title: "Installer and packaging leftovers — root install.sh 404s Intel macs, stale sandbox comments, dead code"
 short_code: "CLOACI-T-0918"
 created_at: 2026-08-02T16:33:41.487632+00:00
-updated_at: 2026-08-02T16:33:41.487632+00:00
+updated_at: 2026-08-04T01:08:07.306953+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -42,6 +42,10 @@ Sweep the small concrete leftovers the deep dive found in installers and the pac
 5. Unload rejection (bound-subscriber guard) drops the scheduler tracking state for the rejected package, and a partial load can orphan cron schedules — both leave operator-visible ghosts. Add cleanup on the rejection path and a partial-load rollback for schedules.
 6. COMPILER AMBIENT ENV LEAK (DEEPDIVE register #11): post-sandbox-excision, compile-phase build.rs/proc-macros inherit the compiler's FULL environment including DATABASE_URL — the cargo spawn does no env_clear. Fix: env_clear + an explicit allowlist (PATH, CARGO_HOME, RUSTUP_HOME, TMPDIR, the injected build wiring vars) on the cargo Command. Cheap, and removes the sharpest edge of the accepted no-sandbox posture.
 7. --cargo-flag REPLACES the entire default flag list including --frozen --offline (a single override silently re-enables network during the compile phase). Fix: make --cargo-flag additive; keep a separate explicit --cargo-flags-replace escape hatch for the rare full-override case.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

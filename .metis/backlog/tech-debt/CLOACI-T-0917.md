@@ -4,15 +4,15 @@ level: task
 title: "CI verification-lattice holes — path filters, constructor suite, server-side lockstep, publish tiers"
 short_code: "CLOACI-T-0917"
 created_at: 2026-08-02T16:33:33.333322+00:00
-updated_at: 2026-08-02T16:33:33.333322+00:00
+updated_at: 2026-08-04T01:06:09.137022+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,6 +40,10 @@ Close the verification-lattice blind spots found by the 2026-08-02 deep dive. Pa
 3. LOCKSTEP IS CLIENT-SIDE ONLY: scripts/version_lockstep.py (cargo pins, 3 npm, python client, scaffold, 3 helm appVersions) runs only in pre-commit; no workflow runs pre-commit, and check_sdk_versions.py (what CI/release actually run) omits helm/scaffold/cargo pins. The pre-commit comment claiming "CI runs pre-commit, so drift cannot reach main" is false — the exact incident the check commemorates (charts drifted four minors) can recur through one --no-verify. Fix: run version_lockstep.py in ci.yml quick-checks.
 4. HAND-MAINTAINED PUBLISH TIERS: the 0.10.0 postmortem (8961abb5) was two crates missing from hand-maintained tier lists + a zombie job; no check verifies tier completeness against the workspace. Fix: generate tiers from cargo metadata (publish=true set) or add a tier-completeness assertion to CI.
 5. Quieter tolerance channels to revisit deliberately: 3x retry wrappers on every examples-matrix leg and `continue-on-error: true` on the python-tutorials job — decide which are still warranted post-I-0140 and document the ones that stay.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

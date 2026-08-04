@@ -4,15 +4,15 @@ level: task
 title: "Independent provider release path — publish/tag first-party providers on their own cadence (not core's v* tag)"
 short_code: "CLOACI-T-0872"
 created_at: 2026-07-08T11:43:21.080493+00:00
-updated_at: 2026-07-31T05:39:49.412122+00:00
-parent:
+updated_at: 2026-08-01T17:55:04.851680+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,8 @@ Design + build a release path for first-party providers that lets them publish/t
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -165,6 +167,16 @@ Design + build a release path for first-party providers that lets them publish/t
 - First wave is the plumbing shakedown: expect crates.io first-publish quirks (mirror the core train's soft-fail handling).
 
 ## Status Updates **[REQUIRED]**
+
+### 2026-08-01 — WAVE 2 SUCCESS: both providers LIVE on crates.io. Task complete.
+
+`providers-v2026.08.2` (after the #223 shakedown fixes): **full green** — kafka certified (signed native package, 3/3 real broker messages, published core) and PUBLISHED; fs certified (3/3 grant cases) and PUBLISHED. Verified live on crates.io: `cloacina-provider-kafka 0.1.0` + `cloacina-provider-fs 0.1.0`. Wave release notes truthful; compat table (wave 2026.08.2) merged via #224.
+
+Inaugural-wave (providers-v2026.08) postmortem — all fixed in #223: missing crates.io metadata (description/license) on both manifests (kafka rejected 400); the publish step's tee-masked exit code let that 400 go GREEN and record a false published claim (release deleted; now PIPESTATUS like the core train, whose comments document this exact trap); fs certify carried pre-#220 drift from a stale-origin/main branch cut (memory rule banked). Per-provider atomicity + certification worked perfectly on both waves.
+
+**Ops note:** the wave's `gh pr create` under GITHUB_TOKEN is blocked until "Allow GitHub Actions to create pull requests" is enabled in repo settings — the compat branch pushes fine; the PR needed manual opening. Flip the setting or keep the manual step.
+
+All six acceptance criteria met. Server-compiled workflows can now depend on both first-party providers.
 
 ### 2026-07-31 — BUILD-OUT COMPLETE (branch feat/t0872-provider-waves); BOTH providers certified locally
 
