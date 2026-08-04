@@ -146,7 +146,7 @@ evidence the defaults are wrong.
 | `--heartbeat-interval-s` | `10` | Heartbeat refresh cadence while a build is in flight. |
 | `--stale-threshold-s` | `60` | If `build_claimed_at` is older than this, the sweeper resets the row to `pending`. Should be ≥ 3× `--heartbeat-interval-s`. |
 | `--sweep-interval-s` | `30` | How often the sweeper checks for stale rows. |
-| `--cargo-flag` | `build --release --lib` | Repeatable. Override for debug builds, custom features, etc. |
+| `--cargo-flag` | appends to `build --release --lib --frozen --offline` | Repeatable. Extra flags for custom features etc.; `--cargo-flags-replace` is the explicit full-override escape hatch (e.g. debug/online builds). |
 | `--bind` | `127.0.0.1:9000` | Local `/health`, `/v1/status`, and `/metrics` endpoint. |
 | `tmp_root` (env / config) | `$CLOACINA_HOME/build-tmp` | Where source archives are unpacked during builds. |
 | `--log-retention-days` | `7` | Per I-0109; rotates compiler structured logs. |

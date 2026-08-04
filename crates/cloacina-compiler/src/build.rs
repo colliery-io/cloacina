@@ -753,12 +753,15 @@ fn inject_dev_patch(source_dir: &Path, workspace: &Path) {
     }
 }
 
-/// Phase 1 of the two-phase build (CLOACI-T-0887): `cargo fetch`, OUTSIDE the
-/// sandbox. Fetch only resolves the dependency graph and downloads crates —
-/// no build scripts or proc-macros execute — so it may safely use the network
-/// and a writable `CARGO_HOME`. Phase 2 (`cargo build --offline`) then runs
-/// the untrusted code fully sandboxed with the network cut. Fetch also writes
-/// the `Cargo.lock` phase 2 builds against, so the two phases see one graph.
+/// Phase 1 of the two-phase build (CLOACI-T-0887): `cargo fetch`. Fetch only
+/// resolves the dependency graph and downloads crates — no build scripts or
+/// proc-macros execute — so it may safely use the network and a writable
+/// `CARGO_HOME`. Phase 2 (`cargo build --offline`) is where package code
+/// (build.rs / proc-macros) runs. There is no process sandbox around phase 2
+/// (the I-0105 bwrap/landlock sandbox was excised 2026-07-11; tenant-level
+/// isolation is the security boundary) — but `--offline` keeps cargo itself
+/// from resolving anything the fetch didn't pin. Fetch also writes the
+/// `Cargo.lock` phase 2 builds against, so the two phases see one graph.
 async fn run_cargo_fetch(
     package_id: uuid::Uuid,
     source_dir: &Path,
@@ -767,7 +770,7 @@ async fn run_cargo_fetch(
     const MAX_ERR: usize = 16 * 1024;
     tracing::info!(
         package_id = %package_id,
-        "two-phase build: cargo fetch (trusted, unsandboxed — no package code runs)"
+        "two-phase build: cargo fetch (no package code runs in this phase)"
     );
     let mut cmd = tokio::process::Command::new("cargo");
     cmd.arg("fetch")
@@ -837,6 +840,11 @@ async fn cargo_build(
     tracing::info!(package_id = %package_id, "spawning build");
 
     let mut cmd = tokio::process::Command::new("cargo");
+    // CLOACI-T-0918: untrusted build.rs / proc-macro code runs in this child,
+    // so it must NOT inherit the compiler's ambient environment (which holds
+    // DATABASE_URL among other secrets). Clear it and pass only the allowlist;
+    // the deliberate build-wiring vars are re-injected explicitly below.
+    apply_compile_env(&mut cmd);
     cmd.args(&config.cargo_flags);
     if !operator_offline {
         // Phase 2 of the two-phase build: the fetch above resolved + pinned
@@ -1055,6 +1063,49 @@ fn read_cargo_package_name(source_dir: &Path) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
+// CLOACI-T-0918: cleared environment + allowlist for the compile-phase child
+// ---------------------------------------------------------------------------
+
+/// Environment variables the compile-phase cargo child may inherit from the
+/// compiler process. Everything else is dropped via `env_clear` — with the
+/// I-0105 process sandbox excised (2026-07-11), untrusted `build.rs` /
+/// proc-macro code runs with the compiler's own OS privileges, so the ambient
+/// environment (`DATABASE_URL`, credentials, etc.) must never reach it.
+///
+/// Deliberate build-wiring vars (`CARGO_TARGET_DIR`, `CARGO_HOME` via
+/// `--vendor-dir`, `CARGO_PROFILE_DEV_DEBUG`) are injected explicitly by
+/// `cargo_build` after this allowlist is applied.
+const COMPILE_ENV_ALLOWLIST: &[&str] = &[
+    // Locate cargo/rustc/cc and friends.
+    "PATH",
+    // cargo/rustup fall back to ~/.cargo and ~/.rustup via HOME.
+    "HOME",
+    // Operator-pinned toolchain/registry locations.
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+    // Scratch space + terminal niceties.
+    "TMPDIR",
+    "TERM",
+    // Operator override for debuginfo level (see the line-tables-only
+    // default below — the is_none() check reads the parent env, so the
+    // parent's value must also pass through when set).
+    "CARGO_PROFILE_DEV_DEBUG",
+];
+
+/// Apply the cleared-env + allowlist posture to a cargo child `Command`.
+/// Factored out of `cargo_build` so tests can assert the resulting child
+/// environment (e.g. that `DATABASE_URL` is absent).
+fn apply_compile_env(cmd: &mut tokio::process::Command) {
+    cmd.env_clear();
+    for key in COMPILE_ENV_ALLOWLIST {
+        if let Some(val) = std::env::var_os(key) {
+            cmd.env(key, val);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CLOACI-T-0575: setrlimit hook on the cargo subprocess (Linux only)
 // ---------------------------------------------------------------------------
 
@@ -1219,6 +1270,54 @@ mod tests {
             }
             other => panic!("expected BuildError::TimedOut, got {other:?}"),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0918: compile-phase env_clear + allowlist
+    // -----------------------------------------------------------------------
+
+    /// The compile-phase child must not see ambient secrets: `env_clear` +
+    /// allowlist means `DATABASE_URL` set in the compiler's own environment
+    /// never reaches the spawned process, while `PATH` still passes through.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn compile_env_clears_ambient_database_url() {
+        std::env::set_var("DATABASE_URL", "postgres://user:secret@host/db");
+
+        let mut cmd = tokio::process::Command::new("env");
+        apply_compile_env(&mut cmd);
+        let out = cmd.output().await.expect("spawn `env`");
+        assert!(out.status.success(), "`env` exited nonzero");
+        let printed = String::from_utf8_lossy(&out.stdout);
+
+        assert!(
+            !printed.contains("DATABASE_URL"),
+            "DATABASE_URL leaked into the compile-phase child env:\n{printed}"
+        );
+        assert!(
+            printed.lines().any(|l| l.starts_with("PATH=")),
+            "PATH must pass through the allowlist:\n{printed}"
+        );
+
+        std::env::remove_var("DATABASE_URL");
+    }
+
+    /// Allowlisted vars present in the parent env pass through unchanged.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn compile_env_passes_allowlisted_vars_through() {
+        std::env::set_var("CARGO_PROFILE_DEV_DEBUG", "0");
+
+        let mut cmd = tokio::process::Command::new("env");
+        apply_compile_env(&mut cmd);
+        let out = cmd.output().await.expect("spawn `env`");
+        let printed = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            printed.lines().any(|l| l == "CARGO_PROFILE_DEV_DEBUG=0"),
+            "allowlisted CARGO_PROFILE_DEV_DEBUG must pass through:\n{printed}"
+        );
+
+        std::env::remove_var("CARGO_PROFILE_DEV_DEBUG");
     }
 
     // -----------------------------------------------------------------------

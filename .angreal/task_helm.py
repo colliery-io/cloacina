@@ -323,15 +323,15 @@ spec:
             # sides pointed at the same dir.
             - "--cargo-target-dir"
             - "/workspace/target"
-            # `--cargo-flag=<v>` (equals form) — clap won't take a hyphen-led
-            # value in the two-token form, so `--cargo-flag --release` is
-            # parsed as a (bogus) --release flag. The `=` assigns verbatim.
-            # This set REPLACES the default `build --release --lib --frozen
-            # --offline` (main.rs:73), dropping the offline posture for the
-            # in-cluster online build (kind pods have egress).
-            - "--cargo-flag=build"
-            - "--cargo-flag=--release"
-            - "--cargo-flag=--lib"
+            # `--cargo-flags-replace=<v>` (equals form) — clap won't take a
+            # hyphen-led value in the two-token form, so the `=` assigns
+            # verbatim. This is the explicit FULL OVERRIDE of the default
+            # `build --release --lib --frozen --offline` list (T-0918),
+            # dropping the offline posture for the in-cluster online build
+            # (kind pods have egress). Plain `--cargo-flag` appends instead.
+            - "--cargo-flags-replace=build"
+            - "--cargo-flags-replace=--release"
+            - "--cargo-flags-replace=--lib"
           env:
             - name: DATABASE_URL
               value: "{db}"

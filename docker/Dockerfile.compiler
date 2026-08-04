@@ -16,13 +16,14 @@
 # Profile: the fleet's server + agent images are RELEASE builds, and fidius's
 # wire format depends on the profile (debug=JSON, release=bincode). The cdylib
 # the compiler emits is dlopened by the (release) agent, so it MUST be built
-# release too. The deployment passes `--cargo-flag build --cargo-flag --release
-# --cargo-flag --lib` (online; kind pods have egress, so no vendor dir needed —
-# this drops the default `--frozen --offline` SEC-06 posture for the test).
+# release too. The deployment passes `--cargo-flags-replace=build
+# --cargo-flags-replace=--release --cargo-flags-replace=--lib` (online; kind
+# pods have egress, so no vendor dir needed — the explicit full-override drops
+# the default `--frozen --offline` SEC-06 posture for the test).
 #
 # Build:   docker build -t cloacina-compiler:dev -f docker/Dockerfile.compiler .
 # Run:     docker run --rm -e DATABASE_URL=postgres://... cloacina-compiler:dev \
-#            --bind 0.0.0.0:9000 --cargo-flag build --cargo-flag --release --cargo-flag --lib
+#            --bind 0.0.0.0:9000 --cargo-flags-replace=build --cargo-flags-replace=--release --cargo-flags-replace=--lib
 
 ARG RUST_VERSION=1.94
 

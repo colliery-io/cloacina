@@ -16,138 +16,23 @@
 
 //! Integration tests for packaged trigger round-trip.
 //!
-//! Tests that trigger definitions in Manifest are correctly:
-//! - Validated via `Manifest::validate()`
+//! Tests that triggers are correctly:
 //! - Registered/deregistered in the global trigger registry
 //! - Discovered for Python packages via `@cloaca.trigger`
+//!
+//! (CLOACI-T-0918: the `Manifest` schema fixtures + validation tests that
+//! used to live here were deleted along with the test-only
+//! `packaging::manifest_schema` module — shipped packages carry
+//! `package.toml`, not that `manifest.json` format.)
 
-use chrono::Utc;
 use serial_test::serial;
 
-use cloacina::packaging::{
-    Manifest, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime, TaskDefinition,
-    TriggerDefinition,
-};
 // The `Trigger` trait + its associated error/result types live in
 // cloacina-workflow (the leaf crate that packaged cdylibs depend on).
 // `cloacina::trigger::TriggerError` is the *engine-side* error, broader
 // than the trait error. Implementations of `Trigger` MUST use the
 // leaf-crate variant.
 use cloacina_workflow::{Trigger, TriggerError, TriggerResult};
-
-fn rust_manifest_with_triggers() -> Manifest {
-    Manifest {
-        format_version: "2".to_string(),
-        package: PackageInfo {
-            name: "trigger-test-pkg".to_string(),
-            version: "0.1.0".to_string(),
-            description: Some("Test package with triggers".to_string()),
-            fingerprint: "sha256:test".to_string(),
-            targets: vec!["linux-x86_64".to_string(), "macos-arm64".to_string()],
-        },
-        language: PackageLanguage::Rust,
-        python: None,
-        rust: Some(RustRuntime {
-            library_path: "lib/libtrigger_test.so".to_string(),
-        }),
-        tasks: vec![TaskDefinition {
-            id: "process".to_string(),
-            function: "execute_task".to_string(),
-            dependencies: vec![],
-            description: Some("Process data".to_string()),
-            retries: 0,
-            timeout_seconds: None,
-        }],
-        triggers: vec![
-            TriggerDefinition {
-                name: "file_watcher".to_string(),
-                trigger_type: "rust".to_string(),
-                workflow: "trigger-test-pkg".to_string(),
-                poll_interval: "5s".to_string(),
-                allow_concurrent: false,
-                config: Some(serde_json::json!({"path": "/inbox/"})),
-            },
-            TriggerDefinition {
-                name: "api_poller".to_string(),
-                trigger_type: "http_poll".to_string(),
-                workflow: "trigger-test-pkg".to_string(),
-                poll_interval: "1m".to_string(),
-                allow_concurrent: true,
-                config: Some(serde_json::json!({"url": "https://example.com/status"})),
-            },
-        ],
-        created_at: Utc::now(),
-        signature: None,
-    }
-}
-
-#[allow(dead_code)]
-fn rust_manifest_no_triggers() -> Manifest {
-    Manifest {
-        format_version: "2".to_string(),
-        package: PackageInfo {
-            name: "no-trigger-pkg".to_string(),
-            version: "1.0.0".to_string(),
-            description: None,
-            fingerprint: "sha256:def".to_string(),
-            targets: vec!["linux-x86_64".to_string()],
-        },
-        language: PackageLanguage::Rust,
-        python: None,
-        rust: Some(RustRuntime {
-            library_path: "lib/libworkflow.so".to_string(),
-        }),
-        tasks: vec![TaskDefinition {
-            id: "task1".to_string(),
-            function: "execute_task".to_string(),
-            dependencies: vec![],
-            description: None,
-            retries: 0,
-            timeout_seconds: None,
-        }],
-        triggers: vec![],
-        created_at: Utc::now(),
-        signature: None,
-    }
-}
-
-#[allow(dead_code)]
-fn python_manifest_with_trigger() -> Manifest {
-    Manifest {
-        format_version: "2".to_string(),
-        package: PackageInfo {
-            name: "py-trigger-pkg".to_string(),
-            version: "0.1.0".to_string(),
-            description: None,
-            fingerprint: "sha256:pytrig".to_string(),
-            targets: vec!["linux-x86_64".to_string(), "macos-arm64".to_string()],
-        },
-        language: PackageLanguage::Python,
-        python: Some(PythonRuntime {
-            requires_python: ">=3.10".to_string(),
-            entry_module: "workflow.tasks".to_string(),
-        }),
-        rust: None,
-        tasks: vec![TaskDefinition {
-            id: "process".to_string(),
-            function: "workflow.tasks:process".to_string(),
-            dependencies: vec![],
-            description: None,
-            retries: 0,
-            timeout_seconds: None,
-        }],
-        triggers: vec![TriggerDefinition {
-            name: "check_inbox".to_string(),
-            trigger_type: "python".to_string(),
-            workflow: "py-trigger-pkg".to_string(),
-            poll_interval: "30s".to_string(),
-            allow_concurrent: false,
-            config: None,
-        }],
-        created_at: Utc::now(),
-        signature: None,
-    }
-}
 
 /// A simple test trigger for registry round-trip tests.
 #[derive(Debug, Clone)]
@@ -343,49 +228,4 @@ async fn python_trigger_poll_returns_result() {
     // Verify context was passed through
     let context = result.into_context().unwrap();
     assert_eq!(context.get("key").unwrap(), &serde_json::json!("value"));
-}
-
-// ---------------------------------------------------------------------------
-// Tests — manifest validation with triggers
-// ---------------------------------------------------------------------------
-
-#[test]
-fn manifest_with_triggers_validates_successfully() {
-    let manifest = rust_manifest_with_triggers();
-    assert!(manifest.validate().is_ok());
-}
-
-#[test]
-fn manifest_trigger_referencing_package_name_is_valid() {
-    let manifest = rust_manifest_with_triggers();
-    // triggers reference "trigger-test-pkg" which is the package name
-    assert!(manifest.validate().is_ok());
-}
-
-#[test]
-fn manifest_trigger_referencing_task_id_is_valid() {
-    let mut manifest = rust_manifest_with_triggers();
-    manifest.triggers[0].workflow = "process".to_string(); // task id
-    assert!(manifest.validate().is_ok());
-}
-
-#[test]
-fn manifest_trigger_referencing_unknown_workflow_fails() {
-    let mut manifest = rust_manifest_with_triggers();
-    manifest.triggers[0].workflow = "nonexistent".to_string();
-    assert!(manifest.validate().is_err());
-}
-
-#[test]
-fn manifest_duplicate_trigger_names_fails() {
-    let mut manifest = rust_manifest_with_triggers();
-    manifest.triggers[1].name = "file_watcher".to_string(); // duplicate
-    assert!(manifest.validate().is_err());
-}
-
-#[test]
-fn manifest_trigger_invalid_poll_interval_fails() {
-    let mut manifest = rust_manifest_with_triggers();
-    manifest.triggers[0].poll_interval = "not_a_duration".to_string();
-    assert!(manifest.validate().is_err());
 }

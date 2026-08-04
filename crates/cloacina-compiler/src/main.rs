@@ -89,13 +89,22 @@ struct Cli {
     #[arg(long, default_value_t = 30)]
     sweep_interval_s: u64,
 
-    /// Override cargo build flags. Default:
-    /// `build --release --lib --frozen --offline`. Repeatable. Setting any
-    /// `--cargo-flag` replaces the full default list — include `--frozen`
-    /// and `--offline` explicitly if you still want the offline posture.
-    /// Closes CLOACI-T-0574 / SEC-06 (network half).
+    /// Extra cargo build flags APPENDED to the default list
+    /// (`build --release --lib --frozen --offline`). Repeatable. Appending
+    /// keeps the `--frozen --offline` posture intact (CLOACI-T-0574 /
+    /// SEC-06); to replace the whole list — e.g. to deliberately drop the
+    /// offline posture — use `--cargo-flags-replace`. CLOACI-T-0918.
     #[arg(long = "cargo-flag")]
     cargo_flags: Vec<String>,
+
+    /// FULL OVERRIDE: replace the entire cargo flag list, defaults included.
+    /// Repeatable; the list you supply must start with the cargo subcommand
+    /// (usually `build`). Dropping `--frozen --offline` this way re-enables
+    /// network access during the compile phase — that is the point of making
+    /// it an explicit escape hatch. Conflicts with `--cargo-flag`.
+    /// CLOACI-T-0918.
+    #[arg(long = "cargo-flags-replace", conflicts_with = "cargo_flags")]
+    cargo_flags_replace: Vec<String>,
 
     /// Shared CARGO_TARGET_DIR for per-package builds. When set, transitive
     /// deps are compiled once and reused across packages — critical for
@@ -203,19 +212,22 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Default flags include `--frozen --offline` so package builds resolve
-    // only against the operator's vendor dir. Operators with a curated
-    // online registry can override via repeated `--cargo-flag`. See
-    // CLOACI-T-0574 / SEC-06.
-    let cargo_flags = if cli.cargo_flags.is_empty() {
-        vec![
+    // only against the operator's vendor dir (CLOACI-T-0574 / SEC-06).
+    // `--cargo-flag` APPENDS to the defaults — a stray extra flag must not
+    // silently drop the offline posture (CLOACI-T-0918). The explicit
+    // `--cargo-flags-replace` escape hatch replaces the whole list.
+    let cargo_flags = if !cli.cargo_flags_replace.is_empty() {
+        cli.cargo_flags_replace
+    } else {
+        let mut flags = vec![
             "build".to_string(),
             "--release".to_string(),
             "--lib".to_string(),
             "--frozen".to_string(),
             "--offline".to_string(),
-        ]
-    } else {
-        cli.cargo_flags
+        ];
+        flags.extend(cli.cargo_flags);
+        flags
     };
 
     if cli.build_timeout_s == 0 {

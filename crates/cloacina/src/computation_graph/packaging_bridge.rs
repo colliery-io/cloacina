@@ -748,7 +748,7 @@ fn batch_config_from_config(
 ) -> (Option<std::time::Duration>, Option<usize>) {
     let flush_interval = config
         .get("flush_interval")
-        .and_then(|s| crate::packaging::manifest_schema::parse_duration_str(s).ok());
+        .and_then(|s| crate::packaging::parse_duration_str(s).ok());
     let max_buffer_size = config
         .get("max_buffer_size")
         .and_then(|s| s.parse::<usize>().ok());
@@ -881,7 +881,7 @@ fn polling_interval_from_config(
 ) -> std::time::Duration {
     config
         .get("interval")
-        .and_then(|s| crate::packaging::manifest_schema::parse_duration_str(s).ok())
+        .and_then(|s| crate::packaging::parse_duration_str(s).ok())
         .unwrap_or_else(|| std::time::Duration::from_secs(5))
 }
 

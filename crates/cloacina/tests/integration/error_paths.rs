@@ -235,7 +235,7 @@ fn test_cron_empty_expression_error() {
 
 #[test]
 fn test_manifest_parse_duration_invalid() {
-    use cloacina::packaging::manifest_schema::parse_duration_str;
+    use cloacina::packaging::parse_duration_str;
     assert!(parse_duration_str("invalid").is_err());
     assert!(parse_duration_str("5x").is_err());
     assert!(parse_duration_str("").is_err());
@@ -244,7 +244,7 @@ fn test_manifest_parse_duration_invalid() {
 
 #[test]
 fn test_manifest_parse_duration_valid() {
-    use cloacina::packaging::manifest_schema::parse_duration_str;
+    use cloacina::packaging::parse_duration_str;
     assert_eq!(
         parse_duration_str("100ms").unwrap(),
         std::time::Duration::from_millis(100)

@@ -25,7 +25,6 @@
 /// crate; no wasm runtime).
 #[cfg(feature = "constructor-packaging")]
 pub mod constructor_provider;
-pub mod manifest_schema;
 pub mod platform;
 /// Provider discovery + bundling for the packaged-constructor build side
 /// (CLOACI-T-0836). Default-OFF behind `constructor-packaging`.
@@ -36,10 +35,6 @@ pub mod validation;
 
 #[cfg(test)]
 mod tests;
-pub use manifest_schema::{
-    Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime,
-    TaskDefinition, TriggerDefinition,
-};
 pub use platform::{detect_current_platform, SUPPORTED_TARGETS};
 pub use types::{CargoToml, CompileOptions};
 
@@ -75,4 +70,41 @@ pub fn package_workflow(project_path: PathBuf, output_path: PathBuf) -> Result<(
         .map_err(|e| anyhow::anyhow!("Failed to pack package: {}", e))?;
 
     Ok(())
+}
+
+/// Parse a duration string like "30s", "5m", "2h", "100ms" into a [`std::time::Duration`].
+///
+/// (Moved here from the removed test-only `manifest_schema` module —
+/// CLOACI-T-0918. Shipped packages carry `package.toml`, not the
+/// `manifest.json` format that module described; this parser was its one
+/// production-used piece.)
+pub fn parse_duration_str(s: &str) -> Result<std::time::Duration, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("empty string".to_string());
+    }
+
+    let (num_str, suffix) = if let Some(stripped) = s.strip_suffix("ms") {
+        (stripped, "ms")
+    } else {
+        let split = s.len() - 1;
+        if split == 0 || !s.as_bytes()[split].is_ascii_alphabetic() {
+            return Err(format!(
+                "expected number followed by unit (s, m, h, ms), got '{s}'"
+            ));
+        }
+        (&s[..split], &s[split..])
+    };
+
+    let value: u64 = num_str
+        .parse()
+        .map_err(|_| format!("'{num_str}' is not a valid number"))?;
+
+    match suffix {
+        "ms" => Ok(std::time::Duration::from_millis(value)),
+        "s" => Ok(std::time::Duration::from_secs(value)),
+        "m" => Ok(std::time::Duration::from_secs(value * 60)),
+        "h" => Ok(std::time::Duration::from_secs(value * 3600)),
+        other => Err(format!("unknown unit '{other}', expected s, m, h, or ms")),
+    }
 }

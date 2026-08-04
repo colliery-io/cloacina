@@ -103,11 +103,10 @@ pub struct CompilerConfig {
     pub vendor_dir: Option<PathBuf>,
     /// DEV ESCAPE HATCH (CLOACI-T-0887): a local cloacina workspace root. When
     /// set, each build injects `[patch.crates-io]` mapping every crate under
-    /// `<root>/crates/` to its path, and that dir is bound READ-ONLY in the
-    /// sandbox — so packages that ship production crates.io version deps
-    /// resolve against the UNPUBLISHED local crates during dev cycles. NOT for
-    /// production (real packages resolve from crates.io); only dev/e2e stacks
-    /// pass `--dev-workspace`.
+    /// `<root>/crates/` to its path — so packages that ship production
+    /// crates.io version deps resolve against the UNPUBLISHED local crates
+    /// during dev cycles. NOT for production (real packages resolve from
+    /// crates.io); only dev/e2e stacks pass `--dev-workspace`.
     pub dev_workspace: Option<PathBuf>,
 
     /// Kernel-enforced resource ceilings applied via `setrlimit` in a

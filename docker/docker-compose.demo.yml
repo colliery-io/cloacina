@@ -161,9 +161,10 @@ services:
       - "8080:8080"
 
   # In-cluster build service: compiles uploaded packages (pending → success).
-  # `--cargo-flag build --lib` drops the default --frozen (the demo fixtures
-  # carry no committed Cargo.lock). restart:on-failure rides out the one-time
-  # migration race with the server on a fresh DB (both migrate on boot).
+  # `--cargo-flags-replace build --lib` replaces the default flag list to drop
+  # --frozen/--offline (the demo fixtures carry no committed Cargo.lock).
+  # restart:on-failure rides out the one-time migration race with the server
+  # on a fresh DB (both migrate on boot).
   compiler:
     build:
       context: ..
@@ -181,14 +182,15 @@ services:
       # it — otherwise it checks the package's local target/debug and fails.
       - "--cargo-target-dir"
       - "/workspace/target"
-      - "--cargo-flag=build"
-      - "--cargo-flag=--lib"
+      - "--cargo-flags-replace=build"
+      - "--cargo-flags-replace=--lib"
       # NOTE: no --frozen/--offline here. That opts into the compiler's
-      # TWO-PHASE build (CLOACI-T-0887): `cargo fetch` runs OUTSIDE the sandbox
-      # (network on, only trusted cargo code — no package build scripts), then
-      # the compile runs INSIDE the sandbox with `--offline` appended (package
-      # code executes, network cut). Hardened operators pass a curated
-      # --vendor-dir + --cargo-flag=--frozen/--offline to stay single-phase.
+      # TWO-PHASE build (CLOACI-T-0887): `cargo fetch` runs first (network on,
+      # only trusted cargo code — no package build scripts execute), then the
+      # compile runs with `--offline` appended (package code executes; cargo
+      # resolves nothing new). Hardened operators keep the default
+      # `--frozen --offline` flags plus a curated --vendor-dir to stay
+      # single-phase.
       # DEV ESCAPE HATCH (CLOACI-T-0887): packages ship crates.io VERSION deps
       # (production form), but the cloacina crates aren't published yet. Point
       # the compiler at the baked workspace so each build injects
@@ -242,8 +244,8 @@ services:
       # seed, so the public compiler is idle → no target-dir lock contention.
       - "--cargo-target-dir"
       - "/workspace/target"
-      - "--cargo-flag=build"
-      - "--cargo-flag=--lib"
+      - "--cargo-flags-replace=build"
+      - "--cargo-flags-replace=--lib"
       # Two-phase build + dev-workspace hatch (CLOACI-T-0887) — see the
       # public `compiler` service.
       - "--dev-workspace"
@@ -296,8 +298,8 @@ services:
       # compiler's /workspace/target (same path, different-arch object files).
       - "--cargo-target-dir"
       - "/workspace/target-x86"
-      - "--cargo-flag=build"
-      - "--cargo-flag=--lib"
+      - "--cargo-flags-replace=build"
+      - "--cargo-flags-replace=--lib"
       # Two-phase build + dev-workspace hatch (CLOACI-T-0887) — see the
       # public `compiler` service.
       - "--dev-workspace"

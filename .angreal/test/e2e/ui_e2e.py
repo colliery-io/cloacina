@@ -255,7 +255,7 @@ def _ui_e2e(smoke: bool) -> int:
             "--bind", COMPILER_BIND,
             "--poll-interval-ms", "1000",
             "--cargo-target-dir", TARGET_DIR,
-            "--cargo-flag=build", "--cargo-flag=--lib",
+            "--cargo-flags-replace=build", "--cargo-flags-replace=--lib",
         ]
 
         # Seed the demo tenants/keys the auth specs connect with — the acme

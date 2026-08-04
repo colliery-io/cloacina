@@ -88,7 +88,6 @@ from .k8s_fleet import (
     _kubectl_json,
     _prepare_images,
     _run,
-    _server_logs,
     _server_values,
     _wait_http,
     bring_up_cluster,
@@ -412,7 +411,7 @@ def _deploy_compiler(kubeconfig, compiler_ref):
                     "args": ["--bind", "0.0.0.0:9000", "--database-url", db_url,
                              "--poll-interval-ms", "1000",
                              "--cargo-target-dir", "/workspace/target",
-                             "--cargo-flag=build", "--cargo-flag=--lib"],
+                             "--cargo-flags-replace=build", "--cargo-flags-replace=--lib"],
                     "env": [{"name": "CARGO_PROFILE_DEV_DEBUG", "value": "0"}],
                 }]},
             },
@@ -456,7 +455,7 @@ def _assert_disjoint_claiming(kubeconfig, target, base, results, tag, skip_build
     compiler_ref = _prepare_compiler_image(tag, skip_build)
     if compiler_ref is None:
         results[key] = f"BLOCKED: no compiler image present; {CLAIMING_BLOCKED_REASON}"
-        print(f"  BLOCKED [4]: no compiler image present to drive executions")
+        print("  BLOCKED [4]: no compiler image present to drive executions")
         return
     print(f"  deploying in-cluster compiler {compiler_ref} (best-effort)")
     _deploy_compiler(kubeconfig, compiler_ref)

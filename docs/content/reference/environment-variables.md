@@ -405,15 +405,15 @@ These `cloacina-compiler` CLI flags accept env-var equivalents (via `clap`'s `en
 | `CLOACINA_BUILD_TARGET` | `--build-target` | None (primary host compiler) | Run as a **per-target** compiler producing cdylibs for this triple (e.g. `x86_64-linux`). Scan-and-fills `package_artifacts` for success packages lacking this arch, building natively — run the container on that arch. Omit for the primary host compiler that claims pending rows. |
 | `CLOACINA_BUILD_TARGET_PACKAGE` | `--build-target-package` | None | Restrict the per-target scan to a single package name (keeps an emulated build cheap). Only meaningful alongside `CLOACINA_BUILD_TARGET`. |
 
-## Install script (`install.sh`)
+## Install script (`scripts/install.sh`)
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `CLOACINACTL_VERSION` | Pin to a specific release tag (e.g. `v0.3.2`). | (latest release via the GitHub API) |
-| `INSTALL_DIR` | Where to put the `cloacinactl` binary. | `$HOME/.local/bin` |
+| `CLOACINA_REPO` | Override the GitHub repo to install from (e.g. a fork). | `colliery-io/cloacina` |
 
-The script has no flags and no repo override — it always installs
-`cloacinactl` (only) from GitHub Releases of `colliery-io/cloacina`.
+Version pinning and install location are flags, not env vars: pass
+`--version vX.Y.Z` and `--prefix DIR` (binary lands in `DIR/bin`;
+default `$HOME/.cloacina`). The script installs `cloacinactl` only.
 
 ## Summary Table
 

@@ -191,7 +191,7 @@ def fleet():
             ["target/debug/cloacina-compiler", "--home", str(home),
              "--database-url", db_url, "--bind", compiler_bind,
              "--poll-interval-ms", "500", "--cargo-target-dir", str(shared_target),
-             "--cargo-flag=build", "--cargo-flag=--lib"],
+             "--cargo-flags-replace=build", "--cargo-flags-replace=--lib"],
             cwd=REPO_ROOT, stdout=open(home / "compiler.log", "w"),
             stderr=subprocess.STDOUT,
         )

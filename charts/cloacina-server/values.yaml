@@ -296,11 +296,14 @@ compiler:
     tag: ""
   bind: "0.0.0.0:9000"
   pollIntervalMs: 1000
-  # Extra CLI args, e.g. ["--cargo-flag=build", "--cargo-flag=--lib"] or
-  # ["--tenant-schema", "acme"] for a per-tenant build-isolation compiler.
+  # Extra CLI args, e.g. ["--cargo-flags-replace=build", "--cargo-flags-replace=--lib"]
+  # (full override of the default cargo flag list, dropping --frozen/--offline
+  # for online in-cluster builds) or ["--tenant-schema", "acme"] for a
+  # per-tenant build-isolation compiler. `--cargo-flag=<flag>` APPENDS to the
+  # defaults instead.
   extraArgs:
-    - "--cargo-flag=build"
-    - "--cargo-flag=--lib"
+    - "--cargo-flags-replace=build"
+    - "--cargo-flags-replace=--lib"
   extraEnv: []
   # emptyDir size limit for the shared cargo target cache.
   buildCacheSize: 8Gi
