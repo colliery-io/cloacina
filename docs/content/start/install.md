@@ -64,10 +64,12 @@ Cross-compiled binaries are uploaded on every release tag for:
 
 - `x86_64-unknown-linux-gnu`
 - `aarch64-unknown-linux-gnu`
-- `x86_64-apple-darwin`
 - `aarch64-apple-darwin`
 
-Windows is not currently supported. If you need it, file an issue.
+Intel macOS (`x86_64-apple-darwin`) binaries are no longer built — the
+installer exits with a clear error on that platform; use
+[Building from source](#building-from-source) instead. Windows is not
+currently supported. If you need it, file an issue.
 
 ## Verifying the install
 

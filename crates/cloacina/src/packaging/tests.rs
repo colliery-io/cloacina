@@ -36,59 +36,23 @@ mod tests {
         assert_eq!(options.jobs.unwrap(), 8);
     }
 
+    /// CLOACI-T-0918: `parse_duration_str` moved here from the deleted
+    /// test-only `manifest_schema` module (it was its one production-used
+    /// piece — trigger poll intervals).
     #[test]
-    fn test_manifest_schema_rust_package() {
-        use chrono::Utc;
-
-        let manifest = manifest_schema::Manifest {
-            format_version: "2".to_string(),
-            package: manifest_schema::PackageInfo {
-                name: "test-workflow".to_string(),
-                version: "2.1.0".to_string(),
-                description: Some("Test workflow package".to_string()),
-                fingerprint: "sha256:test".to_string(),
-                targets: vec!["linux-x86_64".to_string()],
-            },
-            language: manifest_schema::PackageLanguage::Rust,
-            python: None,
-            rust: Some(manifest_schema::RustRuntime {
-                library_path: "libworkflow.dylib".to_string(),
-            }),
-            tasks: vec![
-                manifest_schema::TaskDefinition {
-                    id: "task1".to_string(),
-                    function: "cloacina_execute_task".to_string(),
-                    dependencies: vec![],
-                    description: Some("First task".to_string()),
-                    retries: 0,
-                    timeout_seconds: None,
-                },
-                manifest_schema::TaskDefinition {
-                    id: "task2".to_string(),
-                    function: "cloacina_execute_task".to_string(),
-                    dependencies: vec!["task1".to_string()],
-                    description: Some("Second task".to_string()),
-                    retries: 0,
-                    timeout_seconds: None,
-                },
-            ],
-            triggers: vec![],
-            created_at: Utc::now(),
-            signature: None,
-        };
-
-        assert_eq!(manifest.package.name, "test-workflow");
-        assert_eq!(manifest.package.version, "2.1.0");
-        assert!(manifest.rust.is_some());
-        assert_eq!(manifest.tasks.len(), 2);
-        assert_eq!(manifest.tasks[1].dependencies, vec!["task1"]);
-
-        // Serialization roundtrip
-        let json = serde_json::to_string(&manifest).expect("Should serialize");
-        let deserialized: manifest_schema::Manifest =
-            serde_json::from_str(&json).expect("Should deserialize");
-        assert_eq!(deserialized.package.name, manifest.package.name);
-        assert_eq!(deserialized.tasks.len(), manifest.tasks.len());
+    fn test_parse_duration_str_units() {
+        use std::time::Duration;
+        assert_eq!(
+            parse_duration_str("100ms").unwrap(),
+            Duration::from_millis(100)
+        );
+        assert_eq!(parse_duration_str("30s").unwrap(), Duration::from_secs(30));
+        assert_eq!(parse_duration_str("5m").unwrap(), Duration::from_secs(300));
+        assert_eq!(parse_duration_str("2h").unwrap(), Duration::from_secs(7200));
+        assert!(parse_duration_str("").is_err());
+        assert!(parse_duration_str("30").is_err());
+        assert!(parse_duration_str("abc").is_err());
+        assert!(parse_duration_str("5d").is_err());
     }
 
     #[test]

@@ -28,7 +28,7 @@ use pyo3::prelude::*;
 use std::fmt;
 use std::time::Duration;
 
-use cloacina::packaging::manifest_schema::parse_duration_str;
+use cloacina::packaging::parse_duration_str;
 // T-0552: Trigger trait + TriggerError relocated to cloacina-workflow.
 use cloacina::Trigger;
 use cloacina_workflow::{TriggerError, TriggerResult as RustTriggerResult};

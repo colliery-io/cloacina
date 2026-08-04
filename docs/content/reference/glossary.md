@@ -43,7 +43,7 @@ The core Rust workflow orchestration and computation graph engine. Cloacina prov
 
 ### `cloacinactl`
 
-The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Installed via `install.sh` (repo root) or from GitHub Releases. See [CLI Reference]({{< ref "/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/start/install" >}}).
+The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Installed via `scripts/install.sh` (served at `get.cloacina.dev`) or from GitHub Releases. See [CLI Reference]({{< ref "/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/start/install" >}}).
 
 ### `cloacina-compiler`
 
@@ -139,7 +139,7 @@ A map from SourceName to serialized bytes that feeds entry nodes in computation 
 
 ### Install script
 
-The installer script (`install.sh` at the repo root). Downloads a release tarball for the host OS+arch (Linux/macOS, x86_64/aarch64) from GitHub Releases of `colliery-io/cloacina`, verifies its SHA256 when a checksum tool is available, and installs **only `cloacinactl`** into `~/.local/bin` (override with `INSTALL_DIR`; pin a version with `CLOACINACTL_VERSION`). The server, agent, and compiler binaries ship separately via container images or cargo. See [Installing cloacinactl]({{< ref "/start/install" >}}).
+The installer script (`scripts/install.sh`, served at `get.cloacina.dev`). Downloads a release tarball for the host OS+arch (Linux x86_64/aarch64, macOS aarch64) from GitHub Releases of `colliery-io/cloacina`, verifies its SHA256 (mandatory — the install aborts on mismatch or if no checksum tool is present), and installs **only `cloacinactl`** into `~/.cloacina/bin` (override with `--prefix DIR`; pin a version with `--version vX.Y.Z`). Unsupported platforms (including Intel macOS) fail with a clear error. The server, agent, and compiler binaries ship separately via container images or cargo. See [Installing cloacinactl]({{< ref "/start/install" >}}).
 
 ### Inventory (registration)
 

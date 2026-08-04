@@ -112,6 +112,68 @@ impl RegistryReconciler {
         &self,
         metadata: WorkflowMetadata,
     ) -> Result<(), RegistryError> {
+        // CLOACI-T-0918: early load steps persist schedule rows (cron +
+        // poll) through the CronWorkflowRegistrar. If a LATER step fails,
+        // the package never becomes tracked, `unload_package` never runs
+        // for it, and those rows are orphaned ghosts that keep firing /
+        // showing in the Triggers view. Collect every schedule id created
+        // during the load and roll them all back on any failure.
+        let mut created_schedule_ids: Vec<String> = Vec::new();
+        let result = self
+            .load_package_inner(metadata.clone(), &mut created_schedule_ids)
+            .await;
+        if result.is_err() && !created_schedule_ids.is_empty() {
+            self.rollback_schedule_rows(&metadata, &created_schedule_ids)
+                .await;
+        }
+        result
+    }
+
+    /// Best-effort cleanup of schedule rows created by a load that later
+    /// failed (CLOACI-T-0918). Mirrors the unload path's schedule teardown;
+    /// failures are logged, not propagated — the load error is the primary
+    /// signal.
+    pub(super) async fn rollback_schedule_rows(
+        &self,
+        metadata: &WorkflowMetadata,
+        schedule_ids: &[String],
+    ) {
+        let Some(registrar) = self.cron_registrar.as_ref() else {
+            // Ids can only exist if a registrar was attached during the
+            // load, so this is unreachable in practice — but degrade loudly.
+            warn!(
+                "Package {} v{}: {} schedule row(s) created by a failed load but no \
+                 registrar attached for rollback — rows may stay live in the DB",
+                metadata.package_name,
+                metadata.version,
+                schedule_ids.len()
+            );
+            return;
+        };
+        let mut dropped = 0usize;
+        for schedule_id in schedule_ids {
+            match registrar.unregister_cron_workflow(schedule_id).await {
+                Ok(()) => dropped += 1,
+                Err(e) => warn!(
+                    "Package {} v{}: failed to roll back schedule '{}' after failed load: {}",
+                    metadata.package_name, metadata.version, schedule_id, e
+                ),
+            }
+        }
+        info!(
+            "Package {} v{}: rolled back {}/{} schedule row(s) after failed load",
+            metadata.package_name,
+            metadata.version,
+            dropped,
+            schedule_ids.len()
+        );
+    }
+
+    async fn load_package_inner(
+        &self,
+        metadata: WorkflowMetadata,
+        created_schedule_ids: &mut Vec<String>,
+    ) -> Result<(), RegistryError> {
         debug!(
             "Loading package: {} v{}",
             metadata.package_name, metadata.version
@@ -317,7 +379,9 @@ impl RegistryReconciler {
             .map(|rt| rt.reactor_names().into_iter().collect())
             .unwrap_or_default();
 
-        let mut cron_schedule_ids: Vec<String> = Vec::new();
+        // Schedule ids created during this load accumulate into the
+        // caller-provided vec (`created_schedule_ids`) so `load_package`
+        // can roll them back if any later step fails (CLOACI-T-0918).
         let mut triggerless_graph_names: Vec<String> = Vec::new();
 
         let (task_namespaces, workflow_name, trigger_names, rust_graph_name) = if cloacina_manifest
@@ -376,10 +440,10 @@ impl RegistryReconciler {
 
             // Step 1: cron triggers — registered through the attached
             // CronWorkflowRegistrar (no-op when none is wired).
-            cron_schedule_ids = self.step_load_cron_triggers(&metadata, &view).await?;
+            created_schedule_ids.extend(self.step_load_cron_triggers(&metadata, &view).await?);
             // Step 1b: persist poll-trigger schedule rows so the trigger
             // scheduler polls them and they show in the Triggers view (WS-6).
-            cron_schedule_ids.extend(self.step_persist_poll_schedules(&metadata, &view).await?);
+            created_schedule_ids.extend(self.step_persist_poll_schedules(&metadata, &view).await?);
             // Step 2: custom triggers (validated against runtime).
             let trigger_names =
                 self.step_load_custom_triggers(&metadata, &view, Some(&library_data))?;
@@ -497,8 +561,8 @@ impl RegistryReconciler {
                 &py_pre_graph_names,
                 &cloacina_manifest.metadata.accumulators,
             );
-            cron_schedule_ids = self.step_load_cron_triggers(&metadata, &py_view).await?;
-            cron_schedule_ids.extend(
+            created_schedule_ids.extend(self.step_load_cron_triggers(&metadata, &py_view).await?);
+            created_schedule_ids.extend(
                 self.step_persist_poll_schedules(&metadata, &py_view)
                     .await?,
             );
@@ -665,9 +729,9 @@ impl RegistryReconciler {
                     );
                     let cg_cron_ids = self.step_load_cron_triggers(&metadata, &cg_view).await?;
                     if !cg_cron_ids.is_empty() {
-                        cron_schedule_ids.extend(cg_cron_ids);
+                        created_schedule_ids.extend(cg_cron_ids);
                     }
-                    cron_schedule_ids.extend(
+                    created_schedule_ids.extend(
                         self.step_persist_poll_schedules(&metadata, &cg_view)
                             .await?,
                     );
@@ -795,7 +859,7 @@ impl RegistryReconciler {
             trigger_names,
             graph_name,
             reactor_names,
-            cron_schedule_ids,
+            cron_schedule_ids: created_schedule_ids.clone(),
             triggerless_graph_names,
         };
 
@@ -884,7 +948,7 @@ impl RegistryReconciler {
         //    package leaves a stale constructor entry; over many reload
         //    cycles in a long-lived daemon this leaks (T-0564).
         let mut reactor_unload_error: Option<String> = None;
-        let mut scheduler_unloaded_reactors: Vec<&String> = Vec::new();
+        let mut scheduler_unloaded_reactors: Vec<String> = Vec::new();
         if !package_state.reactor_names.is_empty() {
             let scheduler_guard = self.graph_scheduler.read().await;
             if let Some(ref scheduler) = *scheduler_guard {
@@ -895,7 +959,7 @@ impl RegistryReconciler {
                                 "Reactor '{}' unloaded for package {}",
                                 reactor_name, package_state.metadata.package_name
                             );
-                            scheduler_unloaded_reactors.push(reactor_name);
+                            scheduler_unloaded_reactors.push(reactor_name.clone());
                         }
                         Err(e) => {
                             // Bundled-form CG packages: the reactor was
@@ -904,7 +968,7 @@ impl RegistryReconciler {
                             // Treat "not loaded" as a clean no-op — and
                             // still drop the runtime constructor below.
                             if e.contains("not loaded") {
-                                scheduler_unloaded_reactors.push(reactor_name);
+                                scheduler_unloaded_reactors.push(reactor_name.clone());
                                 continue;
                             }
                             warn!(
@@ -928,7 +992,7 @@ impl RegistryReconciler {
         // no-op). Reactors blocked by bound subscribers stay registered;
         // the next unload attempt will try again once subscribers unbind.
         if let Some(runtime) = &self.runtime {
-            for reactor_name in scheduler_unloaded_reactors {
+            for reactor_name in &scheduler_unloaded_reactors {
                 runtime.unregister_reactor(reactor_name);
             }
         }
@@ -982,6 +1046,34 @@ impl RegistryReconciler {
             })?;
 
         if let Some(msg) = reactor_unload_error {
+            // CLOACI-T-0918: a REJECTED unload must not drop tracking. We
+            // removed the PackageState up front; if we return here without
+            // restoring it, the next reconcile cycle sees nothing to unload
+            // and the guard-blocked reactor runs forever as an untracked
+            // ghost. Re-insert a residual state carrying exactly what
+            // remains loaded (the reactors the bound-subscriber guard
+            // refused) so the next cycle retries the unload once the
+            // subscribers unbind. Everything torn down above stays torn
+            // down — the residual state reflects that.
+            let remaining_reactors: Vec<String> = package_state
+                .reactor_names
+                .iter()
+                .filter(|n| !scheduler_unloaded_reactors.contains(*n))
+                .cloned()
+                .collect();
+            let residual = PackageState {
+                metadata: package_state.metadata.clone(),
+                task_namespaces: Vec::new(),
+                workflow_name: None,
+                trigger_names: Vec::new(),
+                graph_name: None,
+                reactor_names: remaining_reactors,
+                cron_schedule_ids: Vec::new(),
+                triggerless_graph_names: Vec::new(),
+            };
+            let mut loaded_packages = self.loaded_packages.write().await;
+            loaded_packages.insert(package_id, residual);
+            drop(loaded_packages);
             return Err(RegistryError::RegistrationFailed { message: msg });
         }
 
@@ -1519,6 +1611,11 @@ impl RegistryReconciler {
                     graph_name,
                     package_name: package_name.to_string(),
                     reaction_mode: reg.reaction_mode.clone(),
+                    // Wire-format default only (CLOACI-T-0918): the Python
+                    // CG's REAL strategy travels on the declaration built by
+                    // `load_cg_package`, not this view; and the Rust path's
+                    // manifest override happens in
+                    // `step_load_reactor_bound_cgs`.
                     input_strategy: "latest".to_string(),
                     accumulators,
                     trigger_reactor: reg.trigger_reactor.clone(),
@@ -1999,6 +2096,15 @@ impl RegistryReconciler {
                 ffi_acc.accumulator_type = manifest_acc.accumulator_type.clone();
                 ffi_acc.config = manifest_acc.config.clone();
             }
+        }
+        // CLOACI-T-0918: honor the manifest's `[metadata] input_strategy`.
+        // The `package!()` FFI shell can't see package.toml at metadata
+        // time (and the Rust authoring surface has no per-graph strategy),
+        // so it always reports the wire default ("latest"). The manifest is
+        // authoritative here — without this override a declared
+        // `input_strategy = "sequential"` was silently ignored.
+        if let Some(strategy) = &manifest.input_strategy {
+            graph_meta.input_strategy = strategy.clone();
         }
 
         let scheduler_guard = self.graph_scheduler.read().await;
@@ -2686,6 +2792,9 @@ mod tests {
     #[derive(Default)]
     struct RecordingCronRegistrar {
         calls: std::sync::Mutex<Vec<(String, String, String)>>,
+        /// Schedule ids passed to `unregister_cron_workflow` (CLOACI-T-0918:
+        /// lets tests assert rollback of schedule rows after a failed load).
+        unregisters: std::sync::Mutex<Vec<String>>,
     }
 
     #[async_trait::async_trait]
@@ -2704,7 +2813,11 @@ mod tests {
             ));
             Ok(format!("schedule-{}", calls.len()))
         }
-        async fn unregister_cron_workflow(&self, _schedule_id: &str) -> Result<(), String> {
+        async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String> {
+            self.unregisters
+                .lock()
+                .unwrap()
+                .push(schedule_id.to_string());
             Ok(())
         }
         // register_poll_trigger uses the trait default (errors loudly); the
@@ -3095,16 +3208,48 @@ mod tests {
             msg
         );
 
-        // Publisher PackageState was already removed even though the
-        // unload errored — the registrar drop is a separate concern and
-        // running the rest of the unload steps is fine. Sanity-check
-        // that the reactor is still loaded.
+        // Sanity-check that the reactor is still loaded.
         assert!(
             scheduler
                 .reactor_accumulator_names("owned_rx")
                 .await
                 .is_some(),
             "reactor must still exist after rejected unload"
+        );
+
+        // CLOACI-T-0918: the REJECTED unload must keep tracking state so
+        // the next reconcile cycle retries. Before the fix, the
+        // PackageState was removed up front and never restored — the
+        // guard-blocked reactor ran forever as an untracked ghost.
+        {
+            let loaded = reconciler.loaded_packages.read().await;
+            let residual = loaded
+                .get(&publisher_id)
+                .expect("rejected unload must keep the package tracked for retry");
+            assert_eq!(
+                residual.reactor_names,
+                vec!["owned_rx".to_string()],
+                "residual tracking must carry the reactor the guard refused to unload"
+            );
+        }
+
+        // Once the subscriber unbinds, the retried unload must succeed and
+        // drop tracking for good.
+        scheduler
+            .unload_graph("subscriber_graph")
+            .await
+            .expect("subscriber graph should unbind");
+        reconciler
+            .unload_package(publisher_id)
+            .await
+            .expect("retried unload must succeed once subscribers are unbound");
+        assert!(
+            !reconciler
+                .loaded_packages
+                .read()
+                .await
+                .contains_key(&publisher_id),
+            "tracking must be dropped after the successful retry"
         );
 
         scheduler.shutdown_all().await;
@@ -3222,6 +3367,92 @@ mod tests {
         assert!(
             !runtime.reactor_names().iter().any(|n| n == "ephemeral_rx"),
             "reactor constructor must be removed from Runtime registry after unload"
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0918: partial-load schedule rollback + manifest input_strategy
+    // -----------------------------------------------------------------------
+
+    /// `rollback_schedule_rows` must drop every schedule id created by a
+    /// load that later failed — this is the cleanup seam `load_package`
+    /// invokes on any inner failure so partial loads can't orphan cron/poll
+    /// schedule rows.
+    #[tokio::test]
+    #[serial]
+    async fn rollback_schedule_rows_unregisters_every_created_id() {
+        let registrar = Arc::new(RecordingCronRegistrar::default());
+        let reconciler = make_test_reconciler().with_cron_registrar(registrar.clone());
+        let metadata = make_test_metadata();
+
+        let created = vec!["schedule-1".to_string(), "schedule-2".to_string()];
+        reconciler.rollback_schedule_rows(&metadata, &created).await;
+
+        let unregisters = registrar.unregisters.lock().unwrap();
+        assert_eq!(
+            *unregisters,
+            vec!["schedule-1".to_string(), "schedule-2".to_string()],
+            "every schedule row created by the failed load must be dropped"
+        );
+    }
+
+    /// CLOACI-T-0918: the manifest's `[metadata] input_strategy` must reach
+    /// the scheduler's declaration. The `package!()` FFI shell always emits
+    /// the wire default ("latest"); `step_load_reactor_bound_cgs` overrides
+    /// it from the manifest before building the declaration.
+    #[tokio::test]
+    #[serial]
+    async fn manifest_input_strategy_overrides_ffi_wire_default() {
+        use cloacina_workflow_plugin::{types::AccumulatorDeclarationEntry, GraphPackageMetadata};
+
+        let endpoint_registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+
+        let metadata = WorkflowMetadata {
+            package_name: "sequential-pkg".to_string(),
+            ..make_test_metadata()
+        };
+        // Bundled-form graph (no trigger_reactor) — skips cross-package
+        // validation and spins its own reactor inside `load_graph`.
+        let view = PackageLoadView {
+            triggers: vec![],
+            reactors: vec![],
+            graph: Some(GraphPackageMetadata {
+                graph_name: "sequential_graph".to_string(),
+                package_name: "sequential-pkg".to_string(),
+                reaction_mode: "when_any".to_string(),
+                // What the FFI shell always reports (the wire default).
+                input_strategy: "latest".to_string(),
+                accumulators: vec![AccumulatorDeclarationEntry {
+                    name: "src".to_string(),
+                    accumulator_type: "passthrough".to_string(),
+                    config: Default::default(),
+                }],
+                trigger_reactor: None,
+                graph_data_json: None,
+            }),
+        };
+        let manifest = cloacina_workflow_plugin::CloacinaMetadata {
+            input_strategy: Some("sequential".to_string()),
+            ..make_cloacina_metadata()
+        };
+
+        reconciler
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
+            .await
+            .expect("bundled-form graph load should succeed");
+
+        let graphs = scheduler.list_graphs().await;
+        let status = graphs
+            .iter()
+            .find(|g| g.name == "sequential_graph")
+            .expect("graph must be loaded into the scheduler");
+        assert_eq!(
+            status.input_strategy, "sequential",
+            "manifest input_strategy must override the FFI wire default"
         );
 
         scheduler.shutdown_all().await;

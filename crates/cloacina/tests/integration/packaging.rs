@@ -24,7 +24,7 @@ use serial_test::serial;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-use cloacina::packaging::{package_workflow, CompileOptions, Manifest};
+use cloacina::packaging::{package_workflow, CompileOptions};
 
 /// Write a minimal `package.toml` into a project directory for testing.
 fn write_package_toml(project_path: &Path) {
@@ -244,50 +244,6 @@ async fn test_packaging_missing_package_toml() {
         "Error should mention package.toml: {}",
         error_msg
     );
-}
-
-#[test]
-fn test_package_manifest_schema_serialization() {
-    use cloacina::packaging::{PackageInfo, PackageLanguage, RustRuntime, TaskDefinition};
-
-    let manifest = Manifest {
-        format_version: "2".to_string(),
-        package: PackageInfo {
-            name: "test-package".to_string(),
-            version: "1.0.0".to_string(),
-            description: Some("Test package".to_string()),
-            fingerprint: "sha256:test".to_string(),
-            targets: vec!["linux-x86_64".to_string()],
-        },
-        language: PackageLanguage::Rust,
-        python: None,
-        rust: Some(RustRuntime {
-            library_path: "libtest.so".to_string(),
-        }),
-        tasks: vec![TaskDefinition {
-            id: "test_task".to_string(),
-            function: "cloacina_execute_task".to_string(),
-            dependencies: vec![],
-            description: Some("Test task".to_string()),
-            retries: 0,
-            timeout_seconds: None,
-        }],
-        triggers: vec![],
-        created_at: chrono::Utc::now(),
-        signature: None,
-    };
-
-    // Test serialization
-    let json = serde_json::to_string(&manifest).expect("Should serialize to JSON");
-    assert!(!json.is_empty());
-    assert!(json.contains("test-package"));
-    assert!(json.contains("test_task"));
-
-    // Test deserialization
-    let deserialized: Manifest = serde_json::from_str(&json).expect("Should deserialize from JSON");
-    assert_eq!(deserialized.package.name, "test-package");
-    assert_eq!(deserialized.tasks.len(), 1);
-    assert_eq!(deserialized.tasks[0].id, "test_task");
 }
 
 #[test]

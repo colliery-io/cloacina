@@ -242,8 +242,8 @@ def _run_gold_path(
                 "--bind", compiler_bind,
                 "--poll-interval-ms", "500",
                 "--cargo-target-dir", str(shared_target),
-                "--cargo-flag=build",
-                "--cargo-flag=--lib",
+                "--cargo-flags-replace=build",
+                "--cargo-flags-replace=--lib",
                 # DEV ESCAPE HATCH (CLOACI-T-0887): the examples ship crates.io
                 # version deps (the form users ship); resolve them against THIS
                 # checkout's unpublished crates.

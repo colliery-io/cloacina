@@ -369,6 +369,15 @@ macro_rules! package {
                         graph_name: entries[0].name.to_string(),
                         package_name: env!("CARGO_PKG_NAME").to_string(),
                         reaction_mode: reg.reaction_mode.clone(),
+                        // CLOACI-T-0918: the input strategy is NOT knowable
+                        // inside the cdylib — `ComputationGraphRegistration`
+                        // carries no strategy (the Rust authoring surface has
+                        // no per-graph strategy attribute) and package.toml is
+                        // not visible at FFI time. Emit the wire-format
+                        // default; the host-side loader
+                        // (`step_load_reactor_bound_cgs`) overrides it with
+                        // the manifest's `[metadata] input_strategy` when the
+                        // package declares one.
                         input_strategy: "latest".to_string(),
                         accumulators,
                         trigger_reactor: reg.trigger_reactor.clone(),

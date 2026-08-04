@@ -499,8 +499,8 @@ def compiler(version_deps=False):
             "--bind", compiler_bind,
             "--poll-interval-ms", "500",
             "--cargo-target-dir", str(shared_target),
-            "--cargo-flag=build",
-            "--cargo-flag=--lib",
+            "--cargo-flags-replace=build",
+            "--cargo-flags-replace=--lib",
             "--verbose",
         ]
         if version_deps:

@@ -48,13 +48,12 @@ cloacina/
   docker/                          # Dockerfiles + demo compose stack
   docs/                            # Hugo documentation site
   examples/                        # Runnable examples (see below)
-  scripts/                         # Maintenance scripts (provider_wave.py, SDK checks, install.sh copy)
+  scripts/                         # Maintenance scripts (provider_wave.py, SDK checks, install.sh — served at get.cloacina.dev)
   tests/                           # Integration tests
     python/                        # Python pytest scenarios
 
   Cargo.toml                       # Workspace manifest
   Dockerfile                       # cloacina production image
-  install.sh                       # Install script — installs cloacinactl only (I-0111)
   plissken.toml                    # api-reference generation config
   .angreal/                        # Task automation (check, ci, demos, docs, helm, lint, performance, providers, release, services, test, ui)
   .github/                         # CI workflows
@@ -255,7 +254,7 @@ Integration tests live alongside each crate (`crates/<name>/tests/`) — Diesel 
 | `rustfmt.toml` | Rust formatting rules |
 | `.pre-commit-config.yaml` | Pre-commit hooks (trailing whitespace, end-of-file, codespell, clippy, fmt) |
 | `Dockerfile` | `cloacina-server` runtime image |
-| `install.sh` | One-liner install script (per I-0111) |
+| `scripts/install.sh` | One-liner install script, served at get.cloacina.dev (per I-0111) |
 | `charts/cloacina-server/Chart.yaml` | Helm chart manifest |
 
 ## Development

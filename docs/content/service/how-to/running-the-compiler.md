@@ -165,7 +165,8 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 |---|---|---|
 | `--build-timeout-s` | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | 600 |
 | `--vendor-dir` | `CLOACINA_COMPILER_VENDOR_DIR` | unset (cargo `~/.cargo`) |
-| `--cargo-flag` (repeatable) | — | `build --release --lib --frozen --offline` |
+| `--cargo-flag` (repeatable) | — | appends to `build --release --lib --frozen --offline` |
+| `--cargo-flags-replace` (repeatable) | — | unset (full override of the default flag list) |
 | `--build-rlimit-cpu` | `CLOACINA_COMPILER_BUILD_RLIMIT_CPU` | = `--build-timeout-s` |
 | `--build-rlimit-mem` | `CLOACINA_COMPILER_BUILD_RLIMIT_MEM` | `4G` |
 | `--build-rlimit-files` | `CLOACINA_COMPILER_BUILD_RLIMIT_FILES` | 1024 |
@@ -189,9 +190,12 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
   the container on that arch. `--build-target-package` restricts that scan to
   a single package name (only meaningful with `--build-target`).
 
-> **Setting `--cargo-flag` replaces the entire default list.** If you
-> override to add a flag, include `--frozen` and `--offline`
-> explicitly or you'll lose the offline posture.
+> **`--cargo-flag` appends to the default list** (`build --release --lib
+> --frozen --offline`), so adding a flag never silently drops the offline
+> posture. To replace the whole list — e.g. to deliberately run an online
+> build without `--frozen --offline` — use the explicit
+> `--cargo-flags-replace` escape hatch; the list you supply must start with
+> the cargo subcommand (usually `build`). The two flags conflict.
 
 ## Audit events: what to grep
 

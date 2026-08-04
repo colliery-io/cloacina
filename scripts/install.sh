@@ -125,7 +125,19 @@ case "${uname_m}" in
   *)             err "unsupported arch: ${uname_m}" ;;
 esac
 
+# Only offer targets the release train actually builds (see the
+# build-release-binaries matrix in .github/workflows/unified_release.yml).
+# Anything else would 404 mid-install against GitHub Releases.
 target="${arch}-${os}"
+case "${target}" in
+  x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|aarch64-apple-darwin) ;;
+  x86_64-apple-darwin)
+    err "no prebuilt binary for Intel macOS (x86_64-apple-darwin) — releases ship aarch64-apple-darwin only. Build from source instead: cargo install cloacinactl"
+    ;;
+  *)
+    err "no prebuilt binary for ${target}. Build from source instead: cargo install cloacinactl"
+    ;;
+esac
 log "detected target: ${target}"
 
 # ---------------------------------------------------------------------------

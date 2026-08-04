@@ -22,9 +22,6 @@
 
 use tempfile::TempDir;
 
-use cloacina::packaging::{
-    Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, TaskDefinition,
-};
 use cloacina_python::package_loader::{detect_package_kind, extract_python_package, PackageKind};
 
 // ---------------------------------------------------------------------------
@@ -171,86 +168,6 @@ fn extract_rejects_rust_archive() {
     assert!(
         format!("{:?}", err).contains("WrongLanguage"),
         "Expected WrongLanguage error, got: {err:?}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Tests — manifest_schema validation (schema logic, not archive format)
-// ---------------------------------------------------------------------------
-
-fn make_python_manifest() -> Manifest {
-    Manifest {
-        format_version: "2".to_string(),
-        package: PackageInfo {
-            name: "data-pipeline-example".to_string(),
-            version: "1.0.0".to_string(),
-            description: Some("Example Python workflow".to_string()),
-            fingerprint: "sha256:abc123".to_string(),
-            targets: vec!["linux-x86_64".to_string()],
-        },
-        language: PackageLanguage::Python,
-        python: Some(PythonRuntime {
-            requires_python: ">=3.10".to_string(),
-            entry_module: "workflow.tasks".to_string(),
-        }),
-        rust: None,
-        tasks: vec![
-            TaskDefinition {
-                id: "fetch-data".to_string(),
-                function: "workflow.tasks:fetch_data".to_string(),
-                dependencies: vec![],
-                description: None,
-                retries: 0,
-                timeout_seconds: None,
-            },
-            TaskDefinition {
-                id: "validate-data".to_string(),
-                function: "workflow.tasks:validate_data".to_string(),
-                dependencies: vec!["fetch-data".to_string()],
-                description: None,
-                retries: 0,
-                timeout_seconds: None,
-            },
-        ],
-        triggers: vec![],
-        created_at: chrono::Utc::now(),
-        signature: None,
-    }
-}
-
-#[test]
-fn manifest_validates_task_dependency_references() {
-    let mut manifest = make_python_manifest();
-    manifest.tasks[1].dependencies = vec!["nonexistent-task".to_string()];
-
-    let err = manifest.validate().unwrap_err();
-    assert!(
-        matches!(err, ManifestValidationError::InvalidDependency { .. }),
-        "Expected InvalidDependency error, got: {err:?}"
-    );
-}
-
-#[test]
-fn manifest_validates_duplicate_task_ids() {
-    let mut manifest = make_python_manifest();
-    manifest.tasks[1].id = "fetch-data".to_string();
-
-    let err = manifest.validate().unwrap_err();
-    assert!(
-        matches!(err, ManifestValidationError::DuplicateTaskId { .. }),
-        "Expected DuplicateTaskId error, got: {err:?}"
-    );
-}
-
-#[test]
-fn manifest_validates_python_function_path_format() {
-    let mut manifest = make_python_manifest();
-    manifest.tasks[0].function = "missing_colon_separator".to_string();
-
-    let err = manifest.validate().unwrap_err();
-    assert!(
-        matches!(err, ManifestValidationError::InvalidFunctionPath { .. }),
-        "Expected InvalidFunctionPath error, got: {err:?}"
     );
 }
 
