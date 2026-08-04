@@ -28,7 +28,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /ready — readiness check (verifies DB connection pool is healthy) */
+        /**
+         * GET /ready — readiness check, scoped to PLATFORM health only (DB
+         *     reachable). CLOACI-T-0916: tenant-workload health is deliberately NOT part
+         *     of readiness — one crashed computation graph used to flip `/ready` false on
+         *     EVERY replica simultaneously, letting a single bad package eject the whole
+         *     server fleet from the load-balancer pool. Crashed graphs remain visible via
+         *     `GET /v1/health/graphs` (state `stopped`/`crashed`) and metrics.
+         */
         get: operations["ready"];
         put?: never;
         post?: never;
@@ -47,8 +54,9 @@ export interface paths {
         };
         /**
          * `GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
-         *     roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
-         *     registered against *this* server instance.
+         *     roster (admin only). CLOACI-I-0124 / WS-0b. CLOACI-T-0916: read from the
+         *     DB-backed roster (heartbeat-recency-filtered), so the listing reflects the
+         *     WHOLE fleet regardless of which replica each agent registered against.
          */
         get: operations["list_agents"];
         put?: never;
@@ -2363,14 +2371,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ready — DB reachable, no crashed graphs */
+            /** @description Ready — DB reachable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Not ready — `reason` field explains (database unreachable / crashed computation graphs) */
+            /** @description Not ready — `reason` field explains (database unreachable) */
             503: {
                 headers: {
                     [name: string]: unknown;

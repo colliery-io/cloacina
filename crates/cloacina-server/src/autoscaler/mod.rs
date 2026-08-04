@@ -45,7 +45,7 @@
 
 pub mod leader;
 
-use crate::agent_registry::AgentRecord;
+use cloacina::dal::unified::FleetAgent;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -190,7 +190,8 @@ pub fn should_act_at(
     }
 }
 
-/// Compute per-tenant utilization from a roster snapshot.
+/// Compute per-tenant utilization from the live (DB-read, heartbeat-recent)
+/// roster (CLOACI-T-0916 — the roster spans every replica).
 ///
 /// Utilization = Σ`in_flight` / Σ`max_concurrency` over the tenant's agents.
 /// Only tenant-scoped agents (`tenant_id = Some(..)`) are counted — a global
@@ -198,7 +199,7 @@ pub fn should_act_at(
 /// whose summed `max_concurrency` is `0` (e.g. every live agent advertises zero
 /// capacity) maps to `0.0` rather than dividing by zero — we don't scale up a
 /// tenant with no usable capacity on the strength of a degenerate ratio.
-pub fn tenant_utilizations(records: &[AgentRecord]) -> HashMap<String, f64> {
+pub fn tenant_utilizations(records: &[FleetAgent]) -> HashMap<String, f64> {
     // tenant -> (Σ in_flight, Σ max_concurrency)
     let mut sums: HashMap<String, (u64, u64)> = HashMap::new();
     for r in records {
@@ -223,24 +224,20 @@ pub fn tenant_utilizations(records: &[AgentRecord]) -> HashMap<String, f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
 
     fn cfg() -> ScaleConfig {
         ScaleConfig::default()
     }
 
-    fn rec(tenant: Option<&str>, max: u32, in_flight: u32) -> AgentRecord {
-        AgentRecord {
-            agent_id: format!("agent-{}-{}", tenant.unwrap_or("global"), in_flight),
-            max_concurrency: max,
-            in_flight,
-            available_capacity: max.saturating_sub(in_flight),
-            target_triple: "aarch64-apple-darwin".to_string(),
-            capabilities: vec![],
-            last_heartbeat: Instant::now(),
-            tenant_id: tenant.map(|s| s.to_string()),
-            key_pool: cloacina::security::ServerKeyPool::new(),
-        }
+    fn rec(tenant: Option<&str>, max: u32, in_flight: u32) -> FleetAgent {
+        let mut a = crate::agent_registry::test_fleet_agent(
+            &format!("agent-{}-{}", tenant.unwrap_or("global"), in_flight),
+            max,
+            tenant,
+        );
+        a.in_flight = in_flight;
+        a.available_capacity = max.saturating_sub(in_flight);
+        a
     }
 
     // ---- decide() — every branch -------------------------------------------

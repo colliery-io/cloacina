@@ -33,14 +33,14 @@
         "tags": [
           "operational"
         ],
-        "summary": "GET /ready — readiness check (verifies DB connection pool is healthy)",
+        "summary": "GET /ready — readiness check, scoped to PLATFORM health only (DB\nreachable). CLOACI-T-0916: tenant-workload health is deliberately NOT part\nof readiness — one crashed computation graph used to flip `/ready` false on\nEVERY replica simultaneously, letting a single bad package eject the whole\nserver fleet from the load-balancer pool. Crashed graphs remain visible via\n`GET /v1/health/graphs` (state `stopped`/`crashed`) and metrics.",
         "operationId": "ready",
         "responses": {
           "200": {
-            "description": "Ready — DB reachable, no crashed graphs"
+            "description": "Ready — DB reachable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."
           },
           "503": {
-            "description": "Not ready — `reason` field explains (database unreachable / crashed computation graphs)"
+            "description": "Not ready — `reason` field explains (database unreachable)"
           }
         }
       }
@@ -50,7 +50,7 @@
         "tags": [
           "fleet"
         ],
-        "summary": "`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet\nroster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents\nregistered against *this* server instance.",
+        "summary": "`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet\nroster (admin only). CLOACI-I-0124 / WS-0b. CLOACI-T-0916: read from the\nDB-backed roster (heartbeat-recency-filtered), so the listing reflects the\nWHOLE fleet regardless of which replica each agent registered against.",
         "operationId": "list_agents",
         "responses": {
           "200": {

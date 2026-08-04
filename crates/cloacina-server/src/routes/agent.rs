@@ -26,8 +26,6 @@
 //! [`cloacina::executor::TaskResultHandler`] (T-0630) lands in T-0633 — for
 //! T-0631 the result endpoint accepts + logs.
 
-use std::time::Instant;
-
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http::{header, StatusCode};
@@ -42,7 +40,8 @@ use cloacina::security::ServerKeyPool;
 use tracing::{debug, info};
 use uuid::Uuid;
 
-use crate::agent_registry::AgentRecord;
+use cloacina::dal::unified::FleetAgentRegistration;
+
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
@@ -75,8 +74,10 @@ fn require_protocol_version(version: u32) -> Result<(), ApiError> {
 /// (the handler's own not-found / orphan handling applies). Dispatch-time
 /// isolation already holds (`fleet_executor` only selects same-tenant agents);
 /// this closes the inbound `heartbeat`/`result` endpoints, which previously
-/// ignored the caller's tenant entirely.
-fn reject_cross_tenant_agent(
+/// ignored the caller's tenant entirely. CLOACI-T-0916: the tenant is read
+/// from the DB-backed roster, so the guard holds no matter which replica
+/// handled the agent's registration.
+async fn reject_cross_tenant_agent(
     state: &AppState,
     auth: &AuthenticatedKey,
     agent_id: &str,
@@ -84,7 +85,12 @@ fn reject_cross_tenant_agent(
     if auth.is_admin {
         return Ok(());
     }
-    if let Some(agent_tenant) = state.agent_registry.agent_tenant(agent_id) {
+    let agent_tenant = state
+        .agent_registry
+        .agent_tenant(agent_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("agent roster lookup failed: {e}")))?;
+    if let Some(agent_tenant) = agent_tenant {
         if agent_tenant != auth.tenant_id {
             return Err(ApiError::forbidden(
                 "tenant_access_denied",
@@ -124,17 +130,22 @@ pub async fn register_agent(
     }
     let pool_size = pool_entries.len();
 
-    state.agent_registry.register(AgentRecord {
-        agent_id: agent_id.clone(),
-        max_concurrency: req.max_concurrency,
-        in_flight: 0,
-        available_capacity: req.max_concurrency,
-        target_triple: req.target_triple.clone(),
-        capabilities: req.capabilities.clone(),
-        last_heartbeat: Instant::now(),
-        tenant_id: auth.tenant_id.clone(),
-        key_pool: ServerKeyPool::from_entries(pool_entries),
-    });
+    // CLOACI-T-0916: the roster row is DB-backed (visible to every replica);
+    // the one-time key pool is seeded on THIS replica (see agent_registry.rs).
+    state
+        .agent_registry
+        .register(
+            FleetAgentRegistration {
+                agent_id: agent_id.clone(),
+                tenant_id: auth.tenant_id.clone(),
+                target_triple: req.target_triple.clone(),
+                capabilities: req.capabilities.clone(),
+                max_concurrency: req.max_concurrency,
+            },
+            ServerKeyPool::from_entries(pool_entries),
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("agent registration persist failed: {e}")))?;
 
     info!(
         agent_id = %agent_id,
@@ -163,19 +174,27 @@ pub async fn heartbeat_agent(
     Json(req): Json<AgentHeartbeatRequest>,
 ) -> Result<Json<AgentHeartbeatResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id)?;
+    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
 
-    if !state
+    // CLOACI-T-0916: heartbeat lands in the DB-backed roster, so it succeeds
+    // no matter which replica handled the registration (no more "not
+    // registered" flapping behind a non-affine load balancer).
+    let known = state
         .agent_registry
         .record_heartbeat(&req.agent_id, req.in_flight, req.available_capacity)
-    {
+        .await
+        .map_err(|e| ApiError::internal(format!("agent heartbeat persist failed: {e}")))?;
+    if !known {
         return Err(ApiError::not_found(
             "agent_not_registered",
             format!("agent not registered: {} (re-register)", req.agent_id),
         ));
     }
     // CLOACI-T-0861 / D-5 — tell the agent how many one-time keys to top up if
-    // secret-bearing dispatches have drawn the pool below its target.
+    // secret-bearing dispatches have drawn the pool below its target. The pool
+    // is replica-local; a replica the agent has not topped up yet reports the
+    // full target, which is how each replica's pool gets established
+    // (CLOACI-T-0916 residual — see agent_registry.rs).
     let replenish_keys = state
         .agent_registry
         .key_pool_deficit(&req.agent_id, AGENT_KEY_POOL_TARGET) as u32;
@@ -196,17 +215,25 @@ pub async fn replenish_keys(
     Json(req): Json<AgentKeyReplenishRequest>,
 ) -> Result<Json<AgentKeyReplenishResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id)?;
+    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
 
+    // CLOACI-T-0916: registration is checked against the DB-backed roster (any
+    // replica); the keys themselves land in THIS replica's local pool.
+    let registered = state
+        .agent_registry
+        .agent_tenant(&req.agent_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("agent roster lookup failed: {e}")))?
+        .is_some();
+    if !registered {
+        return Err(ApiError::not_found(
+            "agent_not_registered",
+            format!("agent not registered: {} (re-register)", req.agent_id),
+        ));
+    }
     let accepted = state
         .agent_registry
-        .replenish_secret_keys(&req.agent_id, req.keys)
-        .ok_or_else(|| {
-            ApiError::not_found(
-                "agent_not_registered",
-                format!("agent not registered: {} (re-register)", req.agent_id),
-            )
-        })?;
+        .replenish_secret_keys(&req.agent_id, req.keys);
     debug!(agent_id = %req.agent_id, accepted, "agent key pool topped up");
     Ok(Json(AgentKeyReplenishResponse {
         protocol_version: AGENT_PROTOCOL_VERSION,
@@ -229,7 +256,7 @@ pub async fn report_result(
     Json(req): Json<AgentResultRequest>,
 ) -> Result<Json<AgentResultResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id)?;
+    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
 
     // CLOACI-T-0780: a refusal is an EXPECTED fail-closed outcome — and now rare,
     // since the fleet only dispatches to agents with a runnable arch. Log it at
@@ -446,8 +473,9 @@ pub async fn fetch_providers(
 }
 
 /// `GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
-/// roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
-/// registered against *this* server instance.
+/// roster (admin only). CLOACI-I-0124 / WS-0b. CLOACI-T-0916: read from the
+/// DB-backed roster (heartbeat-recency-filtered), so the listing reflects the
+/// WHOLE fleet regardless of which replica each agent registered against.
 #[utoipa::path(
     get,
     path = "/v1/agents",
@@ -463,10 +491,14 @@ pub async fn list_agents(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
-    let now = Instant::now();
-    let agents: Vec<cloacina_api_types::AgentInfo> = state
-        .agent_registry
-        .snapshot()
+    let live = match state.agent_registry.live_agents().await {
+        Ok(live) => live,
+        Err(e) => {
+            return ApiError::internal(format!("agent roster read failed: {e}")).into_response()
+        }
+    };
+    let now = chrono::Utc::now();
+    let agents: Vec<cloacina_api_types::AgentInfo> = live
         .into_iter()
         // CLOACI-T-0785: tenant-admins see only their own tenant's agents; god sees all.
         .filter(|r| auth.is_admin || r.tenant_id == auth.tenant_id)
@@ -476,7 +508,7 @@ pub async fn list_agents(
             max_concurrency: r.max_concurrency,
             in_flight: r.in_flight,
             available_capacity: r.available_capacity,
-            seconds_since_heartbeat: now.duration_since(r.last_heartbeat).as_secs(),
+            seconds_since_heartbeat: (now - r.last_heartbeat_at.0).num_seconds().max(0) as u64,
             capabilities: r.capabilities,
             tenant_id: r.tenant_id,
         })

@@ -53,6 +53,7 @@ pub mod checkpoint;
 pub mod context;
 pub mod delivery_outbox;
 pub mod execution_event;
+pub mod fleet_agents;
 #[cfg(feature = "postgres")]
 pub mod local_accounts;
 pub mod models;
@@ -69,6 +70,7 @@ pub mod task_execution_metadata;
 pub mod workflow_execution;
 pub mod workflow_packages;
 pub mod workflow_registry_storage;
+pub mod ws_tickets;
 
 // Re-export DAL components
 #[cfg(feature = "postgres")]
@@ -81,6 +83,7 @@ pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use delivery_outbox::DeliveryOutboxDAL;
 pub use execution_event::ExecutionEventDAL;
+pub use fleet_agents::{FleetAgent, FleetAgentDAL, FleetAgentRegistration};
 #[cfg(feature = "postgres")]
 pub use local_accounts::{LocalAccount, LocalAccountDAL, LoginOutcome};
 #[cfg(feature = "postgres")]
@@ -96,6 +99,7 @@ pub use task_execution_metadata::TaskExecutionMetadataDAL;
 pub use workflow_execution::WorkflowExecutionDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
 pub use workflow_registry_storage::UnifiedRegistryStorage;
+pub use ws_tickets::{WsTicketAuth, WsTicketDAL};
 
 /// Helper macro for dispatching operations based on backend type.
 ///
@@ -211,6 +215,18 @@ impl DAL {
     /// substrate (durable, ack-tracked, recipient-addressed push delivery).
     pub fn delivery_outbox(&self) -> DeliveryOutboxDAL<'_> {
         DeliveryOutboxDAL::new(self)
+    }
+
+    /// Returns a fleet-agent roster DAL (register/heartbeat state persisted
+    /// for multi-replica selection, capacity views and reclaim). CLOACI-T-0916.
+    pub fn fleet_agents(&self) -> FleetAgentDAL<'_> {
+        FleetAgentDAL::new(self)
+    }
+
+    /// Returns a single-use WebSocket-ticket DAL (DB-backed so a ticket
+    /// minted on one replica redeems on any other). CLOACI-T-0916.
+    pub fn ws_tickets(&self) -> WsTicketDAL<'_> {
+        WsTicketDAL::new(self)
     }
 
     /// Returns a recovery event DAL for recovery operations.

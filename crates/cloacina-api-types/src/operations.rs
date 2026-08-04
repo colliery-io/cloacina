@@ -44,14 +44,16 @@ pub struct OpsMetricsEvent {
     pub ts: String,
 }
 
-/// Server liveness + readiness, mirroring what the UI derived from `/health`
-/// and `/ready`.
+/// Server liveness + health rollup for the operations UI. NOTE: richer than
+/// the LB probes — `GET /ready` itself is platform-scoped (DB reachability
+/// only, CLOACI-T-0916); this event additionally folds in crashed computation
+/// graphs as an informational signal.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ServerHealthLite {
     /// Process is up (always true if this event arrived, but explicit for the UI).
     pub alive: bool,
-    /// DB pool reachable and no crashed computation graphs.
+    /// DB pool reachable and no crashed computation graphs (in this view).
     pub ready: bool,
     /// Why not ready, when `ready == false`.
     pub reason: Option<String>,

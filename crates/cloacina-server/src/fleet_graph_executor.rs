@@ -48,9 +48,8 @@ use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use tracing::{debug, info, warn};
 
-use crate::agent_registry::AgentRegistry;
+use crate::agent_registry::{select_fleet_agent, AgentRegistry};
 use crate::fleet_coordinator::FleetCoordinator;
-use crate::fleet_executor::select_fleet_agent;
 
 /// Max wall-clock to wait for an agent's graph result before reporting the
 /// firing failed. Matches the task path's conservative cap.
@@ -147,7 +146,14 @@ impl FleetGraphExecutor {
             t.push(host_target_triple().to_string());
             Some(t)
         };
-        let snapshot = self.agent_registry.snapshot();
+        // CLOACI-T-0916: read the DB-backed live roster, so agents registered
+        // via any replica are eligible (the packet rides the delivery outbox
+        // to whichever replica holds the agent's socket).
+        let snapshot = self
+            .agent_registry
+            .live_agents()
+            .await
+            .map_err(|e| format!("fleet roster read failed: {e}"))?;
         let agent =
             select_fleet_agent(&snapshot, &fire.tenant_id, &runnable_triples).ok_or_else(|| {
                 format!(

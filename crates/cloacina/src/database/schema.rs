@@ -151,6 +151,48 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Single-use WebSocket auth tickets (CLOACI-T-0916). DB-backed so a
+        /// ticket minted on one server replica redeems on any other (no
+        /// session affinity). Redemption is an atomic compare-and-set on
+        /// `redeemed_at IS NULL`.
+        ws_tickets (ticket) {
+            ticket -> Text,
+            key_id -> DbUuid,
+            key_name -> Text,
+            permissions -> Text,
+            tenant_id -> Nullable<Text>,
+            is_admin -> DbBool,
+            created_at -> DbTimestamp,
+            expires_at -> DbTimestamp,
+            redeemed_at -> Nullable<DbTimestamp>,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        /// Execution-agent fleet roster (CLOACI-T-0916). DB-backed so
+        /// register/heartbeat state, same-tenant selection, capacity views and
+        /// dead-agent reclaim are correct across server replicas. Reads are
+        /// heartbeat-recency-filtered; `capabilities` is a JSON string array.
+        fleet_agents (agent_id) {
+            agent_id -> Text,
+            tenant_id -> Nullable<Text>,
+            target_triple -> Text,
+            capabilities -> Text,
+            max_concurrency -> Integer,
+            in_flight -> Integer,
+            available_capacity -> Integer,
+            registered_at -> DbTimestamp,
+            last_heartbeat_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         task_execution_metadata (id) {
             id -> DbUuid,
             task_execution_id -> DbUuid,

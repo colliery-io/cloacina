@@ -241,9 +241,18 @@ for the autoscaler tuning knobs.
 
 ## High availability (multi-replica)
 
-The server is safe to run with `replicaCount > 1`: the reconciler/autoscaler
-leader is gated by a Postgres advisory lock (ADR CLOACI-A-0008), so extra
-replicas serve HTTP without double-driving the control loop. When you raise the
+The server is safe to run with `replicaCount > 1`, with **no session affinity
+required**: the reconciler/autoscaler leader is gated by a Postgres advisory
+lock (ADR CLOACI-A-0008); WebSocket auth tickets, the execution-agent fleet
+roster, and OIDC login flows are all Postgres-backed, so any request or
+heartbeat can land on any replica; and work packets ride the durable delivery
+outbox to whichever replica holds the recipient's socket. Readiness (`/ready`)
+is scoped to platform health (DB reachability) — a crashed computation graph
+does not eject replicas from the load-balancer pool (it stays visible via
+`GET /v1/health/graphs`). See
+[Horizontal Scaling]({{< relref "../explanation/horizontal-scaling.md" >}})
+for the two deliberate residuals (replica-local fleet secret key pools;
+reactive-layer placement, CLOACI-T-0851). When you raise the
 replica count the chart adds two HA primitives automatically:
 
 | Value | Default | Effect |
