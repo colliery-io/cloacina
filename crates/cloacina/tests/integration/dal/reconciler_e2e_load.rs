@@ -228,7 +228,11 @@ async fn reconciler_loads_cross_package_publisher_subscriber_end_to_end() {
     let event_bytes =
         serde_json::to_vec(&serde_json::json!({"value": 42.0})).expect("serialize event");
     endpoint_registry
-        .send_to_accumulator("alpha", EndpointScope::untenanted(), event_bytes)
+        // The reconciler registered this endpoint under its
+        // `default_tenant_id` ("public"), so the send must resolve in that
+        // tenant's scope — the same way the WS bridge scopes by the
+        // authenticated key's tenant (CLOACI-T-0921).
+        .send_to_accumulator("alpha", EndpointScope::tenant("public"), event_bytes)
         .await
         .expect("event send to accumulator should succeed");
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
