@@ -31,6 +31,7 @@ mod computation_graph_tests;
 pub mod constructor;
 pub mod context;
 mod gil;
+pub mod import_guard;
 pub mod loader;
 pub mod namespace;
 pub mod reactor;

@@ -33,14 +33,15 @@
         "tags": [
           "operational"
         ],
-        "summary": "GET /ready — readiness check, scoped to PLATFORM health only (DB\nreachable). CLOACI-T-0916: tenant-workload health is deliberately NOT part\nof readiness — one crashed computation graph used to flip `/ready` false on\nEVERY replica simultaneously, letting a single bad package eject the whole\nserver fleet from the load-balancer pool. Crashed graphs remain visible via\n`GET /v1/health/graphs` (state `stopped`/`crashed`) and metrics.",
+        "summary": "GET /ready — readiness check, scoped to PLATFORM health only (DB\nreachable, embedded Python interpreter usable). CLOACI-T-0916:\ntenant-workload health is deliberately NOT part of readiness — one crashed\ncomputation graph used to flip `/ready` false on EVERY replica\nsimultaneously, letting a single bad package eject the whole server fleet\nfrom the load-balancer pool. Crashed graphs remain visible via\n`GET /v1/health/graphs` (state `stopped`/`crashed`) and metrics.",
+        "description": "CLOACI-T-0919 adds one more PLATFORM predicate: a wedged Python runtime.\nThere is exactly one embedded CPython per process, so an uninterruptible\nmodule-scope hang disables Python package loading process-wide until\nrestart. That is this replica being broken — not a tenant workload\nmisbehaving — so it belongs in readiness, and it is replica-local (the\nwedge is set by THIS process's own import thread), which is precisely the\nproperty #231 required.",
         "operationId": "ready",
         "responses": {
           "200": {
-            "description": "Ready — DB reachable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."
+            "description": "Ready — DB reachable and the embedded Python runtime is usable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."
           },
           "503": {
-            "description": "Not ready — `reason` field explains (database unreachable)"
+            "description": "Not ready — `reason` field explains (database unreachable, or the embedded Python runtime is wedged by a package import hang and this process must be restarted)"
           }
         }
       }

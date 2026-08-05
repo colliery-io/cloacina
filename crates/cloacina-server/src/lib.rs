@@ -2081,32 +2081,50 @@ async fn health() -> impl IntoResponse {
 }
 
 /// GET /ready — readiness check, scoped to PLATFORM health only (DB
-/// reachable). CLOACI-T-0916: tenant-workload health is deliberately NOT part
-/// of readiness — one crashed computation graph used to flip `/ready` false on
-/// EVERY replica simultaneously, letting a single bad package eject the whole
-/// server fleet from the load-balancer pool. Crashed graphs remain visible via
+/// reachable, embedded Python interpreter usable). CLOACI-T-0916:
+/// tenant-workload health is deliberately NOT part of readiness — one crashed
+/// computation graph used to flip `/ready` false on EVERY replica
+/// simultaneously, letting a single bad package eject the whole server fleet
+/// from the load-balancer pool. Crashed graphs remain visible via
 /// `GET /v1/health/graphs` (state `stopped`/`crashed`) and metrics.
+///
+/// CLOACI-T-0919 adds one more PLATFORM predicate: a wedged Python runtime.
+/// There is exactly one embedded CPython per process, so an uninterruptible
+/// module-scope hang disables Python package loading process-wide until
+/// restart. That is this replica being broken — not a tenant workload
+/// misbehaving — so it belongs in readiness, and it is replica-local (the
+/// wedge is set by THIS process's own import thread), which is precisely the
+/// property #231 required.
 #[utoipa::path(
     get,
     path = "/ready",
     tag = "operational",
     responses(
-        (status = 200, description = "Ready — DB reachable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."),
-        (status = 503, description = "Not ready — `reason` field explains (database unreachable)"),
+        (status = 200, description = "Ready — DB reachable and the embedded Python runtime is usable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."),
+        (status = 503, description = "Not ready — `reason` field explains (database unreachable, or the embedded Python runtime is wedged by a package import hang and this process must be restarted)"),
     )
 )]
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // Verify we can acquire a connection from the pool
     let db_ready = state.database.get_postgres_connection().await.is_ok();
 
-    if db_ready {
-        (StatusCode::OK, Json(serde_json::json!({"status": "ready"})))
-    } else {
-        (
+    if !db_ready {
+        return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"status": "not ready", "reason": "database unreachable"})),
-        )
+        );
     }
+
+    // PLATFORM predicate, not workload: this process's embedded interpreter is
+    // unusable and only a restart fixes it (CLOACI-T-0919).
+    if let Some(reason) = cloacina::python_runtime::python_runtime_wedged_reason() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"status": "not ready", "reason": reason})),
+        );
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"status": "ready"})))
 }
 
 /// GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
@@ -2584,6 +2602,52 @@ mod tests {
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "ready");
+    }
+
+    /// CLOACI-T-0919: a wedged embedded Python interpreter is PLATFORM health —
+    /// this replica can no longer load any Python package and only a restart
+    /// fixes it — so `/ready` must fail with the wedging package named. This
+    /// does NOT reopen the #231 hole: the wedge is set by this process's own
+    /// import thread, so it cannot fan out across the fleet the way a shared
+    /// tenant workload could.
+    #[tokio::test]
+    #[serial]
+    async fn ready_reports_503_when_python_runtime_is_wedged() {
+        let state = test_state().await;
+
+        // Healthy first — proves the 503 below comes from the wedge.
+        cloacina::python_runtime::reset_python_runtime_wedged_for_tests();
+        let req = axum::http::Request::builder()
+            .uri("/ready")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status, StatusCode::OK);
+
+        cloacina::python_runtime::mark_python_runtime_wedged(
+            "python runtime wedged by package hostile-loop import hang",
+        );
+
+        let req = axum::http::Request::builder()
+            .uri("/ready")
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(build_router(state), req).await;
+
+        // Restore before any assertion can unwind the test — the flag is
+        // process-global and latching in production.
+        cloacina::python_runtime::reset_python_runtime_wedged_for_tests();
+
+        assert_eq!(
+            status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "a wedged python runtime must fail readiness (body: {body})"
+        );
+        assert_eq!(body["status"], "not ready");
+        assert_eq!(
+            body["reason"], "python runtime wedged by package hostile-loop import hang",
+            "the reason must name the package that wedged the interpreter"
+        );
     }
 
     // ── CLOACI-T-0916: multi-replica truthfulness ─────────────────────────
