@@ -4,15 +4,15 @@ level: task
 title: "CI verification-lattice holes — path filters, constructor suite, server-side lockstep, publish tiers"
 short_code: "CLOACI-T-0917"
 created_at: 2026-08-02T16:33:33.333322+00:00
-updated_at: 2026-08-04T01:06:09.137022+00:00
-parent:
+updated_at: 2026-08-04T10:15:38.500736+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -45,14 +45,13 @@ Close the verification-lattice blind spots found by the 2026-08-02 deep dive. Pa
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] A PR touching only crates/cloacina-python triggers the test matrix; same for tests/python and crates/cloacina-server
-- [ ] constructors-wasm suite has a CI lane (documented cadence)
-- [ ] version_lockstep.py enforced server-side; the false comment corrected
-- [ ] Publish-tier completeness mechanically checked against workspace membership
-- [ ] Retry/continue-on-error tolerances re-justified or removed
+- [x] Test matrix now triggers for cloacina-python, tests/python, cloacina-server, -compiler, -agent, -client, -constructor-contract, clients/python; scripts/** triggers quick-checks
+- [x] constructors-wasm suite has a CI home: nightly constructor-suite job (ubuntu, wasm32-wasip2, 60min cap, target-scoped invocation) — release-blocking since unified_release calls nightly
+- [x] version_lockstep.py runs in quick-checks (it lives in .angreal/, not scripts/ as filed); false pre-commit comment corrected
+- [x] scripts/check_publish_tiers.py asserts exactly-once coverage vs cargo metadata both directions; passes today (15/15)
+- [x] python-tutorials continue-on-error removed (post-I-0140); three x3 retry sites kept with justification + removal criteria; repo grep confirms no other allow-failure sites
 
 ## Status Updates
 
 - 2026-08-02: Filed from the architecture deep dive (quality-release report; DEEPDIVE.md recommendations #1-3). Verified against main @ 5216e632.
+- 2026-08-04: DONE — merged to main in PR #233 (squash). Corrections to the filing: version_lockstep.py is in .angreal/ not scripts/; the "tiers" in unified_release.yml are bare `publish <crate>` shell calls, not YAML lists (the checker regex-parses them and fails loud if that shape changes). Constructor-suite placement decided on measured data: the suite compiles fixture crates inside tests and exceeded the 10-minute per-PR budget mid-run (11/14 green before cutoff, zero constructor-target failures), so nightly — and the invocation MUST be target-scoped because an unscoped `cargo test -p cloacina` drags in the postgres-dependent fixtures target. providers/* are not workspace members (they ship via provider_release waves) and are documented as out of scope in the tier checker.
