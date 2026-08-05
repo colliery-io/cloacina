@@ -4,15 +4,15 @@ level: task
 title: "Installer and packaging leftovers — root install.sh 404s Intel macs, stale sandbox comments, dead code"
 short_code: "CLOACI-T-0918"
 created_at: 2026-08-02T16:33:41.487632+00:00
-updated_at: 2026-08-04T01:08:07.306953+00:00
-parent:
+updated_at: 2026-08-04T09:08:42.829774+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -47,16 +47,15 @@ Sweep the small concrete leftovers the deep dive found in installers and the pac
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] Exactly one installer, correct org, correct target map, clear unsupported-platform error
-- [ ] No comment in the compiler/packaging path claims the excised sandbox
-- [ ] manifest_schema.rs removed or test-scoped
-- [ ] input_strategy in FFI metadata reflects the manifest
-- [ ] Rejected unload / partial load leave no ghost tracking state or orphaned schedules (tests)
-- [ ] Compile-phase cargo spawn runs env-cleared with an explicit allowlist; a test asserts DATABASE_URL is absent from the build env
-- [ ] --cargo-flag is additive; full replacement requires the explicit escape hatch
+- [x] One installer (root install.sh deleted; scripts/install.sh canonical per unified_release.yml); target allowlist matches the release build matrix; Intel macOS gets an explicit cargo-install pointer instead of a 404; 4 doc pages converged
+- [x] No comment claims the excised sandbox (run_cargo_fetch doc, log line, config.rs dev-workspace comment); dead landlock dep removed
+- [x] manifest_schema.rs deleted (654 lines) — parse_duration_str RESCUED to cloacina::packaging (it had 2 production consumers, contra the ticket's "test-only" assumption) with unit coverage preserved
+- [x] input_strategy honored: FFI wire default documented as unknowable-at-emit (wire compat), host now applies manifest [metadata] input_strategy — which it NEVER did before, silently ignoring sequential; test proves manifest wins
+- [x] Rejected unload retains residual tracking (retry next cycle) + partial-load rollback unregisters every created schedule row across all 3 language branches; tests for both
+- [x] Compile-phase cargo env-cleared behind allowlist; tests assert DATABASE_URL absent + allowlist passthrough (phase-1 fetch deliberately inherits)
+- [x] --cargo-flag additive; --cargo-flags-replace is the explicit hatch; all replace-reliant call sites migrated (demo compose, chart, angreal) + docs
 
 ## Status Updates
 
 - 2026-08-02: Filed from the architecture deep dive (packaging-pipeline + quality-release reports; DEEPDIVE.md register medium tier). Verified against main @ 5216e632.
+- 2026-08-04: DONE — merged to main in PR #232 (squash). Two findings were WORSE/different than filed and are the most valuable outcomes: (a) manifest_schema.rs was not fully dead — parse_duration_str had production consumers in packaging_bridge + python trigger; deleting blind would have broken the build, so it moved to cloacina::packaging; (b) input_strategy was ignored END-TO-END — the shell's hardcoded "latest" was only half the story; the host never read the manifest value, so packaged sequential graphs silently ran latest. Both now fixed with tests. Also excised the dead landlock dependency (pure I-0105 leftover).

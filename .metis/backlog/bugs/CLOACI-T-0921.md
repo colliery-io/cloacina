@@ -4,15 +4,15 @@ level: task
 title: "Flat name-global registries cross tenant lines in-process — audit and key by tenant/package"
 short_code: "CLOACI-T-0921"
 created_at: 2026-08-02T17:44:00.940671+00:00
-updated_at: 2026-08-02T17:44:00.940671+00:00
-parent:
+updated_at: 2026-08-04T05:05:01.821436+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,6 +40,10 @@ Audit every process-wide name-keyed registry against the tenant-is-THE-isolation
 3. Audit scope beyond the two known: any other process-global map keyed by bare entity name (trigger registries, reactor maps, workflow name lookups in the shared runtime) — enumerate and classify each as (a) already tenant/package-scoped, (b) name-collision-safe by construction, or (c) violator.
 
 Context: workflow task namespaces already carry tenant::package:: prefixes (TaskNamespace), so the pattern exists — these registries predate or bypassed it. Server multi-tenancy makes this reachable today: one server process hosts many tenants' packages.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
