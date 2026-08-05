@@ -2847,7 +2847,11 @@ mod tests {
 
         // Fire it: push one event, then wait for the reactor task to die.
         registry
-            .send_to_accumulator("t0916_alpha", b"{\"v\":1}".to_vec())
+            .send_to_accumulator(
+                "t0916_alpha",
+                cloacina::computation_graph::registry::EndpointScope::untenanted(),
+                b"{\"v\":1}".to_vec(),
+            )
             .await
             .expect("event push");
         let mut crashed = false;

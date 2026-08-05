@@ -33,7 +33,7 @@ use axum::{
 use tracing::warn;
 
 use cloacina::computation_graph::reactor::ManualCommand;
-use cloacina::computation_graph::registry::{KeyContext, ReactorOp};
+use cloacina::computation_graph::registry::{EndpointScope, KeyContext, ReactorOp};
 use cloacina::computation_graph::types::{serialize as serialize_boundary, InputCache, SourceName};
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
@@ -104,8 +104,15 @@ pub async fn list_accumulators(
     // list surfaces the relationship, not just name + health.
     let mut accumulators: Vec<AccumulatorStatus> =
         Vec::with_capacity(accumulators_with_health.len());
+    // CLOACI-T-0921: endpoint lookups are `(tenant, name)`-scoped; use the
+    // caller's own scope so a name shared with another tenant resolves to the
+    // caller's entry, never the other tenant's.
+    let scope = EndpointScope::from_key_context(&ctx);
     for (name, health, freshness) in accumulators_with_health {
-        let descriptor = state.endpoint_registry.accumulator_descriptor(&name).await;
+        let descriptor = state
+            .endpoint_registry
+            .accumulator_descriptor(&name, scope)
+            .await;
         // CLOACI-T-0765: promote freshness from the runtime probe (None until the
         // accumulator has emitted / on runtimes predating the probe).
         let last_event_at = freshness
@@ -123,15 +130,18 @@ pub async fn list_accumulators(
         let buffer_capacity = freshness.as_ref().and_then(|f| f.buffer_capacity());
         // CLOACI-T-0776: operator-inject count + last-inject time, so the UI can
         // mark accumulators that a human has manually injected into.
-        let (operator_injects, last_operator_inject_at) =
-            match state.endpoint_registry.accumulator_inject_stat(&name).await {
-                Some((count, ms)) => (
-                    count,
-                    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
-                        .map(|dt| dt.to_rfc3339()),
-                ),
-                None => (0, None),
-            };
+        let (operator_injects, last_operator_inject_at) = match state
+            .endpoint_registry
+            .accumulator_inject_stat(&name, scope)
+            .await
+        {
+            Some((count, ms)) => (
+                count,
+                chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+                    .map(|dt| dt.to_rfc3339()),
+            ),
+            None => (0, None),
+        };
         accumulators.push(AccumulatorStatus {
             state: Some(health.to_string()),
             status: serde_json::to_value(health).unwrap_or(serde_json::Value::Null),
@@ -505,9 +515,14 @@ pub async fn fire_reactor(
         }
     };
 
+    // CLOACI-T-0921: resolve `{name}` inside the caller's own tenant.
     match state
         .endpoint_registry
-        .send_to_reactor(&name, command)
+        .send_to_reactor(
+            &name,
+            EndpointScope::from_key_context(&key_context(&auth)),
+            command,
+        )
         .await
     {
         Ok(()) => {
@@ -585,7 +600,11 @@ pub async fn list_reactor_fires(
             .into_response();
     }
     let limit = q.limit.unwrap_or(50).min(200);
-    let fires: Vec<ReactorFire> = match state.endpoint_registry.get_reactor_handle(&name).await {
+    let fires: Vec<ReactorFire> = match state
+        .endpoint_registry
+        .get_reactor_handle(&name, EndpointScope::from_key_context(&key_context(&auth)))
+        .await
+    {
         Some(handle) => handle
             .stats
             .recent_fires(limit)
@@ -629,7 +648,11 @@ pub async fn reactor_fire_timeseries(
         return ApiError::not_found("reactor_not_found", format!("reactor '{}' not found", name))
             .into_response();
     }
-    let buckets = match state.endpoint_registry.get_reactor_handle(&name).await {
+    let buckets = match state
+        .endpoint_registry
+        .get_reactor_handle(&name, EndpointScope::from_key_context(&key_context(&auth)))
+        .await
+    {
         Some(handle) => handle.stats.fire_timeseries(),
         None => vec![0; 60],
     };
@@ -727,9 +750,11 @@ pub async fn inject_accumulator(
         }
     };
 
+    // CLOACI-T-0921: resolve `{name}` inside the caller's own tenant.
+    let inject_scope = EndpointScope::from_key_context(&key_context(&auth));
     match state
         .endpoint_registry
-        .send_to_accumulator(&name, event)
+        .send_to_accumulator(&name, inject_scope, event)
         .await
     {
         Ok(delivered) => {
@@ -737,7 +762,7 @@ pub async fn inject_accumulator(
             // is the human path; the WS push is data-source feed and is excluded).
             state
                 .endpoint_registry
-                .note_accumulator_operator_inject(&name)
+                .note_accumulator_operator_inject(&name, inject_scope)
                 .await;
             audit::log_accumulator_manual_inject(
                 &name,

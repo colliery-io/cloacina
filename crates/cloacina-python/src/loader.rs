@@ -216,6 +216,12 @@ pub fn import_and_register_python_workflow_named(
         // import below resolves it via `current_runtime()`.
         let _scope =
             ScopedRuntime::new(runtime.clone()).map_err(PythonLoaderError::RuntimeError)?;
+        // CLOACI-T-0921: stamp every registration this import triggers with the
+        // owning tenant + package.
+        let _registration = crate::registration_scope::ScopedRegistration::for_package(
+            Some(tenant_id.as_str()),
+            Some(package_name.as_str()),
+        );
         Python::with_gil(|py| {
             // 1. Ensure cloaca module is available
             ensure_cloaca_module(py)?;
@@ -438,6 +444,11 @@ pub fn import_python_computation_graph(
     vendor_dir: &Path,
     entry_module: &str,
     graph_name: &str,
+    // CLOACI-T-0921: whose import this is. Stamped onto every `@graph` /
+    // `@*_accumulator` registration the import triggers, so two tenants'
+    // same-named graphs no longer share one executor slot.
+    tenant_id: Option<&str>,
+    package_name: Option<&str>,
     runtime: Arc<Runtime>,
 ) -> Result<String, PythonLoaderError> {
     validate_no_stdlib_shadowing(workflow_dir, vendor_dir)?;
@@ -446,11 +457,14 @@ pub fn import_python_computation_graph(
     let vendor_dir = vendor_dir.to_path_buf();
     let entry_module = entry_module.to_string();
     let graph_name = graph_name.to_string();
+    let registration_scope =
+        crate::registration_scope::RegistrationScope::new(tenant_id, package_name);
     let timeout = Duration::from_secs(IMPORT_TIMEOUT_SECS);
 
     let handle = std::thread::spawn(move || -> Result<String, PythonLoaderError> {
         let _scope =
             ScopedRuntime::new(runtime.clone()).map_err(PythonLoaderError::RuntimeError)?;
+        let _registration = crate::registration_scope::ScopedRegistration::new(registration_scope);
         Python::with_gil(|py| {
             ensure_cloaca_module(py)?;
 

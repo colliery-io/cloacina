@@ -79,6 +79,7 @@ pub use runtime_impl::{install, CloacinaPythonRuntime};
 
 // Thread-local "current Runtime" slot used by decorator/loader paths to
 // register into a scoped Runtime rather than cloacina's process-globals.
+pub mod registration_scope;
 pub mod runtime_scope;
 pub use runtime_scope::{current_runtime, ScopedRuntime};
 

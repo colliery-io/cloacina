@@ -108,11 +108,16 @@ impl PythonRuntime for CloacinaPythonRuntime {
             .map_err(|e| format!("Failed to extract Python CG package: {}", e))?;
 
         pyo3::prepare_freethreaded_python();
+        // CLOACI-T-0921: the packaged loader knows tenant + package at import
+        // time; the Python package identity is the entry module's top-level name.
+        let package_name = entry_module.split('.').next().unwrap_or(entry_module);
         crate::loader::import_python_computation_graph(
             &extracted.workflow_dir,
             &extracted.vendor_dir,
             entry_module,
             graph_name,
+            Some(tenant_id),
+            Some(package_name),
             runtime.clone(),
         )
         .map_err(|e| format!("Python CG import failed: {}", e))?;

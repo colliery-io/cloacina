@@ -357,6 +357,11 @@ struct RunningGraph {
     reactor_health_rx: Option<watch::Receiver<super::reactor::ReactorHealth>>,
     /// Declaration (for restarts).
     declaration: ComputationGraphDeclaration,
+    /// CLOACI-T-0921: the endpoint-registry ownership identity every
+    /// accumulator/reactor of this graph is registered under. Carried on the
+    /// running graph so the restart and unload paths re-register / deregister
+    /// under exactly the same `(tenant, name)` keys they claimed at load.
+    owner: super::registry::EndpointOwner,
     /// Subscribers bound to this reactor. May contain one or many graphs
     /// after T-0544 fan-out.
     subscribers: ReactorSubscribers,
@@ -586,6 +591,18 @@ impl ComputationGraphScheduler {
         // The resolved decider is reused on restart (stored on `RunningGraph`).
         let evaluator = resolve_reactor_evaluator(&constructor).await?;
 
+        // CLOACI-T-0921: every endpoint this reactor registers is keyed by
+        // `(tenant, name)` and stamped with this owner, so a same-named
+        // endpoint in another tenant is a separate entry and a same-named
+        // endpoint owned by another reactor in the SAME tenant is rejected.
+        let owner = super::registry::EndpointOwner::new(
+            tenant_id.clone(),
+            // Package provenance is not threaded into `load_reactor` today; the
+            // reactor name is the discriminator. See CLOACI-T-0921 deferrals.
+            None,
+            reactor_name.clone(),
+        );
+
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
         let stored_shutdown_rx = shutdown_rx.clone();
 
@@ -600,7 +617,7 @@ impl ComputationGraphScheduler {
             .collect();
 
         // Spawn accumulators with health and DAL wiring
-        let mut accumulator_handles = Vec::new();
+        let mut accumulator_handles: Vec<(String, JoinHandle<()>)> = Vec::new();
         let mut acc_health_rxs: Vec<(
             String,
             watch::Receiver<super::accumulator::AccumulatorHealth>,
@@ -624,20 +641,35 @@ impl ComputationGraphScheduler {
                 spawn_config,
             );
 
+            // CLOACI-T-0921: a name already claimed by a DIFFERENT owner in
+            // this tenant is a load-time rejection. Tear down what we already
+            // spawned so a rejected load leaves nothing half-wired behind.
+            if let Err(e) = self
+                .registry
+                .register_accumulator(&owner, acc_decl.name.clone(), socket_tx)
+                .await
+            {
+                let _ = shutdown_tx.send(true);
+                for (spawned, _) in &accumulator_handles {
+                    self.registry.deregister_accumulator(&owner, spawned).await;
+                }
+                return Err(format!(
+                    "reactor '{}' cannot be loaded: {}",
+                    reactor_name, e
+                ));
+            }
             self.registry
-                .register_accumulator(acc_decl.name.clone(), socket_tx)
+                .register_accumulator_health(&owner, acc_decl.name.clone(), health_rx)
                 .await;
             self.registry
-                .register_accumulator_health(acc_decl.name.clone(), health_rx)
-                .await;
-            self.registry
-                .register_accumulator_freshness(acc_decl.name.clone(), freshness)
+                .register_accumulator_freshness(&owner, acc_decl.name.clone(), freshness)
                 .await;
             // CLOACI-I-0128 follow-up: self-register discoverability metadata
             // (the reactor this accumulator feeds + owning tenant) so the
             // discovery API can surface the relationship, not just the name.
             self.registry
                 .register_accumulator_meta(
+                    &owner,
                     acc_decl.name.clone(),
                     super::registry::AccumulatorDescriptor {
                         reactor: reactor_name.clone(),
@@ -691,20 +723,53 @@ impl ComputationGraphScheduler {
         // Register reactor under its name + any aliases. Both keys point at
         // the same manual channel + handle.
         let mut endpoint_registry_keys = vec![reactor_name.clone()];
-        self.registry
+        let mut registration_failure: Option<String> = None;
+        if let Err(e) = self
+            .registry
             .register_reactor(
+                &owner,
                 reactor_name.clone(),
                 manual_tx.clone(),
                 reactor_shared.clone(),
             )
-            .await;
-        for alias in &register_aliases {
-            if alias != &reactor_name {
-                self.registry
-                    .register_reactor(alias.clone(), manual_tx.clone(), reactor_shared.clone())
-                    .await;
-                endpoint_registry_keys.push(alias.clone());
+            .await
+        {
+            registration_failure = Some(e.to_string());
+        }
+        if registration_failure.is_none() {
+            for alias in &register_aliases {
+                if alias != &reactor_name {
+                    if let Err(e) = self
+                        .registry
+                        .register_reactor(
+                            &owner,
+                            alias.clone(),
+                            manual_tx.clone(),
+                            reactor_shared.clone(),
+                        )
+                        .await
+                    {
+                        registration_failure = Some(e.to_string());
+                        break;
+                    }
+                    endpoint_registry_keys.push(alias.clone());
+                }
             }
+        }
+        // CLOACI-T-0921: unwind the whole load if any endpoint name was
+        // already claimed by another owner in this tenant.
+        if let Some(e) = registration_failure {
+            let _ = shutdown_tx.send(true);
+            for key in &endpoint_registry_keys {
+                self.registry.deregister_reactor(&owner, key).await;
+            }
+            for (spawned, _) in &accumulator_handles {
+                self.registry.deregister_accumulator(&owner, spawned).await;
+            }
+            return Err(format!(
+                "reactor '{}' cannot be loaded: {}",
+                reactor_name, e
+            ));
         }
 
         // Set auth policies based on package tenant ownership.
@@ -718,12 +783,12 @@ impl ComputationGraphScheduler {
         };
         for acc_decl in &accumulators {
             self.registry
-                .set_accumulator_policy(acc_decl.name.clone(), acc_policy.clone())
+                .set_accumulator_policy(&owner, acc_decl.name.clone(), acc_policy.clone())
                 .await;
         }
         for key in &endpoint_registry_keys {
             self.registry
-                .set_reactor_policy(key.clone(), reactor_policy.clone())
+                .set_reactor_policy(&owner, key.clone(), reactor_policy.clone())
                 .await;
         }
 
@@ -762,6 +827,7 @@ impl ComputationGraphScheduler {
             reactor_shared,
             reactor_health_rx: Some(reactor_health_rx),
             declaration: anchor,
+            owner,
             subscribers,
             endpoint_registry_keys,
             failure_counts: HashMap::new(),
@@ -1047,14 +1113,17 @@ impl ComputationGraphScheduler {
             for label in &graph_labels {
                 emit_component_health(label, &acc_name, "stopped");
             }
-            self.registry.deregister_accumulator(&acc_name).await;
+            self.registry
+                .deregister_accumulator(&running.owner, &acc_name)
+                .await;
         }
 
         // Deregister every endpoint-registry key the reactor was registered
         // under (its own name + any back-compat aliases for bundled-form
-        // callers).
+        // callers). CLOACI-T-0921: owner-scoped, so unloading this package
+        // never tears down another tenant's/package's same-named endpoint.
         for key in &running.endpoint_registry_keys {
-            self.registry.deregister_reactor(key).await;
+            self.registry.deregister_reactor(&running.owner, key).await;
         }
 
         info!(reactor = %reactor_name, "reactor unloaded");
@@ -1423,6 +1492,9 @@ impl ComputationGraphScheduler {
             .map(|a| SourceName::new(&a.name))
             .collect();
 
+        // CLOACI-T-0921: re-register under the identity claimed at load.
+        let owner = running.owner.clone();
+
         let mut new_acc_handles = Vec::new();
         let mut restart_acc_health_rxs: Vec<(
             String,
@@ -1444,19 +1516,31 @@ impl ComputationGraphScheduler {
                 shutdown_rx.clone(),
                 spawn_config,
             );
+            // CLOACI-T-0921: the restart re-registers under the SAME owner it
+            // claimed at load, so this always matches and never conflicts.
+            if let Err(e) = self
+                .registry
+                .register_accumulator(&owner, acc_decl.name.clone(), socket_tx)
+                .await
+            {
+                warn!(
+                    graph = %reactor_name,
+                    accumulator = %acc_decl.name,
+                    error = %e,
+                    "accumulator re-registration rejected on restart"
+                );
+            }
             self.registry
-                .register_accumulator(acc_decl.name.clone(), socket_tx)
+                .register_accumulator_health(&owner, acc_decl.name.clone(), health_rx)
                 .await;
             self.registry
-                .register_accumulator_health(acc_decl.name.clone(), health_rx)
-                .await;
-            self.registry
-                .register_accumulator_freshness(acc_decl.name.clone(), freshness)
+                .register_accumulator_freshness(&owner, acc_decl.name.clone(), freshness)
                 .await;
             // CLOACI-I-0128 follow-up: re-register discoverability meta
             // on the restart path too (graph + tenant).
             self.registry
                 .register_accumulator_meta(
+                    &owner,
                     acc_decl.name.clone(),
                     super::registry::AccumulatorDescriptor {
                         reactor: reactor_name.to_string(),
@@ -1506,9 +1590,23 @@ impl ComputationGraphScheduler {
         // explicitly on RunningGraph instead of recovering from
         // declaration.name).
         for key in &running.endpoint_registry_keys {
-            self.registry
-                .register_reactor(key.clone(), manual_tx.clone(), reactor_shared.clone())
-                .await;
+            if let Err(e) = self
+                .registry
+                .register_reactor(
+                    &owner,
+                    key.clone(),
+                    manual_tx.clone(),
+                    reactor_shared.clone(),
+                )
+                .await
+            {
+                warn!(
+                    graph = %reactor_name,
+                    key = %key,
+                    error = %e,
+                    "reactor re-registration rejected on restart"
+                );
+            }
         }
 
         // Re-set auth policies after restart
@@ -1522,12 +1620,12 @@ impl ComputationGraphScheduler {
         };
         for acc_decl in &running.declaration.accumulators {
             self.registry
-                .set_accumulator_policy(acc_decl.name.clone(), restart_acc_policy.clone())
+                .set_accumulator_policy(&owner, acc_decl.name.clone(), restart_acc_policy.clone())
                 .await;
         }
         for key in &running.endpoint_registry_keys {
             self.registry
-                .set_reactor_policy(key.clone(), restart_reactor_policy.clone())
+                .set_reactor_policy(&owner, key.clone(), restart_reactor_policy.clone())
                 .await;
         }
 
@@ -1629,21 +1727,32 @@ impl ComputationGraphScheduler {
         );
 
         // Re-register socket, health, and auth policy in endpoint registry
+        // under the identity claimed at load (CLOACI-T-0921).
+        let owner = running.owner.clone();
+        if let Err(e) = self
+            .registry
+            .register_accumulator(&owner, acc_name.to_string(), socket_tx)
+            .await
+        {
+            warn!(
+                graph = %reactor_name,
+                accumulator = %acc_name,
+                error = %e,
+                "accumulator re-registration rejected on individual restart"
+            );
+        }
         self.registry
-            .register_accumulator(acc_name.to_string(), socket_tx)
+            .register_accumulator_health(&owner, acc_name.to_string(), health_rx)
             .await;
         self.registry
-            .register_accumulator_health(acc_name.to_string(), health_rx)
-            .await;
-        self.registry
-            .register_accumulator_freshness(acc_name.to_string(), freshness)
+            .register_accumulator_freshness(&owner, acc_name.to_string(), freshness)
             .await;
         let ind_acc_policy = match &running.declaration.tenant_id {
             Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
             None => AccumulatorAuthPolicy::allow_all(),
         };
         self.registry
-            .set_accumulator_policy(acc_name.to_string(), ind_acc_policy)
+            .set_accumulator_policy(&owner, acc_name.to_string(), ind_acc_policy)
             .await;
 
         running
@@ -1734,7 +1843,10 @@ impl ComputationGraphScheduler {
             for (acc_name, _) in &running.accumulator_handles {
                 let acc_state = self
                     .registry
-                    .get_accumulator_health(acc_name)
+                    .get_accumulator_health(
+                        acc_name,
+                        super::registry::EndpointScope::of(running.owner.tenant_id.as_deref()),
+                    )
                     .await
                     .map(|h| h.as_state_label())
                     .unwrap_or("healthy");
@@ -1895,7 +2007,14 @@ mod tests {
         // Push event via registry (simulating WebSocket push)
         let event = TestEvent { value: 42.0 };
         let bytes = serde_json::to_vec(&event).unwrap();
-        registry.send_to_accumulator("alpha", bytes).await.unwrap();
+        registry
+            .send_to_accumulator(
+                "alpha",
+                crate::computation_graph::registry::EndpointScope::untenanted(),
+                bytes,
+            )
+            .await
+            .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
@@ -1938,7 +2057,15 @@ mod tests {
         scheduler.load_graph(decl).await.unwrap();
 
         // Verify registered
-        assert_eq!(registry.accumulator_count("alpha").await, 1);
+        assert_eq!(
+            registry
+                .accumulator_count(
+                    "alpha",
+                    crate::computation_graph::registry::EndpointScope::untenanted()
+                )
+                .await,
+            1
+        );
         assert!(registry
             .list_reactors()
             .await
@@ -1948,7 +2075,15 @@ mod tests {
         scheduler.unload_graph("test_graph").await.unwrap();
 
         // Verify deregistered
-        assert_eq!(registry.accumulator_count("alpha").await, 0);
+        assert_eq!(
+            registry
+                .accumulator_count(
+                    "alpha",
+                    crate::computation_graph::registry::EndpointScope::untenanted()
+                )
+                .await,
+            0
+        );
         assert!(registry.list_reactors().await.is_empty());
     }
 
