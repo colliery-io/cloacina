@@ -227,6 +227,7 @@ async fn reactor_constructor_fires_via_scheduler() {
     registry
         .send_to_accumulator(
             "x",
+            cloacina::computation_graph::registry::EndpointScope::untenanted(),
             serde_json::to_vec(&serde_json::json!({ "value": 1.0 })).unwrap(),
         )
         .await
@@ -242,6 +243,7 @@ async fn reactor_constructor_fires_via_scheduler() {
     registry
         .send_to_accumulator(
             "x",
+            cloacina::computation_graph::registry::EndpointScope::untenanted(),
             serde_json::to_vec(&serde_json::json!({ "value": 9.0 })).unwrap(),
         )
         .await
