@@ -32,6 +32,14 @@ version-dep quality: promotion means ship-form deps (published
 a consumer fixture, and joining the wave roster (CLOACI-T-0871 records the
 audit that drew this line).
 
+They already bind the **promoted** `crates/cloacina-constructor-contract` (by
+path, since they are not yet published); the T-0822 spike copy that used to live
+at `examples/constructor-contract/constructor-contract` was deleted in
+CLOACI-T-0920 so a second, silently-divergent contract crate cannot exist. That
+matters because `#[config]` binding is positional, width-sensitive bincode
+reconstructed from `ConfigField` declaration order + Rust type names — a forked
+contract breaks consumers invisibly.
+
 ## Conventions (the wave contract, T-0872)
 
 - Standalone crate, own `[workspace]`, own semver, excluded from the core
@@ -42,6 +50,26 @@ audit that drew this line).
   a CHANGELOG entry (config-schema changes are breaking even when no Rust
   signature moves). Enforced by the **Provider Guard** workflow
   (`scripts/provider_wave.py pr-check`).
+- **Changing a provider's `runtime` is a MAJOR / breaking change** (CLOACI-T-0920).
+  `runtime` is an emission target — the same crate can build to a sandboxed
+  `wasm32-wasip2` component or a native host cdylib (`[package.metadata.cloacina]
+  runtime = "native"`) — but it is **part of the provider's public contract**,
+  because capability `grants` are **ENFORCED** on wasm (fidius `WasiCtx` +
+  `EgressPolicy`) and only **ADVISORY** on native (a native provider runs
+  unsandboxed in-process with full host trust). A `wasm → native` flip therefore
+  silently converts every consumer's `grants = { .. }` from a security control
+  into decoration. So: flip the runtime only in a MAJOR version, say so at the top
+  of the CHANGELOG entry, and expect consumers to re-pin.
+  Enforced on **both** sides:
+  - **Producer** — `runtime` is recorded per row in `providers/COMPAT.toml`, and
+    `scripts/provider_wave.py pr-check` fails a runtime flip that is not
+    accompanied by a MAJOR bump.
+  - **Consumer** — `constructor!(.., runtime = "wasm" | "native")` and
+    `#[reactor(.., runtime = "..")]` pin the expected tier; the load fails if the
+    resolved provider disagrees. Independently, declaring `grants` against a
+    provider that resolves NATIVE is a hard load error unless the author
+    acknowledges it with `runtime = "native"` — so unenforced grants can never be
+    reached silently.
 - Per-provider `CHANGELOG.md`; the **`certify/` harness** is the certification
   instrument: a bin crate whose cloacina deps resolve from CRATES.IO (never
   path deps, never patched) and which runs the provider E2E. Exit 0 EARNS the
@@ -51,8 +79,8 @@ audit that drew this line).
 
 - **`providers/COMPAT.toml`** — the tested set, machine-generated
   (`scripts/provider_wave.py compat`). A row means that provider version
-  passed its certify harness against crates.io core in the named wave. Never
-  hand-edit rows.
+  passed its certify harness against crates.io core in the named wave, **at the
+  recorded `runtime`**. Never hand-edit rows.
 - **`angreal providers check`** — classify vs crates.io + run candidate guards.
 - **`angreal providers wave`** — pre-flight a wave and print the tag commands
   (tag push stays a human step, same convention as core's release).

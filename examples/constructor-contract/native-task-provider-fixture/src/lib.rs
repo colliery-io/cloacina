@@ -31,8 +31,8 @@
 // unknown — benign (mirrors the loader's own allow; CLOACI-T-0821).
 #![allow(unexpected_cfgs)]
 
+use cloacina_constructor_contract::ConstructorError;
 use cloacina_macros::{constructor, constructor_provider};
-use constructor_contract::ConstructorError;
 
 /// Prefixes the context's `name` into `result` — the native analogue of the
 /// wasm `task-constructor-macro-fixture::Prefix`.
@@ -40,7 +40,7 @@ use constructor_contract::ConstructorError;
     kind = task,
     name = "prefix",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Prefixes the context `name` into `result` (native-authored).",
     author = "CLOACI-T-0902"
 )]
@@ -71,7 +71,7 @@ impl Prefix {
     kind = accumulator,
     name = "threshold",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Emits a boundary when an event value crosses a configured threshold (native-authored).",
     author = "CLOACI-T-0902"
 )]
@@ -109,7 +109,7 @@ impl Threshold {
     mode = stream,
     name = "counter",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Emits `count` synthetic boundary events starting at `base` (native stream source).",
     author = "CLOACI-T-0904"
 )]
@@ -139,7 +139,7 @@ impl Counter {
 constructor_provider!(
     name = "native-task-provider-fixture",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     task = [Prefix],
     accumulator = [Threshold],
     stream_accumulator = [Counter],

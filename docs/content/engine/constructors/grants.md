@@ -65,6 +65,41 @@ dependency: review it, pin it, and trust it — or use a WASM provider instead.
 `cloacinactl constructor package --native` prints this trust tier at packaging
 time.
 
+### You cannot reach unenforced grants by accident
+
+Because `runtime` is an emission target, a provider can ship as WASM in one
+version and native in the next — which would quietly turn your `grants` from a
+control into decoration. Two rules make that impossible:
+
+- **Declaring `grants` against a provider that resolves NATIVE is a load
+  error**, unless you acknowledge the trust tier explicitly. The message names
+  all three ways out:
+
+  > grants are not enforced on native providers; either pin `runtime = "wasm"`,
+  > acknowledge with `runtime = "native"`, or remove grants
+
+- **You can pin the tier** with an optional `runtime` on the consumption site.
+  If the resolved provider disagrees, the load fails and names both runtimes:
+
+  ```rust
+  constructor!(
+      id = "read_config",
+      from = "cloacina-provider-fs@0.1",
+      constructor = "read_file",
+      config = { path = "/etc/app.toml" },
+      grants = { fs = ["ro:/etc"] },
+      runtime = "wasm",          // fail the load if this provider ever goes native
+  );
+  ```
+
+  `#[reactor(.., runtime = "..")]` takes the same pin. Writing
+  `runtime = "native"` is the explicit acknowledgement: the node loads, the
+  grants stay advisory, and the loader logs a warning saying so.
+
+Grants-free native loads are unaffected — no error, no new requirement. On the
+producer side, changing a provider's runtime is a MAJOR/breaking change, checked
+against `providers/COMPAT.toml` by the provider wave guard.
+
 The runnable `examples/constructor-contract/fs-grant-demo` demonstrates all
 three outcomes side by side: a granted read, the same read denied without the
 grant, and a granted write through a second suite member.

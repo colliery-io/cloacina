@@ -88,6 +88,7 @@ pub struct WorkflowParam {
 ///     constructor = "prefix",          // which constructor inside the provider
 ///     config = { prefix = "hello, " }, // bound once at load
 ///     dependencies = ["load_user"],    // wired into the DAG like a #[task]
+///     runtime = "wasm",                // optional trust-tier pin (CLOACI-T-0920)
 /// );
 /// ```
 struct ConstructorNodeDecl {
@@ -105,6 +106,28 @@ struct ConstructorNodeDecl {
     /// `grants = { http=[..], tcp=[..], fs=[..], env=[..] }` — tenant capability
     /// grants as raw `(kind, patterns)` pairs (CLOACI-T-0834). Empty ⇒ default-closed.
     grants: Vec<(String, Vec<String>)>,
+    /// CLOACI-T-0920: optional `runtime = "wasm" | "native"` trust-tier PIN. When
+    /// present the load fails unless the RESOLVED provider's runtime matches, so a
+    /// provider that flips runtime between versions can never silently change the
+    /// consumer's trust posture. `"native"` doubles as the explicit acknowledgement
+    /// that `grants` are advisory-only on that tier.
+    runtime: Option<String>,
+}
+
+/// Parse a `runtime = "wasm" | "native"` trust-tier pin (CLOACI-T-0920). Shared by
+/// `constructor!(...)` and `#[reactor(...)]` so the consumption grammar stays
+/// identical across surfaces. Any other value is a compile error — the pin exists to
+/// be exact, so a typo must never degrade to "unpinned".
+pub(crate) fn parse_runtime_pin(input: ParseStream) -> SynResult<String> {
+    let lit: LitStr = input.parse()?;
+    let value = lit.value();
+    if !matches!(value.as_str(), "wasm" | "native") {
+        return Err(syn::Error::new(
+            lit.span(),
+            format!("unknown runtime '{value}'. Valid runtimes: \"wasm\", \"native\""),
+        ));
+    }
+    Ok(value)
 }
 
 /// Parse a `grants = { http=[..], tcp=[..], fs=[..], env=[..], secrets=[..] }` block
@@ -153,6 +176,7 @@ impl Parse for ConstructorNodeDecl {
         let mut config: Vec<(String, Expr)> = Vec::new();
         let mut dependencies: Vec<String> = Vec::new();
         let mut grants: Vec<(String, Vec<String>)> = Vec::new();
+        let mut runtime: Option<String> = None;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -162,6 +186,7 @@ impl Parse for ConstructorNodeDecl {
                 "from" => from = Some(input.parse::<LitStr>()?.value()),
                 "constructor" => constructor = Some(input.parse::<LitStr>()?.value()),
                 "grants" => grants = parse_grants_block(input)?,
+                "runtime" => runtime = Some(parse_runtime_pin(input)?),
                 "config" => {
                     // `config = { key = expr, … }`
                     let content;
@@ -192,7 +217,7 @@ impl Parse for ConstructorNodeDecl {
                         key.span(),
                         format!(
                             "unknown constructor! field '{}'. Valid fields: id, from, \
-                             constructor, config, dependencies, grants",
+                             constructor, config, dependencies, grants, runtime",
                             other
                         ),
                     ));
@@ -222,6 +247,7 @@ impl Parse for ConstructorNodeDecl {
             config,
             dependencies,
             grants,
+            runtime,
         })
     }
 }
@@ -952,6 +978,26 @@ fn constructor_node_load_block(
             )
         }
     });
+    // CLOACI-T-0920: lower the optional `runtime = "wasm"|"native"` trust-tier pin.
+    // It rides the loader's Rust signature, NOT the packaged FFI declaration struct
+    // (`ConstructorPackageMetadata` crosses a bincode wire — appending a field would
+    // mis-decode every already-built cdylib). Embedded loads therefore carry the pin
+    // directly; packaged loads resolve unpinned and are covered by the
+    // grants-present-but-unenforced hardening, which keys off `grants` (already on
+    // the wire).
+    let runtime_pin = match decl.runtime.as_deref() {
+        Some("wasm") => quote! {
+            ::std::option::Option::Some(
+                ::cloacina::registry::loader::ProviderRuntime::Wasm,
+            )
+        },
+        Some("native") => quote! {
+            ::std::option::Option::Some(
+                ::cloacina::registry::loader::ProviderRuntime::Native,
+            )
+        },
+        _ => quote! { ::std::option::Option::None },
+    };
 
     quote! {
         {
@@ -975,8 +1021,8 @@ fn constructor_node_load_block(
                     let __grants = ::cloacina::registry::loader::grants::GrantSpec::from_pairs(
                         ::std::vec![ #(#grant_pairs),* ],
                     );
-                    ::cloacina::registry::loader::load_constructor_node(
-                        #id, #from, #constructor, __config, __deps, __grants,
+                    ::cloacina::registry::loader::load_constructor_node_pinned(
+                        #id, #from, #constructor, __config, __deps, __grants, #runtime_pin,
                     )
                     .unwrap_or_else(|e| {
                         ::std::panic!("constructor!(id = \"{}\"): {}", #id, e)

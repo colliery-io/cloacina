@@ -31,8 +31,8 @@
 // workspace check-cfg lint flags as unknown — benign (mirrors the loader's own allow).
 #![allow(unexpected_cfgs)]
 
+use cloacina_constructor_contract::ConstructorError;
 use cloacina_macros::{constructor, constructor_provider};
-use constructor_contract::ConstructorError;
 
 /// Emits a boundary containing the configured `#[config] field` when the event
 /// carries it; buffers events that don't.
@@ -40,7 +40,7 @@ use constructor_contract::ConstructorError;
     kind = accumulator,
     name = "extract",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Projects a configured field from each event into the boundary; buffers events without it.",
     author = "CLOACI-T-0825"
 )]
@@ -67,4 +67,7 @@ impl Extract {
 }
 
 // The provider suite shell (CLOACI-A-0011): one member behind one component.
-constructor_provider!(contract = constructor_contract, accumulator = [Extract],);
+constructor_provider!(
+    contract = cloacina_constructor_contract,
+    accumulator = [Extract],
+);

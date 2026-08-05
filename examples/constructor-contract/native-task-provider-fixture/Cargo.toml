@@ -42,7 +42,7 @@ cloacina-macros = { path = "../../../crates/cloacina-macros" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Shared, language-neutral contract types (serde-only → host-safe).
-constructor-contract = { path = "../constructor-contract" }
+cloacina-constructor-contract = { path = "../../../crates/cloacina-constructor-contract" }
 
 # fidius HOST SDK — the native suite shell is emitted with `crate = fidius_core`
 # under `cfg(not(wasm32))`, so these are plain (non-target-gated) host deps.

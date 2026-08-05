@@ -60,6 +60,10 @@ struct ReactorArgs {
     /// pairs. Same grammar/lowering as the `constructor!(...)` consumer surface.
     /// Only valid alongside a `constructor` reference.
     grants: Vec<(String, Vec<String>)>,
+    /// CLOACI-T-0920: optional `runtime = "wasm" | "native"` trust-tier PIN, same
+    /// grammar/semantics as `constructor!(...)`. Only valid alongside a
+    /// `constructor` reference.
+    runtime: Option<String>,
 }
 
 impl std::fmt::Debug for ReactorArgs {
@@ -111,6 +115,7 @@ impl Parse for ReactorArgs {
         let mut constructor: Option<LitStr> = None;
         let mut config: Vec<(String, Expr)> = Vec::new();
         let mut grants: Vec<(String, Vec<String>)> = Vec::new();
+        let mut runtime: Option<String> = None;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -244,13 +249,18 @@ impl Parse for ReactorArgs {
                     // `constructor!(...)`, shared verbatim for cross-surface parity.
                     grants = crate::workflow_attr::parse_grants_block(input)?;
                 }
+                "runtime" => {
+                    // CLOACI-T-0920: same `runtime = "wasm"|"native"` trust-tier pin
+                    // as `constructor!(...)`, shared verbatim for cross-surface parity.
+                    runtime = Some(crate::workflow_attr::parse_runtime_pin(input)?);
+                }
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
                             "unknown field '{}' in #[reactor(...)] — expected 'name', \
                              'accumulators', 'criteria', 'from', 'constructor', 'config', \
-                             or 'grants'",
+                             'grants', or 'runtime'",
                             other
                         ),
                     ));
@@ -323,6 +333,12 @@ impl Parse for ReactorArgs {
                 "#[reactor] 'grants' is only valid alongside a 'constructor' reference",
             ));
         }
+        if constructor.is_none() && runtime.is_some() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "#[reactor] 'runtime' is only valid alongside a 'constructor' reference",
+            ));
+        }
 
         Ok(ReactorArgs {
             name,
@@ -334,6 +350,7 @@ impl Parse for ReactorArgs {
             constructor,
             config,
             grants,
+            runtime,
         })
     }
 }
@@ -426,12 +443,21 @@ fn reactor_impl(
                     )
                 }
             });
+            // CLOACI-T-0920: carry the optional trust-tier pin alongside grants. It
+            // stays a `String` on the ref (rather than the contract crate's
+            // `ProviderRuntime`) so `cloacina-computation-graph` keeps no dependency
+            // on the constructor contract; the loader re-parses it fail-closed.
+            let runtime_pin = match parsed.runtime.as_deref() {
+                Some(lit) => quote! { ::std::option::Option::Some(#lit.to_string()) },
+                None => quote! { ::std::option::Option::None },
+            };
             quote! {
                 ::std::option::Option::Some(#cg_path::ReactorConstructorRef {
                     from: #from_lit.to_string(),
                     constructor: #ctor_lit.to_string(),
                     config: ::std::vec![ #(#cfg_pairs),* ],
                     grants: ::std::vec![ #(#grant_pairs),* ],
+                    runtime: #runtime_pin,
                 })
             }
         }

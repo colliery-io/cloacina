@@ -392,6 +392,14 @@ pub struct ReactorConstructorRef {
     /// translated to a fidius `EgressPolicy` + capability allow-list at load.
     /// Empty ⇒ default-closed (the constructor reaches nothing).
     pub grants: Vec<(String, Vec<String>)>,
+    /// CLOACI-T-0920: the author's optional trust-tier PIN — the
+    /// `runtime = "wasm"|"native"` literal from the consumer surface, or `None` when
+    /// unpinned. Carried as a `String` (validated at macro-expansion time, re-parsed
+    /// fail-closed at load) so this crate stays free of any dependency on the
+    /// constructor contract crate. When pinned, the load fails unless the RESOLVED
+    /// provider's runtime matches; `"native"` additionally acknowledges that `grants`
+    /// are advisory-only on that tier.
+    pub runtime: Option<String>,
 }
 
 /// The authored KIND + config of one accumulator a reactor consumes

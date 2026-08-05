@@ -34,6 +34,7 @@
 //!         constructor="read_file",
 //!         config={"path": "/data/secret.txt"},
 //!         grants={"fs": ["ro:/data"]},
+//!         runtime="wasm",  # optional trust-tier pin (CLOACI-T-0920)
 //!     )
 //!
 //!     @cloaca.task(id="echo", dependencies=["reader"])
@@ -57,8 +58,14 @@ use crate::task::current_workflow_context;
 /// the member, `config` binds by NAME against the member's declared `#[config]`
 /// schema, and `grants` is the default-closed capability grant map
 /// (`{"http": [...], "tcp": [...], "fs": [...], "env": [...]}`).
+///
+/// `runtime` (CLOACI-T-0920) optionally PINS the provider's trust tier —
+/// `"wasm"` or `"native"`. If pinned, the load fails unless the resolved
+/// provider's runtime matches, naming both. Because `grants` are ENFORCED on wasm
+/// but only ADVISORY on native, passing `grants` for a provider that resolves
+/// NATIVE is a hard error unless acknowledged with `runtime="native"`.
 #[pyfunction]
-#[pyo3(signature = (id, from_, constructor, config = None, grants = None, dependencies = None))]
+#[pyo3(signature = (id, from_, constructor, config = None, grants = None, dependencies = None, runtime = None))]
 pub fn constructor(
     py: Python,
     id: String,
@@ -67,6 +74,7 @@ pub fn constructor(
     config: Option<Bound<'_, PyDict>>,
     grants: Option<Bound<'_, PyDict>>,
     dependencies: Option<Vec<PyObject>>,
+    runtime: Option<String>,
 ) -> PyResult<()> {
     let context = current_workflow_context()?;
     let (tenant_id, package_name, workflow_id) = context.as_components();
@@ -108,6 +116,20 @@ pub fn constructor(
     }
     let grant_spec = cloacina::registry::loader::grants::GrantSpec::from_pairs(grant_pairs);
 
+    // runtime: the optional trust-tier pin. Validated here so a typo is a clear
+    // Python-side error rather than a silent "unpinned" degradation.
+    let runtime_pin = match runtime.as_deref() {
+        None => None,
+        Some("wasm") => Some(cloacina::registry::loader::ProviderRuntime::Wasm),
+        Some("native") => Some(cloacina::registry::loader::ProviderRuntime::Native),
+        Some(other) => {
+            return Err(PyValueError::new_err(format!(
+                "cloaca.constructor: unknown runtime '{other}'; valid values are \
+                 \"wasm\" and \"native\""
+            )))
+        }
+    };
+
     // dependencies: strings or function objects (same convention as @task deps).
     let mut dep_namespaces: Vec<cloacina::TaskNamespace> = Vec::new();
     for (i, dep) in dependencies.unwrap_or_default().iter().enumerate() {
@@ -137,13 +159,14 @@ pub fn constructor(
     // a bad config kwarg, or a malformed grant.
     let node = py
         .allow_threads(|| {
-            cloacina::registry::loader::load_constructor_node(
+            cloacina::registry::loader::load_constructor_node_pinned(
                 &id,
                 &from_,
                 &constructor,
                 config_pairs,
                 dep_namespaces,
                 grant_spec,
+                runtime_pin,
             )
         })
         .map_err(|e| {

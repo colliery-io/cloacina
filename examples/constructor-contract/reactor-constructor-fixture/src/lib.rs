@@ -32,8 +32,8 @@
 #![allow(dead_code)]
 #![allow(unexpected_cfgs)]
 
+use cloacina_constructor_contract::ConstructorError;
 use cloacina_macros::{constructor, constructor_provider};
-use constructor_contract::ConstructorError;
 
 /// Fires when ANY held boundary's numeric value crosses the configured `gate`.
 /// Each boundary value is read as a bare number or as an object's `value` field.
@@ -41,7 +41,7 @@ use constructor_contract::ConstructorError;
     kind = reactor,
     name = "gate",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Fires the graph when any held boundary value crosses a configured gate.",
     author = "CLOACI-T-0828"
 )]
@@ -79,6 +79,6 @@ impl Gate {
 constructor_provider!(
     name = "gate",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     reactor = [Gate],
 );

@@ -1,5 +1,7 @@
 # CLOACI-T-0823 — constructor contract (real workspace crate, promoted from the
-# proven `examples/constructor-contract/constructor-contract` first cut).
+# proven `examples/constructor-contract/constructor-contract` first cut, which was
+# deleted in CLOACI-T-0920 — this is now the SINGLE contract crate; every in-repo
+# fixture, seed provider, and published provider binds to it).
 #
 # The cloacina-defined CONSTRUCTOR CONTRACT shared by the host loader and the WASM
 # guest. It carries:
