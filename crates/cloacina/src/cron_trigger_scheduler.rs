@@ -46,6 +46,7 @@
 
 use crate::context::Context;
 use crate::cron_evaluator::CronEvaluator;
+use crate::dal::unified::truncate_predicate_text;
 use crate::dal::UnifiedRegistryStorage;
 use crate::dal::DAL;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
@@ -61,6 +62,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{watch, Notify};
 use tracing::{debug, error, info, warn};
+
+/// CLOACI-T-0922 — how many consecutive CEL evaluation errors on the SAME
+/// reactor firing are tolerated before that firing is dead-lettered and the
+/// watermark force-advances past it.
+///
+/// The bound exists because holding the watermark forever would wedge the
+/// subscription: a firing whose payload shape genuinely breaks the predicate
+/// never becomes evaluable, and every later firing would queue behind it. Five
+/// poll ticks is enough to ride out a transient fault (a momentarily missing
+/// payload key, a blip in payload decode) while still resuming promptly on a
+/// structural one.
+pub const MAX_CONSECUTIVE_PREDICATE_ERRORS: i32 = 5;
 
 /// Configuration for the unified scheduler.
 #[derive(Debug, Clone)]
@@ -1116,6 +1129,11 @@ impl Scheduler {
         // can evaluate it inside the per-firing loop below.
         let predicate_expr = sub.predicate_expression.as_deref();
 
+        // CLOACI-T-0922 — the recovery write ("this predicate works again")
+        // is issued at most once per drain, guarded by this flag plus the
+        // row snapshot we already hold.
+        let mut predicate_error_cleared = false;
+
         for firing in firings {
             // Build the workflow's input context from the firing payload.
             let mut context = Context::<serde_json::Value>::new();
@@ -1158,16 +1176,35 @@ impl Scheduler {
                 serde_json::json!(firing.fired_at.0.to_rfc3339()),
             );
 
-            // CLOACI-T-0602 — predicate evaluation. If the subscription
-            // carries a CEL filter, evaluate it now. Skip dispatch when
-            // it's false; advance the watermark either way (the firing
-            // was *seen* even if we decided not to fire). Eval errors are
-            // logged warn and treated as skip — fail-closed semantics
-            // mirror the spec: a broken filter shouldn't fire workflows.
+            // CLOACI-T-0602 / T-0922 — predicate evaluation. If the
+            // subscription carries a CEL filter, evaluate it now.
+            //
+            // The three outcomes are DELIBERATELY distinct (T-0922 —
+            // they used to be two):
+            //
+            //   Ok(true)  — dispatch.
+            //   Ok(false) — the filter did its job: skip dispatch AND
+            //               advance the watermark. The firing was *seen*
+            //               and consciously rejected.
+            //   Err(_)    — the filter is BROKEN. Fail-closed still holds
+            //               (we do not dispatch), but "don't dispatch"
+            //               never implied "throw the firing away": the
+            //               watermark is HELD so the firing is re-polled
+            //               on the next tick. After
+            //               MAX_CONSECUTIVE_PREDICATE_ERRORS attempts the
+            //               firing is dead-lettered on the subscription
+            //               row and the watermark force-advances, so one
+            //               poison firing cannot wedge the subscription
+            //               forever.
             if let Some(expr) = predicate_expr {
                 match self.evaluate_predicate(sub.id, expr, &sub.tenant_id, &context) {
-                    Ok(true) => {} // proceed to dispatch
+                    Ok(true) => {
+                        self.clear_predicate_error_if_needed(sub, &mut predicate_error_cleared)
+                            .await;
+                    }
                     Ok(false) => {
+                        self.clear_predicate_error_if_needed(sub, &mut predicate_error_cleared)
+                            .await;
                         debug!(
                             subscription = %sub.id.0,
                             firing = %firing.id.0,
@@ -1190,14 +1227,89 @@ impl Scheduler {
                         }
                         continue;
                     }
-                    Err(e) => {
+                    Err(eval_err) => {
+                        metrics::counter!(
+                            "cloacina_reactor_predicate_errors_total",
+                            "reactor" => sub.reactor_name.clone(),
+                        )
+                        .increment(1);
                         warn!(
                             subscription = %sub.id.0,
                             firing = %firing.id.0,
-                            "predicate eval error (treating as skip): {}",
-                            e
+                            reactor = %sub.reactor_name,
+                            predicate = %truncate_predicate_text(expr),
+                            "reactor predicate evaluation failed; HOLDING the watermark so \
+                             the firing is retried (not dropped): {}",
+                            eval_err
                         );
-                        if let Err(e) = self
+
+                        let attempts = match self
+                            .dal
+                            .reactor_subscriptions()
+                            .record_predicate_error(sub.id.0, firing.id, &eval_err)
+                            .await
+                        {
+                            Ok(n) => n,
+                            Err(db_err) => {
+                                warn!(
+                                    subscription = %sub.id.0,
+                                    firing = %firing.id.0,
+                                    "failed to persist predicate error state; \
+                                     watermark held, firing retried next tick: {}",
+                                    db_err
+                                );
+                                // Can't count the attempt — hold anyway.
+                                // Holding is the safe direction: the firing
+                                // survives, and a persistently broken DB is
+                                // its own louder alarm.
+                                return Ok(());
+                            }
+                        };
+
+                        if attempts < MAX_CONSECUTIVE_PREDICATE_ERRORS {
+                            // Stop draining this subscription: the watermark
+                            // stays put and this firing is head-of-line again
+                            // next tick. Ordering is preserved and other
+                            // subscriptions still progress.
+                            return Ok(());
+                        }
+
+                        // Bound exceeded — dead-letter and force-advance.
+                        error!(
+                            subscription = %sub.id.0,
+                            firing = %firing.id.0,
+                            reactor = %sub.reactor_name,
+                            workflow = %sub.workflow_name,
+                            predicate = %truncate_predicate_text(expr),
+                            attempts,
+                            "reactor predicate failed {} consecutive times; DEAD-LETTERING \
+                             this firing and advancing the watermark so the subscription \
+                             resumes. Subscription marked degraded: {}",
+                            attempts, eval_err
+                        );
+                        metrics::counter!(
+                            "cloacina_reactor_predicate_dead_letters_total",
+                            "reactor" => sub.reactor_name.clone(),
+                        )
+                        .increment(1);
+
+                        if let Err(db_err) = self
+                            .dal
+                            .reactor_subscriptions()
+                            .mark_predicate_degraded(sub.id.0, firing.id, &eval_err)
+                            .await
+                        {
+                            warn!(
+                                subscription = %sub.id.0,
+                                firing = %firing.id.0,
+                                "failed to persist degraded marker; \
+                                 holding the watermark instead of advancing blind: {}",
+                                db_err
+                            );
+                            return Ok(());
+                        }
+
+                        if let Err(db_err) = self
                             .dal
                             .reactor_subscriptions()
                             .advance_watermark(sub.id.0, firing.fired_at)
@@ -1206,8 +1318,8 @@ impl Scheduler {
                             warn!(
                                 subscription = %sub.id.0,
                                 firing = %firing.id.0,
-                                "watermark advance failed after predicate error: {}",
-                                e
+                                "watermark advance failed after dead-lettering: {}",
+                                db_err
                             );
                             return Ok(());
                         }
@@ -1267,6 +1379,45 @@ impl Scheduler {
         Ok(())
     }
 
+    /// CLOACI-T-0922 — clear the persisted predicate-error state after a
+    /// clean evaluation, at most once per drain.
+    ///
+    /// `sub` is the snapshot read at the top of the poll, so it tells us
+    /// whether there is anything to clear without an extra read. Best
+    /// effort: a failure here only means the retry budget is stale, which
+    /// the next successful evaluation fixes.
+    async fn clear_predicate_error_if_needed(
+        &self,
+        sub: &crate::dal::unified::ReactorSubscription,
+        already_cleared: &mut bool,
+    ) {
+        if *already_cleared {
+            return;
+        }
+        if sub.predicate_error_count == 0 && sub.predicate_degraded.is_false() {
+            return;
+        }
+        *already_cleared = true;
+        match self
+            .dal
+            .reactor_subscriptions()
+            .clear_predicate_error(sub.id.0)
+            .await
+        {
+            Ok(()) => info!(
+                subscription = %sub.id.0,
+                reactor = %sub.reactor_name,
+                "reactor predicate evaluated cleanly again; cleared error count \
+                 and degraded marker (last_predicate_error retained as history)",
+            ),
+            Err(e) => warn!(
+                subscription = %sub.id.0,
+                "failed to clear predicate error state after recovery: {}",
+                e
+            ),
+        }
+    }
+
     /// Evaluate a CEL predicate for a subscription firing
     /// (CLOACI-T-0602).
     ///
@@ -1278,8 +1429,10 @@ impl Scheduler {
     /// Returns:
     /// - `Ok(true)`  — predicate fired, dispatch should proceed.
     /// - `Ok(false)` — predicate did not fire, skip + advance watermark.
-    /// - `Err(_)`    — compile error or runtime evaluation error.
-    ///   Caller treats as skip per the fail-closed contract.
+    /// - `Err(_)`    — compile error or runtime evaluation error. The
+    ///   caller skips dispatch (fail-closed) but HOLDS the watermark and
+    ///   retries, bounded by [`MAX_CONSECUTIVE_PREDICATE_ERRORS`]
+    ///   (CLOACI-T-0922). "Don't dispatch" never meant "drop the event".
     ///
     /// Variables exposed to the CEL expression:
     /// - `payload`  — a map keyed by boundary source name, values are
@@ -1301,8 +1454,11 @@ impl Scheduler {
             match cache.get(&sub_id) {
                 Some((cached_expr, prog)) if cached_expr == expr => prog.clone(),
                 _ => {
+                    // CLOACI-T-0922 — panic-safe compile: the CEL parser
+                    // panics on some malformed input, and this runs inside
+                    // the scheduler's poll task.
                     let prog = Arc::new(
-                        cel_interpreter::Program::compile(expr)
+                        crate::dal::unified::compile_predicate(expr)
                             .map_err(|e| format!("compile error: {}", e))?,
                     );
                     cache.insert(sub_id, (expr.to_string(), prog.clone()));

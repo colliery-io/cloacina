@@ -53,13 +53,23 @@ impl DefaultRunner {
     /// * `tenant` - Tenant scope. `None` ⇒ `"public"`.
     /// * `predicate` - Optional CEL filter expression (CLOACI-T-0602).
     ///   `None` keeps the original fire-on-every-firing behaviour. When
-    ///   `Some(_)`, the expression is compiled at subscribe time;
-    ///   invalid CEL is rejected with `ExecutionFailed` before any DB
-    ///   write. At dispatch time the scheduler evaluates it against the
-    ///   firing payload and skips dispatch when it returns false (the
-    ///   watermark still advances). Variables available in the
-    ///   expression: `payload` (the deserialised boundary cache, keys
-    ///   are source names), `reactor` (string), `tenant` (string).
+    ///   `Some(_)`, the expression is validated at subscribe time and
+    ///   rejected with `ExecutionFailed` before any DB write if it is
+    ///   invalid CEL *or* references a variable outside the bound set
+    ///   (CLOACI-T-0922 — a typo'd identifier used to compile fine and
+    ///   then silently never match).
+    ///
+    ///   Variables available in the expression: `payload` (the
+    ///   deserialised boundary cache, keys are source names), `reactor`
+    ///   (string), `tenant` (string).
+    ///
+    ///   At dispatch time the scheduler evaluates it against the firing
+    ///   payload. `false` skips dispatch and advances the watermark. An
+    ///   evaluation *error* also skips dispatch (fail-closed) but HOLDS
+    ///   the watermark so the firing is retried; after five consecutive
+    ///   failures on the same firing it is dead-lettered onto the
+    ///   subscription row (`predicate_degraded`, `last_predicate_error`)
+    ///   and the watermark advances so the subscription resumes.
     ///
     /// # Examples
     /// ```ignore

@@ -544,6 +544,17 @@ mod unified_schema {
             // every firing"; non-NULL is evaluated against the firing
             // payload before dispatch.
             predicate_expression -> Nullable<Text>,
+            // CLOACI-T-0922 — bounded retry + dead-letter state for CEL
+            // predicate evaluation errors. An eval error HOLDS the
+            // watermark (the firing is retried); after
+            // MAX_CONSECUTIVE_PREDICATE_ERRORS the firing is dead-lettered
+            // (`predicate_degraded`) and the watermark force-advances so a
+            // poison firing cannot wedge the subscription forever.
+            predicate_error_count -> Integer,
+            predicate_error_firing_id -> Nullable<DbUuid>,
+            last_predicate_error -> Nullable<Text>,
+            last_predicate_error_at -> Nullable<DbTimestamp>,
+            predicate_degraded -> DbBool,
         }
     }
 
