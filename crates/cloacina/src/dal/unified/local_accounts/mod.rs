@@ -55,6 +55,19 @@ pub fn verify_password(plaintext: &str, phc: &str) -> bool {
     }
 }
 
+/// A throwaway argon2id hash of a random secret, built once per process with
+/// exactly the parameters [`hash_password`] uses (CLOACI-T-0923).
+///
+/// Verifying an unknown username's password against this makes the "no such
+/// user" path cost the same argon2 work as the "wrong password" path, closing
+/// the timing side-channel that would otherwise enumerate accounts regardless
+/// of how uniform the HTTP error body is. Nothing ever matches it: the input
+/// is a fresh UUID that is discarded immediately.
+fn decoy_password_hash() -> &'static str {
+    static DECOY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DECOY.get_or_init(|| hash_password(&uuid::Uuid::new_v4().to_string()).unwrap_or_default())
+}
+
 /// Public view of a local account (never includes the password hash).
 #[derive(Debug, Clone)]
 pub struct LocalAccount {
@@ -202,7 +215,18 @@ impl<'a> LocalAccountDAL<'a> {
             Some(r) if verify_password(password, &r.password_hash) && r.status == "active" => {
                 Ok(LoginOutcome::Ok(to_account(&r)))
             }
-            _ => Ok(LoginOutcome::Denied),
+            Some(_) => Ok(LoginOutcome::Denied),
+            None => {
+                // CLOACI-T-0923: an unknown username used to return without
+                // hashing anything, so "no such user" answered in microseconds
+                // while "wrong password" paid the full argon2id cost — a clean
+                // timing oracle for user enumeration that no amount of
+                // uniform-error-body care could close. Burn an equivalent
+                // verification against a fixed decoy hash so both paths cost
+                // the same argon2 work.
+                let _ = verify_password(password, decoy_password_hash());
+                Ok(LoginOutcome::Denied)
+            }
         }
     }
 

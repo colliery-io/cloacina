@@ -21,10 +21,11 @@
 
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
-    fleet_agents, key_trust_acls, package_artifacts, package_providers, package_signatures,
-    reactor_state, recovery_events, schedule_executions, schedules, secrets, signing_keys,
-    state_accumulator_buffers, task_execution_metadata, task_executions, tenant_data_keys,
-    trusted_keys, workflow_executions, workflow_packages, workflow_registry, ws_tickets,
+    fleet_agents, key_trust_acls, login_throttle, package_artifacts, package_providers,
+    package_signatures, reactor_state, recovery_events, schedule_executions, schedules, secrets,
+    signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions,
+    tenant_data_keys, trusted_keys, workflow_executions, workflow_packages, workflow_registry,
+    ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -309,6 +310,36 @@ pub struct NewUnifiedWsTicket {
     pub created_at: UniversalTimestamp,
     pub expires_at: UniversalTimestamp,
     pub redeemed_at: Option<UniversalTimestamp>,
+}
+
+// ============================================================================
+// Unified Login-Throttle Models (CLOACI-T-0923)
+// ============================================================================
+
+/// One failed-login counter. `throttle_key` is opaque and carries its own scope
+/// prefix (`u:<tenant-or-_>/<username>` or `ip:<source>`) so the two scopes
+/// share a table without colliding.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = login_throttle)]
+pub struct UnifiedLoginThrottle {
+    pub throttle_key: String,
+    pub scope: String,
+    pub failure_count: i32,
+    pub first_failure_at: UniversalTimestamp,
+    pub last_failure_at: UniversalTimestamp,
+    pub locked_until: Option<UniversalTimestamp>,
+}
+
+#[derive(Debug, Clone, Insertable, AsChangeset)]
+#[diesel(table_name = login_throttle)]
+#[diesel(treat_none_as_null = true)]
+pub struct NewUnifiedLoginThrottle {
+    pub throttle_key: String,
+    pub scope: String,
+    pub failure_count: i32,
+    pub first_failure_at: UniversalTimestamp,
+    pub last_failure_at: UniversalTimestamp,
+    pub locked_until: Option<UniversalTimestamp>,
 }
 
 // ============================================================================

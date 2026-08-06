@@ -172,6 +172,29 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Failed-login counters for the local-login brute-force throttle
+        /// (CLOACI-T-0923, I-0118 OQ-13). DB-backed so a lockout decided on one
+        /// server replica is enforced by every replica and an attacker cannot
+        /// evade it by spraying attempts across the load balancer.
+        ///
+        /// `throttle_key` is opaque and dual-scoped: `u:<tenant-or-_>/<username>`
+        /// rows catch an attacker rotating source IPs, `ip:<source>` rows catch
+        /// one host spraying many usernames. `locked_until` is NULL until the
+        /// scope's threshold is crossed.
+        login_throttle (throttle_key) {
+            throttle_key -> Text,
+            scope -> Text,
+            failure_count -> Integer,
+            first_failure_at -> DbTimestamp,
+            last_failure_at -> DbTimestamp,
+            locked_until -> Nullable<DbTimestamp>,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         /// Execution-agent fleet roster (CLOACI-T-0916). DB-backed so
         /// register/heartbeat state, same-tenant selection, capacity views and
         /// dead-agent reclaim are correct across server replicas. Reads are
@@ -912,12 +935,17 @@ mod postgres_schema {
     }
 
     // CLOACI-T-0793: encrypted refresh-token store (server mode only — Postgres).
+    // CLOACI-T-0923: repurposed as the OIDC *login-session* record — `key_id` is
+    // the currently-valid minted key (rotated in place on refresh) and
+    // `expires_at` is the session's absolute deadline. `refresh_enc` is NULL
+    // under that design (no IdP token custody) and kept only so a deployment
+    // that later wants it needs no migration.
     diesel::table! {
         oidc_sessions (id) {
             id -> Uuid,
             key_id -> Uuid,
             provider -> Text,
-            refresh_enc -> Bytea,
+            refresh_enc -> Nullable<Bytea>,
             created_at -> Timestamptz,
             expires_at -> Nullable<Timestamptz>,
         }

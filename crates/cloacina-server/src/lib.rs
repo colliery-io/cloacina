@@ -265,6 +265,10 @@ pub struct AppState {
     pub oidc_policy: Arc<crate::oidc::MappingPolicy>,
     /// CLOACI-T-0790: short-lived in-flight OIDC login state (state/nonce/PKCE).
     pub oidc_login: Arc<crate::oidc::LoginFlowStore>,
+    /// CLOACI-T-0923: brute-force throttle settings for `/v1/auth/local/login`
+    /// (I-0118 OQ-13). Resolved once from the environment at startup; the
+    /// counters themselves live in the DB so a lockout holds across replicas.
+    pub login_throttle: crate::routes::local_auth::LoginThrottleConfig,
     /// CLOACI-T-0810: fleet actuator that reconciles each tenant's running agent
     /// count toward its `desired_count`. Selected by `CLOACINA_FLEET_ACTUATOR`
     /// and validated fail-closed at boot by the substrate guard. `NoopActuator`
@@ -473,6 +477,21 @@ pub async fn run(
     metrics::describe_counter!(
         "cloacina_api_requests_total",
         "Total API requests by HTTP method and response status code"
+    );
+    metrics::describe_counter!(
+        "cloacina_auth_login_attempts_total",
+        "Total local-login attempts (CLOACI-T-0923). `outcome` is bounded: \
+         `ok` (password verified, key minted), `denied` (unknown user, wrong \
+         password, or disabled account — deliberately indistinguishable), or \
+         `throttled` (refused before the password check because a throttle key \
+         was locked). A sustained `denied` rate is the credential-stuffing \
+         signal; `throttled` shows the defense engaging."
+    );
+    metrics::describe_counter!(
+        "cloacina_auth_login_lockouts_total",
+        "Total local-login lockouts, counted once on the lock edge rather than \
+         once per refused attempt (CLOACI-T-0923). `scope` is bounded to \
+         `username` | `ip`. Pairs with the `auth.login.lockout` audit event."
     );
     metrics::describe_histogram!(
         "cloacina_api_request_duration_seconds",
@@ -946,6 +965,10 @@ pub async fn run(
         oidc: oidc_provider,
         oidc_policy,
         oidc_login,
+        // CLOACI-T-0923: local-login brute-force throttle (I-0118 OQ-13).
+        // Read once here; the counters themselves are DB rows, so a lockout is
+        // enforced by every replica.
+        login_throttle: crate::routes::local_auth::LoginThrottleConfig::from_env(),
         fleet_actuator: fleet_actuator.clone(),
     };
 
@@ -2363,6 +2386,9 @@ mod tests {
             oidc_login: Arc::new(crate::oidc::LoginFlowStore::new(
                 std::time::Duration::from_secs(600),
             )),
+            // CLOACI-T-0923: production defaults. Tests that exercise lockout
+            // override this field with a fast-expiring policy.
+            login_throttle: crate::routes::local_auth::LoginThrottleConfig::default(),
             // CLOACI-T-0810: tests don't actuate — a Noop actuator keeps handlers
             // that read `fleet_actuator` constructible without a Docker daemon.
             fleet_actuator: Arc::new(crate::actuator::NoopActuator),
@@ -5576,6 +5602,486 @@ mod tests {
             after,
             Some(7),
             "leadership must be re-acquirable once the lock is released"
+        );
+    }
+
+    // ── Auth lifecycle: OIDC refresh + login throttle (CLOACI-T-0923) ──────
+
+    use crate::identity::{mint_for_principal, ResolvedPrincipal};
+    use crate::routes::local_auth::LoginThrottleConfig;
+    use cloacina::dal::unified::login_throttle::ThrottlePolicy;
+
+    const TEST_ISSUER: &str = "https://idp.test/realms/cloacina";
+
+    /// Mint a key the way an OIDC callback does, and open its login session.
+    /// Returns `(plaintext_key, key_id)`.
+    async fn mint_oidc_session(
+        state: &AppState,
+        tenant: Option<&str>,
+        role: &str,
+        key_ttl: std::time::Duration,
+        session_deadline: chrono::DateTime<chrono::Utc>,
+    ) -> (String, uuid::Uuid) {
+        let principal = ResolvedPrincipal {
+            tenant: tenant.map(str::to_string),
+            role: role.to_string(),
+            provenance: format!("oidc:{TEST_ISSUER}:sub-{}", uuid::Uuid::new_v4()),
+        };
+        let (plaintext, info) = mint_for_principal(state, &principal, key_ttl)
+            .await
+            .expect("mint minted-login key");
+        cloacina::dal::DAL::new(state.database.clone())
+            .oidc_sessions()
+            .create_session(info.id, TEST_ISSUER, session_deadline)
+            .await
+            .expect("open oidc session");
+        (plaintext, info.id)
+    }
+
+    fn refresh_request(token: &str) -> axum::http::Request<Body> {
+        axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/auth/refresh")
+            .header("Authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    /// UC2 happy path: an OIDC login refreshes without another trip through the
+    /// IdP, keeps EXACTLY its tenant + role, never gains god mode, and the old
+    /// key is rotated out.
+    #[tokio::test]
+    #[serial]
+    async fn oidc_refresh_preserves_scope_and_rotates_the_old_key() {
+        let state = test_state().await;
+        let (token, old_key_id) = mint_oidc_session(
+            &state,
+            Some("public"),
+            "write",
+            std::time::Duration::from_secs(900),
+            chrono::Utc::now() + chrono::Duration::hours(8),
+        )
+        .await;
+
+        let (status, body) =
+            send_request(build_router(state.clone()), refresh_request(&token)).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "OIDC refresh must no longer be 501: {body}"
+        );
+
+        // Scope is preserved verbatim — refresh is not a re-authorization.
+        assert_eq!(body["tenant_id"], "public");
+        assert_eq!(body["role"], "write");
+        let new_token = body["key"]
+            .as_str()
+            .expect("refresh returns a key")
+            .to_string();
+        assert_ne!(new_token, token, "refresh must issue a NEW key");
+
+        // The new key is real, still scoped, and is NOT admin. `whoami` reads
+        // straight off the authenticated key, so this asserts the persisted
+        // grant rather than the response body echoing itself.
+        let (status, who) = send_request(
+            build_router(state.clone()),
+            axum::http::Request::builder()
+                .uri("/v1/auth/whoami")
+                .header("Authorization", format!("Bearer {new_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "refreshed key must authenticate");
+        assert_eq!(who["tenant_id"], "public");
+        assert_eq!(who["role"], "write");
+        assert_eq!(
+            who["is_admin"], false,
+            "a refreshed key must never acquire god mode"
+        );
+
+        // The old key is revoked, so a stolen pre-refresh key is dead.
+        state.key_cache.clear().await;
+        let (status, _) = send_request(build_router(state.clone()), refresh_request(&token)).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "the pre-refresh key must be revoked"
+        );
+
+        // ...and the session row followed the new key rather than being orphaned.
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        assert!(
+            dal.oidc_sessions()
+                .get_session(old_key_id)
+                .await
+                .expect("session lookup")
+                .is_none(),
+            "the session must not still point at the rotated-out key"
+        );
+    }
+
+    /// Refresh can extend the key but never the session: past the absolute
+    /// deadline the user is pushed back through the full OIDC flow, and the
+    /// key they were holding is revoked rather than left alive for its TTL.
+    #[tokio::test]
+    #[serial]
+    async fn oidc_refresh_stops_at_the_absolute_session_deadline() {
+        let state = test_state().await;
+        let (token, _) = mint_oidc_session(
+            &state,
+            Some("public"),
+            "read",
+            std::time::Duration::from_secs(900),
+            chrono::Utc::now() - chrono::Duration::minutes(1),
+        )
+        .await;
+
+        let (status, _) = send_request(build_router(state.clone()), refresh_request(&token)).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "a session past its deadline must not refresh"
+        );
+
+        state.key_cache.clear().await;
+        let (status, _) = send_request(
+            build_router(state.clone()),
+            axum::http::Request::builder()
+                .uri("/v1/auth/whoami")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "the key must be revoked when its session ends, not left to lapse"
+        );
+    }
+
+    /// A key whose 15-minute TTL already lapsed cannot refresh: `require_auth`
+    /// rejects it before the handler runs. Sane, and the documented reason the
+    /// SPA must refresh on a timer rather than on demand after idling.
+    #[tokio::test]
+    #[serial]
+    async fn refresh_after_the_key_expired_is_rejected_not_resurrected() {
+        let state = test_state().await;
+        // TTL of zero → `expires_at == now`, which `validate_hash` treats as
+        // expired (it requires `expires_at > now`).
+        let (token, _) = mint_oidc_session(
+            &state,
+            Some("public"),
+            "read",
+            std::time::Duration::from_secs(0),
+            chrono::Utc::now() + chrono::Duration::hours(8),
+        )
+        .await;
+
+        let (status, _) = send_request(build_router(state.clone()), refresh_request(&token)).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "an expired key must not be refreshable even inside a live session"
+        );
+    }
+
+    /// A minted key with no session row (never opened, or logged out) is not
+    /// refreshable — logout must be final.
+    #[tokio::test]
+    #[serial]
+    async fn oidc_refresh_denied_without_a_session_row() {
+        let state = test_state().await;
+        let principal = ResolvedPrincipal {
+            tenant: Some("public".into()),
+            role: "read".into(),
+            provenance: format!("oidc:{TEST_ISSUER}:sub-{}", uuid::Uuid::new_v4()),
+        };
+        let (token, _) =
+            mint_for_principal(&state, &principal, std::time::Duration::from_secs(900))
+                .await
+                .expect("mint");
+
+        let (status, _) = send_request(build_router(state.clone()), refresh_request(&token)).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "no session row ⇒ no refresh"
+        );
+    }
+
+    // ── Login throttle (I-0118 OQ-13) ─────────────────────────────────────
+
+    /// A state whose throttle locks fast and forgets fast, with the IP scope
+    /// off (every test request shares one `unknown` peer, so an IP counter
+    /// would leak between tests).
+    fn with_fast_throttle(state: &mut AppState, threshold: i32, lock: chrono::Duration) {
+        state.login_throttle = LoginThrottleConfig {
+            username: ThrottlePolicy {
+                threshold,
+                base_lock: lock,
+                max_lock: lock,
+                decay: chrono::Duration::minutes(15),
+            },
+            ip: None,
+            trust_proxy_headers: false,
+        };
+    }
+
+    /// Create a local account with a unique username (the test DB persists
+    /// across runs). Returns the username.
+    async fn create_local_account(state: &AppState, password: &str) -> String {
+        let username = format!("t0923-{}", uuid::Uuid::new_v4().simple());
+        cloacina::dal::DAL::new(state.database.clone())
+            .local_accounts()
+            .create(&username, password, Some("public"), "read")
+            .await
+            .expect("create local account");
+        username
+    }
+
+    fn login_request(username: &str, password: &str) -> axum::http::Request<Body> {
+        axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/auth/local/login")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "username": username,
+                    "password": password,
+                    "tenant": "public",
+                })
+                .to_string(),
+            ))
+            .unwrap()
+    }
+
+    /// The core OQ-13 contract: repeated failures lock the account's *login*,
+    /// the lock refuses even the CORRECT password while it holds, and it
+    /// expires on its own without operator intervention.
+    #[tokio::test]
+    #[serial]
+    async fn login_lockout_triggers_blocks_the_right_password_then_expires() {
+        let mut state = test_state().await;
+        with_fast_throttle(&mut state, 3, chrono::Duration::milliseconds(600));
+        let password = "correct-horse-battery-staple";
+        let username = create_local_account(&state, password).await;
+
+        // Up to the threshold: ordinary 401s.
+        for i in 0..3 {
+            let (status, _) = send_request(
+                build_router(state.clone()),
+                login_request(&username, "wrong"),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "attempt {i} should be 401"
+            );
+        }
+
+        // The crossing attempt locks the key.
+        let response = build_router(state.clone())
+            .oneshot(login_request(&username, "wrong"))
+            .await
+            .expect("request");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(
+            response
+                .headers()
+                .contains_key(axum::http::header::RETRY_AFTER),
+            "a throttled response must tell the client when to come back"
+        );
+
+        // The whole point: while locked, even the right password is refused.
+        // Without this the lock would only slow an attacker down, not stop one
+        // who guesses correctly on the next try.
+        let (status, _) = send_request(
+            build_router(state.clone()),
+            login_request(&username, password),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "a live lock must gate the password check, not follow it"
+        );
+
+        // ...and it lifts by itself.
+        tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+        let (status, body) = send_request(
+            build_router(state.clone()),
+            login_request(&username, password),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "the lock must expire without an admin unlocking anything: {body}"
+        );
+    }
+
+    /// A legitimate user who eventually remembers their password must not be
+    /// left one strike from a lockout.
+    #[tokio::test]
+    #[serial]
+    async fn successful_login_clears_the_failure_counter() {
+        let mut state = test_state().await;
+        with_fast_throttle(&mut state, 3, chrono::Duration::seconds(60));
+        let password = "right-password-eventually";
+        let username = create_local_account(&state, password).await;
+
+        for _ in 0..3 {
+            send_request(
+                build_router(state.clone()),
+                login_request(&username, "nope"),
+            )
+            .await;
+        }
+        let (status, _) = send_request(
+            build_router(state.clone()),
+            login_request(&username, password),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "3 failures is at, not over, the threshold"
+        );
+
+        // If the counter had carried over, the very next failure would lock.
+        for i in 0..3 {
+            let (status, _) = send_request(
+                build_router(state.clone()),
+                login_request(&username, "nope"),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "post-success failure {i} must be counted from zero"
+            );
+        }
+    }
+
+    /// Multi-replica correctness (the T-0916 lesson): two independently built
+    /// server states over the same database must share throttle state — a
+    /// lockout earned on one is enforced by the other, and clearing it on one
+    /// releases the other.
+    #[tokio::test]
+    #[serial]
+    async fn throttle_state_is_shared_across_two_server_handles() {
+        let mut state_a = test_state().await;
+        with_fast_throttle(&mut state_a, 3, chrono::Duration::seconds(60));
+        let mut state_b = test_state().await;
+        with_fast_throttle(&mut state_b, 3, chrono::Duration::seconds(60));
+
+        let password = "shared-state-password";
+        let username = create_local_account(&state_a, password).await;
+
+        // Replica A absorbs two failures, replica B the next two.
+        for _ in 0..2 {
+            send_request(build_router(state_a.clone()), login_request(&username, "x")).await;
+        }
+        let (status, _) =
+            send_request(build_router(state_b.clone()), login_request(&username, "x")).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "B must continue A's count, not start its own"
+        );
+        let (status, _) =
+            send_request(build_router(state_b.clone()), login_request(&username, "x")).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "4th failure locks");
+
+        // The lock decided on B is enforced on A — the whole reason this state
+        // is a DB row and not a per-replica map.
+        let (status, _) = send_request(
+            build_router(state_a.clone()),
+            login_request(&username, password),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "a lockout must not be escapable by hitting a different replica"
+        );
+    }
+
+    /// An unknown username throttles exactly like a real one, so the 429 is not
+    /// a user-enumeration oracle.
+    #[tokio::test]
+    #[serial]
+    async fn unknown_usernames_throttle_identically_to_real_ones() {
+        let mut state = test_state().await;
+        with_fast_throttle(&mut state, 2, chrono::Duration::seconds(60));
+        let ghost = format!("t0923-ghost-{}", uuid::Uuid::new_v4().simple());
+
+        for _ in 0..2 {
+            let (status, _) =
+                send_request(build_router(state.clone()), login_request(&ghost, "x")).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+        }
+        let (status, _) =
+            send_request(build_router(state.clone()), login_request(&ghost, "x")).await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "a nonexistent account must reach the same 429 a real one does"
+        );
+    }
+
+    /// The source-IP scope catches a single host spraying many DIFFERENT
+    /// usernames — none of which alone crosses the username threshold.
+    #[tokio::test]
+    #[serial]
+    async fn ip_scope_catches_a_username_spray() {
+        let mut state = test_state().await;
+        // Trust XFF so the test can present a distinct client address; without
+        // it every test request shares one peer and the counters would bleed.
+        state.login_throttle = LoginThrottleConfig {
+            username: ThrottlePolicy {
+                threshold: 100,
+                base_lock: chrono::Duration::seconds(60),
+                max_lock: chrono::Duration::seconds(60),
+                decay: chrono::Duration::minutes(15),
+            },
+            ip: Some(ThrottlePolicy {
+                threshold: 3,
+                base_lock: chrono::Duration::seconds(60),
+                max_lock: chrono::Duration::seconds(60),
+                decay: chrono::Duration::minutes(15),
+            }),
+            trust_proxy_headers: true,
+        };
+        let attacker_ip = format!("198.51.100.{}", (uuid::Uuid::new_v4().as_u128() % 250) + 1);
+
+        let spray = |user: String| {
+            let mut req = login_request(&user, "x");
+            req.headers_mut().insert(
+                "x-forwarded-for",
+                axum::http::HeaderValue::from_str(&attacker_ip).unwrap(),
+            );
+            req
+        };
+
+        for _ in 0..3 {
+            let user = format!("t0923-spray-{}", uuid::Uuid::new_v4().simple());
+            let (status, _) = send_request(build_router(state.clone()), spray(user)).await;
+            assert_eq!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "no single username is anywhere near its own threshold"
+            );
+        }
+        let user = format!("t0923-spray-{}", uuid::Uuid::new_v4().simple());
+        let (status, _) = send_request(build_router(state.clone()), spray(user)).await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "the source-IP counter must catch what the username counter cannot"
         );
     }
 }

@@ -56,6 +56,7 @@ pub mod execution_event;
 pub mod fleet_agents;
 #[cfg(feature = "postgres")]
 pub mod local_accounts;
+pub mod login_throttle;
 pub mod models;
 #[cfg(feature = "postgres")]
 pub mod oidc_login_flows;
@@ -86,6 +87,7 @@ pub use execution_event::ExecutionEventDAL;
 pub use fleet_agents::{FleetAgent, FleetAgentDAL, FleetAgentRegistration};
 #[cfg(feature = "postgres")]
 pub use local_accounts::{LocalAccount, LocalAccountDAL, LoginOutcome};
+pub use login_throttle::{LoginThrottleDAL, ThrottlePolicy, ThrottleState};
 #[cfg(feature = "postgres")]
 pub use oidc_login_flows::OidcLoginFlowDAL;
 #[cfg(feature = "postgres")]
@@ -178,6 +180,12 @@ impl DAL {
     #[cfg(feature = "postgres")]
     pub fn local_accounts(&self) -> LocalAccountDAL<'_> {
         LocalAccountDAL::new(self)
+    }
+
+    /// Returns the login brute-force throttle DAL. CLOACI-T-0923.
+    /// Unified (both backends) so its semantics are testable without Postgres.
+    pub fn login_throttle(&self) -> LoginThrottleDAL<'_> {
+        LoginThrottleDAL::new(self)
     }
 
     /// Returns an OIDC login-flow-state DAL (Postgres only). CLOACI-T-0801.

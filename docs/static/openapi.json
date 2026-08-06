@@ -327,6 +327,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many failed attempts — throttled; see Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -405,7 +415,7 @@
             }
           },
           "401": {
-            "description": "Invalid key, or the login is no longer valid",
+            "description": "Invalid key, the account is disabled, or the login session has passed its absolute deadline",
             "content": {
               "application/json": {
                 "schema": {

@@ -25,23 +25,166 @@
 //! No refresh-token row is stored for local accounts: the key's `local:<id>`
 //! provenance + the account's `status` column ARE the refresh validity, which
 //! `/auth/refresh` (T-0794) re-checks.
+//!
+//! ## Brute-force throttle (CLOACI-T-0923, closes I-0118 OQ-13)
+//!
+//! Argon2id makes each guess expensive for the *server*; it does nothing to
+//! bound how many guesses an attacker gets. Every attempt is therefore gated on
+//! (and every failure recorded against) the DB-backed
+//! [`cloacina::dal::unified::login_throttle`] counters — persisted, not a
+//! per-replica map, so a lockout holds across replicas. See that module for the
+//! dual-key (username + source-IP) rationale.
+
+use std::net::SocketAddr;
 
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
+    extract::{ConnectInfo, Path, State},
+    http::{header, Extensions, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
+use cloacina::dal::unified::login_throttle::{
+    ip_key, username_key, ThrottlePolicy, SCOPE_IP, SCOPE_USERNAME,
+};
 use cloacina::dal::unified::{LocalAccount, LoginOutcome};
+use cloacina::security::audit;
 use cloacina_api_types::common::ListResponse;
 
 use crate::identity::{mint_for_principal, ResolvedPrincipal, DEFAULT_MINTED_KEY_TTL};
 use crate::routes::error::ApiError;
 use crate::AppState;
+
+/// Operator-tunable brute-force throttle settings, resolved once at startup and
+/// carried on [`AppState`] (CLOACI-T-0923).
+#[derive(Debug, Clone, Copy)]
+pub struct LoginThrottleConfig {
+    /// Username-scoped policy — the primary defense.
+    pub username: ThrottlePolicy,
+    /// Source-IP-scoped policy, or `None` when the IP scope is disabled.
+    pub ip: Option<ThrottlePolicy>,
+    /// Whether `X-Forwarded-For` may be believed when deriving the client IP.
+    pub trust_proxy_headers: bool,
+}
+
+impl Default for LoginThrottleConfig {
+    fn default() -> Self {
+        Self {
+            username: ThrottlePolicy::username_default(),
+            ip: Some(ThrottlePolicy::ip_default()),
+            trust_proxy_headers: false,
+        }
+    }
+}
+
+impl LoginThrottleConfig {
+    /// Read the throttle knobs from the environment.
+    ///
+    /// - `CLOACINA_LOGIN_THROTTLE_USER_THRESHOLD` (default 5) — consecutive
+    ///   failures per username before it locks.
+    /// - `CLOACINA_LOGIN_THROTTLE_IP_THRESHOLD` (default 50; **`0` disables the
+    ///   IP scope**) — consecutive failures from one source address.
+    /// - `CLOACINA_LOGIN_THROTTLE_BASE_LOCK_S` (default 30) — first lock
+    ///   window; each further failure doubles it.
+    /// - `CLOACINA_LOGIN_THROTTLE_MAX_LOCK_S` (default 900) — backoff ceiling,
+    ///   and also the idle window after which a counter is forgotten.
+    /// - `CLOACINA_TRUST_PROXY_HEADERS` (default off) — see [`client_ip`].
+    ///
+    /// **Deploying behind a reverse proxy:** the socket peer is then the proxy
+    /// for *every* user, so one shared IP counter would cover the whole
+    /// deployment. Either set `CLOACINA_TRUST_PROXY_HEADERS=1` (only safe when
+    /// the proxy overwrites `X-Forwarded-For`) so real client addresses are
+    /// used, or set `CLOACINA_LOGIN_THROTTLE_IP_THRESHOLD=0` to turn the IP
+    /// scope off and rely on the username scope alone.
+    pub fn from_env() -> Self {
+        fn num(var: &str, default: i64) -> i64 {
+            std::env::var(var)
+                .ok()
+                .and_then(|v| v.trim().parse::<i64>().ok())
+                .filter(|v| *v >= 0)
+                .unwrap_or(default)
+        }
+        let base_lock = chrono::Duration::seconds(num("CLOACINA_LOGIN_THROTTLE_BASE_LOCK_S", 30));
+        let max_lock = chrono::Duration::seconds(num("CLOACINA_LOGIN_THROTTLE_MAX_LOCK_S", 900));
+        let decay = max_lock;
+
+        let user_threshold = num("CLOACINA_LOGIN_THROTTLE_USER_THRESHOLD", 5).max(1) as i32;
+        let ip_threshold = num("CLOACINA_LOGIN_THROTTLE_IP_THRESHOLD", 50) as i32;
+
+        Self {
+            username: ThrottlePolicy {
+                threshold: user_threshold,
+                base_lock,
+                max_lock,
+                decay,
+            },
+            // The IP scope is a blunt instrument: cap its backoff at the
+            // ceiling immediately rather than doubling, so a shared-NAT office
+            // never compounds its way into an hours-long block.
+            ip: (ip_threshold > 0).then_some(ThrottlePolicy {
+                threshold: ip_threshold,
+                base_lock: max_lock,
+                max_lock,
+                decay,
+            }),
+            trust_proxy_headers: matches!(
+                std::env::var("CLOACINA_TRUST_PROXY_HEADERS")
+                    .unwrap_or_default()
+                    .trim(),
+                "1" | "true" | "TRUE" | "yes"
+            ),
+        }
+    }
+}
+
+/// Derive the client address used for the IP-scoped counter.
+///
+/// Defaults to the **socket peer**, which cannot be forged. `X-Forwarded-For`
+/// is consulted only when the operator opts in, because an unauthenticated
+/// caller controls that header outright: believing it by default would let an
+/// attacker mint a fresh IP identity per request (evading the counter entirely)
+/// *and* forge failures against someone else's address. When trusted, the
+/// left-most entry is taken — the original client as recorded by the first
+/// proxy — which is only meaningful if that proxy overwrites rather than
+/// appends.
+fn client_ip(headers: &HeaderMap, peer: Option<SocketAddr>, trust_proxy: bool) -> String {
+    if trust_proxy {
+        if let Some(first) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return first.to_string();
+        }
+    }
+    peer.map(|p| p.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// 429 for a throttled attempt, carrying `Retry-After`.
+///
+/// Deliberately the *same* response whether or not the username exists: an
+/// unknown username accumulates failures exactly like a real one, so this
+/// status is never an enumeration oracle. It is a distinct status from the
+/// 401 so a legitimate locked-out human (and the SPA) can tell "wrong password"
+/// from "wait and try again".
+fn throttled_response(retry_after_secs: i64) -> Response {
+    let mut resp = ApiError::new(
+        StatusCode::TOO_MANY_REQUESTS,
+        "login_throttled",
+        "too many failed login attempts — try again later",
+    )
+    .into_response();
+    if let Ok(v) = HeaderValue::from_str(&retry_after_secs.max(1).to_string()) {
+        resp.headers_mut().insert(header::RETRY_AFTER, v);
+    }
+    resp
+}
 
 /// A local-login attempt. `tenant` selects which tenant's account namespace to
 /// authenticate against (`None` = a global account).
@@ -72,14 +215,54 @@ pub struct LocalLoginResponse {
     responses(
         (status = 200, description = "Logged in — minted key returned once", body = LocalLoginResponse),
         (status = 401, description = "Invalid username or password", body = cloacina_api_types::ErrorBody),
+        (status = 429, description = "Too many failed attempts — throttled; see Retry-After", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     )
 )]
 pub async fn local_login(
     State(state): State<AppState>,
+    // `ConnectInfo` is read out of the extensions rather than extracted
+    // directly: axum 0.8 has no optional impl for it, and this route must not
+    // 500 when the router is driven without connect-info (tests, `oneshot`).
+    // Absent peer just means the IP scope degrades to a single `unknown` key.
+    extensions: Extensions,
+    headers: HeaderMap,
     Json(body): Json<LocalLoginRequest>,
 ) -> impl IntoResponse {
     let dal = cloacina::dal::DAL::new(state.database.clone());
+    let cfg = state.login_throttle;
+
+    let peer = extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(a)| *a);
+    let user_key = username_key(body.tenant.as_deref(), &body.username);
+    let source_ip = client_ip(&headers, peer, cfg.trust_proxy_headers);
+    let source_key = ip_key(&source_ip);
+
+    // ---- gate: refuse locked keys BEFORE paying for an argon2 verify --------
+    // Both scopes are checked; either one locked refuses the attempt.
+    let mut scopes: Vec<(&str, &str, ThrottlePolicy)> =
+        vec![(user_key.as_str(), SCOPE_USERNAME, cfg.username)];
+    if let Some(p) = cfg.ip {
+        scopes.push((source_key.as_str(), SCOPE_IP, p));
+    }
+    for (key, scope, _) in &scopes {
+        match dal.login_throttle().locked_until(key).await {
+            Ok(Some(until)) => {
+                let secs = (until - chrono::Utc::now()).num_seconds();
+                metrics::counter!("cloacina_auth_login_attempts_total", "outcome" => "throttled")
+                    .increment(1);
+                warn!(scope = %scope, retry_after_s = secs, "local login refused — throttled");
+                return throttled_response(secs);
+            }
+            Ok(None) => {}
+            // Fail OPEN on a throttle-store error, deliberately: the throttle
+            // is a mitigation, not the authentication decision, and a DB blip
+            // must not lock every user out of the platform. The failure is
+            // logged, and the password check below still has to pass.
+            Err(e) => warn!("login throttle lookup failed (allowing attempt): {}", e),
+        }
+    }
 
     let outcome = match dal
         .local_accounts()
@@ -96,11 +279,63 @@ pub async fn local_login(
     let account = match outcome {
         LoginOutcome::Ok(a) => a,
         // Same opaque error for unknown user / wrong password / disabled — no
-        // enumeration (OQ-13 throttling is a follow-up).
+        // enumeration. `authenticate` also burns an equivalent argon2 verify
+        // for an unknown username so the two are indistinguishable by timing.
         LoginOutcome::Denied => {
-            return ApiError::unauthorized("invalid username or password").into_response()
+            // Record against BOTH scopes. Note this counts failures for
+            // usernames that do not exist exactly like real ones — that is
+            // what keeps the eventual 429 from leaking account existence.
+            let now = chrono::Utc::now();
+            let mut lock_expiry: Option<i64> = None;
+            for (key, scope, policy) in &scopes {
+                match dal
+                    .login_throttle()
+                    .record_failure(key, scope, *policy)
+                    .await
+                {
+                    Ok(st) => {
+                        if let Some(until) = st.locked_until.filter(|t| *t > now) {
+                            let secs = (until - now).num_seconds();
+                            // Report the longest live lock, so `Retry-After` is
+                            // never optimistic about when the caller may return.
+                            lock_expiry = Some(lock_expiry.map_or(secs, |c: i64| c.max(secs)));
+                            // Audit + count the lock EDGE only: while a lock
+                            // holds, every further attempt would otherwise
+                            // re-emit the same incident.
+                            if st.newly_locked {
+                                audit::log_login_lockout(key, scope, st.failure_count, secs);
+                                metrics::counter!("cloacina_auth_login_lockouts_total", "scope" => (*scope).to_string())
+                                    .increment(1);
+                            }
+                        }
+                    }
+                    Err(e) => warn!("login throttle record failed: {}", e),
+                }
+            }
+            // The attempt that crosses the threshold is answered with the 429,
+            // not a 401 that would leave the caller unaware they are now
+            // locked. This is not an enumeration leak: an unknown username
+            // reaches the identical 429 on the identical attempt number.
+            if let Some(secs) = lock_expiry {
+                metrics::counter!("cloacina_auth_login_attempts_total", "outcome" => "throttled")
+                    .increment(1);
+                return throttled_response(secs);
+            }
+            metrics::counter!("cloacina_auth_login_attempts_total", "outcome" => "denied")
+                .increment(1);
+            return ApiError::unauthorized("invalid username or password").into_response();
         }
     };
+
+    // ---- success: the legitimate user must not inherit their own failures ---
+    // Only the username counter is cleared. The IP counter is left to decay:
+    // clearing it on success would let an attacker who holds one valid account
+    // reset the spray counter at will (see the DAL module docs).
+    if let Err(e) = dal.login_throttle().clear(&user_key).await {
+        warn!("login throttle clear failed: {}", e);
+    }
+    // Opportunistic hygiene — keeps the table bounded without a sweeper task.
+    let _ = dal.login_throttle().prune_idle(cfg.username.decay).await;
 
     let principal = ResolvedPrincipal {
         tenant: account.tenant_id.clone(),
@@ -110,6 +345,7 @@ pub async fn local_login(
 
     match mint_for_principal(&state, &principal, DEFAULT_MINTED_KEY_TTL).await {
         Ok((plaintext, info)) => {
+            metrics::counter!("cloacina_auth_login_attempts_total", "outcome" => "ok").increment(1);
             info!(
                 account_id = %account.id,
                 tenant = ?account.tenant_id,

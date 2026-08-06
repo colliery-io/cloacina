@@ -14,13 +14,25 @@
  *  limitations under the License.
  */
 
-//! Encrypted server-side refresh-token store (CLOACI-T-0793). **Postgres only.**
+//! Server-side OIDC **login-session** store (CLOACI-T-0793, T-0923).
+//! **Postgres only** — like the rest of the auth strand (`api_keys`,
+//! `local_accounts`, `oidc_login_flows`), because the API server runs on
+//! Postgres.
 //!
-//! One row per minted login key. The refresh token is encrypted at rest with
-//! AES-256-GCM (reusing [`crate::crypto::key_encryption`]) under a 32-byte
-//! server key; the plaintext is never logged or returned to the browser. A
-//! sweeper deletes lapsed rows. `/auth/refresh` + `/auth/logout` (T-0794)
-//! consume this store.
+//! One row per live login session. `key_id` is the session's *currently valid*
+//! minted key — [`OidcSessionDAL::rotate`] moves it onto the freshly minted key
+//! on every refresh — and `expires_at` is the session's **absolute** deadline:
+//! the wall past which no amount of refreshing keeps the user in and a full
+//! OIDC re-auth is required. `/auth/refresh` + `/auth/logout` consume this
+//! store.
+//!
+//! T-0793 originally built the row to hold an IdP refresh token, encrypted at
+//! rest with AES-256-GCM under a 32-byte server key. T-0923 chose a session
+//! record over IdP-token custody (rationale in `routes/session.rs`), so
+//! `refresh_enc` is NULL in practice; the column and the
+//! [`encrypt_token`]/[`decrypt_token`] helpers are kept so a deployment that
+//! later wants true token custody needs no migration. If it is ever populated
+//! the plaintext must never be logged or returned to the browser.
 
 use crate::dal::unified::DAL;
 use crate::error::ValidationError;
@@ -46,11 +58,14 @@ pub fn decrypt_token(ciphertext: &[u8], enc_key: &[u8]) -> Result<Vec<u8>, Valid
 }
 
 /// A decrypted refresh session: the provider that issued it + the plaintext
-/// refresh token. Never logged.
+/// refresh token (empty when no token is stored — the T-0923 session-record
+/// design). Never logged.
 #[derive(Debug, Clone)]
 pub struct RefreshSession {
     pub provider: String,
     pub refresh_token: Vec<u8>,
+    /// The session's absolute deadline. `None` = unbounded (never produced by
+    /// [`OidcSessionDAL::create_session`]).
     pub expires_at: Option<DateTime<Utc>>,
 }
 
@@ -63,7 +78,7 @@ struct OidcSessionRow {
     #[allow(dead_code)]
     pub key_id: Uuid,
     pub provider: String,
-    pub refresh_enc: Vec<u8>,
+    pub refresh_enc: Option<Vec<u8>>,
     #[allow(dead_code)]
     pub created_at: chrono::NaiveDateTime,
     pub expires_at: Option<chrono::NaiveDateTime>,
@@ -76,7 +91,7 @@ struct NewOidcSession {
     pub id: Uuid,
     pub key_id: Uuid,
     pub provider: String,
-    pub refresh_enc: Vec<u8>,
+    pub refresh_enc: Option<Vec<u8>>,
     pub expires_at: Option<chrono::NaiveDateTime>,
 }
 
@@ -101,7 +116,7 @@ impl<'a> OidcSessionDAL<'a> {
         enc_key: &[u8],
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<(), ValidationError> {
-        let refresh_enc = encrypt_token(refresh_token, enc_key)?;
+        let refresh_enc = Some(encrypt_token(refresh_token, enc_key)?);
         let row = NewOidcSession {
             id: Uuid::new_v4(),
             key_id,
@@ -152,7 +167,10 @@ impl<'a> OidcSessionDAL<'a> {
         match row {
             None => Ok(None),
             Some(r) => {
-                let refresh_token = decrypt_token(&r.refresh_enc, enc_key)?;
+                let refresh_token = match &r.refresh_enc {
+                    Some(enc) => decrypt_token(enc, enc_key)?,
+                    None => Vec::new(),
+                };
                 Ok(Some(RefreshSession {
                     provider: r.provider,
                     refresh_token,
@@ -160,6 +178,104 @@ impl<'a> OidcSessionDAL<'a> {
                 }))
             }
         }
+    }
+
+    /// Open a login session for a freshly minted key (CLOACI-T-0923).
+    ///
+    /// `expires_at` is the session's **absolute** deadline — refresh extends
+    /// the *key*, never this. No IdP token is stored (`refresh_enc` stays
+    /// NULL); see the module docs for why. Lapsed rows are pruned
+    /// opportunistically first, so the table stays bounded without a dedicated
+    /// sweeper (mirrors the `ws_tickets` hygiene pattern).
+    #[cfg(feature = "postgres")]
+    pub async fn create_session(
+        &self,
+        key_id: Uuid,
+        provider: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        let row = NewOidcSession {
+            id: Uuid::new_v4(),
+            key_id,
+            provider: provider.to_string(),
+            refresh_enc: None,
+            expires_at: Some(expires_at.naive_utc()),
+        };
+        let now = Utc::now().naive_utc();
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        conn.interact(move |conn| {
+            diesel::delete(oidc_sessions::table.filter(oidc_sessions::expires_at.lt(now)))
+                .execute(conn)?;
+            diesel::insert_into(oidc_sessions::table)
+                .values(&row)
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(())
+    }
+
+    /// Look up the session a minted key belongs to, without touching
+    /// `refresh_enc` (so no encryption key is needed on the refresh path).
+    /// Returns `(provider, absolute_expiry)`.
+    #[cfg(feature = "postgres")]
+    pub async fn get_session(
+        &self,
+        key_id: Uuid,
+    ) -> Result<Option<(String, Option<DateTime<Utc>>)>, ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let row: Option<(String, Option<chrono::NaiveDateTime>)> = conn
+            .interact(move |conn| {
+                oidc_sessions::table
+                    .filter(oidc_sessions::key_id.eq(key_id))
+                    .select((oidc_sessions::provider, oidc_sessions::expires_at))
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(row.map(|(p, e)| (p, e.map(|t| t.and_utc()))))
+    }
+
+    /// Point an existing session at a newly minted key (refresh rotation).
+    ///
+    /// The session's `expires_at` is deliberately **not** extended: the
+    /// absolute deadline is the whole point of the record. Returns true when a
+    /// session was rotated.
+    #[cfg(feature = "postgres")]
+    pub async fn rotate(
+        &self,
+        old_key_id: Uuid,
+        new_key_id: Uuid,
+    ) -> Result<bool, ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let n: usize = conn
+            .interact(move |conn| {
+                diesel::update(oidc_sessions::table.filter(oidc_sessions::key_id.eq(old_key_id)))
+                    .set(oidc_sessions::key_id.eq(new_key_id))
+                    .execute(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(n > 0)
     }
 
     /// Forget a minted key's refresh session (logout). Returns true if removed.
