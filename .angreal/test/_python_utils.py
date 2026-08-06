@@ -568,9 +568,55 @@ def _build_and_install_cloaca_unified(venv_name, cargo_features=None):
     if not wheel_files:
         raise FileNotFoundError(f"No wheel found matching {wheel_pattern} in {wheel_dir}")
 
-    wheel_file = wheel_files[0]
+    # Newest by mtime, not glob order: a backend-scoped run
+    # (`--backend sqlite` builds `--no-default-features --features sqlite`)
+    # can leave an older wheel here, and glob order is arbitrary.
+    wheel_file = max(wheel_files, key=lambda p: p.stat().st_mtime)
     print(f"[DEBUG] Installing wheel: {wheel_file.name}", flush=True)
-    subprocess.run([str(pip_exe), "install", str(wheel_file)], check=True, capture_output=True)
-    print("[DEBUG] Step 5 complete: wheel installed", flush=True)
+    # --force-reinstall is REQUIRED, not defensive: the version never changes
+    # between builds, so plain `pip install` sees `cloaca 0.10.0` already
+    # present and no-ops ("already satisfied") — silently keeping whatever
+    # feature scope the previous run installed. The venv persists at the repo
+    # root, so a `--backend sqlite` run followed by a postgres run left a
+    # sqlite-only wheel in place and every postgres scenario died with
+    # "postgres feature not enabled" while the harness reported a successful
+    # build. CI never saw this: its runners are fresh and each backend is a
+    # separate job, so the venv is always empty. --no-deps because the wheel's
+    # deps are already installed above and we only want the wheel replaced.
+    subprocess.run(
+        [str(pip_exe), "install", "--force-reinstall", "--no-deps", str(wheel_file)],
+        check=True,
+        capture_output=True,
+    )
+    print("[DEBUG] Step 5 complete: wheel installed (forced)", flush=True)
+
+    # Postcondition: prove the INSTALLED module has the backend the caller
+    # asked for. Without this, a feature-scope mismatch surfaces much later as
+    # a pile of scenario failures blaming the database URL ("Unable to detect
+    # database backend ... postgres feature not enabled") while every build
+    # step reported success. `DatabaseAdmin` is postgres-gated in the bindings,
+    # so its presence is a reliable proxy for the postgres feature.
+    wants_postgres = cargo_features is None or "postgres" in cargo_features
+    probe = subprocess.run(
+        [str(python_exe), "-c", "import cloaca; print(hasattr(cloaca, 'DatabaseAdmin'))"],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(
+            f"installed cloaca wheel is not importable: {probe.stderr.strip()}"
+        )
+    has_postgres = probe.stdout.strip() == "True"
+    if has_postgres != wants_postgres:
+        raise RuntimeError(
+            "installed cloaca wheel has the wrong feature scope: expected "
+            f"postgres={wants_postgres}, got postgres={has_postgres}. The venv at "
+            f"{venv.path} likely holds a wheel from a differently-scoped run — "
+            "remove it and re-run."
+        )
+    print(
+        f"[DEBUG] Step 5 verified: installed wheel has postgres={has_postgres}",
+        flush=True,
+    )
 
     return venv, python_exe, pip_exe
