@@ -2613,6 +2613,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description Too many failed attempts — throttled; see Retry-After */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Internal error */
             500: {
                 headers: {
@@ -2680,7 +2689,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Invalid key, or the login is no longer valid */
+            /** @description Invalid key, the account is disabled, or the login session has passed its absolute deadline */
             401: {
                 headers: {
                     [name: string]: unknown;

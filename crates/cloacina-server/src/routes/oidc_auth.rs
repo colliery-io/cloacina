@@ -35,6 +35,7 @@ use base64::Engine as _;
 
 use crate::identity::{mint_for_principal, DEFAULT_MINTED_KEY_TTL};
 use crate::routes::error::ApiError;
+use crate::routes::session::oidc_session_max_age;
 use crate::AppState;
 
 /// One minted tenant membership handed back to the SPA after an OIDC login.
@@ -124,14 +125,39 @@ pub async fn oidc_callback(
         .into_response();
     }
 
+    // CLOACI-T-0923: open a server-side login session per minted key. Its
+    // `expires_at` is the session's ABSOLUTE deadline — `/v1/auth/refresh`
+    // rotates the key inside that window without another trip through the IdP,
+    // and past it a full re-auth (fresh IdP check + fresh allowlist
+    // resolution) is forced. Without this row refresh has nothing to
+    // authorize against and stays a 501, which is exactly the state T-0923
+    // found: a 15-minute hard logout.
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let session_deadline = chrono::Utc::now()
+        + chrono::Duration::from_std(oidc_session_max_age())
+            .unwrap_or_else(|_| chrono::Duration::hours(8));
+
     let mut memberships = Vec::with_capacity(principals.len());
     for p in &principals {
         match mint_for_principal(&state, p, DEFAULT_MINTED_KEY_TTL).await {
-            Ok((plaintext, info)) => memberships.push(Membership {
-                key: plaintext,
-                tenant: info.tenant_id.unwrap_or_default(),
-                role: info.permissions,
-            }),
+            Ok((plaintext, info)) => {
+                if let Err(e) = dal
+                    .oidc_sessions()
+                    .create_session(info.id, &provider.config.issuer_url, session_deadline)
+                    .await
+                {
+                    // Fail closed on the *session*, not the login: the key is
+                    // already minted and usable for its 15 minutes; the user
+                    // simply cannot refresh it. Better a short session than a
+                    // failed sign-in.
+                    warn!("oidc session persist failed (login not refreshable): {e}");
+                }
+                memberships.push(Membership {
+                    key: plaintext,
+                    tenant: info.tenant_id.unwrap_or_default(),
+                    role: info.permissions,
+                })
+            }
             Err(e) => return e.into_response(),
         }
     }

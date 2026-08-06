@@ -86,6 +86,12 @@ pub mod events {
     /// trail must mark the graph activity as operator-injected.
     pub const REACTOR_MANUAL_FIRE: &str = "reactor.manual_fire";
 
+    /// CLOACI-T-0923: a login throttle key crossed its failure threshold and
+    /// is now locked. Emitted on the lock **edge** only (not on every attempt
+    /// while locked), so one incident is one audit line. The `scope` field
+    /// distinguishes a username lock from a source-IP lock.
+    pub const AUTH_LOGIN_LOCKOUT: &str = "auth.login.lockout";
+
     /// Operator manually injected an event into an accumulator over REST
     /// (CLOACI-T-0753). Like the reactor manual-fire, this bypasses the real
     /// event source, so the audit trail marks it operator-injected.
@@ -436,6 +442,28 @@ pub fn log_accumulator_manual_inject(
         delivered = delivered,
         operator_injected = true,
         "Operator manually injected an accumulator event"
+    );
+}
+
+/// Log a local-login lockout (CLOACI-T-0923, I-0118 OQ-13).
+///
+/// Emitted once, on the lock edge. `throttle_key` is the opaque throttle key
+/// (`u:<tenant>/<username>` or `ip:<source>`) — it is deliberately the same
+/// value the throttle table stores, so an operator can correlate the audit
+/// line with the row, and it carries no credential material.
+pub fn log_login_lockout(
+    throttle_key: &str,
+    scope: &str,
+    failure_count: i32,
+    locked_for_seconds: i64,
+) {
+    tracing::warn!(
+        event_type = events::AUTH_LOGIN_LOCKOUT,
+        throttle_key = %throttle_key,
+        scope = %scope,
+        failure_count = failure_count,
+        locked_for_seconds = locked_for_seconds,
+        "Local login locked out after repeated failures"
     );
 }
 
