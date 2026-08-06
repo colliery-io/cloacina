@@ -163,6 +163,11 @@ impl DefaultRunner {
             max_recovery_age: self.config.cron_max_recovery_age(),
             max_recovery_attempts: self.config.cron_max_recovery_attempts(),
             recover_disabled_schedules: false,
+            // CLOACI-T-0926 claim liveness. Not runner-configurable: these are
+            // internal to how the recovery service proves it is still alive
+            // while a re-fire runs, not a scheduling knob.
+            claim_heartbeat_interval: crate::CronRecoveryConfig::default().claim_heartbeat_interval,
+            claim_stale_after: crate::CronRecoveryConfig::default().claim_stale_after,
         };
 
         let dal = DAL::new(self.database.clone());

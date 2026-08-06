@@ -452,6 +452,12 @@ pub struct UnifiedScheduleExecution {
     pub completed_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// CLOACI-T-0926: durable recovery attempt count for this handoff.
+    pub recovery_attempts: i32,
+    /// CLOACI-T-0926: recovery service that owns the re-fire of this handoff.
+    pub recovery_claimed_by: Option<UniversalUuid>,
+    /// CLOACI-T-0926: last liveness beat from the claim owner.
+    pub recovery_heartbeat_at: Option<UniversalTimestamp>,
 }
 
 #[derive(Debug, Insertable)]
@@ -1030,6 +1036,9 @@ impl From<UnifiedScheduleExecution> for ScheduleExecution {
             completed_at: u.completed_at,
             created_at: u.created_at,
             updated_at: u.updated_at,
+            recovery_attempts: u.recovery_attempts,
+            recovery_claimed_by: u.recovery_claimed_by,
+            recovery_heartbeat_at: u.recovery_heartbeat_at,
         }
     }
 }

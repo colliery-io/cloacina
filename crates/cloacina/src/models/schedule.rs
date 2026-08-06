@@ -270,6 +270,20 @@ pub struct ScheduleExecution {
     pub completed_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+
+    // Recovery accounting (CLOACI-T-0926). These live on the audit row rather
+    // than in the recovery service's process memory so the attempt cap survives
+    // a restart, and so replicas can CAS for ownership of a lost handoff.
+    // `serde(default)` keeps older serialized payloads readable.
+    /// Number of recovery re-fire attempts already spent on this handoff.
+    #[serde(default)]
+    pub recovery_attempts: i32,
+    /// Recovery service instance that currently owns the re-fire, if any.
+    #[serde(default)]
+    pub recovery_claimed_by: Option<UniversalUuid>,
+    /// Last liveness beat from the claim owner; a stale beat frees the claim.
+    #[serde(default)]
+    pub recovery_heartbeat_at: Option<UniversalTimestamp>,
 }
 
 /// Structure for creating new schedule execution records.

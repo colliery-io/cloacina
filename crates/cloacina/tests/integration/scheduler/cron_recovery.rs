@@ -51,17 +51,48 @@ use uuid::Uuid;
 /// fire and creates a REAL `workflow_executions` row (status Completed) so
 /// the recovery service's audit-link write satisfies the FK constraint.
 /// The remaining trait methods are never called by `CronRecoveryService`.
+///
+/// The counter is shared (`Arc`) so two recovery services can be pointed at
+/// one tally — that is how the CLOACI-T-0926 concurrency test proves a lost
+/// handoff is re-fired exactly once across replicas.
 struct CountingExecutor {
     dal: cloacina::dal::DAL,
-    execute_calls: AtomicUsize,
+    execute_calls: Arc<AtomicUsize>,
+    /// Held inside `execute` so a second recovery service gets a turn while
+    /// the first is mid-re-fire — the window the claim has to close.
+    delay: Duration,
+    /// When true, `execute` counts the fire and then fails, leaving the audit
+    /// row lost so the next sweep spends another recovery attempt.
+    fail: bool,
 }
 
 impl CountingExecutor {
     fn new(dal: cloacina::dal::DAL) -> Self {
         Self {
             dal,
-            execute_calls: AtomicUsize::new(0),
+            execute_calls: Arc::new(AtomicUsize::new(0)),
+            delay: Duration::ZERO,
+            fail: false,
         }
+    }
+
+    fn with_counter(dal: cloacina::dal::DAL, counter: Arc<AtomicUsize>) -> Self {
+        Self {
+            execute_calls: counter,
+            ..Self::new(dal)
+        }
+    }
+
+    fn failing(dal: cloacina::dal::DAL) -> Self {
+        Self {
+            fail: true,
+            ..Self::new(dal)
+        }
+    }
+
+    fn delayed(mut self, delay: Duration) -> Self {
+        self.delay = delay;
+        self
     }
 
     fn fires(&self) -> usize {
@@ -83,6 +114,16 @@ impl WorkflowExecutor for CountingExecutor {
         _context: Context<serde_json::Value>,
     ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         self.execute_calls.fetch_add(1, Ordering::SeqCst);
+
+        if !self.delay.is_zero() {
+            tokio::time::sleep(self.delay).await;
+        }
+
+        if self.fail {
+            return Err(WorkflowExecutionError::ExecutionFailed {
+                message: "mock execute: deliberate recovery failure".to_string(),
+            });
+        }
 
         let row = self
             .dal
@@ -180,6 +221,9 @@ fn aged_past_threshold_config() -> CronRecoveryConfig {
         max_recovery_age: Duration::from_secs(86400),
         max_recovery_attempts: 3,
         recover_disabled_schedules: false,
+        // Long enough that no test ever mistakes a live claim for a dead one.
+        claim_heartbeat_interval: Duration::from_secs(30),
+        claim_stale_after: Duration::from_secs(120),
     }
 }
 
@@ -383,5 +427,321 @@ async fn test_genuinely_lost_cron_handoff_is_refired() {
         executor.fires(),
         1,
         "a recovered execution must not be re-fired on subsequent sweeps"
+    );
+}
+
+/// Helper: a lost cron handoff — claimed audit row, never linked, never
+/// completed — for a freshly created schedule. Returns (schedule id, audit id).
+async fn lost_handoff(
+    dal: &cloacina::dal::DAL,
+    workflow_name: &str,
+) -> (
+    cloacina::database::universal_types::UniversalUuid,
+    cloacina::database::universal_types::UniversalUuid,
+) {
+    let schedule = dal
+        .schedule()
+        .create(NewSchedule::cron(
+            workflow_name,
+            "*/15 * * * *",
+            UniversalTimestamp(Utc::now()),
+        ))
+        .await
+        .expect("create schedule");
+
+    let audit = dal
+        .schedule_execution()
+        .create(NewScheduleExecution {
+            schedule_id: schedule.id,
+            workflow_execution_id: None,
+            scheduled_time: Some(UniversalTimestamp(Utc::now())),
+            claimed_at: Some(UniversalTimestamp(Utc::now())),
+            context_hash: None,
+        })
+        .await
+        .expect("create schedule_execution");
+
+    (schedule.id, audit.id)
+}
+
+/// CLOACI-T-0926 item 1: the recovery attempt cap must survive a restart.
+///
+/// The cap used to be an `Arc<Mutex<HashMap<..>>>` on `CronRecoveryService`,
+/// so a schedule that reliably failed recovery got a fresh budget every time
+/// the process bounced — "max 3 attempts" was really "max 3 per process".
+/// The count now lives on the audit row: a brand-new service instance against
+/// the same database sees the spent budget and abandons instead of re-firing.
+#[tokio::test]
+#[serial]
+async fn test_recovery_attempt_cap_survives_restart() {
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+    let dal = fixture.get_dal();
+
+    let (_schedule_id, audit_id) = lost_handoff(&dal, "t0926-cap-survives-restart").await;
+
+    let config = aged_past_threshold_config();
+    let max_attempts = config.max_recovery_attempts;
+
+    // ── Process 1: burn the whole budget on a re-fire that keeps failing.
+    let executor1 = Arc::new(CountingExecutor::failing(fixture.get_dal()));
+    let (_tx1, rx1) = watch::channel(false);
+    let recovery1 = CronRecoveryService::new(
+        Arc::new(fixture.get_dal()),
+        executor1.clone(),
+        config.clone(),
+        rx1,
+    );
+
+    for _ in 0..max_attempts {
+        // The failing executor makes each pass return Err from
+        // `recover_execution`; `check_and_recover_lost_executions` logs and
+        // keeps going, so the pass itself still succeeds.
+        recovery1
+            .recover_lost_executions_once()
+            .await
+            .expect("recovery pass");
+    }
+
+    assert_eq!(
+        executor1.fires(),
+        max_attempts,
+        "the first process should spend exactly the configured budget"
+    );
+
+    let row = dal
+        .schedule_execution()
+        .get_by_id(audit_id)
+        .await
+        .expect("re-read audit row");
+    assert_eq!(
+        row.recovery_attempts, max_attempts as i32,
+        "the attempt count must be persisted on the audit row, not in process memory"
+    );
+    assert!(
+        row.recovery_claimed_by.is_none(),
+        "a finished recovery pass must leave the claim released"
+    );
+    assert!(
+        row.completed_at.is_none() && row.workflow_execution_id.is_none(),
+        "a failed re-fire leaves the handoff lost — this is what makes it eligible again"
+    );
+
+    // ── Restart: a brand-new service instance, same database. Before
+    // CLOACI-T-0926 this reset the budget to zero and re-fired.
+    let executor2 = Arc::new(CountingExecutor::failing(fixture.get_dal()));
+    let (_tx2, rx2) = watch::channel(false);
+    let recovery2 = CronRecoveryService::new(
+        Arc::new(fixture.get_dal()),
+        executor2.clone(),
+        config.clone(),
+        rx2,
+    );
+
+    recovery2
+        .recover_lost_executions_once()
+        .await
+        .expect("post-restart recovery pass");
+
+    assert_eq!(
+        executor2.fires(),
+        0,
+        "a restarted recovery service must not get a fresh attempt budget"
+    );
+
+    // The abandoned pass still records that it looked, so the budget can only
+    // move in one direction.
+    let row = dal
+        .schedule_execution()
+        .get_by_id(audit_id)
+        .await
+        .expect("re-read audit row after restart");
+    assert!(
+        row.recovery_attempts > max_attempts as i32,
+        "the persisted count must keep climbing past the cap, never reset"
+    );
+
+    assert_eq!(
+        recovery2.get_recovery_attempts(audit_id).await,
+        row.recovery_attempts as usize,
+        "the service must report the durable count, not a process-local one"
+    );
+}
+
+/// CLOACI-T-0926 item 2: two recovery services against one database must
+/// re-fire a lost handoff exactly once.
+///
+/// `find_lost_executions` is a plain SELECT, so both services see the same
+/// row. The CAS claim on `schedule_executions.recovery_claimed_by` is what
+/// decides ownership — mirroring `claim_for_runner` for task claiming and the
+/// per-row CAS sweep in CLOACI-T-0916. The mock holds `execute` open long
+/// enough that the loser is guaranteed to reach its claim attempt while the
+/// winner is still mid-re-fire.
+#[tokio::test]
+#[serial]
+async fn test_two_recovery_services_refire_lost_handoff_exactly_once() {
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+    let dal = fixture.get_dal();
+
+    let (schedule_id, audit_id) = lost_handoff(&dal, "t0926-concurrent-recovery").await;
+
+    // One tally, two services — exactly as if two runners were sweeping.
+    let fires = Arc::new(AtomicUsize::new(0));
+
+    let executor_a = Arc::new(
+        CountingExecutor::with_counter(fixture.get_dal(), fires.clone())
+            .delayed(Duration::from_millis(250)),
+    );
+    let executor_b = Arc::new(
+        CountingExecutor::with_counter(fixture.get_dal(), fires.clone())
+            .delayed(Duration::from_millis(250)),
+    );
+
+    let (_tx_a, rx_a) = watch::channel(false);
+    let (_tx_b, rx_b) = watch::channel(false);
+    let recovery_a = CronRecoveryService::new(
+        Arc::new(fixture.get_dal()),
+        executor_a.clone(),
+        aged_past_threshold_config(),
+        rx_a,
+    );
+    let recovery_b = CronRecoveryService::new(
+        Arc::new(fixture.get_dal()),
+        executor_b.clone(),
+        aged_past_threshold_config(),
+        rx_b,
+    );
+
+    let (a, b) = tokio::join!(
+        recovery_a.recover_lost_executions_once(),
+        recovery_b.recover_lost_executions_once(),
+    );
+    a.expect("recovery pass A");
+    b.expect("recovery pass B");
+
+    assert_eq!(
+        fires.load(Ordering::SeqCst),
+        1,
+        "two concurrent recovery services must re-fire a lost handoff exactly once"
+    );
+
+    let executions = dal
+        .schedule_execution()
+        .list_by_schedule(schedule_id, 100, 0)
+        .await
+        .expect("list schedule executions");
+    assert_eq!(executions.len(), 1, "no second audit row may be created");
+
+    let row = dal
+        .schedule_execution()
+        .get_by_id(audit_id)
+        .await
+        .expect("re-read audit row");
+    assert!(
+        row.workflow_execution_id.is_some(),
+        "the winning service must link the audit row"
+    );
+    assert!(
+        row.completed_at.is_some(),
+        "the winning service must complete the audit row"
+    );
+    assert!(
+        row.recovery_claimed_by.is_none(),
+        "the winner must release its claim when the pass ends"
+    );
+    assert_eq!(
+        row.recovery_attempts, 0,
+        "a successful re-fire resets the durable attempt budget"
+    );
+
+    // A further sweep by either service must not fire again.
+    recovery_b
+        .recover_lost_executions_once()
+        .await
+        .expect("follow-up recovery pass");
+    assert_eq!(
+        fires.load(Ordering::SeqCst),
+        1,
+        "a recovered handoff must not be re-fired on subsequent sweeps"
+    );
+}
+
+/// A crashed recovery service must not lock a handoff forever. Its claim is
+/// only as good as its heartbeat: once the beat goes stale, the next sweep
+/// takes the row over. Simulated by writing a claim with an ancient heartbeat
+/// (what a crashed owner leaves behind) and running a service whose staleness
+/// window has already elapsed.
+#[tokio::test]
+#[serial]
+async fn test_stale_recovery_claim_is_taken_over() {
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+    let dal = fixture.get_dal();
+
+    let (_schedule_id, audit_id) = lost_handoff(&dal, "t0926-stale-claim-takeover").await;
+
+    // A dead owner's claim: written, then never beaten again.
+    let dead_owner = cloacina::database::universal_types::UniversalUuid::new_v4();
+    assert!(
+        matches!(
+            dal.schedule_execution()
+                .claim_for_recovery(audit_id, dead_owner, Duration::from_secs(120))
+                .await
+                .expect("dead owner claims"),
+            cloacina::dal::unified::RecoveryClaimResult::Claimed
+        ),
+        "the first claimant wins"
+    );
+
+    // A live service with the same staleness window must NOT steal a fresh
+    // claim — that is the guarantee that keeps a long re-fire safe.
+    let executor = Arc::new(CountingExecutor::new(fixture.get_dal()));
+    let (_tx, rx) = watch::channel(false);
+    let recovery = CronRecoveryService::new(
+        Arc::new(fixture.get_dal()),
+        executor.clone(),
+        aged_past_threshold_config(),
+        rx,
+    );
+    recovery
+        .recover_lost_executions_once()
+        .await
+        .expect("recovery pass against a live claim");
+    assert_eq!(
+        executor.fires(),
+        0,
+        "a live (recently beaten) claim must not be stolen"
+    );
+
+    // Now age the claim past the window: zero staleness makes any existing
+    // heartbeat older than the cutoff, which is what a crashed owner looks
+    // like after `claim_stale_after` has elapsed.
+    let mut takeover_config = aged_past_threshold_config();
+    takeover_config.claim_stale_after = Duration::ZERO;
+
+    let executor2 = Arc::new(CountingExecutor::new(fixture.get_dal()));
+    let (_tx2, rx2) = watch::channel(false);
+    let recovery2 = CronRecoveryService::new(
+        Arc::new(fixture.get_dal()),
+        executor2.clone(),
+        takeover_config,
+        rx2,
+    );
+    recovery2
+        .recover_lost_executions_once()
+        .await
+        .expect("recovery pass against a stale claim");
+
+    assert_eq!(
+        executor2.fires(),
+        1,
+        "a stale claim must be taken over so a crashed service cannot lock a handoff forever"
     );
 }

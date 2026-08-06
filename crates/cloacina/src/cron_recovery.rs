@@ -46,13 +46,30 @@
 //! - The schedule has been deleted
 //! - Too many recovery attempts have been made
 //! - The execution is too old (beyond recovery window)
+//! - Another recovery service already owns the handoff
+//!
+//! # Ownership and accounting (CLOACI-T-0926)
+//!
+//! Both live on the `schedule_executions` row, not in this process:
+//!
+//! * `recovery_attempts` is the attempt cap. It used to be an in-process
+//!   `HashMap`, so a schedule that reliably failed recovery got a fresh budget
+//!   on every restart.
+//! * `recovery_claimed_by` / `recovery_heartbeat_at` are a compare-and-set
+//!   claim. `find_lost_executions` is a plain SELECT, so every replica sees
+//!   the same lost rows; the claim is what makes exactly one of them re-fire.
+//!   Because a re-fire blocks for the workflow's whole (unbounded) duration,
+//!   the owner beats the claim while it works instead of relying on a fixed
+//!   expiry window — a stale beat is then a true death signal, so a crashed
+//!   recovery service's claim is taken over rather than held forever.
 
 use crate::context::Context;
+use crate::dal::unified::{RecoveryClaimResult, RecoveryHeartbeatResult};
 use crate::dal::DAL;
+use crate::database::UniversalUuid;
 use crate::executor::{WorkflowExecutionError, WorkflowExecutor};
 use crate::models::schedule::ScheduleExecution;
 use chrono::Utc;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -71,6 +88,13 @@ pub struct CronRecoveryConfig {
     pub max_recovery_attempts: usize,
     /// Whether to recover executions for disabled schedules
     pub recover_disabled_schedules: bool,
+    /// How often the owner of a recovery claim refreshes its heartbeat while
+    /// the re-fire is in flight (CLOACI-T-0926). Must be comfortably smaller
+    /// than `claim_stale_after`.
+    pub claim_heartbeat_interval: Duration,
+    /// How long a recovery claim may go without a heartbeat before another
+    /// recovery service may take it over (CLOACI-T-0926).
+    pub claim_stale_after: Duration,
 }
 
 impl Default for CronRecoveryConfig {
@@ -81,6 +105,8 @@ impl Default for CronRecoveryConfig {
             max_recovery_age: Duration::from_secs(86400), // 24 hours
             max_recovery_attempts: 3,
             recover_disabled_schedules: false,
+            claim_heartbeat_interval: Duration::from_secs(30),
+            claim_stale_after: Duration::from_secs(120),
         }
     }
 }
@@ -95,8 +121,12 @@ pub struct CronRecoveryService {
     executor: Arc<dyn WorkflowExecutor>,
     config: CronRecoveryConfig,
     shutdown: watch::Receiver<bool>,
-    /// Tracks recovery attempts per execution ID
-    recovery_attempts: Arc<tokio::sync::Mutex<HashMap<crate::database::UniversalUuid, usize>>>,
+    /// Identity this service writes into `schedule_executions.recovery_claimed_by`
+    /// when it wins the CAS for a lost handoff (CLOACI-T-0926). Fresh per
+    /// service instance, exactly like a runner id for task claiming — the
+    /// durable state that must survive a restart is the attempt count, which
+    /// lives on the row, not this.
+    owner_id: UniversalUuid,
 }
 
 impl CronRecoveryService {
@@ -118,7 +148,7 @@ impl CronRecoveryService {
             executor,
             config,
             shutdown,
-            recovery_attempts: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            owner_id: UniversalUuid::new_v4(),
         }
     }
 
@@ -251,7 +281,8 @@ impl CronRecoveryService {
                                 execution.id, e
                             );
                         }
-                        self.recovery_attempts.lock().await.remove(&execution.id);
+                        // No attempt bookkeeping to clear: the count lives on
+                        // the row, and the row just left the lost set for good.
                         return Ok(());
                     }
                     _ => {
@@ -305,18 +336,122 @@ impl CronRecoveryService {
             return Ok(());
         }
 
-        // Check recovery attempts
-        let mut attempts = self.recovery_attempts.lock().await;
-        let attempt_count = attempts.entry(execution.id).or_insert(0);
-        *attempt_count += 1;
+        // CLOACI-T-0926: take exclusive ownership of this handoff before doing
+        // anything that fires a workflow. Without the CAS, every replica's
+        // recovery service saw the same row from `find_lost_executions` and
+        // each one re-fired it.
+        match self
+            .dal
+            .schedule_execution()
+            .claim_for_recovery(execution.id, self.owner_id, self.config.claim_stale_after)
+            .await
+        {
+            Ok(RecoveryClaimResult::Claimed) => {}
+            Ok(RecoveryClaimResult::NotClaimed) => {
+                debug!(
+                    "Execution {} is owned by another recovery service (or already completed); skipping",
+                    execution.id
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                // Fail toward "no duplicate", same as the unreadable-link case
+                // above: if we cannot establish ownership, do not fire.
+                warn!(
+                    "Failed to claim execution {} for recovery; skipping this pass: {}",
+                    execution.id, e
+                );
+                return Ok(());
+            }
+        }
 
-        if *attempt_count > self.config.max_recovery_attempts {
+        // From here on we own the row, so every exit path must release it.
+        let outcome = self.recover_claimed_execution(execution).await;
+
+        if let Err(e) = self
+            .dal
+            .schedule_execution()
+            .release_recovery_claim(execution.id, self.owner_id)
+            .await
+        {
+            // Not fatal: the claim heartbeat stops with this pass, so the claim
+            // goes stale and the next sweep can take it over.
+            warn!(
+                "Failed to release recovery claim on execution {}: {}",
+                execution.id, e
+            );
+        }
+
+        outcome
+    }
+
+    /// Recovery body that runs while this service holds the row's recovery
+    /// claim. Split out so `recover_execution` can release the claim on every
+    /// exit path (CLOACI-T-0926).
+    async fn recover_claimed_execution(
+        &self,
+        execution: &ScheduleExecution,
+    ) -> Result<(), WorkflowExecutionError> {
+        // Re-read under the claim. The row we were handed came from a SELECT
+        // that may predate a concurrent winner's re-fire; if it has since been
+        // linked, that winner already fired and this pass must not.
+        match self.dal.schedule_execution().get_by_id(execution.id).await {
+            Ok(fresh) => {
+                if fresh.workflow_execution_id.is_some() || fresh.completed_at.is_some() {
+                    debug!(
+                        "Execution {} was linked/completed by another recovery pass; skipping",
+                        execution.id
+                    );
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to re-read execution {} under its recovery claim; skipping: {}",
+                    execution.id, e
+                );
+                return Ok(());
+            }
+        }
+
+        // CLOACI-T-0926: the attempt count lives on the audit row, so a
+        // schedule that reliably fails recovery cannot earn a fresh budget by
+        // bouncing the process. Increment first, then compare — preserving the
+        // pre-existing semantics where attempts 1..=max fire and the next one
+        // abandons, and where a disabled schedule still consumes an attempt.
+        let attempt_count = match self
+            .dal
+            .schedule_execution()
+            .increment_recovery_attempts(execution.id)
+            .await
+        {
+            Ok(count) => count,
+            Err(e) => {
+                // Fail toward "no duplicate": an unrecorded attempt is an
+                // uncapped attempt.
+                warn!(
+                    "Failed to record a recovery attempt for execution {}; skipping this pass: {}",
+                    execution.id, e
+                );
+                return Ok(());
+            }
+        };
+
+        if attempt_count as usize > self.config.max_recovery_attempts {
             error!(
                 "Execution {} has exceeded max recovery attempts ({}), abandoning",
                 execution.id, self.config.max_recovery_attempts
             );
             return Ok(());
         }
+
+        // `scheduled_time` was already resolved by the caller; recompute here
+        // so the recovery context carries the same value.
+        let scheduled_time = execution
+            .scheduled_time
+            .as_ref()
+            .map(|t| t.0)
+            .unwrap_or(execution.created_at.0);
 
         info!(
             "Attempting recovery of execution {} (schedule: {}, attempt: {}/{})",
@@ -404,6 +539,12 @@ impl CronRecoveryService {
             schedule.workflow_name, execution.id, schedule.id
         );
 
+        // `execute` blocks for the workflow's full duration, which is
+        // unbounded. Beat the claim while we wait so another recovery service
+        // never mistakes a long re-fire for a dead one and steals the row
+        // (CLOACI-T-0926). The guard aborts the beat on every exit path.
+        let _heartbeat = self.spawn_claim_heartbeat(execution.id);
+
         match self
             .executor
             .execute(&schedule.workflow_name, context)
@@ -449,8 +590,21 @@ impl CronRecoveryService {
                     execution.id, workflow_result.execution_id
                 );
 
-                // Clear recovery attempts on success
-                attempts.remove(&execution.id);
+                // Clear recovery attempts on success. Durable equivalent of
+                // the old in-memory `attempts.remove(...)`: the row is complete
+                // so it will not be swept again, but leaving a spent budget on
+                // it would misreport the handoff's history.
+                if let Err(e) = self
+                    .dal
+                    .schedule_execution()
+                    .reset_recovery_attempts(execution.id)
+                    .await
+                {
+                    warn!(
+                        "Failed to reset recovery attempts for execution {}: {}",
+                        execution.id, e
+                    );
+                }
 
                 Ok(())
             }
@@ -464,23 +618,91 @@ impl CronRecoveryService {
         }
     }
 
-    /// Clears the recovery attempts cache.
+    /// Spawns the claim heartbeat for an in-flight re-fire.
     ///
-    /// This can be useful for testing or when you want to retry
-    /// previously abandoned executions.
-    pub async fn clear_recovery_attempts(&self) {
-        let mut attempts = self.recovery_attempts.lock().await;
-        attempts.clear();
-        info!("Cleared recovery attempts cache");
+    /// Returns a guard that aborts the beat when dropped, so the claim starts
+    /// ageing the moment this recovery pass leaves the executor — whether it
+    /// returned, errored, or the whole service was dropped.
+    fn spawn_claim_heartbeat(&self, execution_id: UniversalUuid) -> ClaimHeartbeat {
+        let dal = self.dal.clone();
+        let owner_id = self.owner_id;
+        let interval = self.config.claim_heartbeat_interval;
+
+        ClaimHeartbeat(tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // The claim was written moments ago; skip the immediate first tick.
+            ticker.tick().await;
+
+            loop {
+                ticker.tick().await;
+                match dal
+                    .schedule_execution()
+                    .recovery_heartbeat(execution_id, owner_id)
+                    .await
+                {
+                    Ok(RecoveryHeartbeatResult::Ok) => {}
+                    Ok(RecoveryHeartbeatResult::ClaimLost) => {
+                        warn!(
+                            "Recovery claim on execution {} was taken over while the re-fire was still running",
+                            execution_id
+                        );
+                        break;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to beat the recovery claim on execution {}: {}",
+                            execution_id, e
+                        );
+                    }
+                }
+            }
+        }))
     }
 
-    /// Gets the current recovery attempts for an execution.
-    pub async fn get_recovery_attempts(
+    /// Clears the durable recovery attempt count for one execution.
+    ///
+    /// Useful for testing, or for an operator who wants to give a previously
+    /// abandoned handoff a fresh budget. CLOACI-T-0926 moved the count from
+    /// process memory onto the audit row, so this now takes the execution to
+    /// reset rather than wiping a process-local cache.
+    pub async fn clear_recovery_attempts(
         &self,
-        execution_id: crate::database::UniversalUuid,
-    ) -> usize {
-        let attempts = self.recovery_attempts.lock().await;
-        attempts.get(&execution_id).copied().unwrap_or(0)
+        execution_id: UniversalUuid,
+    ) -> Result<(), crate::error::ValidationError> {
+        self.dal
+            .schedule_execution()
+            .reset_recovery_attempts(execution_id)
+            .await?;
+        info!("Cleared recovery attempts for execution {}", execution_id);
+        Ok(())
+    }
+
+    /// Gets the durable recovery attempt count for an execution.
+    ///
+    /// Returns 0 if the row cannot be read; callers use this for reporting,
+    /// never as the cap check (the cap reads the value inside the same
+    /// claimed critical section that increments it).
+    pub async fn get_recovery_attempts(&self, execution_id: UniversalUuid) -> usize {
+        match self.dal.schedule_execution().get_by_id(execution_id).await {
+            Ok(row) => row.recovery_attempts.max(0) as usize,
+            Err(e) => {
+                warn!(
+                    "Failed to read recovery attempts for execution {}: {}",
+                    execution_id, e
+                );
+                0
+            }
+        }
+    }
+}
+
+/// Abort-on-drop handle for a recovery claim heartbeat task (CLOACI-T-0926).
+struct ClaimHeartbeat(tokio::task::JoinHandle<()>);
+
+impl Drop for ClaimHeartbeat {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -496,6 +718,11 @@ mod tests {
         assert_eq!(config.max_recovery_age, Duration::from_secs(86400));
         assert_eq!(config.max_recovery_attempts, 3);
         assert!(!config.recover_disabled_schedules);
+        // The heartbeat must beat several times inside the staleness window,
+        // or a healthy owner would look dead (CLOACI-T-0926).
+        assert!(config.claim_heartbeat_interval < config.claim_stale_after);
+        assert_eq!(config.claim_heartbeat_interval, Duration::from_secs(30));
+        assert_eq!(config.claim_stale_after, Duration::from_secs(120));
     }
 
     #[test]
@@ -506,6 +733,8 @@ mod tests {
             max_recovery_age: Duration::from_secs(3600),
             max_recovery_attempts: 5,
             recover_disabled_schedules: true,
+            claim_heartbeat_interval: Duration::from_secs(5),
+            claim_stale_after: Duration::from_secs(20),
         };
 
         assert_eq!(config.check_interval, Duration::from_secs(60));
