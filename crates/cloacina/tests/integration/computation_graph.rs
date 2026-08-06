@@ -342,7 +342,7 @@ async fn test_end_to_end_accumulator_reactor_graph() {
 // Test 5: ComputationGraphScheduler — load graph, push via registry, verify fire
 // =============================================================================
 
-use cloacina::computation_graph::registry::EndpointRegistry;
+use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
 use cloacina::computation_graph::scheduler::{
     AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig,
     ComputationGraphDeclaration, ComputationGraphScheduler, ReactorDeclaration,
@@ -430,7 +430,11 @@ async fn test_computation_graph_scheduler_end_to_end() {
     // Push event via registry (simulates WebSocket push)
     let event = AlphaData { value: 5.0 };
     registry
-        .send_to_accumulator("alpha", serde_json::to_vec(&event).unwrap())
+        .send_to_accumulator(
+            "alpha",
+            EndpointScope::untenanted(),
+            serde_json::to_vec(&event).unwrap(),
+        )
         .await
         .unwrap();
 
@@ -449,7 +453,10 @@ async fn test_computation_graph_scheduler_end_to_end() {
     assert!(!graphs[0].paused);
 
     // Pause the reactor via handle
-    let handle = registry.get_reactor_handle("scheduler_test").await.unwrap();
+    let handle = registry
+        .get_reactor_handle("scheduler_test", EndpointScope::untenanted())
+        .await
+        .unwrap();
     handle.pause();
     assert!(handle.is_paused());
 
@@ -457,6 +464,7 @@ async fn test_computation_graph_scheduler_end_to_end() {
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&AlphaData { value: 10.0 }).unwrap(),
         )
         .await
@@ -474,7 +482,11 @@ async fn test_computation_graph_scheduler_end_to_end() {
     handle.resume();
     use cloacina::computation_graph::reactor::ManualCommand;
     registry
-        .send_to_reactor("scheduler_test", ManualCommand::ForceFire)
+        .send_to_reactor(
+            "scheduler_test",
+            EndpointScope::untenanted(),
+            ManualCommand::ForceFire,
+        )
         .await
         .unwrap();
 
@@ -491,7 +503,12 @@ async fn test_computation_graph_scheduler_end_to_end() {
 
     // Registry should be empty
     assert!(registry.list_reactors().await.is_empty());
-    assert_eq!(registry.accumulator_count("alpha").await, 0);
+    assert_eq!(
+        registry
+            .accumulator_count("alpha", EndpointScope::untenanted())
+            .await,
+        0
+    );
 }
 
 // =============================================================================
@@ -1957,7 +1974,11 @@ mod resilience_tests {
         // so poll instead of using a fixed sleep.
         let event = AlphaData { value: 1.0 };
         registry
-            .send_to_accumulator("alpha", serde_json::to_vec(&event).unwrap())
+            .send_to_accumulator(
+                "alpha",
+                EndpointScope::untenanted(),
+                serde_json::to_vec(&event).unwrap(),
+            )
             .await
             .unwrap();
 
@@ -1973,6 +1994,7 @@ mod resilience_tests {
         registry
             .send_to_accumulator(
                 "alpha",
+                EndpointScope::untenanted(),
                 serde_json::to_vec(&AlphaData { value: 2.0 }).unwrap(),
             )
             .await
@@ -2000,6 +2022,7 @@ mod resilience_tests {
         registry
             .send_to_accumulator(
                 "alpha",
+                EndpointScope::untenanted(),
                 serde_json::to_vec(&AlphaData { value: 3.0 }).unwrap(),
             )
             .await
@@ -2102,6 +2125,7 @@ mod resilience_tests {
             registry
                 .send_to_accumulator(
                     "t0915_alpha",
+                    EndpointScope::untenanted(),
                     serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
                 )
                 .await
@@ -2538,7 +2562,7 @@ async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
     // compiled function (what the split-form `#[computation_graph]` emits).
     // Push an event through the accumulator registry and assert the graph
     // fires.
-    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
@@ -2584,6 +2608,7 @@ async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&AlphaData { value: 7.0 }).unwrap(),
         )
         .await
@@ -2686,7 +2711,7 @@ async fn test_cloaci_t_0538_split_missing_accumulator_fails() {
 /// receive the same firing.
 #[tokio::test]
 async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
-    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
@@ -2746,6 +2771,7 @@ async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&AlphaData { value: 4.0 }).unwrap(),
         )
         .await
@@ -2776,6 +2802,7 @@ async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&AlphaData { value: 5.0 }).unwrap(),
         )
         .await
@@ -2876,7 +2903,7 @@ async fn test_cloaci_t_0544_contract_mismatch_rejected() {
 /// before the slow one.
 #[tokio::test]
 async fn test_cloaci_t_0544_dispatch_is_concurrent() {
-    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
@@ -2958,6 +2985,7 @@ async fn test_cloaci_t_0544_dispatch_is_concurrent() {
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
         )
         .await
@@ -2995,7 +3023,7 @@ async fn test_cloaci_t_0544_dispatch_is_concurrent() {
 /// independently of `load_graph`.
 #[tokio::test]
 async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
-    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
@@ -3026,7 +3054,10 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
     // aliasing because we passed `register_aliases: vec![]`).
     assert!(
         registry
-            .get_reactor_handle("cloaci_t_0545_standalone_reactor")
+            .get_reactor_handle(
+                "cloaci_t_0545_standalone_reactor",
+                EndpointScope::untenanted()
+            )
             .await
             .is_some(),
         "reactor should be in the endpoint registry under its name"
@@ -3096,6 +3127,7 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
         )
         .await
@@ -3129,7 +3161,7 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
 /// firings from the same reactor instance.
 #[tokio::test]
 async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
-    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
@@ -3193,6 +3225,7 @@ async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&AlphaData { value: 9.0 }).unwrap(),
         )
         .await
@@ -3474,4 +3507,216 @@ async fn test_cloaci_t_0540_task_invokes_trigger_less_graph() {
         .expect("terminal node 'output' should be inserted into context");
     assert_eq!(terminal["published"], true);
     assert_eq!(terminal["value"], 6.0);
+}
+
+// ---------------------------------------------------------------------------
+// CLOACI-T-0921 — tenant is THE isolation boundary
+// ---------------------------------------------------------------------------
+
+/// Two tenants each load a reactor that declares an accumulator named
+/// `t0921_shared`. Injecting as tenant A must fire ONLY A's graph, and
+/// unloading A's reactor must leave B's alive and still firing.
+///
+/// Before CLOACI-T-0921 `EndpointRegistry` keyed accumulators by bare name and
+/// `register_accumulator` *appended* senders, so A's inject was broadcast into
+/// B's boundary channel and `deregister_accumulator(name)` tore down both.
+#[tokio::test]
+async fn test_cloaci_t_0921_cross_tenant_accumulator_isolation() {
+    use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    let a_fires = Arc::new(AtomicU32::new(0));
+    let b_fires = Arc::new(AtomicU32::new(0));
+
+    let mk_fn = |counter: Arc<AtomicU32>| -> CompiledGraphFn {
+        Arc::new(move |_cache: InputCache| {
+            let c = counter.clone();
+            Box::pin(async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                GraphResult::completed(vec![])
+            })
+        })
+    };
+
+    // Same accumulator name in both tenants; different reactor names.
+    for (reactor, tenant) in [("t0921_rx_a", "acme"), ("t0921_rx_b", "globex")] {
+        scheduler
+            .load_reactor(
+                reactor.to_string(),
+                vec![AccumulatorDeclaration {
+                    name: "t0921_shared".to_string(),
+                    factory: Arc::new(TestAccumulatorFactory),
+                }],
+                cloacina::computation_graph::reactor::ReactionCriteria::WhenAny,
+                cloacina::computation_graph::reactor::InputStrategy::Latest,
+                Some(tenant.to_string()),
+                vec![],
+                None,
+            )
+            .await
+            .unwrap_or_else(|e| panic!("tenant {tenant} should load its own reactor: {e}"));
+    }
+
+    scheduler
+        .bind_graph_to_reactor(
+            "t0921_g_a".to_string(),
+            "t0921_rx_a".to_string(),
+            mk_fn(a_fires.clone()),
+        )
+        .await
+        .unwrap();
+    scheduler
+        .bind_graph_to_reactor(
+            "t0921_g_b".to_string(),
+            "t0921_rx_b".to_string(),
+            mk_fn(b_fires.clone()),
+        )
+        .await
+        .unwrap();
+
+    // ---- Inject as tenant A ----
+    let delivered = registry
+        .send_to_accumulator(
+            "t0921_shared",
+            EndpointScope::tenant("acme"),
+            serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
+        )
+        .await
+        .expect("tenant A's inject should resolve to its own accumulator");
+    assert_eq!(
+        delivered, 1,
+        "exactly one recipient — tenant A's accumulator"
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && a_fires.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(a_fires.load(Ordering::SeqCst), 1, "tenant A's graph fired");
+    assert_eq!(
+        b_fires.load(Ordering::SeqCst),
+        0,
+        "tenant B must receive NOTHING from tenant A's inject"
+    );
+
+    // A tenant cannot reach the other tenant's accumulator by naming it.
+    let mut initech = registry
+        .send_to_accumulator(
+            "t0921_shared",
+            EndpointScope::tenant("initech"),
+            serde_json::to_vec(&AlphaData { value: 2.0 }).unwrap(),
+        )
+        .await;
+    assert!(
+        initech.is_err(),
+        "a third tenant must not resolve either tenant's accumulator"
+    );
+
+    // ---- Unload tenant A; tenant B survives ----
+    scheduler.unload_graph("t0921_g_a").await.unwrap();
+
+    initech = registry
+        .send_to_accumulator(
+            "t0921_shared",
+            EndpointScope::tenant("acme"),
+            serde_json::to_vec(&AlphaData { value: 3.0 }).unwrap(),
+        )
+        .await;
+    assert!(initech.is_err(), "tenant A's accumulator is gone");
+
+    let delivered_b = registry
+        .send_to_accumulator(
+            "t0921_shared",
+            EndpointScope::tenant("globex"),
+            serde_json::to_vec(&AlphaData { value: 4.0 }).unwrap(),
+        )
+        .await
+        .expect("tenant B's accumulator must survive tenant A's unload");
+    assert_eq!(delivered_b, 1);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && b_fires.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        b_fires.load(Ordering::SeqCst),
+        1,
+        "tenant B's graph still fires after tenant A unloaded"
+    );
+
+    scheduler.unload_graph("t0921_g_b").await.unwrap();
+}
+
+/// Two packages in the SAME tenant claiming one accumulator name is a LOUD
+/// load-time rejection, not a silent cross-wire — and the rejected load leaves
+/// nothing half-wired behind.
+#[tokio::test]
+async fn test_cloaci_t_0921_same_tenant_duplicate_accumulator_rejected() {
+    use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    let load = |reactor: &'static str| {
+        let scheduler = &scheduler;
+        async move {
+            scheduler
+                .load_reactor(
+                    reactor.to_string(),
+                    vec![AccumulatorDeclaration {
+                        name: "t0921_contended".to_string(),
+                        factory: Arc::new(TestAccumulatorFactory),
+                    }],
+                    cloacina::computation_graph::reactor::ReactionCriteria::WhenAny,
+                    cloacina::computation_graph::reactor::InputStrategy::Latest,
+                    Some("acme".to_string()),
+                    vec![],
+                    None,
+                )
+                .await
+        }
+    };
+
+    load("t0921_first_rx").await.expect("first load wins");
+
+    let err = load("t0921_second_rx")
+        .await
+        .expect_err("a second package in the same tenant must be rejected");
+    assert!(
+        err.contains("t0921_contended") && err.contains("acme"),
+        "rejection must name the contended endpoint and the tenant: {err}"
+    );
+    assert!(
+        err.contains("t0921_first_rx") && err.contains("t0921_second_rx"),
+        "rejection must name both owners: {err}"
+    );
+
+    // The incumbent is untouched and still the only registration.
+    assert_eq!(
+        registry
+            .accumulator_count("t0921_contended", EndpointScope::tenant("acme"))
+            .await,
+        1,
+        "the rejected load must not have appended a second sender"
+    );
+    // And the rejected reactor left no endpoint behind.
+    assert!(
+        registry
+            .get_reactor_handle("t0921_second_rx", EndpointScope::tenant("acme"))
+            .await
+            .is_none(),
+        "the rejected load must unwind its reactor registration"
+    );
+
+    scheduler.unload_reactor("t0921_first_rx").await.unwrap();
 }

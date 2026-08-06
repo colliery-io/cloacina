@@ -30,7 +30,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use cloacina::computation_graph::reactor::{ManualCommand, ReactorCommand, ReactorResponse};
-use cloacina::computation_graph::registry::{EndpointRegistry, KeyContext};
+use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope, KeyContext};
 use cloacina::computation_graph::types::InputCache;
 use cloacina::computation_graph::SourceName;
 
@@ -274,7 +274,14 @@ async fn handle_accumulator_socket(
                 record_ws_message("accumulator", "in");
                 // Forward raw bytes to accumulator — it deserializes JSON internally.
                 let bytes: Vec<u8> = data.into();
-                match registry.send_to_accumulator(&name, bytes).await {
+                // CLOACI-T-0921: `{name}` from the URL is resolved inside the
+                // AUTHENTICATED key's tenant, so two tenants may both own an
+                // accumulator called `ticks` without cross-wiring.
+                let scope = EndpointScope {
+                    tenant_id: auth.tenant_id.as_deref(),
+                    is_admin: auth.is_admin,
+                };
+                match registry.send_to_accumulator(&name, scope, bytes).await {
                     Ok(count) => {
                         debug!(accumulator = %name, recipients = count, "forwarded binary message");
                     }
@@ -330,8 +337,13 @@ async fn handle_reactor_socket(
     debug!(reactor = %name, key = %auth.name, "reactor WebSocket connected");
     let _conn_guard = WsConnectionGuard::new("reactor");
 
-    // Get the reactor handle for GetState/Pause/Resume
-    let handle = registry.get_reactor_handle(&name).await;
+    // Get the reactor handle for GetState/Pause/Resume. CLOACI-T-0921: resolved
+    // within the authenticated key's tenant.
+    let scope = EndpointScope {
+        tenant_id: auth.tenant_id.as_deref(),
+        is_admin: auth.is_admin,
+    };
+    let handle = registry.get_reactor_handle(&name, scope).await;
 
     while let Some(msg) = socket.recv().await {
         match msg {
@@ -421,10 +433,13 @@ async fn process_reactor_command(
         };
     }
 
+    // CLOACI-T-0921: commands resolve the reactor inside the caller's tenant.
+    let scope = EndpointScope::from_key_context(&ctx);
+
     match cmd {
         ReactorCommand::ForceFire => {
             match registry
-                .send_to_reactor(name, ManualCommand::ForceFire)
+                .send_to_reactor(name, scope, ManualCommand::ForceFire)
                 .await
             {
                 Ok(()) => ReactorResponse::Fired,
@@ -439,7 +454,7 @@ async fn process_reactor_command(
                 input_cache.update(SourceName::new(&k), v);
             }
             match registry
-                .send_to_reactor(name, ManualCommand::FireWith(input_cache))
+                .send_to_reactor(name, scope, ManualCommand::FireWith(input_cache))
                 .await
             {
                 Ok(()) => ReactorResponse::Fired,

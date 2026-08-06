@@ -34,7 +34,7 @@ use std::sync::Arc;
 use pyo3::ffi::c_str;
 use pyo3::prelude::*;
 
-use cloacina::computation_graph::registry::EndpointRegistry;
+use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
 use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
 
 use cloacina_python::reactor as py_reactor;
@@ -84,7 +84,10 @@ class LibRxB: pass
         vec!["lib_rx_a".to_string(), "lib_rx_b".to_string()]
     );
     assert!(scheduler.list_graphs().await.is_empty());
-    assert!(registry.get_reactor_handle("lib_rx_a").await.is_none());
+    assert!(registry
+        .get_reactor_handle("lib_rx_a", EndpointScope::untenanted())
+        .await
+        .is_none());
 
     // ---- Dispatch into the scheduler ----
     let dispatched =
@@ -101,11 +104,17 @@ class LibRxB: pass
     // Both reactors are now addressable in the endpoint registry under their
     // own names (no aliasing — `register_aliases: vec![]`).
     assert!(
-        registry.get_reactor_handle("lib_rx_a").await.is_some(),
+        registry
+            .get_reactor_handle("lib_rx_a", EndpointScope::untenanted())
+            .await
+            .is_some(),
         "lib_rx_a should be registered in the endpoint registry"
     );
     assert!(
-        registry.get_reactor_handle("lib_rx_b").await.is_some(),
+        registry
+            .get_reactor_handle("lib_rx_b", EndpointScope::untenanted())
+            .await
+            .is_some(),
         "lib_rx_b should be registered in the endpoint registry"
     );
 
@@ -183,6 +192,7 @@ class CrossPkgRx: pass
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&serde_json::json!({ "value": 7.0 })).unwrap(),
         )
         .await

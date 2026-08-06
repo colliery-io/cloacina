@@ -43,6 +43,11 @@ pub struct EmbeddedGraph {
     scheduler: ComputationGraphScheduler,
     registry: EndpointRegistry,
     graph_name: String,
+    /// Tenant the declaration was loaded under (`None` for the usual
+    /// untenanted embedded graph). CLOACI-T-0921: endpoint lookups are
+    /// `(tenant, name)`-scoped, so pushes must carry the same scope the
+    /// scheduler registered under.
+    tenant_id: Option<String>,
 }
 
 impl EmbeddedGraph {
@@ -52,11 +57,13 @@ impl EmbeddedGraph {
         let registry = EndpointRegistry::new();
         let scheduler = ComputationGraphScheduler::new(registry.clone());
         let graph_name = decl.name.clone();
+        let tenant_id = decl.tenant_id.clone();
         scheduler.load_graph(decl).await?;
         Ok(Self {
             scheduler,
             registry,
             graph_name,
+            tenant_id,
         })
     }
 
@@ -70,7 +77,11 @@ impl EmbeddedGraph {
     /// Push pre-encoded raw event bytes into an accumulator by name.
     pub async fn push_raw(&self, accumulator: &str, bytes: Vec<u8>) -> Result<(), String> {
         self.registry
-            .send_to_accumulator(accumulator, bytes)
+            .send_to_accumulator(
+                accumulator,
+                super::registry::EndpointScope::of(self.tenant_id.as_deref()),
+                bytes,
+            )
             .await
             .map(|_| ())
             .map_err(|e| e.to_string())

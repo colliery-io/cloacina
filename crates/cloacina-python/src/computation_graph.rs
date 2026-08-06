@@ -80,6 +80,8 @@ use pyo3::types::{PyCFunction, PyDict, PyList, PyString, PyTuple};
 
 use cloacina::computation_graph::types::{GraphError, GraphResult};
 
+use crate::registration_scope::{current_registration_scope, RegistrationScope};
+
 // ---------------------------------------------------------------------------
 // Global node registry (scoped by active builder context)
 // ---------------------------------------------------------------------------
@@ -127,28 +129,151 @@ pub struct PyAccumulatorRegistration {
     pub capacity: i32,
 }
 
-static ACCUMULATOR_REGISTRY: Lazy<Mutex<HashMap<String, (PyObject, PyAccumulatorRegistration)>>> =
+/// CLOACI-T-0921: process-global Python registries are keyed by
+/// `(tenant, package, name)`, not by bare name.
+///
+/// The `@graph` / `@*_accumulator` decorators run at import time; the loader
+/// installs a [`RegistrationScope`] around each package import
+/// ([`crate::registration_scope`]) so a registration is stamped with whose it
+/// is. Two tenants shipping a graph called `pipeline` used to share one
+/// executor slot — last import wins, cross-tenant.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GraphKey {
+    pub tenant_id: Option<String>,
+    pub package: Option<String>,
+    pub name: String,
+}
+
+impl GraphKey {
+    pub fn new(scope: &RegistrationScope, name: &str) -> Self {
+        Self {
+            tenant_id: scope.tenant_id.clone(),
+            package: scope.package.clone(),
+            name: name.to_string(),
+        }
+    }
+
+    /// The key this name would take under the thread's current scope.
+    pub fn current(name: &str) -> Self {
+        Self::new(&current_registration_scope(), name)
+    }
+
+    fn matches_scope(&self, scope: &RegistrationScope) -> bool {
+        self.tenant_id == scope.tenant_id && self.package == scope.package
+    }
+
+    fn same_tenant(&self, scope: &RegistrationScope) -> bool {
+        self.tenant_id == scope.tenant_id
+    }
+
+    pub fn describe(&self) -> String {
+        format!(
+            "{}::{}::{}",
+            self.tenant_id.as_deref().unwrap_or("<untenanted>"),
+            self.package.as_deref().unwrap_or("<unpackaged>"),
+            self.name
+        )
+    }
+}
+
+/// Resolve a bare `name` to a concrete key within the thread's current scope.
+///
+/// Order, mirroring `EndpointRegistry::resolve_key` on the Rust side:
+/// 1. exact `(tenant, package, name)` — the normal packaged path;
+/// 2. same tenant, any package — a tenant addressing its own graph from a
+///    differently-scoped thread;
+/// 3. the unscoped entry — embedded / direct-import / test registrations;
+/// 4. a unique match by name anywhere (the fleet-agent path, which dispatches
+///    by graph name with no scope installed). Ambiguity resolves to `None`
+///    rather than a coin flip.
+fn resolve_graph_key<V>(map: &HashMap<GraphKey, V>, name: &str) -> Option<GraphKey> {
+    let scope = current_registration_scope();
+
+    let exact = GraphKey::new(&scope, name);
+    if map.contains_key(&exact) {
+        return Some(exact);
+    }
+
+    if scope.tenant_id.is_some() {
+        let same_tenant: Vec<&GraphKey> = map
+            .keys()
+            .filter(|k| k.name == name && k.same_tenant(&scope))
+            .collect();
+        if same_tenant.len() == 1 {
+            return Some(same_tenant[0].clone());
+        }
+        if same_tenant.len() > 1 {
+            return None;
+        }
+    }
+
+    let unscoped = GraphKey::new(&RegistrationScope::unscoped(), name);
+    if map.contains_key(&unscoped) {
+        return Some(unscoped);
+    }
+
+    // A scoped caller must never fall through to another tenant's entry.
+    if scope.tenant_id.is_some() {
+        return None;
+    }
+
+    let any: Vec<&GraphKey> = map.keys().filter(|k| k.name == name).collect();
+    match any.len() {
+        1 => Some(any[0].clone()),
+        0 => None,
+        _ => {
+            tracing::warn!(
+                graph = %name,
+                candidates = ?any.iter().map(|k| k.describe()).collect::<Vec<_>>(),
+                "ambiguous graph name across tenants/packages — refusing to guess"
+            );
+            None
+        }
+    }
+}
+
+static ACCUMULATOR_REGISTRY: Lazy<Mutex<HashMap<GraphKey, (PyObject, PyAccumulatorRegistration)>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn register_accumulator(name: String, func: PyObject, reg: PyAccumulatorRegistration) {
     ACCUMULATOR_REGISTRY
         .lock()
         .unwrap()
-        .insert(name, (func, reg));
+        .insert(GraphKey::current(&name), (func, reg));
 }
 
-/// Get all registered accumulators (for testing/inspection).
+/// Get the accumulators registered in the thread's current scope (plus the
+/// unscoped ones, for embedded/test use). CLOACI-T-0921: a tenant-scoped
+/// caller no longer sees another tenant's accumulator declarations.
 pub fn get_registered_accumulators() -> Vec<PyAccumulatorRegistration> {
+    let scope = current_registration_scope();
     ACCUMULATOR_REGISTRY
         .lock()
         .unwrap()
-        .values()
-        .map(|(_, reg)| reg.clone())
+        .iter()
+        .filter(|(key, _)| {
+            if scope.is_unscoped() {
+                true
+            } else {
+                key.matches_scope(&scope) || (key.tenant_id.is_none() && key.package.is_none())
+            }
+        })
+        .map(|(_, (_, reg))| reg.clone())
         .collect()
 }
 
-/// Drain all registered accumulators (used by builder on __exit__).
-pub fn drain_accumulators() -> HashMap<String, (PyObject, PyAccumulatorRegistration)> {
+/// Every registered accumulator, across all scopes — diagnostics only.
+pub fn get_all_registered_accumulators() -> Vec<(GraphKey, PyAccumulatorRegistration)> {
+    ACCUMULATOR_REGISTRY
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(key, (_, reg))| (key.clone(), reg.clone()))
+        .collect()
+}
+
+/// Drain all registered accumulators (used by builder on __exit__ / test reset).
+pub fn drain_accumulators() -> HashMap<GraphKey, (PyObject, PyAccumulatorRegistration)> {
     let mut registry = ACCUMULATOR_REGISTRY.lock().unwrap();
     std::mem::take(&mut *registry)
 }
@@ -165,7 +290,9 @@ fn resolve_poll_closure(
 ) -> Option<cloacina::computation_graph::packaging_bridge::PollClosure> {
     let function = {
         let registry = ACCUMULATOR_REGISTRY.lock().unwrap();
-        let (func, reg) = registry.get(name)?;
+        // CLOACI-T-0921: resolve within the thread's registration scope.
+        let key = resolve_graph_key(&registry, name)?;
+        let (func, reg) = registry.get(&key)?;
         if reg.accumulator_type != "polling" {
             return None;
         }
@@ -657,8 +784,10 @@ impl PyComputationGraphBuilder {
 // Graph executor
 // ---------------------------------------------------------------------------
 
-/// Global registry of graph executors.
-static GRAPH_EXECUTORS: Lazy<Mutex<HashMap<String, PythonGraphExecutor>>> =
+/// Global registry of graph executors, keyed by `(tenant, package, name)`
+/// (CLOACI-T-0921) — a bare-name key made two tenants' same-named graphs share
+/// one slot, last import wins.
+static GRAPH_EXECUTORS: Lazy<Mutex<HashMap<GraphKey, PythonGraphExecutor>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn register_graph_executor(
@@ -666,13 +795,29 @@ fn register_graph_executor(
     executor: PythonGraphExecutor,
     _py: Python<'_>,
 ) -> PyResult<()> {
-    GRAPH_EXECUTORS.lock().unwrap().insert(name, executor);
+    let key = GraphKey::current(&name);
+    tracing::debug!(graph = %key.describe(), "registering Python graph executor");
+    GRAPH_EXECUTORS.lock().unwrap().insert(key, executor);
     Ok(())
 }
 
-/// Get a registered graph executor by name (for testing / reactor use).
+/// Get a registered graph executor by name, resolved within the thread's
+/// current [`RegistrationScope`] (for testing / reactor / fleet-agent use).
 pub fn get_graph_executor(name: &str) -> Option<PythonGraphExecutor> {
-    GRAPH_EXECUTORS.lock().unwrap().get(name).cloned()
+    let registry = GRAPH_EXECUTORS.lock().unwrap();
+    let key = resolve_graph_key(&registry, name)?;
+    registry.get(&key).cloned()
+}
+
+/// Get a registered graph executor by its full `(tenant, package, name)` key,
+/// ignoring the thread's ambient scope.
+pub fn get_graph_executor_by_key(key: &GraphKey) -> Option<PythonGraphExecutor> {
+    GRAPH_EXECUTORS.lock().unwrap().get(key).cloned()
+}
+
+/// Every registered graph executor key — diagnostics / tests.
+pub fn registered_graph_keys() -> Vec<GraphKey> {
+    GRAPH_EXECUTORS.lock().unwrap().keys().cloned().collect()
 }
 
 /// All registered graph executors subscribed to `reactor` (CLOACI-T-0841).
@@ -681,10 +826,18 @@ pub fn get_graph_executor(name: &str) -> Option<PythonGraphExecutor> {
 /// graph(s) to execute — the agent-side analog of the scheduler's
 /// subscriber dispatcher.
 pub fn get_graph_executors_for_reactor(reactor: &str) -> Vec<PythonGraphExecutor> {
+    // CLOACI-T-0921: when a scope is installed, only that tenant's subscriber
+    // graphs (plus unscoped ones) fan out. The fleet agent dispatches with no
+    // scope installed and still sees everything it hosts.
+    let scope = current_registration_scope();
     GRAPH_EXECUTORS
         .lock()
         .unwrap()
-        .values()
+        .iter()
+        .filter(|(key, _)| {
+            scope.tenant_id.is_none() || key.same_tenant(&scope) || key.tenant_id.is_none()
+        })
+        .map(|(_, ex)| ex)
         .filter(|ex| ex.has_reactor && ex.reactor_name.as_deref() == Some(reactor))
         .cloned()
         .collect()
@@ -1571,6 +1724,176 @@ mod tests {
             assert_eq!(reg.accumulator_type, "state");
             assert_eq!(reg.capacity, 5);
             assert_eq!(reg.config.get("capacity").map(String::as_str), Some("5"));
+
+            let _ = drain_accumulators();
+        });
+    }
+
+    // -----------------------------------------------------------------
+    // CLOACI-T-0921: process-global Python registries are tenant-scoped
+    // -----------------------------------------------------------------
+
+    use crate::registration_scope::ScopedRegistration;
+
+    fn stub_executor(name: &str) -> PythonGraphExecutor {
+        PythonGraphExecutor {
+            name: name.to_string(),
+            node_functions: HashMap::new(),
+            node_map: HashMap::new(),
+            execution_order: Vec::new(),
+            react_mode: String::new(),
+            accumulators: Vec::new(),
+            has_reactor: false,
+            reactor_name: None,
+        }
+    }
+
+    /// Two packages in two tenants register a graph under the SAME name. Each
+    /// must resolve to its own executor — pre-T-0921 the second import silently
+    /// replaced the first for both tenants.
+    #[test]
+    fn test_cloaci_t_0921_same_name_graphs_resolve_per_scope() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let name = "t0921_pipeline";
+
+            // Tenant A / package alpha registers `pipeline`.
+            {
+                let _s = ScopedRegistration::for_package(Some("acme"), Some("alpha"));
+                register_graph_executor(name.to_string(), stub_executor("acme-alpha"), py).unwrap();
+            }
+            // Tenant B / package beta registers `pipeline` too.
+            {
+                let _s = ScopedRegistration::for_package(Some("globex"), Some("beta"));
+                register_graph_executor(name.to_string(), stub_executor("globex-beta"), py)
+                    .unwrap();
+            }
+
+            // Both survive as distinct entries.
+            let keys = registered_graph_keys();
+            assert_eq!(
+                keys.iter().filter(|k| k.name == name).count(),
+                2,
+                "both tenants' graphs must coexist, got {keys:?}"
+            );
+
+            // Each scope resolves to its OWN executor.
+            {
+                let _s = ScopedRegistration::for_package(Some("acme"), Some("alpha"));
+                assert_eq!(get_graph_executor(name).unwrap().name, "acme-alpha");
+            }
+            {
+                let _s = ScopedRegistration::for_package(Some("globex"), Some("beta"));
+                assert_eq!(get_graph_executor(name).unwrap().name, "globex-beta");
+            }
+
+            // A third tenant sees nothing under that name.
+            {
+                let _s = ScopedRegistration::for_package(Some("initech"), Some("gamma"));
+                assert!(
+                    get_graph_executor(name).is_none(),
+                    "a tenant must not resolve another tenant's graph"
+                );
+            }
+
+            // An unscoped caller facing an ambiguous name refuses to guess.
+            assert!(
+                get_graph_executor(name).is_none(),
+                "ambiguous unscoped lookup must not pick a winner"
+            );
+
+            // Explicit-key lookup still works regardless of ambient scope.
+            let acme_key =
+                GraphKey::new(&RegistrationScope::new(Some("acme"), Some("alpha")), name);
+            assert_eq!(
+                get_graph_executor_by_key(&acme_key).unwrap().name,
+                "acme-alpha"
+            );
+            assert_eq!(acme_key.describe(), "acme::alpha::t0921_pipeline");
+        });
+    }
+
+    /// A tenant addressing its own graph from a thread scoped to a *different
+    /// package* of the same tenant still resolves (same-tenant fallback), and
+    /// unscoped registrations stay globally addressable.
+    #[test]
+    fn test_cloaci_t_0921_same_tenant_and_unscoped_fallbacks() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let scoped_name = "t0921_same_tenant_graph";
+            let bare_name = "t0921_unscoped_graph";
+
+            {
+                let _s = ScopedRegistration::for_package(Some("umbrella"), Some("pkg-one"));
+                register_graph_executor(scoped_name.to_string(), stub_executor("owned"), py)
+                    .unwrap();
+            }
+            register_graph_executor(bare_name.to_string(), stub_executor("embedded"), py).unwrap();
+
+            // Same tenant, different package → resolves to the tenant's graph.
+            {
+                let _s = ScopedRegistration::for_package(Some("umbrella"), Some("pkg-two"));
+                assert_eq!(get_graph_executor(scoped_name).unwrap().name, "owned");
+                // The unscoped/embedded entry stays reachable from any scope.
+                assert_eq!(get_graph_executor(bare_name).unwrap().name, "embedded");
+            }
+
+            // A different tenant reaches neither its neighbour's graph…
+            {
+                let _s = ScopedRegistration::for_package(Some("stranger"), Some("pkg-x"));
+                assert!(get_graph_executor(scoped_name).is_none());
+                // …but the unscoped one is still shared (pre-tenancy behaviour).
+                assert_eq!(get_graph_executor(bare_name).unwrap().name, "embedded");
+            }
+        });
+    }
+
+    /// Accumulator declarations are scoped too: a tenant's
+    /// `get_registered_accumulators()` must not include another tenant's.
+    #[test]
+    fn test_cloaci_t_0921_accumulator_registry_scoped_by_tenant() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let _ = drain_accumulators();
+
+            let reg = |name: &str| PyAccumulatorRegistration {
+                name: name.to_string(),
+                accumulator_type: "passthrough".to_string(),
+                config: HashMap::new(),
+                capacity: 0,
+            };
+
+            {
+                let _s = ScopedRegistration::for_package(Some("acme"), Some("alpha"));
+                register_accumulator("ticks".to_string(), py.None(), reg("ticks"));
+                register_accumulator("acme_only".to_string(), py.None(), reg("acme_only"));
+            }
+            {
+                let _s = ScopedRegistration::for_package(Some("globex"), Some("beta"));
+                register_accumulator("ticks".to_string(), py.None(), reg("ticks"));
+            }
+
+            // Both tenants' `ticks` coexist as separate entries.
+            assert_eq!(
+                get_all_registered_accumulators()
+                    .iter()
+                    .filter(|(k, _)| k.name == "ticks")
+                    .count(),
+                2
+            );
+
+            {
+                let _s = ScopedRegistration::for_package(Some("globex"), Some("beta"));
+                let names: Vec<String> = get_registered_accumulators()
+                    .into_iter()
+                    .map(|r| r.name)
+                    .collect();
+                assert!(names.contains(&"ticks".to_string()));
+                assert!(
+                    !names.contains(&"acme_only".to_string()),
+                    "tenant B must not see tenant A's accumulator declarations: {names:?}"
+                );
+            }
 
             let _ = drain_accumulators();
         });

@@ -39,7 +39,7 @@ use pyo3::prelude::*;
 use cloacina::computation_graph::accumulator::{
     accumulator_runtime, Accumulator, AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender,
 };
-use cloacina::computation_graph::registry::EndpointRegistry;
+use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
 use cloacina::computation_graph::scheduler::{
     AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig, ComputationGraphScheduler,
 };
@@ -243,6 +243,7 @@ with ComputationGraphBuilder("py_g", reactor=SharedRx, graph={
     registry
         .send_to_accumulator(
             "alpha",
+            EndpointScope::untenanted(),
             serde_json::to_vec(&serde_json::json!({ "value": 42.0 })).unwrap(),
         )
         .await
