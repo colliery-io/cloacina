@@ -92,7 +92,10 @@ pub use login_throttle::{LoginThrottleDAL, ThrottlePolicy, ThrottleState};
 pub use oidc_login_flows::OidcLoginFlowDAL;
 #[cfg(feature = "postgres")]
 pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
-pub use reactor_subscriptions::{ReactorFiring, ReactorSubscription, ReactorSubscriptionsDAL};
+pub use reactor_subscriptions::{
+    compile_predicate, lint_predicate_variables, truncate_predicate_text, ReactorFiring,
+    ReactorSubscription, ReactorSubscriptionsDAL, PREDICATE_VARIABLES,
+};
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;
 pub use schedule_execution::{ScheduleExecutionDAL, ScheduleExecutionStats};

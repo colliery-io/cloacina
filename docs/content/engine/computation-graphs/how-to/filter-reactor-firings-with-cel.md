@@ -9,7 +9,7 @@ aliases:
 
 # Filter reactor firings with CEL
 
-Reactors fire at the rate of their accumulators — every boundary, every source tick. For workflows subscribed to a reactor, that can mean far more workflow executions than the subscriber actually wants. CLOACI-T-0602 ships a **CEL predicate** on each `reactor_subscriptions` row: only firings where the predicate evaluates to `true` are dispatched to the workflow. Filtered-out firings advance the watermark and are not retried.
+Reactors fire at the rate of their accumulators — every boundary, every source tick. For workflows subscribed to a reactor, that can mean far more workflow executions than the subscriber actually wants. CLOACI-T-0602 ships a **CEL predicate** on each `reactor_subscriptions` row: only firings where the predicate evaluates to `true` are dispatched to the workflow. Firings the predicate rejects (`false`) advance the watermark and are not retried; firings whose predicate *errors* are held and retried — see [Fail-closed evaluation](#fail-closed-evaluation-but-no-silent-data-loss).
 
 This is the surgical alternative to "subscribe to the reactor, filter in the workflow's first task" — the filter runs in the dispatcher before any workflow row is inserted.
 
@@ -98,21 +98,36 @@ Check field presence + collection size before dispatching.
 
 ## Compile time vs evaluation time
 
-The predicate is **compiled once at subscribe time**. A malformed predicate (syntax error, reference to an undeclared identifier the compiler can see) errors at `subscribe_workflow_to_reactor` — you find out at registration, not on every firing. Predicate-parse errors surface as `Error::CelParse(...)`.
+The predicate is **compiled once at subscribe time**. A malformed predicate errors at `subscribe_workflow_to_reactor` — you find out at registration, not on every firing. So does a predicate that references a variable outside `payload`, `reactor`, and `tenant` (CLOACI-T-0922): `tennant == 'acme'` is valid CEL but nothing binds `tennant`, so it would compile fine and then never match. Comprehension iteration variables are of course fine — `payload.items.exists(i, i.price > 100)` binds `i` itself.
 
 The compiled predicate is **evaluated on every firing** during the subscription poll cycle. CEL evaluation is fast (microseconds for typical predicates), but it is not free — predicates that walk large nested payloads will add up across high-firing-rate reactors.
 
-## Fail-closed evaluation
+## Fail-closed evaluation, but no silent data loss
 
-If the predicate **panics or returns a non-bool result** at firing time (e.g., `payload.missing_field > 0` against a payload without `missing_field`), evaluation is treated as **`false`**, the firing is skipped, and the error is logged. The watermark advances. This is deliberate — a predicate bug should not block the subscription's progress.
+A predicate that **errors** at firing time (e.g., `payload.missing_field > 0` against a payload without `missing_field`, or an expression that returns a non-bool) never dispatches the workflow. Fail-closed is about dispatch only — the firing itself is **not** thrown away (CLOACI-T-0922 changed this; it used to be skipped *and* the watermark advanced, which destroyed the firing silently):
 
-If you need strict matching (any evaluation error should *halt* the subscription), the predicate itself must guard:
+| Outcome | Dispatch? | Watermark |
+|---|---|---|
+| `true` | yes | advances after dispatch |
+| `false` | no — filtered | advances (the firing was seen and rejected) |
+| error | no — fail-closed | **held**; the firing is retried next poll tick |
+
+Retries are bounded. After **5 consecutive errors on the same firing**, that firing is dead-lettered and the watermark advances, so a firing whose shape permanently breaks the predicate cannot wedge the subscription behind it.
+
+What you can observe:
+
+- `cloacina_reactor_predicate_errors_total{reactor}` — one increment per evaluation error.
+- `cloacina_reactor_predicate_dead_letters_total{reactor}` — one increment per firing dropped at the bound.
+- A `warn` log per error and an `error` log per dead-letter, each carrying the subscription id, firing id, and the (truncated) expression.
+- On the `reactor_trigger_subscriptions` row, also returned by `list_reactor_subscriptions`: `predicate_degraded`, `predicate_error_count`, `predicate_error_firing_id`, `last_predicate_error`, `last_predicate_error_at`. `predicate_degraded` clears on the next successful evaluation; the `last_predicate_error*` fields are kept as history.
+
+To avoid the error path altogether, guard the predicate so it always returns a bool:
 
 ```cel
 has(payload.value) && payload.value > 100
 ```
 
-`has()` returns a bool and never errors; the right-hand comparison only runs if the field exists.
+`has()` returns a bool and never errors; the right-hand comparison only runs if the field exists. A guarded predicate degrades to `false` (skip + advance) instead of erroring — which is what you want when a missing field genuinely means "not interesting", and what you do **not** want when it means "something upstream broke".
 
 ## Idempotency key recipe
 

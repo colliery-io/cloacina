@@ -444,6 +444,22 @@ fn reactor_subscription_to_dict(
     )?;
     dict.set_item("created_at", sub.created_at.to_string())?;
     dict.set_item("updated_at", sub.updated_at.to_string())?;
+    dict.set_item("predicate_expression", sub.predicate_expression.clone())?;
+    // CLOACI-T-0922 — predicate health. `list_reactor_subscriptions` is the
+    // only listing surface a user has for reactor subscriptions (there is no
+    // HTTP API), so the degraded/dead-letter state has to show up here or an
+    // operator can only find it by reading the row or the logs.
+    dict.set_item("predicate_degraded", sub.predicate_degraded.is_true())?;
+    dict.set_item("predicate_error_count", sub.predicate_error_count)?;
+    dict.set_item("last_predicate_error", sub.last_predicate_error.clone())?;
+    dict.set_item(
+        "last_predicate_error_at",
+        sub.last_predicate_error_at.map(|t| t.to_string()),
+    )?;
+    dict.set_item(
+        "predicate_error_firing_id",
+        sub.predicate_error_firing_id.map(|id| id.to_string()),
+    )?;
     Ok(dict.into())
 }
 

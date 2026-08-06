@@ -91,7 +91,15 @@ CEL variables available to the predicate:
 - `reactor` — metadata about the firing reactor (name, etc.).
 - `tenant` — the tenant the firing is scoped to.
 
-CEL predicates are **compiled at subscribe time** — a malformed predicate errors at registration, not on every firing. Evaluation is **fail-closed** — if the CEL evaluation itself errors at firing time, the firing is skipped (logged with the error) rather than dispatched. See `examples/features/computation-graphs/filtered-reactor` for a runnable worked example.
+CEL predicates are **validated at subscribe time** — a malformed predicate, or one that references a variable outside the three above (a typo'd `tennant`, say), errors at registration rather than silently never matching on every firing.
+
+Evaluation is **fail-closed**: a predicate that errors at firing time never dispatches the workflow. It does not, however, discard the firing (CLOACI-T-0922):
+
+- The predicate returns `false` → the firing is skipped and the watermark advances. It was seen and consciously filtered out.
+- The predicate **errors** → the watermark is **held** and the firing is retried on the next poll tick. Each failure increments `cloacina_reactor_predicate_errors_total{reactor}` and logs at `warn` with the subscription id, firing id, and the expression.
+- After 5 consecutive failures on the same firing, that firing is **dead-lettered**: the subscription is marked degraded (`predicate_degraded`, with `last_predicate_error`, `last_predicate_error_at`, and `predicate_error_firing_id` recording what was dropped), `cloacina_reactor_predicate_dead_letters_total{reactor}` increments, and the watermark advances so one poison firing cannot wedge the subscription. The degraded marker clears on the next successful evaluation; the `last_predicate_error*` fields persist as history.
+
+Those fields are on the `reactor_trigger_subscriptions` row and are returned by `list_reactor_subscriptions`. See `examples/features/computation-graphs/filtered-reactor` for a runnable worked example.
 
 ### 3. Verify the subscription is registered
 
