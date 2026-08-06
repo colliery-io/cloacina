@@ -32,8 +32,8 @@
 // workspace check-cfg lint flags as unknown — benign (mirrors the loader's own allow).
 #![allow(unexpected_cfgs)]
 
+use cloacina_constructor_contract::ConstructorError;
 use cloacina_macros::{constructor, constructor_provider};
-use constructor_contract::ConstructorError;
 
 /// Fires when the bound `#[config] path` exists inside the sandbox; skips
 /// otherwise. Visibility of the path is grant-gated (`fs = ["ro:<dir>"]`).
@@ -41,7 +41,7 @@ use constructor_contract::ConstructorError;
     kind = trigger,
     name = "file_present",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Fires when a configured path exists inside the sandbox (grant-gated file sensor).",
     author = "CLOACI-T-0825"
 )]
@@ -66,4 +66,7 @@ impl FilePresent {
 }
 
 // The provider suite shell (CLOACI-A-0011): one member behind one component.
-constructor_provider!(contract = constructor_contract, trigger = [FilePresent],);
+constructor_provider!(
+    contract = cloacina_constructor_contract,
+    trigger = [FilePresent],
+);

@@ -1726,6 +1726,124 @@ fn enforce_version_pin(context: &str, from: &str, dir: &Path) -> Result<(), Load
     })
 }
 
+// ===========================================================================
+// Runtime (trust-tier) pin — CLOACI-T-0920
+// ===========================================================================
+//
+// `runtime` is an EMISSION TARGET, not part of a provider's identity: the same
+// provider name@version range can ship as a sandboxed wasm component in one
+// release and an in-process native cdylib in the next. That flip silently changes
+// the consumer's trust posture, because `grants` are ENFORCED on wasm (fidius
+// `WasiCtx` + `EgressPolicy`) and merely ADVISORY on native (`load_native_member`
+// takes no grants at all, by design — I-0139 (e)). Before T-0920 the only signal
+// was a `tracing::info!` at load.
+//
+// Two rules make that impossible to hit silently, both applied here at the
+// consumer resolution site (`load_constructor_node` / `load_reactor_constructor_node`)
+// BEFORE any load work:
+//
+//   1. PIN — `constructor!(.., runtime = "wasm"|"native")` / `#[reactor(.., runtime =
+//      "..")]`. If pinned, the resolved provider's runtime MUST match or the load
+//      fails, naming both.
+//   2. DEFAULT HARDENING — grants present + resolved provider is NATIVE + no explicit
+//      `runtime = "native"` acknowledgement ⇒ the load fails. Grants absent is
+//      unchanged (the existing load-time log + CLI banner stay).
+
+/// The `runtime = "..."` spelling of a [`ProviderRuntime`] — the consumer-surface
+/// literal, so error messages tell the author exactly what to type.
+fn runtime_literal(runtime: ProviderRuntime) -> &'static str {
+    match runtime {
+        ProviderRuntime::Wasm => "wasm",
+        ProviderRuntime::Native => "native",
+    }
+}
+
+/// Parse a consumer-surface `runtime = "wasm"|"native"` literal (CLOACI-T-0920).
+///
+/// The macros validate this at compile time; this is the fail-closed re-check for
+/// the string-carried paths (`ReactorConstructorRef::runtime`, which crosses a
+/// stringly-typed struct rather than gaining a contract-crate dependency).
+pub fn parse_runtime_pin(context: &str, literal: &str) -> Result<ProviderRuntime, LoaderError> {
+    match literal {
+        "wasm" => Ok(ProviderRuntime::Wasm),
+        "native" => Ok(ProviderRuntime::Native),
+        other => Err(LoaderError::Validation {
+            reason: format!(
+                "{context}: unknown runtime pin '{other}'; valid values are \"wasm\" and \"native\""
+            ),
+        }),
+    }
+}
+
+/// Enforce the T-0920 trust-tier rules for one constructor consumption site.
+///
+/// `context` is the caller-facing prefix (e.g. `constructor node 'greet'`), `from`
+/// the provider reference as written, `pin` the author's optional
+/// `runtime = "wasm"|"native"`, and `grants` what the author asked to be enforced.
+///
+/// Returns `Some(dir)` when the provider resolved as NATIVE (its package directory,
+/// so the caller can skip the wasm-only `find_wasm_package`), `None` for wasm. Fails
+/// closed on either rule; on the accepted native-with-acknowledged-grants path it
+/// emits a `warn!` so the decorative grants are still visible in the log.
+fn enforce_runtime_pin(
+    context: &str,
+    from: &str,
+    search_path: &Path,
+    package_name: &str,
+    pin: Option<ProviderRuntime>,
+    grants: &GrantSpec,
+) -> Result<Option<std::path::PathBuf>, LoaderError> {
+    // A `runtime = "native"` provider is found by scanning for its `provider.json`;
+    // anything else is treated as wasm and left to the caller's normal
+    // `find_wasm_package` resolution (which owns the canonical "provider not found"
+    // diagnostic). Assuming `Wasm` for an absent package is deliberate: this decides
+    // TRUST TIER, not existence.
+    let native_dir = resolve_native_provider(search_path, package_name)?.map(|(dir, _)| dir);
+    let resolved = match native_dir {
+        Some(_) => ProviderRuntime::Native,
+        None => ProviderRuntime::Wasm,
+    };
+
+    // Rule 1 — an explicit pin must match the resolved provider exactly.
+    if let Some(pinned) = pin {
+        if pinned != resolved {
+            return Err(LoaderError::Validation {
+                reason: format!(
+                    "{context} (from = '{from}'): pinned runtime = \"{}\" but provider \
+                     '{package_name}' resolved as runtime = \"{}\". A provider changing runtime \
+                     between versions is a BREAKING change (grants are enforced on wasm, advisory \
+                     on native) — restage the pinned runtime, or update the pin deliberately",
+                    runtime_literal(pinned),
+                    runtime_literal(resolved),
+                ),
+            });
+        }
+    }
+
+    // Rule 2 — grants present + native resolved + no explicit acknowledgement.
+    if resolved == ProviderRuntime::Native && !grants.is_empty() {
+        if pin != Some(ProviderRuntime::Native) {
+            return Err(LoaderError::Validation {
+                reason: format!(
+                    "{context} (from = '{from}'): grants are not enforced on native providers; \
+                     either pin runtime = \"wasm\", acknowledge with runtime = \"native\", or \
+                     remove grants"
+                ),
+            });
+        }
+        tracing::warn!(
+            context = %context,
+            from = %from,
+            provider = %package_name,
+            "grants declared against a NATIVE provider are ADVISORY ONLY (acknowledged via \
+             runtime = \"native\"): the constructor runs unsandboxed in-process with full host \
+             trust"
+        );
+    }
+
+    Ok(native_dir)
+}
+
 /// A workflow DAG node backed by a packaged WASM task constructor — the runtime
 /// representation of a `constructor!(...)` declaration (CLOACI-T-0829).
 ///
@@ -2029,8 +2147,53 @@ pub fn load_constructor_node(
     dependencies: Vec<TaskNamespace>,
     grants: GrantSpec,
 ) -> Result<Arc<dyn Task>, LoaderError> {
+    load_constructor_node_pinned(
+        node_id,
+        from,
+        constructor_name,
+        config,
+        dependencies,
+        grants,
+        None,
+    )
+}
+
+/// [`load_constructor_node`] with the author's optional trust-tier pin
+/// (`constructor!(.., runtime = "wasm"|"native")` — CLOACI-T-0920).
+///
+/// This is what the `#[workflow]` macro emits. The pin rides the Rust signature
+/// rather than the packaged FFI declaration struct
+/// ([`cloacina_workflow_plugin::ConstructorPackageMetadata`], which crosses a
+/// **bincode** wire via `get_constructor_metadata` — appending a field there would
+/// mis-decode every already-built cdylib). Packaged workflows therefore resolve
+/// through the unpinned [`load_constructor_node`] and are still protected, because
+/// the grants-present-but-unenforced rule keys off `grants`, which already cross the
+/// wire.
+pub fn load_constructor_node_pinned(
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    dependencies: Vec<TaskNamespace>,
+    grants: GrantSpec,
+    runtime_pin: Option<ProviderRuntime>,
+) -> Result<Arc<dyn Task>, LoaderError> {
     let search_path = provider_search_path();
     let package_name = provider_package_name(from);
+
+    // CLOACI-T-0920: settle the trust tier BEFORE any load work — both because a
+    // grants/runtime mismatch must never get as far as loading code, and because
+    // `find_wasm_package` below is wasm-only (fidius gates it on
+    // `PackageRuntime::Wasm`), so a native provider would otherwise surface as an
+    // opaque "package not found" rather than a runtime mismatch.
+    let native_dir = enforce_runtime_pin(
+        &format!("constructor node '{node_id}'"),
+        from,
+        &search_path,
+        package_name,
+        runtime_pin,
+        &grants,
+    )?;
 
     // Translate the tenant's grants into the fidius caps + egress policy. Fail
     // closed: a malformed grant aborts the load (it never silently widens access).
@@ -2040,24 +2203,30 @@ pub fn load_constructor_node(
 
     // Peek the manifest to learn the constructor's #[config] schema, so we can bind
     // `config = { name = value }` by NAME (reorder into declaration order) before
-    // the positional bincode load.
-    let host = PluginHost::builder()
-        .search_path(&search_path)
-        .build()
-        .map_err(|e| LoaderError::LibraryLoad {
-            path: search_path.display().to_string(),
-            error: format!("build plugin host: {e}"),
-        })?;
-    let dir = host
-        .find_wasm_package(package_name)
-        .map_err(|e| LoaderError::Validation {
-            reason: format!(
-                "resolve constructor node '{node_id}' (from = '{from}', constructor = \
-                 '{constructor_name}'): locate provider package '{package_name}' in \
-                 provider search path '{}': {e}",
-                search_path.display()
-            ),
-        })?;
+    // the positional bincode load. A NATIVE provider was already located by
+    // `enforce_runtime_pin` (fidius's `find_wasm_package` is gated on
+    // `PackageRuntime::Wasm` and would never match it).
+    let dir = match native_dir {
+        Some(dir) => dir,
+        None => {
+            let host = PluginHost::builder()
+                .search_path(&search_path)
+                .build()
+                .map_err(|e| LoaderError::LibraryLoad {
+                    path: search_path.display().to_string(),
+                    error: format!("build plugin host: {e}"),
+                })?;
+            host.find_wasm_package(package_name)
+                .map_err(|e| LoaderError::Validation {
+                    reason: format!(
+                        "resolve constructor node '{node_id}' (from = '{from}', constructor = \
+                         '{constructor_name}'): locate provider package '{package_name}' in \
+                         provider search path '{}': {e}",
+                        search_path.display()
+                    ),
+                })?
+        }
+    };
     // Honor the author's `@version` pin against the resolved provider (T-0833).
     enforce_version_pin(&format!("constructor node '{node_id}'"), from, &dir)?;
     // Select the requested member from the provider suite (fails closed, naming the
@@ -2137,8 +2306,33 @@ pub fn load_reactor_constructor_node(
     config: Vec<(String, serde_json::Value)>,
     grants: GrantSpec,
 ) -> Result<Arc<dyn ReactorFireDecider>, LoaderError> {
+    load_reactor_constructor_node_pinned(from, constructor_name, config, grants, None)
+}
+
+/// [`load_reactor_constructor_node`] with the author's optional trust-tier pin
+/// (`#[reactor(.., runtime = "wasm"|"native")]` — CLOACI-T-0920). Same semantics as
+/// [`load_constructor_node_pinned`]; see that function for why the pin is carried
+/// host-side rather than on the packaged FFI declaration.
+pub fn load_reactor_constructor_node_pinned(
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    grants: GrantSpec,
+    runtime_pin: Option<ProviderRuntime>,
+) -> Result<Arc<dyn ReactorFireDecider>, LoaderError> {
     let search_path = provider_search_path();
     let package_name = provider_package_name(from);
+
+    // CLOACI-T-0920: settle the trust tier before any load work (see
+    // `load_constructor_node_pinned`).
+    let native_dir = enforce_runtime_pin(
+        &format!("reactor constructor '{constructor_name}'"),
+        from,
+        &search_path,
+        package_name,
+        runtime_pin,
+        &grants,
+    )?;
 
     // Translate the tenant's grants (fail closed on a malformed grant) before any
     // load work, so an invalid grant never silently widens access.
@@ -2147,23 +2341,30 @@ pub fn load_reactor_constructor_node(
     })?;
 
     // Peek the manifest to learn the constructor's #[config] schema, so we can bind
-    // `config = { name = value }` by NAME before the positional bincode load.
-    let host = PluginHost::builder()
-        .search_path(&search_path)
-        .build()
-        .map_err(|e| LoaderError::LibraryLoad {
-            path: search_path.display().to_string(),
-            error: format!("build plugin host: {e}"),
-        })?;
-    let dir = host
-        .find_wasm_package(package_name)
-        .map_err(|e| LoaderError::Validation {
-            reason: format!(
-                "resolve reactor constructor (from = '{from}', constructor = '{constructor_name}'): \
-                 locate provider package '{package_name}' in provider search path '{}': {e}",
-                search_path.display()
-            ),
-        })?;
+    // `config = { name = value }` by NAME before the positional bincode load. A
+    // NATIVE provider was already located by `enforce_runtime_pin` (see
+    // `load_constructor_node_pinned`).
+    let dir = match native_dir {
+        Some(dir) => dir,
+        None => {
+            let host = PluginHost::builder()
+                .search_path(&search_path)
+                .build()
+                .map_err(|e| LoaderError::LibraryLoad {
+                    path: search_path.display().to_string(),
+                    error: format!("build plugin host: {e}"),
+                })?;
+            host.find_wasm_package(package_name)
+                .map_err(|e| LoaderError::Validation {
+                    reason: format!(
+                        "resolve reactor constructor (from = '{from}', constructor = \
+                         '{constructor_name}'): locate provider package '{package_name}' in \
+                         provider search path '{}': {e}",
+                        search_path.display()
+                    ),
+                })?
+        }
+    };
     // Honor the author's `@version` pin against the resolved provider (T-0833).
     enforce_version_pin(
         &format!("reactor constructor '{constructor_name}'"),

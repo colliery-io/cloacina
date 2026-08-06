@@ -26,15 +26,15 @@
 // workspace check-cfg lint flags as unknown — benign (mirrors the loader's own allow).
 #![allow(unexpected_cfgs)]
 
+use cloacina_constructor_contract::ConstructorError;
 use cloacina_macros::{constructor, constructor_provider};
-use constructor_contract::ConstructorError;
 
 /// Fires when at least `#[config] required` boundaries are held.
 #[constructor(
     kind = reactor,
     name = "quorum",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Fires when at least `required` accumulator boundaries are held.",
     author = "CLOACI-T-0825"
 )]
@@ -64,4 +64,4 @@ impl Quorum {
 }
 
 // The provider suite shell (CLOACI-A-0011): one member behind one component.
-constructor_provider!(contract = constructor_contract, reactor = [Quorum],);
+constructor_provider!(contract = cloacina_constructor_contract, reactor = [Quorum],);

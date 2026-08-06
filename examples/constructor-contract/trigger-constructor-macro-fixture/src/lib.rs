@@ -25,9 +25,11 @@
 //! is `#[cfg(target_arch = "wasm32")]`, so this crate also builds on the host (the
 //! `emit_manifest` bin reads `__constructor_manifest()` to produce `constructor.json`).
 //!
-//! `contract = constructor_contract` points the macro at this example's vendored,
-//! wasm-safe contract crate; the real-integration default is
-//! `::cloacina_constructor_contract`.
+//! `contract = cloacina_constructor_contract` points the macro at the promoted,
+//! published, wasm-safe contract crate (`crates/cloacina-constructor-contract`) —
+//! the same crate real providers use; it is also the macro default
+//! (`::cloacina_constructor_contract`), spelled explicitly here for parity with
+//! `providers/cloacina-provider-*`.
 
 // On the host build only the struct + manifest fn are reachable (the wasm guest
 // glue that calls `poll` / reads the fields is cfg'd out), so silence the
@@ -37,8 +39,8 @@
 // workspace check-cfg lint flags as unknown — benign (see CLOACI-T-0821).
 #![allow(unexpected_cfgs)]
 
+use cloacina_constructor_contract::ConstructorError;
 use cloacina_macros::{constructor, constructor_provider};
-use constructor_contract::ConstructorError;
 
 /// Fires (or skips) on each poll based on its bound config — the macro analogue of
 /// the raw `trigger-constructor-fixture`.
@@ -46,7 +48,7 @@ use constructor_contract::ConstructorError;
     kind = trigger,
     name = "heartbeat",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Fires (or skips) on each poll based on its bound config (macro-authored).",
     author = "CLOACI-T-0829"
 )]
@@ -76,6 +78,6 @@ impl Heartbeat {
 constructor_provider!(
     name = "heartbeat",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     trigger = [Heartbeat],
 );

@@ -80,6 +80,7 @@ cloaca.constructor(
     constructor="read_file",
     config={"path": "/etc/hostname"},
     grants={"fs": ["ro:/etc"]},
+    runtime="wasm",  # optional trust-tier pin; see Capability Grants
 )
 
 @cloaca.task(dependencies=["reader"])
@@ -122,6 +123,13 @@ prefix instead.
 - The node executes inside a WASI sandbox scoped to the consumer's `grants` —
   see [Capability Grants]({{< ref "grants.md" >}}). With no grant, the sandbox
   reaches nothing.
+- **Trust tier is checked before anything loads.** `grants` are enforced on WASM
+  providers and advisory on native ones, so declaring `grants` against a
+  provider that resolves NATIVE is a load error unless you acknowledge it. An
+  optional `runtime = "wasm" | "native"` on the `constructor!(...)` (and on
+  `#[reactor(...)]`) pins the tier outright — the load fails, naming both
+  runtimes, if the resolved provider ever disagrees. See
+  [Capability Grants]({{< ref "grants.md" >}}).
 - After a Cloacina upgrade that bumps the plugin ABI, previously-compiled
   packages are detected as stale at load and automatically recompiled from
   retained source — no manual rebuild sweep.

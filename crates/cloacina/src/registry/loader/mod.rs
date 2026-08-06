@@ -39,8 +39,18 @@ pub use task_registrar::TaskRegistrar;
 #[cfg(feature = "constructors-wasm")]
 pub use constructor_loader::{
     clear_provider_search_path, load_constructor, load_constructor_node,
-    load_reactor_constructor_node, load_task_constructor, load_task_constructor_from_package,
-    load_trigger_constructor, provider_search_path, set_provider_search_path,
-    unpack_provider_archive, ConstructorBinding, ConstructorNode, TriggerBinding,
-    WasmTaskConstructor, WasmTriggerConstructor, DEFAULT_PROVIDER_DIR, PROVIDER_PATH_ENV,
+    load_constructor_node_pinned, load_reactor_constructor_node,
+    load_reactor_constructor_node_pinned, load_task_constructor,
+    load_task_constructor_from_package, load_trigger_constructor, parse_runtime_pin,
+    provider_search_path, set_provider_search_path, unpack_provider_archive, ConstructorBinding,
+    ConstructorNode, TriggerBinding, WasmTaskConstructor, WasmTriggerConstructor,
+    DEFAULT_PROVIDER_DIR, PROVIDER_PATH_ENV,
 };
+
+/// CLOACI-T-0920: the trust tier a consumer can PIN with
+/// `constructor!(.., runtime = "wasm"|"native")` / `#[reactor(.., runtime = "..")]`.
+/// Re-exported here (rather than aliased to a new enum) so the pin and the
+/// provider manifest's own `runtime` are literally the same type — they can never
+/// drift apart.
+#[cfg(feature = "constructors-wasm")]
+pub use cloacina_constructor_contract::ProviderRuntime;

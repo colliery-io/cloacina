@@ -30,15 +30,15 @@
 // workspace check-cfg lint flags as unknown — benign (see CLOACI-T-0821).
 #![allow(unexpected_cfgs)]
 
+use cloacina_constructor_contract::ConstructorError;
 use cloacina_macros::{constructor, constructor_provider};
-use constructor_contract::ConstructorError;
 
 /// Wraps the context `name` in a configured `prefix` + `suffix`.
 #[constructor(
     kind = task,
     name = "affix",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     description = "Wraps the context `name` in a configured prefix + suffix.",
     author = "CLOACI-T-0829"
 )]
@@ -69,6 +69,6 @@ impl Affix {
 constructor_provider!(
     name = "affix",
     version = "0.1.0",
-    contract = constructor_contract,
+    contract = cloacina_constructor_contract,
     task = [Affix],
 );

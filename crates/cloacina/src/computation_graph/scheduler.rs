@@ -250,11 +250,24 @@ async fn resolve_reactor_evaluator(
         let cref = cref.clone();
         let decider = tokio::task::spawn_blocking(move || {
             let grants = crate::registry::loader::grants::GrantSpec::from_pairs(cref.grants);
-            crate::registry::loader::constructor_loader::load_reactor_constructor_node(
+            // CLOACI-T-0920: re-parse the author's `runtime = ".."` pin fail-closed
+            // (the ref carries it as a String to keep the CG crate contract-free).
+            let pin = cref
+                .runtime
+                .as_deref()
+                .map(|lit| {
+                    crate::registry::loader::parse_runtime_pin(
+                        &format!("reactor constructor '{}'", cref.constructor),
+                        lit,
+                    )
+                })
+                .transpose()?;
+            crate::registry::loader::constructor_loader::load_reactor_constructor_node_pinned(
                 &cref.from,
                 &cref.constructor,
                 cref.config,
                 grants,
+                pin,
             )
         })
         .await
