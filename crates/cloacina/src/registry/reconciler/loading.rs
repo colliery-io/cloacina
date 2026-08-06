@@ -434,9 +434,12 @@ impl RegistryReconciler {
             // packages with `constructor!` NODES) — but a provider-backed STREAM
             // accumulator (`[[metadata.accumulators]] provider = ..`) consumes a
             // bundled provider from step 3's reactor spawn, with no constructor
-            // node in sight. Packages that bundle nothing stage nothing (and
-            // clear the search path — hermetic fail-closed, unchanged).
-            self.stage_bundled_providers(&metadata).await?;
+            // node in sight. Packages that bundle nothing stage nothing.
+            //
+            // CLOACI-T-0925: the staged root is a VALUE now, handed to each step
+            // that resolves against it, instead of a process-global the next
+            // tenant's concurrent load overwrites.
+            let provider_root = self.stage_bundled_providers(&metadata).await?;
 
             // Step 1: cron triggers — registered through the attached
             // CronWorkflowRegistrar (no-op when none is wired).
@@ -448,8 +451,13 @@ impl RegistryReconciler {
             let trigger_names =
                 self.step_load_custom_triggers(&metadata, &view, Some(&library_data))?;
             // Step 3: reactors → graph scheduler.
-            self.step_load_reactors(&metadata, &view, &cloacina_manifest.metadata)
-                .await?;
+            self.step_load_reactors(
+                &metadata,
+                &view,
+                &cloacina_manifest.metadata,
+                provider_root.as_deref(),
+            )
+            .await?;
             // Step 4: trigger-less CGs — register FFI adapters for any
             // declared by the cdylib (cross-cdylib inventory doesn't
             // reach the host runtime; close that gap with FFI dispatch
@@ -468,6 +476,7 @@ impl RegistryReconciler {
                     &view,
                     &cloacina_manifest.metadata,
                     &library_data,
+                    provider_root.as_deref(),
                 )
                 .await?;
             // Step 5b: packaged `constructor!` nodes (CLOACI-T-0832/T-0836).
@@ -476,7 +485,7 @@ impl RegistryReconciler {
             // BEFORE step 6 builds the workflow — the DAG builder
             // (`create_workflow_from_host_registry_static`) enumerates the
             // registry, so resolved nodes join the topology automatically.
-            self.step_load_constructor_nodes(&metadata, &library_data)
+            self.step_load_constructor_nodes(&metadata, &library_data, provider_root.clone())
                 .await?;
             // Step 6: workflows (tasks + workflow + trigger-subscription
             // validation).
@@ -527,14 +536,27 @@ impl RegistryReconciler {
             // CLOACI-T-0831: stage the package's bundled constructor providers
             // BEFORE the module import — `cloaca.constructor(...)` calls resolve
             // against the provider search path DURING import. Packages that
-            // bundle none stage nothing (Ok(0)).
-            self.stage_bundled_providers(&metadata).await?;
+            // bundle none stage nothing (`None`).
+            let provider_root = self.stage_bundled_providers(&metadata).await?;
 
             let loaded = {
                 let archive_data = loaded_workflow.package_data.clone();
                 let runtime = runtime.clone();
                 let cloacina_runtime = cloacina_runtime.clone();
+                let import_provider_root = provider_root.clone();
                 tokio::task::spawn_blocking(move || {
+                    // CLOACI-T-0925: `cloaca.constructor(..)` runs INSIDE the
+                    // module import and cannot take the directory as an argument,
+                    // so install it as the ambient scope for the import. The
+                    // Python loader carries it onto the import thread it spawns
+                    // (the same way it carries ScopedRuntime/ScopedRegistration).
+                    #[cfg(feature = "constructors-wasm")]
+                    let _provider_scope =
+                        crate::registry::loader::ScopedProviderSearch::for_staged_root(
+                            import_provider_root,
+                        );
+                    #[cfg(not(feature = "constructors-wasm"))]
+                    let _ = import_provider_root;
                     runtime
                         .load_workflow_package(
                             &archive_data,
@@ -574,8 +596,13 @@ impl RegistryReconciler {
             // dispatches each into the scheduler via the same idempotent
             // path the Rust pipeline uses. Replaces the old inline
             // `dispatch_runtime_reactors_into_scheduler` call.
-            self.step_load_reactors(&metadata, &py_view, &cloacina_manifest.metadata)
-                .await?;
+            self.step_load_reactors(
+                &metadata,
+                &py_view,
+                &cloacina_manifest.metadata,
+                provider_root.as_deref(),
+            )
+            .await?;
 
             info!(
                 "Python package loaded: {} v{} — {} tasks, workflow '{}'",
@@ -679,6 +706,13 @@ impl RegistryReconciler {
                                 metadata.package_name
                             ),
                             })?;
+                    // CLOACI-T-0925: this branch previously staged NOTHING, so a
+                    // Python CG package's provider-backed accumulators resolved
+                    // against whatever directory the last load left in the
+                    // process global — another tenant's tree in a shared server.
+                    // Stage its own bundle and scope the import to it, exactly
+                    // like the Python workflow branch above.
+                    let cg_provider_root = self.stage_bundled_providers(&metadata).await?;
                     let maybe_decl = {
                         let archive_data = loaded_workflow.package_data.clone();
                         let gn_inner = gn.clone();
@@ -686,7 +720,15 @@ impl RegistryReconciler {
                         let tenant_inner = tenant.clone();
                         let runtime = runtime.clone();
                         let cloacina_runtime = cloacina_runtime.clone();
+                        let import_provider_root = cg_provider_root.clone();
                         tokio::task::spawn_blocking(move || {
+                            #[cfg(feature = "constructors-wasm")]
+                            let _provider_scope =
+                                crate::registry::loader::ScopedProviderSearch::for_staged_root(
+                                    import_provider_root,
+                                );
+                            #[cfg(not(feature = "constructors-wasm"))]
+                            let _ = import_provider_root;
                             runtime
                                 .load_cg_package(
                                     &archive_data,
@@ -736,8 +778,13 @@ impl RegistryReconciler {
                             .await?,
                     );
                     let _ = self.step_load_custom_triggers(&metadata, &cg_view, None)?;
-                    self.step_load_reactors(&metadata, &cg_view, &cloacina_manifest.metadata)
-                        .await?;
+                    self.step_load_reactors(
+                        &metadata,
+                        &cg_view,
+                        &cloacina_manifest.metadata,
+                        cg_provider_root.as_deref(),
+                    )
+                    .await?;
                     if let Some(graph_meta) = cg_view.graph.as_ref() {
                         if let Some(upstream_reactor_name) = graph_meta.trigger_reactor.as_deref() {
                             let publisher_in_same_package = cg_view
@@ -780,7 +827,10 @@ impl RegistryReconciler {
                     if let Some(decl) = maybe_decl {
                         let scheduler_guard = self.graph_scheduler.read().await;
                         if let Some(ref scheduler) = *scheduler_guard {
-                            if let Err(e) = scheduler.load_graph(decl).await {
+                            if let Err(e) = scheduler
+                                .load_graph_in(decl, cg_provider_root.as_deref())
+                                .await
+                            {
                                 warn!(
                                     "Failed to load Python CG '{}' into ComputationGraphScheduler: {}",
                                     gn, e
@@ -1933,6 +1983,10 @@ impl RegistryReconciler {
         metadata: &WorkflowMetadata,
         view: &PackageLoadView,
         manifest: &cloacina_workflow_plugin::CloacinaMetadata,
+        // CLOACI-T-0925: where THIS package's bundled providers were staged. The
+        // reactor's constructor ref and its provider-backed stream accumulators
+        // resolve there — never against process-wide state another tenant shares.
+        provider_root: Option<&std::path::Path>,
     ) -> Result<(), RegistryError> {
         if view.reactors.is_empty() {
             return Ok(());
@@ -1946,11 +2000,12 @@ impl RegistryReconciler {
             return Ok(());
         };
         if let Err(e) =
-            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler(
+            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler_in(
                 &view.reactors,
                 scheduler,
                 &manifest.accumulators,
                 Some(self.config.default_tenant_id.clone()),
+                provider_root,
             )
             .await
         {
@@ -2072,6 +2127,9 @@ impl RegistryReconciler {
         view: &PackageLoadView,
         manifest: &cloacina_workflow_plugin::CloacinaMetadata,
         library_data: &[u8],
+        // CLOACI-T-0925: this package's staged provider tree (see
+        // `step_load_reactors`).
+        provider_root: Option<&std::path::Path>,
     ) -> Result<Option<String>, RegistryError> {
         let Some(graph_meta) = view.graph.clone() else {
             return Ok(None);
@@ -2166,9 +2224,10 @@ impl RegistryReconciler {
             }
         }
 
-        let mut decl = crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
+        let mut decl = crate::computation_graph::packaging_bridge::build_declaration_from_ffi_in(
             &graph_meta,
             library_data.to_vec(),
+            provider_root,
         );
         decl.tenant_id = Some(self.config.default_tenant_id.clone());
 
@@ -2189,7 +2248,7 @@ impl RegistryReconciler {
             });
         }
 
-        if let Err(e) = scheduler.load_graph(decl).await {
+        if let Err(e) = scheduler.load_graph_in(decl, provider_root).await {
             warn!(
                 "Failed to load computation graph '{}' for package {}: {}",
                 graph_meta.graph_name, metadata.package_name, e
@@ -2222,18 +2281,26 @@ impl RegistryReconciler {
     /// Fails closed: a package that declares constructor nodes but has no bundled
     /// providers (or an unresolvable member/grant/config) does not load.
     ///
-    /// Known v1 caveats (documented in CLOACI-T-0836): the provider search path is
-    /// process-global (fine under today's sequential reconciler; concurrent loads
-    /// of different packages would race it), and constructor nodes registered here
-    /// are dropped with the runtime rather than per-package unload.
+    /// Known v1 caveat (documented in CLOACI-T-0836): constructor nodes registered
+    /// here are dropped with the runtime rather than per-package unload.
     /// Stage a package's bundled constructor providers (CLOACI-T-0836/T-0831):
-    /// fetch the `package_providers` rows, unpack each archive into a fresh
-    /// `providers/` tree, and point the loader's provider search path at it.
-    /// Returns how many providers were staged (0 = the package bundles none).
+    /// fetch the `package_providers` rows and unpack each archive into a fresh
+    /// `providers/` tree. Returns the staged root — `None` when the package
+    /// bundles no providers.
     ///
-    /// Shared by BOTH load paths: the Rust branch's Step 5b (before resolving FFI
+    /// Shared by BOTH load paths: the Rust branch's Step 0/5b (before resolving FFI
     /// constructor declarations) and the Python branch (BEFORE the module import,
     /// so `cloaca.constructor(...)` calls resolve against the bundle during load).
+    ///
+    /// CLOACI-T-0925: staging NO LONGER points a process-global search path at the
+    /// result. Tenant is the isolation boundary and every tenant's reconciler runs
+    /// its own concurrent loop in this process, so a shared directory made one
+    /// tenant's staged providers visible to (and racily overwritten by) another's
+    /// resolution. The caller now owns the root: it passes it explicitly to every
+    /// host-side resolution site and installs it as a
+    /// [`crate::registry::loader::ScopedProviderSearch`] around the module import
+    /// for the call sites (Python's `cloaca.constructor`) that cannot take it as an
+    /// argument.
     ///
     /// The unpacked dir must outlive the process' use of the search path (wasm
     /// components are re-read on every node load), so it is deliberately leaked —
@@ -2246,21 +2313,20 @@ impl RegistryReconciler {
     pub(super) async fn stage_bundled_providers(
         &self,
         metadata: &WorkflowMetadata,
-    ) -> Result<usize, RegistryError> {
+    ) -> Result<Option<std::path::PathBuf>, RegistryError> {
         let providers = self
             .registry
             .get_package_providers(&metadata.package_name, &metadata.version)
             .await?;
         if providers.is_empty() {
-            // Hermeticity: the search path is process-global, so without this a
-            // package that bundles NOTHING would silently resolve constructor
-            // refs against whatever bundle the PREVIOUS load staged
-            // (load-order-dependent imports). Clear it so undeclared refs fail
-            // closed for the current package. Already-loaded nodes are
-            // unaffected — they hold their wasm handles.
-            #[cfg(feature = "constructors-wasm")]
-            crate::registry::loader::clear_provider_search_path();
-            return Ok(0);
+            // Hermeticity: a package that bundles NOTHING must not resolve its
+            // constructor refs against whatever bundle another load staged. The
+            // `None` root becomes a `ProviderScope::Unbundled` at the call site,
+            // which skips the process-wide override for THIS load only (the
+            // pre-T-0925 code cleared that override process-wide, which fixed the
+            // load-order dependence but stomped every other tenant in flight).
+            // Already-loaded nodes are unaffected — they hold their wasm handles.
+            return Ok(None);
         }
 
         #[cfg(not(feature = "constructors-wasm"))]
@@ -2279,7 +2345,7 @@ impl RegistryReconciler {
 
         #[cfg(feature = "constructors-wasm")]
         {
-            use crate::registry::loader::{set_provider_search_path, unpack_provider_archive};
+            use crate::registry::loader::unpack_provider_archive;
 
             let providers_root = tempfile::TempDir::new()
                 .map_err(|e| RegistryError::RegistrationFailed {
@@ -2299,7 +2365,6 @@ impl RegistryReconciler {
                     }
                 })?;
             }
-            set_provider_search_path(&providers_root);
             info!(
                 "Unpacked {} bundled provider(s) for {} v{} into {}",
                 providers.len(),
@@ -2307,14 +2372,20 @@ impl RegistryReconciler {
                 metadata.version,
                 providers_root.display()
             );
-            Ok(providers.len())
+            Ok(Some(providers_root))
         }
     }
 
+    /// `provider_root` is the tree this package's bundled providers were staged
+    /// into by [`Self::stage_bundled_providers`] (`None` = it bundles none). Every
+    /// node resolves against THAT directory explicitly (CLOACI-T-0925) — the
+    /// resolution runs on a `spawn_blocking` thread, so reading a process-global
+    /// there would race every other tenant's concurrent load.
     pub(super) async fn step_load_constructor_nodes(
         &self,
         metadata: &WorkflowMetadata,
         library_data: &[u8],
+        provider_root: Option<std::path::PathBuf>,
     ) -> Result<(), RegistryError> {
         let declarations = self
             .package_loader
@@ -2327,6 +2398,7 @@ impl RegistryReconciler {
 
         #[cfg(not(feature = "constructors-wasm"))]
         {
+            let _ = provider_root;
             return Err(RegistryError::RegistrationFailed {
                 message: format!(
                     "package {} v{} declares {} constructor node(s), but this host was built \
@@ -2342,12 +2414,16 @@ impl RegistryReconciler {
         #[cfg(feature = "constructors-wasm")]
         {
             use crate::registry::loader::grants::GrantSpec;
-            use crate::registry::loader::load_constructor_node;
+            use crate::registry::loader::load_constructor_node_in;
 
-            // Stage this package's bundled providers (fail closed: decls with no
-            // bundle refuse to load — the hermetic guarantee).
-            let staged = self.stage_bundled_providers(metadata).await?;
-            if staged == 0 {
+            // Fail closed: decls with no bundle refuse to load — the hermetic
+            // guarantee. Step 0 already staged; re-stage only if the caller had
+            // nothing to hand us (keeps the direct-call test seam working).
+            let providers_root = match provider_root {
+                Some(root) => Some(root),
+                None => self.stage_bundled_providers(metadata).await?,
+            };
+            let Some(providers_root) = providers_root else {
                 return Err(RegistryError::RegistrationFailed {
                     message: format!(
                         "package {} v{} declares {} constructor node(s) but has NO bundled \
@@ -2358,7 +2434,7 @@ impl RegistryReconciler {
                         declarations.len()
                     ),
                 });
-            }
+            };
 
             let runtime =
                 self.runtime
@@ -2405,8 +2481,10 @@ impl RegistryReconciler {
                             })
                     })
                     .collect::<Result<_, _>>()?;
+                let search_path = providers_root.clone();
                 let node = tokio::task::spawn_blocking(move || {
-                    load_constructor_node(
+                    load_constructor_node_in(
+                        &search_path,
                         &node_id,
                         &from,
                         &constructor,
@@ -3011,7 +3089,7 @@ mod tests {
         let manifest = make_cloacina_metadata();
 
         let err = reconciler
-            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"", None)
             .await
             .expect_err("subscriber declaring accumulator outside upstream contract must error");
         let msg = format!("{:?}", err);
@@ -3051,7 +3129,7 @@ mod tests {
         let manifest = make_cloacina_metadata();
 
         let err = reconciler
-            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"", None)
             .await
             .expect_err("subscriber-before-publisher must error fast, no pending bindings");
         let msg = format!("{:?}", err);
@@ -3123,7 +3201,7 @@ mod tests {
         // appears in view.reactors. The downstream `load_graph` call
         // will spin its own reactor instance via the bundled-form path.
         let result = reconciler
-            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"", None)
             .await;
         assert!(
             result.is_ok(),
@@ -3441,7 +3519,7 @@ mod tests {
         };
 
         reconciler
-            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"", None)
             .await
             .expect("bundled-form graph load should succeed");
 
@@ -3616,7 +3694,7 @@ mod tests {
             let metadata = consumer_metadata();
 
             reconciler
-                .step_load_constructor_nodes(&metadata, consumer_cdylib())
+                .step_load_constructor_nodes(&metadata, consumer_cdylib(), None)
                 .await
                 .expect("Step 5b resolves the declared constructor node");
 
@@ -3671,7 +3749,7 @@ mod tests {
             let metadata = consumer_metadata();
 
             let err = reconciler
-                .step_load_constructor_nodes(&metadata, consumer_cdylib())
+                .step_load_constructor_nodes(&metadata, consumer_cdylib(), None)
                 .await
                 .expect_err("decls without bundled providers must fail closed");
             let msg = format!("{err:?}");

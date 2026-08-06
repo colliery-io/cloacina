@@ -238,16 +238,26 @@ fn dummy_graph_fn() -> CompiledGraphFn {
 /// Behind the default-OFF `constructors-wasm` feature: a ref present in a build that
 /// lacks the feature fails closed with a clear error rather than silently ignoring the
 /// author's firing logic.
+/// `provider_root` (CLOACI-T-0925) is the provider tree the owning package's
+/// bundled providers were staged into. `None` falls back to the ambient
+/// [`crate::registry::loader::provider_search_path`] — the embedded/test path.
+/// A multi-tenant host MUST pass `Some(..)`: this resolution runs on a
+/// `spawn_blocking` thread, so an ambient read can observe whatever another
+/// tenant's concurrent load left behind.
 async fn resolve_reactor_evaluator(
     constructor: &Option<cloacina_computation_graph::ReactorConstructorRef>,
+    provider_root: Option<std::path::PathBuf>,
 ) -> Result<Option<Arc<dyn ReactorFireDecider>>, String> {
     let Some(cref) = constructor else {
         return Ok(None);
     };
+    let _ = &provider_root;
 
     #[cfg(feature = "constructors-wasm")]
     {
         let cref = cref.clone();
+        let search_path =
+            provider_root.unwrap_or_else(crate::registry::loader::provider_search_path);
         let decider = tokio::task::spawn_blocking(move || {
             let grants = crate::registry::loader::grants::GrantSpec::from_pairs(cref.grants);
             // CLOACI-T-0920: re-parse the author's `runtime = ".."` pin fail-closed
@@ -262,7 +272,8 @@ async fn resolve_reactor_evaluator(
                     )
                 })
                 .transpose()?;
-            crate::registry::loader::constructor_loader::load_reactor_constructor_node_pinned(
+            crate::registry::loader::constructor_loader::load_reactor_constructor_node_pinned_in(
+                &search_path,
                 &cref.from,
                 &cref.constructor,
                 cref.config,
@@ -571,6 +582,36 @@ impl ComputationGraphScheduler {
         // the `criteria`. Resolved once here and reused across restarts.
         constructor: Option<cloacina_computation_graph::ReactorConstructorRef>,
     ) -> Result<(), String> {
+        self.load_reactor_in(
+            reactor_name,
+            accumulators,
+            criteria,
+            strategy,
+            tenant_id,
+            register_aliases,
+            constructor,
+            None,
+        )
+        .await
+    }
+
+    /// [`load_reactor`](Self::load_reactor) resolving the reactor's constructor
+    /// ref against an EXPLICIT provider tree (CLOACI-T-0925): `provider_root` is
+    /// where the owning package's bundled providers were staged. `None` keeps the
+    /// ambient behavior for embedded/test callers.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn load_reactor_in(
+        &self,
+        reactor_name: String,
+        accumulators: Vec<AccumulatorDeclaration>,
+        criteria: ReactionCriteria,
+        strategy: InputStrategy,
+        tenant_id: Option<String>,
+        register_aliases: Vec<String>,
+        constructor: Option<cloacina_computation_graph::ReactorConstructorRef>,
+        provider_root: Option<&std::path::Path>,
+    ) -> Result<(), String> {
+        let provider_root = provider_root.map(|p| p.to_path_buf());
         // Idempotent path: matching contract → no-op.
         {
             let reactors = self.reactors.read().await;
@@ -602,7 +643,7 @@ impl ComputationGraphScheduler {
         // live firing decider BEFORE we spawn anything, so a bad constructor ref
         // fails the load cleanly instead of leaving a half-wired reactor running.
         // The resolved decider is reused on restart (stored on `RunningGraph`).
-        let evaluator = resolve_reactor_evaluator(&constructor).await?;
+        let evaluator = resolve_reactor_evaluator(&constructor, provider_root).await?;
 
         // CLOACI-T-0921: every endpoint this reactor registers is keyed by
         // `(tenant, name)` and stamped with this owner, so a same-named
@@ -904,6 +945,17 @@ impl ComputationGraphScheduler {
     /// lifecycle and the graph's subscription. Independent-reactor consumers
     /// (the reconciler post-T-0545) call the explicit pair directly.
     pub async fn load_graph(&self, decl: ComputationGraphDeclaration) -> Result<(), String> {
+        self.load_graph_in(decl, None).await
+    }
+
+    /// [`load_graph`](Self::load_graph) resolving the declaration's reactor
+    /// constructor against an EXPLICIT provider tree (CLOACI-T-0925) — the
+    /// directory the reconciler staged for the package that declared the graph.
+    pub async fn load_graph_in(
+        &self,
+        decl: ComputationGraphDeclaration,
+        provider_root: Option<&std::path::Path>,
+    ) -> Result<(), String> {
         let name = decl.name.clone();
         // Resolve the reactor identity. `Some(...)` from a split-form caller
         // (T-0544 M2: cross-package fan-out) lets multiple graphs share a
@@ -962,7 +1014,7 @@ impl ComputationGraphScheduler {
         // alias so `cloacinactl reactor force-fire <graph>` keeps working
         // for bundled-form callers and for the first graph that names a
         // shared reactor (T-0544 M2 surface promise).
-        self.load_reactor(
+        self.load_reactor_in(
             reactor_name.clone(),
             decl.accumulators.clone(),
             decl.reactor.criteria.clone(),
@@ -970,6 +1022,7 @@ impl ComputationGraphScheduler {
             decl.tenant_id.clone(),
             vec![name.clone()],
             decl.reactor.constructor.clone(),
+            provider_root,
         )
         .await?;
 

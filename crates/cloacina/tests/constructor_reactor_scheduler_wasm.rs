@@ -54,9 +54,6 @@ use cloacina::computation_graph::scheduler::{
 };
 use cloacina::computation_graph::types::{GraphResult, InputCache, SourceName};
 use cloacina::computation_graph::Accumulator;
-use cloacina::registry::loader::constructor_loader::{
-    clear_provider_search_path, set_provider_search_path,
-};
 
 // ---------------------------------------------------------------------------
 // Fixture build + staging (mirrors constructor_reactor_wasm.rs)
@@ -174,12 +171,15 @@ impl AccumulatorFactory for PassthroughFactory {
 /// Drive a graph whose reactor is a WASM `#[constructor(kind = reactor)]` gate,
 /// loaded + fired entirely through the scheduler. `gate` is bound BY NAME via the
 /// declaration's `config`; the graph fires only when the guest's `evaluate` says so.
+// CLOACI-T-0925: both tests below used to carry
+// `#[serial_test::serial(provider_search_path)]` because they had to mutate the
+// PROCESS-WIDE provider search path (and clear it again on the way out). They now
+// hand the scheduler this test's own provider directory via `load_graph_in`,
+// touch no shared state, and need no serialization.
 #[tokio::test]
-#[serial_test::serial(provider_search_path)]
 async fn reactor_constructor_fires_via_scheduler() {
     let tmp = tempfile::TempDir::new().unwrap();
     stage(tmp.path());
-    set_provider_search_path(tmp.path());
 
     let registry = EndpointRegistry::new();
     let scheduler = ComputationGraphScheduler::new(registry.clone());
@@ -220,7 +220,7 @@ async fn reactor_constructor_fires_via_scheduler() {
     };
 
     scheduler
-        .load_graph(decl)
+        .load_graph_in(decl, Some(tmp.path()))
         .await
         .expect("load_graph with reactor constructor should resolve + install the WASM evaluator");
 
@@ -262,19 +262,15 @@ async fn reactor_constructor_fires_via_scheduler() {
         fired,
         "above-gate boundary should fire the graph via the scheduler-installed WASM evaluator"
     );
-
-    clear_provider_search_path();
 }
 
 /// A reactor constructor whose declared name doesn't match the provider's
 /// `constructor.json` name fails the load closed — the author asked for a
 /// constructor the provider does not carry.
 #[tokio::test]
-#[serial_test::serial(provider_search_path)]
 async fn reactor_constructor_name_mismatch_fails_closed() {
     let tmp = tempfile::TempDir::new().unwrap();
     stage(tmp.path());
-    set_provider_search_path(tmp.path());
 
     let registry = EndpointRegistry::new();
     let scheduler = ComputationGraphScheduler::new(registry.clone());
@@ -306,13 +302,11 @@ async fn reactor_constructor_name_mismatch_fails_closed() {
     };
 
     let err = scheduler
-        .load_graph(decl)
+        .load_graph_in(decl, Some(tmp.path()))
         .await
         .expect_err("a constructor-name mismatch must fail the load closed");
     assert!(
         err.contains("not_the_gate") || err.contains("gate"),
         "error should name the requested/resolved constructor, got: {err}"
     );
-
-    clear_provider_search_path();
 }

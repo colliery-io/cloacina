@@ -35,6 +35,26 @@ use std::sync::Arc;
 use crate::import_guard::{import_timeout, supervise_import, ImportThreadIdent};
 use crate::runtime_scope::{current_runtime, ScopedRuntime};
 
+/// The provider scope installed on the CALLING thread (CLOACI-T-0925).
+///
+/// The reconciler installs it around a package load — it says which staged
+/// `providers/` tree this package's `cloaca.constructor(from = ..)` calls resolve
+/// against. Imports run on a thread we spawn, and a thread-local does not follow
+/// a thread hop, so we capture it here and re-install it there — the same
+/// treatment `ScopedRuntime` and `ScopedRegistration` already get.
+fn provider_scope_of_caller() -> Option<cloacina::registry::loader::ProviderScope> {
+    cloacina::registry::loader::current_provider_scope()
+}
+
+/// Re-install a captured provider scope on this thread for the import's
+/// duration. `None` (embedded / direct import / tests) leaves resolution on the
+/// process-wide path, exactly as before CLOACI-T-0925.
+fn enter_provider_scope(
+    scope: Option<cloacina::registry::loader::ProviderScope>,
+) -> cloacina::registry::loader::ScopedProviderSearch {
+    cloacina::registry::loader::ScopedProviderSearch::enter_opt(scope)
+}
+
 /// Python stdlib module names that must never appear in extracted packages.
 /// A malicious package could shadow these to hijack execution.
 const STDLIB_DENY_LIST: &[&str] = &[
@@ -217,6 +237,12 @@ pub fn import_and_register_python_workflow_named(
 
     // PyO3 operations must happen on a thread that can acquire the GIL.
     // Wrap in a timeout to catch infinite loops during import.
+    // CLOACI-T-0925: the loader installs the package's provider scope on the
+    // calling thread; capture it here so the import thread we are about to spawn
+    // resolves `cloaca.constructor(from = ..)` against THIS package's staged
+    // providers (a thread-local does not follow a thread hop).
+    let provider_scope = provider_scope_of_caller();
+
     let handle = std::thread::spawn(move || -> Result<Vec<TaskNamespace>, PythonLoaderError> {
         // Install the scoped runtime on this worker thread so every
         // @task/@trigger/@workflow_builder registration triggered by the
@@ -229,6 +255,8 @@ pub fn import_and_register_python_workflow_named(
             Some(tenant_id.as_str()),
             Some(package_name.as_str()),
         );
+        // CLOACI-T-0925: whose providers this import resolves against.
+        let _provider_scope = enter_provider_scope(provider_scope);
         Python::with_gil(|py| {
             // 0. Publish this thread's Python ident BEFORE any user code runs,
             //    so a module-scope hang is interruptible (CLOACI-T-0919).
@@ -465,10 +493,14 @@ pub fn import_python_computation_graph(
     let thread_ident = ident.clone();
     let supervise_label = graph_name.clone();
 
+    // CLOACI-T-0925: carry the caller's provider scope onto the import thread.
+    let provider_scope = provider_scope_of_caller();
+
     let handle = std::thread::spawn(move || -> Result<String, PythonLoaderError> {
         let _scope =
             ScopedRuntime::new(runtime.clone()).map_err(PythonLoaderError::RuntimeError)?;
         let _registration = crate::registration_scope::ScopedRegistration::new(registration_scope);
+        let _provider_scope = enter_provider_scope(provider_scope);
         Python::with_gil(|py| {
             thread_ident.record(py);
             ensure_cloaca_module(py)?;

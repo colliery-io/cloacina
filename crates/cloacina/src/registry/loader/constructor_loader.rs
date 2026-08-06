@@ -1314,14 +1314,37 @@ pub async fn load_stream_accumulator_source<C: Serialize>(
 /// declaration order. String values coerce per the declared field type (`"5"` for
 /// an `i64` field parses; kafka's fields are all `String`).
 ///
-/// The provider resolves from the process-wide [`provider_search_path`] — the same
+/// The provider resolves from the ambient [`provider_search_path`] — the same
 /// `providers/` tree the reconciler unpacks a package's bundled providers into.
+/// A host that knows which package it is loading should call
+/// [`load_stream_accumulator_source_from_config_in`] instead: this resolution runs
+/// from a spawned accumulator task, so an ambient read can land long after the
+/// load that staged the providers finished (CLOACI-T-0925).
 pub async fn load_stream_accumulator_source_from_config(
     provider_name: &str,
     constructor_name: &str,
     config: &std::collections::HashMap<String, String>,
 ) -> Result<ProviderStreamSource, LoaderError> {
-    let search_path = provider_search_path();
+    load_stream_accumulator_source_from_config_in(
+        &provider_search_path(),
+        provider_name,
+        constructor_name,
+        config,
+    )
+    .await
+}
+
+/// [`load_stream_accumulator_source_from_config`] against an EXPLICIT provider
+/// directory (CLOACI-T-0925) — the root captured when the accumulator's
+/// declaration was built, not whatever the process global holds when the spawned
+/// stream task happens to run.
+pub async fn load_stream_accumulator_source_from_config_in(
+    search_path: &Path,
+    provider_name: &str,
+    constructor_name: &str,
+    config: &std::collections::HashMap<String, String>,
+) -> Result<ProviderStreamSource, LoaderError> {
+    let search_path = search_path.to_path_buf();
 
     // Member manifest first — bind_config_by_name needs its config_fields.
     let (_dir, provider) =
@@ -1646,6 +1669,10 @@ pub fn load_reactor_constructor<C: Serialize>(
 /// form resolves `from = "..."` against. `None` falls back to
 /// [`PROVIDER_PATH_ENV`] then [`DEFAULT_PROVIDER_DIR`]. Set it once at startup
 /// (e.g. from a deployment's config) via [`set_provider_search_path`].
+///
+/// This is the EMBEDDED / single-tenant convenience knob. It is the LOWEST-
+/// precedence source: a per-load [`ProviderScope`] (what the reconciler installs
+/// around one package's load) always wins over it — see [`provider_search_path`].
 static PROVIDER_SEARCH_PATH: std::sync::RwLock<Option<std::path::PathBuf>> =
     std::sync::RwLock::new(None);
 
@@ -1659,6 +1686,12 @@ pub const DEFAULT_PROVIDER_DIR: &str = "providers";
 
 /// Set the process-wide provider search path used to resolve `constructor!`
 /// `from = "..."` references. Takes precedence over [`PROVIDER_PATH_ENV`].
+///
+/// Embedded / single-tenant use only. A multi-tenant host (the server's
+/// reconciler) must NOT set this — it scopes each package load instead
+/// ([`ScopedProviderSearch`] / the `*_in` loader entry points), because one
+/// process-wide directory makes every tenant's staged providers visible to
+/// every other tenant's resolution (CLOACI-T-0925).
 pub fn set_provider_search_path(path: impl Into<std::path::PathBuf>) {
     *PROVIDER_SEARCH_PATH.write().unwrap() = Some(path.into());
 }
@@ -1668,19 +1701,162 @@ pub fn clear_provider_search_path() {
     *PROVIDER_SEARCH_PATH.write().unwrap() = None;
 }
 
-/// The directory `constructor!(from = ...)` resolves provider packages in:
-/// the [`set_provider_search_path`] override, else [`PROVIDER_PATH_ENV`], else
-/// [`DEFAULT_PROVIDER_DIR`].
-pub fn provider_search_path() -> std::path::PathBuf {
-    if let Some(p) = PROVIDER_SEARCH_PATH.read().unwrap().clone() {
-        return p;
+// ===========================================================================
+// Per-load provider scope (CLOACI-T-0925)
+// ===========================================================================
+//
+// TENANT IS THE ISOLATION BOUNDARY. A shared server process runs one reconciler
+// PER TENANT, each on its own tokio task (`DefaultRunner` →
+// `RegistryReconcilerService::start`), so package loads are serialized only
+// WITHIN a tenant, never across tenants. A single process-wide search directory
+// therefore means tenant A's staged providers are visible to — and racily
+// overwritten by — tenant B's resolution.
+//
+// The fix has two halves:
+//
+//   1. Every HOST-SIDE resolution site takes the directory as an explicit
+//      argument (`load_constructor_node_in`, `load_reactor_constructor_node_*_in`,
+//      `load_stream_accumulator_source_from_config_in`). The reconciler passes the
+//      root it just staged for THAT package; nothing is read from shared state,
+//      so nothing can race — including the deferred sites that resolve from a
+//      spawned task long after the load returned.
+//
+//   2. Call sites that cannot take an argument — the Python `cloaca.constructor(…)`
+//      bridge, which runs inside a package's module import — read the AMBIENT
+//      scope installed for the duration of that import ([`ScopedProviderSearch`]).
+//      The scope is thread-local and RAII, mirroring cloacina-python's
+//      `registration_scope` (CLOACI-T-0921); the Python loader carries it onto the
+//      import thread it spawns exactly as it already carries `ScopedRuntime` and
+//      `ScopedRegistration`.
+//
+// The embedded/single-tenant experience is untouched: with no scope installed,
+// [`provider_search_path`] resolves exactly as it always has (process override →
+// env → `providers`).
+
+/// The provider tree ONE package load resolves `from = ".."` against
+/// (CLOACI-T-0925).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderScope {
+    /// The package's OWN bundled providers, unpacked into this directory by the
+    /// reconciler. Highest precedence — it is this package's hermetic world.
+    Staged(std::path::PathBuf),
+    /// The package bundles NO providers. Its `from = ".."` refs must not fall
+    /// back to whatever another tenant's load staged, so the process-wide
+    /// override is SKIPPED and resolution falls through to
+    /// [`PROVIDER_PATH_ENV`] / [`DEFAULT_PROVIDER_DIR`] — the same directory the
+    /// pre-T-0925 `clear_provider_search_path()` call left behind, but scoped to
+    /// this load instead of stomping the process.
+    Unbundled,
+}
+
+impl ProviderScope {
+    /// `Some(root)` → [`ProviderScope::Staged`]; `None` → [`ProviderScope::Unbundled`].
+    pub fn from_staged_root(root: Option<std::path::PathBuf>) -> Self {
+        match root {
+            Some(root) => ProviderScope::Staged(root),
+            None => ProviderScope::Unbundled,
+        }
     }
+
+    /// The directory this scope resolves in.
+    pub fn search_path(&self) -> std::path::PathBuf {
+        match self {
+            ProviderScope::Staged(root) => root.clone(),
+            ProviderScope::Unbundled => provider_search_path_from_env(),
+        }
+    }
+}
+
+thread_local! {
+    /// The provider scope installed on THIS thread, if any. `None` = unscoped
+    /// (embedded, tests, direct library use) → the pre-T-0925 global behavior.
+    static CURRENT_PROVIDER_SCOPE: std::cell::RefCell<Option<ProviderScope>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The provider scope installed on this thread (`None` when unscoped).
+///
+/// Capture this before spawning a thread that will resolve constructors on the
+/// caller's behalf (the Python loader does exactly that) and re-install it there
+/// with [`ScopedProviderSearch::enter_opt`] — a thread-local does not follow a
+/// `std::thread::spawn` / `spawn_blocking` hop on its own.
+pub fn current_provider_scope() -> Option<ProviderScope> {
+    CURRENT_PROVIDER_SCOPE.with(|slot| slot.borrow().clone())
+}
+
+/// RAII guard installing a [`ProviderScope`] on the current thread for the
+/// duration of one package load (CLOACI-T-0925).
+///
+/// Nests: the previous scope is saved and restored on drop, so a load that
+/// transitively triggers another scoped load cannot strand the outer scope.
+///
+/// **Threads, not futures.** Hold it across synchronous work only (a Python
+/// module import, a `spawn_blocking` closure). A guard held across an `.await`
+/// would follow the THREAD, not the task, once the executor moves the future —
+/// async resolution sites take the directory as an explicit argument instead.
+#[must_use = "the scope is uninstalled when the guard drops"]
+pub struct ScopedProviderSearch {
+    previous: Option<ProviderScope>,
+}
+
+impl ScopedProviderSearch {
+    /// Install `scope` on this thread until the guard drops.
+    pub fn enter(scope: ProviderScope) -> Self {
+        Self::enter_opt(Some(scope))
+    }
+
+    /// Install `scope` (or uninstall any scope, for `None`) on this thread until
+    /// the guard drops. `None` is what an unscoped caller propagates.
+    pub fn enter_opt(scope: Option<ProviderScope>) -> Self {
+        let previous = CURRENT_PROVIDER_SCOPE.with(|slot| slot.replace(scope));
+        Self { previous }
+    }
+
+    /// Install the scope for a package whose bundled providers were staged into
+    /// `root` (`None` = the package bundles none).
+    pub fn for_staged_root(root: Option<std::path::PathBuf>) -> Self {
+        Self::enter(ProviderScope::from_staged_root(root))
+    }
+}
+
+impl Drop for ScopedProviderSearch {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        CURRENT_PROVIDER_SCOPE.with(|slot| *slot.borrow_mut() = previous);
+    }
+}
+
+/// [`PROVIDER_PATH_ENV`] else [`DEFAULT_PROVIDER_DIR`] — the deployment-level
+/// directory, with no process override and no per-load scope applied.
+fn provider_search_path_from_env() -> std::path::PathBuf {
     if let Ok(p) = std::env::var(PROVIDER_PATH_ENV) {
         if !p.is_empty() {
             return std::path::PathBuf::from(p);
         }
     }
     std::path::PathBuf::from(DEFAULT_PROVIDER_DIR)
+}
+
+/// The directory `constructor!(from = ...)` resolves provider packages in.
+///
+/// Precedence (highest first, CLOACI-T-0925):
+///
+///   1. the per-load [`ProviderScope`] installed on this thread
+///      ([`ScopedProviderSearch`]) — the tenant/package-scoped world;
+///   2. the process-wide [`set_provider_search_path`] override — the
+///      embedded/single-tenant convenience knob;
+///   3. [`PROVIDER_PATH_ENV`];
+///   4. [`DEFAULT_PROVIDER_DIR`].
+///
+/// With no scope installed this is byte-for-byte the pre-T-0925 behavior.
+pub fn provider_search_path() -> std::path::PathBuf {
+    if let Some(scope) = current_provider_scope() {
+        return scope.search_path();
+    }
+    if let Some(p) = PROVIDER_SEARCH_PATH.read().unwrap().clone() {
+        return p;
+    }
+    provider_search_path_from_env()
 }
 
 /// Strip an optional `@version` suffix from a `from = "name[@version]"` reference,
@@ -2178,7 +2354,62 @@ pub fn load_constructor_node_pinned(
     grants: GrantSpec,
     runtime_pin: Option<ProviderRuntime>,
 ) -> Result<Arc<dyn Task>, LoaderError> {
-    let search_path = provider_search_path();
+    load_constructor_node_pinned_in(
+        &provider_search_path(),
+        node_id,
+        from,
+        constructor_name,
+        config,
+        dependencies,
+        grants,
+        runtime_pin,
+    )
+}
+
+/// [`load_constructor_node`] against an EXPLICIT provider directory
+/// (CLOACI-T-0925) — no shared state is read, so a multi-tenant host resolves
+/// each package against the tree it staged for that package and nothing else.
+///
+/// This is the primitive; the ambient-path forms above are thin wrappers that
+/// supply [`provider_search_path`]. Host-side callers that know which package
+/// they are loading (the reconciler, the CG scheduler, provider-backed stream
+/// accumulators) MUST use this form: they resolve from spawned tasks that can
+/// outlive any process-global the load set.
+pub fn load_constructor_node_in(
+    search_path: &Path,
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    dependencies: Vec<TaskNamespace>,
+    grants: GrantSpec,
+) -> Result<Arc<dyn Task>, LoaderError> {
+    load_constructor_node_pinned_in(
+        search_path,
+        node_id,
+        from,
+        constructor_name,
+        config,
+        dependencies,
+        grants,
+        None,
+    )
+}
+
+/// [`load_constructor_node_pinned`] against an EXPLICIT provider directory
+/// (CLOACI-T-0925). See [`load_constructor_node_in`].
+#[allow(clippy::too_many_arguments)]
+pub fn load_constructor_node_pinned_in(
+    search_path: &Path,
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    dependencies: Vec<TaskNamespace>,
+    grants: GrantSpec,
+    runtime_pin: Option<ProviderRuntime>,
+) -> Result<Arc<dyn Task>, LoaderError> {
+    let search_path = search_path.to_path_buf();
     let package_name = provider_package_name(from);
 
     // CLOACI-T-0920: settle the trust tier BEFORE any load work — both because a
@@ -2320,7 +2551,30 @@ pub fn load_reactor_constructor_node_pinned(
     grants: GrantSpec,
     runtime_pin: Option<ProviderRuntime>,
 ) -> Result<Arc<dyn ReactorFireDecider>, LoaderError> {
-    let search_path = provider_search_path();
+    load_reactor_constructor_node_pinned_in(
+        &provider_search_path(),
+        from,
+        constructor_name,
+        config,
+        grants,
+        runtime_pin,
+    )
+}
+
+/// [`load_reactor_constructor_node_pinned`] against an EXPLICIT provider
+/// directory (CLOACI-T-0925). The CG scheduler resolves a reactor constructor on
+/// a `spawn_blocking` thread, i.e. off the load's task — it must carry the
+/// package's staged root rather than read process-global state that another
+/// tenant's load may already have re-pointed.
+pub fn load_reactor_constructor_node_pinned_in(
+    search_path: &Path,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    grants: GrantSpec,
+    runtime_pin: Option<ProviderRuntime>,
+) -> Result<Arc<dyn ReactorFireDecider>, LoaderError> {
+    let search_path = search_path.to_path_buf();
     let package_name = provider_package_name(from);
 
     // CLOACI-T-0920: settle the trust tier before any load work (see
@@ -2398,6 +2652,97 @@ pub fn load_reactor_constructor_node_pinned(
     })?;
 
     Ok(Arc::new(reactor_constructor) as Arc<dyn ReactorFireDecider>)
+}
+
+/// CLOACI-T-0925: the precedence contract between the per-load scope and the
+/// embedded process-wide override. These pin the two properties the fix rests on:
+/// a scope ALWAYS wins (so no tenant can be resolved against another's tree), and
+/// with no scope the resolution is byte-for-byte the pre-T-0925 embedded behavior.
+#[cfg(test)]
+mod provider_scope_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // These mutate the PROCESS-WIDE override, so they serialize against each
+    // other (and against any other test touching it). The scope itself is
+    // thread-local and needs no serialization — that is the point.
+    #[test]
+    #[serial_test::serial(provider_search_path)]
+    fn scope_wins_over_the_process_override() {
+        let host = PathBuf::from("/tmp/t0925-host-configured");
+        let tenant_a = PathBuf::from("/tmp/t0925-tenant-a");
+        set_provider_search_path(&host);
+        assert_eq!(provider_search_path(), host, "unscoped = the process knob");
+
+        {
+            let _scope = ScopedProviderSearch::enter(ProviderScope::Staged(tenant_a.clone()));
+            assert_eq!(
+                provider_search_path(),
+                tenant_a,
+                "a staged scope must win over the process-wide override"
+            );
+        }
+        assert_eq!(
+            provider_search_path(),
+            host,
+            "the override is visible again once the scope drops"
+        );
+        clear_provider_search_path();
+    }
+
+    #[test]
+    #[serial_test::serial(provider_search_path)]
+    fn unbundled_scope_skips_the_process_override() {
+        let host = PathBuf::from("/tmp/t0925-host-configured-2");
+        set_provider_search_path(&host);
+        {
+            let _scope = ScopedProviderSearch::enter(ProviderScope::Unbundled);
+            assert_eq!(
+                provider_search_path(),
+                provider_search_path_from_env(),
+                "a package that bundles nothing must not inherit the host/other-tenant \
+                 override — it falls through to env/default"
+            );
+        }
+        clear_provider_search_path();
+    }
+
+    #[test]
+    fn scopes_nest_and_restore() {
+        let outer = PathBuf::from("/tmp/t0925-outer");
+        let inner = PathBuf::from("/tmp/t0925-inner");
+        assert_eq!(current_provider_scope(), None);
+        let _o = ScopedProviderSearch::enter(ProviderScope::Staged(outer.clone()));
+        {
+            let _i = ScopedProviderSearch::enter(ProviderScope::Staged(inner.clone()));
+            assert_eq!(provider_search_path(), inner);
+        }
+        assert_eq!(
+            provider_search_path(),
+            outer,
+            "an inner scope must not strand the outer one"
+        );
+    }
+
+    #[test]
+    fn capture_and_reinstall_carries_a_scope_across_threads() {
+        // What the Python loader does: a thread-local does not follow a thread
+        // hop, so the scope is captured and re-entered on the import thread.
+        let staged = PathBuf::from("/tmp/t0925-staged-for-import");
+        let _scope = ScopedProviderSearch::enter(ProviderScope::Staged(staged.clone()));
+        let captured = current_provider_scope();
+
+        let seen = std::thread::spawn(move || {
+            let unscoped = current_provider_scope();
+            let _s = ScopedProviderSearch::enter_opt(captured);
+            (unscoped, provider_search_path())
+        })
+        .join()
+        .unwrap();
+
+        assert_eq!(seen.0, None, "a fresh thread starts unscoped");
+        assert_eq!(seen.1, staged, "the captured scope resolves on that thread");
+    }
 }
 
 #[cfg(test)]
