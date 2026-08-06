@@ -359,6 +359,14 @@ mod unified_schema {
             completed_at -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            /// CLOACI-T-0926 — durable cron-recovery accounting. `recovery_attempts`
+            /// is the per-handoff attempt cap (was an in-process HashMap, so it
+            /// reset on every restart); `recovery_claimed_by` / `recovery_heartbeat_at`
+            /// are the CAS claim that makes exactly one recovery service own a
+            /// given lost handoff.
+            recovery_attempts -> Integer,
+            recovery_claimed_by -> Nullable<DbUuid>,
+            recovery_heartbeat_at -> Nullable<DbTimestamp>,
         }
     }
 

@@ -98,7 +98,9 @@ pub use reactor_subscriptions::{
 };
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;
-pub use schedule_execution::{ScheduleExecutionDAL, ScheduleExecutionStats};
+pub use schedule_execution::{
+    RecoveryClaimResult, RecoveryHeartbeatResult, ScheduleExecutionDAL, ScheduleExecutionStats,
+};
 pub use task_execution::{RetryStats, TaskExecutionDAL};
 pub use task_execution_metadata::TaskExecutionMetadataDAL;
 pub use workflow_execution::WorkflowExecutionDAL;

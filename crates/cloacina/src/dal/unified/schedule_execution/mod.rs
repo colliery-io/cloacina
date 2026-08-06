@@ -44,6 +44,27 @@ pub struct ScheduleExecutionStats {
     pub success_rate: f64,
 }
 
+/// Outcome of a compare-and-set attempt to own the recovery of a lost handoff.
+///
+/// CLOACI-T-0926. Mirrors `RunnerClaimResult` in the task-claiming DAL: the
+/// claim is a single conditional UPDATE and `rows_updated == 1` is the winner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryClaimResult {
+    /// This caller now owns the re-fire of the handoff.
+    Claimed,
+    /// Another recovery service owns it (or the row left the lost set).
+    NotClaimed,
+}
+
+/// Outcome of a recovery claim heartbeat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryHeartbeatResult {
+    /// The claim is still ours.
+    Ok,
+    /// Another recovery service took the claim over (ours went stale).
+    ClaimLost,
+}
+
 /// Data access layer for unified schedule execution operations with runtime backend selection.
 #[derive(Clone)]
 pub struct ScheduleExecutionDAL<'a> {
@@ -197,6 +218,170 @@ impl<'a> ScheduleExecutionDAL<'a> {
             })?;
 
         Ok(results.into_iter().map(|r| r.into()).collect())
+    }
+
+    // ========================================================================
+    // Recovery ownership + accounting (CLOACI-T-0926)
+    // ========================================================================
+
+    /// Atomically claim a lost handoff for recovery by `owner_id`.
+    ///
+    /// `find_lost_executions` is a plain SELECT, so every replica's recovery
+    /// service sees the same lost rows. This compare-and-set is what makes
+    /// exactly one of them re-fire, in the same shape as
+    /// `TaskExecutionDAL::claim_for_runner`: one conditional UPDATE,
+    /// `rows_updated == 1` wins.
+    ///
+    /// The claim succeeds when the row is still open AND either unclaimed or
+    /// held by an owner whose heartbeat went stale. Two guards matter:
+    ///
+    /// * `completed_at IS NULL` is part of the CAS, not a pre-check. A loser
+    ///   that selected the row before the winner finished still holds a stale
+    ///   snapshot; without this predicate it would claim the (now completed)
+    ///   row after the winner released it and re-fire — the duplicate this is
+    ///   here to prevent.
+    /// * the staleness arm uses the heartbeat, not the claim time. A re-fire
+    ///   blocks for the workflow's full (unbounded) duration, so a fixed
+    ///   claim-age window would expire mid-execution and hand the row to a
+    ///   second service. The owner beats while it works, so a stale beat is a
+    ///   true death signal and a crashed service never locks a handoff
+    ///   permanently.
+    pub async fn claim_for_recovery(
+        &self,
+        id: UniversalUuid,
+        owner_id: UniversalUuid,
+        stale_after: std::time::Duration,
+    ) -> Result<RecoveryClaimResult, ValidationError> {
+        let now = UniversalTimestamp::now();
+        let cutoff = UniversalTimestamp(
+            Utc::now() - Duration::from_std(stale_after).unwrap_or_else(|_| Duration::seconds(120)),
+        );
+
+        let rows_updated: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                schedule_executions::table
+                    .find(id)
+                    .filter(schedule_executions::completed_at.is_null())
+                    .filter(
+                        schedule_executions::recovery_claimed_by
+                            .is_null()
+                            .or(schedule_executions::recovery_heartbeat_at.lt(Some(cutoff))),
+                    ),
+            )
+            .set((
+                schedule_executions::recovery_claimed_by.eq(Some(owner_id)),
+                schedule_executions::recovery_heartbeat_at.eq(Some(now)),
+                schedule_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
+
+        Ok(if rows_updated > 0 {
+            RecoveryClaimResult::Claimed
+        } else {
+            RecoveryClaimResult::NotClaimed
+        })
+    }
+
+    /// Refresh the recovery claim heartbeat, only while we still own it.
+    pub async fn recovery_heartbeat(
+        &self,
+        id: UniversalUuid,
+        owner_id: UniversalUuid,
+    ) -> Result<RecoveryHeartbeatResult, ValidationError> {
+        let now = UniversalTimestamp::now();
+        let rows_updated: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                schedule_executions::table
+                    .find(id)
+                    .filter(schedule_executions::recovery_claimed_by.eq(Some(owner_id))),
+            )
+            .set((
+                schedule_executions::recovery_heartbeat_at.eq(Some(now)),
+                schedule_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
+
+        Ok(if rows_updated > 0 {
+            RecoveryHeartbeatResult::Ok
+        } else {
+            RecoveryHeartbeatResult::ClaimLost
+        })
+    }
+
+    /// Release a recovery claim we hold. No-op if someone else owns it now.
+    pub async fn release_recovery_claim(
+        &self,
+        id: UniversalUuid,
+        owner_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        let now = UniversalTimestamp::now();
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                schedule_executions::table
+                    .find(id)
+                    .filter(schedule_executions::recovery_claimed_by.eq(Some(owner_id))),
+            )
+            .set((
+                schedule_executions::recovery_claimed_by.eq(None::<UniversalUuid>),
+                schedule_executions::recovery_heartbeat_at.eq(None::<UniversalTimestamp>),
+                schedule_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    /// Increment the durable recovery attempt count and return the new value.
+    ///
+    /// The count lives on the audit row (not in the recovery service's memory)
+    /// so a schedule that reliably fails recovery cannot earn a fresh budget by
+    /// bouncing the process. Callers hold the recovery claim, so the read-back
+    /// is not racing another attempt; the increment itself is still done
+    /// in-SQL and inside a transaction so the value can never regress.
+    pub async fn increment_recovery_attempts(
+        &self,
+        id: UniversalUuid,
+    ) -> Result<i32, ValidationError> {
+        use diesel::connection::Connection;
+
+        let attempts: i32 = crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+                diesel::update(schedule_executions::table.find(id))
+                    .set((
+                        schedule_executions::recovery_attempts
+                            .eq(schedule_executions::recovery_attempts + 1),
+                        schedule_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                schedule_executions::table
+                    .find(id)
+                    .select(schedule_executions::recovery_attempts)
+                    .first(conn)
+            })
+        })?;
+
+        Ok(attempts)
+    }
+
+    /// Reset the durable recovery attempt count (used after a successful
+    /// re-fire, the durable equivalent of clearing the old in-memory entry).
+    pub async fn reset_recovery_attempts(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let now = UniversalTimestamp::now();
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedule_executions::table.find(id))
+                .set((
+                    schedule_executions::recovery_attempts.eq(0),
+                    schedule_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 
     /// Gets the latest execution for a given schedule.
@@ -616,6 +801,168 @@ mod tests {
             .await
             .unwrap();
         assert!(lost.is_empty());
+    }
+
+    // ── recovery claim + attempt accounting (CLOACI-T-0926) ─────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_recovery_claim_is_exclusive() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let exec = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+
+        let a = UniversalUuid::new_v4();
+        let b = UniversalUuid::new_v4();
+        let window = std::time::Duration::from_secs(120);
+
+        assert_eq!(
+            dal.schedule_execution()
+                .claim_for_recovery(exec.id, a, window)
+                .await
+                .unwrap(),
+            RecoveryClaimResult::Claimed
+        );
+        // Second service loses while A's claim is fresh.
+        assert_eq!(
+            dal.schedule_execution()
+                .claim_for_recovery(exec.id, b, window)
+                .await
+                .unwrap(),
+            RecoveryClaimResult::NotClaimed
+        );
+
+        let row = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
+        assert_eq!(row.recovery_claimed_by, Some(a));
+        assert!(row.recovery_heartbeat_at.is_some());
+
+        // B may not release a claim it does not hold.
+        dal.schedule_execution()
+            .release_recovery_claim(exec.id, b)
+            .await
+            .unwrap();
+        let row = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
+        assert_eq!(row.recovery_claimed_by, Some(a));
+
+        dal.schedule_execution()
+            .release_recovery_claim(exec.id, a)
+            .await
+            .unwrap();
+        let row = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
+        assert!(row.recovery_claimed_by.is_none());
+        assert!(row.recovery_heartbeat_at.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_recovery_claim_rejects_completed_row() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let exec = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+        dal.schedule_execution()
+            .complete(exec.id, Utc::now())
+            .await
+            .unwrap();
+
+        // `completed_at IS NULL` is part of the CAS: a loser holding a stale
+        // snapshot cannot claim (and then re-fire) a finished handoff.
+        assert_eq!(
+            dal.schedule_execution()
+                .claim_for_recovery(
+                    exec.id,
+                    UniversalUuid::new_v4(),
+                    std::time::Duration::from_secs(120)
+                )
+                .await
+                .unwrap(),
+            RecoveryClaimResult::NotClaimed
+        );
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_stale_recovery_claim_can_be_taken_over() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let exec = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+
+        let dead = UniversalUuid::new_v4();
+        let live = UniversalUuid::new_v4();
+        dal.schedule_execution()
+            .claim_for_recovery(exec.id, dead, std::time::Duration::from_secs(120))
+            .await
+            .unwrap();
+
+        // A zero window makes the existing heartbeat stale — what a crashed
+        // owner looks like once `claim_stale_after` has elapsed.
+        assert_eq!(
+            dal.schedule_execution()
+                .claim_for_recovery(exec.id, live, std::time::Duration::ZERO)
+                .await
+                .unwrap(),
+            RecoveryClaimResult::Claimed
+        );
+
+        // The evicted owner's heartbeat no longer lands.
+        assert_eq!(
+            dal.schedule_execution()
+                .recovery_heartbeat(exec.id, dead)
+                .await
+                .unwrap(),
+            RecoveryHeartbeatResult::ClaimLost
+        );
+        assert_eq!(
+            dal.schedule_execution()
+                .recovery_heartbeat(exec.id, live)
+                .await
+                .unwrap(),
+            RecoveryHeartbeatResult::Ok
+        );
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_recovery_attempts_are_durable() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let exec = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+        assert_eq!(exec.recovery_attempts, 0);
+
+        for expected in 1..=3 {
+            assert_eq!(
+                dal.schedule_execution()
+                    .increment_recovery_attempts(exec.id)
+                    .await
+                    .unwrap(),
+                expected
+            );
+        }
+
+        let row = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
+        assert_eq!(row.recovery_attempts, 3);
+
+        dal.schedule_execution()
+            .reset_recovery_attempts(exec.id)
+            .await
+            .unwrap();
+        let row = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
+        assert_eq!(row.recovery_attempts, 0);
     }
 
     // ── get_execution_stats ─────────────────────────────────────────
