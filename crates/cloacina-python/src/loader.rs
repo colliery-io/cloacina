@@ -25,7 +25,6 @@
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use std::path::Path;
-use std::time::Duration;
 
 use super::task::{pop_workflow_context, push_workflow_context};
 use super::workflow_context::PyWorkflowContext;
@@ -33,10 +32,8 @@ use cloacina::runtime::Runtime;
 use cloacina::task::TaskNamespace;
 use std::sync::Arc;
 
+use crate::import_guard::{import_timeout, supervise_import, ImportThreadIdent};
 use crate::runtime_scope::{current_runtime, ScopedRuntime};
-
-/// Default timeout for Python module import (seconds).
-const IMPORT_TIMEOUT_SECS: u64 = 60;
 
 /// Python stdlib module names that must never appear in extracted packages.
 /// A malicious package could shadow these to hijack execution.
@@ -197,6 +194,10 @@ pub fn import_and_register_python_workflow_named(
     tenant_id: &str,
     runtime: Arc<Runtime>,
 ) -> Result<Vec<TaskNamespace>, PythonLoaderError> {
+    // A wedged interpreter cannot run another import — fail fast instead of
+    // parking a thread on a GIL that will never be released (CLOACI-T-0919).
+    crate::import_guard::ensure_python_runtime_usable(package_name)?;
+
     // SECURITY: Check for stdlib shadowing before importing
     validate_no_stdlib_shadowing(workflow_dir, vendor_dir)?;
 
@@ -206,7 +207,13 @@ pub fn import_and_register_python_workflow_named(
     let package_name = package_name.to_string();
     let workflow_name = workflow_name.to_string();
     let tenant_id = tenant_id.to_string();
-    let timeout = Duration::from_secs(IMPORT_TIMEOUT_SECS);
+    let timeout = import_timeout();
+
+    // CLOACI-T-0919: the supervisor needs the import thread's Python thread id
+    // so it can inject an async exception if module-scope code never returns.
+    let ident = ImportThreadIdent::new();
+    let thread_ident = ident.clone();
+    let supervise_label = package_name.clone();
 
     // PyO3 operations must happen on a thread that can acquire the GIL.
     // Wrap in a timeout to catch infinite loops during import.
@@ -223,6 +230,10 @@ pub fn import_and_register_python_workflow_named(
             Some(package_name.as_str()),
         );
         Python::with_gil(|py| {
+            // 0. Publish this thread's Python ident BEFORE any user code runs,
+            //    so a module-scope hang is interruptible (CLOACI-T-0919).
+            thread_ident.record(py);
+
             // 1. Ensure cloaca module is available
             ensure_cloaca_module(py)?;
 
@@ -414,23 +425,9 @@ pub fn import_and_register_python_workflow_named(
         })
     });
 
-    // Wait with timeout — catches infinite loops during import
-    let start = std::time::Instant::now();
-    loop {
-        if handle.is_finished() {
-            let result = handle.join().map_err(|_| {
-                PythonLoaderError::RuntimeError("Python import thread panicked".to_string())
-            })??;
-            return Ok(result);
-        }
-        if start.elapsed() > timeout {
-            return Err(PythonLoaderError::RuntimeError(format!(
-                "Python workflow import timed out after {}s",
-                timeout.as_secs()
-            )));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    // Wait with timeout — and, on timeout, escalate through the interrupt →
+    // surface ladder instead of abandoning a GIL-holding thread (T-0919).
+    supervise_import(&supervise_label, handle, ident, timeout)
 }
 
 /// Import a Python computation graph module and return the graph name.
@@ -451,21 +448,29 @@ pub fn import_python_computation_graph(
     package_name: Option<&str>,
     runtime: Arc<Runtime>,
 ) -> Result<String, PythonLoaderError> {
+    crate::import_guard::ensure_python_runtime_usable(graph_name)?;
     validate_no_stdlib_shadowing(workflow_dir, vendor_dir)?;
 
     let workflow_dir = workflow_dir.to_path_buf();
     let vendor_dir = vendor_dir.to_path_buf();
     let entry_module = entry_module.to_string();
     let graph_name = graph_name.to_string();
+    // CLOACI-T-0921: whose import this is, stamped onto every registration.
     let registration_scope =
         crate::registration_scope::RegistrationScope::new(tenant_id, package_name);
-    let timeout = Duration::from_secs(IMPORT_TIMEOUT_SECS);
+    let timeout = import_timeout();
+
+    // CLOACI-T-0919: same import-hang ladder as the workflow path.
+    let ident = ImportThreadIdent::new();
+    let thread_ident = ident.clone();
+    let supervise_label = graph_name.clone();
 
     let handle = std::thread::spawn(move || -> Result<String, PythonLoaderError> {
         let _scope =
             ScopedRuntime::new(runtime.clone()).map_err(PythonLoaderError::RuntimeError)?;
         let _registration = crate::registration_scope::ScopedRegistration::new(registration_scope);
         Python::with_gil(|py| {
+            thread_ident.record(py);
             ensure_cloaca_module(py)?;
 
             let sys = py.import("sys")?;
@@ -511,22 +516,7 @@ pub fn import_python_computation_graph(
         })
     });
 
-    let start = std::time::Instant::now();
-    loop {
-        if handle.is_finished() {
-            let result = handle.join().map_err(|_| {
-                PythonLoaderError::RuntimeError("Python CG import thread panicked".to_string())
-            })??;
-            return Ok(result);
-        }
-        if start.elapsed() > timeout {
-            return Err(PythonLoaderError::RuntimeError(format!(
-                "Python CG import timed out after {}s",
-                timeout.as_secs()
-            )));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    supervise_import(&supervise_label, handle, ident, timeout)
 }
 
 /// Python binding: `cloaca.var(name)` — resolve a `CLOACINA_VAR_{NAME}` env var.

@@ -16,9 +16,10 @@
 
 use super::workflow_context::PyWorkflowContext;
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -83,29 +84,119 @@ pub struct WorkflowBuilderRef {
     pub context: PyWorkflowContext,
 }
 
-/// Global context stack for workflow-scoped task registration
-static WORKFLOW_CONTEXT_STACK: Mutex<Vec<WorkflowBuilderRef>> = Mutex::new(Vec::new());
+// ---------------------------------------------------------------------------
+// Workflow context stack (CLOACI-T-0919)
+// ---------------------------------------------------------------------------
+//
+// This stack is the NAMESPACE SOURCE for `@task` / `@cloaca.constructor`: the
+// tenant/package/workflow triple a decorator registers under. It used to be a
+// process-global `Mutex<Vec<_>>`, which was only safe because the reconciler
+// happens to serialize package loads — two concurrent imports would have
+// interleaved pushes and silently mis-namespaced each other's tasks (a task
+// landing in the wrong tenant, not an error).
+//
+// It is now thread-local, matching the registration TARGET seam
+// (`runtime_scope::ScopedRuntime`), so a namespace can never leak across
+// threads. Every producer/consumer is import-time and single-threaded
+// (`WorkflowBuilder.__enter__`/`__exit__`, the loader's push around
+// `py.import`, `TaskDecorator::__call__`, `constructor()`), so this is a
+// tightening, not a behavior change — except that concurrent loads are now
+// correct instead of accidentally correct.
 
-/// Push a workflow context onto the stack (called when entering workflow scope)
+/// Per-thread stack. The `Drop` impl exists so an import thread that dies
+/// mid-scope (e.g. the T-0919 timeout interrupt unwinding a hung import) does
+/// not leave `ACTIVE_CONTEXT_PUSHES` permanently inflated, which would make
+/// every later "no context" error claim a cross-thread problem that isn't one.
+struct ContextStack(RefCell<Vec<WorkflowBuilderRef>>);
+
+impl Drop for ContextStack {
+    fn drop(&mut self) {
+        let remaining = self.0.borrow().len();
+        if remaining > 0 {
+            ACTIVE_CONTEXT_PUSHES.fetch_sub(remaining, Ordering::SeqCst);
+        }
+    }
+}
+
+thread_local! {
+    static WORKFLOW_CONTEXT_STACK: ContextStack =
+        const { ContextStack(RefCell::new(Vec::new())) };
+}
+
+/// Number of contexts pushed process-wide, across all threads. Used ONLY to
+/// turn the "no context on this thread" error into a specific, actionable
+/// cross-thread diagnosis instead of the generic "you forgot the context
+/// manager" message.
+static ACTIVE_CONTEXT_PUSHES: AtomicUsize = AtomicUsize::new(0);
+
+/// Push a workflow context onto this THREAD's stack (called when entering
+/// workflow scope). The matching [`pop_workflow_context`] must run on the same
+/// thread — decorated modules are imported on one thread by construction.
 pub fn push_workflow_context(context: PyWorkflowContext) {
-    WORKFLOW_CONTEXT_STACK
-        .lock()
-        .push(WorkflowBuilderRef { context });
+    ACTIVE_CONTEXT_PUSHES.fetch_add(1, Ordering::SeqCst);
+    WORKFLOW_CONTEXT_STACK.with(|stack| stack.0.borrow_mut().push(WorkflowBuilderRef { context }));
 }
 
-/// Pop a workflow context from the stack (called when exiting workflow scope)
+/// Pop a workflow context from this thread's stack (called when exiting
+/// workflow scope).
 pub fn pop_workflow_context() -> Option<WorkflowBuilderRef> {
-    WORKFLOW_CONTEXT_STACK.lock().pop()
+    let popped = WORKFLOW_CONTEXT_STACK.with(|stack| stack.0.borrow_mut().pop());
+    if popped.is_some() {
+        ACTIVE_CONTEXT_PUSHES.fetch_sub(1, Ordering::SeqCst);
+    } else {
+        // A pop with nothing to pop is either unbalanced `__exit__` handling
+        // or a pop on the wrong thread. Neither is recoverable state, but it
+        // is not worth aborting a load over — say so loudly instead.
+        debug_assert!(
+            false,
+            "pop_workflow_context() on a thread with no workflow context — \
+             unbalanced push/pop, or the pop ran on a different thread than \
+             the push (CLOACI-T-0919)"
+        );
+        tracing::warn!(
+            "pop_workflow_context() called with no context on this thread \
+             (unbalanced push/pop, or cross-thread use)"
+        );
+    }
+    popped
 }
 
-/// Get the current workflow context (used by task decorator)
+/// Get the current workflow context (used by the task decorator).
+///
+/// Errors when this thread has no context. If some OTHER thread does, the
+/// error says so explicitly — that is the cross-thread misuse the global stack
+/// used to paper over by handing back a foreign namespace.
 pub fn current_workflow_context() -> PyResult<PyWorkflowContext> {
-    let stack = WORKFLOW_CONTEXT_STACK.lock();
-    stack.last().map(|ref_| ref_.context.clone()).ok_or_else(|| {
-        PyValueError::new_err(
-            "No workflow context available. Tasks must be defined within a WorkflowBuilder context manager."
-        )
-    })
+    let local =
+        WORKFLOW_CONTEXT_STACK.with(|stack| stack.0.borrow().last().map(|r| r.context.clone()));
+    if let Some(context) = local {
+        return Ok(context);
+    }
+
+    if ACTIVE_CONTEXT_PUSHES.load(Ordering::SeqCst) > 0 {
+        // Deliberately a hard error in EVERY build rather than a
+        // `debug_assert!` panic: this is reachable from user Python code
+        // (a module that spawns a thread and decorates from it), and a
+        // panic across the pyo3 boundary is strictly worse than a raised
+        // exception. The debug assertion for genuine internal misuse lives
+        // on the pop path, which user code cannot reach.
+        tracing::error!(
+            "cross-thread workflow-context use — a @task/constructor decorator ran on a \
+             thread with no workflow context while another thread holds one (CLOACI-T-0919)"
+        );
+        return Err(PyValueError::new_err(
+            "No workflow context on this thread, but one is active on a DIFFERENT thread. \
+             The workflow context is thread-local: `@task`/`cloaca.constructor` must be \
+             evaluated on the same thread that entered the WorkflowBuilder scope (i.e. at \
+             module scope during import), never from a thread spawned by the module. \
+             Registering from another thread would silently namespace the task under the \
+             wrong tenant/package.",
+        ));
+    }
+
+    Err(PyValueError::new_err(
+        "No workflow context available. Tasks must be defined within a WorkflowBuilder context manager.",
+    ))
 }
 
 /// Optional `@cloaca.task(invokes=..., post_invocation=...)` plumbing.
