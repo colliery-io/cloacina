@@ -347,6 +347,7 @@ use cloacina::computation_graph::scheduler::{
     AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig,
     ComputationGraphDeclaration, ComputationGraphScheduler, ReactorDeclaration,
 };
+use cloacina::tenant_scope::TenantScope;
 use tokio::sync::mpsc as tokio_mpsc;
 use tokio::task::JoinHandle;
 
@@ -499,7 +500,10 @@ async fn test_computation_graph_scheduler_end_to_end() {
     );
 
     // Unload
-    scheduler.unload_graph("scheduler_test").await.unwrap();
+    scheduler
+        .unload_graph("scheduler_test", TenantScope::untenanted())
+        .await
+        .unwrap();
 
     // Registry should be empty
     assert!(registry.list_reactors().await.is_empty());
@@ -2566,6 +2570,7 @@ async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
+    use cloacina::tenant_scope::TenantScope;
     use cloacina::{ComputationReactionMode, ReactorRegistration};
     use cloacina_computation_graph::CompiledGraphFn;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -2626,7 +2631,7 @@ async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
     );
 
     scheduler
-        .unload_graph("cloaci_t_0538_split_scheduler")
+        .unload_graph("cloaci_t_0538_split_scheduler", TenantScope::untenanted())
         .await
         .expect("unload should succeed");
 }
@@ -2715,6 +2720,7 @@ async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
+    use cloacina::tenant_scope::TenantScope;
     use cloacina::{ComputationReactionMode, ReactorRegistration};
     use cloacina_computation_graph::CompiledGraphFn;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -2798,7 +2804,10 @@ async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
 
     // Unloading g1 leaves the reactor running for g2; another event still
     // fires g2.
-    scheduler.unload_graph("g1").await.unwrap();
+    scheduler
+        .unload_graph("g1", TenantScope::untenanted())
+        .await
+        .unwrap();
     registry
         .send_to_accumulator(
             "alpha",
@@ -2823,7 +2832,10 @@ async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
     );
 
     // Unloading g2 (the last subscriber) tears down the reactor.
-    scheduler.unload_graph("g2").await.unwrap();
+    scheduler
+        .unload_graph("g2", TenantScope::untenanted())
+        .await
+        .unwrap();
     assert!(scheduler.list_graphs().await.is_empty());
 }
 
@@ -2893,7 +2905,10 @@ async fn test_cloaci_t_0544_contract_mismatch_rejected() {
         "error should pinpoint the criteria mismatch: {err}"
     );
 
-    scheduler.unload_graph("first").await.unwrap();
+    scheduler
+        .unload_graph("first", TenantScope::untenanted())
+        .await
+        .unwrap();
 }
 
 /// Dispatch is concurrent: a slow subscriber doesn't push out the fast one's
@@ -2907,6 +2922,7 @@ async fn test_cloaci_t_0544_dispatch_is_concurrent() {
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
+    use cloacina::tenant_scope::TenantScope;
     use cloacina::{ComputationReactionMode, ReactorRegistration};
     use cloacina_computation_graph::CompiledGraphFn;
     use std::sync::atomic::{AtomicI64, Ordering};
@@ -3013,8 +3029,14 @@ async fn test_cloaci_t_0544_dispatch_is_concurrent() {
         "slow subscriber should still take ~200ms (slow={slow_ms}ms)"
     );
 
-    scheduler.unload_graph("fast").await.unwrap();
-    scheduler.unload_graph("slow").await.unwrap();
+    scheduler
+        .unload_graph("fast", TenantScope::untenanted())
+        .await
+        .unwrap();
+    scheduler
+        .unload_graph("slow", TenantScope::untenanted())
+        .await
+        .unwrap();
 }
 
 /// T-0545 M1: the new public `load_reactor` + `bind_graph_to_reactor` API
@@ -3027,6 +3049,7 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
+    use cloacina::tenant_scope::TenantScope;
     use cloacina_computation_graph::CompiledGraphFn;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -3118,6 +3141,7 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
         .bind_graph_to_reactor(
             "g1".to_string(),
             "cloaci_t_0545_standalone_reactor".to_string(),
+            TenantScope::untenanted(),
             graph_fn,
         )
         .await
@@ -3143,15 +3167,26 @@ async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
         Box::pin(async { cloacina::computation_graph::GraphResult::completed(vec![]) })
     });
     let err = scheduler
-        .bind_graph_to_reactor("g2".to_string(), "no_such_reactor".to_string(), dummy)
+        .bind_graph_to_reactor(
+            "g2".to_string(),
+            "no_such_reactor".to_string(),
+            TenantScope::untenanted(),
+            dummy,
+        )
         .await
         .expect_err("bind to missing reactor should error");
     assert!(err.contains("not loaded"));
 
     // Cleanup via M4 primitives.
-    scheduler.unbind_graph_from_reactor("g1").await.unwrap();
     scheduler
-        .unload_reactor("cloaci_t_0545_standalone_reactor")
+        .unbind_graph_from_reactor("g1", TenantScope::untenanted())
+        .await
+        .unwrap();
+    scheduler
+        .unload_reactor(
+            "cloaci_t_0545_standalone_reactor",
+            TenantScope::untenanted(),
+        )
         .await
         .unwrap();
 }
@@ -3165,6 +3200,7 @@ async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
+    use cloacina::tenant_scope::TenantScope;
     use cloacina::{ComputationReactionMode, ReactorRegistration};
     use cloacina_computation_graph::CompiledGraphFn;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -3210,8 +3246,12 @@ async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
         .unwrap();
 
     // Unbind: subscriber removed, reactor still alive.
-    let reactor = scheduler.unbind_graph_from_reactor("g").await.unwrap();
-    assert_eq!(reactor, "cloaci_t_0544_unbind_reactor");
+    let reactor = scheduler
+        .unbind_graph_from_reactor("g", TenantScope::untenanted())
+        .await
+        .unwrap();
+    assert_eq!(reactor.name, "cloaci_t_0544_unbind_reactor");
+    assert_eq!(reactor.tenant_id, None);
     assert!(scheduler.list_graphs().await.is_empty());
 
     // Attach a new subscriber to the same reactor — should bind to the
@@ -3242,9 +3282,12 @@ async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
     );
 
     // Cleanup: explicit reactor teardown after unbinding the last subscriber.
-    scheduler.unbind_graph_from_reactor("later").await.unwrap();
     scheduler
-        .unload_reactor("cloaci_t_0544_unbind_reactor")
+        .unbind_graph_from_reactor("later", TenantScope::untenanted())
+        .await
+        .unwrap();
+    scheduler
+        .unload_reactor("cloaci_t_0544_unbind_reactor", TenantScope::untenanted())
         .await
         .expect("unload_reactor with no subscribers should succeed");
 }
@@ -3296,7 +3339,7 @@ async fn test_cloaci_t_0544_unload_reactor_rejects_with_subscribers() {
         .unwrap();
 
     let err = scheduler
-        .unload_reactor("cloaci_t_0544_busy_reactor")
+        .unload_reactor("cloaci_t_0544_busy_reactor", TenantScope::untenanted())
         .await
         .expect_err("unload_reactor with bound subscribers should reject");
     assert!(
@@ -3311,15 +3354,15 @@ async fn test_cloaci_t_0544_unload_reactor_rejects_with_subscribers() {
     // Reactor still running — unbind both subscribers explicitly, then
     // unload_reactor succeeds.
     scheduler
-        .unbind_graph_from_reactor("subscriber_a")
+        .unbind_graph_from_reactor("subscriber_a", TenantScope::untenanted())
         .await
         .unwrap();
     scheduler
-        .unbind_graph_from_reactor("subscriber_b")
+        .unbind_graph_from_reactor("subscriber_b", TenantScope::untenanted())
         .await
         .unwrap();
     scheduler
-        .unload_reactor("cloaci_t_0544_busy_reactor")
+        .unload_reactor("cloaci_t_0544_busy_reactor", TenantScope::untenanted())
         .await
         .expect("unload_reactor should succeed once subscribers are unbound");
 }
@@ -3526,6 +3569,7 @@ async fn test_cloaci_t_0921_cross_tenant_accumulator_isolation() {
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
+    use cloacina::tenant_scope::TenantScope;
     use cloacina_computation_graph::CompiledGraphFn;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -3568,6 +3612,7 @@ async fn test_cloaci_t_0921_cross_tenant_accumulator_isolation() {
         .bind_graph_to_reactor(
             "t0921_g_a".to_string(),
             "t0921_rx_a".to_string(),
+            TenantScope::tenant("acme"),
             mk_fn(a_fires.clone()),
         )
         .await
@@ -3576,6 +3621,7 @@ async fn test_cloaci_t_0921_cross_tenant_accumulator_isolation() {
         .bind_graph_to_reactor(
             "t0921_g_b".to_string(),
             "t0921_rx_b".to_string(),
+            TenantScope::tenant("globex"),
             mk_fn(b_fires.clone()),
         )
         .await
@@ -3620,7 +3666,10 @@ async fn test_cloaci_t_0921_cross_tenant_accumulator_isolation() {
     );
 
     // ---- Unload tenant A; tenant B survives ----
-    scheduler.unload_graph("t0921_g_a").await.unwrap();
+    scheduler
+        .unload_graph("t0921_g_a", TenantScope::tenant("acme"))
+        .await
+        .unwrap();
 
     initech = registry
         .send_to_accumulator(
@@ -3651,7 +3700,10 @@ async fn test_cloaci_t_0921_cross_tenant_accumulator_isolation() {
         "tenant B's graph still fires after tenant A unloaded"
     );
 
-    scheduler.unload_graph("t0921_g_b").await.unwrap();
+    scheduler
+        .unload_graph("t0921_g_b", TenantScope::tenant("globex"))
+        .await
+        .unwrap();
 }
 
 /// Two packages in the SAME tenant claiming one accumulator name is a LOUD
@@ -3663,6 +3715,7 @@ async fn test_cloaci_t_0921_same_tenant_duplicate_accumulator_rejected() {
     use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphScheduler,
     };
+    use cloacina::tenant_scope::TenantScope;
 
     let registry = EndpointRegistry::new();
     let scheduler = ComputationGraphScheduler::new(registry.clone());
@@ -3718,5 +3771,8 @@ async fn test_cloaci_t_0921_same_tenant_duplicate_accumulator_rejected() {
         "the rejected load must unwind its reactor registration"
     );
 
-    scheduler.unload_reactor("t0921_first_rx").await.unwrap();
+    scheduler
+        .unload_reactor("t0921_first_rx", TenantScope::tenant("acme"))
+        .await
+        .unwrap();
 }

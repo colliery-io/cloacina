@@ -772,9 +772,14 @@ impl DefaultRunnerBuilder {
         // Resolve runtime: prefer a caller-supplied Arc (so shared state with
         // e.g. Python ScopedRuntime is preserved), else wrap a by-value
         // Runtime, else create a fresh inventory-seeded one.
-        let runtime = self
-            .runtime_arc
-            .unwrap_or_else(|| Arc::new(self.runtime.unwrap_or_default()));
+        // CLOACI-T-0924: bind the handle to this runner's tenant. The caller's
+        // registries are still shared (only the scope differs), so a handle the
+        // caller kept — a Python `ScopedRuntime`, say — sees the same entries.
+        let runtime = Arc::new(
+            self.runtime_arc
+                .unwrap_or_else(|| Arc::new(self.runtime.unwrap_or_default()))
+                .scoped_to_tenant(self.config.tenant_id()),
+        );
 
         // Create scheduler with the scoped runtime
         let scheduler = TaskScheduler::with_poll_interval(

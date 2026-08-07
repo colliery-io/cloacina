@@ -154,7 +154,19 @@ impl DefaultRunner {
         shared_runtime: Option<Arc<Runtime>>,
         secret_resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
     ) -> Result<Self, WorkflowExecutionError> {
-        let runtime = shared_runtime.unwrap_or_else(|| Arc::new(Runtime::new()));
+        // CLOACI-T-0924: `cloacina-server` hands EVERY tenant's runner the same
+        // `Runtime` allocation (`TenantRunnerCache::shared_runtime`), so bind
+        // this runner's handle to its own tenant. The registries underneath are
+        // keyed `(tenant, name)`; everything this constructor builds
+        // (TaskScheduler, ThreadTaskExecutor, and later the reconciler and cron
+        // scheduler) clones the handle and therefore inherits the scope, so two
+        // tenants shipping a workflow called `pipeline` no longer collide.
+        // Registries stay shared — only the view differs.
+        let runtime = Arc::new(
+            shared_runtime
+                .unwrap_or_else(|| Arc::new(Runtime::new()))
+                .scoped_to_tenant(config.tenant_id()),
+        );
 
         // Create scheduler with the scoped runtime
         let scheduler =

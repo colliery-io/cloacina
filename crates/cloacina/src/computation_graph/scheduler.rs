@@ -34,6 +34,7 @@ use super::reactor::{
 };
 use super::registry::{AccumulatorAuthPolicy, EndpointRegistry, ReactorAuthPolicy};
 use super::types::{GraphResult, InputCache, SourceName};
+use crate::tenant_scope::{resolve_tenant_key, TenantKey, TenantScope};
 
 /// Declaration of a computation graph to be loaded by the [`ComputationGraphScheduler`].
 #[derive(Clone)]
@@ -469,7 +470,9 @@ enum PlannedRestart {
     /// The reactor task exited — full-graph restart (new channels,
     /// re-spawned accumulators + reactor).
     Reactor {
-        reactor_name: String,
+        /// Full `(tenant, name)` key of the reactor to restart
+        /// (CLOACI-T-0924).
+        reactor_key: TenantKey,
         /// `"{reactor}::reactor"` — recovery-event component key.
         component_key: String,
         /// Failure count at detection time (drives the recovery event).
@@ -481,7 +484,7 @@ enum PlannedRestart {
     },
     /// An accumulator task exited — in-place respawn.
     Accumulator {
-        reactor_name: String,
+        reactor_key: TenantKey,
         acc_name: String,
         component_key: String,
         attempt: u32,
@@ -499,18 +502,27 @@ pub struct ComputationGraphScheduler {
     /// the server swaps in its fleet executor under `--default-executor
     /// fleet`. Applied to every reactor spawned (and re-spawned) after set.
     graph_executor: Arc<RwLock<Arc<dyn super::graph_executor::GraphExecutor>>>,
-    /// Running reactors, keyed by reactor name. Each reactor owns a subscriber
-    /// map that may contain one or more graphs sharing this reactor instance.
-    reactors: Arc<RwLock<HashMap<String, RunningGraph>>>,
-    /// Maps graph_name → reactor_name so external operations that take a
+    /// Running reactors, keyed by `(tenant, reactor name)`. Each reactor owns a
+    /// subscriber map that may contain one or more graphs sharing this reactor
+    /// instance.
+    ///
+    /// CLOACI-T-0924: ONE scheduler `Arc` serves every tenant
+    /// (`cloacina-server`'s `TenantRunnerCache` installs the same instance on
+    /// every per-tenant runner), so the tenant has to be in the key — bare
+    /// names let two tenants' same-named reactors collide in-process.
+    /// `tenant_id: None` is the embedded/untenanted entry.
+    reactors: Arc<RwLock<HashMap<TenantKey, RunningGraph>>>,
+    /// Maps graph key → reactor key so external operations that take a
     /// graph_name (`unload_graph`, `list_graphs`) can find the reactor that
-    /// hosts it.
-    graph_to_reactor: Arc<RwLock<HashMap<String, String>>>,
-    /// Maps graph_name → serialized node/edge topology JSON, captured from the
+    /// hosts it. The *value* is a full key, not a name, so a subscriber in one
+    /// tenant that bound to an untenanted upstream reactor still points at the
+    /// exact reactor entry it bound to.
+    graph_to_reactor: Arc<RwLock<HashMap<TenantKey, TenantKey>>>,
+    /// Maps graph key → serialized node/edge topology JSON, captured from the
     /// declaration at load so the health API can surface the CG DAG without
     /// digging through the synthetic per-reactor anchor declaration.
     /// (CLOACI-T-0673)
-    graph_topologies: Arc<RwLock<HashMap<String, String>>>,
+    graph_topologies: Arc<RwLock<HashMap<TenantKey, String>>>,
     /// DAL handle for persistence. None in embedded/test mode.
     dal: Option<crate::dal::unified::DAL>,
 }
@@ -612,10 +624,18 @@ impl ComputationGraphScheduler {
         provider_root: Option<&std::path::Path>,
     ) -> Result<(), String> {
         let provider_root = provider_root.map(|p| p.to_path_buf());
+
+        // CLOACI-T-0924: a load is a CLAIM, so it addresses the caller's own
+        // `(tenant, name)` key exactly — never the untenanted fallback. A
+        // tenant loading `R` gets its own `R` even if an untenanted `R` is
+        // already running; with `tenant_id: None` (embedded) the key IS the
+        // bare name, so this path is byte-for-byte what it was.
+        let reactor_key = TenantKey::new(tenant_id.as_deref(), &reactor_name);
+
         // Idempotent path: matching contract → no-op.
         {
             let reactors = self.reactors.read().await;
-            if let Some(existing) = reactors.get(&reactor_name) {
+            if let Some(existing) = reactors.get(&reactor_key) {
                 let probe = ComputationGraphDeclaration {
                     name: reactor_name.clone(),
                     accumulators: accumulators.clone(),
@@ -889,7 +909,7 @@ impl ComputationGraphScheduler {
             evaluator,
         };
 
-        self.reactors.write().await.insert(reactor_name, running);
+        self.reactors.write().await.insert(reactor_key, running);
         Ok(())
     }
 
@@ -899,38 +919,61 @@ impl ComputationGraphScheduler {
     /// transitively via [`load_graph`]); this entry point doesn't spawn
     /// reactors. Returns an error if the reactor isn't loaded or if a graph
     /// with the same name is already bound somewhere.
+    ///
+    /// CLOACI-T-0924: `scope` is the *binding tenant*. The graph is claimed
+    /// under `scope`'s own key, while the upstream reactor is **resolved**
+    /// within `scope` — own tenant first, then the untenanted (embedded /
+    /// pre-multi-tenancy) reactor. A tenant can therefore subscribe to an
+    /// untenanted upstream, but never to another tenant's.
     pub async fn bind_graph_to_reactor(
         &self,
         graph_name: String,
         reactor_name: String,
+        scope: TenantScope<'_>,
         graph_fn: CompiledGraphFn,
     ) -> Result<(), String> {
+        let graph_key = scope.own_key(&graph_name);
         {
             let g2r = self.graph_to_reactor.read().await;
-            if g2r.contains_key(&graph_name) {
+            if g2r.contains_key(&graph_key) {
                 return Err(format!("graph '{}' already loaded", graph_name));
             }
         }
 
-        {
+        let reactor_key = {
             let reactors = self.reactors.read().await;
+            let reactor_key = resolve_tenant_key(&*reactors, scope, &reactor_name)
+                .map_err(|_| format!("reactor '{}' is not loaded", reactor_name))?;
             let existing = reactors
-                .get(&reactor_name)
+                .get(&reactor_key)
                 .ok_or_else(|| format!("reactor '{}' is not loaded", reactor_name))?;
-            existing
-                .subscribers
-                .write()
-                .await
-                .insert(graph_name.clone(), graph_fn);
-        }
+            let mut subs = existing.subscribers.write().await;
+            // The per-reactor subscriber map is keyed by bare graph name (the
+            // dispatcher labels results with it). The `graph_to_reactor`
+            // pre-check above already rejects a same-tenant duplicate, so a
+            // name that is still present here means a DIFFERENT tenant bound a
+            // same-named graph to this same (necessarily untenanted) reactor.
+            // Refuse loudly rather than silently replacing their graph_fn.
+            if subs.contains_key(&graph_name) {
+                return Err(format!(
+                    "graph '{}' is already bound to reactor '{}' by another tenant; \
+                     rename the graph or load a tenant-scoped reactor",
+                    graph_name, reactor_name
+                ));
+            }
+            subs.insert(graph_name.clone(), graph_fn);
+            drop(subs);
+            reactor_key
+        };
         self.graph_to_reactor
             .write()
             .await
-            .insert(graph_name.clone(), reactor_name.clone());
+            .insert(graph_key, reactor_key);
 
         info!(
             graph = %graph_name,
             reactor = %reactor_name,
+            tenant = %scope.tenant_id.unwrap_or("<untenanted>"),
             "graph bound to reactor"
         );
         Ok(())
@@ -966,14 +1009,20 @@ impl ComputationGraphScheduler {
             .reactor_name
             .clone()
             .unwrap_or_else(|| format!("__Reactor_{}", name));
+        // CLOACI-T-0924: the declaration's tenant is the scope for everything
+        // this load claims. `None` (embedded / bundled-form tests) keeps the
+        // untenanted keys the pre-T-0924 code used.
+        let scope = TenantScope::of(decl.tenant_id.as_deref());
+        let graph_key = scope.own_key(&name);
 
         // Pre-check: reject re-loading the same graph regardless of which
         // reactor it was bound to. (load_reactor + bind_graph_to_reactor
         // would catch this too, but doing it here keeps the error message
-        // precise.)
+        // precise.) Scoped to this tenant — another tenant's same-named graph
+        // is a different entry entirely.
         {
             let g2r = self.graph_to_reactor.read().await;
-            if g2r.contains_key(&name) {
+            if g2r.contains_key(&graph_key) {
                 return Err(format!("graph '{}' already loaded", name));
             }
         }
@@ -987,7 +1036,7 @@ impl ComputationGraphScheduler {
             self.graph_topologies
                 .write()
                 .await
-                .insert(name.clone(), topology);
+                .insert(graph_key.clone(), topology);
         }
 
         // Cross-package subscriber path: when the named reactor is
@@ -1001,11 +1050,11 @@ impl ComputationGraphScheduler {
         if decl.reactor_name.is_some() && decl.accumulators.is_empty() {
             let already_loaded = {
                 let reactors = self.reactors.read().await;
-                reactors.contains_key(&reactor_name)
+                resolve_tenant_key(&*reactors, scope, &reactor_name).is_ok()
             };
             if already_loaded {
                 return self
-                    .bind_graph_to_reactor(name, reactor_name, decl.reactor.graph_fn)
+                    .bind_graph_to_reactor(name, reactor_name, scope, decl.reactor.graph_fn)
                     .await;
             }
         }
@@ -1026,7 +1075,7 @@ impl ComputationGraphScheduler {
         )
         .await?;
 
-        self.bind_graph_to_reactor(name, reactor_name, decl.reactor.graph_fn)
+        self.bind_graph_to_reactor(name, reactor_name, scope, decl.reactor.graph_fn)
             .await
     }
 
@@ -1096,18 +1145,28 @@ impl ComputationGraphScheduler {
     /// accumulators) keeps running, ready for new subscribers. This is the
     /// honest lifecycle primitive — reactors are independent units; binding
     /// and unbinding subscribers is decoupled from reactor teardown.
-    pub async fn unbind_graph_from_reactor(&self, name: &str) -> Result<String, String> {
-        let reactor_name = {
+    ///
+    /// CLOACI-T-0924: `name` is resolved within `scope` (own tenant, then the
+    /// untenanted entry), so a caller can only unbind a graph it can see.
+    /// Returns the full [`TenantKey`] of the reactor the graph was bound to.
+    pub async fn unbind_graph_from_reactor(
+        &self,
+        name: &str,
+        scope: TenantScope<'_>,
+    ) -> Result<TenantKey, String> {
+        let reactor_key = {
             let mut g2r = self.graph_to_reactor.write().await;
-            g2r.remove(name)
+            let graph_key = resolve_tenant_key(&*g2r, scope, name)
+                .map_err(|_| format!("graph '{}' not loaded", name))?;
+            // Drop the cached topology for this graph. (CLOACI-T-0673)
+            self.graph_topologies.write().await.remove(&graph_key);
+            g2r.remove(&graph_key)
                 .ok_or_else(|| format!("graph '{}' not loaded", name))?
         };
-        // Drop the cached topology for this graph. (CLOACI-T-0673)
-        self.graph_topologies.write().await.remove(name);
 
         let remaining = {
             let reactors = self.reactors.read().await;
-            if let Some(running) = reactors.get(&reactor_name) {
+            if let Some(running) = reactors.get(&reactor_key) {
                 let mut subs = running.subscribers.write().await;
                 subs.remove(name);
                 subs.len()
@@ -1116,18 +1175,18 @@ impl ComputationGraphScheduler {
                 // an error rather than silently no-oping.
                 return Err(format!(
                     "graph '{}' was bound to reactor '{}' but the reactor is not loaded",
-                    name, reactor_name
+                    name, reactor_key.name
                 ));
             }
         };
 
         info!(
             graph = %name,
-            reactor = %reactor_name,
+            reactor = %reactor_key,
             remaining_subscribers = remaining,
             "graph unbound from reactor"
         );
-        Ok(reactor_name)
+        Ok(reactor_key)
     }
 
     /// Tear down a reactor and its accumulators. Rejects if the reactor has
@@ -1135,12 +1194,25 @@ impl ComputationGraphScheduler {
     /// is the lifecycle guard that makes "reactors as independent units"
     /// safe: a reactor never disappears out from under a graph that's still
     /// declaring it as an upstream.
-    pub async fn unload_reactor(&self, reactor_name: &str) -> Result<(), String> {
+    ///
+    /// CLOACI-T-0924: `reactor_name` is resolved within `scope`. A tenant can
+    /// only tear down its own reactor (or an untenanted one it can already
+    /// address); another tenant's same-named reactor is simply "not loaded".
+    pub async fn unload_reactor(
+        &self,
+        reactor_name: &str,
+        scope: TenantScope<'_>,
+    ) -> Result<(), String> {
         // Snapshot subscribers under read lock so we can build a precise
         // error message if any remain.
+        let reactor_key = {
+            let reactors = self.reactors.read().await;
+            resolve_tenant_key(&*reactors, scope, reactor_name)
+                .map_err(|_| format!("reactor '{}' not loaded", reactor_name))?
+        };
         let subscriber_names: Vec<String> = {
             let reactors = self.reactors.read().await;
-            match reactors.get(reactor_name) {
+            match reactors.get(&reactor_key) {
                 Some(running) => running.subscribers.read().await.keys().cloned().collect(),
                 None => return Err(format!("reactor '{}' not loaded", reactor_name)),
             }
@@ -1157,7 +1229,7 @@ impl ComputationGraphScheduler {
         let running = {
             let mut reactors = self.reactors.write().await;
             reactors
-                .remove(reactor_name)
+                .remove(&reactor_key)
                 .ok_or_else(|| format!("reactor '{}' not loaded", reactor_name))?
         };
 
@@ -1202,22 +1274,29 @@ impl ComputationGraphScheduler {
     /// `unload_graph(name)` removes everything the matching `load_graph`
     /// brought in). For independent reactor lifecycles, prefer
     /// [`unbind_graph_from_reactor`] + explicit [`unload_reactor`].
-    pub async fn unload_graph(&self, name: &str) -> Result<(), String> {
-        let reactor_name = self.unbind_graph_from_reactor(name).await?;
+    pub async fn unload_graph(&self, name: &str, scope: TenantScope<'_>) -> Result<(), String> {
+        let reactor_key = self.unbind_graph_from_reactor(name, scope).await?;
 
         // If subscribers are now empty, tear down the reactor for back-compat
         // with bundled-form callers.
         let now_empty = {
             let reactors = self.reactors.read().await;
-            match reactors.get(&reactor_name) {
+            match reactors.get(&reactor_key) {
                 Some(running) => running.subscribers.read().await.is_empty(),
                 None => false,
             }
         };
         if now_empty {
-            self.unload_reactor(&reactor_name).await?;
+            // Address the reactor in ITS own scope — a tenant graph bound to
+            // an untenanted upstream must still resolve back to that exact
+            // entry, not to a same-named one in the caller's tenant.
+            self.unload_reactor(
+                &reactor_key.name,
+                TenantScope::of(reactor_key.tenant_id.as_deref()),
+            )
+            .await?;
         }
-        info!(graph = %name, reactor = %reactor_name, "computation graph unloaded");
+        info!(graph = %name, reactor = %reactor_key, "computation graph unloaded");
         Ok(())
     }
 
@@ -1225,9 +1304,14 @@ impl ComputationGraphScheduler {
     /// order. Returns `None` if the reactor isn't loaded. Used by the
     /// reconciler to pre-validate cross-package subscriber bindings against
     /// the upstream reactor's contract before calling [`load_graph`].
-    pub async fn reactor_accumulator_names(&self, reactor_name: &str) -> Option<Vec<String>> {
+    pub async fn reactor_accumulator_names(
+        &self,
+        reactor_name: &str,
+        scope: TenantScope<'_>,
+    ) -> Option<Vec<String>> {
         let reactors = self.reactors.read().await;
-        reactors.get(reactor_name).map(|running| {
+        let key = resolve_tenant_key(&*reactors, scope, reactor_name).ok()?;
+        reactors.get(&key).map(|running| {
             running
                 .accumulator_handles
                 .iter()
@@ -1244,9 +1328,9 @@ impl ComputationGraphScheduler {
         let reactors = self.reactors.read().await;
         let topologies = self.graph_topologies.read().await;
         g2r.iter()
-            .filter_map(|(graph_name, reactor_name)| {
-                reactors.get(reactor_name).map(|running| GraphStatus {
-                    name: graph_name.clone(),
+            .filter_map(|(graph_key, reactor_key)| {
+                reactors.get(reactor_key).map(|running| GraphStatus {
+                    name: graph_key.name.clone(),
                     accumulators: running
                         .accumulator_handles
                         .iter()
@@ -1258,8 +1342,11 @@ impl ComputationGraphScheduler {
                         .reactor_health_rx
                         .as_ref()
                         .map(|rx| rx.borrow().clone()),
-                    tenant_id: running.declaration.tenant_id.clone(),
-                    topology: topologies.get(graph_name).cloned(),
+                    // CLOACI-T-0924: the key is now the authority on tenancy —
+                    // it is what isolation is enforced on. (It matches the
+                    // declaration's `tenant_id`, which set it at load.)
+                    tenant_id: graph_key.tenant_id.clone(),
+                    topology: topologies.get(graph_key).cloned(),
                     reactor: running.declaration.reactor_name.clone(),
                     reaction_mode: match running.declaration.reactor.criteria {
                         ReactionCriteria::WhenAny => "when_any".to_string(),
@@ -1285,15 +1372,15 @@ impl ComputationGraphScheduler {
         let g2r = self.graph_to_reactor.read().await;
         reactors
             .iter()
-            .map(|(reactor_name, running)| {
+            .map(|(reactor_key, running)| {
                 let bound_graphs: Vec<String> = g2r
                     .iter()
-                    .filter(|(_, r)| *r == reactor_name)
-                    .map(|(g, _)| g.clone())
+                    .filter(|(_, r)| *r == reactor_key)
+                    .map(|(g, _)| g.name.clone())
                     .collect();
                 let (fires, last_fire_unix_ms) = running.reactor_shared.stats();
                 ReactorStatus {
-                    name: reactor_name.clone(),
+                    name: reactor_key.name.clone(),
                     accumulators: running
                         .accumulator_handles
                         .iter()
@@ -1314,7 +1401,8 @@ impl ComputationGraphScheduler {
                         .reactor_health_rx
                         .as_ref()
                         .map(|rx| rx.borrow().clone()),
-                    tenant_id: running.declaration.tenant_id.clone(),
+                    // CLOACI-T-0924: tenancy comes from the key.
+                    tenant_id: reactor_key.tenant_id.clone(),
                     fires,
                     last_fire_unix_ms,
                 }
@@ -1346,7 +1434,12 @@ impl ComputationGraphScheduler {
             let mut graphs = self.reactors.write().await;
             let mut plans = Vec::new();
 
-            for (graph_name, running) in graphs.iter_mut() {
+            for (reactor_key, running) in graphs.iter_mut() {
+                // Metric/log labels stay bare names (CLOACI-T-0924 keeps the
+                // `cloacina_component_health` label vocabulary unchanged); the
+                // restart plan carries the full key so phase 3 re-finds the
+                // exact entry.
+                let graph_name = reactor_key.name.as_str();
                 // Reset failure counts for components that have been running successfully
                 let success_threshold = std::time::Duration::from_secs(SUCCESS_RESET_SECS);
                 let names_to_reset: Vec<String> = running
@@ -1362,10 +1455,10 @@ impl ComputationGraphScheduler {
 
                 // Check reactor
                 if running.reactor_handle.is_finished() {
-                    let reactor_key = format!("{}::reactor", graph_name);
+                    let component_key = format!("{}::reactor", graph_name);
                     let failures = running
                         .failure_counts
-                        .entry(reactor_key.clone())
+                        .entry(component_key.clone())
                         .or_insert(0);
                     *failures += 1;
 
@@ -1397,8 +1490,8 @@ impl ComputationGraphScheduler {
                     );
 
                     plans.push(PlannedRestart::Reactor {
-                        reactor_name: graph_name.clone(),
-                        component_key: reactor_key,
+                        reactor_key: reactor_key.clone(),
+                        component_key,
                         attempt: *failures,
                         backoff_secs,
                         dead,
@@ -1449,7 +1542,7 @@ impl ComputationGraphScheduler {
                             tokio::spawn(async {}),
                         );
                         plans.push(PlannedRestart::Accumulator {
-                            reactor_name: graph_name.clone(),
+                            reactor_key: reactor_key.clone(),
                             acc_name,
                             component_key: acc_key,
                             attempt: *failures,
@@ -1471,7 +1564,7 @@ impl ComputationGraphScheduler {
         for plan in plans {
             match plan {
                 PlannedRestart::Reactor {
-                    reactor_name,
+                    reactor_key,
                     component_key,
                     attempt,
                     backoff_secs,
@@ -1483,14 +1576,14 @@ impl ComputationGraphScheduler {
                         .await;
                     tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
                     if self
-                        .restart_reactor_after_backoff(&reactor_name, reason, now)
+                        .restart_reactor_after_backoff(&reactor_key, reason, now)
                         .await
                     {
                         restarted += 1;
                     }
                 }
                 PlannedRestart::Accumulator {
-                    reactor_name,
+                    reactor_key,
                     acc_name,
                     component_key,
                     attempt,
@@ -1502,7 +1595,7 @@ impl ComputationGraphScheduler {
                         .await;
                     tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
                     if self
-                        .restart_accumulator_after_backoff(&reactor_name, &acc_name, reason, now)
+                        .restart_accumulator_after_backoff(&reactor_key, &acc_name, reason, now)
                         .await
                     {
                         restarted += 1;
@@ -1522,12 +1615,14 @@ impl ComputationGraphScheduler {
     /// (e.g. unload + reload). Returns whether a restart actually happened.
     async fn restart_reactor_after_backoff(
         &self,
-        reactor_name: &str,
+        reactor_key: &TenantKey,
         reason: &'static str,
         now: std::time::Instant,
     ) -> bool {
+        // Labels/log fields stay bare names; the lookup uses the full key.
+        let reactor_name = reactor_key.name.as_str();
         let mut graphs = self.reactors.write().await;
-        let Some(running) = graphs.get_mut(reactor_name) else {
+        let Some(running) = graphs.get_mut(reactor_key) else {
             info!(
                 graph = %reactor_name,
                 "reactor unloaded during restart backoff — skipping restart"
@@ -1726,13 +1821,14 @@ impl ComputationGraphScheduler {
     /// Returns whether a restart actually happened.
     async fn restart_accumulator_after_backoff(
         &self,
-        reactor_name: &str,
+        reactor_key: &TenantKey,
         acc_name: &str,
         reason: &'static str,
         now: std::time::Instant,
     ) -> bool {
+        let reactor_name = reactor_key.name.as_str();
         let mut graphs = self.reactors.write().await;
-        let Some(running) = graphs.get_mut(reactor_name) else {
+        let Some(running) = graphs.get_mut(reactor_key) else {
             info!(
                 graph = %reactor_name,
                 accumulator = %acc_name,
@@ -1890,9 +1986,9 @@ impl ComputationGraphScheduler {
     /// site.
     pub async fn emit_health_metrics(&self) {
         let reactors = self.reactors.read().await;
-        for (reactor_name, running) in reactors.iter() {
+        for (reactor_key, running) in reactors.iter() {
             let graph_labels = if running.endpoint_registry_keys.is_empty() {
-                vec![reactor_name.clone()]
+                vec![reactor_key.name.clone()]
             } else {
                 running.endpoint_registry_keys.clone()
             };
@@ -1955,14 +2051,19 @@ impl ComputationGraphScheduler {
 
     /// Graceful shutdown of all graphs.
     pub async fn shutdown_all(&self) {
-        let graph_names: Vec<String> = {
+        let graph_keys: Vec<TenantKey> = {
             let g2r = self.graph_to_reactor.read().await;
             g2r.keys().cloned().collect()
         };
 
-        for name in graph_names {
-            if let Err(e) = self.unload_graph(&name).await {
-                warn!(graph = %name, error = %e, "failed to unload graph during shutdown");
+        for key in graph_keys {
+            // Address each graph in its OWN tenant scope so shutdown reaches
+            // every tenant's graphs, not just the untenanted ones.
+            if let Err(e) = self
+                .unload_graph(&key.name, TenantScope::of(key.tenant_id.as_deref()))
+                .await
+            {
+                warn!(graph = %key, error = %e, "failed to unload graph during shutdown");
             }
         }
     }
@@ -2138,7 +2239,10 @@ mod tests {
             .contains(&"test_graph".to_string()));
 
         // Unload
-        scheduler.unload_graph("test_graph").await.unwrap();
+        scheduler
+            .unload_graph("test_graph", TenantScope::untenanted())
+            .await
+            .unwrap();
 
         // Verify deregistered
         assert_eq!(
@@ -2178,6 +2282,261 @@ mod tests {
         scheduler.load_graph(decl.clone()).await.unwrap();
         let err = scheduler.load_graph(decl).await.unwrap_err();
         assert!(err.contains("already loaded"));
+
+        scheduler.shutdown_all().await;
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0924: tenant keying of reactors / graph_to_reactor / topologies
+    // -----------------------------------------------------------------------
+
+    fn nop_graph_fn() -> CompiledGraphFn {
+        Arc::new(|_cache: InputCache| Box::pin(async { GraphResult::completed(vec![]) }))
+    }
+
+    fn tenant_decl(
+        graph: &str,
+        reactor: &str,
+        tenant: Option<&str>,
+    ) -> ComputationGraphDeclaration {
+        ComputationGraphDeclaration {
+            name: graph.to_string(),
+            accumulators: vec![AccumulatorDeclaration {
+                name: format!("{}_acc", graph),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            reactor: ReactorDeclaration {
+                criteria: ReactionCriteria::WhenAny,
+                strategy: InputStrategy::Latest,
+                graph_fn: nop_graph_fn(),
+                constructor: None,
+            },
+            tenant_id: tenant.map(|t| t.to_string()),
+            reactor_name: Some(reactor.to_string()),
+            topology: Some(format!("{{\"graph\":\"{}\"}}", graph)),
+        }
+    }
+
+    /// Two tenants load a graph AND a reactor under the SAME names on ONE
+    /// shared scheduler. Both survive; neither is overwritten.
+    #[tokio::test]
+    async fn two_tenants_same_graph_and_reactor_names_coexist() {
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        for tenant in ["acme", "globex"] {
+            scheduler
+                .load_graph(tenant_decl("pipeline", "rx", Some(tenant)))
+                .await
+                .unwrap_or_else(|e| panic!("tenant {tenant} should load its own graph: {e}"));
+        }
+
+        assert_eq!(scheduler.reactors.read().await.len(), 2);
+        assert_eq!(scheduler.graph_to_reactor.read().await.len(), 2);
+        assert_eq!(scheduler.graph_topologies.read().await.len(), 2);
+
+        let graphs = scheduler.list_graphs().await;
+        assert_eq!(graphs.len(), 2);
+        let mut tenants: Vec<Option<String>> = graphs.iter().map(|g| g.tenant_id.clone()).collect();
+        tenants.sort();
+        assert_eq!(
+            tenants,
+            vec![Some("acme".to_string()), Some("globex".to_string())]
+        );
+        assert!(graphs.iter().all(|g| g.name == "pipeline"));
+
+        let reactors = scheduler.list_reactors().await;
+        assert_eq!(reactors.len(), 2);
+        assert!(reactors.iter().all(|r| r.name == "rx"));
+
+        scheduler.shutdown_all().await;
+    }
+
+    /// Unloading one tenant's graph leaves the other tenant's graph and
+    /// reactor running.
+    #[tokio::test]
+    async fn unload_graph_is_tenant_scoped() {
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        for tenant in ["acme", "globex"] {
+            scheduler
+                .load_graph(tenant_decl("pipeline", "rx", Some(tenant)))
+                .await
+                .unwrap();
+        }
+
+        scheduler
+            .unload_graph("pipeline", TenantScope::tenant("acme"))
+            .await
+            .expect("acme unloads its own graph");
+
+        // Only globex's entries remain — and they are globex's.
+        let reactors = scheduler.list_reactors().await;
+        assert_eq!(reactors.len(), 1);
+        assert_eq!(reactors[0].tenant_id.as_deref(), Some("globex"));
+        let graphs = scheduler.list_graphs().await;
+        assert_eq!(graphs.len(), 1);
+        assert_eq!(graphs[0].tenant_id.as_deref(), Some("globex"));
+        assert_eq!(scheduler.graph_topologies.read().await.len(), 1);
+
+        scheduler.shutdown_all().await;
+    }
+
+    /// A tenant cannot see, unbind, or tear down another tenant's reactor.
+    #[tokio::test]
+    async fn other_tenants_reactors_are_unreachable() {
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .unwrap();
+
+        let outsider = TenantScope::tenant("globex");
+        assert!(scheduler
+            .reactor_accumulator_names("rx", outsider)
+            .await
+            .is_none());
+        assert!(scheduler.unload_reactor("rx", outsider).await.is_err());
+        assert!(scheduler
+            .unbind_graph_from_reactor("pipeline", outsider)
+            .await
+            .is_err());
+        assert!(scheduler
+            .bind_graph_to_reactor(
+                "intruder".to_string(),
+                "rx".to_string(),
+                outsider,
+                nop_graph_fn(),
+            )
+            .await
+            .is_err());
+
+        // The owner's entries are untouched.
+        assert!(scheduler
+            .reactor_accumulator_names("rx", TenantScope::tenant("acme"))
+            .await
+            .is_some());
+        assert_eq!(scheduler.reactors.read().await.len(), 1);
+
+        scheduler.shutdown_all().await;
+    }
+
+    /// EMBEDDED COMPATIBILITY: with `tenant_id: None` everywhere, keys are bare
+    /// names and the whole lifecycle behaves exactly as it did pre-T-0924 —
+    /// including a tenant view resolving the untenanted reactor via fallback.
+    #[tokio::test]
+    async fn untenanted_lifecycle_is_unchanged_and_globally_addressable() {
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", None))
+            .await
+            .unwrap();
+
+        let key = scheduler
+            .reactors
+            .read()
+            .await
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        assert_eq!(key, TenantKey::new(None, "rx"));
+
+        // Untenanted callers address it by bare name, as always…
+        assert!(scheduler
+            .reactor_accumulator_names("rx", TenantScope::untenanted())
+            .await
+            .is_some());
+        // …and a tenant-scoped caller reaches it through the untenanted
+        // fallback, which is how an embedded/inventory reactor stays usable
+        // once a deployment grows tenants.
+        assert!(scheduler
+            .reactor_accumulator_names("rx", TenantScope::tenant("acme"))
+            .await
+            .is_some());
+
+        scheduler
+            .unload_graph("pipeline", TenantScope::untenanted())
+            .await
+            .unwrap();
+        assert!(scheduler.reactors.read().await.is_empty());
+        assert!(scheduler.graph_to_reactor.read().await.is_empty());
+        assert!(scheduler.graph_topologies.read().await.is_empty());
+    }
+
+    /// A tenant may subscribe to an untenanted (embedded) upstream reactor,
+    /// and `unload_graph` follows the binding back to that exact entry rather
+    /// than looking for a same-named reactor in the subscriber's own tenant.
+    #[tokio::test]
+    async fn tenant_graph_can_bind_untenanted_upstream() {
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        scheduler
+            .load_reactor(
+                "upstream".to_string(),
+                vec![AccumulatorDeclaration {
+                    name: "alpha".to_string(),
+                    factory: Arc::new(TestAccumulatorFactory),
+                }],
+                ReactionCriteria::WhenAny,
+                InputStrategy::Latest,
+                None,
+                vec![],
+                None,
+            )
+            .await
+            .unwrap();
+
+        scheduler
+            .bind_graph_to_reactor(
+                "subscriber".to_string(),
+                "upstream".to_string(),
+                TenantScope::tenant("acme"),
+                nop_graph_fn(),
+            )
+            .await
+            .expect("a tenant may subscribe to an untenanted upstream");
+
+        // The binding records the UNTENANTED reactor key…
+        let bound = scheduler
+            .graph_to_reactor
+            .read()
+            .await
+            .get(&TenantKey::new(Some("acme"), "subscriber"))
+            .cloned();
+        assert_eq!(bound, Some(TenantKey::new(None, "upstream")));
+
+        // …and unloading the subscriber (its last subscriber) tears down that
+        // exact reactor.
+        scheduler
+            .unload_graph("subscriber", TenantScope::tenant("acme"))
+            .await
+            .unwrap();
+        assert!(scheduler.reactors.read().await.is_empty());
+    }
+
+    /// Same tenant, same graph name from two packages is still "already
+    /// loaded" — the loud same-tenant collision the ticket asks for.
+    #[tokio::test]
+    async fn same_tenant_duplicate_graph_is_rejected() {
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx_a", Some("acme")))
+            .await
+            .unwrap();
+        let err = scheduler
+            .load_graph(tenant_decl("pipeline", "rx_b", Some("acme")))
+            .await
+            .expect_err("a second package in the same tenant must not silently replace");
+        assert!(err.contains("already loaded"), "{err}");
 
         scheduler.shutdown_all().await;
     }

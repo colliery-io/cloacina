@@ -322,6 +322,19 @@ impl RegistryReconciler {
         })
     }
 
+    /// The tenant scope this reconciler loads and unloads under
+    /// (CLOACI-T-0924).
+    ///
+    /// The `ComputationGraphScheduler` is a single `Arc` shared by every
+    /// tenant's runner, so unlike the `Runtime` (whose handle carries a scope)
+    /// its name-taking methods need the tenant passed explicitly. Package loads
+    /// already stamp `decl.tenant_id = config.default_tenant_id`, so this is
+    /// exactly the scope the entries were claimed under. Embedded runners leave
+    /// `default_tenant_id` at `"public"` and are self-consistent.
+    pub(super) fn tenant_scope(&self) -> crate::tenant_scope::TenantScope<'_> {
+        crate::tenant_scope::TenantScope::tenant(&self.config.default_tenant_id)
+    }
+
     /// Attach a Runtime to this reconciler. Package load/unload operations
     /// will push registrations through the runtime so executors see the
     /// same view as the reconciler.

@@ -4932,21 +4932,35 @@ mod tests {
             .await
             .expect("runner B");
 
-        // The cache's `shared_runtime` accessor should match what each
-        // runner reports via its `runtime()` accessor.
+        // Each runner's `Runtime` handle must be a VIEW over the cache's
+        // shared registries — same allocation underneath, so inventory is not
+        // duplicated per tenant. CLOACI-T-0924: it is no longer the same
+        // `Arc<Runtime>`, because each runner binds the handle to its own
+        // tenant; `shares_registries_with` is the honest identity check.
         let cache_rt = state.tenant_runners.shared_runtime();
         assert!(
-            std::sync::Arc::ptr_eq(&cache_rt, &runner_a.runtime()),
-            "runner A's Runtime Arc should match the cache's shared_runtime"
+            cache_rt.shares_registries_with(&runner_a.runtime()),
+            "runner A's Runtime must share the cache's shared_runtime registries"
         );
         assert!(
-            std::sync::Arc::ptr_eq(&cache_rt, &runner_b.runtime()),
-            "runner B's Runtime Arc should match the cache's shared_runtime"
+            cache_rt.shares_registries_with(&runner_b.runtime()),
+            "runner B's Runtime must share the cache's shared_runtime registries"
         );
-        // Transitively, both runners share the same Arc.
+        // Transitively, both runners share one registry allocation…
         assert!(
-            std::sync::Arc::ptr_eq(&runner_a.runtime(), &runner_b.runtime()),
-            "two tenant runners must share the same Runtime Arc (inventory not duplicated)"
+            runner_a
+                .runtime()
+                .shares_registries_with(&runner_b.runtime()),
+            "two tenant runners must share the same Runtime registries (inventory not duplicated)"
+        );
+        // …but are scoped to DIFFERENT tenants, which is what stops two
+        // tenants' same-named workflows/graphs/reactors colliding in-process
+        // (CLOACI-T-0924).
+        assert_eq!(runner_a.runtime().tenant_id(), Some(schema_a.as_str()));
+        assert_eq!(runner_b.runtime().tenant_id(), Some(schema_b.as_str()));
+        assert_ne!(
+            runner_a.runtime().tenant_id(),
+            runner_b.runtime().tenant_id()
         );
 
         // Clean up: drop both tenants.
