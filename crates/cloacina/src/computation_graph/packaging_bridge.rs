@@ -187,6 +187,19 @@ pub fn build_declaration_from_ffi(
     graph_meta: &GraphPackageMetadata,
     library_data: Vec<u8>,
 ) -> ComputationGraphDeclaration {
+    build_declaration_from_ffi_in(graph_meta, library_data, None)
+}
+
+/// [`build_declaration_from_ffi`] binding an EXPLICIT provider tree
+/// (CLOACI-T-0925): `provider_root` is where the reconciler staged this
+/// package's bundled providers, and every provider-backed accumulator in the
+/// resulting declaration resolves there rather than against ambient state that
+/// another tenant's concurrent load can re-point.
+pub fn build_declaration_from_ffi_in(
+    graph_meta: &GraphPackageMetadata,
+    library_data: Vec<u8>,
+    provider_root: Option<&std::path::Path>,
+) -> ComputationGraphDeclaration {
     let criteria = match graph_meta.reaction_mode.as_str() {
         "when_all" => ReactionCriteria::WhenAll,
         _ => ReactionCriteria::WhenAny,
@@ -223,7 +236,11 @@ pub fn build_declaration_from_ffi(
         .accumulators
         .iter()
         .map(|acc_entry| {
-            let factory = accumulator_factory_for(&acc_entry.accumulator_type, &acc_entry.config);
+            let factory = accumulator_factory_for(
+                &acc_entry.accumulator_type,
+                &acc_entry.config,
+                provider_root,
+            );
             AccumulatorDeclaration {
                 name: acc_entry.name.clone(),
                 factory,
@@ -427,11 +444,40 @@ pub struct ProviderStreamAccumulatorFactory {
     /// Full accumulator config; `provider`/`constructor` are routing keys, the
     /// rest are the member's `#[config]` values (may be `{{ VAR }}` templates).
     config: std::collections::HashMap<String, String>,
+    /// The provider tree this accumulator resolves in, CAPTURED when the
+    /// declaration was built (CLOACI-T-0925). The source loads from a spawned
+    /// task that can run long after the load finished — and, in a shared server
+    /// process, after another tenant's load re-pointed any ambient path. Binding
+    /// the directory at declaration time is what keeps the resolution the owning
+    /// package's own.
+    provider_root: Option<std::path::PathBuf>,
 }
 
 impl ProviderStreamAccumulatorFactory {
+    /// Capture the CURRENTLY-EFFECTIVE provider search path (the ambient scope
+    /// installed for a package import, else the process/env/default path) as this
+    /// accumulator's resolution root.
     pub fn new(config: std::collections::HashMap<String, String>) -> Self {
-        Self { config }
+        #[cfg(feature = "constructors-wasm")]
+        let provider_root = Some(crate::registry::loader::provider_search_path());
+        #[cfg(not(feature = "constructors-wasm"))]
+        let provider_root = None;
+        Self {
+            config,
+            provider_root,
+        }
+    }
+
+    /// Bind an EXPLICIT provider tree — what the reconciler staged for the package
+    /// that declared this accumulator.
+    pub fn new_in(
+        config: std::collections::HashMap<String, String>,
+        provider_root: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            config,
+            provider_root: Some(provider_root),
+        }
     }
 }
 
@@ -474,6 +520,10 @@ impl AccumulatorFactory for ProviderStreamAccumulatorFactory {
             .filter(|(k, _)| !["provider", "constructor", "backend"].contains(&k.as_str()))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
+        // CLOACI-T-0925: the root bound at declaration time, moved into the
+        // spawned task so the resolution below reads no shared state.
+        #[cfg_attr(not(feature = "constructors-wasm"), allow(unused_variables))]
+        let provider_root = self.provider_root.clone();
 
         #[cfg(feature = "constructors-wasm")]
         let handle = tokio::spawn(async move {
@@ -521,7 +571,10 @@ impl AccumulatorFactory for ProviderStreamAccumulatorFactory {
                 }
             }
 
-            match crate::registry::loader::constructor_loader::load_stream_accumulator_source_from_config(
+            let search_path =
+                provider_root.unwrap_or_else(crate::registry::loader::provider_search_path);
+            match crate::registry::loader::constructor_loader::load_stream_accumulator_source_from_config_in(
+                &search_path,
                 &provider,
                 &constructor,
                 &resolved,
@@ -885,9 +938,15 @@ fn polling_interval_from_config(
         .unwrap_or_else(|| std::time::Duration::from_secs(5))
 }
 
+/// `provider_root` (CLOACI-T-0925) is the tree a provider-backed `stream`
+/// accumulator resolves in — the directory the reconciler staged for the package
+/// that declared it. `None` = no staged tree known (embedded, tests, or a Python
+/// import that already has the scope installed), in which case the factory
+/// captures the ambient search path at construction.
 fn accumulator_factory_for(
     acc_type: &str,
     config: &std::collections::HashMap<String, String>,
+    provider_root: Option<&std::path::Path>,
 ) -> Arc<dyn AccumulatorFactory> {
     match acc_type {
         // CLOACI-T-0898/T-0907: a stream accumulator's source ALWAYS comes from
@@ -895,7 +954,13 @@ fn accumulator_factory_for(
         // e.g. cloacina-provider-kafka). The host-compiled kafka backend is
         // gone; a declaration without a `provider` key fails LOUDLY at spawn
         // (ERROR + health Disconnected), never a silent passthrough.
-        "stream" => Arc::new(ProviderStreamAccumulatorFactory::new(config.clone())),
+        "stream" => match provider_root {
+            Some(root) => Arc::new(ProviderStreamAccumulatorFactory::new_in(
+                config.clone(),
+                root.to_path_buf(),
+            )),
+            None => Arc::new(ProviderStreamAccumulatorFactory::new(config.clone())),
+        },
         "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
             config,
         ))),
@@ -946,6 +1011,27 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
     accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
     tenant_id: Option<String>,
 ) -> Result<Vec<String>, String> {
+    dispatch_runtime_reactors_into_scheduler_in(
+        runtime,
+        scheduler,
+        accumulator_overrides,
+        tenant_id,
+        None,
+    )
+    .await
+}
+
+/// [`dispatch_runtime_reactors_into_scheduler`] binding an EXPLICIT provider tree
+/// (CLOACI-T-0925) — the directory the reconciler staged for this package. Both
+/// the reactor's own `#[reactor(from = ..)]` constructor and its provider-backed
+/// accumulators resolve there.
+pub async fn dispatch_runtime_reactors_into_scheduler_in(
+    runtime: &crate::Runtime,
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+    provider_root: Option<&std::path::Path>,
+) -> Result<Vec<String>, String> {
     let mut dispatched = Vec::new();
     for name in runtime.reactor_names() {
         let registration = match runtime.get_reactor(&name) {
@@ -976,7 +1062,7 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
                         None => ("passthrough".to_string(), Default::default()),
                     },
                 };
-                let factory = accumulator_factory_for(&acc_type, &acc_config);
+                let factory = accumulator_factory_for(&acc_type, &acc_config, provider_root);
                 AccumulatorDeclaration {
                     name: acc_name.clone(),
                     factory,
@@ -988,7 +1074,7 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
         let strategy = InputStrategy::Latest;
 
         scheduler
-            .load_reactor(
+            .load_reactor_in(
                 name.clone(),
                 accumulators,
                 criteria,
@@ -1000,6 +1086,7 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
                 // into the scheduler, which resolves + installs the WASM
                 // `evaluate` as the reactor's firing decider.
                 registration.constructor.clone(),
+                provider_root,
             )
             .await?;
 
@@ -1028,6 +1115,25 @@ pub async fn dispatch_package_reactors_into_scheduler(
     accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
     tenant_id: Option<String>,
 ) -> Result<Vec<String>, String> {
+    dispatch_package_reactors_into_scheduler_in(
+        reactor_metadata,
+        scheduler,
+        accumulator_overrides,
+        tenant_id,
+        None,
+    )
+    .await
+}
+
+/// [`dispatch_package_reactors_into_scheduler`] binding an EXPLICIT provider tree
+/// (CLOACI-T-0925) — see [`dispatch_runtime_reactors_into_scheduler_in`].
+pub async fn dispatch_package_reactors_into_scheduler_in(
+    reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata],
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+    provider_root: Option<&std::path::Path>,
+) -> Result<Vec<String>, String> {
     use cloacina_computation_graph::ReactionMode;
 
     let mut dispatched = Vec::new();
@@ -1043,8 +1149,11 @@ pub async fn dispatch_package_reactors_into_scheduler(
                     Some(override_cfg) => accumulator_factory_for(
                         &override_cfg.accumulator_type,
                         &override_cfg.config,
+                        provider_root,
                     ),
-                    None => accumulator_factory_for(&acc.accumulator_type, &acc.config),
+                    None => {
+                        accumulator_factory_for(&acc.accumulator_type, &acc.config, provider_root)
+                    }
                 };
                 AccumulatorDeclaration {
                     name: acc.name.clone(),

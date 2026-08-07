@@ -183,3 +183,21 @@ bundle: the process-wide override (`set_provider_search_path`), else
 `CLOACINA_PROVIDER_PATH`, else `./providers`. Stage provider packages there
 (e.g. via `cloacinactl constructor package` + unpack). The runnable
 `examples/constructor-contract/fs-grant-demo` shows the full embedded flow.
+
+Full precedence, highest first:
+
+1. the **per-load scope** — the directory a host staged for the package being
+   loaded. This is what the server's reconciler installs, and it is per package
+   (and therefore per tenant), never shared;
+2. the process-wide `set_provider_search_path` override;
+3. `CLOACINA_PROVIDER_PATH`;
+4. `./providers`.
+
+`set_provider_search_path` is the **embedded/single-tenant** knob. A multi-tenant
+host must not use it: every tenant would resolve `from` against one directory, so
+one tenant's staged providers would be visible to another's constructor nodes.
+Hosts scope each load instead (the loader's `*_in` entry points take the directory
+explicitly, and `ScopedProviderSearch` installs it for call sites like Python's
+`cloaca.constructor(...)` that cannot take an argument). A package that bundles no
+providers gets a scope that deliberately skips level 2, so it can never inherit
+another load's staged tree.
