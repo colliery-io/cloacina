@@ -36,6 +36,7 @@ use pyo3::prelude::*;
 
 use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
 use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
+use cloacina::tenant_scope::TenantScope;
 
 use cloacina_python::reactor as py_reactor;
 use cloacina_python::runtime_scope::ScopedRuntime;
@@ -127,8 +128,14 @@ class LibRxB: pass
         .expect("idempotent re-dispatch should succeed");
 
     // ---- Cleanup ----
-    scheduler.unload_reactor("lib_rx_a").await.unwrap();
-    scheduler.unload_reactor("lib_rx_b").await.unwrap();
+    scheduler
+        .unload_reactor("lib_rx_a", TenantScope::untenanted())
+        .await
+        .unwrap();
+    scheduler
+        .unload_reactor("lib_rx_b", TenantScope::untenanted())
+        .await
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -184,7 +191,12 @@ class CrossPkgRx: pass
         })
     });
     scheduler
-        .bind_graph_to_reactor("late_g".to_string(), "cross_pkg_rx".to_string(), graph_fn)
+        .bind_graph_to_reactor(
+            "late_g".to_string(),
+            "cross_pkg_rx".to_string(),
+            TenantScope::untenanted(),
+            graph_fn,
+        )
         .await
         .expect("bind should succeed against the Python-declared reactor");
 
@@ -207,8 +219,14 @@ class CrossPkgRx: pass
         "late-bound graph should fire"
     );
 
-    scheduler.unbind_graph_from_reactor("late_g").await.unwrap();
-    scheduler.unload_reactor("cross_pkg_rx").await.unwrap();
+    scheduler
+        .unbind_graph_from_reactor("late_g", TenantScope::untenanted())
+        .await
+        .unwrap();
+    scheduler
+        .unload_reactor("cross_pkg_rx", TenantScope::untenanted())
+        .await
+        .unwrap();
 }
 
 /// T-0545 M3a end-to-end: a Python *workflow* package that registers only

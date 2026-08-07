@@ -44,6 +44,7 @@ use cloacina::computation_graph::scheduler::{
     AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig, ComputationGraphScheduler,
 };
 use cloacina::computation_graph::types::{GraphResult, InputCache, SourceName};
+use cloacina::tenant_scope::TenantScope;
 use cloacina_workflow_plugin::{AccumulatorDeclarationEntry, GraphPackageMetadata};
 
 use cloacina_python::computation_graph::{
@@ -268,7 +269,16 @@ with ComputationGraphBuilder("py_g", reactor=SharedRx, graph={
 
     // Cleanup — explicit unbind + unload_reactor, exercising the M4 lifecycle
     // primitives.
-    scheduler.unbind_graph_from_reactor("rust_g").await.unwrap();
-    scheduler.unbind_graph_from_reactor("py_g").await.unwrap();
-    scheduler.unload_reactor("shared_rx").await.unwrap();
+    scheduler
+        .unbind_graph_from_reactor("rust_g", TenantScope::untenanted())
+        .await
+        .unwrap();
+    scheduler
+        .unbind_graph_from_reactor("py_g", TenantScope::untenanted())
+        .await
+        .unwrap();
+    scheduler
+        .unload_reactor("shared_rx", TenantScope::untenanted())
+        .await
+        .unwrap();
 }

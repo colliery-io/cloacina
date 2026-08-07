@@ -198,7 +198,10 @@ async fn reconciler_loads_cross_package_publisher_subscriber_end_to_end() {
     // Publisher's reactor must be in the scheduler with the declared
     // accumulator contract.
     let reactor_accs = scheduler
-        .reactor_accumulator_names("shared_rx")
+        .reactor_accumulator_names(
+            "shared_rx",
+            cloacina::tenant_scope::TenantScope::tenant("public"),
+        )
         .await
         .expect("shared_rx must be loaded after reconcile");
     assert_eq!(
@@ -238,7 +241,10 @@ async fn reconciler_loads_cross_package_publisher_subscriber_end_to_end() {
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     assert!(
         scheduler
-            .reactor_accumulator_names("shared_rx")
+            .reactor_accumulator_names(
+                "shared_rx",
+                cloacina::tenant_scope::TenantScope::tenant("public"),
+            )
             .await
             .is_some(),
         "reactor must still be live after event delivery"
@@ -270,7 +276,10 @@ async fn reconciler_loads_cross_package_publisher_subscriber_end_to_end() {
     );
     assert!(
         scheduler
-            .reactor_accumulator_names("shared_rx")
+            .reactor_accumulator_names(
+                "shared_rx",
+                cloacina::tenant_scope::TenantScope::tenant("public"),
+            )
             .await
             .is_some(),
         "reactor must still be live after rejected publisher unload"
@@ -293,7 +302,10 @@ async fn reconciler_loads_cross_package_publisher_subscriber_end_to_end() {
         .expect("reconcile second pass — picks up publisher unload retry");
     assert!(
         scheduler
-            .reactor_accumulator_names("shared_rx")
+            .reactor_accumulator_names(
+                "shared_rx",
+                cloacina::tenant_scope::TenantScope::tenant("public"),
+            )
             .await
             .is_none(),
         "reactor must be torn down once publisher is unloaded after subscriber"
@@ -410,7 +422,10 @@ async fn reconciler_loads_mixed_rust_with_in_package_trigger_subscription() {
     // Reactor + workflow + graph must also have landed.
     assert!(
         scheduler
-            .reactor_accumulator_names("mixed_reactor")
+            .reactor_accumulator_names(
+                "mixed_reactor",
+                cloacina::tenant_scope::TenantScope::tenant("public"),
+            )
             .await
             .is_some(),
         "mixed_reactor must be loaded"

@@ -546,6 +546,7 @@ pub use inventory;
 pub use serde_json;
 pub mod security;
 pub mod task;
+pub mod tenant_scope;
 pub mod trigger;
 pub mod var;
 pub mod workflow;
@@ -607,6 +608,7 @@ pub use runner::{DefaultRunner, DefaultRunnerConfig};
 pub use runtime::Runtime;
 pub use task::namespace::parse_namespace;
 pub use task::{Task, TaskNamespace, TaskRegistry, TaskState};
+pub use tenant_scope::{TenantKey, TenantOwner, TenantResolveMiss, TenantScope};
 pub use trigger::{Trigger, TriggerConfig, TriggerError, TriggerResult};
 pub use workflow::{DependencyGraph, Workflow, WorkflowBuilder, WorkflowMetadata};
 

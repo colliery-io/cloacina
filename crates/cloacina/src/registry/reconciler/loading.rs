@@ -795,7 +795,10 @@ impl RegistryReconciler {
                                 let scheduler_guard = self.graph_scheduler.read().await;
                                 if let Some(ref scheduler) = *scheduler_guard {
                                     if let Some(upstream_acc_names) = scheduler
-                                        .reactor_accumulator_names(upstream_reactor_name)
+                                        .reactor_accumulator_names(
+                                            upstream_reactor_name,
+                                            self.tenant_scope(),
+                                        )
                                         .await
                                     {
                                         let upstream_set: std::collections::HashSet<&str> =
@@ -978,7 +981,10 @@ impl RegistryReconciler {
             }
             let scheduler_guard = self.graph_scheduler.read().await;
             if let Some(ref scheduler) = *scheduler_guard {
-                if let Err(e) = scheduler.unload_graph(graph_name).await {
+                if let Err(e) = scheduler
+                    .unload_graph(graph_name, self.tenant_scope())
+                    .await
+                {
                     warn!("Failed to unload computation graph '{}': {}", graph_name, e);
                 }
             }
@@ -1003,7 +1009,10 @@ impl RegistryReconciler {
             let scheduler_guard = self.graph_scheduler.read().await;
             if let Some(ref scheduler) = *scheduler_guard {
                 for reactor_name in &package_state.reactor_names {
-                    match scheduler.unload_reactor(reactor_name).await {
+                    match scheduler
+                        .unload_reactor(reactor_name, self.tenant_scope())
+                        .await
+                    {
                         Ok(()) => {
                             debug!(
                                 "Reactor '{}' unloaded for package {}",
@@ -1312,27 +1321,37 @@ impl RegistryReconciler {
             let tenant_id_for_closure = self.config.default_tenant_id.clone();
             let runtime_for_closure: Arc<Runtime> = runtime.clone();
 
-            runtime.register_workflow(workflow_name.clone(), move || {
-                debug!(
-                    "Creating workflow instance for {} using runtime registry",
-                    workflow_name_for_closure
-                );
+            // CLOACI-T-0924: attribute the registration to this package so a
+            // SECOND package claiming the same workflow name inside the same
+            // tenant is a loud load-time rejection instead of a silent
+            // overwrite. (Same package re-registering still replaces — the
+            // package-reload path depends on it.)
+            let owner = crate::tenant_scope::TenantOwner::package(&metadata.package_name);
+            runtime
+                .try_register_workflow(&owner, workflow_name.clone(), move || {
+                    debug!(
+                        "Creating workflow instance for {} using runtime registry",
+                        workflow_name_for_closure
+                    );
 
-                // Recreate the workflow from the runtime task registry each time
-                match Self::create_workflow_from_host_registry_static(
-                    &runtime_for_closure,
-                    &package_name_for_closure,
-                    &workflow_name_for_closure_static,
-                    &tenant_id_for_closure,
-                ) {
-                    Ok(workflow) => workflow,
-                    Err(e) => {
-                        error!("Failed to create workflow from runtime registry: {}", e);
-                        // Fallback to empty workflow
-                        crate::workflow::Workflow::new(&workflow_name_for_closure)
+                    // Recreate the workflow from the runtime task registry each time
+                    match Self::create_workflow_from_host_registry_static(
+                        &runtime_for_closure,
+                        &package_name_for_closure,
+                        &workflow_name_for_closure_static,
+                        &tenant_id_for_closure,
+                    ) {
+                        Ok(workflow) => workflow,
+                        Err(e) => {
+                            error!("Failed to create workflow from runtime registry: {}", e);
+                            // Fallback to empty workflow
+                            crate::workflow::Workflow::new(&workflow_name_for_closure)
+                        }
                     }
-                }
-            });
+                })
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: e.to_string(),
+                })?;
 
             info!(
                 "Registered workflow '{}' for package {} v{}",
@@ -1939,9 +1958,21 @@ impl RegistryReconciler {
             None
         };
 
+        // CLOACI-T-0924: the "already in the runtime, reuse it" fast path below
+        // is what lets an inventory/self-registered trigger satisfy this
+        // package. Ask first whether this package is *allowed* to claim the
+        // name: an entry owned by a DIFFERENT package in the same tenant is a
+        // loud load-time rejection, not a silent adoption (which would also let
+        // this package's unload tear down the other package's trigger).
+        let owner = crate::tenant_scope::TenantOwner::package(&metadata.package_name);
         let mut tracked = Vec::new();
         for t in &custom {
-            if runtime.get_trigger(&t.name).is_some() {
+            let free = runtime.may_claim_trigger(&owner, &t.name).map_err(|e| {
+                RegistryError::RegistrationFailed {
+                    message: e.to_string(),
+                }
+            })?;
+            if !free {
                 tracked.push(t.name.clone());
                 continue;
             }
@@ -1952,15 +1983,21 @@ impl RegistryReconciler {
                 let trigger_name = t.name.clone();
                 let allow_concurrent = t.allow_concurrent;
                 let cron_expression = t.cron_expression.clone();
-                runtime.register_trigger(t.name.clone(), move || {
-                    std::sync::Arc::new(crate::registry::loader::ffi_trigger::FfiTriggerImpl::new(
-                        handle_for_ctor.clone(),
-                        trigger_name.clone(),
-                        poll_interval,
-                        allow_concurrent,
-                        cron_expression.clone(),
-                    )) as std::sync::Arc<dyn cloacina_workflow::Trigger>
-                });
+                runtime
+                    .try_register_trigger(&owner, t.name.clone(), move || {
+                        std::sync::Arc::new(
+                            crate::registry::loader::ffi_trigger::FfiTriggerImpl::new(
+                                handle_for_ctor.clone(),
+                                trigger_name.clone(),
+                                poll_interval,
+                                allow_concurrent,
+                                cron_expression.clone(),
+                            ),
+                        ) as std::sync::Arc<dyn cloacina_workflow::Trigger>
+                    })
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: e.to_string(),
+                    })?;
                 info!(
                     "Package {} v{}: registered FFI trigger adapter for '{}' (poll={:?})",
                     metadata.package_name, metadata.version, t.name, poll_interval
@@ -2080,9 +2117,17 @@ impl RegistryReconciler {
             None
         };
 
+        // CLOACI-T-0924: same claim check as custom triggers — reuse an entry
+        // this package may own, reject one a different package holds.
+        let owner = crate::tenant_scope::TenantOwner::package(&metadata.package_name);
         let mut registered = Vec::new();
         for entry in triggerless_meta {
-            if runtime.get_triggerless_graph(&entry.name).is_some() {
+            let free = runtime
+                .may_claim_triggerless_graph(&owner, &entry.name)
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: e.to_string(),
+                })?;
+            if !free {
                 registered.push(entry.name.clone());
                 continue;
             }
@@ -2102,13 +2147,17 @@ impl RegistryReconciler {
                 );
             let name_for_ctor = entry.name.clone();
             let terminal_names = entry.terminal_node_names.clone();
-            runtime.register_triggerless_graph(entry.name.clone(), move || {
-                cloacina_workflow_plugin::TriggerlessGraphRegistration {
-                    name: name_for_ctor.clone(),
-                    graph_fn: graph_fn.clone(),
-                    terminal_node_names: terminal_names.clone(),
-                }
-            });
+            runtime
+                .try_register_triggerless_graph(&owner, entry.name.clone(), move || {
+                    cloacina_workflow_plugin::TriggerlessGraphRegistration {
+                        name: name_for_ctor.clone(),
+                        graph_fn: graph_fn.clone(),
+                        terminal_node_names: terminal_names.clone(),
+                    }
+                })
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: e.to_string(),
+                })?;
             info!(
                 "Package {} v{}: registered FFI trigger-less graph '{}' (terminals={:?})",
                 metadata.package_name, metadata.version, entry.name, entry.terminal_node_names,
@@ -2189,7 +2238,7 @@ impl RegistryReconciler {
                 .any(|r| r.name == upstream_reactor_name);
             if !publisher_in_same_package {
                 if let Some(upstream_acc_names) = scheduler
-                    .reactor_accumulator_names(upstream_reactor_name)
+                    .reactor_accumulator_names(upstream_reactor_name, self.tenant_scope())
                     .await
                 {
                     let upstream_set: std::collections::HashSet<&str> =
@@ -2238,14 +2287,21 @@ impl RegistryReconciler {
             let accumulator_names: Vec<String> =
                 decl.accumulators.iter().map(|a| a.name.clone()).collect();
             let reaction_mode = graph_meta.reaction_mode.clone();
-            runtime.register_computation_graph(graph_meta.graph_name.clone(), move || {
-                crate::ComputationGraphRegistration {
-                    graph_fn: graph_fn.clone(),
-                    trigger_reactor: None,
-                    accumulator_names: accumulator_names.clone(),
-                    reaction_mode: reaction_mode.clone(),
-                }
-            });
+            // CLOACI-T-0924: attributed so a second package claiming this graph
+            // name inside the same tenant is rejected loudly.
+            let owner = crate::tenant_scope::TenantOwner::package(&metadata.package_name);
+            runtime
+                .try_register_computation_graph(&owner, graph_meta.graph_name.clone(), move || {
+                    crate::ComputationGraphRegistration {
+                        graph_fn: graph_fn.clone(),
+                        trigger_reactor: None,
+                        accumulator_names: accumulator_names.clone(),
+                        reaction_mode: reaction_mode.clone(),
+                    }
+                })
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: e.to_string(),
+                })?;
         }
 
         if let Err(e) = scheduler.load_graph_in(decl, provider_root).await {
@@ -3236,6 +3292,7 @@ mod tests {
             .bind_graph_to_reactor(
                 "subscriber_graph".to_string(),
                 "owned_rx".to_string(),
+                crate::tenant_scope::TenantScope::tenant("public"),
                 graph_fn,
             )
             .await
@@ -3289,7 +3346,10 @@ mod tests {
         // Sanity-check that the reactor is still loaded.
         assert!(
             scheduler
-                .reactor_accumulator_names("owned_rx")
+                .reactor_accumulator_names(
+                    "owned_rx",
+                    crate::tenant_scope::TenantScope::tenant("public")
+                )
                 .await
                 .is_some(),
             "reactor must still exist after rejected unload"
@@ -3314,7 +3374,10 @@ mod tests {
         // Once the subscriber unbinds, the retried unload must succeed and
         // drop tracking for good.
         scheduler
-            .unload_graph("subscriber_graph")
+            .unload_graph(
+                "subscriber_graph",
+                crate::tenant_scope::TenantScope::tenant("public"),
+            )
             .await
             .expect("subscriber graph should unbind");
         reconciler
@@ -3373,7 +3436,10 @@ mod tests {
 
         assert!(
             scheduler
-                .reactor_accumulator_names("lone_rx")
+                .reactor_accumulator_names(
+                    "lone_rx",
+                    crate::tenant_scope::TenantScope::tenant("public")
+                )
                 .await
                 .is_none(),
             "reactor must be torn down after publisher unload"
