@@ -46,6 +46,8 @@ export const queryKeys = {
   executionTasks: (tenant: string, id: string) => ["executions", tenant, id, "tasks"] as const,
   triggers: (tenant: string) => ["triggers", tenant] as const,
   trigger: (tenant: string, name: string) => ["triggers", tenant, name] as const,
+  instances: (tenant: string, workflow: string) =>
+    ["workflows", tenant, workflow, "instances"] as const,
   keys: (tenant: string) => ["keys", tenant] as const,
   accumulators: (tenant: string) => ["accumulators", tenant] as const,
   reactors: (tenant: string) => ["reactors", tenant] as const,

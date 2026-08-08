@@ -266,6 +266,18 @@ impl DefaultRunner {
         self.service_manager.read().await.unified_scheduler.clone()
     }
 
+    /// Wake the timer-driven cron scheduler so it re-reads the due set
+    /// (CLOACI-T-0927).
+    ///
+    /// The embedded `register_cron_*` / `unregister_*` APIs do this for
+    /// themselves. Anything that writes a cron `schedules` row through the DAL
+    /// directly — notably the server's named-instance routes — must call this,
+    /// or the scheduler keeps sleeping against a stale cached due-time and the
+    /// new schedule does not fire.
+    pub fn notify_cron_change(&self) {
+        self.cron_change.notify_one();
+    }
+
     /// Set the graph scheduler for computation graph package routing.
     /// Must be called before `start_services()` so the reconciler can route CG packages.
     pub async fn set_graph_scheduler(

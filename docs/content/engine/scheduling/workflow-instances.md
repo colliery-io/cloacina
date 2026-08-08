@@ -77,6 +77,55 @@ runner.register_workflow_instance(
 )
 ```
 
+## Server (cloacinactl)
+
+The Rust and Python forms above are the **embedded** runner's API. On a server
+deployment, instances are managed with the `instance` noun — no embedding
+required:
+
+```bash
+cloacinactl instance create sync_file sync_prod \
+  --param source=/prod --param dst=/backup/prod --cron "0 * * * *"
+
+cloacinactl instance list sync_file
+cloacinactl instance inspect sync_file sync_prod
+cloacinactl instance delete sync_file sync_prod
+```
+
+`--param` is repeatable. A value that parses as JSON binds as that type
+(`max_files=500` → the number 500), and anything else binds as a string
+(`mode=copy`). `--params <file.json>` supplies a base object that explicit
+`--param` flags override, so a shared configuration can be reused with a couple
+of per-instance tweaks. `--timezone` sets the cron timezone (default `UTC`) and
+`--disabled` creates the schedule switched off.
+
+Values are validated against the workflow's declared `params(...)` **when the
+instance is created**, with the same check that validates a per-run context — a
+missing required param is rejected up front rather than failing at every fire.
+A duplicate instance name for the same workflow is a `409`.
+
+**`--cron` is optional.** Without it the instance is created *unscheduled*: a
+durable named binding that never fires on its own.
+
+The equivalent REST surface is:
+
+| Method | Path |
+|---|---|
+| `POST` | `/v1/tenants/{tenant}/workflows/{name}/instances` |
+| `GET` | `/v1/tenants/{tenant}/workflows/{name}/instances` |
+| `GET` | `/v1/tenants/{tenant}/workflows/{name}/instances/{instance}` |
+| `DELETE` | `/v1/tenants/{tenant}/workflows/{name}/instances/{instance}` |
+
+and the same four operations exist on the Rust, Python and TypeScript clients
+as `create_instance` / `list_instances` / `get_instance` / `delete_instance`.
+
+Instances are tenant-scoped: an instance created in one tenant is invisible to
+another, and a cross-tenant request simply 404s.
+
+Because an instance *is* a schedule row underneath, the existing schedule
+controls apply to it — `cloacinactl trigger pause <workflow>` will pause it.
+There is no separate instance pause verb today.
+
 ## How params reach the workflow
 
 At every fire (cron or trigger), the instance's stored params are merged into
