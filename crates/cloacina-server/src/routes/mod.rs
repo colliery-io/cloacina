@@ -25,6 +25,7 @@ pub mod error;
 pub mod executions;
 pub mod fleet;
 pub mod health_graphs;
+pub mod instances;
 pub mod keys;
 pub mod limits;
 pub mod local_auth;

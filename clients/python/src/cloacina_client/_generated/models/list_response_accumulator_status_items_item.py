@@ -5,6 +5,7 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -19,6 +20,13 @@ class ListResponseAccumulatorStatusItemsItem:
         name (str):
         status (Any): Accumulator health as reported by the endpoint registry. Free-form
             JSON for now; structured in a later contract revision.
+        buffer_capacity (int | None | Unset): Declared buffer capacity for bounded kinds — state `capacity = N`, batch
+            `max_buffer_size`. `None` when unbounded or not applicable. The UI
+            renders `buffer_depth/buffer_capacity` as fill (CLOACI-T-0744).
+        buffer_depth (int | None | Unset): Buffered-event count for buffering kinds — batch (events awaiting flush)
+            and state (window entries). `None` for kinds that don't buffer
+            (passthrough/stream/polling) or runtimes predating the gauge
+            (CLOACI-T-0744).
         error (None | str | Unset): Degradation detail when the source is unhealthy (e.g. connection error).
         events_total (int | None | Unset): Total boundaries emitted since load (monotonic). `None` when untracked.
         last_event_at (None | str | Unset): Wall-clock of the last boundary this accumulator emitted (RFC3339), or
@@ -39,6 +47,8 @@ class ListResponseAccumulatorStatusItemsItem:
 
     name: str
     status: Any
+    buffer_capacity: int | None | Unset = UNSET
+    buffer_depth: int | None | Unset = UNSET
     error: None | str | Unset = UNSET
     events_total: int | None | Unset = UNSET
     last_event_at: None | str | Unset = UNSET
@@ -53,6 +63,18 @@ class ListResponseAccumulatorStatusItemsItem:
         name = self.name
 
         status = self.status
+
+        buffer_capacity: int | None | Unset
+        if isinstance(self.buffer_capacity, Unset):
+            buffer_capacity = UNSET
+        else:
+            buffer_capacity = self.buffer_capacity
+
+        buffer_depth: int | None | Unset
+        if isinstance(self.buffer_depth, Unset):
+            buffer_depth = UNSET
+        else:
+            buffer_depth = self.buffer_depth
 
         error: None | str | Unset
         if isinstance(self.error, Unset):
@@ -106,6 +128,10 @@ class ListResponseAccumulatorStatusItemsItem:
                 "status": status,
             }
         )
+        if buffer_capacity is not UNSET:
+            field_dict["buffer_capacity"] = buffer_capacity
+        if buffer_depth is not UNSET:
+            field_dict["buffer_depth"] = buffer_depth
         if error is not UNSET:
             field_dict["error"] = error
         if events_total is not UNSET:
@@ -126,11 +152,29 @@ class ListResponseAccumulatorStatusItemsItem:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
         name = d.pop("name")
 
         status = d.pop("status")
+
+        def _parse_buffer_capacity(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        buffer_capacity = _parse_buffer_capacity(d.pop("buffer_capacity", UNSET))
+
+        def _parse_buffer_depth(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        buffer_depth = _parse_buffer_depth(d.pop("buffer_depth", UNSET))
 
         def _parse_error(data: object) -> None | str | Unset:
             if data is None:
@@ -202,6 +246,8 @@ class ListResponseAccumulatorStatusItemsItem:
         list_response_accumulator_status_items_item = cls(
             name=name,
             status=status,
+            buffer_capacity=buffer_capacity,
+            buffer_depth=buffer_depth,
             error=error,
             events_total=events_total,
             last_event_at=last_event_at,

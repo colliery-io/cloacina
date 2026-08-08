@@ -60,8 +60,9 @@ def sync_detailed(
     client: AuthenticatedClient,
 ) -> Response[ErrorBody | ListResponseAgentInfo]:
     """`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
-    roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
-    registered against *this* server instance.
+    roster (admin only). CLOACI-I-0124 / WS-0b. CLOACI-T-0916: read from the
+    DB-backed roster (heartbeat-recency-filtered), so the listing reflects the
+    WHOLE fleet regardless of which replica each agent registered against.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -85,8 +86,9 @@ def sync(
     client: AuthenticatedClient,
 ) -> ErrorBody | ListResponseAgentInfo | None:
     """`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
-    roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
-    registered against *this* server instance.
+    roster (admin only). CLOACI-I-0124 / WS-0b. CLOACI-T-0916: read from the
+    DB-backed roster (heartbeat-recency-filtered), so the listing reflects the
+    WHOLE fleet regardless of which replica each agent registered against.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -106,8 +108,9 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
 ) -> Response[ErrorBody | ListResponseAgentInfo]:
     """`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
-    roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
-    registered against *this* server instance.
+    roster (admin only). CLOACI-I-0124 / WS-0b. CLOACI-T-0916: read from the
+    DB-backed roster (heartbeat-recency-filtered), so the listing reflects the
+    WHOLE fleet regardless of which replica each agent registered against.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -129,8 +132,9 @@ async def asyncio(
     client: AuthenticatedClient,
 ) -> ErrorBody | ListResponseAgentInfo | None:
     """`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
-    roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
-    registered against *this* server instance.
+    roster (admin only). CLOACI-I-0124 / WS-0b. CLOACI-T-0916: read from the
+    DB-backed roster (heartbeat-recency-filtered), so the listing reflects the
+    WHOLE fleet regardless of which replica each agent registered against.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

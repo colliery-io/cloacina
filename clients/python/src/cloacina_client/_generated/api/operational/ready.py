@@ -48,7 +48,21 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any]:
-    """GET /ready — readiness check (verifies DB connection pool is healthy)
+    """GET /ready — readiness check, scoped to PLATFORM health only (DB
+    reachable, embedded Python interpreter usable). CLOACI-T-0916:
+    tenant-workload health is deliberately NOT part of readiness — one crashed
+    computation graph used to flip `/ready` false on EVERY replica
+    simultaneously, letting a single bad package eject the whole server fleet
+    from the load-balancer pool. Crashed graphs remain visible via
+    `GET /v1/health/graphs` (state `stopped`/`crashed`) and metrics.
+
+     CLOACI-T-0919 adds one more PLATFORM predicate: a wedged Python runtime.
+    There is exactly one embedded CPython per process, so an uninterruptible
+    module-scope hang disables Python package loading process-wide until
+    restart. That is this replica being broken — not a tenant workload
+    misbehaving — so it belongs in readiness, and it is replica-local (the
+    wedge is set by THIS process's own import thread), which is precisely the
+    property #231 required.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -71,7 +85,21 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any]:
-    """GET /ready — readiness check (verifies DB connection pool is healthy)
+    """GET /ready — readiness check, scoped to PLATFORM health only (DB
+    reachable, embedded Python interpreter usable). CLOACI-T-0916:
+    tenant-workload health is deliberately NOT part of readiness — one crashed
+    computation graph used to flip `/ready` false on EVERY replica
+    simultaneously, letting a single bad package eject the whole server fleet
+    from the load-balancer pool. Crashed graphs remain visible via
+    `GET /v1/health/graphs` (state `stopped`/`crashed`) and metrics.
+
+     CLOACI-T-0919 adds one more PLATFORM predicate: a wedged Python runtime.
+    There is exactly one embedded CPython per process, so an uninterruptible
+    module-scope hang disables Python package loading process-wide until
+    restart. That is this replica being broken — not a tenant workload
+    misbehaving — so it belongs in readiness, and it is replica-local (the
+    wedge is set by THIS process's own import thread), which is precisely the
+    property #231 required.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

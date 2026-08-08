@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -33,12 +34,19 @@ class InputSlot:
             required (bool): Whether this slot must be supplied for the injection to be accepted.
             schema (InputSlotSchema): JSON Schema fragment describing the accepted value's type.
             default (InputSlotDefaultType0 | None | Unset): Optional default applied when the slot is omitted.
+            encrypted (bool | Unset): CLOACI-I-0133 / T-0859: marks this slot as an **encrypted secret** rather
+                than a plaintext param. A secret slot is bound via a `{"$secret": name}`
+                reference (never a literal value), resolved encrypted at fire time, and
+                its resolved value never enters the durable `Context` (NFR-001). Defaults
+                to `false` so pre-existing serialized slots (which omit the field)
+                deserialize as ordinary params.
     """
 
     name: str
     required: bool
     schema: InputSlotSchema
     default: InputSlotDefaultType0 | None | Unset = UNSET
+    encrypted: bool | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,6 +66,8 @@ class InputSlot:
         else:
             default = self.default
 
+        encrypted = self.encrypted
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -69,11 +79,13 @@ class InputSlot:
         )
         if default is not UNSET:
             field_dict["default"] = default
+        if encrypted is not UNSET:
+            field_dict["encrypted"] = encrypted
 
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.input_slot_default_type_0 import InputSlotDefaultType0
         from ..models.input_slot_schema import InputSlotSchema
 
@@ -101,11 +113,14 @@ class InputSlot:
 
         default = _parse_default(d.pop("default", UNSET))
 
+        encrypted = d.pop("encrypted", UNSET)
+
         input_slot = cls(
             name=name,
             required=required,
             schema=schema,
             default=default,
+            encrypted=encrypted,
         )
 
         input_slot.additional_properties = d

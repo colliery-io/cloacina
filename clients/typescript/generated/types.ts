@@ -936,6 +936,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/workflows/{name}/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/workflows/:name/instances — list a workflow's named
+         *     instances.
+         * @description Anonymous schedules (cron rows with no `instance_name`) are excluded — this
+         *     endpoint is about named bindings, and the trigger endpoints already cover
+         *     the general schedule listing.
+         */
+        get: operations["list_instances"];
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/workflows/:name/instances — create a named instance.
+         * @description Params are validated against the workflow's declared `params(...)` slots
+         *     using the same `validate_declared_params` the execute route uses, so a
+         *     scheduled instance cannot be created with a binding that would fail at every
+         *     fire — the failure surfaces at creation time instead of silently at 3am.
+         *
+         *     `cron` is optional. Without it the instance is created **unscheduled**: a
+         *     durable named param binding with `next_run_at = NULL`, which the scheduler's
+         *     due-query can never select (`NULL <= now` is never true).
+         */
+        post: operations["create_instance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /tenants/:tenant_id/workflows/:name/instances/:instance — one instance. */
+        get: operations["get_instance"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /tenants/:tenant_id/workflows/:name/instances/:instance — remove a
+         *     named instance.
+         * @description Deletes the binding and its schedule. In-flight executions already started
+         *     by this instance are unaffected; only future fires are prevented.
+         */
+        delete: operations["delete_instance"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/workflows/{name}/pause": {
         parameters: {
             query?: never;
@@ -1156,6 +1213,28 @@ export interface components {
             role: string;
             username: string;
         };
+        /** @description Body for `POST /tenants/{tenant_id}/workflows/{name}/instances`. */
+        CreateInstanceRequest: {
+            /**
+             * @description Cron expression. When omitted the instance is created **unscheduled** —
+             *     a durable named param binding that never fires on its own.
+             */
+            cron?: string | null;
+            /** @description Whether the schedule is enabled on creation. Defaults to `true`. */
+            enabled?: boolean | null;
+            /**
+             * @description Instance name, unique per `(workflow_name, instance_name)` within the
+             *     tenant.
+             */
+            instance_name: string;
+            /**
+             * @description Parameter values bound to this instance, validated against the
+             *     workflow's declared `params(...)` slots.
+             */
+            params?: unknown;
+            /** @description IANA timezone for `cron`. Defaults to `UTC`. */
+            timezone?: string | null;
+        };
         /** @description Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`. */
         CreateKeyRequest: {
             name: string;
@@ -1204,6 +1283,13 @@ export interface components {
             name: string;
             /** @description The surface's declared input slots. */
             slots: components["schemas"]["InputSlot"][];
+        };
+        /** @description Response for a delete. */
+        DeleteInstanceResponse: {
+            deleted: boolean;
+            instance_name: string;
+            tenant_id: string;
+            workflow_name: string;
         };
         /**
          * @description Standardized error response body. Every non-2xx response from
@@ -2041,6 +2127,34 @@ export interface components {
          *     tenant-scoped list endpoints for backward compatibility with operator
          *     dashboards that key off it.
          */
+        TenantListResponse_WorkflowInstanceSummary: {
+            items: {
+                /** @description RFC 3339 timestamp. */
+                created_at: string;
+                cron_expression?: string | null;
+                enabled: boolean;
+                /** @description Underlying schedule UUID. */
+                id: string;
+                instance_name: string;
+                /** @description RFC 3339 timestamp. */
+                last_run_at?: string | null;
+                /** @description RFC 3339 timestamp. */
+                next_run_at?: string | null;
+                /** @description Bound parameter values, as stored. */
+                params?: unknown;
+                /** @description Whether the schedule is paused (distinct from `enabled`). */
+                paused?: boolean;
+                timezone?: string | null;
+                workflow_name: string;
+            }[];
+            tenant_id: string;
+            total: number;
+        };
+        /**
+         * @description List envelope variant that retains a top-level `tenant_id`, used by
+         *     tenant-scoped list endpoints for backward compatibility with operator
+         *     dashboards that key off it.
+         */
         TenantListResponse_WorkflowSummary: {
             items: {
                 /** @description RFC 3339 timestamp. */
@@ -2224,6 +2338,26 @@ export interface components {
              *     → workflow `demo_slow_workflow`). Falls back to `package_name` for
              *     packages predating workflow-name persistence. (CLOACI-T-0671)
              */
+            workflow_name: string;
+        };
+        /** @description One row in the instance list, and the body of a single-instance GET. */
+        WorkflowInstanceSummary: {
+            /** @description RFC 3339 timestamp. */
+            created_at: string;
+            cron_expression?: string | null;
+            enabled: boolean;
+            /** @description Underlying schedule UUID. */
+            id: string;
+            instance_name: string;
+            /** @description RFC 3339 timestamp. */
+            last_run_at?: string | null;
+            /** @description RFC 3339 timestamp. */
+            next_run_at?: string | null;
+            /** @description Bound parameter values, as stored. */
+            params?: unknown;
+            /** @description Whether the schedule is paused (distinct from `enabled`). */
+            paused?: boolean;
+            timezone?: string | null;
             workflow_name: string;
         };
         /**
@@ -4832,6 +4966,270 @@ export interface operations {
                 };
             };
             /** @description Workflow not registered for this tenant (I-0138 cross-tenant gate; `public` is exempt) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_instances: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Instances for this workflow */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantListResponse_WorkflowInstanceSummary"];
+                };
+            };
+            /** @description Invalid pagination */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_instance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInstanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Instance created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowInstanceSummary"];
+                };
+            };
+            /** @description Invalid params, cron expression, or timezone */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Instance name already exists for this workflow */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_instance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+                /** @description Instance name */
+                instance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Instance detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowInstanceSummary"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Instance not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_instance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+                /** @description Instance name */
+                instance: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Instance deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteInstanceResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Instance not found */
             404: {
                 headers: {
                     [name: string]: unknown;

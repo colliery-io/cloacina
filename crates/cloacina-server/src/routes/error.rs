@@ -68,6 +68,12 @@ impl ApiError {
         Self::new(StatusCode::FORBIDDEN, code, message)
     }
 
+    /// 409 — the request conflicts with existing state, e.g. creating a named
+    /// workflow instance whose name is already taken (CLOACI-T-0894).
+    pub fn conflict(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, code, message)
+    }
+
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self::new(StatusCode::UNAUTHORIZED, "unauthorized", message)
     }

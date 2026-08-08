@@ -61,6 +61,12 @@ from ._generated.api.keys import (
     revoke_key,
     revoke_tenant_key,
 )
+from ._generated.api.instances import (
+    create_instance,
+    delete_instance,
+    get_instance,
+    list_instances,
+)
 from ._generated.api.operational import health, ready
 from ._generated.api.secrets import (
     create_secret,
@@ -89,6 +95,7 @@ from ._generated.api.workflows import (
 )
 from ._generated.models import (
     CreateAccountRequest,
+    CreateInstanceRequest,
     CreateKeyRequest,
     CreateSecretRequest,
     CreateSecretRequestFields,
@@ -412,6 +419,72 @@ class Client(_Base):
         return _unwrap(
             get_trigger.sync_detailed(
                 self.tenant_segment(tenant), name, client=self._gen
+            )
+        )
+
+    # ---- workflow instances (CLOACI-T-0894) ----
+
+    def create_instance(
+        self,
+        workflow: str,
+        instance_name: str,
+        *,
+        params: dict | None = None,
+        cron: str | None = None,
+        timezone: str | None = None,
+        enabled: bool | None = None,
+        tenant: str | None = None,
+    ):
+        """Create a named, param-bound instance of ``workflow``.
+
+        Omit ``cron`` to create an unscheduled binding that never fires on its
+        own — a durable set of bound params you can inspect and delete.
+        """
+        body = CreateInstanceRequest(
+            instance_name=instance_name,
+            params=params if params is not None else UNSET,
+            cron=cron if cron is not None else UNSET,
+            timezone=timezone if timezone is not None else UNSET,
+            enabled=enabled if enabled is not None else UNSET,
+        )
+        return _unwrap(
+            create_instance.sync_detailed(
+                self.tenant_segment(tenant),
+                workflow,
+                client=self._gen,
+                body=body,
+            )
+        )
+
+    def list_instances(
+        self,
+        workflow: str,
+        *,
+        limit: int | None = None,
+        offset: int | None = None,
+        tenant: str | None = None,
+    ):
+        return _unwrap(
+            list_instances.sync_detailed(
+                self.tenant_segment(tenant),
+                workflow,
+                client=self._gen,
+                limit=limit if limit is not None else UNSET,
+                offset=offset if offset is not None else UNSET,
+            )
+        )
+
+    def get_instance(self, workflow: str, instance: str, tenant: str | None = None):
+        return _unwrap(
+            get_instance.sync_detailed(
+                self.tenant_segment(tenant), workflow, instance, client=self._gen
+            )
+        )
+
+    def delete_instance(self, workflow: str, instance: str, tenant: str | None = None):
+        return _unwrap(
+            delete_instance.sync_detailed(
+                self.tenant_segment(tenant), workflow, instance, client=self._gen
             )
         )
 

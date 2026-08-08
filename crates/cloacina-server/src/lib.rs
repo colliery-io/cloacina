@@ -1791,6 +1791,25 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/workflows/{name}/resume",
             post(crate::routes::workflows::resume_workflow),
         )
+        // Named workflow instances (CLOACI-T-0894). Declared BEFORE the
+        // `{version}` delete so the static `instances` segment is never
+        // shadowed by the version wildcard.
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/instances",
+            post(crate::routes::instances::create_instance),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/instances",
+            get(crate::routes::instances::list_instances),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+            get(crate::routes::instances::get_instance),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+            delete(crate::routes::instances::delete_instance),
+        )
         .route(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             delete(crate::routes::workflows::delete_workflow),
