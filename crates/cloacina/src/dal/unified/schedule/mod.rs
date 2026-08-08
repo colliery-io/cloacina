@@ -642,6 +642,97 @@ mod tests {
         assert!(schedule.next_run_at.is_some());
     }
 
+    // ── named instances (CLOACI-T-0894 server surface) ──────────────
+
+    /// The load-bearing safety property of an UNSCHEDULED instance: the server
+    /// route creates it with `next_run_at = NULL`, and the scheduler's due
+    /// query must never select it. `NULL <= now` is never true in SQL, but the
+    /// whole "optional cron" design rests on that, so assert it rather than
+    /// reason about it.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn unscheduled_instance_is_never_due() {
+        let dal = unique_dal().await;
+
+        let mut unscheduled = NewSchedule::cron("wf", "", UniversalTimestamp::now());
+        unscheduled.cron_expression = None;
+        unscheduled.next_run_at = None;
+        unscheduled.instance_name = Some("nightly_params".to_string());
+        unscheduled.params = Some(r#"{"mode":"copy"}"#.to_string());
+        let created = dal.schedule().create(unscheduled).await.unwrap();
+        assert!(created.next_run_at.is_none());
+        assert!(created.is_enabled(), "enabled reflects the request");
+
+        // Far-future `now` — a scheduled row would certainly be due by then.
+        let due = dal
+            .schedule()
+            .get_due_cron_schedules(chrono::Utc::now() + chrono::Duration::days(3650))
+            .await
+            .unwrap();
+        assert!(
+            !due.iter().any(|s| s.id == created.id),
+            "an unscheduled instance must never be selected as due"
+        );
+    }
+
+    /// A scheduled instance keeps its params and instance_name through the
+    /// round trip and IS selectable as due — the counterpart to the above, so
+    /// the test above can't pass merely because nothing is ever due.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn scheduled_instance_round_trips_and_becomes_due() {
+        let dal = unique_dal().await;
+
+        let mut scheduled = NewSchedule::cron(
+            "wf",
+            "0 * * * *",
+            UniversalTimestamp(chrono::Utc::now() - chrono::Duration::minutes(1)),
+        );
+        scheduled.instance_name = Some("prod".to_string());
+        scheduled.params = Some(r#"{"source":"/data"}"#.to_string());
+        let created = dal.schedule().create(scheduled).await.unwrap();
+
+        let found = dal
+            .schedule()
+            .find_by_instance_name("wf", "prod")
+            .await
+            .unwrap()
+            .expect("instance should be findable by name");
+        assert_eq!(found.id, created.id);
+        assert_eq!(found.params.as_deref(), Some(r#"{"source":"/data"}"#));
+
+        let due = dal
+            .schedule()
+            .get_due_cron_schedules(chrono::Utc::now())
+            .await
+            .unwrap();
+        assert!(
+            due.iter().any(|s| s.id == created.id),
+            "a past-due scheduled instance must be selected"
+        );
+    }
+
+    /// The list endpoint filters to named instances; anonymous schedules for
+    /// the same workflow must not leak into it.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn find_by_workflow_distinguishes_named_from_anonymous() {
+        let dal = unique_dal().await;
+
+        let anon = NewSchedule::cron("wf", "0 * * * *", UniversalTimestamp::now());
+        dal.schedule().create(anon).await.unwrap();
+
+        let mut named = NewSchedule::cron("wf", "0 * * * *", UniversalTimestamp::now());
+        named.instance_name = Some("prod".to_string());
+        dal.schedule().create(named).await.unwrap();
+
+        let all = dal.schedule().find_by_workflow("wf").await.unwrap();
+        assert_eq!(all.len(), 2);
+        let named_only: Vec<_> = all.iter().filter(|s| s.instance_name.is_some()).collect();
+        assert_eq!(named_only.len(), 1);
+        assert_eq!(named_only[0].instance_name.as_deref(), Some("prod"));
+    }
+
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_upsert_cron_is_idempotent() {

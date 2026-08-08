@@ -60,17 +60,17 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateSecretRequest,
-    CreateTenantRequest, DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail,
-    ExecutionEventsResponse, ExecutionSummary, ExecutionTasksResponse, FireReactorRequest,
-    FireReactorResponse, FireTriggerRequest, FireTriggerResponse, GraphStatus,
+    AccumulatorStatus, AgentInfo, CompilerStatus, CreateInstanceRequest, CreateKeyRequest,
+    CreateSecretRequest, CreateTenantRequest, DeclaredSurface, ExecuteRequest, ExecuteResponse,
+    ExecutionDetail, ExecutionEventsResponse, ExecutionSummary, ExecutionTasksResponse,
+    FireReactorRequest, FireReactorResponse, FireTriggerRequest, FireTriggerResponse, GraphStatus,
     InjectAccumulatorRequest, InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo,
     KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
     RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse,
     TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
     TriggerPauseResponse, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
-    WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
-    WsTicketResponse,
+    WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary,
+    WorkflowUploadedResponse, WsTicketResponse,
 };
 
 /// Builder for [`Client`].
@@ -632,6 +632,70 @@ impl Client {
         let t = self.tenant_of(tenant);
         self.get_json(&format!("/v1/tenants/{t}/triggers/{name}"))
             .await
+    }
+
+    // ---- workflow instances (CLOACI-T-0894) ----
+
+    /// Create a named, param-bound instance of a workflow. Omit `cron` on the
+    /// request to create an unscheduled binding.
+    pub async fn create_instance(
+        &self,
+        workflow: &str,
+        request: &CreateInstanceRequest,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowInstanceSummary, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/workflows/{workflow}/instances"),
+            request,
+        )
+        .await
+    }
+
+    pub async fn list_instances(
+        &self,
+        workflow: &str,
+        limit: Option<i64>,
+        offset: Option<i64>,
+        tenant: Option<&str>,
+    ) -> Result<TenantListResponse<WorkflowInstanceSummary>, ClientError> {
+        let t = self.tenant_of(tenant);
+        let mut path = format!("/v1/tenants/{t}/workflows/{workflow}/instances");
+        let mut sep = '?';
+        if let Some(l) = limit {
+            path.push_str(&format!("{sep}limit={l}"));
+            sep = '&';
+        }
+        if let Some(o) = offset {
+            path.push_str(&format!("{sep}offset={o}"));
+        }
+        self.get_json(&path).await
+    }
+
+    pub async fn get_instance(
+        &self,
+        workflow: &str,
+        instance: &str,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowInstanceSummary, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!(
+            "/v1/tenants/{t}/workflows/{workflow}/instances/{instance}"
+        ))
+        .await
+    }
+
+    pub async fn delete_instance(
+        &self,
+        workflow: &str,
+        instance: &str,
+        tenant: Option<&str>,
+    ) -> Result<(), ClientError> {
+        let t = self.tenant_of(tenant);
+        self.delete_path(&format!(
+            "/v1/tenants/{t}/workflows/{workflow}/instances/{instance}"
+        ))
+        .await
     }
 
     // ---- executions ----

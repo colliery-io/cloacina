@@ -32,6 +32,11 @@ export type ListTriggersQuery = NonNullable<
   paths["/v1/tenants/{tenant_id}/triggers"]["get"]["parameters"]["query"]
 >;
 
+/** Query string for workflow-instance listing (paging) — CLOACI-T-0894. */
+export type ListInstancesQuery = NonNullable<
+  paths["/v1/tenants/{tenant_id}/workflows/{name}/instances"]["get"]["parameters"]["query"]
+>;
+
 // ---- secrets (CLOACI-I-0133 / T-0862) ----
 //
 // Aliases of the generated wire schemas, kept under the names the UI already
@@ -468,6 +473,87 @@ export class CloacinaClient {
       await this.api.GET("/v1/tenants/{tenant_id}/triggers/{name}", {
         params: { path: { tenant_id: this.#tenant(tenant), name } },
       }),
+    );
+  }
+
+  // ---- workflow instances (CLOACI-T-0894) ----
+
+  /**
+   * Create a named, param-bound instance of a workflow. Omit `cron` on the
+   * body to create an unscheduled binding that never fires on its own.
+   */
+  async createInstance(
+    workflow: string,
+    body: schemas["CreateInstanceRequest"],
+    tenant?: string,
+  ): Promise<schemas["WorkflowInstanceSummary"]> {
+    return unwrap(
+      await this.api.POST(
+        "/v1/tenants/{tenant_id}/workflows/{name}/instances",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), name: workflow },
+          },
+          body,
+        },
+      ),
+    );
+  }
+
+  async listInstances(
+    workflow: string,
+    query?: ListInstancesQuery,
+    tenant?: string,
+  ): Promise<schemas["TenantListResponse_WorkflowInstanceSummary"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/workflows/{name}/instances", {
+        params: {
+          path: { tenant_id: this.#tenant(tenant), name: workflow },
+          query: query as never,
+        },
+      }),
+    );
+  }
+
+  async getInstance(
+    workflow: string,
+    instance: string,
+    tenant?: string,
+  ): Promise<schemas["WorkflowInstanceSummary"]> {
+    return unwrap(
+      await this.api.GET(
+        "/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+        {
+          params: {
+            path: {
+              tenant_id: this.#tenant(tenant),
+              name: workflow,
+              instance,
+            },
+          },
+        },
+      ),
+    );
+  }
+
+  async deleteInstance(
+    workflow: string,
+    instance: string,
+    tenant?: string,
+  ): Promise<schemas["DeleteInstanceResponse"]> {
+    return unwrap(
+      await this.api.DELETE(
+        "/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+        {
+          params: {
+            path: {
+              tenant_id: this.#tenant(tenant),
+              name: workflow,
+              instance,
+            },
+          },
+        },
+      ),
     );
   }
 

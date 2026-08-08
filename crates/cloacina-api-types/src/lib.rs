@@ -39,6 +39,7 @@ pub mod executions;
 pub mod fleet;
 pub mod health;
 pub mod input_interface;
+pub mod instances;
 pub mod keys;
 pub mod operations;
 pub mod reactor;
@@ -61,6 +62,9 @@ pub use health::{
     ReactorFire, ReactorFireTimeseries, ReactorStatus,
 };
 pub use input_interface::{DeclaredSurface, InputSlot};
+pub use instances::{
+    CreateInstanceRequest, DeleteInstanceResponse, ListInstancesQuery, WorkflowInstanceSummary,
+};
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };

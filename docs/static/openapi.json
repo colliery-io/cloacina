@@ -3441,6 +3441,405 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/workflows/{name}/instances": {
+      "get": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "GET /tenants/:tenant_id/workflows/:name/instances — list a workflow's named\ninstances.",
+        "description": "Anonymous schedules (cron rows with no `instance_name`) are excluded — this\nendpoint is about named bindings, and the trigger endpoints already cover\nthe general schedule listing.",
+        "operationId": "list_instances",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instances for this workflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantListResponse_WorkflowInstanceSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows/:name/instances — create a named instance.",
+        "description": "Params are validated against the workflow's declared `params(...)` slots\nusing the same `validate_declared_params` the execute route uses, so a\nscheduled instance cannot be created with a binding that would fail at every\nfire — the failure surfaces at creation time instead of silently at 3am.\n\n`cron` is optional. Without it the instance is created **unscheduled**: a\ndurable named param binding with `next_run_at = NULL`, which the scheduler's\ndue-query can never select (`NULL <= now` is never true).",
+        "operationId": "create_instance",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInstanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Instance created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowInstanceSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid params, cron expression, or timezone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Instance name already exists for this workflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}": {
+      "get": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "GET /tenants/:tenant_id/workflows/:name/instances/:instance — one instance.",
+        "operationId": "get_instance",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instance",
+            "in": "path",
+            "description": "Instance name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowInstanceSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Instance not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "DELETE /tenants/:tenant_id/workflows/:name/instances/:instance — remove a\nnamed instance.",
+        "description": "Deletes the binding and its schedule. In-flight executions already started\nby this instance are unaffected; only future fires are prevented.",
+        "operationId": "delete_instance",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instance",
+            "in": "path",
+            "description": "Instance name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteInstanceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Instance not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/workflows/{name}/pause": {
       "post": {
         "tags": [
@@ -4055,6 +4454,43 @@
           }
         }
       },
+      "CreateInstanceRequest": {
+        "type": "object",
+        "description": "Body for `POST /tenants/{tenant_id}/workflows/{name}/instances`.",
+        "required": [
+          "instance_name"
+        ],
+        "properties": {
+          "cron": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cron expression. When omitted the instance is created **unscheduled** —\na durable named param binding that never fires on its own."
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the schedule is enabled on creation. Defaults to `true`."
+          },
+          "instance_name": {
+            "type": "string",
+            "description": "Instance name, unique per `(workflow_name, instance_name)` within the\ntenant."
+          },
+          "params": {
+            "description": "Parameter values bound to this instance, validated against the\nworkflow's declared `params(...)` slots."
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IANA timezone for `cron`. Defaults to `UTC`."
+          }
+        }
+      },
       "CreateKeyRequest": {
         "type": "object",
         "description": "Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`.",
@@ -4144,6 +4580,30 @@
               "$ref": "#/components/schemas/InputSlot"
             },
             "description": "The surface's declared input slots."
+          }
+        }
+      },
+      "DeleteInstanceResponse": {
+        "type": "object",
+        "description": "Response for a delete.",
+        "required": [
+          "tenant_id",
+          "workflow_name",
+          "instance_name",
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "instance_name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
           }
         }
       },
@@ -5933,6 +6393,90 @@
           }
         }
       },
+      "TenantListResponse_WorkflowInstanceSummary": {
+        "type": "object",
+        "description": "List envelope variant that retains a top-level `tenant_id`, used by\ntenant-scoped list endpoints for backward compatibility with operator\ndashboards that key off it.",
+        "required": [
+          "tenant_id",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in the instance list, and the body of a single-instance GET.",
+              "required": [
+                "id",
+                "workflow_name",
+                "instance_name",
+                "enabled",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                },
+                "cron_expression": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Underlying schedule UUID."
+                },
+                "instance_name": {
+                  "type": "string"
+                },
+                "last_run_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp."
+                },
+                "next_run_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp."
+                },
+                "params": {
+                  "description": "Bound parameter values, as stored."
+                },
+                "paused": {
+                  "type": "boolean",
+                  "description": "Whether the schedule is paused (distinct from `enabled`)."
+                },
+                "timezone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "workflow_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "TenantListResponse_WorkflowSummary": {
         "type": "object",
         "description": "List envelope variant that retains a top-level `tenant_id`, used by\ntenant-scoped list endpoints for backward compatibility with operator\ndashboards that key off it.",
@@ -6390,6 +6934,69 @@
           "workflow_name": {
             "type": "string",
             "description": "Executable workflow name (the identifier to execute by). Differs from\n`package_name` under the standard convention (package `demo-slow-rust`\n→ workflow `demo_slow_workflow`). Falls back to `package_name` for\npackages predating workflow-name persistence. (CLOACI-T-0671)"
+          }
+        }
+      },
+      "WorkflowInstanceSummary": {
+        "type": "object",
+        "description": "One row in the instance list, and the body of a single-instance GET.",
+        "required": [
+          "id",
+          "workflow_name",
+          "instance_name",
+          "enabled",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "cron_expression": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "description": "Underlying schedule UUID."
+          },
+          "instance_name": {
+            "type": "string"
+          },
+          "last_run_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp."
+          },
+          "next_run_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp."
+          },
+          "params": {
+            "description": "Bound parameter values, as stored."
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Whether the schedule is paused (distinct from `enabled`)."
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workflow_name": {
+            "type": "string"
           }
         }
       },

@@ -27,6 +27,7 @@ pub mod constructor;
 pub mod daemon;
 pub mod execution;
 pub mod graph;
+pub mod instance;
 pub mod key;
 pub mod package;
 pub mod reactor;
