@@ -321,16 +321,29 @@ mod postgres_impl {
             Ok(())
         }
 
+        /// Build the tenant's ready-to-use connection string.
+        ///
+        /// CLOACI-T-0888: this used to return a hardcoded
+        /// `postgresql://{user}:{pass}@localhost:5432/cloacina` regardless of
+        /// where the admin connection actually pointed, so every credential
+        /// issued on a non-default deployment named the wrong host, port and
+        /// database. It now derives those coordinates from the admin pool's own
+        /// endpoint and substitutes only the credentials.
+        ///
+        /// The `localhost:5432` form survives ONLY as an unreachable fallback:
+        /// this module is postgres-gated, so the endpoint is always present in
+        /// practice. It is kept rather than panicking because issuing a
+        /// best-effort string is better than failing tenant creation outright
+        /// after the schema and role have already been committed.
         fn build_connection_string(&self, username: &str, password: &str) -> String {
-            // Extract connection details from the admin database connection
-            // For now, return a template - in a real implementation, this would
-            // parse the admin connection string and replace credentials
-
-            // Try unencoded password first - sqlx may handle encoding internally
-            format!(
-                "postgresql://{}:{}@localhost:5432/cloacina",
-                username, password
-            )
+            self.database
+                .tenant_connection_string(username, password)
+                .unwrap_or_else(|| {
+                    format!(
+                        "postgresql://{}:{}@localhost:5432/cloacina",
+                        username, password
+                    )
+                })
         }
 
         /// List all non-system schemas (tenant schemas).
