@@ -202,6 +202,16 @@ pub struct Database {
     backend: BackendType,
     /// The PostgreSQL schema name for multi-tenant isolation (ignored for SQLite)
     schema: Option<String>,
+    /// The resolved PostgreSQL endpoint this pool dials, with ANY userinfo
+    /// stripped — `postgresql://host:port/dbname?params` (CLOACI-T-0888).
+    ///
+    /// Kept so tenant provisioning can hand out a credential string that points
+    /// at the SAME deployment the admin connection uses, instead of guessing
+    /// `localhost:5432`. Credentials are deliberately NOT retained here: the
+    /// pool already holds the admin secret, and this field exists purely to
+    /// carry the non-secret coordinates. `None` for SQLite, which has no
+    /// per-user credential model to hand out.
+    endpoint: Option<String>,
     /// Backing tempfile when the user requested `:memory:` (or
     /// `sqlite://:memory:`). Held via Arc so every Database clone keeps the
     /// file alive; when the last clone drops, NamedTempFile::Drop deletes
@@ -216,9 +226,46 @@ impl std::fmt::Debug for Database {
         f.debug_struct("Database")
             .field("backend", &self.backend)
             .field("schema", &self.schema)
+            .field("endpoint", &self.endpoint)
             .field("pool", &"<connection pool>")
             .finish()
     }
+}
+
+/// Reduce a resolved PostgreSQL URL to its non-secret coordinates
+/// (CLOACI-T-0888): scheme, host, port, database, and query params, with any
+/// `user:password@` removed.
+///
+/// Returns `None` when the URL will not parse — the caller then falls back
+/// rather than emitting a half-built string.
+#[cfg(feature = "postgres")]
+fn endpoint_of(connection_url: &str) -> Option<String> {
+    let mut url = url::Url::parse(connection_url).ok()?;
+    // Both setters only fail on a "cannot-be-a-base" URL, which a parsed
+    // postgres:// URL never is.
+    url.set_username("").ok()?;
+    url.set_password(None).ok()?;
+    Some(url.to_string())
+}
+
+/// Substitute `username`/`password` into an endpoint produced by
+/// [`endpoint_of`], preserving host, port, database and query parameters
+/// (CLOACI-T-0888).
+///
+/// Split out from [`Database::tenant_connection_string`] so the string
+/// behavior is unit-testable without standing up a connection pool.
+fn inject_credentials(endpoint: &str, username: &str, password: &str) -> Option<String> {
+    let mut url = url::Url::parse(endpoint).ok()?;
+    url.set_username(username).ok()?;
+    // `set_password(Some(""))` would serialize a bare `:` — normalize an empty
+    // password to "no password" instead.
+    url.set_password(if password.is_empty() {
+        None
+    } else {
+        Some(password)
+    })
+    .ok()?;
+    Some(url.to_string())
 }
 
 impl Database {
@@ -300,6 +347,7 @@ impl Database {
         match backend {
             BackendType::Postgres => {
                 let connection_url = Self::build_postgres_url(connection_string, _database_name)?;
+                let endpoint_source = connection_url.clone();
                 let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
                 let pool = PgPool::builder(manager)
                     .max_size(max_size as usize)
@@ -322,6 +370,7 @@ impl Database {
                     pool: AnyPool::Postgres(pool),
                     backend,
                     schema: validated_schema,
+                    endpoint: endpoint_of(&endpoint_source),
                     #[cfg(feature = "sqlite")]
                     _memory_tempfile: None,
                 })
@@ -360,6 +409,7 @@ impl Database {
                 );
 
                 Ok(Self {
+                    endpoint: None,
                     pool: AnyPool::Sqlite(pool),
                     backend,
                     schema: validated_schema,
@@ -372,6 +422,7 @@ impl Database {
         {
             let _ = backend; // suppress unused warning
             let connection_url = Self::build_postgres_url(connection_string, _database_name)?;
+            let endpoint_source = connection_url.clone();
             let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
             let pool = PgPool::builder(manager)
                 .max_size(max_size as usize)
@@ -394,6 +445,7 @@ impl Database {
                 pool,
                 backend: BackendType::Postgres,
                 schema: validated_schema,
+                endpoint: endpoint_of(&endpoint_source),
                 #[cfg(feature = "sqlite")]
                 _memory_tempfile: None,
             });
@@ -425,6 +477,7 @@ impl Database {
                 pool,
                 backend: BackendType::Sqlite,
                 schema: validated_schema,
+                endpoint: None,
                 _memory_tempfile: memory_tempfile,
             });
         }
@@ -438,6 +491,22 @@ impl Database {
     /// Returns the schema name if set.
     pub fn schema(&self) -> Option<&str> {
         self.schema.as_deref()
+    }
+
+    /// Build a connection string for `username`/`password` that points at the
+    /// SAME deployment this pool dials (CLOACI-T-0888).
+    ///
+    /// Host, port, database and query parameters are taken from the resolved
+    /// admin URL, so a tenant credential issued against a non-default
+    /// deployment — the dev stack on 15432, a remote host, a database not
+    /// named `cloacina` — is actually dialable. Only the credentials are
+    /// substituted.
+    ///
+    /// Returns `None` for SQLite (no per-user credential model) and when the
+    /// endpoint could not be derived, so callers can decide what to do rather
+    /// than receive a plausible-looking but wrong string.
+    pub fn tenant_connection_string(&self, username: &str, password: &str) -> Option<String> {
+        inject_credentials(self.endpoint.as_deref()?, username, password)
     }
 
     /// Returns a clone of the connection pool.
@@ -917,6 +986,88 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // CLOACI-T-0888: the endpoint carried on `Database` must reduce a resolved
+    // admin URL to its non-secret coordinates, and a tenant credential built
+    // from it must round-trip to the SAME deployment.
+    #[cfg(feature = "postgres")]
+    mod tenant_endpoint {
+        use super::*;
+
+        /// The whole point of the ticket: a non-default deployment must survive
+        /// into the tenant credential instead of being replaced by
+        /// `localhost:5432/cloacina`.
+        #[test]
+        fn non_default_deployment_round_trips() {
+            let endpoint =
+                endpoint_of("postgresql://admin:s3cret@db.internal:15432/analytics").unwrap();
+            let s = inject_credentials(&endpoint, "acme_user", "pw").unwrap();
+
+            assert!(s.starts_with("postgresql://acme_user:pw@"), "creds: {s}");
+            assert!(s.contains("db.internal:15432"), "host/port lost: {s}");
+            assert!(s.contains("/analytics"), "dbname lost: {s}");
+            assert!(!s.contains("localhost"), "hardcoded host leaked: {s}");
+        }
+
+        /// The admin password must not be retained on the struct — the pool
+        /// already holds it, and this field exists only to carry coordinates.
+        #[test]
+        fn endpoint_strips_admin_credentials() {
+            let e = endpoint_of("postgresql://admin:s3cret@db.internal:15432/analytics").unwrap();
+            assert!(!e.contains("s3cret"), "admin password retained: {e}");
+            assert!(!e.contains("admin"), "admin username retained: {e}");
+            // An emptied userinfo must not serialize as a dangling `@`.
+            assert!(e.starts_with("postgresql://db.internal"), "malformed: {e}");
+        }
+
+        /// T-0910 defaults `gssencmode=disable` on the admin URL; deployment
+        /// params like that (and sslmode) must reach the tenant too, or the
+        /// credential dials with different behavior than the admin connection.
+        #[test]
+        fn query_parameters_are_preserved() {
+            let e = endpoint_of("postgresql://a:b@host:5432/db?sslmode=require&gssencmode=disable")
+                .unwrap();
+            let s = inject_credentials(&e, "t", "p").unwrap();
+            assert!(s.contains("sslmode=require"), "sslmode lost: {s}");
+            assert!(s.contains("gssencmode=disable"), "gssencmode lost: {s}");
+        }
+
+        /// An empty password must not serialize a bare `user:@host`.
+        #[test]
+        fn empty_password_omits_the_colon() {
+            let e = endpoint_of("postgresql://a:b@host:5432/db").unwrap();
+            let s = inject_credentials(&e, "t", "").unwrap();
+            assert!(s.starts_with("postgresql://t@host"), "bare colon: {s}");
+        }
+
+        /// A password with URL-significant characters must not corrupt the
+        /// authority section — it has to survive as a decodable round trip.
+        #[test]
+        fn special_characters_in_password_survive_round_trip() {
+            let e = endpoint_of("postgresql://a:b@host:5432/db").unwrap();
+            let s = inject_credentials(&e, "t", "p@ss:w/rd").unwrap();
+
+            let parsed = url::Url::parse(&s).unwrap();
+            assert_eq!(parsed.host_str(), Some("host"), "authority corrupted: {s}");
+            assert_eq!(parsed.port(), Some(5432), "port corrupted: {s}");
+            assert_eq!(parsed.username(), "t", "username corrupted: {s}");
+
+            // The raw password must be escaped, not verbatim — a literal `@`
+            // or `/` here is exactly what would split the authority wrongly.
+            let raw = parsed.password().unwrap();
+            assert!(
+                !raw.contains('@') && !raw.contains('/'),
+                "password not escaped: {raw}"
+            );
+        }
+
+        /// SQLite has no per-user credential model, so there is nothing to hand
+        /// out — the endpoint is `None` and callers get `None`, not a guess.
+        #[test]
+        fn a_missing_endpoint_yields_none() {
+            assert!(endpoint_of("not a url").is_none());
+        }
+    }
 
     // CLOACI-T-0649: build_postgres_url must respect an explicit database name
     // in the URL and only fall back to the parameter when the URL has none.
