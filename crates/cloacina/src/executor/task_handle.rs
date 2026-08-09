@@ -41,6 +41,7 @@
 
 use std::cell::RefCell;
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::{debug, warn};
@@ -108,7 +109,13 @@ where
 /// The handle is created by the executor for each task execution and is not
 /// reusable across executions.
 pub struct TaskHandle {
-    slot_token: SlotToken,
+    /// Shared so a PACKAGED task can reach the same slot through the
+    /// `CloacinaHost` callback channel (CLOACI-T-0897). The callback arrives on
+    /// a blocking-pool thread where this handle's task-local is invisible, so
+    /// the executor also registers this exact `Arc` in the deferral registry
+    /// keyed by `task_execution_id`. Embedded tasks go straight through the
+    /// handle as before; either way there is exactly ONE `SlotToken`.
+    slot_token: Arc<tokio::sync::Mutex<SlotToken>>,
     task_execution_id: UniversalUuid,
     dal: Option<DAL>,
     cancel_rx: Option<tokio::sync::watch::Receiver<bool>>,
@@ -120,7 +127,7 @@ impl TaskHandle {
     #[cfg(test)]
     fn new(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self {
         Self {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id,
             dal: None,
             cancel_rx: None,
@@ -139,11 +146,17 @@ impl TaskHandle {
         cancel_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Self {
         Self {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id,
             dal: Some(dal),
             cancel_rx: Some(cancel_rx),
         }
+    }
+
+    /// The shared slot, for the deferral registry to hand to host callbacks
+    /// (CLOACI-T-0897). Same `Arc` the handle uses — never a copy of the token.
+    pub(crate) fn slot_handle(&self) -> Arc<tokio::sync::Mutex<SlotToken>> {
+        Arc::clone(&self.slot_token)
     }
 
     /// Release the concurrency slot while polling an external condition.
@@ -198,7 +211,7 @@ impl TaskHandle {
         }
 
         // Release the concurrency slot
-        self.slot_token.release();
+        self.slot_token.lock().await.release();
 
         // Poll until condition is met
         loop {
@@ -209,7 +222,7 @@ impl TaskHandle {
         }
 
         // Reclaim a concurrency slot (may wait if at capacity)
-        self.slot_token.reclaim().await?;
+        self.slot_token.lock().await.reclaim().await?;
 
         // Update sub_status back to Active
         if let Some(ref dal) = self.dal {
@@ -240,8 +253,16 @@ impl TaskHandle {
     }
 
     /// Returns whether the handle currently holds a concurrency slot.
+    ///
+    /// Uses `try_lock`: the only contender is a host callback that is mid
+    /// release/reclaim, and both are short. A contended read reports the slot
+    /// as held, which is the safe answer for a caller deciding whether it may
+    /// proceed.
     pub fn is_slot_held(&self) -> bool {
-        self.slot_token.is_held()
+        match self.slot_token.try_lock() {
+            Ok(t) => t.is_held(),
+            Err(_) => true,
+        }
     }
 
     /// Returns `true` if the executor has signaled that this task's claim
@@ -451,7 +472,7 @@ mod tests {
         // Bypass the DAL requirement of with_dal_and_cancel by constructing
         // directly — this mirrors what the executor does internally.
         let handle = TaskHandle {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id: UniversalUuid::new_v4(),
             dal: None,
             cancel_rx: Some(rx),
@@ -474,7 +495,7 @@ mod tests {
         let slot_token = SlotToken::new(permit, semaphore.clone());
         let (tx, rx) = tokio::sync::watch::channel(false);
         let handle = TaskHandle {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id: UniversalUuid::new_v4(),
             dal: None,
             cancel_rx: Some(rx),
@@ -505,7 +526,7 @@ mod tests {
         let slot_token = SlotToken::new(permit, semaphore.clone());
         let (tx, rx) = tokio::sync::watch::channel(false);
         let handle = TaskHandle {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id: UniversalUuid::new_v4(),
             dal: None,
             cancel_rx: Some(rx),
