@@ -208,6 +208,10 @@ macro_rules! package {
                             source_location: format!("{}/lib.rs", env!("CARGO_PKG_NAME")),
                             trigger_rules: cloacina_workflow::Task::trigger_rules(&*task)
                                 .to_string(),
+                            // CLOACI-T-0897: the host gates its whole handle
+                            // path on this, and cannot see the packaged Task
+                            // impl to ask. Read straight off the task here.
+                            requires_handle: cloacina_workflow::Task::requires_handle(&*task),
                         });
                     }
                     // Look up WorkflowDescriptorEntry for description / author /
@@ -996,7 +1000,10 @@ pub trait CloacinaHost: Send + Sync {
 // through `CloacinaHost` for a deferral. Same reasoning as 4 → 5 — bincode is
 // positional, so a v5 plugin's request would mis-decode against a v6 host. The
 // gate must reject rather than guess.
-#[fidius::plugin_interface(version = 6, buffer = PluginAllocated)]
+// version 6 → 7 (CLOACI-T-0897): `TaskMetadataEntry` gained `requires_handle`,
+// so the host learns a packaged task wants a `TaskHandle`. Positional bincode
+// again — the gate must reject a v6 plugin rather than mis-decode.
+#[fidius::plugin_interface(version = 7, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.
     /// Method index 0.

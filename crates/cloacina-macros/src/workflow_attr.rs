@@ -1340,6 +1340,19 @@ fn generate_packaged_registration(
                     dependencies: vec![#(#dep_strs),*],
                     description: format!("Task: {}", #task_id),
                     source_location: #source_location.to_string(),
+                    // CLOACI-T-0897: ask the registered Task impl whether it
+                    // takes a handle. Read from inventory rather than tracked
+                    // here because the handle parameter is detected by
+                    // `#[task]`, one level down — this macro only sees ids.
+                    // The host gates its whole handle path on this bit.
+                    requires_handle: cloacina_workflow_plugin::inventory::iter::<
+                        cloacina_workflow_plugin::TaskEntry,
+                    >
+                        .into_iter()
+                        .map(|entry| (entry.constructor)())
+                        .find(|t| cloacina_workflow::Task::id(&**t) == #task_id)
+                        .map(|t| cloacina_workflow::Task::requires_handle(&*t))
+                        .unwrap_or(false),
                 }
             }
         })

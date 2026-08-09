@@ -47,6 +47,19 @@ pub struct TaskMetadataEntry {
     /// `{"type":"Always"}` for packages built before this field existed.
     #[serde(default = "default_trigger_rules")]
     pub trigger_rules: String,
+    /// CLOACI-T-0897: whether this task takes a `TaskHandle` parameter.
+    ///
+    /// The executor gates the ENTIRE handle path on `Task::requires_handle()`,
+    /// and the host-side `DynamicLibraryTask` has no way to know — the flag
+    /// lives in the packaged `Task` impl, on the far side of the FFI boundary.
+    /// Without carrying it here, every packaged task reports the trait default
+    /// (`false`), so no handle is built, nothing is registered for deferral,
+    /// and `defer_until` fails with `TASK_NOT_RUNNING`.
+    ///
+    /// Defaults to `false` for packages built before this field existed, which
+    /// is correct: they could not have used a handle anyway.
+    #[serde(default)]
+    pub requires_handle: bool,
 }
 
 /// Default trigger-rules JSON (`Always`) for back-compat deserialization of
