@@ -76,26 +76,27 @@ Resuming re-arms it on its normal schedule. Fires missed while paused are **not
 caught up** — the policy is skip, not backfill. If you paused for ten minutes on
 a 3s poll, you do not get 200 executions on resume.
 
-### Fire it by hand
-
-```bash
-cloacinactl trigger fire inbox_poll
-```
-
-This runs the fan-out immediately: every workflow subscribed to the trigger
-starts, without waiting for the next poll. The resulting executions are marked
-`manual`, so they stay distinguishable from scheduled ones in the history.
-
-To supply the context yourself rather than letting the trigger function produce
-it:
-
-```bash
-cloacinactl trigger fire inbox_poll --event '{"filename": "urgent-001.dat"}'
-```
-
-The event is merged into each fired workflow's context. When the subscribed
-workflows declare typed params, it is validated against them first — a
-malformed event is rejected before anything runs.
-
 Both `pause` and `resume` accept the workflow name as well as the trigger name,
 which is handy when you know what stopped rather than which trigger drives it.
+
+### Run it now, without waiting for the poll
+
+```bash
+cloacinactl workflow run file_processing
+```
+
+For a trigger declared with `on = "..."` — like this one — that is the way to
+get an immediate run. The trigger owns *when* the workflow runs; running the
+workflow directly bypasses the schedule for a one-off.
+
+`cloacinactl trigger fire` does **not** apply here, and it is worth knowing why,
+because the two look interchangeable and are not:
+
+| Shape | How it is wired | `trigger fire` |
+|---|---|---|
+| `#[trigger(on = "wf")]` (this example) | the trigger names the workflow it drives | **no** — the trigger has no *subscribers* |
+| `#[workflow(triggers = ["t"])]` | workflows subscribe to a named trigger | yes — fans out to every subscriber |
+
+`trigger fire` resolves its targets from the *subscription* side, so firing a
+trigger whose only consumer is its own `on` workflow reports
+`trigger '<name>' has no subscribed workflows`. See CLOACI-T-0929.

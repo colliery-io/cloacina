@@ -682,15 +682,22 @@ def _graph_kafka_steps(label, workflow_name, reactor, topic, payloads):
     return steps
 
 
-def _trigger_wait_steps(workflow_name):
+def _trigger_wait_steps(workflow_name, trigger_name=None):
     """For a POLL/CRON-triggered workflow: don't `workflow run` it — wait for the
     trigger to fire it AUTOMATICALLY and assert the auto-execution reaches
     Completed. Proves the packaged-trigger path (macro → FFI projection → host
-    trigger registry → scheduled fire) end to end."""
+    trigger registry → scheduled fire) end to end.
+
+    When `trigger_name` is given, also runs the operator verbs the example's
+    "Operate it" section documents (CLOACI-T-0893) — list/inspect/pause/resume
+    and a manual fire. Those verbs are the whole point of the section, and an
+    unrun documented command is how `accumulator inject` shipped with syntax
+    that could not work."""
 
     def steps(ctl, home):
         from test.e2e.compiler import _poll_execution_status
 
+        fired = False
         deadline = time.time() + 180
         while time.time() < deadline:
             _, out, _ = ctl(
@@ -710,12 +717,37 @@ def _trigger_wait_steps(workflow_name):
                     print(f"  ok: trigger fired an execution automatically ({exec_id})")
                     _poll_execution_status(home, exec_id, {"Completed"}, timeout_s=180.0)
                     print("  ok: triggered execution Completed")
-                    return
+                    fired = True
+                    break
             time.sleep(3)
-        raise AssertionError(
-            f"no execution of `{workflow_name}` appeared — the poll trigger never "
-            "fired (macro/FFI projection or trigger scheduler not running)"
-        )
+        if not fired:
+            raise AssertionError(
+                f"no execution of `{workflow_name}` appeared — the poll trigger never "
+                "fired (macro/FFI projection or trigger scheduler not running)"
+            )
+
+        if trigger_name:
+            # Pause/resume are ordered deliberately: resume LAST, so the lane
+            # cannot leave the trigger parked for whatever runs after it.
+            _assert_operational_verbs(
+                ctl,
+                [
+                    (["trigger", "list"], "trigger list"),
+                    (["trigger", "inspect", trigger_name], "trigger inspect"),
+                    (["trigger", "pause", trigger_name], "trigger pause"),
+                    (["trigger", "resume", trigger_name], "trigger resume"),
+                    # `trigger fire` is deliberately NOT asserted here: it
+                    # resolves targets from the SUBSCRIPTION side
+                    # (`#[workflow(triggers = [..])]`), so a trigger declared
+                    # `#[trigger(on = "wf")]` has no subscribers and the call
+                    # errors. Documented in the example's README; the gap
+                    # itself is CLOACI-T-0929.
+                    (
+                        ["workflow", "run", workflow_name],
+                        "workflow run (immediate run for an `on =` trigger)",
+                    ),
+                ],
+            )
 
     return steps
 
@@ -911,7 +943,9 @@ _PACKAGED_OVERRIDES = {
         "steps": _graph_autofire_steps("python-polling-graph", "poll_reactor"),
     },
     # Poll trigger fires `file_processing` automatically — wait for it, don't run.
-    "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},
+    "packaged-triggers": {
+        "steps": _trigger_wait_steps("file_processing", trigger_name="inbox_poll")
+    },
     # Python peer: @cloaca.trigger poll fires `file_processing_py` automatically.
     "python-triggers": {"steps": _trigger_wait_steps("file_processing_py")},
     # Python cron: the cron scheduler fires `heartbeat_workflow` on a schedule.
