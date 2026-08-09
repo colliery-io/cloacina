@@ -111,6 +111,12 @@ mod tests {
 
     /// The registry hands back the SAME slot the caller registered — a copy
     /// would mean two owners of one permit and a double release.
+    ///
+    /// sqlite-gated: it needs a real `DAL` to build a `DeferralEntry`, and the
+    /// cheapest one is an in-memory sqlite `Database`. A postgres-only build has
+    /// no sqlite backend and panics on that URL, so the test is skipped there —
+    /// the property being pinned is backend-independent.
+    #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn lookup_returns_the_same_slot_arc() {
         let id = UniversalUuid::new_v4();
