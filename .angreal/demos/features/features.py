@@ -550,6 +550,32 @@ def _graph_autofire_steps(label, reactor):
     return steps
 
 
+def _assert_operational_verbs(ctl, verbs):
+    """Run each documented operator verb and fail loudly if it does not work
+    (CLOACI-T-0893).
+
+    The point is narrow and worth stating: an "Operate it" section is a promise
+    that these exact invocations run. That promise had already been broken once
+    — `cg-feature-tour` documented `accumulator inject <name> '<json>'` when the
+    CLI requires `--event`, so the command in the README could not work at all.
+    Nothing caught it because nothing ran it.
+
+    `verbs` is a list of (argv, description). A non-zero exit fails the lane
+    with the verb's own stderr, so the failure names the broken command rather
+    than a generic step number.
+    """
+    for args, description in verbs:
+        code, out, err = ctl(*args, check=False)
+        if code != 0:
+            raise AssertionError(
+                f"documented operator verb failed ({description}): "
+                f"`cloacinactl {' '.join(args)}` exited {code}\n"
+                f"  stderr: {err.strip() or '(empty)'}\n"
+                f"  stdout: {out.strip()[:400] or '(empty)'}"
+            )
+        print(f"  ok: {description}")
+
+
 def _workspace_rewrite_prepare(example_dir):
     """Copy the example to a temp dir with `__WORKSPACE__` in package.toml
     rewritten to this checkout's absolute path — so `[metadata.providers]` path
@@ -624,11 +650,33 @@ def _graph_kafka_steps(label, workflow_name, reactor, topic, payloads):
                     f"  ok: reactor {reactor} fired ({before} -> {now}) — the bundled "
                     "NATIVE kafka provider streamed the messages into the graph"
                 )
-                return
-        raise AssertionError(
-            f"reactor {reactor} never fired after producing to {topic} — the bundled "
-            "kafka provider did not deliver boundaries (check server.log for the "
-            "provider stream accumulator load line)"
+                break
+        else:
+            raise AssertionError(
+                f"reactor {reactor} never fired after producing to {topic} — the bundled "
+                "kafka provider did not deliver boundaries (check server.log for the "
+                "provider stream accumulator load line)"
+            )
+
+        # Surface 3 (CLOACI-T-0893): the verbs the README's "Operate it"
+        # section tells operators to run. Asserted here because a documented
+        # command that nobody runs is how `accumulator inject` shipped with the
+        # wrong syntax.
+        _assert_operational_verbs(
+            ctl,
+            [
+                (["graph", "list"], "graph list"),
+                (["graph", "accumulators"], "graph accumulators"),
+                (
+                    ["accumulator", "inject", "ticks", "--event", '{"price": 101.5}'],
+                    "accumulator inject --event",
+                ),
+                (
+                    ["reactor", "fire", reactor, "--input", 'ticks={"price": 250.0}'],
+                    "reactor fire --input",
+                ),
+                (["reactor", "force-fire", reactor], "reactor force-fire"),
+            ],
         )
 
     return steps

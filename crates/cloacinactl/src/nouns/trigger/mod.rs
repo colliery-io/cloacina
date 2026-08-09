@@ -43,6 +43,32 @@ enum TriggerVerb {
     Inspect {
         name: String,
     },
+    /// Stop a trigger firing, without disabling or deleting it.
+    ///
+    /// In-flight executions are unaffected — this only gates NEW ones. Missed
+    /// fires are not caught up on resume (skip policy).
+    Pause {
+        /// Trigger name, or the workflow name it fires.
+        name: String,
+    },
+    /// Re-arm a paused trigger on its normal schedule.
+    Resume {
+        /// Trigger name, or the workflow name it fires.
+        name: String,
+    },
+    /// Fire a trigger by hand, fanning out to every subscribed workflow.
+    ///
+    /// The started executions are marked `manual` so they are distinguishable
+    /// from scheduled ones.
+    Fire {
+        /// Trigger name.
+        name: String,
+        /// Optional event payload merged into each fired workflow's context,
+        /// as JSON. Validated against the trigger's declared pass-through
+        /// schema when its subscribers declare one.
+        #[arg(long = "event", value_name = "JSON")]
+        event: Option<String>,
+    },
 }
 
 impl TriggerCmd {
@@ -66,6 +92,37 @@ impl TriggerCmd {
                     .get(&format!("/v1/tenants/{tenant}/triggers/{name}"))
                     .await?;
                 render::object(&body, output)
+            }
+            TriggerVerb::Pause { name } => {
+                let body: serde_json::Value = client
+                    .post(
+                        &format!("/v1/tenants/{tenant}/triggers/{name}/pause"),
+                        &serde_json::json!({}),
+                    )
+                    .await?;
+                render::object(&body, output)
+            }
+            TriggerVerb::Resume { name } => {
+                let body: serde_json::Value = client
+                    .post(
+                        &format!("/v1/tenants/{tenant}/triggers/{name}/resume"),
+                        &serde_json::json!({}),
+                    )
+                    .await?;
+                render::object(&body, output)
+            }
+            TriggerVerb::Fire { name, event } => {
+                // Same convention as `accumulator inject`: parse as JSON, fall
+                // back to a JSON string, so `--event hello` works unquoted.
+                let payload = event.map(|raw| {
+                    serde_json::from_str::<serde_json::Value>(&raw)
+                        .unwrap_or(serde_json::Value::String(raw))
+                });
+                let body = serde_json::json!({ "event": payload });
+                let resp: serde_json::Value = client
+                    .post(&format!("/v1/tenants/{tenant}/triggers/{name}/fire"), &body)
+                    .await?;
+                render::object(&resp, output)
             }
         }
     }

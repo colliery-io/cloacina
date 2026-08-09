@@ -258,9 +258,15 @@ fn test_plugin_info_populated() {
         plugin.info.interface_hash != 0,
         "Interface hash should be non-zero"
     );
+    // Deliberately pinned: the wire is POSITIONAL bincode, so a version skew
+    // between host and package mis-decodes rather than failing. Bump this only
+    // alongside a real interface change, and say which one:
+    //   5 — T-0895 `resolved_secrets` on TaskExecutionRequest
+    //   6 — T-0897 `task_execution_id` on TaskExecutionRequest
+    //   7 — T-0897 `requires_handle` on TaskMetadataEntry
     assert_eq!(
-        plugin.info.interface_version, 5,
-        "Interface version should be 5 (CLOACI-T-0895 resolved_secrets on TaskExecutionRequest)"
+        plugin.info.interface_version, 7,
+        "Interface version should be 7 (CLOACI-T-0897 requires_handle on TaskMetadataEntry)"
     );
     assert_eq!(
         plugin.method_count, 11,

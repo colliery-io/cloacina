@@ -91,6 +91,39 @@ cloacinactl execution status <execution-id>
 Or watch the run in the web UI at <http://localhost:8080> — executions, task
 states, and the workflow DAG are all there.
 
+## Operate it
+
+`execution list` and `execution status` tell you *where* a run got to. When you
+need to know *what happened and in what order* — which task started when, which
+was skipped, where a retry kicked in — read the event trail.
+
+```bash
+cloacinactl execution events <execution-id>
+```
+
+Each line is one recorded event with its task name and timestamp, in sequence.
+This is the first thing to reach for when a run finished in a state you did not
+expect: the status tells you the outcome, the events tell you the path.
+
+For a run that is still going, tail it live:
+
+```bash
+cloacinactl execution events <execution-id> --follow
+```
+
+That streams events over SSE and keeps printing until you Ctrl-C. Useful on a
+long workflow when you want to watch progress rather than poll `status`.
+
+To look at a window of history instead:
+
+```bash
+cloacinactl execution events <execution-id> --since 5m
+```
+
+`--since` and `--follow` cannot be combined — `--follow` starts from now, so
+there is no cursor to resume from. Take the historical snapshot first, then
+start the live tail if you want both.
+
 ## How the workflow is authored
 
 `src/lib.rs` declares the pipeline with the workflow macro; dependencies
