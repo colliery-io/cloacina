@@ -57,6 +57,16 @@ uvx openapi-python-client@0.29.0 generate \
   --output-path src/cloacina_client/_generated --overwrite
 ```
 
+The pin is **enforced**, not just documented: `scripts/check_python_sdk_generated.py`
+regenerates into a temp directory and fails CI if the committed tree differs.
+Change the version in that script and in the recipe above together — they are
+the same pin, and the script is the half that CI reads.
+
+This gate exists because the two drifted apart once already: the committed
+output had been produced by a different generator build than this README named,
+and regenerating with the documented version rewrote ~100 files and introduced
+an import (`typing_extensions`) that was not a declared dependency.
+
 ## Contract tests
 
 `tests/test_contract.py` exercises every documented endpoint plus the WebSocket lifecycle against a live server:
