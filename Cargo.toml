@@ -38,3 +38,17 @@ clap = { version = "4.0", features = ["derive", "env"] }
 anyhow = { version = "1.0" }
 toml = { version = "0.8" }
 bincode = { version = "1.3" }
+
+# fidius — the plugin/FFI framework. Collapsed to workspace deps (CLOACI-T-0897):
+# these were pinned as 11 independent "0.5.6" literals across 7 crates, the exact
+# version-drift class I-0134 exists to prevent. They must move in lockstep — the
+# wire is positional bincode, so two different fidius versions in one build mean
+# two incompatible copies of the FFI types.
+#
+# 0.5.7 adds the plugin -> host callback channel (`#[host_interface]`) that
+# CLOACI-T-0897's packaged `defer_until` needs. It is an ABI-additive patch, so
+# packages built against 0.5.6 load unchanged.
+fidius = { version = "0.5.7" }
+fidius-core = { version = "0.5.7" }
+fidius-host = { version = "0.5.7" }
+fidius-macro = { version = "0.5.7" }

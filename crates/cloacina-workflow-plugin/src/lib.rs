@@ -62,6 +62,38 @@ pub use types::{
 pub use fidius;
 pub use fidius_core;
 
+/// Compile-time proof that `#[host_interface]` generated BOTH ends of the
+/// `CloacinaHost` channel under the names the engine and the packaged shell
+/// reference (CLOACI-T-0897).
+///
+/// Worth pinning rather than assuming: the two halves are gated differently —
+/// the client is always emitted (packaged cdylibs need it), while the binding
+/// and its load-time gate constants only exist under this crate's `host`
+/// feature, which pulls `fidius/host`. A silent change to either gate would
+/// otherwise surface much later as a confusing missing-symbol error in an
+/// unrelated crate.
+#[cfg(test)]
+mod host_interface_surface {
+    #[test]
+    fn client_and_binding_are_generated() {
+        // Plugin side — always present.
+        fn _client_type_exists(_c: &super::CloacinaHostClient) {}
+
+        // Host side — only under `host`. The gate constants are what the
+        // loader compares against a plugin's advertised imports.
+        #[cfg(feature = "host")]
+        {
+            let _v: u32 = super::CloacinaHostBinding::INTERFACE_VERSION;
+            let _h: u64 = super::CloacinaHostBinding::INTERFACE_HASH;
+            assert_eq!(
+                super::CloacinaHostBinding::INTERFACE_VERSION,
+                1,
+                "host interface version must match the declared #[host_interface(version = 1)]"
+            );
+        }
+    }
+}
+
 // Re-export serde_json so the `#[workflow]` macro's PACKAGED `ConstructorEntry`
 // emission can lower `constructor!(config = { .. })` values via
 // `::cloacina_workflow_plugin::serde_json::json!` without the packaged cdylib
@@ -889,6 +921,48 @@ pub const METHOD_GET_INPUT_INTERFACE: usize = 9;
 /// See [`METHOD_GET_TASK_METADATA`]. Packaged `constructor!(...)` node declarations
 /// (CLOACI-T-0832), optional since interface version 4.
 pub const METHOD_GET_CONSTRUCTOR_METADATA: usize = 10;
+
+/// Host services a packaged workflow can call back into (CLOACI-T-0897).
+///
+/// This is the **reverse** direction from [`CloacinaPlugin`]: the host
+/// implements it and the plugin calls it mid-execution. It exists so
+/// `handle.defer_until(..)` works in a packaged workflow, not just an embedded
+/// one — the task's condition is plugin code, but releasing and reclaiming its
+/// concurrency slot is host state (a semaphore permit and a DB row), and
+/// neither can cross the boundary as a value.
+///
+/// Every method is keyed by the task-execution UUID as a string, because the
+/// host has no other way to know *which* running task is calling: the callback
+/// arrives on a tokio blocking-pool thread (the host invokes packaged tasks via
+/// `spawn_blocking`), where the executor's task-local handle is not visible.
+///
+/// Calls are **synchronous** at the boundary by fidius's design; the host
+/// bridges to its async internals itself. That is safe here precisely because
+/// callbacks land on the blocking pool rather than a runtime worker — see the
+/// threading notes on CLOACI-T-0897.
+///
+/// A plugin that never defers imports nothing and is completely unaffected;
+/// `bind` simply reports that this library does not use the interface.
+#[fidius::host_interface(version = 1)]
+pub trait CloacinaHost: Send + Sync {
+    /// Release the task's concurrency slot so another task may run while this
+    /// one waits. Idempotent — releasing an already-released slot is not an
+    /// error.
+    fn release_slot(&self, task_execution_id: String) -> Result<(), fidius::PluginError>;
+
+    /// Reclaim a concurrency slot before resuming real work. May wait for
+    /// capacity, and returns an error if the executor is shutting down (the
+    /// semaphore is closed) so the task fails rather than hanging.
+    fn reclaim_slot(&self, task_execution_id: String) -> Result<(), fidius::PluginError>;
+
+    /// Set the task's `sub_status` (`"Deferred"` / `"Active"`) so operators can
+    /// see a deferred task is waiting rather than stuck.
+    fn set_sub_status(
+        &self,
+        task_execution_id: String,
+        sub_status: String,
+    ) -> Result<(), fidius::PluginError>;
+}
 
 /// The plugin interface for cloacina workflow packages.
 ///
