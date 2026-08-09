@@ -167,6 +167,9 @@ fn test_task_execution_fidelity() {
         task_name: "extract_data".to_string(),
         context_json: "{}".to_string(),
         resolved_secrets: Default::default(),
+        // CLOACI-T-0897: no deferral in this fixture, so an empty id is fine —
+        // the packaged TaskHandle only needs one when defer_until is called.
+        task_execution_id: String::new(),
     };
 
     // Method index 1 = execute_task (fidius 0.0.5 tuple encoding: single-arg = (T,))
@@ -210,6 +213,9 @@ fn test_unknown_task_returns_error() {
         task_name: "nonexistent_task".to_string(),
         context_json: "{}".to_string(),
         resolved_secrets: Default::default(),
+        // CLOACI-T-0897: no deferral in this fixture, so an empty id is fine —
+        // the packaged TaskHandle only needs one when defer_until is called.
+        task_execution_id: String::new(),
     };
 
     // fidius 0.0.5 tuple encoding: single-arg = (T,)

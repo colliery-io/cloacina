@@ -573,6 +573,7 @@ mod tests {
             description: "Extract data from sources".to_string(),
             source_location: "src/lib.rs".to_string(),
             trigger_rules: "{\"type\":\"Always\"}".to_string(),
+            requires_handle: false,
         };
 
         let json = serde_json::to_string(&entry).unwrap();
@@ -598,6 +599,7 @@ mod tests {
                 description: "First step".to_string(),
                 source_location: "src/lib.rs".to_string(),
                 trigger_rules: "{\"type\":\"Always\"}".to_string(),
+                requires_handle: false,
             }],
             triggers: Vec::new(),
         };
@@ -619,6 +621,7 @@ mod tests {
             task_name: "extract_data".to_string(),
             context_json: r#"{"key": "value"}"#.to_string(),
             resolved_secrets: secrets,
+            task_execution_id: "11111111-1111-4111-8111-111111111111".to_string(),
         };
 
         let json = serde_json::to_string(&request).unwrap();
