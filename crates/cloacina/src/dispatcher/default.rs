@@ -162,7 +162,19 @@ impl Dispatcher for DefaultDispatcher {
 
         // Execute the task - the executor is responsible for claiming (which marks as Running)
         // and handling execution. We handle the final state transition.
-        let result = executor.execute(event.clone()).await?;
+        //
+        // CLOACI-T-0897: install the task-execution id here, not in an
+        // executor. This is the one choke point EVERY executor passes through,
+        // so a packaged task can name itself when calling back for a deferral
+        // regardless of which executor is running it. Installing it in
+        // `ThreadTaskExecutor` (next to the TaskHandle) worked embedded and
+        // silently produced an empty id on the server, which runs a
+        // `FleetExecutor` — a gap only a live-server test exposed.
+        let result = crate::executor::with_task_execution_id(
+            event.task_execution_id,
+            executor.execute(event.clone()),
+        )
+        .await?;
         self.handle_result(&event, result).await?;
 
         Ok(())

@@ -73,14 +73,41 @@ pub fn take_task_handle() -> TaskHandle {
     })
 }
 
-/// The current task's execution id, without disturbing the handle
-/// (CLOACI-T-0897).
+tokio::task_local! {
+    /// The running task's execution id, independent of the `TaskHandle`
+    /// (CLOACI-T-0897).
+    ///
+    /// Deliberately SEPARATE from `TASK_HANDLE_SLOT`. That one is installed
+    /// only by `ThreadTaskExecutor`, so anything relying on it works embedded
+    /// and silently returns nothing on the server, which runs a different
+    /// executor. This one is installed by the DISPATCHER — the single choke
+    /// point every executor passes through — so the id is available on every
+    /// path.
+    static TASK_EXECUTION_ID: UniversalUuid;
+}
+
+/// Run `f` with the task's execution id available to
+/// [`current_task_execution_id`] (CLOACI-T-0897). Called by the dispatcher.
+pub async fn with_task_execution_id<F, T>(task_execution_id: UniversalUuid, f: F) -> T
+where
+    F: Future<Output = T>,
+{
+    TASK_EXECUTION_ID.scope(task_execution_id, f).await
+}
+
+/// The current task's execution id (CLOACI-T-0897).
 ///
 /// The packaged task path needs to TELL the plugin which task is running, so it
-/// can name itself when calling back for a deferral. `take_task_handle` would
-/// remove the handle the embedded path still needs, so this peeks instead.
-/// `None` outside a `with_task_handle` scope.
+/// can name itself when calling back for a deferral.
+///
+/// Prefers the dispatcher-installed id, which every executor provides. Falls
+/// back to peeking the `TaskHandle` — without taking it, since the embedded
+/// path still needs it — so a direct `ThreadTaskExecutor` call outside the
+/// dispatcher still works.
 pub fn current_task_execution_id() -> Option<UniversalUuid> {
+    if let Ok(id) = TASK_EXECUTION_ID.try_with(|id| *id) {
+        return Some(id);
+    }
     TASK_HANDLE_SLOT
         .try_with(|cell| cell.borrow().as_ref().map(|h| h.task_execution_id))
         .ok()
@@ -447,6 +474,32 @@ mod tests {
         assert!(
             current_task_execution_id().is_none(),
             "scope must not leak past the task"
+        );
+    }
+
+    /// CLOACI-T-0897: the id must be available WITHOUT a `TaskHandle` in scope.
+    ///
+    /// This is the regression that matters. The first implementation read the
+    /// id only from the handle's task-local, which `ThreadTaskExecutor`
+    /// installs — so every embedded test passed while the SERVER, which runs a
+    /// `FleetExecutor`, delivered an empty id and failed every deferral with
+    /// BAD_TASK_ID. The id now comes from the dispatcher, which all executors
+    /// pass through; this asserts that path independently of any handle.
+    #[tokio::test]
+    async fn dispatcher_installed_id_needs_no_task_handle() {
+        let id = UniversalUuid::new_v4();
+
+        let seen = with_task_execution_id(id, async { current_task_execution_id() }).await;
+
+        assert_eq!(
+            seen,
+            Some(id),
+            "the id must be visible with NO TaskHandle in scope — this is the \
+             non-ThreadTaskExecutor path"
+        );
+        assert!(
+            current_task_execution_id().is_none(),
+            "scope must not leak past the dispatch"
         );
     }
 
