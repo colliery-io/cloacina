@@ -40,7 +40,11 @@
 
 pub mod inventory_entries;
 pub mod manifest;
+/// Packaged counterpart of the engine's `TaskHandle` (CLOACI-T-0897).
+pub mod task_handle;
 pub mod types;
+
+pub use task_handle::{TaskExecutionIdGuard, TaskHandle};
 
 pub use inventory_entries::{
     AccumulatorEntry, ComputationGraphEntry, ConstructorEntry, ReactorEntry, TaskEntry,
@@ -312,6 +316,14 @@ macro_rules! package {
                             ),
                         ));
                     }
+
+                    // CLOACI-T-0897: publish this invocation's task-execution
+                    // id so a `defer_until` inside the task can name itself
+                    // when calling back into the host. The guard clears it on
+                    // drop, so one invocation cannot leak into the next on a
+                    // reused shell thread.
+                    let _task_id_guard =
+                        $crate::TaskExecutionIdGuard::set(request.task_execution_id.clone());
 
                     let result = rt.block_on(async move {
                         cloacina_workflow::Task::execute(&*task, context).await
@@ -979,7 +991,12 @@ pub trait CloacinaHost: Send + Sync {
 // version 4 → 5 (CLOACI-T-0895): `TaskExecutionRequest` gained the
 // `resolved_secrets` wire field — a bincode layout change, so stale artifacts
 // must fail the version gate at load rather than mis-decode.
-#[fidius::plugin_interface(version = 5, buffer = PluginAllocated)]
+// version 5 → 6 (CLOACI-T-0897): `TaskExecutionRequest` gained
+// `task_execution_id`, so a packaged task can name itself when calling back
+// through `CloacinaHost` for a deferral. Same reasoning as 4 → 5 — bincode is
+// positional, so a v5 plugin's request would mis-decode against a v6 host. The
+// gate must reject rather than guess.
+#[fidius::plugin_interface(version = 6, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.
     /// Method index 0.

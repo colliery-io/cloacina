@@ -73,6 +73,20 @@ pub fn take_task_handle() -> TaskHandle {
     })
 }
 
+/// The current task's execution id, without disturbing the handle
+/// (CLOACI-T-0897).
+///
+/// The packaged task path needs to TELL the plugin which task is running, so it
+/// can name itself when calling back for a deferral. `take_task_handle` would
+/// remove the handle the embedded path still needs, so this peeks instead.
+/// `None` outside a `with_task_handle` scope.
+pub fn current_task_execution_id() -> Option<UniversalUuid> {
+    TASK_HANDLE_SLOT
+        .try_with(|cell| cell.borrow().as_ref().map(|h| h.task_execution_id))
+        .ok()
+        .flatten()
+}
+
 /// Returns a `TaskHandle` to task-local storage after the user function completes.
 ///
 /// Called by macro-generated code to restore the handle so the executor can

@@ -207,6 +207,15 @@ impl Task for DynamicLibraryTask {
             task_name: self.task_name.clone(),
             context_json,
             resolved_secrets,
+            // CLOACI-T-0897: tell the package which task this is, so a
+            // `defer_until` inside it can name itself when calling back. Read
+            // from the executor's task-local WITHOUT taking the handle — the
+            // embedded path still owns it. Empty outside an executor scope
+            // (e.g. a direct harness call), in which case the packaged handle
+            // refuses to exist rather than deferring anonymously.
+            task_execution_id: crate::executor::current_task_execution_id()
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
         };
 
         // Call via the shared plugin handle

@@ -62,7 +62,9 @@ pub use result_handler::TaskResultHandler;
 
 pub use host_impl::EngineHost;
 pub use slot_token::SlotToken;
-pub use task_handle::{return_task_handle, take_task_handle, with_task_handle, TaskHandle};
+pub use task_handle::{
+    current_task_execution_id, return_task_handle, take_task_handle, with_task_handle, TaskHandle,
+};
 pub use thread_task_executor::ThreadTaskExecutor;
 pub use types::{ClaimedTask, DependencyLoader, ExecutorConfig};
 pub use workflow_executor::{

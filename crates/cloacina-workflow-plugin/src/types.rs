@@ -118,6 +118,17 @@ pub struct TaskExecutionRequest {
     /// durable context.
     pub resolved_secrets:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    /// CLOACI-T-0897: the running task's execution UUID, as a string.
+    ///
+    /// A packaged task that calls `handle.defer_until(..)` must name itself
+    /// when it calls back into the host — the host has no other way to know
+    /// WHICH of many concurrent tasks is asking for its slot to be released.
+    /// The plugin shell installs it for the duration of the invocation.
+    ///
+    /// Empty when the host did not supply one; the packaged `TaskHandle` then
+    /// refuses to exist rather than deferring against an anonymous task.
+    #[serde(default)]
+    pub task_execution_id: String,
 }
 
 // Secret values must never appear in logs — a manual Debug keeps names only.
