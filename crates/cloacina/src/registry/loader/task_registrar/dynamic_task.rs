@@ -70,6 +70,16 @@ impl LoadedWorkflowPlugin {
             },
         )?;
 
+        // CLOACI-T-0897: bind the host-callback table on THIS image.
+        //
+        // Binding is per loaded library, and this is a distinct `dlopen` of a
+        // freshly written temp file — a different dylib image, with its own
+        // bind cell, from the one the package loader binds for metadata
+        // extraction. This is the image whose tasks actually RUN, so without a
+        // bind here `defer_until` fails with "not bound" even though the log
+        // says a bind succeeded elsewhere. (Exactly what the e2e lane caught.)
+        crate::registry::loader::package_loader::bind_engine_host(&loaded, &temp_path);
+
         let plugin =
             loaded
                 .plugins

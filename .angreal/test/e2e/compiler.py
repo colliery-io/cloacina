@@ -815,6 +815,83 @@ def compiler(version_deps=False):
         assert remaining == "0", f"instance row survived delete: {remaining!r}"
         print("  ok: instance deleted")
 
+        # --- packaged defer_until (CLOACI-T-0897) -------------------------
+        # A PACKAGED task taking a handle parameter could not even COMPILE
+        # before this ticket (the macro emitted an ungated `::cloacina::`
+        # path). Compiling is proven by a unit-level fixture build; what only
+        # a live server can show is the rest: that the plugin receives a real
+        # task-execution id, calls back into the host mid-execution, and that
+        # its concurrency slot is genuinely RELEASED while it waits — the
+        # entire point of defer_until.
+        defer_dir = _stage_fixture(
+            home, "defer-handle-rust", version_deps=version_deps
+        )
+        print("  compiling defer-handle fixture")
+        defer_id = _upload(home, defer_dir)
+        body = _poll_build_status(home, defer_id, {"success"}, timeout_s=900.0)
+        assert body.get("build_status") == "success", body
+        print("  ok: packaged task with a handle parameter BUILT")
+
+        defer_exec = _poll_run_workflow(
+            home, "defer_handle_workflow", timeout_s=120.0
+        )
+        print(f"  defer execution: {defer_exec}")
+
+        # While it is deferred the row must say so. The fixture waits ~1.2s
+        # with a 200ms poll, so this window is real but short — poll for it
+        # rather than sleeping a fixed amount and hoping.
+        saw_deferred = False
+        deadline = time.time() + 30.0
+        while time.time() < deadline:
+            sub = _psql(
+                "SELECT COALESCE(sub_status,'') FROM public.task_executions "
+                f"WHERE workflow_execution_id = '{defer_exec}';"
+            ).strip()
+            if "Deferred" in sub:
+                saw_deferred = True
+                break
+            if _cloacinactl(
+                home, "-o", "json", "execution", "status", defer_exec
+            )[1].find("Completed") != -1:
+                break
+            time.sleep(0.2)
+        assert saw_deferred, (
+            "task never reported sub_status=Deferred — the host callback that "
+            "marks a deferral did not run"
+        )
+        print("  ok: task observed in Deferred state (host callback ran)")
+
+        status = _poll_execution_status(
+            home, defer_exec, {"Completed", "Failed", "Cancelled"}, timeout_s=60.0
+        )
+        assert status == "Completed", (
+            f"deferred execution {defer_exec} ended in {status!r} — it should "
+            "reclaim its slot and finish"
+        )
+
+        # The final context proves BOTH halves of the round trip: the plugin
+        # was told a real task-execution id (not an empty string), and it
+        # resumed after the deferral rather than erroring out of it.
+        ctx = json.loads(
+            _psql(
+                "SELECT c.value FROM public.contexts c "
+                "JOIN public.workflow_executions we ON we.context_id = c.id "
+                f"WHERE we.id = '{defer_exec}';"
+            ).strip()
+        )
+        observed_id = ctx.get("observed_task_execution_id") or ""
+        assert len(observed_id) >= 32, (
+            "plugin did not receive a real task-execution id "
+            f"(got {observed_id!r}) — the v6 wire field is not arriving"
+        )
+        assert ctx.get("deferred_and_resumed") is True, (
+            f"task did not resume after deferring: {ctx!r}"
+        )
+        print(
+            "  ok: packaged defer_until round-tripped "
+            f"(task id {observed_id[:8]}…, slot released and reclaimed)"
+        )
+
         # --- package lifecycle: upgrade (T-0497) ---------------------------
         # Upload a new version of the same package. The upload handler
         # should supersede the current active row and insert a new one

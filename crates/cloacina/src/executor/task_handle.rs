@@ -266,6 +266,17 @@ impl TaskHandle {
         self.task_execution_id
     }
 
+    /// Test-only constructor used to pin the task-local peek.
+    #[cfg(test)]
+    fn for_peek_test(task_execution_id: UniversalUuid, slot: SlotToken) -> Self {
+        Self {
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot)),
+            task_execution_id,
+            dal: None,
+            cancel_rx: None,
+        }
+    }
+
     /// Returns whether the handle currently holds a concurrency slot.
     ///
     /// Uses `try_lock`: the only contender is a host callback that is mid
@@ -410,6 +421,33 @@ mod tests {
 
         // The slot was available during the defer window
         assert!(slot_was_available.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    /// CLOACI-T-0897: the PACKAGED path reads the running task's id from the
+    /// task-local WITHOUT taking the handle, so it can tell the plugin which
+    /// task it is. If this peek returns `None` the plugin receives an empty id
+    /// and every `defer_until` fails with BAD_TASK_ID — which is exactly what
+    /// the e2e lane caught, so pin it here where the feedback is instant.
+    async fn peek_sees_the_id_inside_the_scope_and_nothing_outside() {
+        assert!(
+            current_task_execution_id().is_none(),
+            "no id outside a with_task_handle scope"
+        );
+
+        let semaphore = Arc::new(Semaphore::new(1));
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let id = UniversalUuid::new_v4();
+        let handle = TaskHandle::for_peek_test(id, SlotToken::new(permit, semaphore));
+
+        let (seen, _returned) =
+            with_task_handle(handle, async { current_task_execution_id() }).await;
+
+        assert_eq!(seen, Some(id), "peek must see the running task's id");
+        assert!(
+            current_task_execution_id().is_none(),
+            "scope must not leak past the task"
+        );
     }
 
     #[tokio::test]
