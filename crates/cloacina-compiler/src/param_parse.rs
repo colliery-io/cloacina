@@ -566,6 +566,80 @@ mod tests {
         out
     }
 
+    /// CLOACI-T-0899 hardening tail. The scanners are string-split heuristics,
+    /// not a Python tokenizer, so `strip_py_comments` is the single guard
+    /// standing between an author's ordinary habits (inline comments,
+    /// documenting a decorator) and a corrupted declaration. These pin the
+    /// edges the original fix reasoned about but never asserted.
+    mod strip_comments {
+        use super::*;
+
+        /// A `#` INSIDE a string is data, not a comment — stripping it would
+        /// silently rewrite a default value.
+        #[test]
+        fn hash_inside_a_string_is_preserved() {
+            let out = strip_py_comments(r#"x = "a#b"  # trailing"#);
+            assert!(out.contains(r#""a#b""#), "hash in string lost: {out}");
+            assert!(!out.contains("trailing"), "comment not stripped: {out}");
+        }
+
+        /// The docstring case that caused the live failure: decorator syntax
+        /// quoted as example text must be invisible to the scanner.
+        #[test]
+        fn triple_quoted_interior_is_blanked() {
+            let src =
+                "def f():\n    \"\"\"Example: @cloaca.workflow_params(name)\"\"\"\n    pass\n";
+            let out = strip_py_comments(src);
+            assert!(
+                !out.contains("workflow_params"),
+                "docstring interior not blanked: {out}"
+            );
+            // Delimiters and line structure survive so later line-based
+            // scanning stays aligned with the original source.
+            assert_eq!(
+                out.lines().count(),
+                src.lines().count(),
+                "line count changed: {out}"
+            );
+            assert!(out.contains("\"\"\""), "delimiters lost: {out}");
+        }
+
+        /// An escaped quote must not be read as closing the string, or
+        /// everything after it flips to "outside string" and comment-stripping
+        /// eats real code.
+        #[test]
+        fn escaped_quote_does_not_end_the_string() {
+            let out = strip_py_comments(r##"x = "a\"# not a comment"  # yes a comment"##);
+            assert!(
+                out.contains("# not a comment"),
+                "escaped quote ended the string early: {out}"
+            );
+            assert!(!out.contains("yes a comment"), "real comment kept: {out}");
+        }
+
+        /// The needle inside a single-quoted string is data too — same class as
+        /// the docstring bug, one quote style down.
+        #[test]
+        fn needle_in_a_single_quoted_string_is_not_a_declaration() {
+            let src = "note = '@cloaca.workflow_params(ghost)'\n";
+            let out = strip_py_comments(src);
+            // Single/double-quoted contents are PRESERVED verbatim (they carry
+            // real default values), so the guard here is the scanner's, not the
+            // stripper's — assert the stripper at least leaves it intact and
+            // does not blank a value-bearing string.
+            assert!(out.contains("ghost"), "value-bearing string blanked: {out}");
+        }
+
+        /// Regression for the pair the original bug report named: an inline
+        /// comment after a param must not become part of the declaration.
+        #[test]
+        fn inline_comment_after_a_param_is_stripped() {
+            let out = strip_py_comments("source=str,  # required\n    dst=str,\n");
+            assert!(!out.contains("required"), "comment survived: {out}");
+            assert!(out.contains("dst=str"), "following line lost: {out}");
+        }
+    }
+
     #[test]
     fn boundary_schema_builds_accumulator_surface() {
         let src = r#"

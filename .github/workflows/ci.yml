@@ -224,6 +224,17 @@ jobs:
           npm run typecheck
           npm run build
 
+      # Python generated-client drift. The TS client has had a drift gate since
+      # T-0645; the Python client's generator version lived only in a README
+      # sentence with nothing enforcing it, and the committed tree silently fell
+      # behind the documented pin (~100 files, plus an undeclared
+      # typing_extensions dependency). Same guard, both languages.
+      - name: Install uv (pinned Python SDK generator)
+        uses: astral-sh/setup-uv@v5
+
+      - name: Python generated-client drift check
+        run: python3 scripts/check_python_sdk_generated.py
+
   # UI ship-readiness gate (CLOACI-I-0117 / T-0661) — the cheap, Node-only PR
   # checks: version lockstep, generated-types drift, and the UI typechecks +
   # builds against the SDK. The full Playwright acceptance lane (Docker + Rust
