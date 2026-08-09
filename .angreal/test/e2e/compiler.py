@@ -351,18 +351,30 @@ def _poll_run_workflow(
     home: Path,
     workflow_name: str,
     timeout_s: float = 120.0,
+    context: dict | None = None,
 ) -> str:
     """Try `workflow run` until the runner has actually loaded the workflow
     (HTTP no longer returns 'Workflow not found in registry'). The
     reconciler loads packages on a periodic tick — until that lands, the
     runtime registry doesn't know about the workflow even though the DB
     does. Returns the execution_id from the first accepted run.
+
+    `context` is REQUIRED for a workflow that declares required params: the
+    execute route validates before dispatching, so a bare run of such a
+    workflow is rejected forever and this would spin until timeout on a
+    validation error rather than a load error (CLOACI-T-0927).
     """
     deadline = time.time() + timeout_s
     last_err = ""
+    ctx_args: list[str] = []
+    if context is not None:
+        ctx_path = home / f"run-context-{workflow_name}.json"
+        ctx_path.write_text(json.dumps(context))
+        ctx_args = ["--context", str(ctx_path)]
     while time.time() < deadline:
         code, out, err = _cloacinactl(
-            home, "-o", "json", "workflow", "run", workflow_name, check=False
+            home, "-o", "json", "workflow", "run", workflow_name, *ctx_args,
+            check=False,
         )
         if code == 0:
             try:
@@ -407,6 +419,50 @@ def _poll_execution_status(
         time.sleep(1.0)
     raise AssertionError(
         f"execution {execution_id} never reached {expected}; last: {last_status!r}"
+    )
+
+
+def _poll_instance_fire(
+    workflow_name: str,
+    instance_name: str,
+    timeout_s: float = 120.0,
+) -> tuple[str, dict]:
+    """Wait for a NAMED INSTANCE's cron schedule to actually fire, and return
+    `(execution_id, context)` for the run it produced (CLOACI-T-0927).
+
+    This is the assertion T-0894 could not make: that an instance created over
+    HTTP is picked up by the scheduler and fires with its bound params merged
+    into the run's context. Nothing short of a live server proves it.
+
+    The context is read straight from the DB because the executions API exposes
+    only status — `ExecutionDetail` carries no context — so there is no HTTP
+    channel for this. The schedule row is matched on `instance_name` so a
+    concurrent anonymous schedule for the same workflow can't be mistaken for
+    the instance's own fire.
+    """
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        rows = _psql(
+            "SELECT we.id::text || '|' || c.value "
+            "FROM public.workflow_executions we "
+            "JOIN public.contexts c ON c.id = we.context_id "
+            "JOIN public.schedule_executions se "
+            "  ON se.workflow_execution_id = we.id "
+            "JOIN public.schedules s ON s.id = se.schedule_id "
+            f"WHERE s.workflow_name = '{workflow_name}' "
+            f"  AND s.instance_name = '{instance_name}' "
+            "ORDER BY we.created_at DESC LIMIT 1;"
+        ).strip()
+        if rows:
+            exec_id, _, raw = rows.partition("|")
+            try:
+                return exec_id.strip(), json.loads(raw)
+            except json.JSONDecodeError:
+                pass
+        time.sleep(2.0)
+    raise AssertionError(
+        f"instance '{instance_name}' of '{workflow_name}' never fired within "
+        f"{timeout_s}s (no workflow_execution linked to its schedule)"
     )
 
 
@@ -627,6 +683,137 @@ def compiler(version_deps=False):
             f"execution {execution_id} ended in status {status!r}"
         )
         print(f"  ok: reconciler end-to-end → execution {status}")
+
+        # --- named workflow instances (CLOACI-T-0927) ----------------------
+        # T-0894 shipped the instance surface with only unit-level proof. This
+        # is the lane that proves the FEATURE rather than the endpoint: create
+        # a named instance over HTTP against a live server and watch its cron
+        # schedule fire with the bound params merged into the run's context.
+        inst_dir = _stage_fixture(
+            home, "instance-params-rust", version_deps=version_deps
+        )
+        print("  compiling instance-params fixture")
+        inst_id = _upload(home, inst_dir)
+        body = _poll_build_status(home, inst_id, {"success"}, timeout_s=900.0)
+        assert body.get("build_status") == "success", body
+
+        # Wait for the reconciler to load it — declared params are read from
+        # the registry, so creating an instance before the load would skip
+        # validation (it fails OPEN by design) and prove nothing.
+        #
+        # A VALID context is mandatory here: `region` is declared required, so
+        # a bare run is rejected by the execute route's own validation and this
+        # would spin to timeout on a validation error while the workflow was
+        # loaded all along. (That rejection is itself proof the execute route
+        # validates against a live server — asserted explicitly below for the
+        # instance path.)
+        _poll_run_workflow(
+            home,
+            "instance_params_workflow",
+            timeout_s=120.0,
+            context={"region": "warmup", "batch_size": 1},
+        )
+        print("  ok: instance fixture built + loaded")
+
+        # Validation is real: `region` is declared REQUIRED with no default,
+        # so an instance that omits it must be refused at CREATE time. This is
+        # the whole point of validating at creation rather than at 3am on the
+        # first fire.
+        code, out, err = _cloacinactl(
+            home,
+            "instance", "create", "instance_params_workflow", "bad_instance",
+            "--param", "batch_size=7",
+            "--cron", "*/2 * * * * *",
+            check=False,
+        )
+        assert code != 0, (
+            "creating an instance without the required param 'region' should "
+            f"fail; got exit 0 with: {out!r}"
+        )
+        combined = (out + err).lower()
+        assert "region" in combined, (
+            f"rejection should name the missing param; got: {(out + err)!r}"
+        )
+        print("  ok: missing required param rejected at create time")
+
+        # Every 2 seconds (6-field cron = seconds precision) so the lane
+        # observes a real fire without a long wait.
+        _cloacinactl(
+            home,
+            "instance", "create", "instance_params_workflow", "e2e_prod",
+            "--param", "region=eu-west",
+            "--param", "batch_size=7",
+            "--cron", "*/2 * * * * *",
+        )
+        print("  ok: instance created")
+
+        listed = json.loads(
+            _cloacinactl(
+                home, "-o", "json",
+                "instance", "list", "instance_params_workflow",
+            )[1]
+        )
+        # `-o json` renders a list as a bare JSON array; tolerate an enveloped
+        # shape too so this doesn't break if the renderer gains one.
+        rows = (
+            listed
+            if isinstance(listed, list)
+            else (listed.get("items") or listed.get("data") or [])
+        )
+        names = [i.get("instance_name") for i in rows]
+        assert "e2e_prod" in names, f"created instance not listed: {listed!r}"
+        assert "bad_instance" not in names, (
+            f"rejected instance must not have been persisted: {listed!r}"
+        )
+        print("  ok: instance listed (and the rejected one was never stored)")
+
+        inst_exec_id, ctx = _poll_instance_fire(
+            "instance_params_workflow", "e2e_prod", timeout_s=120.0
+        )
+        print(f"  instance fired: execution {inst_exec_id}")
+
+        # The bound params must arrive as top-level context keys...
+        assert ctx.get("region") == "eu-west", (
+            f"bound param 'region' missing/wrong in fired context: {ctx!r}"
+        )
+        assert ctx.get("batch_size") == 7, (
+            f"bound param 'batch_size' missing/wrong in fired context: {ctx!r}"
+        )
+        # ...and the TASK must have actually seen them, not just the row.
+        assert ctx.get("observed_region") == "eu-west", (
+            f"task did not observe the bound region: {ctx!r}"
+        )
+        assert ctx.get("observed_batch_size") == 7, (
+            f"task did not observe the bound batch_size: {ctx!r}"
+        )
+        # Scheduler-reserved keys still win over any binding.
+        assert ctx.get("schedule_id"), f"scheduler keys missing: {ctx!r}"
+        print(
+            "  ok: instance fire delivered bound params to the task "
+            "(region=eu-west, batch_size=7)"
+        )
+
+        status = _poll_execution_status(
+            home, inst_exec_id, {"Completed", "Failed", "Cancelled"}, timeout_s=60.0
+        )
+        assert status == "Completed", (
+            f"instance execution {inst_exec_id} ended in status {status!r}"
+        )
+        print(f"  ok: instance execution {status}")
+
+        # Delete stops future fires. Assert the row is gone rather than
+        # counting fires, which would race the 2-second schedule.
+        _cloacinactl(
+            home,
+            "instance", "delete", "instance_params_workflow", "e2e_prod",
+        )
+        remaining = _psql(
+            "SELECT count(*) FROM public.schedules "
+            "WHERE workflow_name = 'instance_params_workflow' "
+            "AND instance_name = 'e2e_prod';"
+        ).strip()
+        assert remaining == "0", f"instance row survived delete: {remaining!r}"
+        print("  ok: instance deleted")
 
         # --- package lifecycle: upgrade (T-0497) ---------------------------
         # Upload a new version of the same package. The upload handler

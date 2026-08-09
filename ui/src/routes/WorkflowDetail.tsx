@@ -21,6 +21,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useDeleteWorkflow, useWorkflow } from "../api/workflows";
+import { useWorkflowInstances } from "../api/instances";
 import { usePauseWorkflow } from "../api/controls";
 import { useCan } from "../auth/AuthContext";
 import { useWorkflowTaskRuntimes } from "../api/executions";
@@ -59,6 +60,9 @@ export function WorkflowDetail() {
 
   const RUNS = 40;
   const runtimes = useWorkflowTaskRuntimes(data?.workflow_name ?? "", { runs: RUNS });
+  // Named instances are keyed by the executable workflow name, not the package
+  // name — same key `workflow run` uses (CLOACI-T-0927).
+  const instances = useWorkflowInstances(data?.workflow_name ?? "");
   const rank = data?.task_graph ? topoRank(data.task_graph) : undefined;
   const stats = useMemo(
     () =>
@@ -191,6 +195,44 @@ export function WorkflowDetail() {
               <List.Item key={t}>{t}</List.Item>
             ))}
           </List>
+        )}
+      </Panel>
+
+      {/* Named instances (CLOACI-T-0927) — read-only. Creating one means a
+          form driven by the declared param slots; the CLI owns create today. */}
+      <Panel
+        title="Named instances"
+        caption="persistent param bindings, optionally scheduled"
+      >
+        {instances.isPending ? (
+          <Loading label="Loading instances…" />
+        ) : instances.isError ? (
+          <Text size="sm" c="dimmed">
+            Couldn't load instances.
+          </Text>
+        ) : (instances.data?.items ?? []).length === 0 ? (
+          <Empty message="No named instances. Create one with `cloacinactl instance create`." />
+        ) : (
+          <Stack gap={6}>
+            {(instances.data?.items ?? []).map((i) => (
+              <Group key={i.id} gap="sm" wrap="nowrap" align="baseline">
+                <Text size="sm" ff={MONO} style={{ minWidth: 160 }}>
+                  {i.instance_name}
+                </Text>
+                <Pill color={i.cron_expression ? TOKEN.teal : TOKEN.muted}>
+                  {i.cron_expression ?? "unscheduled"}
+                </Pill>
+                {i.paused ? <Pill color={TOKEN.gold}>⏸ paused</Pill> : null}
+                {!i.enabled ? <Pill color={TOKEN.muted}>disabled</Pill> : null}
+                <Text size="xs" c="dimmed" ff={MONO} style={{ flex: 1 }}>
+                  {i.params ? JSON.stringify(i.params) : "—"}
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {i.next_run_at ? `next ${formatTimestamp(i.next_run_at)}` : ""}
+                </Text>
+              </Group>
+            ))}
+          </Stack>
         )}
       </Panel>
 

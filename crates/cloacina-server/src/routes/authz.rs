@@ -399,6 +399,21 @@ pub fn build_authz_table() -> AuthzTable {
         "/tenants/{tenant_id}/workflows/{name}/source",
         Access::tenant(Level::Read),
     );
+    // Named workflow instances (CLOACI-T-0894). Reads are tenant-Read; the
+    // mutating verbs are registered with the other writes below. Missing from
+    // this table the routes exist but are unreachable — the middleware is
+    // fail-closed, so an unlisted route is denied with "route not authorized"
+    // no matter the key's role (found by the T-0927 live-stack lane).
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/workflows/{name}/instances",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+        Access::tenant(Level::Read),
+    );
     add(
         Method::GET,
         "/tenants/{tenant_id}/triggers",
@@ -459,6 +474,17 @@ pub fn build_authz_table() -> AuthzTable {
     add(
         Method::POST,
         "/tenants/{tenant_id}/workflows/{name}/execute",
+        Access::tenant(Level::Write),
+    );
+    // Named workflow instances — mutating verbs (CLOACI-T-0894).
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows/{name}/instances",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::DELETE,
+        "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
         Access::tenant(Level::Write),
     );
     add(
@@ -848,6 +874,73 @@ mod tests {
         assert!(!p.platform_admin);
     }
 
+    /// Every documented `/v1` route must be classified in the authz table
+    /// (CLOACI-T-0927).
+    ///
+    /// The size pin below is a no-drift guard on the TABLE — it cannot see the
+    /// ROUTER, so a route added to `lib.rs` without a table entry leaves the
+    /// count untouched and sails past it. That is exactly how T-0894's four
+    /// workflow-instance routes shipped unreachable: the middleware is
+    /// fail-closed, so every call returned "route not authorized" regardless of
+    /// the key's role, and only a live-server lane noticed.
+    ///
+    /// The OpenAPI document is generated from the handlers' own
+    /// `#[utoipa::path]` annotations, so it is a faithful stand-in for the
+    /// router (axum exposes no route enumeration). Any handler annotated and
+    /// served under `/v1` must therefore appear here.
+    #[test]
+    fn every_documented_v1_route_is_classified() {
+        use utoipa::OpenApi;
+
+        let table = build_authz_table();
+        let doc = crate::openapi::ApiDoc::openapi();
+
+        // Routes deliberately NOT behind `authz_mw`: unauthenticated liveness,
+        // and the public auth entry points that MINT the key authorization
+        // would otherwise require (lib.rs merges these outside require_auth /
+        // authz_mw — see the "Public auth entry points" comment there).
+        //
+        // Keep this list minimal and specific: each entry is a route no key is
+        // needed for, so a careless addition here is a genuine auth hole.
+        let exempt = |p: &str| {
+            matches!(
+                p,
+                "/health" | "/ready" | "/auth/local/login" | "/auth/oidc/login" | "/auth/callback"
+            )
+        };
+
+        let mut unclassified = Vec::new();
+        for (path, item) in doc.paths.paths.iter() {
+            let Some(rel) = path.strip_prefix("/v1") else {
+                continue;
+            };
+            if exempt(rel) {
+                continue;
+            }
+            for (method, op) in [
+                (Method::GET, &item.get),
+                (Method::POST, &item.post),
+                (Method::PUT, &item.put),
+                (Method::DELETE, &item.delete),
+                (Method::PATCH, &item.patch),
+            ] {
+                if op.is_none() {
+                    continue;
+                }
+                if !table.contains_key(&(method.clone(), rel.to_string())) {
+                    unclassified.push(format!("{} {}", method, rel));
+                }
+            }
+        }
+        unclassified.sort();
+        assert!(
+            unclassified.is_empty(),
+            "documented routes missing from the authz table — they are \
+             UNREACHABLE at runtime (fail-closed middleware denies them):\n  {}",
+            unclassified.join("\n  ")
+        );
+    }
+
     /// No-drift / behavior-preservation guard for the route table. The runtime
     /// guarantee is the fail-closed middleware (an unclassified route 403s); this
     /// pins the full set + spot-checks the behavior-preserving classifications.
@@ -856,7 +949,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            64,
+            68,
             "authz table size changed — a route was added/removed without updating the table"
         );
 

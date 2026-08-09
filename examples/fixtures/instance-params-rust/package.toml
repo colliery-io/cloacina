@@ -1,0 +1,14 @@
+# Fixture for the named-workflow-instance e2e lane (CLOACI-T-0927). Declares a
+# REQUIRED param (`region`) plus a defaulted one (`batch_size`) so the harness
+# can prove both create-time validation and fire-time param delivery.
+[package]
+name = "instance-params-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "instance_params_workflow"
+language = "rust"
+description = "named-instance e2e fixture — required + defaulted params"

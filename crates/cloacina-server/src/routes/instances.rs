@@ -59,6 +59,44 @@ use crate::AppState;
 const DEFAULT_INSTANCES_LIMIT: i64 = 100;
 const MAX_INSTANCES_LIMIT: i64 = 1000;
 
+/// Wake the tenant's cron scheduler after a schedule row changes
+/// (CLOACI-T-0927).
+///
+/// These routes write the `schedules` row through the DAL directly rather than
+/// the embedded `register_cron_*` API, which notifies for itself. Without this
+/// the scheduler keeps sleeping against a stale cached due-time and a newly
+/// created instance never fires — its 30s backstop does not rescue it, because
+/// the 1s trigger tick re-arms the cron sleep every iteration before it can
+/// elapse. Found by the T-0927 live-stack lane; the starvation itself is filed
+/// separately as a pre-existing defect.
+///
+/// Best-effort: a missing runner is logged, not fatal. The row is already
+/// committed, and the schedule still fires once anything else re-arms the
+/// timer.
+async fn wake_cron_scheduler(state: &AppState, tenant_id: &str, tenant_db: cloacina::Database) {
+    let runner = if tenant_id == "public" {
+        Some(state.runner.clone())
+    } else {
+        match state
+            .tenant_runners
+            .get_or_create(tenant_id, tenant_db)
+            .await
+        {
+            Ok(r) => Some(r),
+            Err(e) => {
+                warn!(
+                    "could not reach tenant runner for '{}' to re-arm cron: {}",
+                    tenant_id, e
+                );
+                None
+            }
+        }
+    };
+    if let Some(r) = runner {
+        r.notify_cron_change();
+    }
+}
+
 /// Map a stored `schedules` row onto the wire type.
 ///
 /// `params` is stored as a JSON *string*; a row whose params fail to parse is
@@ -267,6 +305,9 @@ pub async fn create_instance(
                 name,
                 tenant_id
             );
+            // Re-arm the scheduler, or a scheduled instance sits there never
+            // firing (CLOACI-T-0927).
+            wake_cron_scheduler(&state, &tenant_id, tenant_db).await;
             Json(to_summary(schedule)).into_response()
         }
         Err(e) => {
@@ -457,7 +498,7 @@ pub async fn delete_instance(
                 .into_response()
         }
     };
-    let dal = cloacina::dal::DAL::new(tenant_db);
+    let dal = cloacina::dal::DAL::new(tenant_db.clone());
 
     let schedule = match dal.schedule().find_by_instance_name(&name, &instance).await {
         Ok(Some(s)) => s,
@@ -479,6 +520,8 @@ pub async fn delete_instance(
                 name,
                 tenant_id
             );
+            // Re-arm against the REMAINING schedules (CLOACI-T-0927).
+            wake_cron_scheduler(&state, &tenant_id, tenant_db).await;
             Json(DeleteInstanceResponse {
                 tenant_id,
                 workflow_name: name,
