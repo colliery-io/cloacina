@@ -31,6 +31,10 @@ pub struct OwnedTaskMetadata {
     /// JSON string of the task's trigger rules (conditional execution).
     /// `{"type":"Always"}` when unconditional. (CLOACI-T-0721)
     pub trigger_rules_json: String,
+    /// Whether the task takes a `TaskHandle` parameter (CLOACI-T-0897).
+    /// Gates the executor's entire handle path; `false` for packages built
+    /// before the field existed, which is correct — they could not use one.
+    pub requires_handle: bool,
 }
 
 /// Owned collection of task metadata — safe to use after library is unloaded.

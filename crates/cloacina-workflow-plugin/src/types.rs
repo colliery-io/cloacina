@@ -47,6 +47,19 @@ pub struct TaskMetadataEntry {
     /// `{"type":"Always"}` for packages built before this field existed.
     #[serde(default = "default_trigger_rules")]
     pub trigger_rules: String,
+    /// CLOACI-T-0897: whether this task takes a `TaskHandle` parameter.
+    ///
+    /// The executor gates the ENTIRE handle path on `Task::requires_handle()`,
+    /// and the host-side `DynamicLibraryTask` has no way to know — the flag
+    /// lives in the packaged `Task` impl, on the far side of the FFI boundary.
+    /// Without carrying it here, every packaged task reports the trait default
+    /// (`false`), so no handle is built, nothing is registered for deferral,
+    /// and `defer_until` fails with `TASK_NOT_RUNNING`.
+    ///
+    /// Defaults to `false` for packages built before this field existed, which
+    /// is correct: they could not have used a handle anyway.
+    #[serde(default)]
+    pub requires_handle: bool,
 }
 
 /// Default trigger-rules JSON (`Always`) for back-compat deserialization of
@@ -118,6 +131,17 @@ pub struct TaskExecutionRequest {
     /// durable context.
     pub resolved_secrets:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    /// CLOACI-T-0897: the running task's execution UUID, as a string.
+    ///
+    /// A packaged task that calls `handle.defer_until(..)` must name itself
+    /// when it calls back into the host — the host has no other way to know
+    /// WHICH of many concurrent tasks is asking for its slot to be released.
+    /// The plugin shell installs it for the duration of the invocation.
+    ///
+    /// Empty when the host did not supply one; the packaged `TaskHandle` then
+    /// refuses to exist rather than deferring against an anonymous task.
+    #[serde(default)]
+    pub task_execution_id: String,
 }
 
 // Secret values must never appear in logs — a manual Debug keeps names only.
@@ -549,6 +573,7 @@ mod tests {
             description: "Extract data from sources".to_string(),
             source_location: "src/lib.rs".to_string(),
             trigger_rules: "{\"type\":\"Always\"}".to_string(),
+            requires_handle: false,
         };
 
         let json = serde_json::to_string(&entry).unwrap();
@@ -574,6 +599,7 @@ mod tests {
                 description: "First step".to_string(),
                 source_location: "src/lib.rs".to_string(),
                 trigger_rules: "{\"type\":\"Always\"}".to_string(),
+                requires_handle: false,
             }],
             triggers: Vec::new(),
         };
@@ -595,6 +621,7 @@ mod tests {
             task_name: "extract_data".to_string(),
             context_json: r#"{"key": "value"}"#.to_string(),
             resolved_secrets: secrets,
+            task_execution_id: "11111111-1111-4111-8111-111111111111".to_string(),
         };
 
         let json = serde_json::to_string(&request).unwrap();

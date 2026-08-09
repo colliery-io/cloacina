@@ -186,12 +186,17 @@ impl TaskRegistrar {
             let task_name = task_id.to_string();
             let deps = dependency_namespaces.clone();
 
+            // CLOACI-T-0897: carry the handle requirement through to the task,
+            // or the executor skips the handle path and defer_until cannot work.
+            let requires_handle = task.requires_handle;
+
             let constructor = Box::new(move || {
                 Arc::new(DynamicLibraryTask::new(
                     plugin.clone(),
                     task_name.clone(),
                     deps.clone(),
                     trigger_rules.clone(),
+                    requires_handle,
                 )) as Arc<dyn Task>
             });
 

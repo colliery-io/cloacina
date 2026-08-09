@@ -735,12 +735,33 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
     // Generate trigger rules JSON code
     let generate_trigger_rules = generate_trigger_rules_code(&attrs);
 
+    // CLOACI-T-0897: the handle is dual-emitted, like the CG paths above. The
+    // engine's `TaskHandle` reaches the executor's semaphore and DAL directly;
+    // a PACKAGED cdylib does not link the engine at all, so it gets the
+    // plugin-side handle that drives the same operations over the
+    // `CloacinaHost` callback channel. Emitting `::cloacina::` unconditionally
+    // — as this did — made any packaged task with a handle parameter fail to
+    // compile with a bare `cannot find crate cloacina`.
+    //
+    // The packaged handle is fallible to obtain (the host must have supplied a
+    // task-execution id), so its branch propagates with `?` rather than
+    // panicking the way the embedded `take_task_handle` does.
     let execute_body = match (fn_asyncness.is_some(), has_handle_param) {
         (true, true) => quote! {
             {
-                let mut handle = ::cloacina::take_task_handle();
-                let result = #fn_name(&mut context, &mut handle).await;
-                ::cloacina::return_task_handle(handle);
+                #[cfg(not(feature = "packaged"))]
+                let result = {
+                    let mut handle = ::cloacina::take_task_handle();
+                    let result = #fn_name(&mut context, &mut handle).await;
+                    ::cloacina::return_task_handle(handle);
+                    result
+                };
+                #[cfg(feature = "packaged")]
+                let result = {
+                    let mut handle =
+                        ::cloacina_workflow_plugin::TaskHandle::for_current_invocation()?;
+                    #fn_name(&mut context, &mut handle).await
+                };
                 result
             }
         },
@@ -749,9 +770,19 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         },
         (false, true) => quote! {
             {
-                let mut handle = ::cloacina::take_task_handle();
-                let result = #fn_name(&mut context, &mut handle);
-                ::cloacina::return_task_handle(handle);
+                #[cfg(not(feature = "packaged"))]
+                let result = {
+                    let mut handle = ::cloacina::take_task_handle();
+                    let result = #fn_name(&mut context, &mut handle);
+                    ::cloacina::return_task_handle(handle);
+                    result
+                };
+                #[cfg(feature = "packaged")]
+                let result = {
+                    let mut handle =
+                        ::cloacina_workflow_plugin::TaskHandle::for_current_invocation()?;
+                    #fn_name(&mut context, &mut handle)
+                };
                 result
             }
         },

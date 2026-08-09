@@ -10,10 +10,18 @@ documentation.workspace = true
 readme.workspace = true
 edition = "2021"
 
+[features]
+# Host-side surface for the `CloacinaHost` callback interface (CLOACI-T-0897).
+# OFF by default so packaged cdylibs — which only ever need the plugin-side
+# `CloacinaHostClient` — do not drag in fidius-host (libloading, the executors,
+# and friends). The engine (`cloacina`) turns this on to get
+# `CloacinaHostBinding::bind`.
+host = ["fidius/host"]
+
 [dependencies]
 toml = "0.8"
-fidius = "0.5.6"
-fidius-core = "0.5.6"
+fidius = { workspace = true }
+fidius-core = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { workspace = true }
 inventory = "0.3"

@@ -630,11 +630,26 @@ impl TaskExecutor for ThreadTaskExecutor {
                 );
             }
 
+            // CLOACI-T-0897: publish this task's slot so a PACKAGED task that
+            // calls `defer_until` can reach it through the CloacinaHost
+            // callback channel — that callback lands on a blocking-pool thread
+            // where the task-local handle below is invisible. Same `Arc`, so
+            // there is still exactly one SlotToken.
+            super::deferral_registry::register(
+                event.task_execution_id,
+                handle.slot_handle(),
+                self.dal.clone(),
+            );
+
             let (result, _returned_handle) = with_task_handle(
                 handle,
                 self.execute_with_cancellation(task.as_ref(), context, cancel_rx.clone()),
             )
             .await;
+
+            // Unregister unconditionally: a later callback for this id must
+            // find nothing and get a typed error rather than touch a dead slot.
+            super::deferral_registry::deregister(&event.task_execution_id);
 
             // Clear sub_status when task completes
             if let Err(e) = self

@@ -70,6 +70,16 @@ impl LoadedWorkflowPlugin {
             },
         )?;
 
+        // CLOACI-T-0897: bind the host-callback table on THIS image.
+        //
+        // Binding is per loaded library, and this is a distinct `dlopen` of a
+        // freshly written temp file — a different dylib image, with its own
+        // bind cell, from the one the package loader binds for metadata
+        // extraction. This is the image whose tasks actually RUN, so without a
+        // bind here `defer_until` fails with "not bound" even though the log
+        // says a bind succeeded elsewhere. (Exactly what the e2e lane caught.)
+        crate::registry::loader::package_loader::bind_engine_host(&loaded, &temp_path);
+
         let plugin =
             loaded
                 .plugins
@@ -123,6 +133,13 @@ pub(super) struct DynamicLibraryTask {
     /// FFI metadata (CLOACI-T-0721). Without this the host defaulted to `Always`
     /// and packaged workflows silently ignored conditional execution / skips.
     trigger_rules: serde_json::Value,
+    /// CLOACI-T-0897: whether the packaged task takes a `TaskHandle`, forwarded
+    /// from FFI metadata. The executor gates its entire handle path on
+    /// `requires_handle()`, and without carrying this every packaged task
+    /// inherited the trait default (`false`) — so no handle was built, nothing
+    /// was registered for deferral, and `defer_until` failed with
+    /// `TASK_NOT_RUNNING`.
+    requires_handle: bool,
 }
 
 impl DynamicLibraryTask {
@@ -140,12 +157,14 @@ impl DynamicLibraryTask {
         task_name: String,
         dependencies: Vec<TaskNamespace>,
         trigger_rules: serde_json::Value,
+        requires_handle: bool,
     ) -> Self {
         Self {
             plugin,
             task_name,
             dependencies,
             trigger_rules,
+            requires_handle,
         }
     }
 }
@@ -207,6 +226,15 @@ impl Task for DynamicLibraryTask {
             task_name: self.task_name.clone(),
             context_json,
             resolved_secrets,
+            // CLOACI-T-0897: tell the package which task this is, so a
+            // `defer_until` inside it can name itself when calling back. Read
+            // from the executor's task-local WITHOUT taking the handle — the
+            // embedded path still owns it. Empty outside an executor scope
+            // (e.g. a direct harness call), in which case the packaged handle
+            // refuses to exist rather than deferring anonymously.
+            task_execution_id: crate::executor::current_task_execution_id()
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
         };
 
         // Call via the shared plugin handle
@@ -292,6 +320,17 @@ impl Task for DynamicLibraryTask {
     /// unconditionally regardless of its declared `trigger_rules`.
     fn trigger_rules(&self) -> serde_json::Value {
         self.trigger_rules.clone()
+    }
+
+    /// Forwarded from the cdylib's FFI metadata (CLOACI-T-0897).
+    ///
+    /// Exactly the same class of omission as `trigger_rules` above: the trait
+    /// default is `false`, so before this override the executor skipped the
+    /// whole handle path for every packaged task — no `TaskHandle`, no
+    /// deferral registration, and `defer_until` failing with
+    /// `TASK_NOT_RUNNING`.
+    fn requires_handle(&self) -> bool {
+        self.requires_handle
     }
 }
 

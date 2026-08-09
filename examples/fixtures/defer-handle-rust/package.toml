@@ -1,0 +1,14 @@
+# Fixture for packaged `defer_until` (CLOACI-T-0897). A PACKAGED task taking a
+# handle parameter — the shape that failed to compile before the macro learned
+# to dual-emit the handle path.
+[package]
+name = "defer-handle-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "defer_handle_workflow"
+language = "rust"
+description = "packaged defer_until fixture — releases its concurrency slot while waiting"

@@ -41,6 +41,7 @@
 
 use std::cell::RefCell;
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::{debug, warn};
@@ -70,6 +71,47 @@ pub fn take_task_handle() -> TaskHandle {
             .take()
             .expect("TaskHandle not set in task-local storage — executor bug")
     })
+}
+
+tokio::task_local! {
+    /// The running task's execution id, independent of the `TaskHandle`
+    /// (CLOACI-T-0897).
+    ///
+    /// Deliberately SEPARATE from `TASK_HANDLE_SLOT`. That one is installed
+    /// only by `ThreadTaskExecutor`, so anything relying on it works embedded
+    /// and silently returns nothing on the server, which runs a different
+    /// executor. This one is installed by the DISPATCHER — the single choke
+    /// point every executor passes through — so the id is available on every
+    /// path.
+    static TASK_EXECUTION_ID: UniversalUuid;
+}
+
+/// Run `f` with the task's execution id available to
+/// [`current_task_execution_id`] (CLOACI-T-0897). Called by the dispatcher.
+pub async fn with_task_execution_id<F, T>(task_execution_id: UniversalUuid, f: F) -> T
+where
+    F: Future<Output = T>,
+{
+    TASK_EXECUTION_ID.scope(task_execution_id, f).await
+}
+
+/// The current task's execution id (CLOACI-T-0897).
+///
+/// The packaged task path needs to TELL the plugin which task is running, so it
+/// can name itself when calling back for a deferral.
+///
+/// Prefers the dispatcher-installed id, which every executor provides. Falls
+/// back to peeking the `TaskHandle` — without taking it, since the embedded
+/// path still needs it — so a direct `ThreadTaskExecutor` call outside the
+/// dispatcher still works.
+pub fn current_task_execution_id() -> Option<UniversalUuid> {
+    if let Ok(id) = TASK_EXECUTION_ID.try_with(|id| *id) {
+        return Some(id);
+    }
+    TASK_HANDLE_SLOT
+        .try_with(|cell| cell.borrow().as_ref().map(|h| h.task_execution_id))
+        .ok()
+        .flatten()
 }
 
 /// Returns a `TaskHandle` to task-local storage after the user function completes.
@@ -108,7 +150,13 @@ where
 /// The handle is created by the executor for each task execution and is not
 /// reusable across executions.
 pub struct TaskHandle {
-    slot_token: SlotToken,
+    /// Shared so a PACKAGED task can reach the same slot through the
+    /// `CloacinaHost` callback channel (CLOACI-T-0897). The callback arrives on
+    /// a blocking-pool thread where this handle's task-local is invisible, so
+    /// the executor also registers this exact `Arc` in the deferral registry
+    /// keyed by `task_execution_id`. Embedded tasks go straight through the
+    /// handle as before; either way there is exactly ONE `SlotToken`.
+    slot_token: Arc<tokio::sync::Mutex<SlotToken>>,
     task_execution_id: UniversalUuid,
     dal: Option<DAL>,
     cancel_rx: Option<tokio::sync::watch::Receiver<bool>>,
@@ -120,7 +168,7 @@ impl TaskHandle {
     #[cfg(test)]
     fn new(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self {
         Self {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id,
             dal: None,
             cancel_rx: None,
@@ -139,11 +187,17 @@ impl TaskHandle {
         cancel_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Self {
         Self {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id,
             dal: Some(dal),
             cancel_rx: Some(cancel_rx),
         }
+    }
+
+    /// The shared slot, for the deferral registry to hand to host callbacks
+    /// (CLOACI-T-0897). Same `Arc` the handle uses — never a copy of the token.
+    pub(crate) fn slot_handle(&self) -> Arc<tokio::sync::Mutex<SlotToken>> {
+        Arc::clone(&self.slot_token)
     }
 
     /// Release the concurrency slot while polling an external condition.
@@ -198,7 +252,7 @@ impl TaskHandle {
         }
 
         // Release the concurrency slot
-        self.slot_token.release();
+        self.slot_token.lock().await.release();
 
         // Poll until condition is met
         loop {
@@ -209,7 +263,7 @@ impl TaskHandle {
         }
 
         // Reclaim a concurrency slot (may wait if at capacity)
-        self.slot_token.reclaim().await?;
+        self.slot_token.lock().await.reclaim().await?;
 
         // Update sub_status back to Active
         if let Some(ref dal) = self.dal {
@@ -239,9 +293,28 @@ impl TaskHandle {
         self.task_execution_id
     }
 
+    /// Test-only constructor used to pin the task-local peek.
+    #[cfg(test)]
+    fn for_peek_test(task_execution_id: UniversalUuid, slot: SlotToken) -> Self {
+        Self {
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot)),
+            task_execution_id,
+            dal: None,
+            cancel_rx: None,
+        }
+    }
+
     /// Returns whether the handle currently holds a concurrency slot.
+    ///
+    /// Uses `try_lock`: the only contender is a host callback that is mid
+    /// release/reclaim, and both are short. A contended read reports the slot
+    /// as held, which is the safe answer for a caller deciding whether it may
+    /// proceed.
     pub fn is_slot_held(&self) -> bool {
-        self.slot_token.is_held()
+        match self.slot_token.try_lock() {
+            Ok(t) => t.is_held(),
+            Err(_) => true,
+        }
     }
 
     /// Returns `true` if the executor has signaled that this task's claim
@@ -378,6 +451,59 @@ mod tests {
     }
 
     #[tokio::test]
+    /// CLOACI-T-0897: the PACKAGED path reads the running task's id from the
+    /// task-local WITHOUT taking the handle, so it can tell the plugin which
+    /// task it is. If this peek returns `None` the plugin receives an empty id
+    /// and every `defer_until` fails with BAD_TASK_ID — which is exactly what
+    /// the e2e lane caught, so pin it here where the feedback is instant.
+    async fn peek_sees_the_id_inside_the_scope_and_nothing_outside() {
+        assert!(
+            current_task_execution_id().is_none(),
+            "no id outside a with_task_handle scope"
+        );
+
+        let semaphore = Arc::new(Semaphore::new(1));
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let id = UniversalUuid::new_v4();
+        let handle = TaskHandle::for_peek_test(id, SlotToken::new(permit, semaphore));
+
+        let (seen, _returned) =
+            with_task_handle(handle, async { current_task_execution_id() }).await;
+
+        assert_eq!(seen, Some(id), "peek must see the running task's id");
+        assert!(
+            current_task_execution_id().is_none(),
+            "scope must not leak past the task"
+        );
+    }
+
+    /// CLOACI-T-0897: the id must be available WITHOUT a `TaskHandle` in scope.
+    ///
+    /// This is the regression that matters. The first implementation read the
+    /// id only from the handle's task-local, which `ThreadTaskExecutor`
+    /// installs — so every embedded test passed while the SERVER, which runs a
+    /// `FleetExecutor`, delivered an empty id and failed every deferral with
+    /// BAD_TASK_ID. The id now comes from the dispatcher, which all executors
+    /// pass through; this asserts that path independently of any handle.
+    #[tokio::test]
+    async fn dispatcher_installed_id_needs_no_task_handle() {
+        let id = UniversalUuid::new_v4();
+
+        let seen = with_task_execution_id(id, async { current_task_execution_id() }).await;
+
+        assert_eq!(
+            seen,
+            Some(id),
+            "the id must be visible with NO TaskHandle in scope — this is the \
+             non-ThreadTaskExecutor path"
+        );
+        assert!(
+            current_task_execution_id().is_none(),
+            "scope must not leak past the dispatch"
+        );
+    }
+
+    #[tokio::test]
     async fn test_task_local_round_trip() {
         let semaphore = Arc::new(Semaphore::new(1));
         let handle = make_handle(&semaphore);
@@ -451,7 +577,7 @@ mod tests {
         // Bypass the DAL requirement of with_dal_and_cancel by constructing
         // directly — this mirrors what the executor does internally.
         let handle = TaskHandle {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id: UniversalUuid::new_v4(),
             dal: None,
             cancel_rx: Some(rx),
@@ -474,7 +600,7 @@ mod tests {
         let slot_token = SlotToken::new(permit, semaphore.clone());
         let (tx, rx) = tokio::sync::watch::channel(false);
         let handle = TaskHandle {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id: UniversalUuid::new_v4(),
             dal: None,
             cancel_rx: Some(rx),
@@ -505,7 +631,7 @@ mod tests {
         let slot_token = SlotToken::new(permit, semaphore.clone());
         let (tx, rx) = tokio::sync::watch::channel(false);
         let handle = TaskHandle {
-            slot_token,
+            slot_token: Arc::new(tokio::sync::Mutex::new(slot_token)),
             task_execution_id: UniversalUuid::new_v4(),
             dal: None,
             cancel_rx: Some(rx),

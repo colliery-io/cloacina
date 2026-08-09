@@ -550,6 +550,32 @@ def _graph_autofire_steps(label, reactor):
     return steps
 
 
+def _assert_operational_verbs(ctl, verbs):
+    """Run each documented operator verb and fail loudly if it does not work
+    (CLOACI-T-0893).
+
+    The point is narrow and worth stating: an "Operate it" section is a promise
+    that these exact invocations run. That promise had already been broken once
+    — `cg-feature-tour` documented `accumulator inject <name> '<json>'` when the
+    CLI requires `--event`, so the command in the README could not work at all.
+    Nothing caught it because nothing ran it.
+
+    `verbs` is a list of (argv, description). A non-zero exit fails the lane
+    with the verb's own stderr, so the failure names the broken command rather
+    than a generic step number.
+    """
+    for args, description in verbs:
+        code, out, err = ctl(*args, check=False)
+        if code != 0:
+            raise AssertionError(
+                f"documented operator verb failed ({description}): "
+                f"`cloacinactl {' '.join(args)}` exited {code}\n"
+                f"  stderr: {err.strip() or '(empty)'}\n"
+                f"  stdout: {out.strip()[:400] or '(empty)'}"
+            )
+        print(f"  ok: {description}")
+
+
 def _workspace_rewrite_prepare(example_dir):
     """Copy the example to a temp dir with `__WORKSPACE__` in package.toml
     rewritten to this checkout's absolute path — so `[metadata.providers]` path
@@ -624,25 +650,54 @@ def _graph_kafka_steps(label, workflow_name, reactor, topic, payloads):
                     f"  ok: reactor {reactor} fired ({before} -> {now}) — the bundled "
                     "NATIVE kafka provider streamed the messages into the graph"
                 )
-                return
-        raise AssertionError(
-            f"reactor {reactor} never fired after producing to {topic} — the bundled "
-            "kafka provider did not deliver boundaries (check server.log for the "
-            "provider stream accumulator load line)"
+                break
+        else:
+            raise AssertionError(
+                f"reactor {reactor} never fired after producing to {topic} — the bundled "
+                "kafka provider did not deliver boundaries (check server.log for the "
+                "provider stream accumulator load line)"
+            )
+
+        # Surface 3 (CLOACI-T-0893): the verbs the README's "Operate it"
+        # section tells operators to run. Asserted here because a documented
+        # command that nobody runs is how `accumulator inject` shipped with the
+        # wrong syntax.
+        _assert_operational_verbs(
+            ctl,
+            [
+                (["graph", "list"], "graph list"),
+                (["graph", "accumulators"], "graph accumulators"),
+                (
+                    ["accumulator", "inject", "ticks", "--event", '{"price": 101.5}'],
+                    "accumulator inject --event",
+                ),
+                (
+                    ["reactor", "fire", reactor, "--input", 'ticks={"price": 250.0}'],
+                    "reactor fire --input",
+                ),
+                (["reactor", "force-fire", reactor], "reactor force-fire"),
+            ],
         )
 
     return steps
 
 
-def _trigger_wait_steps(workflow_name):
+def _trigger_wait_steps(workflow_name, trigger_name=None):
     """For a POLL/CRON-triggered workflow: don't `workflow run` it — wait for the
     trigger to fire it AUTOMATICALLY and assert the auto-execution reaches
     Completed. Proves the packaged-trigger path (macro → FFI projection → host
-    trigger registry → scheduled fire) end to end."""
+    trigger registry → scheduled fire) end to end.
+
+    When `trigger_name` is given, also runs the operator verbs the example's
+    "Operate it" section documents (CLOACI-T-0893) — list/inspect/pause/resume
+    and a manual fire. Those verbs are the whole point of the section, and an
+    unrun documented command is how `accumulator inject` shipped with syntax
+    that could not work."""
 
     def steps(ctl, home):
         from test.e2e.compiler import _poll_execution_status
 
+        fired = False
         deadline = time.time() + 180
         while time.time() < deadline:
             _, out, _ = ctl(
@@ -662,12 +717,37 @@ def _trigger_wait_steps(workflow_name):
                     print(f"  ok: trigger fired an execution automatically ({exec_id})")
                     _poll_execution_status(home, exec_id, {"Completed"}, timeout_s=180.0)
                     print("  ok: triggered execution Completed")
-                    return
+                    fired = True
+                    break
             time.sleep(3)
-        raise AssertionError(
-            f"no execution of `{workflow_name}` appeared — the poll trigger never "
-            "fired (macro/FFI projection or trigger scheduler not running)"
-        )
+        if not fired:
+            raise AssertionError(
+                f"no execution of `{workflow_name}` appeared — the poll trigger never "
+                "fired (macro/FFI projection or trigger scheduler not running)"
+            )
+
+        if trigger_name:
+            # Pause/resume are ordered deliberately: resume LAST, so the lane
+            # cannot leave the trigger parked for whatever runs after it.
+            _assert_operational_verbs(
+                ctl,
+                [
+                    (["trigger", "list"], "trigger list"),
+                    (["trigger", "inspect", trigger_name], "trigger inspect"),
+                    (["trigger", "pause", trigger_name], "trigger pause"),
+                    (["trigger", "resume", trigger_name], "trigger resume"),
+                    # `trigger fire` is deliberately NOT asserted here: it
+                    # resolves targets from the SUBSCRIPTION side
+                    # (`#[workflow(triggers = [..])]`), so a trigger declared
+                    # `#[trigger(on = "wf")]` has no subscribers and the call
+                    # errors. Documented in the example's README; the gap
+                    # itself is CLOACI-T-0929.
+                    (
+                        ["workflow", "run", workflow_name],
+                        "workflow run (immediate run for an `on =` trigger)",
+                    ),
+                ],
+            )
 
     return steps
 
@@ -863,7 +943,9 @@ _PACKAGED_OVERRIDES = {
         "steps": _graph_autofire_steps("python-polling-graph", "poll_reactor"),
     },
     # Poll trigger fires `file_processing` automatically — wait for it, don't run.
-    "packaged-triggers": {"steps": _trigger_wait_steps("file_processing")},
+    "packaged-triggers": {
+        "steps": _trigger_wait_steps("file_processing", trigger_name="inbox_poll")
+    },
     # Python peer: @cloaca.trigger poll fires `file_processing_py` automatically.
     "python-triggers": {"steps": _trigger_wait_steps("file_processing_py")},
     # Python cron: the cron scheduler fires `heartbeat_workflow` on a schedule.

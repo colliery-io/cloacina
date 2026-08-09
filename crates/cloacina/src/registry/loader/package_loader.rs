@@ -133,6 +133,52 @@ pub struct TaskDocs {
     pub why: Option<String>,
 }
 
+/// Install the engine's `CloacinaHost` callback table on a freshly loaded
+/// library (CLOACI-T-0897), so a packaged task that calls `defer_until` can
+/// reach back for its concurrency slot.
+///
+/// Best-effort by design, in three ways that all matter:
+///
+/// * A package that declares no host interface — every package built before
+///   this existed — imports nothing, `bind` reports `false`, and the package
+///   loads and runs exactly as before. This is why the change does not force a
+///   rebuild of the world.
+/// * A version or hash mismatch is a LOAD-time error from fidius, logged here
+///   rather than propagated: the package's tasks are still perfectly runnable
+///   as long as none of them defers, and one that does gets a clear
+///   `NotBound` at its first `defer_until` instead of the whole package
+///   failing to load.
+/// * Binding is once-only per library; a second attempt is refused and simply
+///   logged.
+pub(crate) fn bind_engine_host(loaded: &fidius_host::loader::LoadedLibrary, library_path: &Path) {
+    use cloacina_workflow_plugin::{CloacinaHost, CloacinaHostBinding};
+
+    let host: std::sync::Arc<dyn CloacinaHost> = std::sync::Arc::new(crate::executor::EngineHost);
+    match CloacinaHostBinding::bind(loaded, host) {
+        Ok(true) => {
+            tracing::debug!(
+                library = %library_path.display(),
+                "CloacinaHost bound — package can use defer_until"
+            );
+        }
+        Ok(false) => {
+            // The common case: the package never imports the interface.
+            tracing::trace!(
+                library = %library_path.display(),
+                "package imports no host interface; nothing bound"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                library = %library_path.display(),
+                error = %e,
+                "could not bind CloacinaHost — tasks in this package that call \
+                 defer_until will fail with a not-bound error; the rest run normally"
+            );
+        }
+    }
+}
+
 /// Package loader for extracting metadata from workflow library files.
 ///
 /// Loaded libraries are cached to prevent dlclose. The `inventory` crate
@@ -269,6 +315,12 @@ impl PackageLoader {
                 error: e.to_string(),
             },
         )?;
+
+        // CLOACI-T-0897: install the host-callback table BEFORE any plugin
+        // method runs, so a task that calls `defer_until` can reach back for
+        // its slot. Must happen here — `loaded` is consumed just below, and
+        // binding is per loaded library.
+        bind_engine_host(&loaded, library_path);
 
         let plugin =
             loaded

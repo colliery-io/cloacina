@@ -1930,19 +1930,20 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "fidius"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8dee7b6936c8ca05ac88e70d4db1b0238cac2d1a8cdc744c6a9f771aef1bc36b"
+checksum = "e1b93ca738605bdad6ad98f3e65e375b8930d26d934e680cbc105e72a53ea3ee"
 dependencies = [
  "fidius-core",
+ "fidius-host",
  "fidius-macro",
 ]
 
 [[package]]
 name = "fidius-core"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3a7cd388faabacfca37d94def8479f4c8b09ba085abed433d2bfcbd872aa235"
+checksum = "a4a763dbc2e2a50554db4048c37ebc98ae8b9fd929869ffb315b73ae23ab481c"
 dependencies = [
  "bincode",
  "bzip2 0.5.2",
@@ -1960,9 +1961,9 @@ dependencies = [
 
 [[package]]
 name = "fidius-guest"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9da7ecaa9e9840ed5ed03c454e5e88b54c6bf6e014394696b71a024d041b4f2d"
+checksum = "60fe7c1fb005f6ae1e72b2cd83a7e9d62bf19916137dc283b1620b48f934a32e"
 dependencies = [
  "bincode",
  "serde",
@@ -1973,9 +1974,9 @@ dependencies = [
 
 [[package]]
 name = "fidius-host"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0114fd58575422da9b0aeebb724048c8203d8463a03f3cf0380f07a8df449fb"
+checksum = "e58f34c583154c22c93406e8bb4e7265a15aaa4b9367c74e068be46417b7e634"
 dependencies = [
  "async-trait",
  "ed25519-dalek",
@@ -1995,9 +1996,9 @@ dependencies = [
 
 [[package]]
 name = "fidius-macro"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a4348896ff8d3776f9d16cae437a5f7484bb30f716b49d9a3b3c407329ac29f"
+checksum = "181d8604f8d240789e42b51b2ecf027c639f8135c94c976f4fde8879f444bd00"
 dependencies = [
  "fidius-core",
  "fidius-wit",
@@ -2008,9 +2009,9 @@ dependencies = [
 
 [[package]]
 name = "fidius-wit"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e7f1f4d23237cef7e7ef89410de6f01bf0ce34f2cf0d8e8650cc265ff3f776f"
+checksum = "01e63656fef7bc842bf33460577b88c4f816d3e2ab0ec7d67692c3f675716be5"
 dependencies = [
  "proc-macro2",
  "quote",
