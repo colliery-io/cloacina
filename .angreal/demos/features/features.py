@@ -337,7 +337,27 @@ def _run_to_completed(ctl, home, workflow_name, context_path=None, timeout_s=300
 
 def _default_workflow_steps(workflow_name):
     def steps(ctl, home):
-        _run_to_completed(ctl, home, workflow_name)
+        exec_id = _run_to_completed(ctl, home, workflow_name)
+
+        # CLOACI-T-0893: `execution events` is the operator verb for "what
+        # happened, in what order" — the thing you reach for when a run ended
+        # somewhere you did not expect. Asserted on the DEFAULT lane so every
+        # packaged example exercises it, not just the one whose README
+        # documents it.
+        #
+        # `--follow` is deliberately not asserted: it streams over SSE until
+        # Ctrl-C, so a harness step would hang. The non-follow read covers the
+        # same route.
+        _assert_operational_verbs(
+            ctl,
+            [
+                (["execution", "events", str(exec_id)], "execution events"),
+                (
+                    ["execution", "events", str(exec_id), "--since", "1h"],
+                    "execution events --since",
+                ),
+            ],
+        )
 
     return steps
 
