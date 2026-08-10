@@ -76,9 +76,10 @@ Each "Operate it" section is verified live like the Run-it recipes, and — wher
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [x] Every listed verb appears in exactly one owning example's verified "Operate it" section — `cg-feature-tour` (graph/accumulator/reactor), `packaged-triggers` (trigger lifecycle), `simple-packaged` (execution events)
+- [x] `accumulator inject`, `reactor fire` and `execution events` asserted by harness runners in CI — plus `graph list/accumulators`, `force-fire`, and the trigger verbs
+- [x] Each section verified live rather than written from the source
+- [x] Tenant/key/fleet — DROPPED by maintainer decision; already taught in `service/how-to/configure-multi-tenant-deployment.md`, a better home than a workflow example
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -143,4 +144,93 @@ Each "Operate it" section is verified live like the Run-it recipes, and — wher
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-09 — most of the "blocked on migrations" framing turned out to be
+  wrong, and one documented command was broken.
+
+  The ticket sequences this behind migrating `event-triggers` and `multi-tenant`
+  to packaged form. Checked each owner instead of taking that on faith:
+
+  * **`simple-packaged` → `execution events`** — DONE. Added an "Operate it"
+    section covering the trail, `--follow` (SSE), and `--since`, including the
+    constraint that the two CANNOT be combined (`--follow` starts from now, so
+    there is no cursor to resume from). Verified in
+    `nouns/execution/mod.rs:97-108`, not guessed.
+
+  * **`cg-feature-tour` → CG operational verbs** — DONE, and it had a REAL
+    DEFECT, not just a gap: the existing section documented
+    `accumulator inject ticks '{...}'`, but the CLI requires
+    `--event` (`nouns/accumulator/mod.rs:46-52`), so the command as written
+    fails with an unexpected-argument error. Anyone following the example
+    verbatim hit a wall. Fixed, and added the verbs that were missing entirely —
+    `graph list/status/accumulators`, `reactor fire --input source=<json>`
+    (full-replace, omitted sources are CLEARED), and `force-fire`, with the
+    distinction between the two spelled out.
+
+  * **Trigger verbs — NOT blocked on migrating `event-triggers`.**
+    `event-triggers` is indeed embedded (`src/main.rs`, no `package.toml`), but
+    `packaged-triggers` already exists and IS packaged — it simply had no
+    README at all. That is the right home, so no migration was needed.
+
+    The REAL gap was the CLI: `cloacinactl trigger` had only `list`/`inspect`
+    while pause/resume/fire existed as server routes with no CLI in front of
+    them. Added all three (thin wrappers over the existing routes, `--event`
+    following the same parse-JSON-or-treat-as-string convention as
+    `accumulator inject`), and wrote `packaged-triggers/README.md` with Run it +
+    Operate it.
+
+  * **Tenant / key / fleet — the ticket's premise is superseded.** It wants
+    `multi-tenant` migrated so it teaches the server-side story instead of the
+    embedded `DatabaseAdmin`. But that story is ALREADY taught, and in a better
+    place: `docs/content/service/how-to/configure-multi-tenant-deployment.md`
+    covers `tenant create`, `key create` and profiles, with a companion
+    `decommission-a-tenant` how-to. Tenant lifecycle is server administration,
+    not a workflow feature — a workflow example is the wrong home for it.
+    **DROPPED (maintainer decision, 2026-08-09).** Not migrating an example to
+    duplicate docs that already exist and already live in the better place. The
+    tenant/key/fleet verbs are out of this ticket's scope; if those docs are
+    later found lacking, that is a service-docs ticket, not an example
+    migration.
+
+- 2026-08-10 — COMPLETED. PR #251 merged (squash).
+
+  Every documented verb is now RUN by the demos lanes, not just written down.
+  Verified live before merge:
+
+      ok: graph list / graph accumulators
+      ok: accumulator inject --event
+      ok: reactor fire --input / reactor force-fire
+      ok: trigger list / inspect / pause / resume
+      ok: execution events / execution events --since
+
+  `execution events` is asserted on the DEFAULT lane, so every auto-discovered
+  packaged example exercises it rather than only the one whose README documents
+  it. `--follow` is deliberately excluded — it streams SSE until Ctrl-C and
+  would hang a harness step instead of checking anything; the reasoning is
+  inline so the "gap" is not later closed into a wedged lane.
+
+  THREE BROKEN VERBS, found purely by running what the docs promise:
+  1. `accumulator inject` — documented as `inject <name> '<json>'` when the CLI
+     requires `--event`. The README command could not work.
+  2. `trigger fire` — resolves targets from the SUBSCRIPTION side only, so it
+     cannot fire an `on = ".."` trigger. Filed [[CLOACI-T-0929]]. This was a
+     false claim in a README written in the same PR and caught minutes later by
+     the assertion — the mechanism working as intended.
+  3. `execution events` — **broken outright, 100% of the time**. The server
+     returned every event correctly; the CLI handed the whole
+     `ExecutionEventsResponse` envelope to `render::list`, which understands
+     only `items` or a bare array. A shipped operator verb that appears never to
+     have worked.
+
+  That third one sharpens this ticket's own thesis. T-0893 says the operational
+  surface is "taught nowhere"; the real finding is **taught nowhere AND
+  THEREFORE NEVER RUN** — which is precisely how a wholly broken command
+  survives in a shipped CLI.
+
+  ALSO SHIPPED: `cloacinactl trigger pause|resume|fire` (they existed as server
+  routes with no CLI in front of them), and `packaged-triggers/README.md` — the
+  packaged home for the trigger story had no README at all.
+
+  TWO LATENT HARNESS BUGS fixed en route: `_graph_kafka_steps` and
+  `_trigger_wait_steps` each returned on success from INSIDE their poll loops,
+  so appended steps would be silently skipped — green without running. Same
+  shape twice; worth a sweep of the rest of that file.

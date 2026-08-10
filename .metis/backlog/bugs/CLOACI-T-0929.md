@@ -1,10 +1,10 @@
 ---
-id: investigate-cloaca-retrypolicy
+id: trigger-fire-cannot-fire-an-on
 level: task
-title: "Investigate: cloaca RetryPolicy/BackoffStrategy/RetryCondition value objects exposed but unwired"
-short_code: "CLOACI-T-0882"
-created_at: 2026-07-09T22:56:10.031554+00:00
-updated_at: 2026-07-09T22:56:10.031554+00:00
+title: "trigger fire cannot fire an `on =` trigger — it only resolves subscription-side targets"
+short_code: "CLOACI-T-0929"
+created_at: 2026-08-09T21:57:26.593521+00:00
+updated_at: 2026-08-09T21:57:26.593521+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,14 +12,14 @@ archived: false
 tags:
   - "#task"
   - "#phase/backlog"
-  - "#tech-debt"
+  - "#bug"
 
 
 exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Investigate: cloaca RetryPolicy/BackoffStrategy/RetryCondition value objects exposed but unwired
+# trigger fire cannot fire an `on =` trigger — it only resolves subscription-side targets
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,9 +29,60 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-Surfaced during I-0137 (cloaca registrar) + the maintainer's coverage catch: `cloaca` exposes `RetryPolicy`, `RetryPolicyBuilder`, `BackoffStrategy`, `RetryCondition` value-object classes (`bindings/value_objects/retry.rs`), but **`@cloaca.task` configures retry via kwargs** (`retry_attempts=`, `retry_backoff=`, `retry_delay_ms=` → `build_retry_policy`, `task.rs:502`), NOT by accepting a `RetryPolicy` object. **Zero** usages in `examples/` or `tests/python/` — they look exposed-but-unwired (dead exports).
+`trigger fire` cannot fire a trigger declared with `on = "..."`. It reports
 
-**Decide:** (a) wire them — `@cloaca.task(retry=RetryPolicy(...))` accepts the object (richer builder API), OR (b) drop them from the authorship contract if kwargs is the intended surface. Either way add a Python test that exercises the chosen retry-authoring path — the missing coverage is the same blind spot that hid the workflow_secrets/RetryPolicy server-drift until [[CLOACI-I-0137]]. Low priority; not a correctness bug (kwargs retry works).
+    not found — resource 'trigger 'inbox_poll' has no subscribed workflows'
+
+even though that trigger demonstrably drives a workflow — it fires
+`file_processing` on its own every 3s.
+
+Cloacina has TWO ways to wire a trigger to work, and the manual-fire path only
+knows about one of them:
+
+| Shape | Wiring | `trigger fire` |
+|---|---|---|
+| `#[trigger(on = "wf")]` | the trigger names the workflow it drives | **fails** |
+| `#[workflow(triggers = ["t"])]` | workflows subscribe to a named trigger | works, fans out |
+
+`routes/triggers.rs::fire_trigger` resolves its fan-out set with
+`registry.find_trigger_subscribers(&name)` — purely the subscription side. Its
+own comment explains why: "The schedules table carries only the trigger's
+primary `on` workflow, so subscriptions — which may live in other packages —
+are resolved from the registry's workflow metadata." That reasoning is sound for
+finding subscribers; the bug is that the `on` workflow is then **dropped
+entirely** rather than being included alongside them.
+
+Found by CLOACI-T-0893's operator-verb assertions: the lane runs each command an
+example's "Operate it" section documents, and this one failed on a README I had
+just written claiming it worked. Which is the point of those assertions.
+
+## Impact
+
+The manual-fire verb is unavailable for the `on =` trigger shape — the shape the
+`packaged-triggers` example teaches. An operator wanting an immediate run has to
+know to use `workflow run <name>` instead, and nothing tells them that; the
+error message talks about subscribers, which is a concept their package never
+used.
+
+`pause` and `resume` work fine for both shapes (they resolve through the
+schedules row), so the inconsistency is specifically in `fire`.
+
+## Fix direction
+
+Include the trigger's own `on` workflow in the fan-out set, unioned with any
+subscribers and deduped, so both shapes fire. The schedule row already carries
+it (`schedules.workflow_name`), and `fire_trigger` already resolves the
+tenant-scoped DAL it would need.
+
+Keep the empty case an error — a trigger with neither an `on` workflow nor
+subscribers genuinely has nothing to fire — but the message should say so in
+terms that fit both shapes rather than only mentioning subscriptions.
+
+## Notes
+
+Documented honestly in `examples/features/workflows/packaged-triggers/README.md`
+in the meantime: the README states which shape `fire` applies to, and points at
+`workflow run` for an immediate run. Remove that caveat when this lands.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -136,37 +187,4 @@ Surfaced during I-0137 (cloaca registrar) + the maintainer's coverage catch: `cl
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-08-10 — BACKLOG AUDIT. Verdict: **still true, unchanged.** Every
-  specific claim re-verified:
-    * `crates/cloacina-python/src/bindings/value_objects/retry.rs` still exists
-      and still exports the value objects (47 `retry` references).
-    * `@cloaca.task` still takes `retry_attempts` / `retry_backoff` kwargs
-      (`task.rs:594-606`) feeding `build_retry_policy`. There is still NO
-      `retry=` / `retry_policy=` parameter accepting the object.
-    * Usages of `RetryPolicy` across `tests/python/` and `examples/`: still
-      **zero**. Searched for both the type name and a `retry=` call site.
-
-  So the decision this ticket asks for — (a) wire the object, or (b) drop it
-  from the authorship contract — is still unmade, and the exports are still
-  dead.
-
-  ONE SHARPENING, from this session's evidence rather than from re-reading the
-  ticket. The filing calls this "low priority; not a correctness bug (kwargs
-  retry works)", which is true of runtime behavior but understates the risk.
-  T-0893 just found that `cloacinactl execution events` had NEVER worked —
-  shipped, documented, and broken 100% of the time — for precisely the reason
-  named here: nothing ever exercised it. An exposed-but-unexercised Python
-  class is the same shape of hazard one level earlier. Nobody can currently
-  tell whether `RetryPolicy(...)` even CONSTRUCTS correctly from Python,
-  because no test constructs one.
-
-  That does not change the priority (still low — no user is broken today), but
-  it does argue for option (b) as the default answer unless someone wants the
-  builder API. Deleting a dead export is cheap and removes a surface that can
-  rot invisibly; wiring it means owning it in tests forever. Whoever picks
-  this up should start by just trying to construct one in a REPL — if it
-  already fails, (b) becomes obvious and the ticket closes in an hour.
-
-  Acceptance criteria are still template placeholders and should be filled in
-  once (a)/(b) is chosen; not filling them in now, since the choice is the
-  point of the ticket.
+*To be added during implementation*

@@ -137,4 +137,31 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-10 — BACKLOG AUDIT. Verdict: **still true, verbatim; no adjustment
+  needed.** The most accurate of the four audited.
+
+  Confirmed: `pg_try_advisory_lock` appears ONLY in
+  `crates/cloacina-server/src/autoscaler/leader.rs` (the fleet control loop,
+  `FLEET_CONTROL_LOCK_KEY`). There is no per-reactor claim, lease, or owner
+  row anywhere in `cloacina/src/computation_graph/` or `cloacina-server/src/`
+  — design direction 1 remains unimplemented, as do 2 and 3.
+
+  CORROBORATED FROM THE INSIDE, not just by grep: T-0924 (cross-tenant reactor
+  collision) required working directly in `ComputationGraphScheduler`, which
+  holds its `reactors` / `graph_to_reactor` maps as in-process `HashMap`s.
+  T-0924 re-keyed those maps by tenant, which fixes collisions WITHIN one
+  process and touches nothing about coordination BETWEEN processes. So the
+  "per-replica in-memory state" claim is not an inference from filing-time
+  notes — it is what the code looked like from inside as recently as this
+  session's work.
+
+  One thing worth adding rather than changing: the P2 rationale ("single-replica
+  and embedded modes are unaffected") is still correct and is load-bearing,
+  because the demo/e2e stacks all run single-replica. That is exactly why this
+  gap cannot regress into view on its own — nothing we routinely run would
+  ever exhibit it. Whoever picks this up should assume ZERO existing coverage
+  would have caught a regression here, and budget for the 2-replica harness in
+  the acceptance criteria as real work rather than an afterthought.
+
+  No changes made to objective, design directions, priority, or acceptance
+  criteria — all still accurate.

@@ -4,14 +4,14 @@ level: task
 title: "Gold-path example: computation-graph feature tour — stream/batch/polling accumulators, task-to-CG invocation, boundary_schema"
 short_code: "CLOACI-T-0891"
 created_at: 2026-07-11T22:03:26.284573+00:00
-updated_at: 2026-07-11T22:03:26.284573+00:00
+updated_at: 2026-08-09T21:28:07.460349+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -74,11 +74,17 @@ The reactive layer's advanced surface is fixtures-only. Tutorials + `packaged-gr
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [x] `#[stream_accumulator]` (kafka) in a user-facing example, verified working on the stack — `cg-feature-tour`, real broker messages fire `tour_rx`
+- [x] `polling` / `batch` accumulators in user-facing examples — `python-polling-graph`, `python-batch-graph`, both with harness lanes
+- [x] Task→CG invocation with `post_invocation` — `cg-feature-tour`, runs to Completed with terminal outputs merged back
+- [x] `@cloaca.boundary_schema(...)` in a user-facing example — `python-packaged-graph`, `python-stateful-graph`
+- [x] Each surface's README step verified live, not asserted from the source
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -162,3 +168,71 @@ Built `examples/features/computation-graphs/cg-feature-tour` (all three surfaces
 - **Kafka is a host cargo feature (rdkafka in core `cloacina`), not package code.** A stream accumulator silently degrades to passthrough unless the server was built `--features kafka`. Maintainer steer: kafka is a consumption connector; migrate it into the delivered constructor/provider mechanism so it ships IN the package. Filed [[CLOACI-T-0898]].
 
 **Decision (maintainer):** keep the full example code (all surfaces authored) and migrate kafka to a provider NEXT session. The CI lane asserts only the invocation surface today (package-clean, works); the stream + inject/fire surfaces stay in the example, documented honestly ("Status of the surfaces" → T-0898/T-0896), and light up on the migration. So T-0891 is PARTIALLY done: invocation ✅ + verified; stream/inject/boundary_schema pending T-0898 (kafka) / T-0896 (polling/batch). Stays `todo` until those land.
+
+### 2026-08-09 — UNBLOCKED: both stated blockers have shipped
+
+Update 2 says this stays `todo` until T-0896 (polling/batch degrading to
+passthrough) and T-0898 (kafka → constructor provider) land. **Both are now
+`completed`.** Verified in code rather than taken on the tickets' word:
+`computation_graph/packaging_bridge.rs` dispatches `"stream"` (:957, routed
+through `provider_root` — the provider migration), `"batch"` (:967) and
+`"polling"` (:974) explicitly. The `_ =>` passthrough arm that silently degraded
+them is gone.
+
+CONSEQUENCE: the example's own "Status of the surfaces" section
+(`cg-feature-tour/README.md:121-134`) is now STALE — it tells readers that
+stream/polling/batch degrade to passthrough and are pending. That is worse than
+an omission: it actively discourages using surfaces that now work. Same failure
+mode as T-0887's ticket, which sat in `backlog` for a month after being fixed.
+
+REMAINING WORK:
+1. VERIFY each surface end to end BEFORE editing a word of the README. This
+   session's repeated lesson is that things which look done are not and things
+   which look blocked are not; docs follow verification, never the reverse.
+2. Correct "Status of the surfaces" to match what is actually true.
+3. `boundary_schema` on the python CG example — still outstanding from the
+   original scope, and unaffected by either blocker.
+4. Extend the `demos features cg-feature-tour` lane to assert the newly-working
+   surfaces; today it asserts only task→CG invocation.
+
+Also note T-0897 (the macro bug this example FOUND) is now fully closed —
+packaged `defer_until` works end to end as of PR #250 — so nothing in the
+invocation path is provisional any more.
+
+### 2026-08-09 — COMPLETED. All four surfaces covered; verified, not assumed.
+
+`angreal demos features cg-feature-tour` → **EXIT=0**:
+
+    ok: execution Completed
+    producing 2 message(s) to kafka topic tour.ticks
+    ok: reactor tour_rx fired (0 -> 2) — the bundled NATIVE kafka provider
+        streamed the messages into the graph
+
+Coverage as it actually stands, checked against code and harness rather than
+against this ticket's own history:
+
+| Surface | Where | CI |
+|---|---|---|
+| Task→CG invocation | `cg-feature-tour` | asserted |
+| Kafka stream accumulator | `cg-feature-tour` | asserted (real broker messages → reactor fire) |
+| `polling` | `python-polling-graph` | lane via `_graph_autofire_steps` |
+| `batch` | `python-batch-graph` | lane registered |
+| `state` | `python-stateful-graph` | lane registered |
+| `boundary_schema` | `python-packaged-graph`, `python-stateful-graph` | lanes registered |
+
+THE ONE REAL DEFECT was documentation, and it was worse than a gap: the
+example's "Status of the surfaces" section told readers that stream, polling
+and batch silently degrade to passthrough and were pending T-0898/T-0896 — long
+after both shipped. That actively discourages using surfaces that work.
+Rewritten to state what is true, with a table pointing at the owning example for
+each accumulator kind, and the ticket references kept as provenance rather than
+as warnings.
+
+The stream surface was never re-verified after the provider migration landed
+(T-0907 proved the provider; nothing re-checked this example's claim). Running
+the lane was the whole point — the README edit follows the run, not the
+reverse.
+
+UNBLOCKS [[CLOACI-T-0893]]: its CG half (`accumulator inject`, `reactor fire`,
+`graph status/accumulators`) now has a live, CI-asserted example to be woven
+into, which was the dependency that kept T-0893 sequenced behind this.

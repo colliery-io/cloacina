@@ -4,15 +4,15 @@ level: task
 title: "BUG: server compiler build fails — cloacina-computation-graph missing from staged crate set (packaged builds broken)"
 short_code: "CLOACI-T-0887"
 created_at: 2026-07-10T09:11:26.062829+00:00
-updated_at: 2026-07-10T09:11:26.062829+00:00
-parent:
+updated_at: 2026-08-09T01:54:50.433027+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -83,6 +83,12 @@ failure_reason="cargo build failed: failed to load manifest for dependency
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

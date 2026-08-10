@@ -4,15 +4,15 @@ level: task
 title: "Release pipeline gaps — npm @cloacina scope/token + cross-build PyO3 binaries (2 of 4 targets)"
 short_code: "CLOACI-T-0746"
 created_at: 2026-06-18T14:58:55.143483+00:00
-updated_at: 2026-06-18T14:58:55.143483+00:00
-parent:
+updated_at: 2026-08-10T22:27:56.460635+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,12 @@ and both are infra/config, not code regressions.
 - [x] Tech Debt — release/CI infrastructure
 ### Priority
 - [x] P2 — not blocking (0.8.0 shipped on the main channels); fix before the next release
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -183,4 +189,31 @@ and both are infra/config, not code regressions.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-10 — BACKLOG AUDIT. Verdict: **both gaps resolved; close.** Verified
+  against `.github/workflows/unified_release.yml`, not inferred.
+
+  **Gap 2 (cross-compile) — FIXED, using this ticket's own suggested remedy.**
+  The binary build now runs
+  `cargo build --release --locked --target .. -p cloacinactl --no-default-features
+  --features postgres,sqlite --bin cloacinactl` — i.e. the "drop the PyO3 path
+  from the CLI" option, so no Python interpreter is needed at build time.
+  `aarch64-unknown-linux-gnu` also moved to a native runner with an interpreter.
+  `x86_64-apple-darwin` was deliberately **dropped as an EOL target**, so the
+  matrix is 3, not 4 — the acceptance criterion "all four targets" no longer
+  describes the intended shape.
+
+  **Gap 1 (npm) — converted from a failure into a decision.** The publish job
+  was REMOVED on 2026-07-29 (`unified_release.yml:287-292`) with the reasoning
+  recorded inline: the `@cloacina` scope was never bootstrapped, so the job
+  soft-failed every train. The TypeScript SDK still lives in
+  `clients/typescript` and stays in the SDK version-lockstep check; the note
+  says "reinstate a publish job if/when the npm org exists."
+
+  So the pipeline no longer fails, and nothing here is actionable by an
+  engineer — what remains is a maintainer/business call about whether the TS
+  client should be distributed on npm at all. That is a different item from
+  "fix the release pipeline".
+
+  RECOMMEND: close this. If npm distribution is still wanted, file a small
+  standalone item ("create the @cloacina npm org, set NPM_TOKEN, reinstate the
+  publish job") rather than keeping a resolved pipeline ticket open for it.
