@@ -1,7 +1,7 @@
 ---
 id: generic-invoke-ffi-marshaling-seam
 level: task
-title: "Generic invoke_ffi marshaling seam — investigate collapsing the 62 per-method-index FFI bridges"
+title: "Generic invoke_ffi marshaling seam — investigate collapsing the per-method-index FFI bridges"
 short_code: "CLOACI-T-0873"
 created_at: 2026-07-08T14:20:14.965414+00:00
 updated_at: 2026-07-08T14:20:14.965414+00:00
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Generic invoke_ffi marshaling seam — investigate collapsing the 62 per-method-index FFI bridges
+# Generic invoke_ffi marshaling seam — investigate collapsing the per-method-index FFI bridges
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -31,7 +31,10 @@ initiative_id: NULL
 
 Tech-debt investigate-and-decide (the ONE "Worth exploring" candidate from the 2026-07-08 architecture deepening review). NOT committed to implement — investigate the seam, decide.
 
-**The shallowness.** ~**62** call sites across `crates/cloacina/src/registry/loader/{package_loader,constructor_loader,ffi_trigger,ffi_triggerless_graph,task_registrar/*}.rs` hand-roll the same shallow FFI bridge per plugin-ABI method index: `serde_json::to_string(&XInvocation) → spawn_blocking { handle.call_method::<_,String>(METHOD_X, &(json,)) } → serde_json::from_str::<XOutcome>`, each with its own `XInvocation`/`XOutcome` struct pair. `ffi_triggerless_graph.rs` literally says *"Same pattern as ffi_trigger.rs but for graphs"*; `constructor_loader.rs` names the pattern outright. The adapter's interface is nearly as simple as its implementation.
+**The shallowness.** (Filed as "~62 call sites"; the 2026-08-10 audit below
+measured **16** `call_method` sites over **12** method indices sharing **8**
+shared contract types. Corrected here — the original figure was never accurate,
+and it inflated this ticket's apparent priority.) Call sites across `crates/cloacina/src/registry/loader/{package_loader,constructor_loader,ffi_trigger,ffi_triggerless_graph,task_registrar/*}.rs` hand-roll the same shallow FFI bridge per plugin-ABI method index: `serde_json::to_string(&XInvocation) → spawn_blocking { handle.call_method::<_,String>(METHOD_X, &(json,)) } → serde_json::from_str::<XOutcome>`, each with its own `XInvocation`/`XOutcome` struct pair. `ffi_triggerless_graph.rs` literally says *"Same pattern as ffi_trigger.rs but for graphs"*; `constructor_loader.rs` names the pattern outright. The adapter's interface is nearly as simple as its implementation.
 
 **Candidate deepening:** one generic `invoke_ffi::<Req, Res>(handle, METHOD_INDEX, req)` seam owning the JSON round-trip + `spawn_blocking` + FFI-error mapping; the per-index files shrink to their genuinely-unique metadata (poll interval, terminal-output reconstruction, etc.). **Deletion test: PASS** (concentrates the sync/async + serialization boundary where the FFI seam belongs).
 
@@ -140,4 +143,40 @@ Tech-debt investigate-and-decide (the ONE "Worth exploring" candidate from the 2
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-10 — BACKLOG AUDIT. Verdict: **premise still true, but the SCALE is
+  overstated — and that changes the decision this ticket exists to make.**
+
+  Still true: there is no generic seam. `grep "fn invoke_ffi"` finds nothing,
+  and the per-index bridges are still hand-rolled exactly as described.
+
+  **The "~62 call sites" figure is not supported by the code.** Counted in the
+  files this ticket names (`crates/cloacina/src/registry/loader/**`):
+    * `call_method` call sites: **16**
+    * distinct `METHOD_*` indices referenced: **12**
+    * `spawn_blocking` sites: 24 (not all are FFI bridges)
+    * `*Invocation` / `*Outcome` structs: **8 total**, all living in
+      `cloacina-constructor-contract/src/lib.rs` (`TaskInvocation`,
+      `TriggerInvocation`, `AccumulatorInvocation`, `ReactorInvocation`, …) —
+      i.e. SHARED contract types, not "its own struct pair" per call site as
+      the objective states.
+
+  So the real shape is ~16 bridge sites over 12 indices sharing 8 contract
+  types — roughly a quarter of the stated duplication.
+
+  WHY THIS IS MORE THAN PEDANTRY: this ticket is explicitly "investigate the
+  seam, DECIDE — NOT committed to implement", and it ranks itself below the
+  DAL/GIL/registrar collapses. Those siblings earned their rank on volume
+  (I-0135 collapsed ~168 DAL method twins). At 16 sites — with this ticket's
+  own caveat that "the per-index metadata differences are slightly more real"
+  — the payoff case is materially weaker than the headline implies. Anyone
+  triaging off the title would rate this far higher than the code warrants.
+
+  Not merely stale, either: T-0925 ADDED `_in` variants in
+  `constructor_loader.rs` since filing, so the count has grown since 2026-07-08
+  rather than shrunk. The 62 was never accurate.
+
+  RECOMMEND: keep open as investigate-and-decide, but retitle to drop the "62"
+  (see [[feedback_metis_title_embedded_quotes]] for the retitle mechanics), and
+  expect the honest answer to be "not yet". Revisit if a future plugin-ABI
+  version adds several more method indices — the seam gets more attractive as
+  the index count grows, and that is the trigger to watch for.

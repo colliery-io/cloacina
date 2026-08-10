@@ -4,15 +4,15 @@ level: task
 title: "Residual segfault class — mid-scenario native crash on tokio-rt-worker (postgres/ubuntu)"
 short_code: "CLOACI-T-0910"
 created_at: 2026-07-29T01:57:16.426726+00:00
-updated_at: 2026-07-29T01:57:16.426726+00:00
-parent:
+updated_at: 2026-08-09T01:54:50.250569+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -55,6 +55,12 @@ Root-cause and fix the RESIDUAL native segfault that survived the I-0140 campaig
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -136,3 +142,23 @@ The full forensics stack (#208 unstripped wheel + venv-survives-failure, #212 re
 2. Test hygiene: autouse fixture → one-time import-scope `os.environ.setdefault` + standing no-mutation-after-runner rule; scenario 13's inline duplicate removed.
 
 Smoke: scenarios 10+13 pass. Residual: the general glibc getenv/setenv hazard is inherent — the gssencmode default removes cloacina's hottest getenv path; embedders who mutate env at runtime remain exposed on their own paths.
+
+### 2026-08-09 — CLOSED. Fix is in main; the stated residual is not actionable work.
+
+Verified at 2d549c85: `gssencmode` appears 17× in
+`crates/cloacina/src/database/connection/mod.rs` — the `build_postgres_url`
+default landed and shipped, and the autouse `RUST_LOG` fixture that supplied
+the mutator is gone. Root cause was NAMED and eliminated (glibc `getenv`
+racing `setenv` via libpq's GSSAPI/krb5 path — never PyO3, which is what the
+whole I-0140 campaign had assumed).
+
+The residual above is a property of glibc, not a task: an embedder who mutates
+env at runtime on their own paths stays exposed regardless of what cloacina
+does. Closing rather than carrying an unfixable item indefinitely. If the crash
+class reappears, open a NEW ticket with the fresh capture rather than reusing
+this one — the forensics stack that cracked it (unstripped wheel + venv
+surviving failure from #208, real-ELF resolution from #212) is still in place,
+so the next kill should symbolize itself.
+
+Found during a stale-backlog audit: the work merged on
+`fix/t0910-getenv-race`; the ticket was simply never transitioned.

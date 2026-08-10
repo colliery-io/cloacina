@@ -4,15 +4,15 @@ level: task
 title: "BUG: Python param/secret/boundary source scanners aren't comment-aware — an inline comment breaks the declaration"
 short_code: "CLOACI-T-0899"
 created_at: 2026-07-12T13:16:01.070778+00:00
-updated_at: 2026-07-12T13:16:01.070778+00:00
-parent:
+updated_at: 2026-08-09T13:45:15.899868+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -79,6 +79,12 @@ parsed as a param literally named `"# required\n    dst"` → the server then re
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -149,4 +155,34 @@ parsed as a param literally named `"# required\n    dst"` → the server then re
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-09: COMPLETED — PR #249 merged (squash). The two substantive fixes had
+  landed long ago; this closes the "remaining hardening" tail the ticket left
+  open, found during a stale-backlog audit.
+
+  FIVE TESTS ADDED for `strip_py_comments`, covering exactly the edges the
+  original fix reasoned about but never asserted. All passed on first run — they
+  PIN correct behavior rather than fix a defect:
+    * a `#` inside a string is preserved (stripping it would silently rewrite a
+      param's default value)
+    * a triple-quoted docstring's interior is blanked, with delimiters AND line
+      count preserved so later line-based scanning stays aligned — the case that
+      caused the live `missing required param 'name'` failure
+    * an escaped quote does not end the string early (if it did, everything
+      after would flip to "outside string" and comment-stripping would eat real
+      code)
+    * a needle inside a SINGLE-quoted string stays intact — those carry real
+      default values and must not be blanked
+    * an inline comment after a param is stripped and the following line
+      survives
+
+  The ticket also floated "weigh a tiny real tokenizer". Not done, deliberately:
+  the heuristic now has its edges pinned, and swapping in a tokenizer without a
+  demonstrated failing case would be churn. If a new edge escapes, THAT is the
+  evidence that justifies the rewrite.
+
+  Rode along in the same PR (unrelated to this ticket, recorded here because it
+  is where it landed): the Python SDK generator pin is now ENFORCED by
+  `scripts/check_python_sdk_generated.py` in CI, matching the TypeScript client's
+  long-standing `check:generated` gate. The Python client previously had its
+  generator version documented in a README sentence with nothing checking it,
+  and the committed tree had drifted from that pin by ~100 files.
