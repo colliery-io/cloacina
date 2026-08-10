@@ -116,7 +116,15 @@ impl ExecutionCmd {
                     path.push_str(&format!("?since={s}"));
                 }
                 let body: serde_json::Value = client.get(&path).await?;
-                render::list(&body, output)
+                // CLOACI-T-0893: this route answers with an `ExecutionEventsResponse`
+                // — `{execution_id, tenant_id, events: [..]}` — not the `items`
+                // envelope or bare array `render::list` understands. Passing the
+                // whole body straight through made the command fail 100% of the
+                // time with "list response is neither an `items` envelope nor a
+                // bare array", even though the server had returned every event
+                // correctly. Unwrap to the rows before rendering.
+                let rows = body.get("events").cloned().unwrap_or(body);
+                render::list(&rows, output)
             }
         }
     }
