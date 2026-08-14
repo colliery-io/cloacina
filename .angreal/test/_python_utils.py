@@ -540,6 +540,27 @@ def _build_and_install_cloaca_unified(venv_name, cargo_features=None):
         str(maturin_exe), "build",
         "--release",
         "--manylinux", "off",  # skip auditwheel repair (avoids libpq.so resolution)
+        # Build against the interpreter that will actually LOAD the wheel.
+        #
+        # Without this, maturin has no VIRTUAL_ENV (we invoke its binary
+        # directly rather than activating the venv) and falls back to
+        # discovering a system interpreter. On macOS that is the
+        # CommandLineTools Python 3.9 framework, so the extension linked
+        # `@rpath/Python3.framework/Versions/3.9/Python3` while the venv ran a
+        # different CPython. Two Python runtimes then coexist in one process
+        # and the first pyo3 call into the wrong one aborts the interpreter:
+        #
+        #   Fatal Python error: PyInterpreterState_Get: the function must be
+        #   called with the GIL held, but the GIL is released (the current
+        #   Python thread state is NULL)
+        #
+        # Every Python scenario was unrunnable locally as a result. CI never
+        # saw it: on Linux the extension resolves Python symbols dynamically
+        # from the host interpreter rather than linking a framework, so the
+        # mismatch is invisible there. This is the venv's own interpreter, not
+        # a pinned version — it follows whatever Python the venv was created
+        # with.
+        "--interpreter", str(python_exe),
     ]
     if cargo_features:
         # Scope the wheel to a specific backend (e.g. sqlite-only lane).

@@ -142,7 +142,16 @@ impl PyBackoffStrategy {
     }
 
     /// Exponential backoff strategy
+    ///
+    /// CLOACI-T-0882: `multiplier` is `Option` and defaults to 1.0 via
+    /// `unwrap_or` below, but pyo3 does NOT infer optionality from `Option<T>`
+    /// — without an explicit `signature`, the argument stayed REQUIRED and
+    /// `BackoffStrategy.exponential(2.0)` raised
+    /// `TypeError: missing 1 required positional argument: 'multiplier'`.
+    /// Nothing had ever constructed one of these from Python, so the gap
+    /// between the declared default and the callable signature went unseen.
     #[staticmethod]
+    #[pyo3(signature = (base, multiplier=None))]
     pub fn exponential(base: f64, multiplier: Option<f64>) -> Self {
         Self {
             inner: cloacina::retry::BackoffStrategy::Exponential {

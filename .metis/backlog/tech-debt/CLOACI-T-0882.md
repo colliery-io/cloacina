@@ -4,15 +4,15 @@ level: task
 title: "Investigate: cloaca RetryPolicy/BackoffStrategy/RetryCondition value objects exposed but unwired"
 short_code: "CLOACI-T-0882"
 created_at: 2026-07-09T22:56:10.031554+00:00
-updated_at: 2026-07-09T22:56:10.031554+00:00
+updated_at: 2026-08-10T22:50:18.846076+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -69,9 +69,18 @@ Surfaced during I-0137 (cloaca registrar) + the maintainer's coverage catch: `cl
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+Decision: **(a) wire them.** Rationale in the status update below.
+
+- [x] `@cloaca.task(retry=RetryPolicy(...))` accepts the value object and applies it.
+- [x] Passing `retry=` together with any `retry_*` kwarg raises `ValueError` naming
+      the conflicting kwargs, rather than silently preferring one surface.
+- [x] A Python test constructs a `RetryPolicy` through the full builder chain
+      (`BackoffStrategy` + `RetryCondition` + jitter) and reads every getter back.
+- [x] A Python test executes a workflow whose task was configured via the object.
+- [x] A Python test asserts the mutual-exclusion error.
+- [x] Verified live: `angreal test integration --python-file
+      test_scenario_11_retry_mechanisms.py --backend sqlite` → EXIT=0,
+      `PASSED: test_scenario_11_retry_mechanisms.py`.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -170,3 +179,54 @@ Surfaced during I-0137 (cloaca registrar) + the maintainer's coverage catch: `cl
   Acceptance criteria are still template placeholders and should be filled in
   once (a)/(b) is chosen; not filling them in now, since the choice is the
   point of the ticket.
+
+- 2026-08-12 — IMPLEMENTED. Chose **(a) wire them**, reversing the audit's own
+  lean toward (b). Three facts found while implementing changed the answer:
+
+  1. **They are already contract, not accidental exports.** `lib.rs:350-353`
+     lists `RetryPolicy`/`RetryPolicyBuilder`/`BackoffStrategy`/`RetryCondition`
+     in the I-0137 authorship-contract assertion. Option (b) would have meant
+     deliberately shrinking a contract someone deliberately widened.
+  2. **The conversion already existed.** `PyRetryPolicy::to_rust()`
+     (`retry.rs:304`) already produced a `cloacina::retry::RetryPolicy`, so
+     wiring cost one match arm rather than a new adapter.
+  3. **The kwargs surface is the weaker one.** `build_retry_policy` maps
+     unknown strings through `_ => BackoffStrategy::Fixed` and
+     `_ => RetryCondition::AllErrors`, so `retry_backoff="exponentail"`
+     silently yields Fixed. The typed path cannot express that typo —
+     `BackoffStrategy.exponential(...)` is a method, so a typo is an
+     AttributeError. Wiring the object ADDS a safer surface; deleting it would
+     have left only the silently-defaulting one. (That kwargs typo-swallow is
+     a separate defect, still unfixed — see the residual note below.)
+
+  WHAT THE NEW TESTS IMMEDIATELY CAUGHT (the ticket's whole premise, confirmed):
+  `BackoffStrategy.exponential(base, multiplier: Option<f64>)` did
+  `multiplier.unwrap_or(1.0)` — clearly intending an optional argument — but
+  pyo3 does NOT infer optionality from `Option<T>` without an explicit
+  `#[pyo3(signature = ...)]`. So the argument was REQUIRED and
+  `BackoffStrategy.exponential(2.0)` raised
+  `TypeError: missing 1 required positional argument: 'multiplier'`. The very
+  first line of Python ever written against these objects hit it. Fixed with
+  `#[pyo3(signature = (base, multiplier=None))]`. Audited the rest of the file:
+  `exponential` was the only method with this shape.
+
+  IMPLEMENTATION
+  - `task.rs`: new `retry` param; `retry=` and `retry_*` are mutually exclusive
+    and the conflict raises `ValueError` naming the offending kwargs. Silently
+    preferring one surface would recreate this ticket's exact failure mode
+    ("I configured it and nothing happened") one level up.
+  - `retry.rs`: the `exponential` signature fix above.
+  - `tests/python/test_scenario_11_retry_mechanisms.py`: three new tests.
+    The construct-test asserts `calculate_delay(2) > calculate_delay(1)`,
+    because a silently-defaulted Fixed strategy would return a constant and
+    otherwise look identical to a working exponential.
+
+  BLOCKER HIT AND FIXED ALONG THE WAY — see the harness note; `import cloaca`
+  was fatally broken locally, so NO Python scenario could run at all until it
+  was fixed. That is why this ticket touches `.angreal/test/_python_utils.py`.
+
+  RESIDUAL (not fixed here, deliberately): `build_retry_policy`'s silent
+  `_ =>` fallbacks. Fixing it means erroring on unrecognized `retry_backoff` /
+  `retry_condition` strings, which is a behavior change for any existing
+  workflow currently passing a typo and silently getting Fixed/AllErrors. That
+  deserves its own ticket rather than riding along here.
