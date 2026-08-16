@@ -273,7 +273,66 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
   recorded at the call site. Any future reactor-lock assertion MUST go through
   it.
 
-  NOT YET VERIFIED: the harness edit has not been syntax-checked or run (tooling
-  was unavailable at the time of writing). Do that before trusting it — it is a
-  pure-Python change to a lane that takes many minutes to execute, so a syntax
-  error would otherwise surface deep into a k3s deploy.
+  RESOLVED: the harness edit is now syntax-checked and its output verified.
+  `advisory_lock_parts(8110127)` → `(0, 8110127, 1)`, so the tightened fleet
+  query matches the identical row set — no behavior change to T-0818's existing
+  assertions. Reactor keys split to distinct `(classid, objid)` pairs.
+
+  While verifying, tightened it further: the query now matches the FULL key
+  (`classid` + `objid` + `objsubid`), not `objid` alone. Partial matching is
+  wrong in both directions and both are quiet — under-match returns no rows (and
+  a lock query returning no rows PASSES a "never two holders" assertion, going
+  green while proving the absence of what it should observe); over-match
+  conflates two keys sharing their low 32 bits, which matters here because every
+  reactor key shares its high bits by construction (forced sign bit), leaving
+  the low word as the only discriminator.
+
+- 2026-08-16 (cont.) — OWNERSHIP SESSION.
+  `crates/cloacina/src/computation_graph/reactor_ownership.rs`: `ReactorId`
+  (tenant + name, mirroring the scheduler's own map key so a claim and the
+  reactor it guards cannot drift), `OwnershipState` (what this replica BELIEVES
+  it owns), `OwnershipCheck`, and `SESSION_HELD_LOCKS_SQL`. 7 tests; full crate
+  check green on `postgres,macros --all-targets`.
+
+  **MAINTAINER DECISION 2026-08-16 — A-0012 NEEDS AMENDING.** A-0012 states
+  session-scoped locks need "no lease/heartbeat bookkeeping." True for failover,
+  NOT sufficient for long-held ownership. New failure mode, absent from the ADR:
+
+  > The ownership connection drops (network blip, PgBouncer recycle, DB
+  > restart) while the replica keeps running. Postgres releases every lock the
+  > session held. Another replica legitimately claims the reactor. The original
+  > replica NEVER NOTICES and keeps running it. Two replicas, one reactor, no
+  > error raised anywhere.
+
+  The fleet loop is immune only because it re-acquires every tick — a dropped
+  connection just means it stops leading. Ownership that is ASSUMED rather than
+  re-established must be re-verified.
+
+  Decision: **self-check + halt.** The session periodically re-asserts its locks
+  via `SESSION_HELD_LOCKS_SQL`; on loss the affected reactors are stopped
+  locally BEFORE any re-claim. This is loss DETECTION, not lease renewal — no
+  TTL, no clock assumption, no bookkeeping row, Postgres still the sole source
+  of truth. (Fencing tokens were considered and deferred: strictly safer, but
+  they need a schema change and touch the checkpoint write path.)
+
+  Design details worth keeping:
+    * `OwnershipCheck` is a 3-state enum, not a bool. "We lost locks" and "the
+      check could not run" are different situations; conflating them yields
+      either needless stops of healthy reactors or confident operation of
+      unowned ones. `Indeterminate` must be treated as UNKNOWN, never healthy.
+    * `SESSION_HELD_LOCKS_SQL` is scoped by `pid = pg_backend_pid()`, with a
+      test asserting that predicate is present. Without it, ANOTHER replica's
+      lock reads as our own and every liveness check passes while split-brained.
+    * `diff_against_held_keys` is a pure function so the logic deciding whether
+      reactors get stopped is testable with no database, including the
+      everything-lost case (dropped session must report ALL reactors lost, not
+      silently none).
+
+  Pool: one dedicated connection per replica carrying ALL its reactor locks —
+  O(1) in reactor count, documented as an operator-visible reservation
+  (maintainer chose "take one and document it" over raising the default).
+
+  NEXT: the async claim/release calls on the held connection (mirroring
+  `with_fleet_leadership`'s `interact` pattern), then the periodic verify task,
+  then wiring into `ComputationGraphScheduler`, then routing, then accumulator
+  persist + restore.
