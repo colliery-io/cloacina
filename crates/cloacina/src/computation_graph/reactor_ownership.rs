@@ -180,6 +180,150 @@ pub const SESSION_HELD_LOCKS_SQL: &str = "SELECT (classid::bigint << 32) | objid
      FROM pg_locks \
      WHERE locktype = 'advisory' AND objsubid = 1 AND granted AND pid = pg_backend_pid()";
 
+#[cfg(feature = "postgres")]
+mod session {
+    use super::*;
+    use deadpool_diesel::postgres::Manager as PgManager;
+    use tracing::warn;
+
+    #[derive(diesel::QueryableByName)]
+    struct AdvisoryLockRow {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        locked: bool,
+    }
+
+    #[derive(diesel::QueryableByName)]
+    struct HeldKeyRow {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        key: i64,
+    }
+
+    /// A replica's reactor-ownership session: ONE pooled connection carrying all
+    /// of this replica's reactor advisory locks.
+    ///
+    /// Dropping this returns the connection to the pool, which ends the session
+    /// and releases every lock — so it must outlive the reactors it guards.
+    pub struct OwnershipSession {
+        conn: deadpool::managed::Object<PgManager>,
+        state: OwnershipState,
+    }
+
+    impl OwnershipSession {
+        /// Take the dedicated connection. See the module note on pool sizing:
+        /// this reserves one connection per replica for the process lifetime.
+        pub async fn connect(
+            db: &crate::database::Database,
+        ) -> Result<Self, deadpool::managed::PoolError<deadpool_diesel::Error>> {
+            Ok(Self {
+                conn: db.get_postgres_connection().await?,
+                state: OwnershipState::new(),
+            })
+        }
+
+        pub fn state(&self) -> &OwnershipState {
+            &self.state
+        }
+
+        /// Try to claim `id`. `Ok(false)` means another replica owns it — an
+        /// ordinary outcome, not an error.
+        ///
+        /// A failed claim must NOT be recorded as owned; that is the difference
+        /// between "we did not get it" and believing we did.
+        pub async fn claim(&mut self, id: &ReactorId) -> Result<bool, String> {
+            let sql = format!("SELECT pg_try_advisory_lock({}) AS locked", id.lock_key());
+            let acquired = self.run_lock_sql(sql).await?;
+            if acquired {
+                self.state.record_claimed(id.clone());
+            }
+            Ok(acquired)
+        }
+
+        /// Release `id`, forgetting it locally regardless of what Postgres says.
+        ///
+        /// If the unlock reports false the lock was not held on this session —
+        /// which means we had already lost it, so continuing to believe we own
+        /// it is the dangerous option. We warn and forget either way.
+        pub async fn release(&mut self, id: &ReactorId) -> Result<(), String> {
+            let sql = format!("SELECT pg_advisory_unlock({}) AS locked", id.lock_key());
+            let released = self.run_lock_sql(sql).await;
+            self.state.record_released(id);
+            match released {
+                Ok(true) => Ok(()),
+                Ok(false) => {
+                    warn!(
+                        reactor = %id.name,
+                        tenant = ?id.tenant,
+                        "pg_advisory_unlock returned false — ownership had already been lost; \
+                         forgetting it locally"
+                    );
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            }
+        }
+
+        /// Re-assert that Postgres still reports every lock we believe we hold.
+        ///
+        /// See the module docs for why this exists at all. On
+        /// [`OwnershipCheck::Lost`] the caller MUST stop those reactors locally
+        /// BEFORE attempting to re-claim — another replica may already be
+        /// running them.
+        ///
+        /// [`OwnershipCheck::Indeterminate`] is NOT a pass. A session that
+        /// cannot reach Postgres does not know what it holds; treating that as
+        /// healthy is how a partitioned replica keeps running unowned reactors.
+        pub async fn verify_owned(&mut self) -> OwnershipCheck {
+            if self.state.is_empty() {
+                return OwnershipCheck::AllHeld;
+            }
+
+            let rows = self
+                .conn
+                .interact(|conn| {
+                    use diesel::RunQueryDsl;
+                    diesel::sql_query(SESSION_HELD_LOCKS_SQL).load::<HeldKeyRow>(conn)
+                })
+                .await;
+
+            let held: HashSet<i64> = match rows {
+                Ok(Ok(rows)) => rows.into_iter().map(|r| r.key).collect(),
+                Ok(Err(e)) => return OwnershipCheck::Indeterminate(format!("query failed: {e}")),
+                Err(e) => return OwnershipCheck::Indeterminate(format!("interact failed: {e}")),
+            };
+
+            let lost = self.state.diff_against_held_keys(&held);
+            if lost.is_empty() {
+                OwnershipCheck::AllHeld
+            } else {
+                // Forget them immediately: from here on we must not believe we
+                // own these, whatever the caller does about stopping them.
+                for id in &lost {
+                    self.state.record_released(id);
+                }
+                OwnershipCheck::Lost(lost)
+            }
+        }
+
+        async fn run_lock_sql(&self, sql: String) -> Result<bool, String> {
+            match self
+                .conn
+                .interact(move |conn| {
+                    use diesel::RunQueryDsl;
+                    diesel::sql_query(sql).get_result::<AdvisoryLockRow>(conn)
+                })
+                .await
+            {
+                Ok(Ok(row)) => Ok(row.locked),
+                Ok(Err(e)) => Err(format!("advisory lock query failed: {e}")),
+                Err(e) => Err(format!("interact failed: {e}")),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "postgres")]
+pub use session::OwnershipSession;
+
 #[cfg(test)]
 mod tests {
     use super::*;
