@@ -29,6 +29,7 @@ pub mod global_registry;
 pub mod graph_executor;
 pub mod packaging_bridge;
 pub mod reactor;
+pub mod reactor_lock_key;
 pub mod registry;
 pub mod scheduler;
 pub mod stream_backend;

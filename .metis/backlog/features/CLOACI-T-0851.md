@@ -182,3 +182,55 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
 
   No changes made to objective, design directions, priority, or acceptance
   criteria — all still accurate.
+
+- 2026-08-16 — STARTED. [[CLOACI-A-0012]] signed off. First deliverable: the
+  tenant-safe lock-key scheme, which A-0012 named as the blocker to resolve
+  BEFORE any lease code.
+
+  **DONE:** `crates/cloacina/src/computation_graph/reactor_lock_key.rs` —
+  `reactor_lock_key(tenant: Option<&str>, reactor_name: &str) -> i64`, with 7
+  unit tests, all passing (`cargo test -p cloacina --lib --features sqlite
+  reactor_lock_key` → 7 passed).
+
+  Confirmed the hazard is real, not theoretical: tenants are isolated by
+  **schema within one database** (`SET LOCAL search_path TO <tenant>`,
+  `database/admin.rs`) and advisory locks are **database-wide**, not
+  schema-scoped. Name-only keying would have made two tenants' same-named
+  reactors contend for one lock, with exactly one silently never running.
+
+  Two traps found, each defended with a test rather than a comment:
+    * **A seeded hasher would be a split-brain bug.** `DefaultHasher` /
+      `RandomState` is seeded per PROCESS, so each replica computes a different
+      key, every replica wins "the lock", and all of them run the reactor —
+      presenting as an intermittent duplicate rather than an error. Used
+      hand-rolled FNV-1a with fixed constants; the stability test pins exact
+      literals so a change to the encoding fails loudly instead of splitting
+      brains during a rolling deploy.
+    * **`save_reactor_state` is a misleading precedent.** It keys checkpoints
+      by graph name alone and is CORRECT to do so, because the DAL is
+      schema-scoped. Locks are not. Documented in the module so the next reader
+      does not copy the wrong pattern.
+    Also length-delimited the encoding so `("a","bc")` and `("ab","c")` cannot
+    collide, and forced the sign bit so reactor keys occupy the negative i64
+    half — disjoint from hand-picked small positive keys like
+    `FLEET_CONTROL_LOCK_KEY` (8_110_127).
+
+  **DESIGN FINDING THAT CHANGES THE IMPLEMENTATION SHAPE (not in A-0012).**
+  From `autoscaler/leader.rs`: advisory locks are **session-scoped**, and the
+  fleet loop holds a pooled connection for ONE BRIEF TICK — lock, work, unlock,
+  return to pool. Reactor ownership is not tick-shaped; it must persist as long
+  as the replica runs the reactor. Copying the fleet pattern naively would hold
+  one pooled connection PER OWNED REACTOR for the process lifetime, exhausting
+  the pool as reactor count grows.
+
+  Proposed resolution, to validate next: ONE dedicated "ownership session"
+  connection per replica holding N advisory locks — a Postgres session can hold
+  many. Crash → session ends → ALL that replica's reactor locks release at
+  once, which is exactly the failover semantics wanted, at O(1) connections
+  instead of O(reactors). Preserves A-0012's "no lease/heartbeat bookkeeping"
+  property, since session-scoped locks auto-release on connection loss.
+
+  NEXT: validate one-session-many-locks against a live postgres — specifically
+  that killing the session really does release EVERY lock it held, which is the
+  assumption the whole failover story rests on. Then the claim/release API,
+  then routing, then accumulator persist + restore.
