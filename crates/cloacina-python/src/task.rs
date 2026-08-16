@@ -866,6 +866,7 @@ impl TaskDecorator {
     *,
     id = None,
     dependencies = None,
+    retry = None,
     retry_attempts = None,
     retry_backoff = None,
     retry_delay_ms = None,
@@ -883,6 +884,7 @@ pub fn task(
     py: Python,
     id: Option<String>,
     dependencies: Option<Vec<PyObject>>,
+    retry: Option<crate::bindings::PyRetryPolicy>,
     retry_attempts: Option<usize>,
     retry_backoff: Option<String>,
     retry_delay_ms: Option<u64>,
@@ -895,14 +897,45 @@ pub fn task(
     post_invocation: Option<PyObject>,
     trigger_rules: Option<PyObject>,
 ) -> PyResult<TaskDecorator> {
-    let retry_policy = build_retry_policy(
-        retry_attempts,
-        retry_backoff,
-        retry_delay_ms,
-        retry_max_delay_ms,
-        retry_condition,
-        retry_jitter,
-    );
+    // CLOACI-T-0882: two retry-authoring surfaces exist — the `retry_*` kwargs
+    // and a `RetryPolicy` value object. Accept either, never both: silently
+    // preferring one would make the ignored surface look effective, which is
+    // exactly the "exposed but does nothing" failure this ticket was filed for.
+    let kwargs_used: &[(&str, bool)] = &[
+        ("retry_attempts", retry_attempts.is_some()),
+        ("retry_backoff", retry_backoff.is_some()),
+        ("retry_delay_ms", retry_delay_ms.is_some()),
+        ("retry_max_delay_ms", retry_max_delay_ms.is_some()),
+        ("retry_condition", retry_condition.is_some()),
+        ("retry_jitter", retry_jitter.is_some()),
+    ];
+    let conflicting: Vec<&str> = kwargs_used
+        .iter()
+        .filter(|(_, used)| *used)
+        .map(|(name, _)| *name)
+        .collect();
+
+    let retry_policy = match retry {
+        Some(policy) => {
+            if !conflicting.is_empty() {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "@task(retry=RetryPolicy(...)) cannot be combined with the \
+                     retry_* keyword arguments (got: {}). Use the RetryPolicy \
+                     object OR the keywords, not both.",
+                    conflicting.join(", ")
+                )));
+            }
+            policy.to_rust()
+        }
+        None => build_retry_policy(
+            retry_attempts,
+            retry_backoff,
+            retry_delay_ms,
+            retry_max_delay_ms,
+            retry_condition,
+            retry_jitter,
+        ),
+    };
 
     // CLOACI-T-0763: parse + validate the trigger rule (default = Always).
     let trigger_rules = match trigger_rules {
@@ -1004,6 +1037,7 @@ with score_graph:
                 None,
                 None,
                 None,
+                None,
                 Some(score_graph.unbind()),
                 None,
                 None,
@@ -1080,6 +1114,7 @@ def post(ctx):
                 None,
                 None,
                 None,
+                None,
                 Some(g.unbind()),
                 Some(post.unbind()),
                 None,
@@ -1124,6 +1159,7 @@ def post(ctx):
             let decorator = task(
                 py,
                 Some("bad".to_string()),
+                None,
                 None,
                 None,
                 None,
@@ -1186,6 +1222,7 @@ with g:
             let decorator = task(
                 py,
                 Some("rx_invoker".to_string()),
+                None,
                 None,
                 None,
                 None,
