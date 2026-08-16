@@ -68,9 +68,26 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] A chosen coordination model (leadership / routing / externalized state) recorded as an ADR with maintainer sign-off.
+- [x] A chosen coordination model (leadership / routing / externalized state) recorded as an ADR with maintainer sign-off.
+      → **[[CLOACI-A-0012]]**, maintainer sign-off 2026-08-16: reactor
+      leadership (per-reactor advisory-lock lease, mirroring [[CLOACI-A-0008]]),
+      PLUS accumulator buffers folded into the existing `persist_reactor_state`
+      checkpoint. Accumulator loss on failover was explicitly ruled
+      UNACCEPTABLE, so durability is in v1 scope — but single-ownership makes it
+      cheap (single writer ⇒ no concurrency protocol, accumulator hot path
+      untouched).
+- [ ] **Per-reactor advisory lock keys are collision-free ACROSS TENANTS.**
+      `save_reactor_state` keys by `graph_name` alone and leans on
+      schema-per-tenant isolation for separation; the advisory-lock key space
+      has NO schema boundary, so two tenants running a same-named graph would
+      contend for one lock and silently serialize each other. Resolve before
+      writing the lease code — see A-0012 "Open Question For Implementation".
+      This is the most likely place to introduce a subtle cross-tenant bug.
+- [ ] Accumulator buffers are persisted AND restored on takeover. Restore is
+      the half that can be quietly skipped: a snapshot nothing reads back looks
+      complete and buys nothing.
 - [ ] Under a 2-replica postgres deployment: events injected round-robin across replicas assemble correctly (a `when_all` reactor fires; a `state` window fills) with no split-brain buffers.
-- [ ] Replica death while owning a reactor → another replica resumes it from the persisted snapshot (bounded takeover time; no lost checkpointed state).
+- [ ] Replica death while owning a reactor → another replica resumes it from the persisted snapshot (bounded takeover time; no lost checkpointed state), **with a partially-filled accumulator window intact across the failover** — this is the criterion that distinguishes the chosen design from leadership alone.
 - [ ] Multi-replica reactive validation added to the k8s-leader e2e lane (extends T-0818's harness).
 - [ ] Single-replica + embedded behavior byte-for-byte unchanged.
 
