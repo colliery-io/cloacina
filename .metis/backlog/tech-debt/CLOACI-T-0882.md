@@ -4,7 +4,7 @@ level: task
 title: "Investigate: cloaca RetryPolicy/BackoffStrategy/RetryCondition value objects exposed but unwired"
 short_code: "CLOACI-T-0882"
 created_at: 2026-07-09T22:56:10.031554+00:00
-updated_at: 2026-08-10T22:50:18.846076+00:00
+updated_at: 2026-08-14T03:08:55.881063+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,8 @@ Surfaced during I-0137 (cloaca registrar) + the maintainer's coverage catch: `cl
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
