@@ -4,15 +4,15 @@ level: task
 title: "Generic invoke_ffi marshaling seam — investigate collapsing the per-method-index FFI bridges"
 short_code: "CLOACI-T-0873"
 created_at: 2026-07-08T14:20:14.965414+00:00
-updated_at: 2026-07-08T14:20:14.965414+00:00
+updated_at: 2026-08-16T14:33:24.380501+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -73,6 +73,12 @@ and it inflated this ticket's apparent priority.) Call sites across `crates/cloa
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -180,3 +186,57 @@ and it inflated this ticket's apparent priority.) Call sites across `crates/cloa
   expect the honest answer to be "not yet". Revisit if a future plugin-ABI
   version adds several more method indices — the seam gets more attractive as
   the index count grows, and that is the trigger to watch for.
+
+- 2026-08-16 — INVESTIGATED AND DECIDED: **do not build the proposed seam.**
+  Closing. The reason is not "too small" — it is that the premise does not
+  survive reading the call sites instead of counting them.
+
+  **The bridges are TWO families, not one.**
+
+  *Family A — typed `call_method`; fidius owns serialization. No JSON at all:*
+    * `ffi_trigger.rs` — `call_method(METHOD_INVOKE_TRIGGER_POLL, &request)`,
+      `TriggerInvokeRequest` → `TriggerInvokeResult`
+    * `ffi_triggerless_graph.rs` — same, `TriggerlessGraphInvokeRequest`
+    * `task_registrar/dynamic_task.rs` — `call_method(METHOD_EXECUTE_TASK, &(request,))`
+    * `package_loader.rs` (×3) and `task_registrar/extraction.rs` — typed,
+      e.g. `call_method::<(), GraphPackageMetadata>(..)`
+    ≈ 8 sites.
+
+  *Family B — manual `serde_json` string round-trip.* `constructor_loader.rs`
+  ONLY: `METHOD_EXECUTE`, `METHOD_POLL`, `METHOD_INGEST`, `METHOD_EVALUATE`.
+  4 sites.
+
+  The objective presents
+  `to_string(&XInvocation) → call_method::<_,String> → from_str::<XOutcome>`
+  as the universal pattern. It is family B only. **Family A already has the
+  generic marshaling seam this ticket proposes building — it is fidius's typed
+  `call_method`.** Wrapping that would add a layer, not remove one.
+
+  **So the seam serves 4 sites, and those 4 disagree with each other:**
+    * `METHOD_EXECUTE` — async, fails as `TaskError` (via `exec_err`)
+    * `METHOD_POLL` — async, fails as `TriggerError::PollError`
+    * `METHOD_EVALUATE` — async, fails as `LoaderError::Validation`
+    * `METHOD_INGEST` — **synchronous**, no `spawn_blocking` at all (`process`
+      is sync), and returns `Option`: `tracing::error!` + `return None` rather
+      than propagating an error
+
+  Three error types across three sites, and the fourth has a different control
+  shape entirely. A generic `invoke_ffi::<Req, Res>` would cover 3 sites and
+  each would still need its own `map_err`. This is precisely the ticket's own
+  stated fear — "the per-index metadata differences are slightly more real" —
+  confirmed by reading rather than assumed.
+
+  **THE REAL DEEPENING IS A DIFFERENT ONE.** The interesting question is not
+  "how do we wrap constructor_loader's JSON round-trip?" but "why does
+  constructor_loader hand-roll JSON strings when every other bridge passes
+  typed values and lets fidius serialize?" Converting family B to typed calls
+  DELETES the manual serialization layer rather than wrapping it — strictly
+  better, and it makes the loader internally consistent. It is also a bigger
+  job: the guest exports these methods taking `(String,)`, so it changes the
+  plugin ABI and needs an interface-version bump. Filed as [[CLOACI-T-0931]]
+  rather than smuggled in here.
+
+  DECISION: close. Not "deferred with a trigger" — the proposed design is
+  superseded, because T-0931 reaches the same goal by removing the duplication
+  instead of centralizing it. No code changed under this ticket; the
+  deliverable is the decision and its evidence.
