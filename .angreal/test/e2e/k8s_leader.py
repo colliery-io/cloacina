@@ -113,12 +113,57 @@ REPLICAS = 2
 # (crates/cloacina-server/src/autoscaler/leader.rs::FLEET_CONTROL_LOCK_KEY).
 FLEET_LOCK_KEY = 8110127
 
+
+def lock_query(key):
+    """psql for 'who currently holds advisory lock `key`', as (client_addr, pid).
+
+    Parameterized by key because CLOACI-T-0851 adds per-reactor ownership locks
+    alongside the fleet control lock, and those assertions want this lane's
+    existing machinery — `_wait_lock_holder`'s "never two simultaneous holders"
+    invariant and `_sample_lock`'s high-frequency sampling — rather than a
+    second, subtly-different copy of it.
+
+    Matches on the FULL key (classid + objid + objsubid), not `objid` alone —
+    see `advisory_lock_parts` for why matching a partial key is a correctness
+    bug in a test rather than a rounding error.
+    """
+    classid, objid, objsubid = advisory_lock_parts(key)
+    return (
+        "SELECT a.client_addr, a.pid FROM pg_locks l "
+        "JOIN pg_stat_activity a ON l.pid=a.pid "
+        f"WHERE l.locktype='advisory' AND l.classid={classid} AND l.objid={objid} "
+        f"AND l.objsubid={objsubid} AND l.granted;"
+    )
+
+
+def advisory_lock_parts(key):
+    """Split a 64-bit advisory key the way `pg_locks` reports it.
+
+    Postgres does not store a bigint advisory key in one column. For the
+    single-argument `pg_advisory_lock(bigint)` form it reports
+    `classid` = high 32 bits, `objid` = low 32 bits, `objsubid` = 1. (The
+    two-int4 form uses objsubid = 2, which we do not use.)
+
+    Matching on `objid` alone is wrong in BOTH directions and both failures are
+    quiet:
+
+      * Under-match — a full i64 compared against the 32-bit `objid` column
+        matches nothing. A lock query that matches nothing PASSES a "never two
+        simultaneous holders" assertion, so the test goes green while proving
+        the absence of the thing it was meant to observe.
+      * Over-match — two distinct keys sharing their low 32 bits look like the
+        same lock. Reactor keys have the sign bit forced, so every one of them
+        shares its high bits with the others; the low word is all that
+        distinguishes them, and a partial match would happily conflate a
+        reactor lock with the fleet lock.
+
+    Returned as unsigned, which is how `pg_locks` exposes them.
+    """
+    return ((key >> 32) & 0xFFFF_FFFF, key & 0xFFFF_FFFF, 1)
+
+
 # The exact psql query used for assertion 2 (single leader). Reported verbatim.
-LOCK_QUERY = (
-    "SELECT a.client_addr, a.pid FROM pg_locks l "
-    "JOIN pg_stat_activity a ON l.pid=a.pid "
-    f"WHERE l.locktype='advisory' AND l.objid={FLEET_LOCK_KEY} AND l.granted;"
-)
+LOCK_QUERY = lock_query(FLEET_LOCK_KEY)
 
 SERVER_SELECTOR = "app.kubernetes.io/name=cloacina-server"
 
@@ -230,9 +275,13 @@ def _psql(kubeconfig, target, sql, capture=True):
     return (r.stdout or "").strip()
 
 
-def _lock_holders(kubeconfig, target):
-    """Return list of (client_addr, pid) currently granted the fleet advisory lock."""
-    out = _psql(kubeconfig, target, LOCK_QUERY)
+def _lock_holders(kubeconfig, target, query=None):
+    """Return list of (client_addr, pid) currently granted an advisory lock.
+
+    Defaults to the fleet control lock. Pass `query=lock_query(k)` to assert on
+    a different key — e.g. a per-reactor ownership lock (CLOACI-T-0851).
+    """
+    out = _psql(kubeconfig, target, query or LOCK_QUERY)
     rows = []
     for line in out.splitlines():
         line = line.strip()

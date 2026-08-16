@@ -234,3 +234,46 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
   that killing the session really does release EVERY lock it held, which is the
   assumption the whole failover story rests on. Then the claim/release API,
   then routing, then accumulator persist + restore.
+
+  **VERIFICATION PLAN — use `angreal test e2e k8s-leader`, do not build
+  anything new.** I initially wrote "needs a live postgres" as though that were
+  an obstacle; the harness already provides the entire interruption apparatus
+  (maintainer correction, 2026-08-16). `.angreal/test/e2e/k8s_leader.py`
+  (T-0818) already runs a REAL 2-replica k3s deployment and already has:
+
+    * `_psql(kubeconfig, target, sql)` — arbitrary SQL into the cluster's postgres
+    * `_lock_holders()` — who currently holds an advisory lock, via `pg_locks`
+      joined to `pg_stat_activity`, resolving `client_addr` → owning pod
+    * `_wait_lock_holder(want_pod=/not_pod=)` — polls for a holder matching a
+      predicate AND asserts we never observe >1 simultaneous holder
+    * `_sample_lock(window_s)` — high-frequency sampling returning
+      `(max_simultaneous, observed_holders)`
+    * **assertion 5 is already the interruption test**: delete the lock-holding
+      replica, assert the survivor acquires the lock and the killed replica
+      reschedules and rejoins as a follower
+
+  That is exactly the shape T-0851 needs; the acceptance criterion "multi-replica
+  reactive validation added to the k8s-leader e2e lane" was always pointing here.
+  The reactor assertions become: own N reactors on one replica → kill it → assert
+  ALL N locks release and the survivor claims them, with a partially-filled
+  accumulator window intact on the other side.
+
+  **DONE toward that:** parameterized the lane's lock helpers by key —
+  `lock_query(key)` + `_lock_holders(..., query=)` — so reactor-lock assertions
+  reuse the existing "never two simultaneous holders" invariant instead of a
+  second, subtly-different copy. `LOCK_QUERY` is now `lock_query(FLEET_LOCK_KEY)`,
+  so the existing fleet assertions are unchanged.
+
+  **TRAP FOUND WHILE DOING IT, worth its own note.** `pg_locks.objid` holds only
+  the LOW 32 BITS of a 64-bit advisory key. Reactor keys are full-width i64 with
+  the sign bit forced, so matching a raw i64 against `objid` matches NOTHING —
+  and a lock query that matches nothing PASSES a "no two holders" assertion. The
+  failure mode is a green test proving the absence of the thing it was meant to
+  observe. Added `advisory_objid(key)` (`key & 0xFFFF_FFFF`) with that reasoning
+  recorded at the call site. Any future reactor-lock assertion MUST go through
+  it.
+
+  NOT YET VERIFIED: the harness edit has not been syntax-checked or run (tooling
+  was unavailable at the time of writing). Do that before trusting it — it is a
+  pure-Python change to a lane that takes many minutes to execute, so a syntax
+  error would otherwise surface deep into a k3s deploy.
