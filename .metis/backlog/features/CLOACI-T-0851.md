@@ -332,7 +332,109 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
   O(1) in reactor count, documented as an operator-visible reservation
   (maintainer chose "take one and document it" over raising the default).
 
-  NEXT: the async claim/release calls on the held connection (mirroring
-  `with_fleet_leadership`'s `interact` pattern), then the periodic verify task,
-  then wiring into `ComputationGraphScheduler`, then routing, then accumulator
+- 2026-08-16 (cont.) — `OwnershipSession` IMPLEMENTED (postgres-gated).
+  `connect` / `claim` / `release` / `verify_owned`, holding the dedicated
+  connection and driving `pg_try_advisory_lock` / `pg_advisory_unlock` /
+  `SESSION_HELD_LOCKS_SQL` through deadpool's `interact`, mirroring
+  `with_fleet_leadership`. Both feature builds green
+  (`postgres,macros` and `sqlite,macros`, `--all-targets`); 14 unit tests pass.
+
+  Three deliberate behaviours, each chosen because the alternative fails quietly:
+    * A failed `claim` is NOT recorded as owned. `Ok(false)` means another
+      replica owns it — an ordinary outcome, not an error — and recording it
+      would make us believe we hold a lock we never got.
+    * `release` forgets the reactor locally EVEN IF the unlock returns false.
+      False means the lock was not held on this session, i.e. we had already
+      lost it; continuing to believe we own it is strictly the more dangerous
+      of the two options.
+    * `verify_owned` forgets lost reactors immediately, before returning. The
+      caller still has to stop them, but from that moment nothing in this
+      process believes it owns them, whatever the caller does next.
+
+  NEXT: periodic verify task + halt-on-loss wiring into
+  `ComputationGraphScheduler`, then event routing to the owner, then accumulator
   persist + restore.
+
+  GATE RESULT — `angreal test e2e k8s-leader`, real 2-replica k3s, **exit 1**,
+  `3/5 green; blocked: ['4','5']`.
+
+  **My lock-helper change is NOT the cause, and the evidence is specific.** The
+  worry was the exact trap documented above: if the tightened query matched
+  nothing, assertion 2 ("single fleet-lock holder") would still PASS, because
+  zero holders satisfies "at most one" — a vacuous green. The log rules that
+  out:
+
+      samples with a holder: 6; max simultaneous holders: 1;
+      holders observed: {…-nsp62: 3, …-dr8fs: 3}
+
+  Six real catches across both pods, never simultaneous. The full-key query
+  (`classid=0 AND objid=8110127 AND objsubid=1`) returns rows against a live
+  Postgres, so `objsubid = 1` is confirmed correct for the
+  `pg_try_advisory_lock(bigint)` form — which also validates the same assumption
+  baked into `SESSION_HELD_LOCKS_SQL`.
+
+  * Assertion 4 blocked BY DESIGN — it needs `--claiming`, which was not passed.
+  * Assertion 5 blocked: `never caught the lock holder pre-kill`. **Pre-existing
+    flakiness, not a regression.** The fleet lock is taken and released within a
+    single control tick, so it is only briefly held; the whole sampling window
+    caught it just 6 times. Assertion 5 must identify the holding pod at one
+    specific instant before killing it, and it loses that race often.
+
+  **THIS MATTERS FOR T-0851 IN A GOOD WAY.** Reactor ownership locks are held
+  CONTINUOUSLY, not per-tick. The reactor failover assertion therefore does not
+  inherit assertion 5's race at all: the holder is always there to be caught, so
+  "kill the owner, watch the survivor claim it" should be reliable where the
+  fleet equivalent is flaky. The reactor assertions should NOT copy assertion
+  5's sampling approach — they can simply read the holder directly.
+
+  Worth filing separately: assertion 5 is a CORE assertion that fails the lane
+  (exit 1) yet cannot run reliably, so `k8s-leader` is red for reasons unrelated
+  to any change under test. That is a trust problem for a gate — it trains
+  people to ignore the result.
+
+- 2026-08-17 — FLAKE FIXED AND VERIFIED. `angreal test e2e k8s-leader` now
+  **exits 0, 4/5 green, failed: []**. Assertion 5 passes on a real 2-replica
+  cluster:
+
+      current lock holder: pod=…-m2nrl addr=10.42.0.3 pid=160 — deleting it
+      failover: lock re-acquired by pod=…-wpb8c addr=10.42.0.6 pid=64
+
+  (Assertion 4 still blocked purely because `--claiming` was not passed.)
+
+  ROOT CAUSE was latency, not logic. Polling spawned TWO subprocesses per sample
+  (`kubectl get pods` + `kubectl exec … psql`), hundreds of ms each, while the
+  fleet lock is taken and released WITHIN one control tick — so the sample rate
+  was latency-bound and the whole window caught it 6 times. Fix: move the poll
+  inside Postgres. One exec runs a plpgsql loop sampling `pg_locks` every 10ms
+  and returns the instant a holder appears — same predicate, ~1000x the density.
+  Applied to BOTH the pre-kill catch and the post-kill survivor wait; the latter
+  has the identical race and HARD-FAILS rather than blocking.
+
+  TWO REAL BUGS IN MY OWN FIX, both found by running it, both the same family —
+  a quiet fallback turning a missing observation into a WRONG one:
+
+    1. **`::text` on inet appends the netmask.** Verified against live Postgres:
+       `'10.42.0.3'::inet::text` → `10.42.0.3/32`, while `host(...)` → `10.42.0.3`.
+       The `/32` form matches no key in `_server_pod_ips`. This is why the
+       ORIGINAL code worked and my rewrite broke it — plain display omits the
+       mask, the cast does not. Now uses `host()`.
+    2. **`ip_to_pod.get(addr, addr)` returned the ADDRESS as a pod name** when
+       resolution failed, which went straight to `kubectl delete pod
+       10.42.0.3/32` and crashed the lane with a confusing
+       `CalledProcessError`. This fallback PREDATES my change and would convert
+       any future resolution failure into the same confusing crash. Now prints
+       what failed to resolve and reports "no holder" instead of deleting
+       something that does not exist.
+
+  Also caught before the first cluster run, by testing the SQL against
+  `cloacina-postgres:15432`: `client_addr` is NULL for unix-socket connections
+  and `NULL || '|' || pid` is NULL, so a holder would have existed but rendered
+  as nothing and the catcher would have reported "no holder found". Fixed with
+  `coalesce` before it ever reached a cluster.
+
+  BEARING ON T-0851: reactor ownership locks are held CONTINUOUSLY, so the
+  reactor failover assertions do not inherit this race at all — the holder is
+  always there to be caught. They should read the holder directly rather than
+  copying assertion 5's sampling. The server-side catcher is still the right
+  tool for the post-kill wait, since "wait until someone OTHER than the killed
+  replica holds it" is inherently a wait.
