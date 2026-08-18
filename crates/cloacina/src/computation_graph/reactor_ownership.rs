@@ -192,6 +192,35 @@ impl OwnershipState {
     }
 }
 
+/// The coordination surface the scheduler needs, independent of Postgres.
+///
+/// The scheduler holds an `Option<Arc<dyn ReactorOwnership>>`. **`None` is the
+/// embedded / single-replica / sqlite path and MUST behave exactly as before
+/// this feature existed** — no claim, no verification, no behaviour change.
+/// That is not merely a convenience: A-0012 requires single-replica and
+/// embedded behaviour to stay byte-for-byte identical, and the only way to be
+/// sure of that is for those deployments to execute none of this code.
+///
+/// A trait rather than a concrete `OwnershipSession` so the scheduler does not
+/// become postgres-gated, and so the claim/loss paths are testable with a fake
+/// instead of a live database. Coordination bugs are exactly the ones you
+/// cannot reproduce on demand against a real cluster.
+#[async_trait::async_trait]
+pub trait ReactorOwnership: Send + Sync {
+    /// Try to take ownership. `Ok(false)` = another replica owns it, which is
+    /// an ordinary outcome and not an error.
+    async fn claim(&self, id: &ReactorId) -> Result<bool, String>;
+
+    /// Give up ownership (normal unload).
+    async fn release(&self, id: &ReactorId) -> Result<(), String>;
+
+    /// Re-assert everything this replica believes it owns.
+    async fn verify(&self) -> OwnershipCheck;
+
+    /// What this replica currently believes it owns.
+    async fn believed_owned(&self) -> Vec<ReactorId>;
+}
+
 /// What the watchdog decided a caller should do after one liveness check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatchdogAction {
@@ -432,6 +461,51 @@ mod session {
 
 #[cfg(feature = "postgres")]
 pub use session::OwnershipSession;
+
+/// [`ReactorOwnership`] over an [`OwnershipSession`].
+///
+/// The session needs `&mut self` (it mutates believed-ownership and drives one
+/// connection), while the trait takes `&self` so the scheduler can hold it
+/// behind an `Arc`. A `tokio::Mutex` bridges that.
+///
+/// Serializing ownership operations is a feature, not a cost: claim, release
+/// and verify all read-modify-write the same believed-ownership set against the
+/// same connection. Letting them interleave is how you get a verify that
+/// observes a half-applied claim and "helpfully" halts a reactor that was just
+/// acquired.
+#[cfg(feature = "postgres")]
+pub struct PostgresOwnership {
+    session: tokio::sync::Mutex<OwnershipSession>,
+}
+
+#[cfg(feature = "postgres")]
+impl PostgresOwnership {
+    pub fn new(session: OwnershipSession) -> Self {
+        Self {
+            session: tokio::sync::Mutex::new(session),
+        }
+    }
+}
+
+#[cfg(feature = "postgres")]
+#[async_trait::async_trait]
+impl ReactorOwnership for PostgresOwnership {
+    async fn claim(&self, id: &ReactorId) -> Result<bool, String> {
+        self.session.lock().await.claim(id).await
+    }
+
+    async fn release(&self, id: &ReactorId) -> Result<(), String> {
+        self.session.lock().await.release(id).await
+    }
+
+    async fn verify(&self) -> OwnershipCheck {
+        self.session.lock().await.verify_owned().await
+    }
+
+    async fn believed_owned(&self) -> Vec<ReactorId> {
+        self.session.lock().await.state().owned().cloned().collect()
+    }
+}
 
 #[cfg(test)]
 mod tests {
