@@ -520,6 +520,17 @@ pub struct ComputationGraphScheduler {
     /// to be byte-for-byte unchanged, and the way to guarantee that is for them
     /// to run none of this code rather than to run it and expect it to agree.
     ownership: Option<Arc<dyn super::reactor_ownership::ReactorOwnership>>,
+    /// Reactors this replica has loaded but does NOT own — another replica won
+    /// the claim, so nothing runs here for them.
+    ///
+    /// This is distinct from "not loaded": the package IS present, we simply do
+    /// not host the reactor. Callers need that distinction, because binding a
+    /// graph to a reactor owned elsewhere must be a quiet no-op rather than the
+    /// hard "reactor not loaded" error it would otherwise raise.
+    ///
+    /// This is also where routing will look when it lands: "who should this
+    /// event go to" starts with "is this reactor foreign to me".
+    foreign_reactors: Arc<RwLock<std::collections::HashSet<TenantKey>>>,
     /// Maps graph key → reactor key so external operations that take a
     /// graph_name (`unload_graph`, `list_graphs`) can find the reactor that
     /// hosts it. The *value* is a full key, not a name, so a subscriber in one
@@ -547,6 +558,7 @@ impl ComputationGraphScheduler {
             graph_topologies: Arc::new(RwLock::new(HashMap::new())),
             dal: None,
             ownership: None,
+            foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
         }
     }
 
@@ -562,6 +574,7 @@ impl ComputationGraphScheduler {
             graph_topologies: Arc::new(RwLock::new(HashMap::new())),
             dal: Some(dal),
             ownership: None,
+            foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
         }
     }
 
@@ -666,6 +679,52 @@ impl ComputationGraphScheduler {
                     ));
                 }
                 return Ok(());
+            }
+        }
+
+        // CLOACI-T-0851: claim cross-replica ownership BEFORE spawning anything.
+        //
+        // Placed here, alongside the other "resolve what can fail before we
+        // spawn" work, for the same reason: losing the claim after the reactor
+        // and its accumulators are running would mean tearing down a live
+        // reactor, and a partially-wired teardown is how endpoints get left
+        // registered for something that is no longer running.
+        //
+        // `ownership == None` — embedded, sqlite, single replica — skips this
+        // entirely and the path below is byte-for-byte what it was.
+        //
+        // NOT acquiring the lock is a normal outcome, not an error: another
+        // replica owns this reactor. The load still SUCCEEDS, because the
+        // package is legitimately present on this replica; it simply does not
+        // run the reactor here. Returning an error instead would make a
+        // correctly-functioning multi-replica deployment look like a failed
+        // deployment on every replica but one.
+        if let Some(ownership) = self.ownership.as_ref() {
+            let id = super::reactor_ownership::ReactorId::from(&reactor_key);
+            match ownership.claim(&id).await {
+                Ok(true) => {
+                    tracing::info!(reactor = %reactor_key, "reactor ownership claimed");
+                }
+                Ok(false) => {
+                    tracing::info!(
+                        reactor = %reactor_key,
+                        "reactor owned by another replica; not starting it here"
+                    );
+                    self.foreign_reactors
+                        .write()
+                        .await
+                        .insert(reactor_key.clone());
+                    return Ok(());
+                }
+                Err(e) => {
+                    // Fail the load rather than starting an unowned reactor. If
+                    // we cannot reach Postgres to claim, we equally cannot know
+                    // that nobody else holds it, and starting anyway is the
+                    // split-brain this mechanism exists to prevent.
+                    return Err(format!(
+                        "reactor '{reactor_key}': could not determine ownership: {e}"
+                    ));
+                }
             }
         }
 
@@ -1084,6 +1143,23 @@ impl ComputationGraphScheduler {
             provider_root,
         )
         .await?;
+
+        // CLOACI-T-0851: if another replica owns this reactor, nothing was
+        // started here, so there is nothing to bind to. Binding would fail with
+        // "reactor not loaded" — technically true, but it would report a
+        // correctly-functioning multi-replica deployment as a broken load on
+        // every replica except the owner.
+        {
+            let key = TenantKey::new(decl.tenant_id.as_deref(), &reactor_name);
+            if self.foreign_reactors.read().await.contains(&key) {
+                tracing::debug!(
+                    reactor = %key,
+                    graph = %name,
+                    "graph loaded but its reactor is owned by another replica; not binding here"
+                );
+                return Ok(());
+            }
+        }
 
         self.bind_graph_to_reactor(name, reactor_name, scope, decl.reactor.graph_fn)
             .await
@@ -2446,6 +2522,48 @@ mod tests {
             reactor_name: Some(reactor.to_string()),
             topology: Some(format!("{{\"graph\":\"{}\"}}", graph)),
         }
+    }
+
+    /// A replica that does not win the claim must NOT start the reactor — that
+    /// is the single-writer guarantee the whole design rests on — but the load
+    /// itself must still succeed, because the package really is present here.
+    #[tokio::test]
+    async fn load_does_not_start_a_reactor_owned_by_another_replica() {
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler.set_ownership(Arc::new(FakeOwnership {
+            refuse_claim: true,
+            ..Default::default()
+        }));
+
+        let loaded = scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await;
+
+        assert!(
+            loaded.is_ok(),
+            "losing the claim is normal operation, not a load failure: {loaded:?}"
+        );
+        assert!(
+            scheduler.reactors.read().await.is_empty(),
+            "a reactor owned elsewhere must not run here"
+        );
+        scheduler.shutdown_all().await;
+    }
+
+    /// Winning the claim behaves exactly like today.
+    #[tokio::test]
+    async fn load_starts_the_reactor_when_the_claim_is_won() {
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler.set_ownership(Arc::new(FakeOwnership::default()));
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("claim won → reactor should start");
+        assert_eq!(scheduler.reactors.read().await.len(), 1);
+        scheduler.shutdown_all().await;
     }
 
     /// A scriptable [`ReactorOwnership`] so the ownership-loss paths can be
