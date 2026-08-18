@@ -182,3 +182,323 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
 
   No changes made to objective, design directions, priority, or acceptance
   criteria — all still accurate.
+
+- 2026-08-16 — STARTED. [[CLOACI-A-0012]] signed off. First deliverable: the
+  tenant-safe lock-key scheme, which A-0012 named as the blocker to resolve
+  BEFORE any lease code.
+
+  **DONE:** `crates/cloacina/src/computation_graph/reactor_lock_key.rs` —
+  `reactor_lock_key(tenant: Option<&str>, reactor_name: &str) -> i64`, with 7
+  unit tests, all passing (`cargo test -p cloacina --lib --features sqlite
+  reactor_lock_key` → 7 passed).
+
+  Confirmed the hazard is real, not theoretical: tenants are isolated by
+  **schema within one database** (`SET LOCAL search_path TO <tenant>`,
+  `database/admin.rs`) and advisory locks are **database-wide**, not
+  schema-scoped. Name-only keying would have made two tenants' same-named
+  reactors contend for one lock, with exactly one silently never running.
+
+  Two traps found, each defended with a test rather than a comment:
+    * **A seeded hasher would be a split-brain bug.** `DefaultHasher` /
+      `RandomState` is seeded per PROCESS, so each replica computes a different
+      key, every replica wins "the lock", and all of them run the reactor —
+      presenting as an intermittent duplicate rather than an error. Used
+      hand-rolled FNV-1a with fixed constants; the stability test pins exact
+      literals so a change to the encoding fails loudly instead of splitting
+      brains during a rolling deploy.
+    * **`save_reactor_state` is a misleading precedent.** It keys checkpoints
+      by graph name alone and is CORRECT to do so, because the DAL is
+      schema-scoped. Locks are not. Documented in the module so the next reader
+      does not copy the wrong pattern.
+    Also length-delimited the encoding so `("a","bc")` and `("ab","c")` cannot
+    collide, and forced the sign bit so reactor keys occupy the negative i64
+    half — disjoint from hand-picked small positive keys like
+    `FLEET_CONTROL_LOCK_KEY` (8_110_127).
+
+  **DESIGN FINDING THAT CHANGES THE IMPLEMENTATION SHAPE (not in A-0012).**
+  From `autoscaler/leader.rs`: advisory locks are **session-scoped**, and the
+  fleet loop holds a pooled connection for ONE BRIEF TICK — lock, work, unlock,
+  return to pool. Reactor ownership is not tick-shaped; it must persist as long
+  as the replica runs the reactor. Copying the fleet pattern naively would hold
+  one pooled connection PER OWNED REACTOR for the process lifetime, exhausting
+  the pool as reactor count grows.
+
+  Proposed resolution, to validate next: ONE dedicated "ownership session"
+  connection per replica holding N advisory locks — a Postgres session can hold
+  many. Crash → session ends → ALL that replica's reactor locks release at
+  once, which is exactly the failover semantics wanted, at O(1) connections
+  instead of O(reactors). Preserves A-0012's "no lease/heartbeat bookkeeping"
+  property, since session-scoped locks auto-release on connection loss.
+
+  NEXT: validate one-session-many-locks against a live postgres — specifically
+  that killing the session really does release EVERY lock it held, which is the
+  assumption the whole failover story rests on. Then the claim/release API,
+  then routing, then accumulator persist + restore.
+
+  **VERIFICATION PLAN — use `angreal test e2e k8s-leader`, do not build
+  anything new.** I initially wrote "needs a live postgres" as though that were
+  an obstacle; the harness already provides the entire interruption apparatus
+  (maintainer correction, 2026-08-16). `.angreal/test/e2e/k8s_leader.py`
+  (T-0818) already runs a REAL 2-replica k3s deployment and already has:
+
+    * `_psql(kubeconfig, target, sql)` — arbitrary SQL into the cluster's postgres
+    * `_lock_holders()` — who currently holds an advisory lock, via `pg_locks`
+      joined to `pg_stat_activity`, resolving `client_addr` → owning pod
+    * `_wait_lock_holder(want_pod=/not_pod=)` — polls for a holder matching a
+      predicate AND asserts we never observe >1 simultaneous holder
+    * `_sample_lock(window_s)` — high-frequency sampling returning
+      `(max_simultaneous, observed_holders)`
+    * **assertion 5 is already the interruption test**: delete the lock-holding
+      replica, assert the survivor acquires the lock and the killed replica
+      reschedules and rejoins as a follower
+
+  That is exactly the shape T-0851 needs; the acceptance criterion "multi-replica
+  reactive validation added to the k8s-leader e2e lane" was always pointing here.
+  The reactor assertions become: own N reactors on one replica → kill it → assert
+  ALL N locks release and the survivor claims them, with a partially-filled
+  accumulator window intact on the other side.
+
+  **DONE toward that:** parameterized the lane's lock helpers by key —
+  `lock_query(key)` + `_lock_holders(..., query=)` — so reactor-lock assertions
+  reuse the existing "never two simultaneous holders" invariant instead of a
+  second, subtly-different copy. `LOCK_QUERY` is now `lock_query(FLEET_LOCK_KEY)`,
+  so the existing fleet assertions are unchanged.
+
+  **TRAP FOUND WHILE DOING IT, worth its own note.** `pg_locks.objid` holds only
+  the LOW 32 BITS of a 64-bit advisory key. Reactor keys are full-width i64 with
+  the sign bit forced, so matching a raw i64 against `objid` matches NOTHING —
+  and a lock query that matches nothing PASSES a "no two holders" assertion. The
+  failure mode is a green test proving the absence of the thing it was meant to
+  observe. Added `advisory_objid(key)` (`key & 0xFFFF_FFFF`) with that reasoning
+  recorded at the call site. Any future reactor-lock assertion MUST go through
+  it.
+
+  RESOLVED: the harness edit is now syntax-checked and its output verified.
+  `advisory_lock_parts(8110127)` → `(0, 8110127, 1)`, so the tightened fleet
+  query matches the identical row set — no behavior change to T-0818's existing
+  assertions. Reactor keys split to distinct `(classid, objid)` pairs.
+
+  While verifying, tightened it further: the query now matches the FULL key
+  (`classid` + `objid` + `objsubid`), not `objid` alone. Partial matching is
+  wrong in both directions and both are quiet — under-match returns no rows (and
+  a lock query returning no rows PASSES a "never two holders" assertion, going
+  green while proving the absence of what it should observe); over-match
+  conflates two keys sharing their low 32 bits, which matters here because every
+  reactor key shares its high bits by construction (forced sign bit), leaving
+  the low word as the only discriminator.
+
+- 2026-08-16 (cont.) — OWNERSHIP SESSION.
+  `crates/cloacina/src/computation_graph/reactor_ownership.rs`: `ReactorId`
+  (tenant + name, mirroring the scheduler's own map key so a claim and the
+  reactor it guards cannot drift), `OwnershipState` (what this replica BELIEVES
+  it owns), `OwnershipCheck`, and `SESSION_HELD_LOCKS_SQL`. 7 tests; full crate
+  check green on `postgres,macros --all-targets`.
+
+  **MAINTAINER DECISION 2026-08-16 — A-0012 NEEDS AMENDING.** A-0012 states
+  session-scoped locks need "no lease/heartbeat bookkeeping." True for failover,
+  NOT sufficient for long-held ownership. New failure mode, absent from the ADR:
+
+  > The ownership connection drops (network blip, PgBouncer recycle, DB
+  > restart) while the replica keeps running. Postgres releases every lock the
+  > session held. Another replica legitimately claims the reactor. The original
+  > replica NEVER NOTICES and keeps running it. Two replicas, one reactor, no
+  > error raised anywhere.
+
+  The fleet loop is immune only because it re-acquires every tick — a dropped
+  connection just means it stops leading. Ownership that is ASSUMED rather than
+  re-established must be re-verified.
+
+  Decision: **self-check + halt.** The session periodically re-asserts its locks
+  via `SESSION_HELD_LOCKS_SQL`; on loss the affected reactors are stopped
+  locally BEFORE any re-claim. This is loss DETECTION, not lease renewal — no
+  TTL, no clock assumption, no bookkeeping row, Postgres still the sole source
+  of truth. (Fencing tokens were considered and deferred: strictly safer, but
+  they need a schema change and touch the checkpoint write path.)
+
+  Design details worth keeping:
+    * `OwnershipCheck` is a 3-state enum, not a bool. "We lost locks" and "the
+      check could not run" are different situations; conflating them yields
+      either needless stops of healthy reactors or confident operation of
+      unowned ones. `Indeterminate` must be treated as UNKNOWN, never healthy.
+    * `SESSION_HELD_LOCKS_SQL` is scoped by `pid = pg_backend_pid()`, with a
+      test asserting that predicate is present. Without it, ANOTHER replica's
+      lock reads as our own and every liveness check passes while split-brained.
+    * `diff_against_held_keys` is a pure function so the logic deciding whether
+      reactors get stopped is testable with no database, including the
+      everything-lost case (dropped session must report ALL reactors lost, not
+      silently none).
+
+  Pool: one dedicated connection per replica carrying ALL its reactor locks —
+  O(1) in reactor count, documented as an operator-visible reservation
+  (maintainer chose "take one and document it" over raising the default).
+
+- 2026-08-16 (cont.) — `OwnershipSession` IMPLEMENTED (postgres-gated).
+  `connect` / `claim` / `release` / `verify_owned`, holding the dedicated
+  connection and driving `pg_try_advisory_lock` / `pg_advisory_unlock` /
+  `SESSION_HELD_LOCKS_SQL` through deadpool's `interact`, mirroring
+  `with_fleet_leadership`. Both feature builds green
+  (`postgres,macros` and `sqlite,macros`, `--all-targets`); 14 unit tests pass.
+
+  Three deliberate behaviours, each chosen because the alternative fails quietly:
+    * A failed `claim` is NOT recorded as owned. `Ok(false)` means another
+      replica owns it — an ordinary outcome, not an error — and recording it
+      would make us believe we hold a lock we never got.
+    * `release` forgets the reactor locally EVEN IF the unlock returns false.
+      False means the lock was not held on this session, i.e. we had already
+      lost it; continuing to believe we own it is strictly the more dangerous
+      of the two options.
+    * `verify_owned` forgets lost reactors immediately, before returning. The
+      caller still has to stop them, but from that moment nothing in this
+      process believes it owns them, whatever the caller does next.
+
+  NEXT: periodic verify task + halt-on-loss wiring into
+  `ComputationGraphScheduler`, then event routing to the owner, then accumulator
+  persist + restore.
+
+  GATE RESULT — `angreal test e2e k8s-leader`, real 2-replica k3s, **exit 1**,
+  `3/5 green; blocked: ['4','5']`.
+
+  **My lock-helper change is NOT the cause, and the evidence is specific.** The
+  worry was the exact trap documented above: if the tightened query matched
+  nothing, assertion 2 ("single fleet-lock holder") would still PASS, because
+  zero holders satisfies "at most one" — a vacuous green. The log rules that
+  out:
+
+      samples with a holder: 6; max simultaneous holders: 1;
+      holders observed: {…-nsp62: 3, …-dr8fs: 3}
+
+  Six real catches across both pods, never simultaneous. The full-key query
+  (`classid=0 AND objid=8110127 AND objsubid=1`) returns rows against a live
+  Postgres, so `objsubid = 1` is confirmed correct for the
+  `pg_try_advisory_lock(bigint)` form — which also validates the same assumption
+  baked into `SESSION_HELD_LOCKS_SQL`.
+
+  * Assertion 4 blocked BY DESIGN — it needs `--claiming`, which was not passed.
+  * Assertion 5 blocked: `never caught the lock holder pre-kill`. **Pre-existing
+    flakiness, not a regression.** The fleet lock is taken and released within a
+    single control tick, so it is only briefly held; the whole sampling window
+    caught it just 6 times. Assertion 5 must identify the holding pod at one
+    specific instant before killing it, and it loses that race often.
+
+  **THIS MATTERS FOR T-0851 IN A GOOD WAY.** Reactor ownership locks are held
+  CONTINUOUSLY, not per-tick. The reactor failover assertion therefore does not
+  inherit assertion 5's race at all: the holder is always there to be caught, so
+  "kill the owner, watch the survivor claim it" should be reliable where the
+  fleet equivalent is flaky. The reactor assertions should NOT copy assertion
+  5's sampling approach — they can simply read the holder directly.
+
+  Worth filing separately: assertion 5 is a CORE assertion that fails the lane
+  (exit 1) yet cannot run reliably, so `k8s-leader` is red for reasons unrelated
+  to any change under test. That is a trust problem for a gate — it trains
+  people to ignore the result.
+
+- 2026-08-17 — FLAKE FIXED AND VERIFIED. `angreal test e2e k8s-leader` now
+  **exits 0, 4/5 green, failed: []**. Assertion 5 passes on a real 2-replica
+  cluster:
+
+      current lock holder: pod=…-m2nrl addr=10.42.0.3 pid=160 — deleting it
+      failover: lock re-acquired by pod=…-wpb8c addr=10.42.0.6 pid=64
+
+  (Assertion 4 still blocked purely because `--claiming` was not passed.)
+
+  ROOT CAUSE was latency, not logic. Polling spawned TWO subprocesses per sample
+  (`kubectl get pods` + `kubectl exec … psql`), hundreds of ms each, while the
+  fleet lock is taken and released WITHIN one control tick — so the sample rate
+  was latency-bound and the whole window caught it 6 times. Fix: move the poll
+  inside Postgres. One exec runs a plpgsql loop sampling `pg_locks` every 10ms
+  and returns the instant a holder appears — same predicate, ~1000x the density.
+  Applied to BOTH the pre-kill catch and the post-kill survivor wait; the latter
+  has the identical race and HARD-FAILS rather than blocking.
+
+  TWO REAL BUGS IN MY OWN FIX, both found by running it, both the same family —
+  a quiet fallback turning a missing observation into a WRONG one:
+
+    1. **`::text` on inet appends the netmask.** Verified against live Postgres:
+       `'10.42.0.3'::inet::text` → `10.42.0.3/32`, while `host(...)` → `10.42.0.3`.
+       The `/32` form matches no key in `_server_pod_ips`. This is why the
+       ORIGINAL code worked and my rewrite broke it — plain display omits the
+       mask, the cast does not. Now uses `host()`.
+    2. **`ip_to_pod.get(addr, addr)` returned the ADDRESS as a pod name** when
+       resolution failed, which went straight to `kubectl delete pod
+       10.42.0.3/32` and crashed the lane with a confusing
+       `CalledProcessError`. This fallback PREDATES my change and would convert
+       any future resolution failure into the same confusing crash. Now prints
+       what failed to resolve and reports "no holder" instead of deleting
+       something that does not exist.
+
+  Also caught before the first cluster run, by testing the SQL against
+  `cloacina-postgres:15432`: `client_addr` is NULL for unix-socket connections
+  and `NULL || '|' || pid` is NULL, so a holder would have existed but rendered
+  as nothing and the catcher would have reported "no holder found". Fixed with
+  `coalesce` before it ever reached a cluster.
+
+  BEARING ON T-0851: reactor ownership locks are held CONTINUOUSLY, so the
+  reactor failover assertions do not inherit this race at all — the holder is
+  always there to be caught. They should read the holder directly rather than
+  copying assertion 5's sampling. The server-side catcher is still the right
+  tool for the post-kill wait, since "wait until someone OTHER than the killed
+  replica holds it" is inherently a wait.
+
+- 2026-08-17 — OWNERSHIP IS NOW ENFORCED IN THE SCHEDULER. PR #255 (draft),
+  11 commits. 90 `computation_graph` tests pass; both feature builds green.
+
+  **`ReactorOwnership` trait + `Option<Arc<dyn …>>` on the scheduler.** `None`
+  is the embedded / sqlite / single-replica path and runs NONE of this code —
+  which is how A-0012's "byte-for-byte unchanged" requirement is actually
+  guaranteed rather than merely intended. A trait (not the concrete
+  `OwnershipSession`) so the scheduler is not postgres-gated and the loss paths
+  are testable with a fake; the real failure modes — connection dropped, lock
+  stolen, verification unavailable — cannot be produced on demand against a
+  live database.
+
+  **`ownership_watchdog_tick`** — verify → watchdog verdict → halt. A single
+  tick, not a loop, so cadence stays with the caller and the test does not
+  depend on timing.
+
+  **`halt_unowned_reactors`** deliberately bypasses `unload_reactor`'s
+  subscriber guard. That guard is right for an operator unload and wrong here:
+  having lost the lock, another replica may already be running this reactor, so
+  refusing to stop because a subscriber remains leaves two copies
+  double-processing. Shares ONE `teardown_running` with the unload path — a
+  second copy would drift by forgetting a deregistration, leaving a stopped
+  reactor still advertised in the endpoint registry.
+
+  **Claim at load.** Placed with the other "resolve what can fail before we
+  spawn" work: losing a claim after the reactor and accumulators are live would
+  mean tearing down a running reactor, and a partial teardown is how endpoints
+  get orphaned. NOT winning is a normal outcome and the load still SUCCEEDS —
+  erroring would report a correctly-functioning multi-replica deployment as a
+  failed load on every replica but the owner. A claim ERROR does fail the load:
+  if we cannot reach Postgres to claim, we equally cannot know nobody else
+  holds it.
+
+  **`foreign_reactors` set**, found by a test rather than by design. The first
+  version returned `Ok(())` on claim loss and `load_graph` then tried to bind a
+  graph to a reactor that was never started — `reactor 'rx' is not loaded`.
+  Loaded-but-not-owned is a THIRD state, distinct from both loaded and absent,
+  and it needs to be explicit. This set is also where routing will look:
+  "where should this event go" begins with "is this reactor foreign to me".
+
+  `ReactorId` now converts to/from `TenantKey` instead of paralleling it —
+  `TenantKey`'s docs warn a deployment must never hold "two spellings of the
+  same scope", and an ownership claim keyed differently from the scheduler's
+  map would take a lock for one reactor while guarding another.
+
+  **REMAINING — this is NOT nearly done. Honest estimate: multiple sessions.**
+    1. **Server wiring.** Nothing constructs `PostgresOwnership` or calls
+       `set_ownership`, and nothing drives `ownership_watchdog_tick` on a timer.
+       Until that lands the feature is dormant everywhere — which is why it is
+       safe to have merged this far, and also why none of it is proven in situ.
+    2. **Event routing to the owner.** The largest remaining piece. Events
+       landing on a non-owner currently go nowhere: today that replica does not
+       run the reactor at all. Needs the delivery-substrate/outbox integration
+       A-0012 assumes. Start from `foreign_reactors`.
+    3. **Accumulator persist + restore** — the maintainer's hard requirement,
+       and untouched so far. Extend `persist_reactor_state` (one checkpoint,
+       one consistency point) and restore on takeover. Restore is the half that
+       gets quietly skipped; a snapshot nothing reads back buys nothing.
+    4. **k8s-leader reactor assertions** — own N reactors on one replica, kill
+       it, assert all N release, the survivor claims them, AND a partially
+       filled accumulator window survives. Read the holder directly (reactor
+       locks are held continuously); use the server-side catcher only for the
+       post-kill wait.

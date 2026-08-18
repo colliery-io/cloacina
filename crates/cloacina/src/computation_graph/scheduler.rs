@@ -512,6 +512,25 @@ pub struct ComputationGraphScheduler {
     /// names let two tenants' same-named reactors collide in-process.
     /// `tenant_id: None` is the embedded/untenanted entry.
     reactors: Arc<RwLock<HashMap<TenantKey, RunningGraph>>>,
+    /// Cross-replica reactor ownership (CLOACI-T-0851 / [`ADR CLOACI-A-0012`]).
+    ///
+    /// `None` — the default, and the ONLY state for embedded, sqlite and
+    /// single-replica deployments — means every code path below behaves exactly
+    /// as it did before this feature existed. A-0012 requires those deployments
+    /// to be byte-for-byte unchanged, and the way to guarantee that is for them
+    /// to run none of this code rather than to run it and expect it to agree.
+    ownership: Option<Arc<dyn super::reactor_ownership::ReactorOwnership>>,
+    /// Reactors this replica has loaded but does NOT own — another replica won
+    /// the claim, so nothing runs here for them.
+    ///
+    /// This is distinct from "not loaded": the package IS present, we simply do
+    /// not host the reactor. Callers need that distinction, because binding a
+    /// graph to a reactor owned elsewhere must be a quiet no-op rather than the
+    /// hard "reactor not loaded" error it would otherwise raise.
+    ///
+    /// This is also where routing will look when it lands: "who should this
+    /// event go to" starts with "is this reactor foreign to me".
+    foreign_reactors: Arc<RwLock<std::collections::HashSet<TenantKey>>>,
     /// Maps graph key → reactor key so external operations that take a
     /// graph_name (`unload_graph`, `list_graphs`) can find the reactor that
     /// hosts it. The *value* is a full key, not a name, so a subscriber in one
@@ -538,6 +557,8 @@ impl ComputationGraphScheduler {
             graph_to_reactor: Arc::new(RwLock::new(HashMap::new())),
             graph_topologies: Arc::new(RwLock::new(HashMap::new())),
             dal: None,
+            ownership: None,
+            foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
         }
     }
 
@@ -552,6 +573,8 @@ impl ComputationGraphScheduler {
             graph_to_reactor: Arc::new(RwLock::new(HashMap::new())),
             graph_topologies: Arc::new(RwLock::new(HashMap::new())),
             dal: Some(dal),
+            ownership: None,
+            foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
         }
     }
 
@@ -656,6 +679,52 @@ impl ComputationGraphScheduler {
                     ));
                 }
                 return Ok(());
+            }
+        }
+
+        // CLOACI-T-0851: claim cross-replica ownership BEFORE spawning anything.
+        //
+        // Placed here, alongside the other "resolve what can fail before we
+        // spawn" work, for the same reason: losing the claim after the reactor
+        // and its accumulators are running would mean tearing down a live
+        // reactor, and a partially-wired teardown is how endpoints get left
+        // registered for something that is no longer running.
+        //
+        // `ownership == None` — embedded, sqlite, single replica — skips this
+        // entirely and the path below is byte-for-byte what it was.
+        //
+        // NOT acquiring the lock is a normal outcome, not an error: another
+        // replica owns this reactor. The load still SUCCEEDS, because the
+        // package is legitimately present on this replica; it simply does not
+        // run the reactor here. Returning an error instead would make a
+        // correctly-functioning multi-replica deployment look like a failed
+        // deployment on every replica but one.
+        if let Some(ownership) = self.ownership.as_ref() {
+            let id = super::reactor_ownership::ReactorId::from(&reactor_key);
+            match ownership.claim(&id).await {
+                Ok(true) => {
+                    tracing::info!(reactor = %reactor_key, "reactor ownership claimed");
+                }
+                Ok(false) => {
+                    tracing::info!(
+                        reactor = %reactor_key,
+                        "reactor owned by another replica; not starting it here"
+                    );
+                    self.foreign_reactors
+                        .write()
+                        .await
+                        .insert(reactor_key.clone());
+                    return Ok(());
+                }
+                Err(e) => {
+                    // Fail the load rather than starting an unowned reactor. If
+                    // we cannot reach Postgres to claim, we equally cannot know
+                    // that nobody else holds it, and starting anyway is the
+                    // split-brain this mechanism exists to prevent.
+                    return Err(format!(
+                        "reactor '{reactor_key}': could not determine ownership: {e}"
+                    ));
+                }
             }
         }
 
@@ -1075,6 +1144,23 @@ impl ComputationGraphScheduler {
         )
         .await?;
 
+        // CLOACI-T-0851: if another replica owns this reactor, nothing was
+        // started here, so there is nothing to bind to. Binding would fail with
+        // "reactor not loaded" — technically true, but it would report a
+        // correctly-functioning multi-replica deployment as a broken load on
+        // every replica except the owner.
+        {
+            let key = TenantKey::new(decl.tenant_id.as_deref(), &reactor_name);
+            if self.foreign_reactors.read().await.contains(&key) {
+                tracing::debug!(
+                    reactor = %key,
+                    graph = %name,
+                    "graph loaded but its reactor is owned by another replica; not binding here"
+                );
+                return Ok(());
+            }
+        }
+
         self.bind_graph_to_reactor(name, reactor_name, scope, decl.reactor.graph_fn)
             .await
     }
@@ -1233,6 +1319,81 @@ impl ComputationGraphScheduler {
                 .ok_or_else(|| format!("reactor '{}' not loaded", reactor_name))?
         };
 
+        self.teardown_running(running, reactor_name).await;
+        Ok(())
+    }
+
+    /// Install cross-replica reactor ownership (CLOACI-T-0851).
+    ///
+    /// Only `cloacina-server` under multi-replica postgres should call this.
+    /// Leaving it unset keeps embedded/sqlite/single-replica behaviour exactly
+    /// as it was.
+    pub fn set_ownership(
+        &mut self,
+        ownership: Arc<dyn super::reactor_ownership::ReactorOwnership>,
+    ) {
+        self.ownership = Some(ownership);
+    }
+
+    /// Whether cross-replica ownership is in force.
+    pub fn has_ownership_coordination(&self) -> bool {
+        self.ownership.is_some()
+    }
+
+    /// One watchdog tick: verify what we believe we own, and act on the verdict.
+    ///
+    /// Returns the reactors halted (empty when all is well, or when ownership
+    /// coordination is not installed). Callers drive this on a timer; it is a
+    /// single tick rather than a loop so the cadence, and the test, stay in the
+    /// caller's hands.
+    ///
+    /// See [`ADR CLOACI-A-0012`] Amendment 1 for why a long-held lock needs
+    /// verifying at all, and `OwnershipWatchdog` for why sustained inability to
+    /// verify is treated as loss rather than as health.
+    pub async fn ownership_watchdog_tick(
+        &self,
+        watchdog: &mut super::reactor_ownership::OwnershipWatchdog,
+    ) -> Vec<super::reactor_ownership::ReactorId> {
+        use super::reactor_ownership::WatchdogAction;
+
+        let Some(ownership) = self.ownership.as_ref() else {
+            return Vec::new();
+        };
+
+        let check = ownership.verify().await;
+        let believed = ownership.believed_owned().await;
+
+        match watchdog.observe(check, &believed) {
+            WatchdogAction::Continue => Vec::new(),
+            WatchdogAction::StopReactors(lost) => {
+                tracing::warn!(
+                    count = lost.len(),
+                    "ownership lost for reactors; halting them"
+                );
+                self.halt_unowned_reactors(&lost).await
+            }
+            WatchdogAction::StopAllPresumedLost(all) => {
+                tracing::error!(
+                    count = all.len(),
+                    "ownership UNVERIFIABLE for too long — presuming loss and halting every \
+                     reactor this replica believed it owned"
+                );
+                self.halt_unowned_reactors(&all).await
+            }
+        }
+    }
+
+    /// Stop a reactor that has ALREADY been removed from the `reactors` map,
+    /// releasing everything it owned.
+    ///
+    /// Extracted so ownership-loss halts (CLOACI-T-0851) and ordinary unloads
+    /// share ONE teardown. A second copy would be free to drift — and the way
+    /// it would drift is by forgetting a deregistration, leaving a stopped
+    /// reactor still advertised in the endpoint registry.
+    ///
+    /// The caller owns the policy decision (may this reactor be torn down?);
+    /// this performs it unconditionally.
+    async fn teardown_running(&self, running: RunningGraph, reactor_name: &str) {
         // Capture graph names for health-metric "stopped" emission. Use the
         // endpoint-registry keys (which include the reactor's own name and
         // back-compat graph aliases) so every graph the reactor served sees
@@ -1265,7 +1426,53 @@ impl ComputationGraphScheduler {
         }
 
         info!(reactor = %reactor_name, "reactor unloaded");
-        Ok(())
+    }
+
+    /// Stop reactors this replica has lost ownership of (CLOACI-T-0851 /
+    /// [`ADR CLOACI-A-0012`] Amendment 1).
+    ///
+    /// Returns the reactors actually stopped — a subset, because a reactor may
+    /// already have been unloaded between the liveness check and this call.
+    ///
+    /// **Deliberately bypasses `unload_reactor`'s subscriber guard.** That guard
+    /// exists so a reactor never disappears under a graph still declaring it
+    /// upstream, which is right for an operator-initiated unload. It is wrong
+    /// here: having lost the lock, another replica may already be running this
+    /// reactor, and refusing to stop because a subscriber remains would leave
+    /// two live copies double-processing the same stream. A stopped reactor is
+    /// recoverable by re-claiming; silent double-processing is not.
+    pub async fn halt_unowned_reactors(
+        &self,
+        lost: &[super::reactor_ownership::ReactorId],
+    ) -> Vec<super::reactor_ownership::ReactorId> {
+        let mut stopped = Vec::new();
+        for id in lost {
+            let key: crate::TenantKey = id.into();
+            let running = {
+                let mut reactors = self.reactors.write().await;
+                reactors.remove(&key)
+            };
+            match running {
+                Some(running) => {
+                    tracing::warn!(
+                        reactor = %key,
+                        "ownership lost — halting reactor locally; another replica may own it"
+                    );
+                    self.teardown_running(running, &key.name).await;
+                    stopped.push(id.clone());
+                }
+                None => {
+                    // Not an error: it may have been unloaded normally between
+                    // the check and here. Logged so a puzzling "lost ownership
+                    // but nothing stopped" is explicable rather than silent.
+                    tracing::debug!(
+                        reactor = %key,
+                        "ownership lost for a reactor that is no longer loaded here"
+                    );
+                }
+            }
+        }
+        stopped
     }
 
     /// Backward-compat convenience: unbind the graph from its reactor and,
@@ -2315,6 +2522,303 @@ mod tests {
             reactor_name: Some(reactor.to_string()),
             topology: Some(format!("{{\"graph\":\"{}\"}}", graph)),
         }
+    }
+
+    /// A replica that does not win the claim must NOT start the reactor — that
+    /// is the single-writer guarantee the whole design rests on — but the load
+    /// itself must still succeed, because the package really is present here.
+    #[tokio::test]
+    async fn load_does_not_start_a_reactor_owned_by_another_replica() {
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler.set_ownership(Arc::new(FakeOwnership {
+            refuse_claim: true,
+            ..Default::default()
+        }));
+
+        let loaded = scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await;
+
+        assert!(
+            loaded.is_ok(),
+            "losing the claim is normal operation, not a load failure: {loaded:?}"
+        );
+        assert!(
+            scheduler.reactors.read().await.is_empty(),
+            "a reactor owned elsewhere must not run here"
+        );
+        scheduler.shutdown_all().await;
+    }
+
+    /// Winning the claim behaves exactly like today.
+    #[tokio::test]
+    async fn load_starts_the_reactor_when_the_claim_is_won() {
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler.set_ownership(Arc::new(FakeOwnership::default()));
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("claim won → reactor should start");
+        assert_eq!(scheduler.reactors.read().await.len(), 1);
+        scheduler.shutdown_all().await;
+    }
+
+    /// A scriptable [`ReactorOwnership`] so the ownership-loss paths can be
+    /// driven deterministically. The real failure modes (connection dropped,
+    /// lock stolen, verification unavailable) cannot be produced on demand
+    /// against a live database, which is exactly why they need a fake.
+    #[derive(Default)]
+    struct FakeOwnership {
+        owned: std::sync::Mutex<Vec<super::super::reactor_ownership::ReactorId>>,
+        next_check: std::sync::Mutex<Option<super::super::reactor_ownership::OwnershipCheck>>,
+        refuse_claim: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl super::super::reactor_ownership::ReactorOwnership for FakeOwnership {
+        async fn claim(
+            &self,
+            id: &super::super::reactor_ownership::ReactorId,
+        ) -> Result<bool, String> {
+            if self.refuse_claim {
+                return Ok(false);
+            }
+            self.owned.lock().unwrap().push(id.clone());
+            Ok(true)
+        }
+        async fn release(
+            &self,
+            id: &super::super::reactor_ownership::ReactorId,
+        ) -> Result<(), String> {
+            self.owned.lock().unwrap().retain(|o| o != id);
+            Ok(())
+        }
+        async fn verify(&self) -> super::super::reactor_ownership::OwnershipCheck {
+            self.next_check
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or(super::super::reactor_ownership::OwnershipCheck::AllHeld)
+        }
+        async fn believed_owned(&self) -> Vec<super::super::reactor_ownership::ReactorId> {
+            self.owned.lock().unwrap().clone()
+        }
+    }
+
+    /// Without ownership installed (embedded / sqlite / single replica) the
+    /// watchdog must be inert. A-0012 requires those deployments unchanged, and
+    /// a tick that halted anything here would be a regression for every
+    /// existing user.
+    #[tokio::test]
+    async fn watchdog_tick_is_inert_without_ownership_coordination() {
+        use super::super::reactor_ownership::OwnershipWatchdog;
+
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("graph should load");
+
+        assert!(!scheduler.has_ownership_coordination());
+        let mut wd = OwnershipWatchdog::new(3);
+        let halted = scheduler.ownership_watchdog_tick(&mut wd).await;
+
+        assert!(halted.is_empty(), "no ownership installed → nothing halted");
+        assert_eq!(
+            scheduler.reactors.read().await.len(),
+            1,
+            "the reactor must still be running"
+        );
+        scheduler.shutdown_all().await;
+    }
+
+    /// A confirmed check must not halt anything.
+    #[tokio::test]
+    async fn watchdog_tick_leaves_confirmed_reactors_running() {
+        use super::super::reactor_ownership::{OwnershipCheck, OwnershipWatchdog, ReactorId};
+
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        let fake = Arc::new(FakeOwnership::default());
+        fake.owned
+            .lock()
+            .unwrap()
+            .push(ReactorId::new(Some("acme"), "rx"));
+        *fake.next_check.lock().unwrap() = Some(OwnershipCheck::AllHeld);
+        scheduler.set_ownership(fake);
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("graph should load");
+
+        let mut wd = OwnershipWatchdog::new(3);
+        assert!(scheduler.ownership_watchdog_tick(&mut wd).await.is_empty());
+        assert_eq!(scheduler.reactors.read().await.len(), 1);
+        scheduler.shutdown_all().await;
+    }
+
+    /// The end-to-end loss path: verify reports a lost lock → the watchdog says
+    /// stop → the reactor is actually torn down.
+    #[tokio::test]
+    async fn watchdog_tick_halts_a_reactor_whose_lock_was_lost() {
+        use super::super::reactor_ownership::{OwnershipCheck, OwnershipWatchdog, ReactorId};
+
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        let lost = ReactorId::new(Some("acme"), "rx");
+        let fake = Arc::new(FakeOwnership::default());
+        *fake.next_check.lock().unwrap() = Some(OwnershipCheck::Lost(vec![lost.clone()]));
+        scheduler.set_ownership(fake);
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("graph should load");
+        assert_eq!(scheduler.reactors.read().await.len(), 1);
+
+        let mut wd = OwnershipWatchdog::new(3);
+        let halted = scheduler.ownership_watchdog_tick(&mut wd).await;
+
+        assert_eq!(halted, vec![lost], "the lost reactor must be halted");
+        assert!(
+            scheduler.reactors.read().await.is_empty(),
+            "a reactor we no longer own must not keep running"
+        );
+        scheduler.shutdown_all().await;
+    }
+
+    /// Sustained inability to verify must eventually halt everything — and must
+    /// NOT halt on the first blip. Both halves matter: halting early makes
+    /// reactive workloads flap, halting never leaves a partitioned replica
+    /// double-processing forever.
+    #[tokio::test]
+    async fn watchdog_tick_halts_everything_after_sustained_indeterminacy() {
+        use super::super::reactor_ownership::{OwnershipCheck, OwnershipWatchdog, ReactorId};
+
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        let fake = Arc::new(FakeOwnership::default());
+        fake.owned
+            .lock()
+            .unwrap()
+            .push(ReactorId::new(Some("acme"), "rx"));
+        *fake.next_check.lock().unwrap() =
+            Some(OwnershipCheck::Indeterminate("db unreachable".into()));
+        scheduler.set_ownership(fake);
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("graph should load");
+
+        let mut wd = OwnershipWatchdog::new(3);
+        assert!(
+            scheduler.ownership_watchdog_tick(&mut wd).await.is_empty(),
+            "first unverifiable tick must be tolerated"
+        );
+        assert!(
+            scheduler.ownership_watchdog_tick(&mut wd).await.is_empty(),
+            "second unverifiable tick must be tolerated"
+        );
+        assert_eq!(
+            scheduler.reactors.read().await.len(),
+            1,
+            "reactor still running while within tolerance"
+        );
+
+        let halted = scheduler.ownership_watchdog_tick(&mut wd).await;
+        assert_eq!(halted.len(), 1, "threshold crossed → presume loss and halt");
+        assert!(scheduler.reactors.read().await.is_empty());
+        scheduler.shutdown_all().await;
+    }
+
+    /// CLOACI-T-0851: losing ownership must stop the reactor EVEN THOUGH a
+    /// subscriber still declares it upstream. `unload_reactor` refuses in that
+    /// situation by design; the halt path must not, because the alternative is
+    /// two replicas running the same reactor.
+    #[tokio::test]
+    async fn halt_unowned_stops_a_reactor_that_unload_would_refuse() {
+        use super::super::reactor_ownership::ReactorId;
+
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("graph should load");
+        assert_eq!(scheduler.reactors.read().await.len(), 1);
+
+        // Precondition: the ordinary unload path refuses while a subscriber
+        // remains. If this ever stops being true the test below proves less
+        // than it claims, so assert it rather than assume it.
+        let refused = scheduler
+            .unload_reactor("rx", TenantScope::tenant("acme"))
+            .await;
+        assert!(
+            refused.is_err(),
+            "unload_reactor should refuse while a subscriber remains; got {refused:?}"
+        );
+        assert_eq!(scheduler.reactors.read().await.len(), 1, "still loaded");
+
+        let stopped = scheduler
+            .halt_unowned_reactors(&[ReactorId::new(Some("acme"), "rx")])
+            .await;
+
+        assert_eq!(stopped.len(), 1, "the lost reactor must be stopped");
+        assert!(
+            scheduler.reactors.read().await.is_empty(),
+            "halted reactor must be gone from the map"
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    /// A reactor may be unloaded normally between the liveness check and the
+    /// halt. That must be a quiet no-op, not a panic or a spurious "stopped".
+    #[tokio::test]
+    async fn halt_unowned_is_a_noop_for_a_reactor_that_is_not_loaded() {
+        use super::super::reactor_ownership::ReactorId;
+
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        let stopped = scheduler
+            .halt_unowned_reactors(&[ReactorId::new(Some("acme"), "never_loaded")])
+            .await;
+        assert!(stopped.is_empty(), "nothing was loaded, so nothing stopped");
+    }
+
+    /// Halting one tenant's reactor must not touch another tenant's same-named
+    /// one — the ownership key and the scheduler key must agree.
+    #[tokio::test]
+    async fn halt_unowned_is_tenant_scoped() {
+        use super::super::reactor_ownership::ReactorId;
+
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+        for tenant in ["acme", "globex"] {
+            scheduler
+                .load_graph(tenant_decl("pipeline", "rx", Some(tenant)))
+                .await
+                .unwrap_or_else(|e| panic!("tenant {tenant} should load: {e}"));
+        }
+        assert_eq!(scheduler.reactors.read().await.len(), 2);
+
+        let stopped = scheduler
+            .halt_unowned_reactors(&[ReactorId::new(Some("acme"), "rx")])
+            .await;
+        assert_eq!(stopped.len(), 1);
+
+        let remaining = scheduler.list_reactors().await;
+        assert_eq!(remaining.len(), 1, "globex's reactor must survive");
+        assert_eq!(remaining[0].tenant_id.as_deref(), Some("globex"));
+
+        scheduler.shutdown_all().await;
     }
 
     /// Two tenants load a graph AND a reactor under the SAME names on ONE
