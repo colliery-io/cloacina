@@ -407,12 +407,16 @@ def _catch_lock_holder_sql(key, *, exclude_addr=None, poll_ms=10, timeout_s=20):
         "CREATE TEMP TABLE IF NOT EXISTS _holder_catch(addr text, pid int); "
         "DELETE FROM _holder_catch; "
         "DO $do$ DECLARE v_addr text; v_pid int; i int := 0; BEGIN LOOP "
+        # host(): client_addr is `inet`, and casting it to text can carry the
+        # netmask ("10.42.0.3/32"), which does NOT match the bare IPs in
+        # _server_pod_ips. The lookup then misses and the caller's fallback
+        # hands the ADDRESS back as if it were a pod name — observed for real:
+        # `kubectl delete pod 10.42.0.3/32`. host() yields the bare address.
+        #
         # coalesce: client_addr is NULL for a local (unix-socket) connection, and
         # NULL || '|' || pid is NULL — the holder row would exist but render as
-        # nothing, so the catcher would silently report "no holder found". Server
-        # pods connect over TCP so this is belt-and-braces in the cluster, but it
-        # is exactly the kind of quiet miss this helper exists to eliminate.
-        "SELECT coalesce(a.client_addr::text, 'local'), a.pid INTO v_addr, v_pid "
+        # nothing, so the catcher would silently report "no holder found".
+        "SELECT coalesce(host(a.client_addr), 'local'), a.pid INTO v_addr, v_pid "
         "FROM pg_locks l JOIN pg_stat_activity a ON l.pid = a.pid "
         f"WHERE l.locktype='advisory' AND l.classid={classid} AND l.objid={objid} "
         f"AND l.objsubid={objsubid} AND l.granted{exclude} LIMIT 1; "
@@ -447,7 +451,18 @@ def _catch_lock_holder(kubeconfig, target, *, key=FLEET_LOCK_KEY, exclude_pod=No
     addr, _, pid = row.strip().partition("|")
     # Re-resolve: the pod set may have changed while we waited.
     ip_to_pod = _server_pod_ips(kubeconfig)
-    return (ip_to_pod.get(addr, addr), addr, pid)
+    pod = ip_to_pod.get(addr)
+    if pod is None:
+        # Do NOT fall back to returning the address as the pod name. The caller
+        # feeds this straight to `kubectl delete pod`, and an unresolved address
+        # then becomes a delete against a nonexistent pod that crashes the lane
+        # with a confusing CalledProcessError. Observed for real when the address
+        # carried a /32 suffix. Report it as "no usable holder" instead, which
+        # blocks the assertion honestly and prints what could not be resolved.
+        print(f"  WARN: lock holder addr={addr} pid={pid} did not resolve to a "
+              f"server pod (known: {sorted(ip_to_pod)}); treating as no holder")
+        return None
+    return (pod, addr, pid)
 
 
 def _wait_lock_holder(kubeconfig, target, want_pod=None, not_pod=None, timeout_s=40):
