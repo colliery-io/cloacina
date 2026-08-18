@@ -374,6 +374,82 @@ def _sample_lock(kubeconfig, target, window_s, base=None, churn_n=0):
     return max_simul, observed, catches
 
 
+def _catch_lock_holder_sql(key, *, exclude_addr=None, poll_ms=10, timeout_s=20):
+    """SQL that waits INSIDE Postgres for a holder of advisory lock `key`.
+
+    Why this exists: the fleet lock is taken and released within a single
+    control-loop tick, so it is held for a brief instant. Polling it from
+    Python cost TWO subprocess spawns per sample (`kubectl get pods` +
+    `kubectl exec … psql`), hundreds of milliseconds each, so the sample rate
+    was latency-bound and the observed hit rate was ~6 catches per window.
+    Assertion 5 has to pin the holder at one instant before killing it, and it
+    lost that race often enough to block the lane — a CORE assertion failing
+    the run for reasons unrelated to anything under test.
+
+    Moving the loop server-side turns one exec into thousands of samples at
+    `poll_ms`, returning the instant a holder appears. Same observation, same
+    `pg_locks` predicate, ~1000x the sampling density.
+
+    `exclude_addr` skips a specific `client_addr` — used post-kill to wait for a
+    holder that is NOT the replica we just deleted, which is otherwise the same
+    race in the other direction.
+
+    NOTE: still matches the FULL key (classid + objid + objsubid). See
+    `advisory_lock_parts` for why a partial match is a silent failure.
+    """
+    classid, objid, objsubid = advisory_lock_parts(key)
+    iterations = max(1, int((timeout_s * 1000) // poll_ms))
+    exclude = ""
+    if exclude_addr:
+        # client_addr is inet; compare as text so a NULL addr cannot swallow it.
+        exclude = f" AND a.client_addr::text <> '{exclude_addr}'"
+    return (
+        "CREATE TEMP TABLE IF NOT EXISTS _holder_catch(addr text, pid int); "
+        "DELETE FROM _holder_catch; "
+        "DO $do$ DECLARE v_addr text; v_pid int; i int := 0; BEGIN LOOP "
+        # coalesce: client_addr is NULL for a local (unix-socket) connection, and
+        # NULL || '|' || pid is NULL — the holder row would exist but render as
+        # nothing, so the catcher would silently report "no holder found". Server
+        # pods connect over TCP so this is belt-and-braces in the cluster, but it
+        # is exactly the kind of quiet miss this helper exists to eliminate.
+        "SELECT coalesce(a.client_addr::text, 'local'), a.pid INTO v_addr, v_pid "
+        "FROM pg_locks l JOIN pg_stat_activity a ON l.pid = a.pid "
+        f"WHERE l.locktype='advisory' AND l.classid={classid} AND l.objid={objid} "
+        f"AND l.objsubid={objsubid} AND l.granted{exclude} LIMIT 1; "
+        "IF v_pid IS NOT NULL THEN INSERT INTO _holder_catch VALUES (v_addr, v_pid); RETURN; END IF; "
+        f"i := i + 1; EXIT WHEN i >= {iterations}; PERFORM pg_sleep({poll_ms / 1000.0}); "
+        "END LOOP; END $do$; "
+        "SELECT addr || '|' || pid FROM _holder_catch LIMIT 1;"
+    )
+
+
+def _catch_lock_holder(kubeconfig, target, *, key=FLEET_LOCK_KEY, exclude_pod=None,
+                       timeout_s=20):
+    """Wait (server-side) for a lock holder and resolve it to a pod.
+
+    Returns (pod, addr, pid) or None if none appeared within `timeout_s`.
+    `exclude_pod` resolves to that pod's IP and excludes it in SQL.
+    """
+    ip_to_pod = _server_pod_ips(kubeconfig)
+    exclude_addr = None
+    if exclude_pod is not None:
+        for ip, pod in ip_to_pod.items():
+            if pod == exclude_pod:
+                exclude_addr = ip
+                break
+    sql = _catch_lock_holder_sql(key, exclude_addr=exclude_addr, timeout_s=timeout_s)
+    out = _psql(kubeconfig, target, sql).strip()
+    # psql echoes CREATE TABLE / DELETE / DO before the final SELECT; the holder
+    # row is the only line containing our '|' separator.
+    row = next((l for l in out.splitlines() if "|" in l), None)
+    if not row:
+        return None
+    addr, _, pid = row.strip().partition("|")
+    # Re-resolve: the pod set may have changed while we waited.
+    ip_to_pod = _server_pod_ips(kubeconfig)
+    return (ip_to_pod.get(addr, addr), addr, pid)
+
+
 def _wait_lock_holder(kubeconfig, target, want_pod=None, not_pod=None, timeout_s=40):
     """Poll until a single lock holder is observed that matches the predicate.
 
@@ -734,7 +810,10 @@ def k8s_leader(no_cleanup=False, skip_build=False, claiming=False, agents="3", t
         for _ in range(2):
             _api("POST", f"/v1/tenants/{TENANT}/fleet/provision", expect=None, base=base)
         # Identify the current lock holder (the leader for the tick we catch).
-        holder = _wait_lock_holder(kubeconfig, postgres, timeout_s=40)
+        # Server-side wait: the lock lives for an instant per tick, so polling
+        # from here lost the race often enough to block this assertion. See
+        # _catch_lock_holder_sql.
+        holder = _catch_lock_holder(kubeconfig, postgres, timeout_s=40)
         if holder is None:
             results["5. leader failover"] = (
                 "BLOCKED: could not catch a lock holder to target for the kill")
@@ -744,7 +823,11 @@ def k8s_leader(no_cleanup=False, skip_build=False, claiming=False, agents="3", t
             print(f"  current lock holder: pod={old_pod} addr={old_addr} pid={old_pid} — deleting it")
             _kubectl(["delete", "pod", old_pod, "-n", NS, "--wait=false"], kubeconfig)
             # The surviving replica must acquire the lock (different pod than killed).
-            survivor = _wait_lock_holder(kubeconfig, postgres, not_pod=old_pod, timeout_s=60)
+            # Same instant-lifetime race as the pre-kill catch, but this one
+            # HARD-FAILS the lane rather than blocking, so it needs the
+            # server-side wait at least as much.
+            survivor = _catch_lock_holder(
+                kubeconfig, postgres, exclude_pod=old_pod, timeout_s=60)
             if survivor is None:
                 _dump_diag(kubeconfig, "no survivor acquired the lock")
                 raise AssertionError("after killing the leader, NO surviving replica acquired the "
