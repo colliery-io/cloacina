@@ -169,6 +169,92 @@ impl OwnershipState {
     }
 }
 
+/// What the watchdog decided a caller should do after one liveness check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WatchdogAction {
+    /// Ownership confirmed (or nothing owned). Keep running.
+    Continue,
+    /// These reactors are provably no longer ours. Stop them locally.
+    StopReactors(Vec<ReactorId>),
+    /// We have been unable to verify for too long. Stop everything we believed
+    /// we owned and treat it as lost. See [`OwnershipWatchdog`] for why this is
+    /// the safe direction.
+    StopAllPresumedLost(Vec<ReactorId>),
+}
+
+/// Turns a sequence of [`OwnershipCheck`]s into decisions.
+///
+/// The interesting case is [`OwnershipCheck::Indeterminate`], which the ADR
+/// amendment deliberately leaves as a policy question. Both naive answers are
+/// wrong:
+///
+/// * **Treat it as healthy** → a replica partitioned from Postgres keeps running
+///   its reactors forever. But a partition is exactly what KILLS the ownership
+///   session, and Postgres releases the locks the moment that connection drops,
+///   so another replica will legitimately take over. Optimism here produces the
+///   split-brain in its worst form: indefinite, and invisible.
+/// * **Treat it as loss immediately** → one dropped query, one restarting
+///   connection pool, and healthy reactors stop for no reason. Reactive
+///   workloads would flap on ordinary transient errors.
+///
+/// So indeterminacy is tolerated, but only for a bounded number of consecutive
+/// checks. Cross the threshold and we presume loss and stop, because the longer
+/// we cannot verify, the likelier it is that our session is already gone and
+/// someone else owns these reactors. Fail toward stopping: a stopped reactor is
+/// recoverable by re-claiming, while two live reactors silently double-process.
+#[derive(Debug)]
+pub struct OwnershipWatchdog {
+    consecutive_indeterminate: u32,
+    max_indeterminate: u32,
+}
+
+impl OwnershipWatchdog {
+    /// `max_indeterminate` is how many consecutive unverifiable checks to
+    /// tolerate before presuming loss. Must be >= 1; 0 is clamped to 1 so a
+    /// misconfiguration cannot make every transient blip stop reactors.
+    pub fn new(max_indeterminate: u32) -> Self {
+        Self {
+            consecutive_indeterminate: 0,
+            max_indeterminate: max_indeterminate.max(1),
+        }
+    }
+
+    pub fn consecutive_indeterminate(&self) -> u32 {
+        self.consecutive_indeterminate
+    }
+
+    /// Feed one check result; get the action to take.
+    ///
+    /// `believed_owned` is what we would have to stop if we presume total loss.
+    pub fn observe(
+        &mut self,
+        check: OwnershipCheck,
+        believed_owned: &[ReactorId],
+    ) -> WatchdogAction {
+        match check {
+            OwnershipCheck::AllHeld => {
+                // A successful verification clears the streak — transient
+                // failures must not accumulate across healthy checks.
+                self.consecutive_indeterminate = 0;
+                WatchdogAction::Continue
+            }
+            OwnershipCheck::Lost(lost) => {
+                // We got a definitive answer, so the streak is irrelevant.
+                self.consecutive_indeterminate = 0;
+                WatchdogAction::StopReactors(lost)
+            }
+            OwnershipCheck::Indeterminate(_) => {
+                self.consecutive_indeterminate += 1;
+                if self.consecutive_indeterminate >= self.max_indeterminate {
+                    WatchdogAction::StopAllPresumedLost(believed_owned.to_vec())
+                } else {
+                    WatchdogAction::Continue
+                }
+            }
+        }
+    }
+}
+
 /// SQL asking Postgres which advisory locks the CURRENT session holds.
 ///
 /// `pg_locks.pid = pg_backend_pid()` restricts to this session, which is the
@@ -427,6 +513,113 @@ mod tests {
         let mut expected = seen.clone();
         expected.sort();
         assert_eq!(seen, expected, "lost list must be sorted for stable logs");
+    }
+
+    #[test]
+    fn watchdog_continues_while_ownership_is_confirmed() {
+        let mut w = OwnershipWatchdog::new(3);
+        assert_eq!(
+            w.observe(OwnershipCheck::AllHeld, &[]),
+            WatchdogAction::Continue
+        );
+        assert_eq!(w.consecutive_indeterminate(), 0);
+    }
+
+    #[test]
+    fn watchdog_stops_exactly_the_reactors_reported_lost() {
+        let mut w = OwnershipWatchdog::new(3);
+        let a = id(Some("t1"), "r1");
+        let owned = vec![a.clone(), id(Some("t1"), "r2")];
+        assert_eq!(
+            w.observe(OwnershipCheck::Lost(vec![a.clone()]), &owned),
+            WatchdogAction::StopReactors(vec![a]),
+            "a definitive loss must stop ONLY the lost reactors, not everything"
+        );
+    }
+
+    /// Transient failures must not stop healthy reactors — reactive workloads
+    /// would flap on any ordinary blip.
+    #[test]
+    fn watchdog_tolerates_indeterminate_below_the_threshold() {
+        let mut w = OwnershipWatchdog::new(3);
+        let owned = vec![id(Some("t1"), "r1")];
+        for i in 1..3 {
+            assert_eq!(
+                w.observe(OwnershipCheck::Indeterminate("blip".into()), &owned),
+                WatchdogAction::Continue,
+                "indeterminate #{i} is below the threshold and must be tolerated"
+            );
+        }
+    }
+
+    /// The safety property: sustained inability to verify is PRESUMED LOSS.
+    /// If we cannot reach Postgres, our session is likely already gone — and
+    /// Postgres released our locks the moment it dropped, so another replica
+    /// may already own these. Failing toward "stop" is recoverable; failing
+    /// toward "keep running" is a silent double-processing split-brain.
+    #[test]
+    fn watchdog_presumes_loss_after_sustained_indeterminacy() {
+        let mut w = OwnershipWatchdog::new(3);
+        let owned = vec![id(Some("t1"), "r1"), id(None, "r2")];
+        w.observe(OwnershipCheck::Indeterminate("1".into()), &owned);
+        w.observe(OwnershipCheck::Indeterminate("2".into()), &owned);
+        assert_eq!(
+            w.observe(OwnershipCheck::Indeterminate("3".into()), &owned),
+            WatchdogAction::StopAllPresumedLost(owned.clone()),
+            "crossing the threshold must stop everything we believed we owned"
+        );
+    }
+
+    /// A recovered check clears the streak, so intermittent failures spread
+    /// across healthy checks never accumulate into a spurious stop.
+    #[test]
+    fn watchdog_streak_resets_on_a_successful_check() {
+        let mut w = OwnershipWatchdog::new(3);
+        let owned = vec![id(Some("t1"), "r1")];
+        w.observe(OwnershipCheck::Indeterminate("1".into()), &owned);
+        w.observe(OwnershipCheck::Indeterminate("2".into()), &owned);
+        assert_eq!(w.consecutive_indeterminate(), 2);
+
+        w.observe(OwnershipCheck::AllHeld, &owned);
+        assert_eq!(
+            w.consecutive_indeterminate(),
+            0,
+            "success must clear the streak"
+        );
+
+        // Two more must still be tolerated — proving the reset was real.
+        assert_eq!(
+            w.observe(OwnershipCheck::Indeterminate("3".into()), &owned),
+            WatchdogAction::Continue
+        );
+        assert_eq!(
+            w.observe(OwnershipCheck::Indeterminate("4".into()), &owned),
+            WatchdogAction::Continue
+        );
+    }
+
+    /// A definitive Lost also clears the streak: we got an answer, so prior
+    /// unverifiable checks say nothing about what happens next.
+    #[test]
+    fn watchdog_streak_resets_on_a_definitive_loss() {
+        let mut w = OwnershipWatchdog::new(2);
+        let a = id(Some("t1"), "r1");
+        w.observe(OwnershipCheck::Indeterminate("1".into()), &[a.clone()]);
+        w.observe(OwnershipCheck::Lost(vec![a.clone()]), &[a.clone()]);
+        assert_eq!(w.consecutive_indeterminate(), 0);
+    }
+
+    /// A zero threshold would stop reactors on the very first transient error.
+    #[test]
+    fn watchdog_threshold_is_clamped_to_at_least_one() {
+        let mut w = OwnershipWatchdog::new(0);
+        let owned = vec![id(Some("t1"), "r1")];
+        assert_eq!(
+            w.observe(OwnershipCheck::Indeterminate("x".into()), &owned),
+            WatchdogAction::StopAllPresumedLost(owned),
+            "clamped to 1: still stops, but on a defined threshold rather than \
+             a divide-by-zero-ish 0"
+        );
     }
 
     /// The session-scoping predicate is the difference between "we still hold

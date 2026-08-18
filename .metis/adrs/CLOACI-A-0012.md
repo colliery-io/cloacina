@@ -177,8 +177,90 @@ Permanent as a direction, but two triggers would reopen the durability half:
   acceptable for the current model; a latency-sensitive consumer would need
   hand-off rather than expiry-based failover.
 
-### Open Question For Implementation
+### Open Question For Implementation — RESOLVED 2026-08-16
 Per-reactor advisory lock-key allocation across tenants (see Consequences →
-Negative). This ADR fixes the direction, not the key scheme; resolve that in
-[[CLOACI-T-0851]] before writing the lease code, since getting it wrong is a
-cross-tenant bug and those are the expensive kind here.
+Negative). Resolved in `computation_graph::reactor_lock_key`: a fixed-constant
+FNV-1a over a length-delimited `(tenant, reactor)` encoding, sign bit forced so
+reactor keys occupy the negative i64 half and cannot collide with hand-picked
+small positive keys like `FLEET_CONTROL_LOCK_KEY`. The hazard was real —
+tenants are isolated by SCHEMA within one database, while advisory locks are
+database-wide.
+
+Note for anyone extending this: a seeded hasher (`DefaultHasher`/`RandomState`)
+would have been a split-brain bug, since it is seeded PER PROCESS — every
+replica would compute a different key, every replica would win "the lock", and
+all of them would run the reactor. The stability test pins exact key literals
+for that reason.
+
+---
+
+## AMENDMENT 1 (2026-08-16) — long-held ownership DOES need a liveness check
+
+**What this amends:** the Decision's reliance on the A-0008 property that
+session-scoped advisory locks need no lease or heartbeat bookkeeping, because a
+dead replica's locks auto-release. That reasoning is sound for FAILOVER and it
+is NOT sufficient for ownership held across many ticks. This was found while
+implementing [[CLOACI-T-0851]]; it does not change the chosen design, but the
+original text would lead an implementer to omit something load-bearing.
+
+**The gap.** The fleet control loop re-acquires its lock EVERY TICK, so a
+dropped connection simply means it stops being leader — self-correcting. Reactor
+ownership is acquired once and then assumed. That admits a failure the fleet
+loop cannot have:
+
+> The ownership connection drops (network blip, PgBouncer recycle, database
+> restart) while the replica keeps running. Postgres releases every lock that
+> session held. Another replica legitimately claims the reactor. **The original
+> replica never notices and keeps running it.** Two replicas, one reactor, no
+> error raised anywhere.
+
+That is the exact split-brain this ADR exists to prevent, re-entering through
+the side door — and presenting as intermittent duplicate work rather than as an
+error.
+
+**Amended decision (maintainer, 2026-08-16): self-check and halt.** The
+ownership session periodically re-asserts that Postgres still reports every lock
+it believes it holds (`SESSION_HELD_LOCKS_SQL`, scoped by
+`pid = pg_backend_pid()` so another replica's lock cannot read as our own). On
+loss, the affected reactors are stopped locally BEFORE any re-claim is
+attempted.
+
+This is loss DETECTION, not lease renewal. There is still no TTL, no clock
+assumption, and no bookkeeping row; Postgres remains the single source of truth
+and we only ask whether what we believe is still true. The "no lease/heartbeat
+bookkeeping" property survives in substance — what does not survive is the
+inference that *nothing* need be checked.
+
+A three-state result is required, not a boolean: "we lost locks" and "the check
+could not run" are different situations, and conflating them yields either
+needless stops of healthy reactors or confident operation of unowned ones. An
+indeterminate check must be treated as UNKNOWN, never as healthy.
+
+**Considered and deferred: fencing tokens.** A monotonic token per claim,
+carried on every checkpoint write and rejected when stale, is strictly safer —
+a zombie replica could not corrupt state even inside the detection window. It
+needs a schema change and touches the checkpoint write path, so it is not in
+v1. Revisit if the detection window proves too wide in practice.
+
+## AMENDMENT 2 (2026-08-16) — ownership is ONE session holding many locks
+
+**What this amends:** an unstated assumption that reactor locks would be taken
+the way `autoscaler/leader.rs` takes its lock. They cannot be, and the reason is
+resource exhaustion rather than correctness.
+
+`with_fleet_leadership` holds one pooled connection for the duration of ONE
+TICK — lock, work, unlock, return to pool. Advisory locks are session-scoped, so
+a lock survives only while its connection is held. Reactor ownership must
+persist for as long as the replica runs the reactor, so the same shape would pin
+one pooled connection PER OWNED REACTOR for the process lifetime, exhausting the
+pool as reactor count grows.
+
+**Amended decision:** ONE dedicated ownership session per replica, carrying ALL
+of that replica's reactor locks — a Postgres session may hold many. Connection
+cost is O(1) in reactor count instead of O(reactors), and replica death still
+ends the session and releases every reactor lock at once, which is exactly the
+failover behaviour the Decision relies on.
+
+Operator-visible consequence (maintainer chose "take one and document it" over
+raising the default): each replica permanently reserves one connection from the
+pool. Pool sizing must account for it.
