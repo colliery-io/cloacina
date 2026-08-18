@@ -128,6 +128,20 @@ use cloacina::database::Database;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::security::SecurityConfig;
 
+/// How often the reactor-ownership watchdog re-asserts this replica's locks
+/// (CLOACI-T-0851 / ADR CLOACI-A-0012 Amendment 1).
+const REACTOR_OWNERSHIP_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Consecutive unverifiable checks tolerated before ownership is PRESUMED LOST
+/// and the affected reactors are halted.
+///
+/// The product of these two constants is the worst-case window in which a
+/// replica that has silently lost its locks could still be running a reactor
+/// another replica now owns (~15s). Lowering the tolerance shortens that window
+/// but makes ordinary transient database errors stop healthy reactors; raising
+/// it does the reverse. Change them together and with that trade in mind.
+const REACTOR_OWNERSHIP_INDETERMINATE_TOLERANCE: u32 = 3;
+
 /// Cached per-tenant database connections for schema isolation.
 ///
 /// Each tenant gets a small connection pool scoped to their PostgreSQL schema.
@@ -736,10 +750,47 @@ pub async fn run(
 
     let endpoint_registry = EndpointRegistry::new();
     let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
-    let graph_scheduler = Arc::new(ComputationGraphScheduler::with_dal(
-        endpoint_registry.clone(),
-        unified_dal.clone(),
-    ));
+    let mut graph_scheduler_inner =
+        ComputationGraphScheduler::with_dal(endpoint_registry.clone(), unified_dal.clone());
+
+    // CLOACI-T-0851 / ADR CLOACI-A-0012: install cross-replica reactor
+    // ownership. Every server replica takes ONE dedicated pooled connection —
+    // the "ownership session" — which carries all of this replica's reactor
+    // advisory locks. Operators sizing the pool must account for that one
+    // reserved connection per replica.
+    //
+    // Installed unconditionally on Postgres, not only when multi-replica:
+    // with a single replica every claim simply succeeds locally and the
+    // watchdog always confirms, so behaviour is unchanged. There is no reliable
+    // way for a replica to know how many peers exist, and a coordination
+    // mechanism that is only switched on when someone remembers to is one that
+    // will be off during the incident.
+    //
+    // A failure here FAILS STARTUP rather than degrading quietly. Running the
+    // reactive layer without coordination is precisely the split-brain this
+    // exists to prevent, and it is invisible from the outside — a replica would
+    // happily process a stream that another replica also owns. Refusing to
+    // start is loud, recoverable, and honest about what is wrong.
+    #[cfg(feature = "postgres")]
+    {
+        use cloacina::computation_graph::reactor_ownership::{OwnershipSession, PostgresOwnership};
+
+        let session = OwnershipSession::connect(runner.database())
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to establish the reactor-ownership session: {e}. This connection \
+                     carries this replica's reactor advisory locks; without it the reactive \
+                     layer cannot guarantee that only one replica runs a given reactor, so \
+                     the server refuses to start rather than risk two replicas processing \
+                     the same stream."
+                )
+            })?;
+        graph_scheduler_inner.set_ownership(Arc::new(PostgresOwnership::new(session)));
+        info!("reactor ownership session established (one pooled connection reserved)");
+    }
+
+    let graph_scheduler = Arc::new(graph_scheduler_inner);
 
     // Substrate startup (CLOACI-I-0115, tasks T-0626/T-0627): construct the
     // WS delivery sink and the per-replica DeliveryRelay; spawn the relay's
@@ -766,6 +817,51 @@ pub async fn run(
     let delivery_sweeper =
         cloacina::delivery::DeliverySweeper::new(unified_dal.clone(), delivery_wake.clone());
     tokio::spawn(delivery_sweeper.run(substrate_shutdown_rx.clone()));
+
+    // CLOACI-T-0851 / A-0012 Amendment 1: reactor-ownership watchdog.
+    //
+    // Advisory locks auto-release when a replica DIES, which handles failover.
+    // They do not help when the ownership connection drops while the replica
+    // keeps running: Postgres frees the locks, another replica claims the
+    // reactor, and this one would carry on running it unaware. This loop
+    // re-asserts what we believe we own and halts anything we have lost.
+    //
+    // Cadence: with the default tolerance of 3 consecutive unverifiable checks,
+    // a total loss of database contact is acted on after roughly
+    // REACTOR_OWNERSHIP_CHECK_INTERVAL * 3. Short enough to bound
+    // double-processing, long enough that an ordinary blip does not stop
+    // healthy reactors — a reactive workload that flaps on every transient
+    // error is worse than one that takes ~15s to notice a real partition.
+    if graph_scheduler.has_ownership_coordination() {
+        let scheduler_for_watchdog = graph_scheduler.clone();
+        let mut watchdog_shutdown = substrate_shutdown_rx.clone();
+        tokio::spawn(async move {
+            use cloacina::computation_graph::reactor_ownership::OwnershipWatchdog;
+            let mut watchdog = OwnershipWatchdog::new(REACTOR_OWNERSHIP_INDETERMINATE_TOLERANCE);
+            let mut ticker = tokio::time::interval(REACTOR_OWNERSHIP_CHECK_INTERVAL);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        let halted = scheduler_for_watchdog
+                            .ownership_watchdog_tick(&mut watchdog)
+                            .await;
+                        if !halted.is_empty() {
+                            warn!(
+                                count = halted.len(),
+                                "reactor-ownership watchdog halted reactors this replica no \
+                                 longer owns"
+                            );
+                        }
+                    }
+                    _ = watchdog_shutdown.changed() => {
+                        info!("reactor-ownership watchdog shutting down");
+                        break;
+                    }
+                }
+            }
+        });
+    }
 
     // Wire graph scheduler into the runner so the reconciler can route CG packages
     runner.set_graph_scheduler(graph_scheduler.clone()).await;
