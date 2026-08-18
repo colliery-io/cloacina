@@ -91,6 +91,29 @@ impl ReactorId {
     }
 }
 
+// `ReactorId` and `TenantKey` are the same `(tenant, name)` pair. Conversions
+// rather than a parallel type: `TenantKey`'s own docs warn that a deployment
+// must never have "two spellings of the same scope", and an ownership claim
+// keyed differently from the scheduler's `reactors` map is precisely that —
+// it would take a lock for one reactor while guarding another.
+impl From<&crate::TenantKey> for ReactorId {
+    fn from(k: &crate::TenantKey) -> Self {
+        Self {
+            tenant: k.tenant_id.clone(),
+            name: k.name.clone(),
+        }
+    }
+}
+
+impl From<&ReactorId> for crate::TenantKey {
+    fn from(id: &ReactorId) -> Self {
+        Self {
+            tenant_id: id.tenant.clone(),
+            name: id.name.clone(),
+        }
+    }
+}
+
 /// What a liveness check found. Deliberately not a bool: "we lost some locks" is
 /// a different situation from "the check itself could not run", and conflating
 /// them is how a replica ends up either needlessly stopping healthy reactors or

@@ -1233,6 +1233,21 @@ impl ComputationGraphScheduler {
                 .ok_or_else(|| format!("reactor '{}' not loaded", reactor_name))?
         };
 
+        self.teardown_running(running, reactor_name).await;
+        Ok(())
+    }
+
+    /// Stop a reactor that has ALREADY been removed from the `reactors` map,
+    /// releasing everything it owned.
+    ///
+    /// Extracted so ownership-loss halts (CLOACI-T-0851) and ordinary unloads
+    /// share ONE teardown. A second copy would be free to drift — and the way
+    /// it would drift is by forgetting a deregistration, leaving a stopped
+    /// reactor still advertised in the endpoint registry.
+    ///
+    /// The caller owns the policy decision (may this reactor be torn down?);
+    /// this performs it unconditionally.
+    async fn teardown_running(&self, running: RunningGraph, reactor_name: &str) {
         // Capture graph names for health-metric "stopped" emission. Use the
         // endpoint-registry keys (which include the reactor's own name and
         // back-compat graph aliases) so every graph the reactor served sees
@@ -1265,7 +1280,53 @@ impl ComputationGraphScheduler {
         }
 
         info!(reactor = %reactor_name, "reactor unloaded");
-        Ok(())
+    }
+
+    /// Stop reactors this replica has lost ownership of (CLOACI-T-0851 /
+    /// [`ADR CLOACI-A-0012`] Amendment 1).
+    ///
+    /// Returns the reactors actually stopped — a subset, because a reactor may
+    /// already have been unloaded between the liveness check and this call.
+    ///
+    /// **Deliberately bypasses `unload_reactor`'s subscriber guard.** That guard
+    /// exists so a reactor never disappears under a graph still declaring it
+    /// upstream, which is right for an operator-initiated unload. It is wrong
+    /// here: having lost the lock, another replica may already be running this
+    /// reactor, and refusing to stop because a subscriber remains would leave
+    /// two live copies double-processing the same stream. A stopped reactor is
+    /// recoverable by re-claiming; silent double-processing is not.
+    pub async fn halt_unowned_reactors(
+        &self,
+        lost: &[super::reactor_ownership::ReactorId],
+    ) -> Vec<super::reactor_ownership::ReactorId> {
+        let mut stopped = Vec::new();
+        for id in lost {
+            let key: crate::TenantKey = id.into();
+            let running = {
+                let mut reactors = self.reactors.write().await;
+                reactors.remove(&key)
+            };
+            match running {
+                Some(running) => {
+                    tracing::warn!(
+                        reactor = %key,
+                        "ownership lost — halting reactor locally; another replica may own it"
+                    );
+                    self.teardown_running(running, &key.name).await;
+                    stopped.push(id.clone());
+                }
+                None => {
+                    // Not an error: it may have been unloaded normally between
+                    // the check and here. Logged so a puzzling "lost ownership
+                    // but nothing stopped" is explicable rather than silent.
+                    tracing::debug!(
+                        reactor = %key,
+                        "ownership lost for a reactor that is no longer loaded here"
+                    );
+                }
+            }
+        }
+        stopped
     }
 
     /// Backward-compat convenience: unbind the graph from its reactor and,
@@ -2315,6 +2376,90 @@ mod tests {
             reactor_name: Some(reactor.to_string()),
             topology: Some(format!("{{\"graph\":\"{}\"}}", graph)),
         }
+    }
+
+    /// CLOACI-T-0851: losing ownership must stop the reactor EVEN THOUGH a
+    /// subscriber still declares it upstream. `unload_reactor` refuses in that
+    /// situation by design; the halt path must not, because the alternative is
+    /// two replicas running the same reactor.
+    #[tokio::test]
+    async fn halt_unowned_stops_a_reactor_that_unload_would_refuse() {
+        use super::super::reactor_ownership::ReactorId;
+
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("graph should load");
+        assert_eq!(scheduler.reactors.read().await.len(), 1);
+
+        // Precondition: the ordinary unload path refuses while a subscriber
+        // remains. If this ever stops being true the test below proves less
+        // than it claims, so assert it rather than assume it.
+        let refused = scheduler
+            .unload_reactor("rx", TenantScope::tenant("acme"))
+            .await;
+        assert!(
+            refused.is_err(),
+            "unload_reactor should refuse while a subscriber remains; got {refused:?}"
+        );
+        assert_eq!(scheduler.reactors.read().await.len(), 1, "still loaded");
+
+        let stopped = scheduler
+            .halt_unowned_reactors(&[ReactorId::new(Some("acme"), "rx")])
+            .await;
+
+        assert_eq!(stopped.len(), 1, "the lost reactor must be stopped");
+        assert!(
+            scheduler.reactors.read().await.is_empty(),
+            "halted reactor must be gone from the map"
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    /// A reactor may be unloaded normally between the liveness check and the
+    /// halt. That must be a quiet no-op, not a panic or a spurious "stopped".
+    #[tokio::test]
+    async fn halt_unowned_is_a_noop_for_a_reactor_that_is_not_loaded() {
+        use super::super::reactor_ownership::ReactorId;
+
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        let stopped = scheduler
+            .halt_unowned_reactors(&[ReactorId::new(Some("acme"), "never_loaded")])
+            .await;
+        assert!(stopped.is_empty(), "nothing was loaded, so nothing stopped");
+    }
+
+    /// Halting one tenant's reactor must not touch another tenant's same-named
+    /// one — the ownership key and the scheduler key must agree.
+    #[tokio::test]
+    async fn halt_unowned_is_tenant_scoped() {
+        use super::super::reactor_ownership::ReactorId;
+
+        let registry = EndpointRegistry::new();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+        for tenant in ["acme", "globex"] {
+            scheduler
+                .load_graph(tenant_decl("pipeline", "rx", Some(tenant)))
+                .await
+                .unwrap_or_else(|e| panic!("tenant {tenant} should load: {e}"));
+        }
+        assert_eq!(scheduler.reactors.read().await.len(), 2);
+
+        let stopped = scheduler
+            .halt_unowned_reactors(&[ReactorId::new(Some("acme"), "rx")])
+            .await;
+        assert_eq!(stopped.len(), 1);
+
+        let remaining = scheduler.list_reactors().await;
+        assert_eq!(remaining.len(), 1, "globex's reactor must survive");
+        assert_eq!(remaining[0].tenant_id.as_deref(), Some("globex"));
+
+        scheduler.shutdown_all().await;
     }
 
     /// Two tenants load a graph AND a reactor under the SAME names on ONE
