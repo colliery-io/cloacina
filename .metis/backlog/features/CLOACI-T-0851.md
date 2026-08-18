@@ -438,3 +438,67 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
   copying assertion 5's sampling. The server-side catcher is still the right
   tool for the post-kill wait, since "wait until someone OTHER than the killed
   replica holds it" is inherently a wait.
+
+- 2026-08-17 — OWNERSHIP IS NOW ENFORCED IN THE SCHEDULER. PR #255 (draft),
+  11 commits. 90 `computation_graph` tests pass; both feature builds green.
+
+  **`ReactorOwnership` trait + `Option<Arc<dyn …>>` on the scheduler.** `None`
+  is the embedded / sqlite / single-replica path and runs NONE of this code —
+  which is how A-0012's "byte-for-byte unchanged" requirement is actually
+  guaranteed rather than merely intended. A trait (not the concrete
+  `OwnershipSession`) so the scheduler is not postgres-gated and the loss paths
+  are testable with a fake; the real failure modes — connection dropped, lock
+  stolen, verification unavailable — cannot be produced on demand against a
+  live database.
+
+  **`ownership_watchdog_tick`** — verify → watchdog verdict → halt. A single
+  tick, not a loop, so cadence stays with the caller and the test does not
+  depend on timing.
+
+  **`halt_unowned_reactors`** deliberately bypasses `unload_reactor`'s
+  subscriber guard. That guard is right for an operator unload and wrong here:
+  having lost the lock, another replica may already be running this reactor, so
+  refusing to stop because a subscriber remains leaves two copies
+  double-processing. Shares ONE `teardown_running` with the unload path — a
+  second copy would drift by forgetting a deregistration, leaving a stopped
+  reactor still advertised in the endpoint registry.
+
+  **Claim at load.** Placed with the other "resolve what can fail before we
+  spawn" work: losing a claim after the reactor and accumulators are live would
+  mean tearing down a running reactor, and a partial teardown is how endpoints
+  get orphaned. NOT winning is a normal outcome and the load still SUCCEEDS —
+  erroring would report a correctly-functioning multi-replica deployment as a
+  failed load on every replica but the owner. A claim ERROR does fail the load:
+  if we cannot reach Postgres to claim, we equally cannot know nobody else
+  holds it.
+
+  **`foreign_reactors` set**, found by a test rather than by design. The first
+  version returned `Ok(())` on claim loss and `load_graph` then tried to bind a
+  graph to a reactor that was never started — `reactor 'rx' is not loaded`.
+  Loaded-but-not-owned is a THIRD state, distinct from both loaded and absent,
+  and it needs to be explicit. This set is also where routing will look:
+  "where should this event go" begins with "is this reactor foreign to me".
+
+  `ReactorId` now converts to/from `TenantKey` instead of paralleling it —
+  `TenantKey`'s docs warn a deployment must never hold "two spellings of the
+  same scope", and an ownership claim keyed differently from the scheduler's
+  map would take a lock for one reactor while guarding another.
+
+  **REMAINING — this is NOT nearly done. Honest estimate: multiple sessions.**
+    1. **Server wiring.** Nothing constructs `PostgresOwnership` or calls
+       `set_ownership`, and nothing drives `ownership_watchdog_tick` on a timer.
+       Until that lands the feature is dormant everywhere — which is why it is
+       safe to have merged this far, and also why none of it is proven in situ.
+    2. **Event routing to the owner.** The largest remaining piece. Events
+       landing on a non-owner currently go nowhere: today that replica does not
+       run the reactor at all. Needs the delivery-substrate/outbox integration
+       A-0012 assumes. Start from `foreign_reactors`.
+    3. **Accumulator persist + restore** — the maintainer's hard requirement,
+       and untouched so far. Extend `persist_reactor_state` (one checkpoint,
+       one consistency point) and restore on takeover. Restore is the half that
+       gets quietly skipped; a snapshot nothing reads back buys nothing.
+    4. **k8s-leader reactor assertions** — own N reactors on one replica, kill
+       it, assert all N release, the survivor claims them, AND a partially
+       filled accumulator window survives. Read the holder directly (reactor
+       locks are held continuously); use the server-side catcher only for the
+       post-kill wait.
