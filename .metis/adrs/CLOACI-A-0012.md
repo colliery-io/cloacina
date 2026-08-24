@@ -43,19 +43,23 @@ the remaining gap.
    inject), so with N replicas a stream's events split across N independent
    buffers. A `state` accumulator's window or a `when_all` criteria set may
    never assemble on any single replica.
-3. **Half the state is already durable; the other half is not.**
+3. ~~**Half the state is already durable; the other half is not.**
    `persist_reactor_state` (`reactor.rs:1180`) snapshots the reactor's
    `InputCache`, `DirtyFlags` and `SeqQueue` through
    `save_reactor_state(graph_name, ..)`, with failure counters and a `Degraded`
    health transition already wired. **Accumulator buffers are persisted
    nowhere** — there is no `save_accumulator*` / `persist_accumulator` anywhere
-   in the tree.
+   in the tree.~~
+   **RETRACTED 2026-08-18 — THIS WAS FALSE. See CORRECTION 1 below.**
 
-Point 3 is the one that shapes this decision, and it is not in the original
+~~Point 3 is the one that shapes this decision, and it is not in the original
 ticket. Reactor leadership ALONE would give failover in which the reactor
 resumes from its snapshot while every accumulator restarts empty — a
-half-filled window silently gone. Maintainer decision (2026-08-16): that loss
-is **not acceptable**; accumulator buffers must survive failover.
+half-filled window silently gone.~~ Maintainer decision (2026-08-16):
+accumulator loss on failover is **not acceptable**; accumulator buffers must
+survive failover. That requirement stands and is unaffected by the retraction —
+but the premise offered for it was wrong, and most of the machinery to satisfy
+it already existed.
 
 Single-replica and embedded deployments are unaffected by any of this and must
 stay byte-for-byte unchanged.
@@ -264,3 +268,62 @@ failover behaviour the Decision relies on.
 Operator-visible consequence (maintainer chose "take one and document it" over
 raising the default): each replica permanently reserves one connection from the
 pool. Pool sizing must account for it.
+
+## CORRECTION 1 (2026-08-18) — accumulator state was ALREADY durable
+
+**Context point 3 was factually wrong, and it was load-bearing.** It claimed
+accumulator buffers are "persisted nowhere". That conclusion came from grepping
+for `save_accumulator*` / `persist_accumulator`, which are not the names this
+codebase uses. The mechanism exists, predates this ADR, and is in active use:
+
+* `AccumulatorContext` carries `checkpoint: Option<CheckpointHandle>`.
+* `CheckpointHandle::save<T>` / `load<T>` wrap the DAL's
+  `save_checkpoint` / `load_checkpoint`, keyed `(graph_name, accumulator_name)`.
+* Per-kind, all in `computation_graph/accumulator.rs`:
+  * **polling** — restores its last output on startup (`load`, ~line 678) and
+    saves each output (~714).
+  * **batch** — restores its buffer (`load::<Vec<Vec<u8>>>`, ~810) and saves it
+    (~882).
+  * **state** — the kind this ADR specifically worried about — restores via a
+    dedicated `load_state_buffer` (~1079) and saves via `save_state_buffer`
+    (~1147) on every event.
+* `Accumulator::init`'s doc has said "use to restore state from last checkpoint"
+  all along.
+
+So "a half-filled `state` window silently gone" was not an accurate description
+of the status quo: that window is checkpointed per event and restored at
+accumulator startup — which is exactly when a NEW OWNER spawns it after
+takeover.
+
+**What this changes.**
+* The Decision's item 3 ("extend `persist_reactor_state` to include accumulator
+  buffers") is largely REDUNDANT and should not be built as written. Folding
+  buffers into the reactor checkpoint would duplicate a working mechanism and
+  create the two-writers-of-one-truth problem the ADR elsewhere argues against.
+* The Consequences bullet claiming buffers "become durable for the first time"
+  is wrong for the same reason, as is the negative bullet about checkpoints
+  growing by the accumulator buffer size.
+* The maintainer's requirement is UNCHANGED and still correct — it simply turns
+  out to be mostly already met, so the remaining work is **verification and gap
+  -closing**, not construction.
+
+**What genuinely remains** (for [[CLOACI-T-0851]]):
+1. Prove end-to-end that a partially-filled window actually survives a real
+   takeover. Save and restore both exist; nobody has demonstrated them across
+   an ownership change, and per-kind cadence differs (state saves per event;
+   batch on flush), so the amount at risk differs by kind.
+2. Decide whether the reactor snapshot and the accumulator checkpoints need to
+   be mutually consistent. They are separate writes today, so a takeover can
+   restore a reactor snapshot from instant T1 alongside accumulator buffers
+   from T2. Whether that skew is benign is a real question this ADR never
+   asked, because it assumed one checkpoint.
+3. Confirm the checkpoint keys are tenant-safe. They key by
+   `(graph_name, accumulator_name)` and rely on schema-per-tenant DAL scoping —
+   the same reasoning that makes `save_reactor_state` safe, and the same
+   reasoning that did NOT hold for advisory locks. Worth an explicit check
+   rather than an assumption.
+
+**Process note.** The original claim was presented as "verified against the
+code, not inferred". It was neither: it was a grep for names that do not exist,
+reported as an absence proof. A grep that finds nothing is evidence about the
+search term, not about the codebase.

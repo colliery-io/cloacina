@@ -493,10 +493,30 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
        landing on a non-owner currently go nowhere: today that replica does not
        run the reactor at all. Needs the delivery-substrate/outbox integration
        A-0012 assumes. Start from `foreign_reactors`.
-    3. **Accumulator persist + restore** — the maintainer's hard requirement,
-       and untouched so far. Extend `persist_reactor_state` (one checkpoint,
-       one consistency point) and restore on takeover. Restore is the half that
-       gets quietly skipped; a snapshot nothing reads back buys nothing.
+    3. ~~**Accumulator persist + restore** — the maintainer's hard requirement,
+       and untouched so far.~~ **CORRECTED 2026-08-18: accumulator state is
+       ALREADY persisted and restored.** See [[CLOACI-A-0012]] CORRECTION 1.
+       `CheckpointHandle::save`/`load` plus per-kind implementations: polling
+       (~678/714), batch (~810/882) and — the kind A-0012 worried about —
+       state, via `load_state_buffer` (~1079) / `save_state_buffer` (~1147) on
+       every event. My "persisted nowhere" claim came from grepping
+       `save_accumulator*`, a name this codebase never used, and reporting the
+       empty result as an absence proof.
+
+       So do NOT build item 3 as written; folding buffers into
+       `persist_reactor_state` would duplicate a working mechanism. What
+       remains is verification and gap-closing:
+         a. Demonstrate a partially-filled window surviving a REAL takeover.
+            Both halves exist; nobody has shown them working across an
+            ownership change, and per-kind cadence differs (state saves per
+            event, batch on flush), so the amount at risk differs by kind.
+         b. Decide whether the reactor snapshot and accumulator checkpoints
+            need mutual consistency — they are separate writes, so a takeover
+            can restore a reactor snapshot from T1 beside buffers from T2.
+         c. Confirm checkpoint keys are tenant-safe. They key by
+            `(graph_name, accumulator_name)` and lean on schema-per-tenant DAL
+            scoping — the same argument that makes `save_reactor_state` safe,
+            and the same argument that did NOT hold for advisory locks.
     4. **k8s-leader reactor assertions** — own N reactors on one replica, kill
        it, assert all N release, the survivor claims them, AND a partially
        filled accumulator window survives. Read the holder directly (reactor
