@@ -327,3 +327,55 @@ takeover.
 code, not inferred". It was neither: it was a grep for names that do not exist,
 reported as an absence proof. A grep that finds nothing is evidence about the
 search term, not about the codebase.
+
+## AMENDMENT 3 (2026-08-24) — the outbox is the FALLBACK, not the routing path
+
+**What this amends:** Decision item 2, which says a non-owner "forwards it to
+the owner over the existing delivery substrate/outbox". That is correct for
+correctness and wrong for throughput, and the ADR never priced it.
+
+**The problem.** Injection is the reactive layer's hot path. With N replicas and
+events distributed across them, roughly (N−1)/N of injects land on a non-owner —
+so "forward via the outbox" makes the DURABLE PATH THE COMMON CASE. An outbox
+hop is a durable INSERT plus NOTIFY plus a drain on the far side: milliseconds,
+against microseconds for an in-process channel send. That puts steady-state
+stream ingest onto Postgres and scales the database with event rate rather than
+with reactor count.
+
+This directly contradicts one of the ADR's own selling points — the Consequences
+entry "the accumulator hot path is unchanged, so no throughput risk on
+high-rate streams". Item 2 as written reintroduces exactly that risk one layer
+earlier, at ingest rather than inside the accumulator.
+
+**Amended decision (maintainer, 2026-08-24): edge affinity, outbox as fallback.**
+Events should LAND on the owner rather than be relayed after arriving in the
+wrong place:
+
+1. **Local stays hot and unchanged.** An inject for an accumulator this replica
+   hosts is a direct channel send with no database involvement. This is already
+   how `reactor_routing::inject_event` behaves — local first, outbox only on a
+   miss — so nothing built so far is wasted.
+2. **The edge routes to the owner.** Ownership already lives in Postgres, so a
+   replica can answer "who owns this reactor" and steer the connection there
+   (redirect, or LB affinity keyed by reactor) instead of accepting the event
+   and relaying it. Requires publishing the owner's advertised address at claim
+   time — the advisory lock proves ownership but is not routable by itself.
+3. **The outbox remains, demoted.** It is the correctness backstop for the
+   window where ownership is CHANGING and the edge's view is briefly stale —
+   rare and self-limiting — rather than the steady-state transport. Its
+   at-least-once durability is exactly what that window needs, and paying
+   database cost for a rare event is fine.
+
+**Why not direct replica-to-replica transport (considered, rejected for now).**
+Forwarding over HTTP/gRPC would be fast and keep Postgres out of it, but it
+needs a peer roster and reachable addresses — the very thing
+`DeliveryOutcome::NoRoute` was designed to avoid — plus its own retry and
+failure semantics, and it forfeits the at-least-once durability that makes the
+takeover window safe. Edge affinity removes the forward entirely rather than
+making it faster, which is the better trade.
+
+**Status:** the sink and producer halves are built and tested
+(`AccumulatorDeliverySink`, `inject_event`, `CompositeDeliverySink`). The
+server's inject routes were NOT switched over — doing so before edge affinity
+exists would have made the Postgres path the default for every non-local inject.
+Owner-address publication and edge routing are the remaining work.
