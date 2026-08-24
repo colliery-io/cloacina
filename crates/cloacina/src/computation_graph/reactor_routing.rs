@@ -124,6 +124,80 @@ impl DeliverySink for AccumulatorDeliverySink {
     }
 }
 
+/// Where an inject ended up. Distinguishing these matters to callers: an
+/// operator injecting an event wants to know it was accepted, and "handed to
+/// another replica" is a different (and slower) success from "delivered here".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InjectOutcome {
+    /// Delivered into a local accumulator on this replica.
+    Local(usize),
+    /// This replica does not host the accumulator, so the event was written to
+    /// the delivery outbox for the owning replica to pick up.
+    Forwarded,
+}
+
+/// Inject an event, forwarding to the owning replica when this one does not
+/// host the accumulator.
+///
+/// This is the producer half of [`AccumulatorDeliverySink`]. Together they mean
+/// an event injected anywhere reaches the single replica that owns the reactor.
+///
+/// `dal` is `None` for embedded / single-replica deployments, where there is no
+/// outbox and no peer to forward to. There, a missing accumulator is still a
+/// genuine error and is returned unchanged — a deployment with nowhere to
+/// forward to must not be told its event was "forwarded".
+pub async fn inject_event(
+    registry: &super::registry::EndpointRegistry,
+    dal: Option<&crate::dal::unified::DAL>,
+    name: &str,
+    tenant_id: Option<&str>,
+    bytes: Vec<u8>,
+) -> Result<InjectOutcome, super::registry::RegistryError> {
+    let scope = match tenant_id {
+        Some(t) => super::registry::EndpointScope::tenant(t),
+        None => super::registry::EndpointScope::untenanted(),
+    };
+
+    match registry
+        .send_to_accumulator(name, scope, bytes.clone())
+        .await
+    {
+        Ok(n) if n > 0 => Ok(InjectOutcome::Local(n)),
+        // Either not hosted here, or hosted but nothing accepted. Both mean the
+        // event has NOT been consumed on this replica, so it must go to the
+        // outbox rather than be reported as accepted.
+        Ok(_) | Err(super::registry::RegistryError::AccumulatorNotFound(_)) => {
+            let Some(dal) = dal else {
+                // No outbox: embedded/single-replica. The original error is the
+                // truthful answer.
+                return Err(super::registry::RegistryError::AccumulatorNotFound(
+                    name.to_string(),
+                ));
+            };
+            let row = crate::models::delivery_outbox::NewDeliveryOutbox {
+                recipient: accumulator_recipient(name),
+                kind: REACTOR_EVENT_KIND.to_string(),
+                tenant_id: tenant_id.map(|t| t.to_string()),
+                payload: bytes,
+            };
+            dal.delivery_outbox().enqueue(row).await.map_err(|e| {
+                super::registry::RegistryError::AccumulatorNotFound(format!(
+                    "{name}: not hosted here and forwarding to the owning replica failed: {e}"
+                ))
+            })?;
+            tracing::debug!(
+                accumulator = %name,
+                tenant = ?tenant_id,
+                "accumulator not hosted here; forwarded event to the owning replica via the outbox"
+            );
+            Ok(InjectOutcome::Forwarded)
+        }
+        // Ambiguity is a misconfiguration, not a routing miss — forwarding it
+        // would just relocate the ambiguity to another replica.
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

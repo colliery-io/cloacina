@@ -799,8 +799,22 @@ pub async fn run(
     // held for the lifetime of `run()`; when it drops on shutdown, the spawned
     // tasks observe the receiver-side error and exit cleanly.
     let delivery_sink = Arc::new(crate::delivery_sink::WsDeliverySink::new());
+    // CLOACI-T-0851: reactive events addressed to accumulators are drained by
+    // the same relay. Each replica's accumulator sink delivers only what it
+    // actually hosts and answers NoRoute otherwise, so an event injected on any
+    // replica reaches the one that owns the reactor without either sink needing
+    // to know about the other.
+    let accumulator_sink = Arc::new(
+        cloacina::computation_graph::reactor_routing::AccumulatorDeliverySink::new(
+            endpoint_registry.clone(),
+        ),
+    );
+    let composite_sink = Arc::new(cloacina::delivery::CompositeDeliverySink::new(vec![
+        delivery_sink.clone(),
+        accumulator_sink,
+    ]));
     let delivery_relay =
-        cloacina::delivery::DeliveryRelay::new(unified_dal.clone(), delivery_sink.clone());
+        cloacina::delivery::DeliveryRelay::new(unified_dal.clone(), composite_sink);
     let delivery_wake = delivery_relay.wake_handle();
     let (_substrate_shutdown_tx, substrate_shutdown_rx) = tokio::sync::watch::channel(false);
     tokio::spawn(delivery_relay.run(substrate_shutdown_rx.clone()));
