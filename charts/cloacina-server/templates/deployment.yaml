@@ -29,6 +29,13 @@ spec:
       # provision per-tenant namespaces + agent Deployments.
       serviceAccountName: {{ include "cloacina-server.fleetServiceAccountName" . }}
       {{- end }}
+      {{- if .Values.reactorAffinity.enabled }}
+      # CLOACI-T-0851: join the headless Service so this pod gets a stable
+      # per-pod DNS name (<pod-name>.<subdomain>.<ns>.svc). `hostname` is
+      # intentionally NOT set — it defaults to the pod name, which is already
+      # unique and is what the downward API below reports.
+      subdomain: {{ include "cloacina-server.fullname" . }}-headless
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -58,6 +65,25 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
+            {{- if .Values.reactorAffinity.enabled }}
+            # CLOACI-T-0851 / A-0012 Amendment 3: the address this replica
+            # publishes when it claims a reactor, so injects landing elsewhere
+            # can be steered here instead of relayed through the outbox.
+            #
+            # Composed from the downward API rather than hardcoded: the pod name
+            # is only knowable at runtime, and a wrong value would silently
+            # misroute injects rather than fail loudly.
+            - name: CLOACINA_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CLOACINA_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CLOACINA_ADVERTISED_ADDRESS
+              value: "http://$(CLOACINA_POD_NAME).{{ include "cloacina-server.fullname" . }}-headless.$(CLOACINA_POD_NAMESPACE).svc.{{ .Values.reactorAffinity.clusterDomain }}:{{ .Values.service.port }}"
+            {{- end }}
             {{- if .Values.postgresql.enabled }}
             - name: DATABASE_URL
               value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}"

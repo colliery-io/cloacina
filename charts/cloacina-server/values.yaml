@@ -208,6 +208,30 @@ service:
   annotations: {}
 
 # ---------------------------------------------------------------------------
+# Reactor affinity (CLOACI-T-0851 / ADR CLOACI-A-0012 Amendment 3)
+# ---------------------------------------------------------------------------
+# Under per-reactor leadership exactly ONE replica runs a given reactor. An
+# event injected on any other replica must reach the owner. Steering the
+# request to the owner keeps injection on the hot path; relaying it through the
+# durable outbox instead would put steady-state stream ingest on Postgres.
+#
+# Enabling this creates a headless Service and gives each pod a stable per-pod
+# DNS name to advertise when it claims a reactor.
+#
+# Only meaningful with replicaCount > 1. A single-replica deployment always owns
+# every reactor locally, so there is nothing to steer and leaving this off costs
+# nothing.
+reactorAffinity:
+  # Create the headless Service, set the pod subdomain, and inject
+  # CLOACINA_ADVERTISED_ADDRESS.
+  enabled: false
+  # Cluster DNS domain, used to build the advertised name. Override only if the
+  # cluster was installed with a non-default domain — a wrong value here yields
+  # an address that resolves nowhere, so injects fall back to the outbox rather
+  # than failing outright, which is safe but slow and easy to miss.
+  clusterDomain: cluster.local
+
+# ---------------------------------------------------------------------------
 # Ingress
 # ---------------------------------------------------------------------------
 ingress:
