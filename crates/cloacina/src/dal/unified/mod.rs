@@ -62,6 +62,7 @@ pub mod models;
 pub mod oidc_login_flows;
 #[cfg(feature = "postgres")]
 pub mod oidc_sessions;
+pub mod reactor_owner_addresses;
 pub mod reactor_subscriptions;
 pub mod recovery_event;
 pub mod schedule;
@@ -191,6 +192,14 @@ impl DAL {
     /// Unified (both backends) so its semantics are testable without Postgres.
     pub fn login_throttle(&self) -> LoginThrottleDAL<'_> {
         LoginThrottleDAL::new(self)
+    }
+
+    /// Returns the reactor owner-address DAL (CLOACI-T-0851 / A-0012
+    /// Amendment 3). A routing hint only — the advisory lock is the sole
+    /// ownership authority. Unified (both backends) so the takeover-race
+    /// semantics are testable without Postgres.
+    pub fn reactor_owner_addresses(&self) -> reactor_owner_addresses::ReactorOwnerAddressesDAL<'_> {
+        reactor_owner_addresses::ReactorOwnerAddressesDAL::new(self)
     }
 
     /// Returns an OIDC login-flow-state DAL (Postgres only). CLOACI-T-0801.

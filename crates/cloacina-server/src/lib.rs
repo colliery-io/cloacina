@@ -786,7 +786,31 @@ pub async fn run(
                      the same stream."
                 )
             })?;
-        graph_scheduler_inner.set_ownership(Arc::new(PostgresOwnership::new(session)));
+        // A-0012 Amendment 3: publish this replica's address on every won
+        // claim so injects landing on other replicas can be steered here.
+        // CLOACINA_ADVERTISED_ADDRESS is injected by the Helm chart when
+        // `reactorAffinity.enabled`; absent (compose, bare-metal, chart flag
+        // off) publication is skipped and misses use the outbox fallback —
+        // correct, just not hot.
+        let ownership = match std::env::var("CLOACINA_ADVERTISED_ADDRESS") {
+            Ok(addr) if !addr.is_empty() => {
+                info!(address = %addr, "reactor owner-address publication enabled");
+                PostgresOwnership::new(session).with_publication(
+                    cloacina::computation_graph::reactor_ownership::AddressPublication {
+                        dal: unified_dal.clone(),
+                        advertised_address: addr,
+                    },
+                )
+            }
+            _ => {
+                info!(
+                    "no CLOACINA_ADVERTISED_ADDRESS; owner addresses will not be published \
+                     (injects that miss fall back to the delivery outbox)"
+                );
+                PostgresOwnership::new(session)
+            }
+        };
+        graph_scheduler_inner.set_ownership(Arc::new(ownership));
         info!("reactor ownership session established (one pooled connection reserved)");
     }
 

@@ -476,6 +476,18 @@ pub use session::OwnershipSession;
 #[cfg(feature = "postgres")]
 pub struct PostgresOwnership {
     session: tokio::sync::Mutex<OwnershipSession>,
+    /// Address publication (A-0012 Amendment 3). `None` when this replica has
+    /// no advertised address (reactorAffinity disabled in the chart): claims
+    /// work exactly as before and injects that miss fall back to the outbox.
+    publication: Option<AddressPublication>,
+}
+
+/// Everything needed to publish/retract this replica's owner-address rows.
+#[cfg(feature = "postgres")]
+pub struct AddressPublication {
+    pub dal: crate::dal::unified::DAL,
+    /// This replica's reachable address (`CLOACINA_ADVERTISED_ADDRESS`).
+    pub advertised_address: String,
 }
 
 #[cfg(feature = "postgres")]
@@ -483,6 +495,57 @@ impl PostgresOwnership {
     pub fn new(session: OwnershipSession) -> Self {
         Self {
             session: tokio::sync::Mutex::new(session),
+            publication: None,
+        }
+    }
+
+    /// Enable owner-address publication for edge routing.
+    pub fn with_publication(mut self, publication: AddressPublication) -> Self {
+        self.publication = Some(publication);
+        self
+    }
+
+    /// Best-effort publish after a WON claim.
+    ///
+    /// Failure is logged, not returned: the claim itself is what makes this
+    /// replica the owner, and refusing ownership because a HINT could not be
+    /// written would invert the authority order this design is built on. The
+    /// cost of a missing row is the outbox fallback — slow, correct.
+    async fn publish_address(&self, id: &ReactorId) {
+        let Some(p) = self.publication.as_ref() else {
+            return;
+        };
+        if let Err(e) = p
+            .dal
+            .reactor_owner_addresses()
+            .publish(id.tenant.as_deref(), &id.name, &p.advertised_address)
+            .await
+        {
+            tracing::warn!(
+                reactor = %id.name,
+                tenant = ?id.tenant,
+                "failed to publish owner address (injects will use the outbox fallback): {e}"
+            );
+        }
+    }
+
+    /// Best-effort retract on release or detected loss. Uses `remove_if_ours`
+    /// so a stale retraction can never tear down a successor's row.
+    async fn retract_address(&self, id: &ReactorId) {
+        let Some(p) = self.publication.as_ref() else {
+            return;
+        };
+        if let Err(e) = p
+            .dal
+            .reactor_owner_addresses()
+            .remove_if_ours(id.tenant.as_deref(), &id.name, &p.advertised_address)
+            .await
+        {
+            tracing::warn!(
+                reactor = %id.name,
+                tenant = ?id.tenant,
+                "failed to retract owner address (a stale hint remains; costs a wasted redirect): {e}"
+            );
         }
     }
 }
@@ -491,15 +554,36 @@ impl PostgresOwnership {
 #[async_trait::async_trait]
 impl ReactorOwnership for PostgresOwnership {
     async fn claim(&self, id: &ReactorId) -> Result<bool, String> {
-        self.session.lock().await.claim(id).await
+        let won = self.session.lock().await.claim(id).await?;
+        if won {
+            // AFTER the lock, never before: the row must only ever describe a
+            // claim that actually succeeded.
+            self.publish_address(id).await;
+        }
+        Ok(won)
     }
 
     async fn release(&self, id: &ReactorId) -> Result<(), String> {
+        // Retract BEFORE the unlock: between unlock and retract another replica
+        // could claim and publish, and our late retraction would then race its
+        // publish. `remove_if_ours` makes that race harmless, but ordering this
+        // way makes it rare instead of routine.
+        self.retract_address(id).await;
         self.session.lock().await.release(id).await
     }
 
     async fn verify(&self) -> OwnershipCheck {
-        self.session.lock().await.verify_owned().await
+        let check = self.session.lock().await.verify_owned().await;
+        if let OwnershipCheck::Lost(lost) = &check {
+            // We no longer own these, so our address rows for them are lies.
+            // The new owner has likely already overwritten them (publish is
+            // delete+insert), in which case remove_if_ours deletes nothing —
+            // which is exactly right.
+            for id in lost {
+                self.retract_address(id).await;
+            }
+        }
+        check
     }
 
     async fn believed_owned(&self) -> Vec<ReactorId> {

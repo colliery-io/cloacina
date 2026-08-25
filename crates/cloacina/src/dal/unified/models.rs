@@ -22,10 +22,10 @@
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
     fleet_agents, key_trust_acls, login_throttle, package_artifacts, package_providers,
-    package_signatures, reactor_state, recovery_events, schedule_executions, schedules, secrets,
-    signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions,
-    tenant_data_keys, trusted_keys, workflow_executions, workflow_packages, workflow_registry,
-    ws_tickets,
+    package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
+    schedule_executions, schedules, secrets, signing_keys, state_accumulator_buffers,
+    task_execution_metadata, task_executions, tenant_data_keys, trusted_keys, workflow_executions,
+    workflow_packages, workflow_registry, ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -1139,4 +1139,30 @@ pub struct NewUnifiedStateAccumulatorBuffer {
     pub capacity: i32,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Reactor Owner Address Models (CLOACI-T-0851 / A-0012 Amendment 3)
+// ============================================================================
+
+/// Where to reach the replica that owns a reactor. A ROUTING HINT ONLY — the
+/// advisory lock in `computation_graph::reactor_lock_key` is the sole authority
+/// on ownership; a stale row here may cost a wasted redirect, never a wrong
+/// ownership decision.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = reactor_owner_addresses)]
+pub struct UnifiedReactorOwnerAddress {
+    pub tenant_id: Option<String>,
+    pub reactor_name: String,
+    pub address: String,
+    pub claimed_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = reactor_owner_addresses)]
+pub struct NewUnifiedReactorOwnerAddress {
+    pub tenant_id: Option<String>,
+    pub reactor_name: String,
+    pub address: String,
+    pub claimed_at: UniversalTimestamp,
 }
