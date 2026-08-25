@@ -522,3 +522,58 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
        filled accumulator window survives. Read the holder directly (reactor
        locks are held continuously); use the server-side catcher only for the
        post-kill wait.
+
+- 2026-08-24 — ROUTING RESHAPED; EDGE AFFINITY DESIGN SETTLED, NOT YET BUILT.
+  See [[CLOACI-A-0012]] AMENDMENT 3. Maintainer caught that Decision item 2 puts
+  the hot path on Postgres: with N replicas, ~(N−1)/N of injects land on a
+  non-owner, so "forward via the outbox" makes a durable INSERT + NOTIFY + drain
+  the COMMON case (ms vs µs for a channel send) and scales the database with
+  event rate. That contradicts the ADR's own "accumulator hot path is unchanged,
+  no throughput risk" claim — reintroducing the risk one layer earlier, at
+  ingest.
+
+  Outbox is therefore DEMOTED to the correctness backstop for the brief window
+  where ownership is changing and the edge's view is stale. Built and tested but
+  deliberately NOT wired into the inject routes — switching them before edge
+  affinity exists would have made Postgres the default path for every non-local
+  inject. `send_to_accumulator` remains the route path; no behaviour change.
+
+  **Two findings that shape the remaining work:**
+
+  a. **There is no replica-address concept anywhere.** `agent_registry` covers
+     execution agents, not server replicas; replicas sit behind a Service and
+     neither know nor publish a reachable address. So publication needs a new
+     config input, a table, and a migration — this is not a small wiring job.
+  b. **A WebSocket cannot be redirected mid-stream** (clients do not follow
+     redirects post-upgrade), **but the handshake is ordinary HTTP**, so a 307
+     at upgrade time works for clients that follow redirects. That splits the
+     paths usefully: REST redirects per request, WS redirects ONCE and then
+     stays hot for the connection's life — after which a pinned WS connection
+     costs nothing per event. This makes edge affinity substantially more
+     attractive than it first appeared, since the steady state is zero
+     forwarding AND zero redirects.
+
+  **Maintainer decision (2026-08-24): advertise a headless-service DNS name**
+  (stable per-pod DNS) rather than pod IP or an operator-configured URL. Chosen
+  for stability across IP churn; costs a chart change, since the current
+  Deployment has no headless Service or per-pod identity (needs `hostname` +
+  `subdomain`, or a StatefulSet).
+
+  **Implementation plan, in order — NONE of it started:**
+    1. Chart: headless Service + per-pod DNS identity; inject the replica's own
+       advertised name via env (downward API for pod name, composed with
+       subdomain/namespace).
+    2. Migration + DAL: `reactor_owner_addresses(tenant_id, reactor_name,
+       address, claimed_at)`. **This table is a ROUTING HINT ONLY — never a
+       second source of truth for ownership.** The advisory lock remains
+       authoritative; a stale row must only cause a wasted redirect (the target
+       redirects again, or the outbox backstop catches it), never a wrong
+       ownership decision. Prefer ADD COLUMN / CREATE INDEX shapes on sqlite
+       per repo convention.
+    3. Publish on claim / delete on release + on watchdog halt, inside
+       `PostgresOwnership` so address lifetime exactly matches lock lifetime.
+    4. Edge: REST inject → 307 to the owner; WS upgrade → 307 at handshake.
+       Fall back to the outbox when no address is published (mid-takeover).
+    5. e2e: assert an inject to a NON-owner reaches the owner, and that the
+       steady-state path does no outbox write (the whole point of the
+       amendment — otherwise this silently regresses to the slow path).
