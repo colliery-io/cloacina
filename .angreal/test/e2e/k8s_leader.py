@@ -114,6 +114,51 @@ REPLICAS = 2
 FLEET_LOCK_KEY = 8110127
 
 
+def reactor_lock_key(tenant, name):
+    """Python port of `cloacina::computation_graph::reactor_lock_key`.
+
+    Must agree bit-for-bit with the Rust implementation — a divergent key here
+    would make the harness watch a lock nobody holds, and (per the
+    advisory-lock trap documented on `advisory_lock_parts`) a lock query that
+    matches nothing PASSES a "single holder" assertion. The self-check below
+    pins this port to the exact literals the Rust stability test pins, so the
+    two implementations cannot drift apart silently.
+    """
+    fnv_offset = 0xCBF2_9CE4_8422_2325
+    fnv_prime = 0x0000_0100_0000_01B3
+    mask = 0xFFFF_FFFF_FFFF_FFFF
+
+    buf = bytearray(b"cloacina.reactor.ownership.v1\0")
+    if tenant is not None:
+        t = tenant.encode()
+        buf.append(1)
+        buf += len(t).to_bytes(8, "big")
+        buf += t
+    else:
+        buf.append(0)
+    n = name.encode()
+    buf += len(n).to_bytes(8, "big")
+    buf += n
+
+    h = fnv_offset
+    for b in buf:
+        h ^= b
+        h = (h * fnv_prime) & mask
+    h |= 1 << 63
+    # Reinterpret the u64 as i64 (the sign bit is forced, so always negative).
+    return h - (1 << 64)
+
+
+# Cross-language pin: these literals are asserted by the Rust test
+# `reactor_lock_key::tests::keys_are_stable_across_processes`. If either side
+# changes its encoding, this import fails loudly instead of the harness
+# silently watching the wrong lock.
+assert reactor_lock_key("public", "orders_reactor") == -798_654_939_832_276_275, \
+    "python reactor_lock_key diverged from the Rust implementation (tenant case)"
+assert reactor_lock_key(None, "orders_reactor") == -6_219_432_407_812_253_675, \
+    "python reactor_lock_key diverged from the Rust implementation (untenanted case)"
+
+
 def lock_query(key):
     """psql for 'who currently holds advisory lock `key`', as (client_addr, pid).
 
@@ -194,6 +239,150 @@ def _api(method, path, body=None, expect=(200, 201), base=None):
         return code, raw
 
 
+RX_NAME = "packaged_market_maker_reactor"
+RX_FIXTURE = "examples/fixtures/dist/packaged-graph.cloacina"
+RX_ACCUMULATOR = "orderbook"
+
+
+def _curl_pod_exec(kubeconfig, args):
+    """Run curl INSIDE the cluster (one-shot probe pod).
+
+    Needed because the owner addresses published under reactorAffinity are
+    headless-service DNS names — resolvable only by cluster DNS. Following a
+    redirect from the host through the port-forward would fail on DNS, and
+    that failure would be indistinguishable from the redirect being wrong.
+    """
+    r = _run(["kubectl", "run", "curl-probe-851", "--rm", "-i", "--restart=Never",
+              "--image=curlimages/curl:8.7.1", "-n", NS, "--command", "--",
+              "curl", "-s", *args],
+             env=_kube_env(kubeconfig), check=False, capture=True)
+    return (r.stdout or "").strip()
+
+
+def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build):
+    """CLOACI-T-0851 / A-0012: single reactor owner, published address, hot-path
+    edge routing, and failover with address republication. Best-effort like
+    assertion 4 — each unavailable precondition BLOCKS with a precise reason."""
+    key = "6. reactor ownership + edge routing"
+    compiler_ref = _prepare_compiler_image(tag, skip_build)
+    if compiler_ref is None:
+        results[key] = f"BLOCKED: no compiler image present; {CLAIMING_BLOCKED_REASON}"
+        print("  BLOCKED [6]: no compiler image to build the CG package")
+        return
+    _deploy_compiler(kubeconfig, compiler_ref)  # kubectl apply — idempotent
+    fixture_path = Path(angreal.get_root()).parent / RX_FIXTURE
+    if not fixture_path.exists():
+        results[key] = f"BLOCKED: fixture {RX_FIXTURE} missing"
+        return
+    try:
+        code, body = _upload_package(base, str(fixture_path))
+        print(f"  upload {RX_FIXTURE} -> {code}")
+    except Exception as exc:
+        # 409 = already uploaded by a previous best-effort assertion: fine.
+        if "409" not in str(exc):
+            results[key] = f"BLOCKED: package upload failed: {exc}"
+            return
+    print("  waiting for build_status=success (bounded 6m)...")
+    deadline = time.time() + 360
+    built = False
+    while time.time() < deadline:
+        _, wf = _api("GET", f"/v1/tenants/{TENANT}/workflows", expect=None, base=base)
+        items = wf.get("items", []) if isinstance(wf, dict) else []
+        if any(w.get("build_status") == "success" for w in items):
+            built = True
+            break
+        time.sleep(10)
+    if not built:
+        results[key] = f"BLOCKED: CG package never built; {CLAIMING_BLOCKED_REASON}"
+        print("  BLOCKED [6]: package never reached build_status=success")
+        return
+
+    # 6a: exactly one replica claims the reactor. Ownership locks are held
+    # CONTINUOUSLY (unlike the per-tick fleet lock), so the holder can be read
+    # directly — but the server-side catcher still bounds the wait for the
+    # reconciler to load the package and claim.
+    rx_key = reactor_lock_key(TENANT, RX_NAME)
+    print(f"  waiting for the reactor lock (key={rx_key}) to be claimed...")
+    holder = _catch_lock_holder(kubeconfig, target, key=rx_key, timeout_s=120)
+    if holder is None:
+        results[key] = "BLOCKED: reactor lock never claimed (package loaded but no reactor?)"
+        print("  BLOCKED [6]: no reactor-lock holder observed within 120s")
+        return
+    owner_pod, owner_addr_ip, _pid = holder
+    holders = _lock_holders(kubeconfig, target, query=lock_query(rx_key))
+    assert len(holders) <= 1, f"TWO simultaneous reactor owners: {holders}"
+    print(f"  6a OK: single reactor owner {owner_pod}")
+
+    # 6b: the owner PUBLISHED a routable address naming itself. Rows live in
+    # the public schema (the server's admin DAL); tenant is a column.
+    published = _psql(kubeconfig, target,
+                      f"SELECT address FROM reactor_owner_addresses "
+                      f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{TENANT}';")
+    assert published, "owner claimed the lock but published no address row"
+    assert owner_pod in published, (
+        f"published address {published!r} does not name the lock holder {owner_pod}")
+    print(f"  6b OK: owner address published: {published}")
+
+    # 6c: THE HOT-PATH ASSERTION (the point of A-0012 Amendment 3). Inject via
+    # the non-owner: expect a 307 whose Location is the owner's address; follow
+    # it in-cluster; then assert the outbox saw ZERO reactor_event rows —
+    # proving the redirect, not the durable fallback, carried the event.
+    pods = _server_pods_running(kubeconfig)
+    non_owner = next((p for p in pods if p != owner_pod), None)
+    assert non_owner, f"no second replica found among {pods}"
+    non_owner_ip = {v: k for k, v in _server_pod_ips(kubeconfig).items()}.get(non_owner)
+    assert non_owner_ip, f"no IP for non-owner pod {non_owner}"
+    inject_path = f"/v1/health/accumulators/{RX_ACCUMULATOR}/inject"
+    payload = '{"event": {"price": 101.5, "qty": 3}}'
+    out = _curl_pod_exec(kubeconfig, [
+        "-o", "/dev/null", "-w", "%{http_code} %{redirect_url}",
+        "-X", "POST", "-H", f"Authorization: Bearer {BOOTSTRAP_KEY}",
+        "-H", "Content-Type: application/json", "-d", payload,
+        f"http://{non_owner_ip}:8080{inject_path}"])
+    print(f"  non-owner inject -> {out}")
+    assert out.startswith("307"), f"expected 307 from the non-owner, got: {out}"
+    redirect_url = out.split(" ", 1)[1].strip()
+    assert owner_pod in redirect_url, (
+        f"redirect {redirect_url!r} does not point at the owner {owner_pod}")
+    followed = _curl_pod_exec(kubeconfig, [
+        "-o", "/dev/null", "-w", "%{http_code}",
+        "-X", "POST", "-H", f"Authorization: Bearer {BOOTSTRAP_KEY}",
+        "-H", "Content-Type: application/json", "-d", payload,
+        redirect_url])
+    assert followed.strip() == "200", f"owner did not accept the redirected inject: {followed}"
+    outbox = _psql(kubeconfig, target,
+                   "SELECT count(*) FROM delivery_outbox WHERE kind='reactor_event';")
+    assert outbox.strip() == "0", (
+        f"steady-state inject wrote {outbox} outbox rows — the hot path has "
+        f"silently regressed to the durable fallback")
+    print("  6c OK: 307 to the owner, owner accepted, ZERO outbox rows (hot path held)")
+
+    # 6d: failover — kill the owner; the survivor must claim AND republish.
+    print(f"  killing reactor owner {owner_pod}...")
+    _kubectl(["delete", "pod", owner_pod, "-n", NS, "--wait=false"], kubeconfig)
+    survivor = _catch_lock_holder(kubeconfig, target, key=rx_key,
+                                  exclude_pod=owner_pod, timeout_s=90)
+    assert survivor is not None, (
+        "no surviving replica claimed the reactor within 90s of the owner dying")
+    new_pod, _, _ = survivor
+    # Republication is async wrt the claim; poll briefly.
+    new_published = ""
+    for _ in range(30):
+        new_published = _psql(kubeconfig, target,
+                              f"SELECT address FROM reactor_owner_addresses "
+                              f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{TENANT}';")
+        if new_pod in new_published:
+            break
+        time.sleep(2)
+    assert new_pod in new_published, (
+        f"survivor {new_pod} claimed the lock but the address row still reads "
+        f"{new_published!r} — takeover did not republish")
+    print(f"  6d OK: survivor {new_pod} claimed and republished ({new_published})")
+
+    results[key] = "PASS"
+    print("  PASS [6]: single owner, published address, hot-path redirect, failover republish")
+
+
 # ---------------------------------------------------------------------------
 # helm deploy at replicaCount=2 (real chart RBAC, fleet.actuator=kubernetes)
 # ---------------------------------------------------------------------------
@@ -207,7 +396,9 @@ def _leader_values(tag, agent_ref, *, interval_s=1):
         '    - {name: CLOACINA_AUTOSCALE_INTERVAL_S, value: "5"}\n',
         f'    - {{name: CLOACINA_AUTOSCALE_INTERVAL_S, value: "{interval_s}"}}\n',
     )
-    return f"replicaCount: {REPLICAS}\n" + base
+    # CLOACI-T-0851: per-pod DNS identity + advertised address, so reactor
+    # ownership publishes routable owner addresses (assertion 6).
+    return f"replicaCount: {REPLICAS}\nreactorAffinity:\n  enabled: true\n" + base
 
 
 def _helm_deploy(kubeconfig, hostdir, tag, agent_ref):
@@ -895,6 +1086,14 @@ def k8s_leader(no_cleanup=False, skip_build=False, claiming=False, agents="3", t
                     f"rejoined={rejoined}/{REPLICAS}, lock_holders={len(post_holders)}")
                 print(f"  BLOCKED [5]: provision={post_replicas} rejoined={rejoined} "
                       f"holders={len(post_holders)}")
+
+        # ===== ASSERTION 6: reactor ownership + edge routing (CLOACI-T-0851) =
+        print("\n--- ASSERTION 6: reactor ownership + edge routing ---\n")
+        try:
+            _assert_reactor_ownership(kubeconfig, postgres, base, results, tag, skip_build)
+        except AssertionError as exc:
+            results["6. reactor ownership + edge routing"] = f"FAIL: {exc}"
+            print(f"  FAIL [6]: {exc}")
 
         # --- summary ---------------------------------------------------------
         print("\n" + "=" * 70)
