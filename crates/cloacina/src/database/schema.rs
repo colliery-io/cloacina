@@ -195,6 +195,31 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Where to reach the replica that owns a reactor (CLOACI-T-0851 /
+        /// ADR CLOACI-A-0012 Amendment 3).
+        ///
+        /// **A ROUTING HINT, NOT A SOURCE OF TRUTH FOR OWNERSHIP.** Ownership is
+        /// decided solely by the advisory lock in
+        /// `computation_graph::reactor_lock_key`; that lock proves who owns a
+        /// reactor but yields no address. This table supplies only the address.
+        ///
+        /// A stale row must cost at most a wasted redirect — the request lands
+        /// on a replica that no longer owns the reactor and is redirected again
+        /// or falls back to the delivery outbox. Reading a row here as proof of
+        /// ownership is a bug: it is a second, weaker answer to a question the
+        /// lock already answers, and the two disagree during a takeover.
+        reactor_owner_addresses (reactor_name) {
+            tenant_id -> Nullable<Text>,
+            reactor_name -> Text,
+            address -> Text,
+            claimed_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         /// Execution-agent fleet roster (CLOACI-T-0916). DB-backed so
         /// register/heartbeat state, same-tenant selection, capacity views and
         /// dead-agent reclaim are correct across server replicas. Reads are
