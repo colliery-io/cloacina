@@ -190,6 +190,60 @@ pub async fn accumulator_ws(
         .into_response();
     }
 
+    // CLOACI-T-0851 / A-0012 Amendment 3: if another replica owns the reactor
+    // hosting this accumulator, redirect at the HANDSHAKE. The upgrade request
+    // is ordinary HTTP, so a 307 here steers the client to the owner ONCE, and
+    // the connection then stays pinned there for its lifetime — every
+    // subsequent frame is an in-process channel send on the owner. A connection
+    // accepted here instead would pay a per-event forward forever; a redirect
+    // mid-stream is impossible (WS clients only follow redirects pre-upgrade).
+    //
+    // Checked BEFORE on_upgrade — after acceptance the 307 can never be sent.
+    let mut known_foreign = false;
+    if let Some(reactor_key) = state
+        .graph_scheduler
+        .foreign_reactor_for_accumulator(auth.tenant_id.as_deref(), &name)
+        .await
+    {
+        let dal = cloacina::dal::unified::DAL::new(state.database.clone());
+        match dal
+            .reactor_owner_addresses()
+            .lookup(reactor_key.tenant_id.as_deref(), &reactor_key.name)
+            .await
+        {
+            Ok(Some(owner_addr)) => {
+                let location = format!(
+                    "{}/v1/ws/accumulators/{}",
+                    owner_addr.trim_end_matches('/'),
+                    name
+                );
+                info!(
+                    accumulator = %name,
+                    owner = %location,
+                    "accumulator owned by another replica; redirecting WS handshake"
+                );
+                return Response::builder()
+                    .status(axum::http::StatusCode::TEMPORARY_REDIRECT)
+                    .header(axum::http::header::LOCATION, location)
+                    .body(axum::body::Body::empty())
+                    .unwrap_or_else(|_| {
+                        ApiError::internal("redirect construction failed").into_response()
+                    });
+            }
+            // No address published (mid-takeover) — accept the connection in
+            // fallback mode: frames go through the inject path (local try,
+            // then durable outbox), so events are slow but never lost. The
+            // client's next reconnect gets the redirect once the new owner
+            // publishes.
+            Ok(None) => {
+                known_foreign = true;
+            }
+            Err(e) => {
+                warn!(accumulator = %name, "owner-address lookup failed: {e}");
+            }
+        }
+    }
+
     info!(
         accumulator = %name,
         key = %auth.name,
@@ -197,7 +251,10 @@ pub async fn accumulator_ws(
     );
 
     let registry = state.endpoint_registry.clone();
-    ws.on_upgrade(move |socket| handle_accumulator_socket(socket, name, auth, registry))
+    let dal = cloacina::dal::unified::DAL::new(state.database.clone());
+    ws.on_upgrade(move |socket| {
+        handle_accumulator_socket(socket, name, auth, registry, dal, known_foreign)
+    })
 }
 
 /// WebSocket handler for reactor endpoints.
@@ -264,6 +321,11 @@ async fn handle_accumulator_socket(
     name: String,
     auth: AuthenticatedKey,
     registry: EndpointRegistry,
+    dal: cloacina::dal::unified::DAL,
+    // Decided at handshake: this accumulator's reactor is owned elsewhere and
+    // no redirect was possible (no address published). Frames route through
+    // the inject fallback rather than the direct registry send.
+    known_foreign: bool,
 ) {
     debug!(accumulator = %name, key = %auth.name, "accumulator WebSocket connected");
     let _conn_guard = WsConnectionGuard::new("accumulator");
@@ -281,6 +343,44 @@ async fn handle_accumulator_socket(
                     tenant_id: auth.tenant_id.as_deref(),
                     is_admin: auth.is_admin,
                 };
+                // CLOACI-T-0851: a connection accepted for a KNOWN-FOREIGN
+                // accumulator (mid-takeover — no owner address existed at
+                // handshake, so no redirect was possible) routes through
+                // `inject_event`: local first (covers a takeover TO this
+                // replica), then the durable outbox — slow but never lost.
+                // Decided ONCE at handshake, not per frame, so the ordinary
+                // local path below pays nothing for this. If ownership is
+                // lost MID-connection instead, the local send fails, the
+                // 4404 close fires, and the client's reconnect handshake
+                // performs the redirect — which is the correct recovery.
+                if known_foreign {
+                    match cloacina::computation_graph::reactor_routing::inject_event(
+                        &registry,
+                        Some(&dal),
+                        &name,
+                        auth.tenant_id.as_deref(),
+                        bytes,
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            record_ws_message("accumulator", "in");
+                            continue;
+                        }
+                        Err(e) => {
+                            warn!(accumulator = %name, error = %e, "foreign-frame forward failed; closing");
+                        }
+                    }
+                    let _ = socket
+                        .send(axum::extract::ws::Message::Close(Some(
+                            axum::extract::ws::CloseFrame {
+                                code: 4404,
+                                reason: format!("accumulator '{}' not reachable", name).into(),
+                            },
+                        )))
+                        .await;
+                    break;
+                }
                 match registry.send_to_accumulator(&name, scope, bytes).await {
                     Ok(count) => {
                         debug!(accumulator = %name, recipients = count, "forwarded binary message");

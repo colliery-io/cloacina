@@ -531,6 +531,13 @@ pub struct ComputationGraphScheduler {
     /// This is also where routing will look when it lands: "who should this
     /// event go to" starts with "is this reactor foreign to me".
     foreign_reactors: Arc<RwLock<std::collections::HashSet<TenantKey>>>,
+    /// For each accumulator belonging to a FOREIGN reactor: which reactor.
+    ///
+    /// The inject edge needs to redirect by accumulator name, but owner
+    /// addresses are published per reactor; only the graph declaration links
+    /// the two, and it is only in hand at load time. Keyed like everything
+    /// else by `(tenant, name)`.
+    foreign_accumulators: Arc<RwLock<HashMap<TenantKey, TenantKey>>>,
     /// Maps graph key → reactor key so external operations that take a
     /// graph_name (`unload_graph`, `list_graphs`) can find the reactor that
     /// hosts it. The *value* is a full key, not a name, so a subscriber in one
@@ -559,6 +566,7 @@ impl ComputationGraphScheduler {
             dal: None,
             ownership: None,
             foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            foreign_accumulators: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -575,6 +583,7 @@ impl ComputationGraphScheduler {
             dal: Some(dal),
             ownership: None,
             foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            foreign_accumulators: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -714,6 +723,22 @@ impl ComputationGraphScheduler {
                         .write()
                         .await
                         .insert(reactor_key.clone());
+                    // Record which FOREIGN reactor each of this graph's
+                    // accumulators belongs to. The inject edge needs this: an
+                    // inject names an ACCUMULATOR, but owner addresses are
+                    // published per REACTOR, and only the declaration — which
+                    // we have right here and the routes never see — links the
+                    // two. Without this map a non-owner cannot compute where to
+                    // redirect, and every miss would fall back to the outbox.
+                    {
+                        let mut fa = self.foreign_accumulators.write().await;
+                        for acc in &accumulators {
+                            fa.insert(
+                                TenantKey::new(tenant_id.as_deref(), &acc.name),
+                                reactor_key.clone(),
+                            );
+                        }
+                    }
                     return Ok(());
                 }
                 Err(e) => {
@@ -1338,6 +1363,23 @@ impl ComputationGraphScheduler {
     /// Whether cross-replica ownership is in force.
     pub fn has_ownership_coordination(&self) -> bool {
         self.ownership.is_some()
+    }
+
+    /// If `accumulator` belongs to a reactor another replica owns, return that
+    /// reactor's key so the caller can look up the owner's address and
+    /// redirect. `None` means "not known to be foreign" — the accumulator is
+    /// local, or nonexistent; the caller distinguishes those the way it always
+    /// has.
+    pub async fn foreign_reactor_for_accumulator(
+        &self,
+        tenant_id: Option<&str>,
+        accumulator: &str,
+    ) -> Option<crate::TenantKey> {
+        self.foreign_accumulators
+            .read()
+            .await
+            .get(&TenantKey::new(tenant_id, accumulator))
+            .cloned()
     }
 
     /// One watchdog tick: verify what we believe we own, and act on the verdict.
@@ -2522,6 +2564,45 @@ mod tests {
             reactor_name: Some(reactor.to_string()),
             topology: Some(format!("{{\"graph\":\"{}\"}}", graph)),
         }
+    }
+
+    /// The inject edge redirects by ACCUMULATOR name but addresses are
+    /// published per REACTOR; the declaration is the only thing linking them,
+    /// and it is only in hand at load time. Losing a claim must therefore
+    /// record the accumulator→reactor mapping, or a non-owner cannot compute
+    /// where to redirect and every inject falls back to the outbox.
+    #[tokio::test]
+    async fn losing_a_claim_records_the_accumulator_to_reactor_mapping() {
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler.set_ownership(Arc::new(FakeOwnership {
+            refuse_claim: true,
+            ..Default::default()
+        }));
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("load succeeds even when the claim is lost");
+
+        let key = scheduler
+            .foreign_reactor_for_accumulator(Some("acme"), "pipeline_acc")
+            .await
+            .expect("the graph's accumulator must map to its foreign reactor");
+        assert_eq!(key.name, "rx");
+        assert_eq!(key.tenant_id.as_deref(), Some("acme"));
+
+        // Unknown accumulators and other tenants stay unmapped — a typo must
+        // NOT produce a redirect.
+        assert!(scheduler
+            .foreign_reactor_for_accumulator(Some("acme"), "nope")
+            .await
+            .is_none());
+        assert!(scheduler
+            .foreign_reactor_for_accumulator(Some("globex"), "events")
+            .await
+            .is_none());
+        scheduler.shutdown_all().await;
     }
 
     /// A replica that does not win the claim must NOT start the reactor — that

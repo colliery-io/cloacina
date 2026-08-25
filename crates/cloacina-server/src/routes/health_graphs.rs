@@ -777,13 +777,101 @@ pub async fn inject_accumulator(
             })
             .into_response()
         }
-        // The registry only fails here if the accumulator isn't registered or
-        // its channels are closed — surface as not-found.
-        Err(e) => ApiError::not_found(
-            "accumulator_not_found",
-            format!("accumulator '{}' not available: {}", name, e),
-        )
-        .into_response(),
+        // Not hosted here. CLOACI-T-0851 / A-0012 Amendment 3: under
+        // per-reactor leadership another replica may own the reactor hosting
+        // this accumulator, so "not registered locally" no longer implies "does
+        // not exist". Resolution order, cheapest-and-hottest first:
+        //
+        //   1. local delivery (already attempted above — the hot path)
+        //   2. 307 to the published owner address — the caller replays the
+        //      SAME request against the owner and lands on ITS hot path
+        //   3. durable outbox — mid-takeover, when no address is published
+        //   4. not_found — only when nothing suggests the accumulator exists
+        //      anywhere: single-replica behaviour, byte-for-byte
+        //
+        // 307 specifically (not 301/302): it preserves method and body, and it
+        // must not be cached — ownership moves, and a cached redirect would
+        // keep steering injects at a replica that no longer owns the reactor.
+        Err(registry_err) => {
+            let tenant = auth.tenant_id.as_deref();
+            let dal = cloacina::dal::unified::DAL::new(state.database.clone());
+
+            // Which foreign reactor hosts this accumulator? Only the scheduler
+            // knows — it recorded the mapping from the graph declaration at
+            // load time, when it lost the claim.
+            if let Some(reactor_key) = state
+                .graph_scheduler
+                .foreign_reactor_for_accumulator(tenant, &name)
+                .await
+            {
+                match dal
+                    .reactor_owner_addresses()
+                    .lookup(reactor_key.tenant_id.as_deref(), &reactor_key.name)
+                    .await
+                {
+                    Ok(Some(owner_addr)) => {
+                        let location = format!(
+                            "{}/v1/health/accumulators/{}/inject",
+                            owner_addr.trim_end_matches('/'),
+                            name
+                        );
+                        return axum::response::Response::builder()
+                            .status(axum::http::StatusCode::TEMPORARY_REDIRECT)
+                            .header(axum::http::header::LOCATION, location)
+                            .body(axum::body::Body::empty())
+                            .unwrap_or_else(|_| {
+                                ApiError::internal("redirect construction failed").into_response()
+                            });
+                    }
+                    Ok(None) => {
+                        // Known-foreign but no address published: mid-takeover,
+                        // or affinity disabled. The durable outbox keeps the
+                        // event from being lost. Scoped to known-foreign
+                        // accumulators only, so a typo'd name still 404s below
+                        // instead of enqueueing garbage forever.
+                        // Re-encode from `req.event` (still in scope) rather
+                        // than cloning `event` up front: the local delivery
+                        // above consumed the bytes, and paying an extra
+                        // allocation on EVERY inject to serve this rare
+                        // fallback would tax the hot path for the cold one.
+                        let bytes = match serde_json::to_vec(&req.event) {
+                            Ok(b) => b,
+                            Err(_) => Vec::new(), // encoded once already; cannot fail differently
+                        };
+                        match cloacina::computation_graph::reactor_routing::inject_event(
+                            &state.endpoint_registry,
+                            Some(&dal),
+                            &name,
+                            tenant,
+                            bytes,
+                        )
+                        .await
+                        {
+                            Ok(
+                                cloacina::computation_graph::reactor_routing::InjectOutcome::Forwarded,
+                            ) => {
+                                return Json(InjectAccumulatorResponse {
+                                    accumulator: name,
+                                    // 0 delivered locally; the owner delivers on drain.
+                                    delivered: 0,
+                                })
+                                .into_response();
+                            }
+                            _ => { /* fall through to not_found */ }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("owner-address lookup failed for '{}': {}", name, e);
+                    }
+                }
+            }
+            // Not local, not known-foreign: single-replica behaviour verbatim.
+            ApiError::not_found(
+                "accumulator_not_found",
+                format!("accumulator '{}' not available: {}", name, registry_err),
+            )
+            .into_response()
+        }
     }
 }
 
