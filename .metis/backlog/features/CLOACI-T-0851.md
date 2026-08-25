@@ -559,7 +559,8 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
   Deployment has no headless Service or per-pod identity (needs `hostname` +
   `subdomain`, or a StatefulSet).
 
-  **Implementation plan, in order — NONE of it started:**
+  **Implementation plan, in order — steps 1–4 DONE as of 2026-08-24 (see the
+  2026-08-24 cont. entry below); only step 5 (e2e) remains:**
     1. Chart: headless Service + per-pod DNS identity; inject the replica's own
        advertised name via env (downward API for pod name, composed with
        subdomain/namespace).
@@ -577,3 +578,59 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
     5. e2e: assert an inject to a NON-owner reaches the owner, and that the
        steady-state path does no outbox write (the whole point of the
        amendment — otherwise this silently regresses to the slow path).
+
+- 2026-08-24 (cont.) — EDGE ROUTING BUILT (steps 1–4 of the plan). PR #255.
+  94 computation_graph tests + 6 DAL tests green; server compiles.
+
+  **Step 2–3 recap:** `reactor_owner_addresses` migration (both backends; the
+  uniqueness is an expression index over `COALESCE(tenant_id,'')` because in
+  SQL NULL <> NULL — a plain UNIQUE would admit many untenanted rows for one
+  reactor; proven live against postgres). DAL with `publish` /
+  `remove_if_ours` / `lookup`; `remove_if_ours` matches on the publisher's own
+  address so the race (A claims → A dies → B claims+publishes → A's late
+  release finally runs) cannot tear down B's row — pinned by test. Publication
+  wired into `PostgresOwnership`: publish only AFTER a won claim, retract
+  BEFORE unlock on release and on watchdog-detected loss; publication failure
+  is logged, never returned, because refusing ownership over a HINT would
+  invert the authority order. Server enables it from
+  `CLOACINA_ADVERTISED_ADDRESS` (chart-injected under `reactorAffinity`).
+
+  **Step 4, and the design gap it surfaced:** injects name an ACCUMULATOR but
+  addresses are published per REACTOR, and only the graph declaration links
+  the two — available exactly once, at load time. So losing a claim now also
+  records `foreign_accumulators: (tenant, acc) → reactor key` in the
+  scheduler, exposed as `foreign_reactor_for_accumulator`. Without it a
+  non-owner cannot compute where to redirect and everything would silently
+  fall back to the outbox.
+
+  **REST inject resolution ladder** (health_graphs.rs), hottest first:
+    1. local channel send (unchanged, zero new cost)
+    2. known-foreign + address published → **307** (preserves method+body;
+       not cacheable — ownership moves, and a cached redirect would keep
+       steering at an ex-owner)
+    3. known-foreign, no address (mid-takeover) → durable outbox, reported as
+       delivered:0. Scoped to KNOWN-foreign only, so a typo'd name still 404s
+       instead of enqueueing garbage forever.
+    4. otherwise → not_found, byte-for-byte single-replica behaviour.
+
+  **WS:** redirect at the HANDSHAKE (upgrade is plain HTTP; post-upgrade
+  redirects are impossible) — the client pins to the owner ONCE and every
+  subsequent frame is an in-process send. If no address exists at handshake
+  (mid-takeover) the connection is accepted in fallback mode: `known_foreign`
+  is decided once at handshake and passed in, and such frames route through
+  `inject_event` (local try, then outbox). Ownership lost MID-connection →
+  the 4404 close fires and the client's reconnect handshake gets the
+  redirect, which is the correct recovery.
+
+  **Hot-path discipline note:** twice during this step the easy fix was a
+  `.clone()` on the per-event path (REST: clone before local send; WS: clone
+  every frame for a fallback that almost never runs). Both were caught and
+  restructured — REST re-encodes from the still-in-scope `req.event` only in
+  the cold arm; WS decides foreignness once per CONNECTION, not per frame.
+  The entire point of Amendment 3 is that the common case pays nothing; a
+  quiet allocation per event would have eroded exactly that.
+
+  REMAINING: step 5 only — the multi-replica e2e (k8s-leader reactor
+  assertions): non-owner inject reaches the owner via redirect; steady state
+  does NO outbox write; kill the owner → survivor claims, republishes, and a
+  partially-filled accumulator window survives.
