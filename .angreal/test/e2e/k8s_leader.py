@@ -347,7 +347,12 @@ def _curl_pod_exec(kubeconfig, args):
     deleted...`, whose follow-up curl exited 000 — which then masqueraded as
     "the owner address is unreachable" for two runs.
     """
-    r = _run(["kubectl", "run", "curl-probe-851", "--rm", "-i", "--restart=Never",
+    # Unique name per invocation: a FIXED name races the previous probe's
+    # still-terminating pod ("AlreadyExists"), curl never runs, and the parsed
+    # output degenerates to kubectl's deletion notice — seen as a spurious
+    # inject failure after five consecutive green runs of the same step.
+    probe = f"curl-probe-{uuid.uuid4().hex[:6]}"
+    r = _run(["kubectl", "run", probe, "--rm", "-i", "--restart=Never",
               "--image=curlimages/curl:8.7.1", "-n", NS, "--command", "--",
               "curl", "-s", *args],
              env=_kube_env(kubeconfig), check=False, capture=True)
