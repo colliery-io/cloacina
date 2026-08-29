@@ -19,6 +19,7 @@ packaged = []
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+cloacina-computation-graph = "0.10"
 cloacina-macros = "0.10"
 cloacina-workflow = { version = "0.10", features = ["packaged"] }
 cloacina-workflow-plugin = "0.10"

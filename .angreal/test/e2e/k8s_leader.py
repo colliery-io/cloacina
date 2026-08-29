@@ -553,6 +553,13 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         if ha_status in ("success", "failed"):
             break
         time.sleep(10)
+    if ha_status == "failed":
+        # Pull the actual compiler error — "build_status=failed" alone cost a
+        # full cluster cycle to diagnose when the fixture was missing a dep.
+        err = _psql(kubeconfig, target,
+                    f"SELECT left(coalesce(build_error,''),400) FROM "
+                    f"{RX_TENANT}.workflow_packages WHERE package_name='{HA_PKG_NAME}';")
+        raise AssertionError(f"ha-state build failed: {err.strip()}")
     assert ha_status == "success", f"ha-state build_status={ha_status}"
 
     ha_key = reactor_lock_key(RX_TENANT, HA_RX)
