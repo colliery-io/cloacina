@@ -240,8 +240,34 @@ def _api(method, path, body=None, expect=(200, 201), base=None):
 
 
 RX_NAME = "packaged_market_maker_reactor"
-RX_FIXTURE = "examples/fixtures/dist/packaged-graph.cloacina"
+RX_EXAMPLE = "examples/features/computation-graphs/packaged-graph"
+RX_PKG_DIR = "packaged-graph-example-0.1.0"  # must match package.toml name-version
 RX_ACCUMULATOR = "orderbook"
+
+
+def _pack_rx_fixture(tmpdir):
+    """Pack the CG example into a source archive the IN-CLUSTER compiler can build.
+
+    The pre-packed `examples/fixtures/dist/*.cloacina` archives are HOST-flavored:
+    `pack-demo-fixtures.sh` rewrites `__WORKSPACE__` to the packing machine's
+    checkout path, so their Cargo.tomls carry absolute host paths (e.g.
+    `/Users/<user>/...`) that resolve only for a compiler running ON that host —
+    the demos compose stack. Inside the cluster they fail `cargo fetch` with
+    "No such file or directory". This bit as a 13ms build failure that took a
+    live cluster and the `build_error` column to diagnose.
+
+    The features example instead ships crates.io VERSION deps (the form real
+    users ship), which the in-cluster compiler resolves against its baked
+    `/workspace` source via CLOACINA_COMPILER_DEV_WORKSPACE — see
+    `_deploy_compiler`. So: pack the example verbatim, no rewriting at all.
+    """
+    import tarfile
+    src = Path(angreal.get_root()).parent / RX_EXAMPLE
+    out = Path(tmpdir) / "packaged-graph.cloacina"
+    with tarfile.open(out, "w:bz2") as tf:
+        for rel in ("package.toml", "Cargo.toml", "build.rs", "src/lib.rs"):
+            tf.add(src / rel, arcname=f"{RX_PKG_DIR}/{rel}")
+    return out
 
 
 def _curl_pod_exec(kubeconfig, args):
@@ -270,13 +296,16 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         print("  BLOCKED [6]: no compiler image to build the CG package")
         return
     _deploy_compiler(kubeconfig, compiler_ref)  # kubectl apply — idempotent
-    fixture_path = Path(angreal.get_root()).parent / RX_FIXTURE
-    if not fixture_path.exists():
-        results[key] = f"BLOCKED: fixture {RX_FIXTURE} missing"
+    import tempfile
+    tmpdir = tempfile.mkdtemp(prefix="rx-fixture-")
+    try:
+        fixture_path = _pack_rx_fixture(tmpdir)
+    except Exception as exc:
+        results[key] = f"BLOCKED: packing {RX_EXAMPLE} failed: {exc}"
         return
     try:
         code, body = _upload_package(base, str(fixture_path))
-        print(f"  upload {RX_FIXTURE} -> {code}")
+        print(f"  upload {RX_EXAMPLE} (fresh pack) -> {code}")
     except Exception as exc:
         # 409 = already uploaded by a previous best-effort assertion: fine.
         if "409" not in str(exc):
@@ -743,7 +772,22 @@ def _deploy_compiler(kubeconfig, compiler_ref):
                              "--poll-interval-ms", "1000",
                              "--cargo-target-dir", "/workspace/target",
                              "--cargo-flags-replace=build", "--cargo-flags-replace=--lib"],
-                    "env": [{"name": "CARGO_PROFILE_DEV_DEBUG", "value": "0"}],
+                    "env": [{"name": "CARGO_PROFILE_DEV_DEBUG", "value": "0"},
+                            # CLOACI-T-0779: compilers are TENANT-SCOPED by
+                            # design — one per tenant, like the agent fleet.
+                            # Unscoped, this compiler polls only the `public`
+                            # schema while the lane uploads to TENANT, so every
+                            # build sits `pending` forever and the compiler
+                            # logs nothing. That silent mismatch blocked
+                            # assertions 4 AND 6 across four runs before being
+                            # diagnosed from the live DB, so: never omit this.
+                            {"name": "CLOACINA_TENANT_SCHEMA", "value": TENANT},
+                            # CLOACI-T-0887 dev escape hatch: fixtures ship
+                            # crates.io version deps (the form users ship);
+                            # resolve them against the workspace source baked
+                            # into the compiler image at /workspace.
+                            {"name": "CLOACINA_COMPILER_DEV_WORKSPACE",
+                             "value": "/workspace"}],
                 }]},
             },
         },
