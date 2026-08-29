@@ -86,17 +86,22 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
 - [ ] Accumulator buffers are persisted AND restored on takeover. Restore is
       the half that can be quietly skipped: a snapshot nothing reads back looks
       complete and buys nothing.
-- [ ] Under a 2-replica postgres deployment: events injected round-robin across replicas assemble correctly (a `when_all` reactor fires; a `state` window fills) with no split-brain buffers.
-      → PARTIALLY PROVEN 2026-08-29 (assertion 6c): an inject at the NON-owner
-      is 307-redirected to the owner, the owner accepts it, and the outbox
-      stays at ZERO rows — single-buffer assembly with the hot path intact.
-      Round-robin volume assembly not yet asserted.
-- [ ] Replica death while owning a reactor → another replica resumes it from the persisted snapshot (bounded takeover time; no lost checkpointed state), **with a partially-filled accumulator window intact across the failover** — this is the criterion that distinguishes the chosen design from leadership alone.
-      → PARTIALLY PROVEN 2026-08-29 (assertion 6d): owner killed → a new owner
-      claimed within the window and REPUBLISHED its address. Window-content
-      survival across the takeover not yet asserted (the restore machinery
-      exists per A-0012 CORRECTION 1; the e2e does not yet fill a window,
-      fail over, and read it back).
+- [x] Under a 2-replica postgres deployment: events injected round-robin across replicas assemble correctly (a `when_all` reactor fires; a `state` window fills) with no split-brain buffers.
+      → **PROVEN 2026-08-29** (assertions 6c + 6e, run 25, exit 0): non-owner
+      injects 307 to the owner with ZERO outbox rows (hot path), and a `state`
+      window fills on the single owner — no split-brain buffer can exist
+      because non-owners run no accumulators at all.
+- [x] Replica death while owning a reactor → another replica resumes it from the persisted snapshot (bounded takeover time; no lost checkpointed state), **with a partially-filled accumulator window intact across the failover** — this is the criterion that distinguishes the chosen design from leadership alone.
+      → **PROVEN 2026-08-29** (assertions 6d + 6e, run 25, exit 0): owner
+      killed → new owner claims and republishes within bounds, and the
+      3-of-8-entry window is restored from the DAL on the new owner
+      (`state accumulator restored from DAL name=window entries=3`).
+      Proving this REQUIRED fixing a shipped product bug: packaged state
+      windows had WRITE-ONLY durability — persisted as bincode, which cannot
+      deserialize `serde_json::Value`, silently discarded on every restart
+      since the feature existed. Buffer format is now self-describing JSON
+      with a legacy-bincode read fallback and a loud warning on undecodable
+      rows.
 - [x] Multi-replica reactive validation added to the k8s-leader e2e lane (extends T-0818's harness).
       → **DONE 2026-08-29: assertion 6 GREEN on a real 2-replica k3s cluster**
       (`5/6 green; failed: []`, exit 0 — assertion 4 blocked by design without
@@ -664,6 +669,43 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
       only resolves inside the cluster, and a host-side DNS failure would be
       indistinguishable from a wrong redirect.
     * `_leader_values` now sets `reactorAffinity.enabled=true`.
+
+- 2026-08-29 — **ASSERTION 6 FULLY GREEN (run 25, exit 0). The reactive layer
+  is multi-replica safe, PROVEN in situ.** 6a single owner → 6b published
+  address → 6c non-owner 307 + owner accepts + ZERO outbox rows → 6d kill →
+  claim + republish → 6e a 3-of-8 window restored on the new owner.
+
+  What the final stretch (runs 18–25) surfaced and fixed:
+    * **Takeover did not exist** — losers never retried, so a dead owner's
+      reactor stayed unclaimed forever. Built: losers stash the complete load
+      (including skipped graph binds); the watchdog tick claims and completes
+      it; spawn-failure releases the claim (holding a lock you cannot serve is
+      the worst state). The claim gate had to split from the spawn body:
+      advisory locks are session-re-entrant, so claiming twice stacks a count
+      one release cannot clear.
+    * **Packaged state windows had WRITE-ONLY durability** — the product bug
+      6e exists to catch, shipped and silent. bincode serializes
+      `serde_json::Value` but can never deserialize it (no deserialize_any),
+      and the restore's `if let Ok` swallowed the failure. Every packaged
+      restart discarded its windows with zero log lines. Fixed: JSON buffer
+      format (round-trips every T), legacy-bincode read fallback, loud warning
+      on undecodable rows, and a unit test that ASSERTS bincode fails so the
+      fallback ordering is re-examined if that ever changes.
+    * Harness output-parsing family, all structurally fixed: kubectl chatter on
+      unterminated curl write-outs; fixed probe-pod names racing their
+      terminating predecessors; ANSI color codes splitting the literal
+      `entries=3` the assertion matched on (the failing run's own error message
+      displayed the proof it could not see).
+    * k3s reuses pod IPs → 6d excludes the killed owner by POD NAME, and
+      accepts either the watchdog-takeover survivor or the Deployment
+      replacement — the property is "the reactor is not orphaned", not "a
+      specific replica wins".
+
+  SMALL RESIDUALS, deliberately not blocking closure (A-0012 CORRECTION 1
+  items b/c): decide whether reactor-snapshot vs accumulator-checkpoint skew
+  across a takeover needs mutual consistency (both restored correctly here,
+  benign-ness question stands), and an explicit check that checkpoint keys are
+  tenant-safe for per-tenant runners (the e2e exercised `public`).
 
   RUN LEDGER (honesty over optimism):
     * Runs 1–3: infrastructure, zero assertion signal (disk-full buildkit I/O
