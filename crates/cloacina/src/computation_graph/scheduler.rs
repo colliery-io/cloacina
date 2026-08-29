@@ -1555,9 +1555,18 @@ impl ComputationGraphScheduler {
             let id = super::reactor_ownership::ReactorId::from(&key);
             match ownership.claim(&id).await {
                 Ok(true) => {}
-                // Still owned elsewhere (the ordinary case) or unverifiable —
-                // leave the pending entry for the next tick either way.
-                Ok(false) | Err(_) => continue,
+                // Still owned elsewhere — the ordinary case; try next tick.
+                Ok(false) => continue,
+                Err(e) => {
+                    // NEVER swallow this. A claim error every tick is how a
+                    // dead ownership connection presents on a replica that
+                    // owns nothing (verify short-circuits on an empty believed
+                    // set, so nothing else would ever notice) — and a silent
+                    // `continue` here turns "takeover is broken" into "no logs
+                    // at all", which cost a full cluster run to even suspect.
+                    tracing::warn!(reactor = %key, "takeover claim attempt failed: {e}");
+                    continue;
+                }
             }
 
             // Claim won: take the stored load OUT before spawning, so a

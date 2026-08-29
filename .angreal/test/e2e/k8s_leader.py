@@ -436,13 +436,26 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         f"silently regressed to the durable fallback")
     print("  6c OK: 307 to the owner, owner accepted, ZERO outbox rows (hot path held)")
 
-    # 6d: failover — kill the owner; the survivor must claim AND republish.
+    # 6d: failover — kill the owner; a NEW owner must claim AND republish.
+    # (Either the survivor via watchdog takeover, or the killed pod's
+    # Deployment replacement via its boot-time load — both are legitimate.)
     print(f"  killing reactor owner {owner_pod}...")
     _kubectl(["delete", "pod", owner_pod, "-n", NS, "--wait=false"], kubeconfig)
-    survivor = _catch_lock_holder(kubeconfig, target, key=rx_key,
-                                  exclude_pod=owner_pod, timeout_s=90)
+    # Exclusion is by POD NAME in Python, deliberately NOT by client_addr in
+    # SQL: k3s reuses pod IPs, so the replacement pod can inherit the killed
+    # owner's address — an addr-based exclusion would then filter out the
+    # legitimate NEW owner and report "no holder" until timeout.
+    survivor = None
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        cand = _catch_lock_holder(kubeconfig, target, key=rx_key, timeout_s=15)
+        if cand is not None and cand[0] != owner_pod:
+            survivor = cand
+            break
+        time.sleep(2)
     assert survivor is not None, (
-        "no surviving replica claimed the reactor within 90s of the owner dying")
+        "no replica (survivor or replacement) claimed the reactor within 120s "
+        "of the owner dying")
     new_pod, new_ip, _ = survivor
     # Republication is async wrt the claim; poll briefly. Matched on the
     # survivor's IP (addresses are pod IPs — see 6b).
