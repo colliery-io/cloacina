@@ -266,6 +266,37 @@ HA_RX = "ha_state_rx"
 HA_ACC = "window"
 
 
+def _upload_package_incluster(kubeconfig, fixture_path, tenant):
+    """Upload via the SERVICE from inside the cluster.
+
+    The host port-forward pins to ONE pod, and assertion 6 kills pods — an
+    upload through a forward whose pod just died fails with "Remote end closed
+    connection". The Service load-balances across live endpoints, so an
+    in-cluster upload survives any single kill. Returns the HTTP status code.
+    """
+    name = f"upload-{uuid.uuid4().hex[:6]}"
+    _run(["kubectl", "run", name, "--restart=Never",
+          "--image=curlimages/curl:8.7.1", "-n", NS, "--command", "--",
+          "sleep", "300"], env=_kube_env(kubeconfig), check=True, capture=True)
+    try:
+        _run(["kubectl", "wait", "--for=condition=Ready", f"pod/{name}",
+              "-n", NS, "--timeout=60s"], env=_kube_env(kubeconfig),
+             check=True, capture=True)
+        _run(["kubectl", "cp", str(fixture_path), f"{NS}/{name}:/tmp/pkg.cloacina"],
+             env=_kube_env(kubeconfig), check=True, capture=True)
+        r = _run(["kubectl", "exec", name, "-n", NS, "--",
+                  "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}\n",
+                  "-H", f"Authorization: Bearer {BOOTSTRAP_KEY}",
+                  "-F", "file=@/tmp/pkg.cloacina;filename=package.cloacina",
+                  f"http://{RELEASE}-cloacina-server:8080/v1/tenants/{tenant}/workflows"],
+                 env=_kube_env(kubeconfig), check=False, capture=True)
+        out = (r.stdout or "").strip()
+        return out.splitlines()[0].strip() if out else ""
+    finally:
+        _run(["kubectl", "delete", "pod", name, "-n", NS, "--wait=false"],
+             env=_kube_env(kubeconfig), check=False, capture=True)
+
+
 def _pack_fixture(tmpdir, example_rel, pkg_dir, out_name):
     """Pack a version-dep example into a source archive (see _pack_rx_fixture)."""
     import tarfile
@@ -507,12 +538,11 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     while time.time() < deadline and len(_server_pods_running(kubeconfig)) < REPLICAS:
         time.sleep(5)
     fixture2 = _pack_fixture(tmpdir, HA_EXAMPLE, HA_PKG_DIR, "ha-state.cloacina")
-    try:
-        code, _ = _upload_package(base, str(fixture2), tenant=RX_TENANT)
-        print(f"  upload {HA_EXAMPLE} -> {code}")
-    except Exception as exc:
-        if "409" not in str(exc):
-            raise AssertionError(f"ha-state upload failed: {exc}")
+    # In-cluster upload: 6d just killed a pod, so the host port-forward may be
+    # pinned to a corpse. The Service only routes to live endpoints.
+    code = _upload_package_incluster(kubeconfig, fixture2, RX_TENANT)
+    assert code in ("201", "409"), f"ha-state in-cluster upload failed: HTTP {code!r}"
+    print(f"  upload {HA_EXAMPLE} (in-cluster) -> {code}")
     print("  waiting for ha-state build (warm compiler; bounded 15m)...")
     deadline = time.time() + 900
     ha_status = "unknown"
