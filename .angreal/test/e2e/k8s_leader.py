@@ -809,15 +809,23 @@ def _deploy_compiler(kubeconfig, compiler_ref):
                              "--cargo-target-dir", "/workspace/target",
                              "--cargo-flags-replace=build", "--cargo-flags-replace=--lib"],
                     "env": [{"name": "CARGO_PROFILE_DEV_DEBUG", "value": "0"},
-                            # CLOACI-T-0779: compilers are TENANT-SCOPED by
-                            # design — one per tenant, like the agent fleet.
-                            # Unscoped, this compiler polls only the `public`
-                            # schema while the lane uploads to TENANT, so every
-                            # build sits `pending` forever and the compiler
-                            # logs nothing. That silent mismatch blocked
-                            # assertions 4 AND 6 across four runs before being
-                            # diagnosed from the live DB, so: never omit this.
-                            {"name": "CLOACINA_TENANT_SCHEMA", "value": TENANT},
+                            # CLOACI-T-0779: compilers are TENANT-SCOPED — one
+                            # per tenant, like the agent fleet — and an
+                            # unscoped compiler serves ONLY the public schema.
+                            # This one is deliberately UNSCOPED because
+                            # assertion 6 uploads to `public` (see RX_TENANT:
+                            # the global runner on every replica reconciles
+                            # public, so both replicas race to claim — the
+                            # contest under test). A schema mismatch in either
+                            # direction is silent: the build sits `pending`
+                            # forever and the compiler logs nothing. It bit
+                            # BOTH ways in this lane's history — acme upload
+                            # with a public compiler (runs 5-8), then a public
+                            # upload with an acme-scoped compiler (run 13).
+                            # If assertion 4 ever needs its acme package built,
+                            # deploy a SECOND compiler scoped to acme; do not
+                            # re-scope this one.
+                            #
                             # CLOACI-T-0887 dev escape hatch: fixtures ship
                             # crates.io version deps (the form users ship);
                             # resolve them against the workspace source baked
