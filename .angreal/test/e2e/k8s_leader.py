@@ -283,16 +283,24 @@ def _pack_rx_fixture(tmpdir):
 def _curl_pod_exec(kubeconfig, args):
     """Run curl INSIDE the cluster (one-shot probe pod).
 
-    Needed because the owner addresses published under reactorAffinity are
-    headless-service DNS names — resolvable only by cluster DNS. Following a
-    redirect from the host through the port-forward would fail on DNS, and
-    that failure would be indistinguishable from the redirect being wrong.
+    Needed because published owner addresses are pod IPs on the cluster
+    network — unreachable from the host, and a host-side connection failure
+    would be indistinguishable from the redirect being wrong.
+
+    The `-w` write-out MUST end in a newline (see the SENTINEL below): with
+    `--rm -i`, kubectl appends its own `pod "..." deleted` notice to the SAME
+    stdout, and without a newline it concatenates onto curl's output. That
+    corrupted a parsed redirect URL into `...injectpod "curl-probe-851"
+    deleted...`, whose follow-up curl exited 000 — which then masqueraded as
+    "the owner address is unreachable" for two runs.
     """
     r = _run(["kubectl", "run", "curl-probe-851", "--rm", "-i", "--restart=Never",
               "--image=curlimages/curl:8.7.1", "-n", NS, "--command", "--",
               "curl", "-s", *args],
              env=_kube_env(kubeconfig), check=False, capture=True)
-    return (r.stdout or "").strip()
+    # First line only: everything after the first newline is kubectl chatter.
+    out = (r.stdout or "").strip()
+    return out.splitlines()[0].strip() if out else ""
 
 
 def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build):
@@ -405,7 +413,7 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     inject_path = f"/v1/health/accumulators/{RX_ACCUMULATOR}/inject"
     payload = '{"event": {"price": 101.5, "qty": 3}}'
     out = _curl_pod_exec(kubeconfig, [
-        "-o", "/dev/null", "-w", "%{http_code} %{redirect_url}",
+        "-o", "/dev/null", "-w", "%{http_code} %{redirect_url}\n",
         "-X", "POST", "-H", f"Authorization: Bearer {BOOTSTRAP_KEY}",
         "-H", "Content-Type: application/json", "-d", payload,
         f"http://{non_owner_ip}:8080{inject_path}"])
@@ -416,7 +424,7 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         f"redirect {redirect_url!r} does not point at the owner's IP "
         f"{owner_addr_ip} (pod {owner_pod})")
     followed = _curl_pod_exec(kubeconfig, [
-        "-o", "/dev/null", "-w", "%{http_code}",
+        "-o", "/dev/null", "-w", "%{http_code}\n",
         "-X", "POST", "-H", f"Authorization: Bearer {BOOTSTRAP_KEY}",
         "-H", "Content-Type: application/json", "-d", payload,
         redirect_url])
