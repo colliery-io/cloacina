@@ -365,6 +365,24 @@ fn make_subscriber_dispatcher(
 }
 
 /// State for a running computation graph.
+/// A reactor load whose ownership claim was lost, stored verbatim so takeover
+/// can complete it later (CLOACI-T-0851). Every field is exactly what
+/// [`ComputationGraphScheduler::load_reactor_in`] received; `pending_binds`
+/// accumulates the graph bindings that `load_graph` skipped because the
+/// reactor was foreign — takeover must replay those too, or the reactor would
+/// start with no subscribers and fire into nothing.
+struct PendingForeignLoad {
+    reactor_name: String,
+    accumulators: Vec<AccumulatorDeclaration>,
+    criteria: ReactionCriteria,
+    strategy: InputStrategy,
+    tenant_id: Option<String>,
+    register_aliases: Vec<String>,
+    constructor: Option<cloacina_computation_graph::ReactorConstructorRef>,
+    provider_root: Option<std::path::PathBuf>,
+    pending_binds: Vec<(String, CompiledGraphFn)>,
+}
+
 struct RunningGraph {
     /// Shutdown signal sender.
     shutdown_tx: watch::Sender<bool>,
@@ -531,6 +549,11 @@ pub struct ComputationGraphScheduler {
     /// This is also where routing will look when it lands: "who should this
     /// event go to" starts with "is this reactor foreign to me".
     foreign_reactors: Arc<RwLock<std::collections::HashSet<TenantKey>>>,
+    /// Everything needed to FINISH a load whose ownership claim was lost, so
+    /// the watchdog tick can attempt takeover when the owner dies. Without
+    /// this, losers can never become owners and a dead owner's reactors stay
+    /// unclaimed forever.
+    foreign_pending: Arc<RwLock<HashMap<TenantKey, PendingForeignLoad>>>,
     /// For each accumulator belonging to a FOREIGN reactor: which reactor.
     ///
     /// The inject edge needs to redirect by accumulator name, but owner
@@ -567,6 +590,7 @@ impl ComputationGraphScheduler {
             ownership: None,
             foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
             foreign_accumulators: Arc::new(RwLock::new(HashMap::new())),
+            foreign_pending: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -584,6 +608,7 @@ impl ComputationGraphScheduler {
             ownership: None,
             foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
             foreign_accumulators: Arc::new(RwLock::new(HashMap::new())),
+            foreign_pending: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -739,6 +764,28 @@ impl ComputationGraphScheduler {
                             );
                         }
                     }
+                    // Stash everything needed to COMPLETE this load later.
+                    // Losing a claim is not the end of the story: when the
+                    // owner dies its lock auto-releases, and the watchdog tick
+                    // attempts takeover (`try_takeover_foreign_reactors`).
+                    // Without this stash a loser could never become the owner
+                    // — observed live in the k8s lane: killing the owner left
+                    // the reactor unclaimed forever, because nothing on the
+                    // surviving replica ever retried.
+                    self.foreign_pending.write().await.insert(
+                        reactor_key.clone(),
+                        PendingForeignLoad {
+                            reactor_name,
+                            accumulators,
+                            criteria,
+                            strategy,
+                            tenant_id,
+                            register_aliases,
+                            constructor,
+                            provider_root,
+                            pending_binds: Vec::new(),
+                        },
+                    );
                     return Ok(());
                 }
                 Err(e) => {
@@ -752,6 +799,39 @@ impl ComputationGraphScheduler {
                 }
             }
         }
+
+        self.spawn_reactor_claimed(
+            reactor_name,
+            accumulators,
+            criteria,
+            strategy,
+            tenant_id,
+            register_aliases,
+            constructor,
+            provider_root,
+        )
+        .await
+    }
+
+    /// Spawn a reactor whose ownership claim is ALREADY HELD (or not required —
+    /// embedded/single-replica). Split from [`load_reactor_in`] so the takeover
+    /// path can start a reactor without re-entering the claim gate: advisory
+    /// locks are per-session re-entrant, so claiming twice would leave the lock
+    /// count at 2 and a later release would only decrement it — the reactor
+    /// would remain owned by a replica that believes it released it.
+    #[allow(clippy::too_many_arguments)]
+    async fn spawn_reactor_claimed(
+        &self,
+        reactor_name: String,
+        accumulators: Vec<AccumulatorDeclaration>,
+        criteria: ReactionCriteria,
+        strategy: InputStrategy,
+        tenant_id: Option<String>,
+        register_aliases: Vec<String>,
+        constructor: Option<cloacina_computation_graph::ReactorConstructorRef>,
+        provider_root: Option<std::path::PathBuf>,
+    ) -> Result<(), String> {
+        let reactor_key = TenantKey::new(tenant_id.as_deref(), &reactor_name);
 
         // CLOACI-T-0830: resolve the reactor-constructor reference (if any) into a
         // live firing decider BEFORE we spawn anything, so a bad constructor ref
@@ -1182,6 +1262,15 @@ impl ComputationGraphScheduler {
                     graph = %name,
                     "graph loaded but its reactor is owned by another replica; not binding here"
                 );
+                // Stash the bind for takeover: if this replica later claims
+                // the reactor, it must replay this subscription or the taken-
+                // over reactor fires into nothing (`CompiledGraphFn` is an
+                // Arc, so storing it is a refcount bump, not a copy).
+                if let Some(pending) = self.foreign_pending.write().await.get_mut(&key) {
+                    pending
+                        .pending_binds
+                        .push((name.to_string(), decl.reactor.graph_fn));
+                }
                 return Ok(());
             }
         }
@@ -1422,7 +1511,7 @@ impl ComputationGraphScheduler {
         let check = ownership.verify().await;
         let believed = ownership.believed_owned().await;
 
-        match watchdog.observe(check, &believed) {
+        let halted = match watchdog.observe(check, &believed) {
             WatchdogAction::Continue => Vec::new(),
             WatchdogAction::StopReactors(lost) => {
                 tracing::warn!(
@@ -1438,6 +1527,100 @@ impl ComputationGraphScheduler {
                      reactor this replica believed it owned"
                 );
                 self.halt_unowned_reactors(&all).await
+            }
+        };
+
+        // TAKEOVER: the other half of failover. The halt path above handles
+        // "we lost a reactor we were running"; this handles "someone else's
+        // reactor is now claimable". A dead owner's session drops and Postgres
+        // releases its locks — but nothing else ever retries the claim, so
+        // without this pass a reactor whose owner died stays unclaimed FOREVER
+        // (observed live: kill the owner, and no survivor claimed within 90s,
+        // because no survivor ever tried).
+        self.try_takeover_foreign_reactors().await;
+
+        halted
+    }
+
+    /// Attempt to claim every reactor this replica recorded as foreign, and
+    /// COMPLETE the stored load for each claim won.
+    async fn try_takeover_foreign_reactors(&self) {
+        let Some(ownership) = self.ownership.as_ref() else {
+            return;
+        };
+        let candidates: Vec<TenantKey> =
+            self.foreign_pending.read().await.keys().cloned().collect();
+
+        for key in candidates {
+            let id = super::reactor_ownership::ReactorId::from(&key);
+            match ownership.claim(&id).await {
+                Ok(true) => {}
+                // Still owned elsewhere (the ordinary case) or unverifiable —
+                // leave the pending entry for the next tick either way.
+                Ok(false) | Err(_) => continue,
+            }
+
+            // Claim won: take the stored load OUT before spawning, so a
+            // concurrent tick cannot double-spawn from the same entry.
+            let Some(pending) = self.foreign_pending.write().await.remove(&key) else {
+                // Raced another tick that already took it; release the extra
+                // claim this iteration acquired (advisory locks are re-entrant
+                // per session, so this claim stacked a second count).
+                let _ = ownership.release(&id).await;
+                continue;
+            };
+
+            tracing::info!(reactor = %key, "took over reactor from a dead owner");
+            let binds = pending.pending_binds;
+            let spawned = self
+                .spawn_reactor_claimed(
+                    pending.reactor_name,
+                    pending.accumulators,
+                    pending.criteria,
+                    pending.strategy,
+                    pending.tenant_id,
+                    pending.register_aliases,
+                    pending.constructor,
+                    pending.provider_root,
+                )
+                .await;
+            if let Err(e) = spawned {
+                // Spawn failed while we HOLD the lock: release it so another
+                // replica can try, and forget the local foreign markers were
+                // ever cleared — the entry is gone, so a reload (reconciler)
+                // re-records it. Holding a lock for a reactor we failed to
+                // start is the worst state: nobody else can claim and we run
+                // nothing.
+                tracing::error!(reactor = %key, "takeover spawn failed: {e}; releasing the claim");
+                let _ = ownership.release(&id).await;
+                continue;
+            }
+
+            // The reactor now runs HERE: it is no longer foreign, and the
+            // accumulator→reactor redirect entries for it must go, or this
+            // replica would 307 injects away from itself.
+            self.foreign_reactors.write().await.remove(&key);
+            self.foreign_accumulators
+                .write()
+                .await
+                .retain(|_, v| v != &key);
+
+            // Replay the graph subscriptions the original load skipped.
+            for (graph_name, graph_fn) in binds {
+                let scope = match key.tenant_id.as_deref() {
+                    Some(t) => crate::TenantScope::tenant(t),
+                    None => crate::TenantScope::untenanted(),
+                };
+                if let Err(e) = self
+                    .bind_graph_to_reactor(graph_name.clone(), key.name.clone(), scope, graph_fn)
+                    .await
+                {
+                    tracing::error!(
+                        reactor = %key,
+                        graph = %graph_name,
+                        "takeover bind failed: {e}"
+                    );
+                }
             }
         }
     }
@@ -2593,7 +2776,7 @@ mod tests {
         let registry = EndpointRegistry::new();
         let mut scheduler = ComputationGraphScheduler::new(registry.clone());
         scheduler.set_ownership(Arc::new(FakeOwnership {
-            refuse_claim: true,
+            refuse_claim: std::sync::atomic::AtomicBool::new(true),
             ..Default::default()
         }));
 
@@ -2622,6 +2805,68 @@ mod tests {
         scheduler.shutdown_all().await;
     }
 
+    /// THE TAKEOVER PATH (found missing on a live cluster: kill the owner and
+    /// no survivor ever claimed, because losers never retried). A load that
+    /// loses its claim stashes everything; when the owner's lock releases, the
+    /// watchdog tick claims and COMPLETES the stored load — reactor running,
+    /// skipped graph binds replayed, foreign markers cleared.
+    #[tokio::test]
+    async fn watchdog_tick_takes_over_a_foreign_reactor_when_the_owner_releases() {
+        use super::super::reactor_ownership::OwnershipWatchdog;
+
+        let registry = EndpointRegistry::new();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        let fake = Arc::new(FakeOwnership {
+            refuse_claim: std::sync::atomic::AtomicBool::new(true),
+            ..Default::default()
+        });
+        scheduler.set_ownership(fake.clone());
+
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("claim-lost load still succeeds");
+        assert!(scheduler.reactors.read().await.is_empty(), "not started");
+        assert!(scheduler
+            .foreign_reactor_for_accumulator(Some("acme"), "pipeline_acc")
+            .await
+            .is_some());
+
+        // Owner still alive: the tick must NOT take over.
+        let mut wd = OwnershipWatchdog::new(3);
+        scheduler.ownership_watchdog_tick(&mut wd).await;
+        assert!(
+            scheduler.reactors.read().await.is_empty(),
+            "takeover must not happen while the owner holds the lock"
+        );
+
+        // Owner dies: its lock releases (the fake starts admitting claims).
+        fake.refuse_claim
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        scheduler.ownership_watchdog_tick(&mut wd).await;
+
+        assert_eq!(
+            scheduler.reactors.read().await.len(),
+            1,
+            "the survivor must claim and START the reactor"
+        );
+        assert!(
+            scheduler
+                .foreign_reactor_for_accumulator(Some("acme"), "pipeline_acc")
+                .await
+                .is_none(),
+            "taken-over accumulators must stop redirecting away from this replica"
+        );
+        // The skipped graph bind was replayed: the graph resolves to the
+        // reactor it declared.
+        let graphs = scheduler.list_graphs().await;
+        assert!(
+            graphs.iter().any(|g| g.name == "pipeline"),
+            "the pending graph bind must be replayed on takeover: {graphs:?}"
+        );
+        scheduler.shutdown_all().await;
+    }
+
     /// A replica that does not win the claim must NOT start the reactor — that
     /// is the single-writer guarantee the whole design rests on — but the load
     /// itself must still succeed, because the package really is present here.
@@ -2630,7 +2875,7 @@ mod tests {
         let registry = EndpointRegistry::new();
         let mut scheduler = ComputationGraphScheduler::new(registry.clone());
         scheduler.set_ownership(Arc::new(FakeOwnership {
-            refuse_claim: true,
+            refuse_claim: std::sync::atomic::AtomicBool::new(true),
             ..Default::default()
         }));
 
@@ -2672,7 +2917,7 @@ mod tests {
     struct FakeOwnership {
         owned: std::sync::Mutex<Vec<super::super::reactor_ownership::ReactorId>>,
         next_check: std::sync::Mutex<Option<super::super::reactor_ownership::OwnershipCheck>>,
-        refuse_claim: bool,
+        refuse_claim: std::sync::atomic::AtomicBool,
     }
 
     #[async_trait::async_trait]
@@ -2681,7 +2926,7 @@ mod tests {
             &self,
             id: &super::super::reactor_ownership::ReactorId,
         ) -> Result<bool, String> {
-            if self.refuse_claim {
+            if self.refuse_claim.load(std::sync::atomic::Ordering::SeqCst) {
                 return Ok(false);
             }
             self.owned.lock().unwrap().push(id.clone());
