@@ -376,16 +376,21 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     owner_pod, owner_addr_ip, _pid = holder
     holders = _lock_holders(kubeconfig, target, query=lock_query(rx_key))
     assert len(holders) <= 1, f"TWO simultaneous reactor owners: {holders}"
-    print(f"  6a OK: single reactor owner {owner_pod}")
+    print(f"  6a OK: single reactor owner {owner_pod} ({owner_addr_ip})")
 
-    # 6b: the owner PUBLISHED a routable address naming itself. Rows live in
-    # the public schema (the server's admin DAL); tenant is a column.
+    # 6b: the owner PUBLISHED a routable address naming itself. Addresses are
+    # POD IPs, not per-pod DNS names — Deployment replicas cannot get per-pod
+    # A records (that requires hostname+subdomain, i.e. a StatefulSet), and a
+    # published-but-unresolvable name failed exactly here on a real cluster
+    # with every redirect dying as a connection error. The lock holder's
+    # client_addr IS the owner's pod IP, so the assertion is a direct match.
     published = _psql(kubeconfig, target,
                       f"SELECT address FROM reactor_owner_addresses "
                       f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{RX_TENANT}';")
     assert published, "owner claimed the lock but published no address row"
-    assert owner_pod in published, (
-        f"published address {published!r} does not name the lock holder {owner_pod}")
+    assert owner_addr_ip in published, (
+        f"published address {published!r} does not carry the lock holder's IP "
+        f"{owner_addr_ip} (pod {owner_pod})")
     print(f"  6b OK: owner address published: {published}")
 
     # 6c: THE HOT-PATH ASSERTION (the point of A-0012 Amendment 3). Inject via
@@ -407,8 +412,9 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     print(f"  non-owner inject -> {out}")
     assert out.startswith("307"), f"expected 307 from the non-owner, got: {out}"
     redirect_url = out.split(" ", 1)[1].strip()
-    assert owner_pod in redirect_url, (
-        f"redirect {redirect_url!r} does not point at the owner {owner_pod}")
+    assert owner_addr_ip in redirect_url, (
+        f"redirect {redirect_url!r} does not point at the owner's IP "
+        f"{owner_addr_ip} (pod {owner_pod})")
     followed = _curl_pod_exec(kubeconfig, [
         "-o", "/dev/null", "-w", "%{http_code}",
         "-X", "POST", "-H", f"Authorization: Bearer {BOOTSTRAP_KEY}",
@@ -429,19 +435,20 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
                                   exclude_pod=owner_pod, timeout_s=90)
     assert survivor is not None, (
         "no surviving replica claimed the reactor within 90s of the owner dying")
-    new_pod, _, _ = survivor
-    # Republication is async wrt the claim; poll briefly.
+    new_pod, new_ip, _ = survivor
+    # Republication is async wrt the claim; poll briefly. Matched on the
+    # survivor's IP (addresses are pod IPs — see 6b).
     new_published = ""
     for _ in range(30):
         new_published = _psql(kubeconfig, target,
                               f"SELECT address FROM reactor_owner_addresses "
                               f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{RX_TENANT}';")
-        if new_pod in new_published:
+        if new_ip in new_published:
             break
         time.sleep(2)
-    assert new_pod in new_published, (
-        f"survivor {new_pod} claimed the lock but the address row still reads "
-        f"{new_published!r} — takeover did not republish")
+    assert new_ip in new_published, (
+        f"survivor {new_pod} ({new_ip}) claimed the lock but the address row "
+        f"still reads {new_published!r} — takeover did not republish")
     print(f"  6d OK: survivor {new_pod} claimed and republished ({new_published})")
 
     results[key] = "PASS"
