@@ -152,7 +152,10 @@ impl<'a> ReactorOwnerAddressesDAL<'a> {
     }
 }
 
-#[cfg(test)]
+// Gated on sqlite like the sibling DAL tests (login_throttle): these use an
+// in-memory sqlite database, which cannot exist in a postgres-only build —
+// found as 6 panics in CI's Feature Build (postgres-only) lane.
+#[cfg(all(test, feature = "sqlite"))]
 mod tests {
     use crate::dal::unified::DAL;
     use crate::database::Database;
