@@ -1,0 +1,10 @@
+[package]
+name = "ha-state-example"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+language = "rust"
+description = "HA fixture: a state accumulator whose partially-filled window must survive reactor failover (CLOACI-T-0851)"

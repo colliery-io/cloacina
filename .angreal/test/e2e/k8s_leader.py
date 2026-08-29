@@ -255,6 +255,28 @@ RX_ACCUMULATOR = "orderbook"
 RX_TENANT = "public"
 
 
+# 6e (window survival): a STATE accumulator whose partially-filled window must
+# survive failover — the property distinguishing A-0012's chosen design from
+# leadership alone. packaged-graph cannot test this: its accumulators are
+# implicit passthroughs, which hold no window.
+HA_EXAMPLE = "examples/fixtures/ha-state-rust"
+HA_PKG_NAME = "ha-state-example"
+HA_PKG_DIR = "ha-state-example-0.1.0"
+HA_RX = "ha_state_rx"
+HA_ACC = "window"
+
+
+def _pack_fixture(tmpdir, example_rel, pkg_dir, out_name):
+    """Pack a version-dep example into a source archive (see _pack_rx_fixture)."""
+    import tarfile
+    src = Path(angreal.get_root()).parent / example_rel
+    out = Path(tmpdir) / out_name
+    with tarfile.open(out, "w:bz2") as tf:
+        for rel in ("package.toml", "Cargo.toml", "build.rs", "src/lib.rs"):
+            tf.add(src / rel, arcname=f"{pkg_dir}/{rel}")
+    return out
+
+
 def _pack_rx_fixture(tmpdir):
     """Pack the CG example into a source archive the IN-CLUSTER compiler can build.
 
@@ -472,8 +494,93 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         f"still reads {new_published!r} — takeover did not republish")
     print(f"  6d OK: survivor {new_pod} claimed and republished ({new_published})")
 
+    # ---- 6e: WINDOW SURVIVAL — the criterion that distinguishes the chosen
+    # design (leadership + durable accumulators) from leadership alone. Fill a
+    # STATE accumulator's window PARTIALLY (3 of capacity 8 — a full window
+    # could be re-derived from capacity; a partial one only from restored
+    # state), kill the owner, and require the new owner to restore exactly
+    # those entries from the DAL.
+    print("  6e: window survival — uploading the ha-state fixture...")
+    # Let the deployment recover to full strength first: 6d killed a pod, and
+    # 6e kills another — overlapping kills would leave zero replicas.
+    deadline = time.time() + 120
+    while time.time() < deadline and len(_server_pods_running(kubeconfig)) < REPLICAS:
+        time.sleep(5)
+    fixture2 = _pack_fixture(tmpdir, HA_EXAMPLE, HA_PKG_DIR, "ha-state.cloacina")
+    try:
+        code, _ = _upload_package(base, str(fixture2), tenant=RX_TENANT)
+        print(f"  upload {HA_EXAMPLE} -> {code}")
+    except Exception as exc:
+        if "409" not in str(exc):
+            raise AssertionError(f"ha-state upload failed: {exc}")
+    print("  waiting for ha-state build (warm compiler; bounded 15m)...")
+    deadline = time.time() + 900
+    ha_status = "unknown"
+    while time.time() < deadline:
+        ha_status = _psql(kubeconfig, target,
+                          f"SELECT build_status FROM {RX_TENANT}.workflow_packages "
+                          f"WHERE package_name='{HA_PKG_NAME}';").strip()
+        if ha_status in ("success", "failed"):
+            break
+        time.sleep(10)
+    assert ha_status == "success", f"ha-state build_status={ha_status}"
+
+    ha_key = reactor_lock_key(RX_TENANT, HA_RX)
+    holder2 = _catch_lock_holder(kubeconfig, target, key=ha_key, timeout_s=120)
+    assert holder2 is not None, "ha_state_rx was never claimed"
+    ha_owner, ha_ip, _ = holder2
+    print(f"  ha_state_rx owned by {ha_owner} ({ha_ip}); injecting 3 events...")
+    for v in ("11", "22", "33"):
+        code = _curl_pod_exec(kubeconfig, [
+            "-o", "/dev/null", "-w", "%{http_code}\n",
+            "-X", "POST", "-H", f"Authorization: Bearer {BOOTSTRAP_KEY}",
+            "-H", "Content-Type: application/json", "-d", f'{{"event": {v}}}',
+            f"http://{ha_ip}:8080/v1/health/accumulators/{HA_ACC}/inject"])
+        assert code.strip() == "200", f"inject of {v} failed: {code}"
+    # The window must be DURABLY persisted before the kill, or the survival
+    # claim would be vacuous.
+    buf_rows = _psql(kubeconfig, target,
+                     f"SELECT count(*) FROM state_accumulator_buffers "
+                     f"WHERE accumulator_name='{HA_ACC}';").strip()
+    assert buf_rows and int(buf_rows) >= 1, (
+        f"no persisted buffer row for '{HA_ACC}' after 3 injects — the state "
+        f"accumulator is not checkpointing, so nothing could survive failover")
+    print(f"  window persisted ({buf_rows} buffer row); killing owner {ha_owner}...")
+    _kubectl(["delete", "pod", ha_owner, "-n", NS, "--wait=false"], kubeconfig)
+    survivor2 = None
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        cand = _catch_lock_holder(kubeconfig, target, key=ha_key, timeout_s=15)
+        if cand is not None and cand[0] != ha_owner:
+            survivor2 = cand
+            break
+        time.sleep(2)
+    assert survivor2 is not None, "no replica took over ha_state_rx within 120s"
+    new_owner2 = survivor2[0]
+    # The proof: the NEW owner's accumulator restored the window from the DAL.
+    # The state runtime logs `state accumulator restored from DAL` with
+    # `entries=<n>` at spawn; entries=3 is only possible via restore — a fresh
+    # start logs nothing (no row) or would show later injects only.
+    restored = ""
+    deadline = time.time() + 90
+    while time.time() < deadline:
+        r = _run(["kubectl", "logs", f"pod/{new_owner2}", "-n", NS],
+                 env=_kube_env(kubeconfig), check=False, capture=True)
+        for line in (r.stdout or "").splitlines():
+            if "state accumulator restored" in line and HA_ACC in line:
+                restored = line
+                break
+        if restored:
+            break
+        time.sleep(5)
+    assert restored and "entries=3" in restored, (
+        f"new owner {new_owner2} did not restore the 3-entry window; "
+        f"restore line: {restored!r}")
+    print(f"  6e OK: partially-filled window (3/8) survived failover to {new_owner2}")
+
     results[key] = "PASS"
-    print("  PASS [6]: single owner, published address, hot-path redirect, failover republish")
+    print("  PASS [6]: single owner, published address, hot-path redirect, "
+          "failover republish, window survival")
 
 
 # ---------------------------------------------------------------------------
