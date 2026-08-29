@@ -311,19 +311,32 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         if "409" not in str(exc):
             results[key] = f"BLOCKED: package upload failed: {exc}"
             return
-    print("  waiting for build_status=success (bounded 6m)...")
-    deadline = time.time() + 360
+    # 900s, matching the demos harness bound: a COLD in-cluster build of a CG
+    # package takes ~5-10 min (the demos print exactly that warning). The
+    # original 360s bound expired mid-build and reported "never built" — the
+    # same words a real failure produces, which is how a too-short timeout
+    # masquerades as a compiler bug. On timeout we now also report the LAST
+    # OBSERVED status so "still building" and "failed" are distinguishable.
+    print("  waiting for build_status=success (bounded 15m; cold builds ~5-10m)...")
+    deadline = time.time() + 900
     built = False
+    last_status = "unknown"
     while time.time() < deadline:
         _, wf = _api("GET", f"/v1/tenants/{TENANT}/workflows", expect=None, base=base)
         items = wf.get("items", []) if isinstance(wf, dict) else []
-        if any(w.get("build_status") == "success" for w in items):
+        statuses = [w.get("build_status") for w in items]
+        if statuses:
+            last_status = ",".join(str(s) for s in statuses)
+        if any(s == "success" for s in statuses):
             built = True
+            break
+        if any(s == "failed" for s in statuses):
             break
         time.sleep(10)
     if not built:
-        results[key] = f"BLOCKED: CG package never built; {CLAIMING_BLOCKED_REASON}"
-        print("  BLOCKED [6]: package never reached build_status=success")
+        results[key] = (f"BLOCKED: CG package build_status={last_status} "
+                        f"after wait; {CLAIMING_BLOCKED_REASON}")
+        print(f"  BLOCKED [6]: build not successful (last status: {last_status})")
         return
 
     # 6a: exactly one replica claims the reactor. Ownership locks are held
