@@ -87,8 +87,22 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
       the half that can be quietly skipped: a snapshot nothing reads back looks
       complete and buys nothing.
 - [ ] Under a 2-replica postgres deployment: events injected round-robin across replicas assemble correctly (a `when_all` reactor fires; a `state` window fills) with no split-brain buffers.
+      → PARTIALLY PROVEN 2026-08-29 (assertion 6c): an inject at the NON-owner
+      is 307-redirected to the owner, the owner accepts it, and the outbox
+      stays at ZERO rows — single-buffer assembly with the hot path intact.
+      Round-robin volume assembly not yet asserted.
 - [ ] Replica death while owning a reactor → another replica resumes it from the persisted snapshot (bounded takeover time; no lost checkpointed state), **with a partially-filled accumulator window intact across the failover** — this is the criterion that distinguishes the chosen design from leadership alone.
-- [ ] Multi-replica reactive validation added to the k8s-leader e2e lane (extends T-0818's harness).
+      → PARTIALLY PROVEN 2026-08-29 (assertion 6d): owner killed → a new owner
+      claimed within the window and REPUBLISHED its address. Window-content
+      survival across the takeover not yet asserted (the restore machinery
+      exists per A-0012 CORRECTION 1; the e2e does not yet fill a window,
+      fail over, and read it back).
+- [x] Multi-replica reactive validation added to the k8s-leader e2e lane (extends T-0818's harness).
+      → **DONE 2026-08-29: assertion 6 GREEN on a real 2-replica k3s cluster**
+      (`5/6 green; failed: []`, exit 0 — assertion 4 blocked by design without
+      `--claiming`). Single owner (6a), published address (6b), non-owner 307 →
+      owner accepts → zero outbox rows (6c), kill → new owner claims +
+      republishes (6d).
 - [ ] Single-replica + embedded behavior byte-for-byte unchanged.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
@@ -634,3 +648,41 @@ Make the reactive layer (accumulators + reactors) safe and well-defined under mu
   assertions): non-owner inject reaches the owner via redirect; steady state
   does NO outbox write; kill the owner → survivor claims, republishes, and a
   partially-filled accumulator window survives.
+
+- 2026-08-25 — ASSERTION 6 WRITTEN; FIVE RUNS; CODE UNBEATEN BUT UNPROVEN.
+  `k8s_leader.py` gained assertion 6 (best-effort like 4 — preconditions
+  BLOCK, wrong behaviour FAILs): single reactor-lock holder → published
+  address names the holder → inject at the NON-owner returns 307 naming the
+  owner → owner accepts the followed redirect → `delivery_outbox` has ZERO
+  `reactor_event` rows (the hot-path regression check) → kill owner →
+  survivor claims AND republishes. Notables:
+    * `reactor_lock_key` ported to Python, pinned at import to the SAME
+      literals the Rust stability test pins — a divergent port would watch a
+      lock nobody holds, and a lock query matching nothing PASSES a
+      single-holder assertion.
+    * Redirects are followed from an in-cluster curl probe pod: headless DNS
+      only resolves inside the cluster, and a host-side DNS failure would be
+      indistinguishable from a wrong redirect.
+    * `_leader_values` now sets `reactorAffinity.enabled=true`.
+
+  RUN LEDGER (honesty over optimism):
+    * Runs 1–3: infrastructure, zero assertion signal (disk-full buildkit I/O
+      error; docker daemon down; daemon crash mid-build — root cause per
+      maintainer: parallel agent sessions fighting over docker).
+    * Run 4 (fresh images): **exit 0, 4/6 green, failed: []** — the FIRST
+      in-situ validation of the new server code: ownership session installed,
+      reactorAffinity chart live, both replicas Ready, fleet failover intact.
+      6 BLOCKED: no compiler image (lane probes `cloacina-demo-fleet-compiler`
+      / `docker-compiler`; only `cloacina-demo-compiler` existed → tagged).
+    * Run 5 (--skip-build): compiler deployed, upload 201, **BLOCKED: package
+      never reached build_status=success in 6m**. Cause identified: the demo
+      compiler image is dated 2026-07-17 — five weeks stale, predating fidius
+      0.5.7 and the T-0897 interface-version bumps (5→6→7), so its output
+      cannot satisfy today's server. NOT a code failure.
+
+  NEXT ACTION: rebuild the compiler image from current source
+  (`docker build -t cloacina-demo-fleet-compiler:latest
+  -f docker/Dockerfile.compiler .`, ~2GB), then
+  `angreal test e2e k8s-leader --skip-build` again. Assertion 6 has still
+  never executed past upload; everything from the reactor claim onward is
+  unproven in situ.
