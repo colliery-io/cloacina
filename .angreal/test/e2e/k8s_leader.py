@@ -608,7 +608,13 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     while time.time() < deadline:
         r = _run(["kubectl", "logs", f"pod/{new_owner2}", "-n", NS],
                  env=_kube_env(kubeconfig), check=False, capture=True)
+        import re as _re
         for line in (r.stdout or "").splitlines():
+            # Strip ANSI colors FIRST: tracing's terminal output wraps every
+            # field in escape codes, so the literal "entries=3" reads as
+            # "entries\x1b[0m\x1b[2m=\x1b[0m3" — a run failed on exactly this
+            # while the failure message itself displayed the restore line.
+            line = _re.sub(r"\x1b\[[0-9;]*m", "", line)
             if "state accumulator restored" in line and HA_ACC in line:
                 restored = line
                 break
