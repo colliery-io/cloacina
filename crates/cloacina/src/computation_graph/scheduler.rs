@@ -1375,11 +1375,28 @@ impl ComputationGraphScheduler {
         tenant_id: Option<&str>,
         accumulator: &str,
     ) -> Option<crate::TenantKey> {
-        self.foreign_accumulators
-            .read()
-            .await
-            .get(&TenantKey::new(tenant_id, accumulator))
-            .cloned()
+        let fa = self.foreign_accumulators.read().await;
+        if let Some(hit) = fa.get(&TenantKey::new(tenant_id, accumulator)) {
+            return Some(hit.clone());
+        }
+        // Untenanted caller (admin/bootstrap keys carry no tenant): resolve by
+        // name across tenants when UNIQUE, mirroring the endpoint registry's
+        // Global-scope semantics. Found live on a real cluster: the bootstrap
+        // key (tenant_id=None) injected into an accumulator whose reactor was
+        // loaded under Some("public") — the exact-key lookup missed, so the
+        // redirect never happened and an admin inject at a non-owner 404'd
+        // while the same inject at the owner returned 200. Ambiguity stays
+        // None: silently picking one tenant's reactor would misroute another's
+        // events, which is worse than the outbox fallback.
+        if tenant_id.is_none() {
+            let mut matches = fa.iter().filter(|(k, _)| k.name == accumulator);
+            if let Some((_, reactor_key)) = matches.next() {
+                if matches.next().is_none() {
+                    return Some(reactor_key.clone());
+                }
+            }
+        }
+        None
     }
 
     /// One watchdog tick: verify what we believe we own, and act on the verdict.

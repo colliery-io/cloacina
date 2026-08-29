@@ -171,24 +171,11 @@ pub async fn accumulator_ws(
         Err(e) => return e.into_response(),
     };
 
-    // Per-endpoint authorization check
     let ctx = KeyContext {
         key_id: &auth.key_id,
         tenant_id: auth.tenant_id.as_deref(),
         is_admin: auth.is_admin,
     };
-    if let Err(_e) = state
-        .endpoint_registry
-        .check_accumulator_auth(&name, &ctx)
-        .await
-    {
-        record_ws_auth_failure("tenant_mismatch");
-        return ApiError::forbidden(
-            "endpoint_access_denied",
-            format!("not authorized for accumulator '{}'", name),
-        )
-        .into_response();
-    }
 
     // CLOACI-T-0851 / A-0012 Amendment 3: if another replica owns the reactor
     // hosting this accumulator, redirect at the HANDSHAKE. The upgrade request
@@ -198,49 +185,77 @@ pub async fn accumulator_ws(
     // accepted here instead would pay a per-event forward forever; a redirect
     // mid-stream is impossible (WS clients only follow redirects pre-upgrade).
     //
+    // Runs BEFORE the local auth check, which fails CLOSED for foreign
+    // accumulators (no local registration → no policy — observed live as a 403
+    // at the non-owner for an inject the owner accepted with 200). Guarded by
+    // the equivalent authz — admin, untenanted, or tenant-match — so the
+    // redirect does not become an unauthenticated probe for reactor placement.
     // Checked BEFORE on_upgrade — after acceptance the 307 can never be sent.
     let mut known_foreign = false;
     if let Some(reactor_key) = state
         .graph_scheduler
-        .foreign_reactor_for_accumulator(auth.tenant_id.as_deref(), &name)
+        .foreign_reactor_for_accumulator(ctx.tenant_id, &name)
         .await
     {
-        let dal = cloacina::dal::unified::DAL::new(state.database.clone());
-        match dal
-            .reactor_owner_addresses()
-            .lookup(reactor_key.tenant_id.as_deref(), &reactor_key.name)
+        let authorized = ctx.is_admin
+            || ctx.tenant_id.is_none()
+            || ctx.tenant_id == reactor_key.tenant_id.as_deref();
+        if authorized {
+            let dal = cloacina::dal::unified::DAL::new(state.database.clone());
+            match dal
+                .reactor_owner_addresses()
+                .lookup(reactor_key.tenant_id.as_deref(), &reactor_key.name)
+                .await
+            {
+                Ok(Some(owner_addr)) => {
+                    let location = format!(
+                        "{}/v1/ws/accumulators/{}",
+                        owner_addr.trim_end_matches('/'),
+                        name
+                    );
+                    info!(
+                        accumulator = %name,
+                        owner = %location,
+                        "accumulator owned by another replica; redirecting WS handshake"
+                    );
+                    return Response::builder()
+                        .status(axum::http::StatusCode::TEMPORARY_REDIRECT)
+                        .header(axum::http::header::LOCATION, location)
+                        .body(axum::body::Body::empty())
+                        .unwrap_or_else(|_| {
+                            ApiError::internal("redirect construction failed").into_response()
+                        });
+                }
+                // No address published (mid-takeover) — accept the connection in
+                // fallback mode: frames go through the inject path (local try,
+                // then durable outbox), so events are slow but never lost. The
+                // client's next reconnect gets the redirect once the new owner
+                // publishes.
+                Ok(None) => {
+                    known_foreign = true;
+                }
+                Err(e) => {
+                    warn!(accumulator = %name, "owner-address lookup failed: {e}");
+                }
+            }
+        }
+    }
+
+    // Per-endpoint authorization check (skipped only when the connection is
+    // already known-foreign and authorized above — there is no local policy to
+    // consult for an endpoint this replica does not host).
+    if !known_foreign {
+        if let Err(_e) = state
+            .endpoint_registry
+            .check_accumulator_auth(&name, &ctx)
             .await
         {
-            Ok(Some(owner_addr)) => {
-                let location = format!(
-                    "{}/v1/ws/accumulators/{}",
-                    owner_addr.trim_end_matches('/'),
-                    name
-                );
-                info!(
-                    accumulator = %name,
-                    owner = %location,
-                    "accumulator owned by another replica; redirecting WS handshake"
-                );
-                return Response::builder()
-                    .status(axum::http::StatusCode::TEMPORARY_REDIRECT)
-                    .header(axum::http::header::LOCATION, location)
-                    .body(axum::body::Body::empty())
-                    .unwrap_or_else(|_| {
-                        ApiError::internal("redirect construction failed").into_response()
-                    });
-            }
-            // No address published (mid-takeover) — accept the connection in
-            // fallback mode: frames go through the inject path (local try,
-            // then durable outbox), so events are slow but never lost. The
-            // client's next reconnect gets the redirect once the new owner
-            // publishes.
-            Ok(None) => {
-                known_foreign = true;
-            }
-            Err(e) => {
-                warn!(accumulator = %name, "owner-address lookup failed: {e}");
-            }
+            record_ws_auth_failure("tenant_mismatch");
+            return ApiError::forbidden(
+                "endpoint_access_denied",
+                format!("not authorized for accumulator '{}'", name),
+            )
+            .into_response();
         }
     }
 

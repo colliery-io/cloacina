@@ -241,8 +241,18 @@ def _api(method, path, body=None, expect=(200, 201), base=None):
 
 RX_NAME = "packaged_market_maker_reactor"
 RX_EXAMPLE = "examples/features/computation-graphs/packaged-graph"
+RX_PKG_NAME = "packaged-graph-example"  # package.toml `name`
 RX_PKG_DIR = "packaged-graph-example-0.1.0"  # must match package.toml name-version
 RX_ACCUMULATOR = "orderbook"
+# Uploaded to `public`, NOT the fleet tenant. `public` maps to the admin schema,
+# which the GLOBAL runner — already running on every replica — reconciles; both
+# replicas therefore race to load the package and claim the reactor, which is
+# exactly the multi-replica contest this assertion exists to observe. A
+# non-public tenant's runner is created LAZILY by specific routes (execute,
+# instances, triggers), so a package uploaded there sits built-but-never-loaded
+# unless something instantiates the runner on EVERY replica first — observed
+# live: acme upload built fine, and no reactor was ever claimed.
+RX_TENANT = "public"
 
 
 def _pack_rx_fixture(tmpdir):
@@ -304,38 +314,46 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         results[key] = f"BLOCKED: packing {RX_EXAMPLE} failed: {exc}"
         return
     try:
-        code, body = _upload_package(base, str(fixture_path))
-        print(f"  upload {RX_EXAMPLE} (fresh pack) -> {code}")
+        code, body = _upload_package(base, str(fixture_path), tenant=RX_TENANT)
+        print(f"  upload {RX_EXAMPLE} (fresh pack, tenant={RX_TENANT}) -> {code}")
     except Exception as exc:
         # 409 = already uploaded by a previous best-effort assertion: fine.
         if "409" not in str(exc):
             results[key] = f"BLOCKED: package upload failed: {exc}"
             return
     # 900s, matching the demos harness bound: a COLD in-cluster build of a CG
-    # package takes ~5-10 min (the demos print exactly that warning). The
-    # original 360s bound expired mid-build and reported "never built" — the
-    # same words a real failure produces, which is how a too-short timeout
-    # masquerades as a compiler bug. On timeout we now also report the LAST
-    # OBSERVED status so "still building" and "failed" are distinguishable.
+    # package takes ~5-10 min (the demos print exactly that warning). A 360s
+    # bound expired mid-build and reported "never built" — the same words a
+    # real failure produces, which is how a too-short timeout masquerades as a
+    # compiler bug.
+    #
+    # Polled from the DATABASE, not the list API: the `/workflows` list items
+    # (`WorkflowSummary`) carry NO build_status field, so the previous
+    # `w.get("build_status")` was a phantom read returning None forever — it
+    # could never see success even after the build finished. (Assertion 4
+    # polls the same phantom field and has the same defect.)
     print("  waiting for build_status=success (bounded 15m; cold builds ~5-10m)...")
     deadline = time.time() + 900
     built = False
     last_status = "unknown"
     while time.time() < deadline:
-        _, wf = _api("GET", f"/v1/tenants/{TENANT}/workflows", expect=None, base=base)
-        items = wf.get("items", []) if isinstance(wf, dict) else []
-        statuses = [w.get("build_status") for w in items]
-        if statuses:
-            last_status = ",".join(str(s) for s in statuses)
-        if any(s == "success" for s in statuses):
+        st = _psql(kubeconfig, target,
+                   f"SELECT build_status FROM {RX_TENANT}.workflow_packages "
+                   f"WHERE package_name='{RX_PKG_NAME}';").strip()
+        if st:
+            last_status = st
+        if st == "success":
             built = True
             break
-        if any(s == "failed" for s in statuses):
+        if st == "failed":
+            err = _psql(kubeconfig, target,
+                        f"SELECT left(coalesce(build_error,''),300) FROM "
+                        f"{RX_TENANT}.workflow_packages WHERE package_name='{RX_PKG_NAME}';")
+            last_status = f"failed: {err.strip()}"
             break
         time.sleep(10)
     if not built:
-        results[key] = (f"BLOCKED: CG package build_status={last_status} "
-                        f"after wait; {CLAIMING_BLOCKED_REASON}")
+        results[key] = f"BLOCKED: CG package build_status={last_status}"
         print(f"  BLOCKED [6]: build not successful (last status: {last_status})")
         return
 
@@ -343,7 +361,12 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     # CONTINUOUSLY (unlike the per-tick fleet lock), so the holder can be read
     # directly — but the server-side catcher still bounds the wait for the
     # reconciler to load the package and claim.
-    rx_key = reactor_lock_key(TENANT, RX_NAME)
+    #
+    # Tenant keying is EMPIRICAL, not assumed: on a live cluster the global
+    # runner loaded the public-schema package and took the lock under
+    # Some("public") — the tenant='public' key candidate matched pg_locks and
+    # the address row read tenant_id='public'.
+    rx_key = reactor_lock_key(RX_TENANT, RX_NAME)
     print(f"  waiting for the reactor lock (key={rx_key}) to be claimed...")
     holder = _catch_lock_holder(kubeconfig, target, key=rx_key, timeout_s=120)
     if holder is None:
@@ -359,7 +382,7 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     # the public schema (the server's admin DAL); tenant is a column.
     published = _psql(kubeconfig, target,
                       f"SELECT address FROM reactor_owner_addresses "
-                      f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{TENANT}';")
+                      f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{RX_TENANT}';")
     assert published, "owner claimed the lock but published no address row"
     assert owner_pod in published, (
         f"published address {published!r} does not name the lock holder {owner_pod}")
@@ -412,7 +435,7 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     for _ in range(30):
         new_published = _psql(kubeconfig, target,
                               f"SELECT address FROM reactor_owner_addresses "
-                              f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{TENANT}';")
+                              f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{RX_TENANT}';")
         if new_pod in new_published:
             break
         time.sleep(2)
@@ -813,13 +836,13 @@ def _deploy_compiler(kubeconfig, compiler_ref):
         raise AssertionError("failed to apply compiler Deployment")
 
 
-def _upload_package(base, fixture_path):
+def _upload_package(base, fixture_path, tenant=TENANT):
     boundary = "----CloacinaLeaderE2E"
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
             f"filename=\"package.cloacina\"\r\nContent-Type: application/octet-stream\r\n\r\n").encode()
     body += Path(fixture_path).read_bytes()
     body += f"\r\n--{boundary}--\r\n".encode()
-    req = urllib.request.Request(f"{base}/v1/tenants/{TENANT}/workflows", data=body, method="POST")
+    req = urllib.request.Request(f"{base}/v1/tenants/{tenant}/workflows", data=body, method="POST")
     req.add_header("Authorization", f"Bearer {BOOTSTRAP_KEY}")
     req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
     with urllib.request.urlopen(req, timeout=30) as resp:
