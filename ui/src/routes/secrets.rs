@@ -64,7 +64,10 @@ pub fn Secrets() -> impl IntoView {
 
     // Create form state.
     let name = RwSignal::new(String::new());
-    let rows = RwSignal::new(vec![(RwSignal::new(String::new()), RwSignal::new(String::new()))]);
+    let rows = RwSignal::new(vec![(
+        RwSignal::new(String::new()),
+        RwSignal::new(String::new()),
+    )]);
     let create_error = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
 
@@ -75,7 +78,9 @@ pub fn Secrets() -> impl IntoView {
     Effect::new(move |_| rotate_open.set(rotate_for.get().is_some()));
 
     let submit_create = move |_| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         let n = name.get_untracked().trim().to_string();
         let fields = rows_to_fields(&rows.get_untracked());
         if n.is_empty() || fields.is_empty() {
@@ -97,7 +102,10 @@ pub fn Secrets() -> impl IntoView {
             match result {
                 Ok(_) => {
                     name.set(String::new());
-                    rows.set(vec![(RwSignal::new(String::new()), RwSignal::new(String::new()))]);
+                    rows.set(vec![(
+                        RwSignal::new(String::new()),
+                        RwSignal::new(String::new()),
+                    )]);
                     refresh.update(|x| *x += 1);
                 }
                 Err(e) => create_error.set(e),
@@ -123,7 +131,9 @@ pub fn Secrets() -> impl IntoView {
         if fields.is_empty() {
             return;
         }
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         busy.set(true);
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {
@@ -139,7 +149,9 @@ pub fn Secrets() -> impl IntoView {
     };
 
     let delete = move |name: String| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         busy.set(true);
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {

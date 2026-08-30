@@ -18,7 +18,9 @@
 //! card rows, create + ONE-TIME plaintext reveal, revoke-confirm. Uses the
 //! tenant-scoped key endpoints (T-0784 self-service).
 
-use aurora_leptos::components::{Alert, CopyButton, Empty, Loading, Modal, PageHeader, Select, TextInput};
+use aurora_leptos::components::{
+    Alert, CopyButton, Empty, Loading, Modal, PageHeader, Select, TextInput,
+};
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
@@ -60,7 +62,9 @@ pub fn Keys() -> impl IntoView {
     let revoke_target = RwSignal::new(Option::<KeyInfo>::None);
 
     let on_create = move |_| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         let n = name.get_untracked().trim().to_string();
         if n.is_empty() {
             error.set("Name is required".into());
@@ -95,7 +99,9 @@ pub fn Keys() -> impl IntoView {
         let Some(target) = revoke_target.get_untracked() else {
             return;
         };
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         busy.set(true);
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {

@@ -19,7 +19,9 @@
 //! connected tenant's self-managed accounts. Non-admin keys see the
 //! explanatory alert (fail-closed gating).
 
-use aurora_leptos::components::{Alert, Loading, Modal, PageHeader, PasswordInput, Select, TextInput};
+use aurora_leptos::components::{
+    Alert, Loading, Modal, PageHeader, PasswordInput, Select, TextInput,
+};
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
@@ -66,7 +68,9 @@ pub fn Accounts() -> impl IntoView {
     Effect::new(move |_| reset_open.set(reset_for.get().is_some()));
 
     let submit_create = move |_| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         let user = username.get_untracked().trim().to_string();
         let pass = password.get_untracked();
         if user.is_empty() || pass.is_empty() {
@@ -98,7 +102,9 @@ pub fn Accounts() -> impl IntoView {
     };
 
     let disable = move |id: String| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         busy.set(true);
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {
@@ -117,7 +123,9 @@ pub fn Accounts() -> impl IntoView {
         if pass.is_empty() {
             return;
         }
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         busy.set(true);
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {

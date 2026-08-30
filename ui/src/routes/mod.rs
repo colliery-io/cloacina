@@ -18,18 +18,18 @@
 //! feature views land per wave — T-0933 (core), T-0934 (graph/operate),
 //! T-0935 (admin + charts) — replacing the [`stubs`] placeholders.
 
+pub mod accounts;
 pub mod connect;
 pub mod execution_detail;
 pub mod executions;
+pub mod fleet;
 pub mod graph_detail;
 pub mod graphs;
-pub mod operations;
 pub mod keys;
-pub mod accounts;
-pub mod fleet;
-pub mod settings;
-pub mod secrets;
+pub mod operations;
 pub mod overview;
+pub mod secrets;
+pub mod settings;
 pub mod stubs;
 pub mod trigger_detail;
 pub mod triggers;

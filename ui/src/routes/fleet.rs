@@ -31,7 +31,11 @@ use crate::data::poll_resource;
 const MONO: &str = "'IBM Plex Mono', monospace";
 
 #[component]
-fn Stat(value: Signal<i64>, #[prop(into)] label: String, #[prop(optional, into)] color: Option<String>) -> impl IntoView {
+fn Stat(
+    value: Signal<i64>,
+    #[prop(into)] label: String,
+    #[prop(optional, into)] color: Option<String>,
+) -> impl IntoView {
     view! {
         <div
             style:flex="1"
@@ -70,14 +74,20 @@ pub fn Fleet() -> impl IntoView {
 
     let fleet = poll_resource(move |c| {
         refresh.get();
-        let t = use_auth().connection().map(|c| c.tenant).unwrap_or_default();
+        let t = use_auth()
+            .connection()
+            .map(|c| c.tenant)
+            .unwrap_or_default();
         async move {
             c.get_json::<serde_json::Value>(&format!("/v1/tenants/{t}/fleet"))
                 .await
         }
     });
     let limits = poll_resource(move |c| {
-        let t = use_auth().connection().map(|c| c.tenant).unwrap_or_default();
+        let t = use_auth()
+            .connection()
+            .map(|c| c.tenant)
+            .unwrap_or_default();
         async move {
             c.get_json::<serde_json::Value>(&format!("/v1/tenants/{t}/limits"))
                 .await
@@ -86,13 +96,22 @@ pub fn Fleet() -> impl IntoView {
 
     let state = Signal::derive(move || fleet.get().and_then(|r| r.ok()));
     let desired = Signal::derive(move || {
-        state.get().and_then(|s| s["desired_count"].as_i64()).unwrap_or(0)
+        state
+            .get()
+            .and_then(|s| s["desired_count"].as_i64())
+            .unwrap_or(0)
     });
     let actual = Signal::derive(move || {
-        state.get().and_then(|s| s["actual_count"].as_i64()).unwrap_or(0)
+        state
+            .get()
+            .and_then(|s| s["actual_count"].as_i64())
+            .unwrap_or(0)
     });
     let limit = Signal::derive(move || {
-        state.get().and_then(|s| s["effective_limit"].as_i64()).unwrap_or(0)
+        state
+            .get()
+            .and_then(|s| s["effective_limit"].as_i64())
+            .unwrap_or(0)
     });
     let at_capacity = Signal::derive(move || state.get().is_some() && desired.get() >= limit.get());
 
@@ -100,7 +119,9 @@ pub fn Fleet() -> impl IntoView {
     let error = RwSignal::new(String::new());
 
     let scale = move |direction: &'static str| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         let t = conn.tenant.clone();
         busy.set(true);
         error.set(String::new());

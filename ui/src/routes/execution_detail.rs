@@ -458,6 +458,17 @@ pub fn ExecutionDetail() -> impl IntoView {
                 </Show>
             </div>
 
+            // Timeline (TaskGantt, T-0935)
+            <div>
+                <SectionHeader title="Timeline" live=live />
+                <Show
+                    when=move || tasks.get().is_some()
+                    fallback=|| view! { <Loading label="Loading timeline…" /> }
+                >
+                    {move || view! { <crate::charts::TaskGantt tasks=task_list.get() /> }}
+                </Show>
+            </div>
+
             // Event log (REST backfill + WS live tail, merged on sequence_num)
             <div>
                 <SectionHeader title="Event log" live=live />

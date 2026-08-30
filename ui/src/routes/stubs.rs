@@ -33,7 +33,6 @@ macro_rules! stub {
     };
 }
 
-
 /// Unmatched in-app path.
 #[component]
 pub fn NotFound() -> impl IntoView {

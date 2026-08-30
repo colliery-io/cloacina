@@ -81,7 +81,11 @@ fn ConfigCard(
 #[component]
 pub fn Settings() -> impl IntoView {
     let auth = use_auth();
-    let tenant = move || auth.connection().map(|c| c.tenant).unwrap_or_else(|| "—".into());
+    let tenant = move || {
+        auth.connection()
+            .map(|c| c.tenant)
+            .unwrap_or_else(|| "—".into())
+    };
     let server = move || {
         auth.connection()
             .map(|c| c.server_url)
