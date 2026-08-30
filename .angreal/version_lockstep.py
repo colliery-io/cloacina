@@ -28,6 +28,9 @@ _JSON_FILES = [
 _PY_PYPROJECT = ("python · client pyproject", "clients/python/pyproject.toml")
 _PY_INIT = ("python · client __init__", "clients/python/src/cloacina_client/__init__.py")
 _SCAFFOLD = ("scaffold · CLOACINA_CRATE_VERSION", "crates/cloacinactl/src/nouns/package/new.rs")
+# The Leptos UI crate (CLOACI-I-0141) — detached from the workspace, so it
+# does not inherit [workspace.package] and needs its own pin.
+_UI_CRATE = ("cargo · cloacina-ui crate", "ui/Cargo.toml")
 # Helm chart appVersion = which app image tag `helm install` runs by default.
 # These drifted four minors behind before being added here (found during 0.10.0
 # release prep: server/agent said 0.6.1, ui 0.7.0 — a fresh chart install would
@@ -81,6 +84,8 @@ def found_versions(source: str):
     out.append((_PY_INIT[0], m.group(1) if m else "<missing>", source))
     m = re.search(r'CLOACINA_CRATE_VERSION:\s*&str\s*=\s*"([^"]+)"', _read(_SCAFFOLD[1]))
     out.append((_SCAFFOLD[0], m.group(1) if m else "<missing>", _minor(source)))
+    m = re.search(r'^version\s*=\s*"([^"]+)"', _read(_UI_CRATE[1]), re.MULTILINE)
+    out.append((_UI_CRATE[0], m.group(1) if m else "<missing>", source))
     for label, rel in _HELM_CHARTS:
         m = re.search(r'^appVersion:\s*"([^"]+)"', _read(rel), re.MULTILINE)
         out.append((label, m.group(1) if m else "<missing>", source))
@@ -122,6 +127,9 @@ def set_version(new: str) -> None:
     t = _read(_SCAFFOLD[1])
     t = re.sub(r'(CLOACINA_CRATE_VERSION:\s*&str\s*=\s*")[^"]+(")', r"\g<1>" + source_minor + r"\g<2>", t, count=1)
     _write(_SCAFFOLD[1], t)
+    t = _read(_UI_CRATE[1])
+    t = re.sub(r'^(version\s*=\s*")[^"]+(")', r"\g<1>" + new + r"\g<2>", t, count=1, flags=re.MULTILINE)
+    _write(_UI_CRATE[1], t)
     for _, rel in _HELM_CHARTS:
         t = _read(rel)
         t = re.sub(r'^(appVersion:\s*")[^"]+(")', r"\g<1>" + new + r"\g<2>", t, count=1, flags=re.MULTILINE)

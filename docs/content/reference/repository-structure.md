@@ -42,7 +42,7 @@ cloacina/
     python/                        # Python client SDK (cloacina-client)
     typescript/                    # TypeScript client SDK (@cloacina/client)
 
-  ui/                              # React SPA (embedded in the server behind `embedded-ui`, or standalone)
+  ui/                              # Leptos/WASM SPA (embedded in the server behind `embedded-ui`)
   charts/                          # Helm charts: cloacina-server (local Postgres subchart), cloacina-agent, cloacina-ui
   deploy/                          # Deploy templates (docker-compose, k8s)
   docker/                          # Dockerfiles + demo compose stack

@@ -4,14 +4,14 @@ level: task
 title: "Wave 5 parity gate and release — full e2e/visual run, CI lane swap, lockstep, 0.11.0 resumes"
 short_code: "CLOACI-T-0936"
 created_at: 2026-08-30T11:38:06.699741+00:00
-updated_at: 2026-08-30T11:38:06.699741+00:00
+updated_at: 2026-08-30T16:26:56.033685+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -78,6 +78,8 @@ Close the migration and un-park the release train:
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -152,4 +154,21 @@ Close the migration and un-park the release train:
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — ACTIVE. Waves 1–4 ALL MERGED (#265/#266/#267/#268). Gate
+  rehearsal against the demo stack (full bundle, 18 routes): **22 passed /
+  0 failed / 3 skipped** across the entire functional e2e corpus (walk
+  tours, ws1–ws8, scenarios, connect, admin trio, wave1/3/4 specs). Skips =
+  seeded-lane execution-id specs; `angreal test ui-e2e` (full, seeded) in
+  flight to close them.
+
+  Remaining checklist:
+  1. Seeded ui-e2e full lane green (in flight).
+  2. Visual baselines: pixels changed framework-wide → regenerate via the
+     ui-visual workflow_dispatch `update_baselines=true` on Linux (local
+     macOS shots are NOT the gate).
+  3. Lockstep: ui/Cargo.toml (crate version) joins bump+drift touchpoints;
+     ui/package.json (playwright tooling) stays.
+  4. Docs: embedded-ui pages — build prereqs now trunk + wasm32, not node.
+  5. Release: rebase release/v0.11.0 (#264), UI changelog entry, regenerate
+     docs/static/openapi.json (parked info.version fix), merge, tag v0.11.0
+     (maintainer pre-approved tag-on-merge).
