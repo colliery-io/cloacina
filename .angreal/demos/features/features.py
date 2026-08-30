@@ -756,12 +756,11 @@ def _trigger_wait_steps(workflow_name, trigger_name=None):
                     (["trigger", "inspect", trigger_name], "trigger inspect"),
                     (["trigger", "pause", trigger_name], "trigger pause"),
                     (["trigger", "resume", trigger_name], "trigger resume"),
-                    # `trigger fire` is deliberately NOT asserted here: it
-                    # resolves targets from the SUBSCRIPTION side
-                    # (`#[workflow(triggers = [..])]`), so a trigger declared
-                    # `#[trigger(on = "wf")]` has no subscribers and the call
-                    # errors. Documented in the example's README; the gap
-                    # itself is CLOACI-T-0929.
+                    # CLOACI-T-0929 (fixed): `fire` now unions the schedule's
+                    # `on =` workflow with any registry subscribers, so the
+                    # shape this example teaches finally supports manual fire.
+                    # This assertion is the regression gate for that fix.
+                    (["trigger", "fire", trigger_name], "trigger fire (on = shape)"),
                     (
                         ["workflow", "run", workflow_name],
                         "workflow run (immediate run for an `on =` trigger)",

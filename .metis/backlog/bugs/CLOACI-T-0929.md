@@ -120,9 +120,14 @@ in the meantime: the README states which shape `fire` applies to, and points at
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [x] `trigger fire` fires a trigger declared with `on = "..."` (union of the
+      schedule's `on` workflow + registry subscribers, deduped).
+- [x] Empty case still errors, with a message naming BOTH wiring shapes.
+- [x] The T-0893 harness assertion is re-enabled and passing live:
+      `angreal demos features packaged-triggers` → exit 0,
+      `ok: trigger fire (on = shape)`.
+- [x] The README caveat replaced with correct `trigger fire` guidance
+      (including the fire-vs-run semantic distinction).
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -187,4 +192,12 @@ in the meantime: the README states which shape `fire` applies to, and points at
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — FIXED AND VERIFIED LIVE. `fire_trigger` resolves the fan-out
+  set as the UNION of both wiring shapes: the schedule row's `on =` workflow
+  (the same resolution pause/resume always used — they never had this bug)
+  plus the registry's subscribers, deduped. 404 only when BOTH are empty, with
+  a message naming both shapes. Verified: `angreal demos features
+  packaged-triggers` exit 0 with the re-enabled T-0893 assertion
+  (`ok: trigger fire (on = shape)`) against the real `inbox_poll` trigger —
+  the exact command whose failure filed this ticket is now its permanent
+  regression gate. README caveat replaced with fire-vs-run guidance.

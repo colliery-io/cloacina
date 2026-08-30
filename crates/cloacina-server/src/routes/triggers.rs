@@ -410,14 +410,40 @@ pub async fn fire_trigger(
         let storage = UnifiedRegistryStorage::new(tenant_db.clone());
         WorkflowRegistryImpl::new(storage, tenant_db.clone()).ok()
     };
-    let subscribers: Vec<String> = match &registry {
+    let mut subscribers: Vec<String> = match &registry {
         Some(r) => r.find_trigger_subscribers(&name).await.unwrap_or_default(),
         None => Vec::new(),
     };
+
+    // CLOACI-T-0929: a trigger declared with `on = "wf"` has its PRIMARY
+    // workflow in the schedules row and possibly NO registry subscribers at
+    // all — that shape previously 404'd here with a message about subscribers,
+    // a concept the package never used. The fan-out set is the UNION of both
+    // wiring shapes: the schedule's `on` workflow plus every
+    // `#[workflow(triggers = [..])]` subscriber. (Same schedule resolution
+    // pause/resume already use — they never had this bug.)
+    {
+        let dal = cloacina::dal::unified::DAL::new(tenant_db.clone());
+        if let Ok(schedules) = dal.schedule().list(None, false, 1000, 0).await {
+            if let Some(primary) = schedules
+                .into_iter()
+                .find(|s| s.trigger_name.as_deref() == Some(&name))
+            {
+                if !subscribers.contains(&primary.workflow_name) {
+                    subscribers.push(primary.workflow_name);
+                }
+            }
+        }
+    }
+
     if subscribers.is_empty() {
         return ApiError::not_found(
             "trigger_not_found",
-            format!("trigger '{}' has no subscribed workflows", name),
+            format!(
+                "trigger '{}' drives no workflows (neither an `on = ..` schedule \
+                 nor any `#[workflow(triggers = [..])]` subscribers)",
+                name
+            ),
         )
         .into_response();
     }
