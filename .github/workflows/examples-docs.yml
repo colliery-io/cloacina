@@ -221,6 +221,10 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # fs-grant-demo packages a constructor provider to wasm32-wasip2 at
+          # runtime (CLOACI-T-0892); the target is a no-op for other examples.
+          targets: wasm32-wasip2
 
       - name: Restore build cache
         uses: actions/cache/restore@v4
