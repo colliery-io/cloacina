@@ -4,15 +4,15 @@ level: task
 title: "Cron backstop is starved by the 1s trigger tick — a cron schedule created without a notify never fires"
 short_code: "CLOACI-T-0928"
 created_at: 2026-08-08T18:54:57.745724+00:00
-updated_at: 2026-08-08T18:54:57.745724+00:00
-parent:
+updated_at: 2026-08-30T02:12:25.824714+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -157,11 +157,23 @@ elapses, on `cron_change`, or after a fire.
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [x] The backstop can elapse while the 1s trigger tick is running: the cron
+      sleep is created once and lives across loop iterations; only the cron
+      branch and `cron_change` reset it.
+- [x] A cron row written directly through the DAL — no notification — fires
+      via the backstop. Proven by a regression test that FAILS on the pre-fix
+      code with this ticket's exact symptom and passes with the fix, on both
+      backends.
+- [x] No busy loop: an elapsed `Sleep` is re-armed inside the cron branch
+      (an un-reset elapsed sleep stays ready and would win every select).
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -226,4 +238,25 @@ elapses, on `cron_change`, or after a fire.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — FIXED, VERIFIED BOTH DIRECTIONS. Exactly the ticket's suggested
+  shape: `cron_sleep` created once before the loop (`tokio::pin!` outside),
+  reset via `Sleep::reset` only in the cron branch (after fire + re-query) and
+  the `cron_change` branch. The 1s tick no longer wipes accumulated progress.
+  One subtlety the suggested fix didn't mention: an elapsed `Sleep` stays
+  ready forever, so the cron branch MUST re-arm it or it wins every
+  subsequent select (busy loop) — commented in code.
+
+  Regression test `test_cron_backstop_fires_unnotified_schedule`
+  (integration/scheduler/cron_basic.rs): runner with a 2s backstop and the
+  default 1s tick, then a due cron row written through the DAL directly —
+  deliberately NOT `register_cron_workflow`, which notifies. The claim path
+  advances `next_run_at` before any workflow lookup, so that advance IS the
+  proof the cron branch ran. Counterfactual run with the fix stashed: FAILS
+  with "backstop never fired ... after 10s" — the ticket's exact symptom.
+  With the fix: sqlite green, postgres green (fires right at the 2s backstop).
+
+  Postgres test gotcha worth remembering: the test fixture is schema-isolated
+  (UUID schema), so the runner must be built via
+  `DefaultRunner::with_database(fixture.get_database(), ...)` — a
+  URL-constructed runner looks at `public` and never sees the fixture's row
+  (observed as a false FAIL on postgres only).
