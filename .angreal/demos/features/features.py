@@ -70,9 +70,45 @@ def matrix():
     names = sorted(
         [name.replace("_", "-") for name in _rust_feature_commands]
         + list(_packaged_commands)
-        + ["python-workflow"]
+        + ["python-workflow", "fs-grant-demo"]
     )
     print(json.dumps(names))
+
+
+# --- bespoke constructor/provider demo (CLOACI-T-0892) -----------------------
+#
+# fs-grant-demo lives OUTSIDE examples/features/ (under examples/
+# constructor-contract/), so the auto-discovery scan never finds it — it was
+# dark matter: the entire constructor/provider surface had examples that no
+# harness ever executed. This registration puts the canonical one in the demos
+# surface and (via `demos matrix`) the CI matrix.
+#
+# It runs via `cargo run` deliberately: the demo's value is the PROVIDER
+# LIFECYCLE (package_constructor_provider → archive → stage → workflow
+# consumes the constructor node) plus the default-closed grant proof — two
+# identical workflows differing only in a `grants =` line, where the
+# ungranted one MUST fail. It is self-checking and exits loudly if the
+# sandbox ever leaks. Kept thin per project_fidius_wasm_authoring_shift: the
+# wasm authoring story may reshape; the lifecycle and the security property
+# are what this guards.
+
+@demos()
+@features()
+@angreal.command(
+    name="fs-grant-demo",
+    about="constructor capability grants end-to-end: provider packaged, staged, consumed; ungranted access denied",
+    when_to_use=[
+        "validating the constructor/provider lifecycle",
+        "regression-testing the default-closed grant model",
+    ],
+    when_not_to_use=["performance benchmarking", "production deployment"],
+)
+def fs_grant_demo():
+    return run_example_or_tutorial(
+        PROJECT_ROOT,
+        "examples/constructor-contract/fs-grant-demo",
+        "Constructor FS-Grant Demo",
+    )
 
 
 # --- bespoke Python-workflow feature demo -----------------------------------
