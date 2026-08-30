@@ -106,6 +106,10 @@ fn GroupLabel(children: Children) -> impl IntoView {
 #[component]
 pub fn Shell() -> impl IntoView {
     let auth = use_auth();
+    // App-level data plumbing (T-0933): the shared poll tick and the warm
+    // ops-metrics WS both live for the whole authenticated session.
+    crate::data::provide_poll_tick();
+    crate::ops::provide_ops_metrics();
     let navigate = use_navigate();
     let nav_run = navigate.clone();
     let nav_disconnect = navigate;

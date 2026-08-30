@@ -40,6 +40,8 @@ web-sys = { version = "0.3", features = [
     "UrlSearchParams",
 ] }
 js-sys = "0.3"
+futures-util = "0.3"
+cloacina-api-types = { path = "../crates/cloacina-api-types" }
 
 [profile.release]
 opt-level = "z"

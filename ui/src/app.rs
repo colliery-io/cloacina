@@ -24,6 +24,7 @@ use leptos_router::path;
 
 use crate::auth::{provide_auth, use_auth};
 use crate::routes::connect::Connect;
+use crate::routes::overview::Overview;
 use crate::routes::stubs::*;
 use crate::shell::Shell;
 

@@ -1,0 +1,82 @@
+/*
+ *  Copyright 2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+//! Small formatting helpers (parity with the React `util/format.ts` + the
+//! Overview's `ago`). Time math rides `js_sys::Date` — wall-clock in the
+//! browser.
+
+/// Milliseconds since the epoch for an RFC3339-ish timestamp, via the
+/// browser's parser (handles the server's ISO strings).
+fn parse_ms(ts: &str) -> Option<f64> {
+    let ms = js_sys::Date::parse(ts);
+    if ms.is_nan() {
+        None
+    } else {
+        Some(ms)
+    }
+}
+
+/// `1.2s` / `3m 04s` style duration between two timestamps; em-dash when
+/// either side is missing/unparseable.
+pub fn format_duration(started: Option<&str>, completed: Option<&str>) -> String {
+    let (Some(s), Some(c)) = (started.and_then(parse_ms), completed.and_then(parse_ms)) else {
+        return "—".to_string();
+    };
+    let ms = c - s;
+    if ms < 0.0 {
+        return "—".to_string();
+    }
+    let secs = ms / 1000.0;
+    if secs < 60.0 {
+        return format!("{secs:.1}s");
+    }
+    let m = (secs / 60.0).floor() as u64;
+    let rem = (secs % 60.0).floor() as u64;
+    if m < 60 {
+        return format!("{m}m {rem:02}s");
+    }
+    let h = m / 60;
+    format!("{h}h {:02}m", m % 60)
+}
+
+/// `42s ago` / `3m ago` / `2h ago` / `5d ago`; empty when unknown.
+pub fn ago(ts: Option<&str>) -> String {
+    let Some(then) = ts.and_then(parse_ms) else {
+        return String::new();
+    };
+    let ms = js_sys::Date::now() - then;
+    if ms.is_nan() || ms < 0.0 {
+        return String::new();
+    }
+    let s = (ms / 1000.0).floor() as u64;
+    if s < 60 {
+        return format!("{s}s ago");
+    }
+    let m = s / 60;
+    if m < 60 {
+        return format!("{m}m ago");
+    }
+    let h = m / 60;
+    if h < 24 {
+        return format!("{h}h ago");
+    }
+    format!("{}d ago", h / 24)
+}
+
+/// First 8 chars of an id (the run-id chip convention).
+pub fn short_id(id: &str) -> String {
+    id.chars().take(8).collect()
+}
