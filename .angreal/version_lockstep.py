@@ -31,6 +31,22 @@ _SCAFFOLD = ("scaffold · CLOACINA_CRATE_VERSION", "crates/cloacinactl/src/nouns
 # The Leptos UI crate (CLOACI-I-0141) — detached from the workspace, so it
 # does not inherit [workspace.package] and needs its own pin.
 _UI_CRATE = ("cargo · cloacina-ui crate", "ui/Cargo.toml")
+
+def _example_manifests():
+    """Every example Cargo.toml pinning a cloacina crate by MINOR version.
+    Packaged examples ship crates.io VERSION deps (the I-0138 standard); at a
+    minor bump every host-side crate moves together, so a stale example pin
+    resolves the OLD crates.io release against the NEW host and fails the
+    plugin-ABI handshake (seen as `bincode wire error` at load, 0.10→0.11)."""
+    import pathlib
+    return sorted(
+        str(pp.relative_to(PROJECT_ROOT))
+        for pp in pathlib.Path(PROJECT_ROOT, "examples").rglob("Cargo.toml")
+        if "target" not in pp.parts
+        and re.search(r'^cloacina[\w-]*\s*=\s*(?:"|\{[^}]*version\s*=\s*")', pp.read_text(), re.M)
+    )
+
+_EXAMPLE_PIN = re.compile(r'^(cloacina[\w-]*\s*=\s*(?:"|\{[^}]*?version\s*=\s*"))(\d+\.\d+)(")', re.M)
 # Helm chart appVersion = which app image tag `helm install` runs by default.
 # These drifted four minors behind before being added here (found during 0.10.0
 # release prep: server/agent said 0.6.1, ui 0.7.0 — a fresh chart install would
@@ -86,6 +102,10 @@ def found_versions(source: str):
     out.append((_SCAFFOLD[0], m.group(1) if m else "<missing>", _minor(source)))
     m = re.search(r'^version\s*=\s*"([^"]+)"', _read(_UI_CRATE[1]), re.MULTILINE)
     out.append((_UI_CRATE[0], m.group(1) if m else "<missing>", source))
+    minor = _minor(source)
+    for rel in _example_manifests():
+        for mm in _EXAMPLE_PIN.finditer(_read(rel)):
+            out.append((f"example pin · {rel}", mm.group(2), minor))
     for label, rel in _HELM_CHARTS:
         m = re.search(r'^appVersion:\s*"([^"]+)"', _read(rel), re.MULTILINE)
         out.append((label, m.group(1) if m else "<missing>", source))
@@ -130,6 +150,11 @@ def set_version(new: str) -> None:
     t = _read(_UI_CRATE[1])
     t = re.sub(r'^(version\s*=\s*")[^"]+(")', r"\g<1>" + new + r"\g<2>", t, count=1, flags=re.MULTILINE)
     _write(_UI_CRATE[1], t)
+    for rel in _example_manifests():
+        t = _read(rel)
+        t2 = _EXAMPLE_PIN.sub(lambda mm: mm.group(1) + source_minor + mm.group(3), t)
+        if t2 != t:
+            _write(rel, t2)
     for _, rel in _HELM_CHARTS:
         t = _read(rel)
         t = re.sub(r'^(appVersion:\s*")[^"]+(")', r"\g<1>" + new + r"\g<2>", t, count=1, flags=re.MULTILINE)
