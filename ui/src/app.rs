@@ -24,8 +24,10 @@ use leptos_router::path;
 
 use crate::auth::{provide_auth, use_auth};
 use crate::routes::connect::Connect;
+use crate::routes::executions::Executions;
 use crate::routes::overview::Overview;
 use crate::routes::stubs::*;
+use crate::routes::workflows::Workflows;
 use crate::shell::Shell;
 
 /// Gate: no active connection → the connect screen.

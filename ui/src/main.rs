@@ -24,6 +24,7 @@
 mod app;
 mod auth;
 mod brand;
+mod components;
 mod config;
 mod data;
 mod ops;

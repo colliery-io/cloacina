@@ -33,10 +33,8 @@ macro_rules! stub {
     };
 }
 
-stub!(Workflows, "Workflows", "Wave 2 (CLOACI-T-0933)");
 stub!(WorkflowDetail, "Workflow", "Wave 2 (CLOACI-T-0933)");
 stub!(WorkflowUpload, "Upload workflow", "Wave 2 (CLOACI-T-0933)");
-stub!(Executions, "Executions", "Wave 2 (CLOACI-T-0933)");
 stub!(ExecutionDetail, "Execution", "Wave 2 (CLOACI-T-0933)");
 stub!(Triggers, "Triggers", "Wave 3 (CLOACI-T-0934)");
 stub!(TriggerDetail, "Trigger", "Wave 3 (CLOACI-T-0934)");

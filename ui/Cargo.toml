@@ -40,6 +40,7 @@ web-sys = { version = "0.3", features = [
     "UrlSearchParams",
 ] }
 js-sys = "0.3"
+urlencoding = "2.1"
 futures-util = "0.3"
 cloacina-api-types = { path = "../crates/cloacina-api-types" }
 

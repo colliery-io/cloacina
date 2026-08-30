@@ -19,5 +19,7 @@
 //! T-0935 (admin + charts) — replacing the [`stubs`] placeholders.
 
 pub mod connect;
+pub mod executions;
 pub mod overview;
 pub mod stubs;
+pub mod workflows;
