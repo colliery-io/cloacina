@@ -60,7 +60,9 @@ pub fn Triggers() -> impl IntoView {
     let running = RwSignal::new(false);
 
     let run_now = move |workflow: String| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         running.set(true);
         leptos::task::spawn_local(async move {
             let result = async {
@@ -74,7 +76,10 @@ pub fn Triggers() -> impl IntoView {
             running.set(false);
             if let Ok(res) = result {
                 navigate.with_value(|n| {
-                    n(&format!("/executions/{}", res.execution_id), Default::default())
+                    n(
+                        &format!("/executions/{}", res.execution_id),
+                        Default::default(),
+                    )
                 });
             }
         });

@@ -71,7 +71,9 @@ pub fn TriggerDetail() -> impl IntoView {
         let Some(workflow) = data.get_untracked().map(|d| d.schedule.workflow_name) else {
             return;
         };
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         running.set(true);
         error.set(String::new());
         leptos::task::spawn_local(async move {
@@ -86,7 +88,10 @@ pub fn TriggerDetail() -> impl IntoView {
             running.set(false);
             match result {
                 Ok(res) => navigate.with_value(|n| {
-                    n(&format!("/executions/{}", res.execution_id), Default::default())
+                    n(
+                        &format!("/executions/{}", res.execution_id),
+                        Default::default(),
+                    )
                 }),
                 Err(e) => error.set(e),
             }

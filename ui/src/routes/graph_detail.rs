@@ -69,7 +69,9 @@ pub fn GraphDetail() -> impl IntoView {
         let Some(reactor) = data.get_untracked().and_then(|d| d.reactor) else {
             return;
         };
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         firing.set(true);
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {

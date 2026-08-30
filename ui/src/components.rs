@@ -264,10 +264,7 @@ pub fn TagPill(#[prop(into)] color: String, children: Children) -> impl IntoView
 /// trigger's declared pass-through interface, renders one typed field per
 /// slot, fires, then lists the fan-out (fired workflows).
 #[component]
-pub fn TriggerFireModal(
-    open: RwSignal<bool>,
-    trigger: RwSignal<Option<String>>,
-) -> impl IntoView {
+pub fn TriggerFireModal(open: RwSignal<bool>, trigger: RwSignal<Option<String>>) -> impl IntoView {
     use cloacina_api_types::FireTriggerRequest;
 
     let auth = use_auth();
@@ -304,8 +301,12 @@ pub fn TriggerFireModal(
     };
 
     let fire = move || {
-        let Some(name) = trigger.get_untracked() else { return };
-        let Some(conn) = auth.connection() else { return };
+        let Some(name) = trigger.get_untracked() else {
+            return;
+        };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         firing.set(true);
         error.set(String::new());
         let fields = slots.get_untracked();
@@ -321,7 +322,9 @@ pub fn TriggerFireModal(
                     }
                     continue;
                 }
-                let Some(raw) = vals.get(&slot.name) else { continue };
+                let Some(raw) = vals.get(&slot.name) else {
+                    continue;
+                };
                 if raw.is_empty() {
                     continue;
                 }
@@ -361,7 +364,12 @@ pub fn TriggerFireModal(
         });
     };
 
-    let title = move || trigger.get().map(|t| format!("{t} · fire")).unwrap_or_default();
+    let title = move || {
+        trigger
+            .get()
+            .map(|t| format!("{t} · fire"))
+            .unwrap_or_default()
+    };
 
     view! {
         <Show when=move || open.get()>
@@ -498,8 +506,12 @@ pub fn GraphInjectModal(
     };
 
     let inject = move || {
-        let Some(name) = accumulator.get_untracked() else { return };
-        let Some(conn) = auth.connection() else { return };
+        let Some(name) = accumulator.get_untracked() else {
+            return;
+        };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         busy.set(true);
         error.set(String::new());
         let fields = slots.get_untracked();
@@ -519,7 +531,9 @@ pub fn GraphInjectModal(
                 let mut obj = serde_json::Map::new();
                 for slot in &fields {
                     let ty = slot.schema["type"].as_str().unwrap_or("string");
-                    let Some(rawv) = vals.get(&slot.name) else { continue };
+                    let Some(rawv) = vals.get(&slot.name) else {
+                        continue;
+                    };
                     if rawv.is_empty() {
                         continue;
                     }

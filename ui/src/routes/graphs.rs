@@ -153,7 +153,9 @@ pub fn Graphs() -> impl IntoView {
     let firing = RwSignal::new(Option::<String>::None);
 
     let force_fire = move |name: String| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         firing.set(Some(name.clone()));
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {
