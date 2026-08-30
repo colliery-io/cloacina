@@ -68,10 +68,10 @@ jobs:
           docker compose -f docker/docker-compose.demo.yml ps || true
           exit 1
 
-      - name: Build SDK + UI deps
-        run: |
-          (cd clients/typescript && npm ci && npm run build)
-          (cd ui && npm install)
+      # CLOACI-I-0141: the served UI comes from the demo image (trunk-built
+      # in Docker); node here is only the Playwright tooling.
+      - name: Install Playwright tooling
+        run: (cd ui && npm install)
 
       - name: Install Playwright browser
         working-directory: ui

@@ -128,13 +128,13 @@ def _pack_fixtures(home: Path):
 
 
 def _build_ui():
-    print("Building @cloacina/client SDK + UI…")
-    if not (SDK_DIR / "node_modules").exists():
-        _run(["npm", "ci"], cwd=SDK_DIR)
-    _run(["npm", "run", "build"], cwd=SDK_DIR)
+    # CLOACI-I-0141 (T-0932): the UI is a Leptos crate — trunk builds it.
+    # node remains only for the Playwright tooling (ui/package.json) and the
+    # visual harness.
+    print("Building the Leptos UI (trunk)…")
+    _run(["trunk", "build", "--release"], cwd=UI_DIR)
     if not (UI_DIR / "node_modules").exists():
         _run(["npm", "install"], cwd=UI_DIR)
-    _run(["npm", "run", "build"], cwd=UI_DIR)
     if not (HARNESS_DIR / "node_modules").exists():
         _run(["npm", "install"], cwd=HARNESS_DIR)
     print("Installing Playwright chromium…")
@@ -225,9 +225,9 @@ def _create_tenant(name: str):
 def _ui_e2e(smoke: bool) -> int:
     label = "smoke subset" if smoke else "full suite"
     print_section_header(f"UI acceptance e2e ({label})")
-    # UI deps first: the embedded-ui cargo build below runs `npm run build`
-    # in ui/ via build.rs, which needs node_modules (and the built SDK the UI
-    # depends on) — a fresh CI checkout has neither.
+    # UI first: the embedded-ui cargo build below runs `trunk build` in ui/
+    # via build.rs; prebuilding here also installs the Playwright tooling a
+    # fresh CI checkout lacks.
     _build_ui()
     _build()
     _start_postgres()

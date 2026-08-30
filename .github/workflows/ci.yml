@@ -235,10 +235,12 @@ jobs:
       - name: Python generated-client drift check
         run: python3 scripts/check_python_sdk_generated.py
 
-  # UI ship-readiness gate (CLOACI-I-0117 / T-0661) — the cheap, Node-only PR
-  # checks: version lockstep, generated-types drift, and the UI typechecks +
-  # builds against the SDK. The full Playwright acceptance lane (Docker + Rust
-  # + a real browser) runs nightly (`angreal test ui-e2e`).
+  # UI ship-readiness gate (CLOACI-I-0117 / T-0661; reshaped by I-0141): the
+  # cheap PR checks — version lockstep and the Leptos UI building for wasm
+  # (trunk). The UI no longer consumes the TS SDK (it rides cloacina-client on
+  # wasm), so the SDK build lives only in the sdk job. The full Playwright
+  # acceptance lane (Docker + Rust + a real browser) runs nightly
+  # (`angreal test ui-e2e`).
   ui-checks:
     name: UI Checks
     needs: changes
@@ -250,11 +252,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -263,19 +260,30 @@ jobs:
       - name: Version lockstep (server + SDKs + UI)
         run: python3 scripts/check_sdk_versions.py
 
-      - name: Build the SDK (UI depends on its dist)
-        working-directory: clients/typescript
-        run: |
-          npm ci
-          npm run check:generated
-          npm run build
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
-      - name: UI typecheck + build
+      - name: Install trunk
+        run: |
+          curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin trunk
+
+      - name: Cache UI build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ui/target
+          key: ${{ runner.os }}-ui-leptos-${{ hashFiles('ui/Cargo.lock') }}
+
+      - name: UI check + trunk build
         working-directory: ui
         run: |
-          npm install
-          npm run typecheck
-          npm run build
+          cargo check --target wasm32-unknown-unknown
+          trunk build --release
 
   # Rust + Python tests (Python is now native in cloacina core)
   cloacina-tests:
