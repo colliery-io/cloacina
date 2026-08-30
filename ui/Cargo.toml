@@ -19,7 +19,7 @@ leptos_router = { version = "0.8" }
 
 # Aurora Dark — Colliery's Leptos design system (tokens, primitives, widgets,
 # graph). Lib name is `aurora_leptos`. Pinned by rev; bump deliberately.
-colliery-io-aurora = { git = "https://github.com/colliery-io/aurora-dark.git", rev = "cb84a23299aa792a45222dadb1a618a5c3e23df4" }
+colliery-io-aurora = { git = "https://github.com/colliery-io/aurora-dark.git", rev = "8e0eaf6bf1cd87940c1e9aa41710a594f9cb3895" }
 
 # The same contract-tested Rust SDK the CLI uses — wasm transport (T-0932).
 cloacina-client = { path = "../crates/cloacina-client" }
@@ -44,7 +44,7 @@ js-sys = "0.3"
 [build-dependencies]
 # leptos-free build of the design pack: emits style/aurora.css (no-flash link).
 # Resolver v2 keeps this feature set separate from the wasm dependency above.
-colliery-io-aurora = { git = "https://github.com/colliery-io/aurora-dark.git", rev = "cb84a23299aa792a45222dadb1a618a5c3e23df4", default-features = false }
+colliery-io-aurora = { git = "https://github.com/colliery-io/aurora-dark.git", rev = "8e0eaf6bf1cd87940c1e9aa41710a594f9cb3895", default-features = false }
 
 [profile.release]
 opt-level = "z"

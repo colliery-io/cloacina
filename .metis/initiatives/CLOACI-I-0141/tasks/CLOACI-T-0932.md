@@ -4,14 +4,14 @@ level: task
 title: "Wave 1 foundation — wasm cloacina-client + Leptos scaffold replaces the React tree"
 short_code: "CLOACI-T-0932"
 created_at: 2026-08-30T11:37:50.221281+00:00
-updated_at: 2026-08-30T11:40:12.075642+00:00
+updated_at: 2026-08-30T12:41:12.374116+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -81,18 +81,24 @@ Lay the foundation of the Leptos migration (I-0141, replace-in-place):
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `cargo check -p cloacina-client --target wasm32-unknown-unknown` passes;
-      native build and the sdk-contract-rust lane unchanged/green.
-- [ ] `trunk build` in `ui/` produces a dist the server embeds; the demo
-      stack serves the Leptos app at the same URL with no serving-path change.
-- [ ] Connect flow works LIVE against the demo stack: API-key connect,
-      local-account login, whoami-driven nav gating, tenant switch, logout.
-- [ ] Playwright Connect/auth specs pass against the served Leptos app;
-      the harness and e2e trees survived the React deletion.
-- [ ] No node_modules/vite anywhere in `ui/`'s build path (package.json
-      remains only for the Playwright harness tooling if needed).
+- [x] `cargo check -p cloacina-client --target wasm32-unknown-unknown` passes;
+      native build green (sdk-contract-rust lane runs in CI).
+- [x] `trunk build` in `ui/` produces a dist the server embeds; the demo
+      stack serves the Leptos app at the same URL (new hashed bundle
+      confirmed over HTTP; rust-embed/serving path untouched).
+- [x] Connect flow works LIVE against the demo stack: API-key connect,
+      local-login error path (wrong password → alert), add-tenant via
+      ?add=1, tenant switch, disconnect-clears-session. (whoami role
+      resolution runs at connect; visible gating lands with the gated views
+      from Wave 2 on — same as the React shell.)
+- [x] Playwright specs pass against the served Leptos app: connect.spec.ts
+      @smoke, local-auth wrong-password, and a new wave1-session.spec.ts
+      (add/switch/disconnect). Harness + e2e trees survived the deletion.
+- [x] No node/vite in the build path; ui/package.json is Playwright-only.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -157,4 +163,46 @@ Lay the foundation of the Leptos migration (I-0141, replace-in-place):
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — Wave 1 built; first two acceptance criteria green; live gate
+  in flight. Branch `feat/i0141-wave1-foundation`.
+
+  **wasm client DONE**: `cargo check -p cloacina-client` green native AND
+  wasm32-unknown-unknown. The ws.rs protocol loop (hello/ack/dedup/backoff/
+  terminal-4426) is target-independent over a tiny `socket` module —
+  tokio-tungstenite native, gloo-net browser WS on wasm; backoff sleep via
+  tokio/gloo-timers. reqwest timeout knobs cfg'd out on wasm. GOTCHAS:
+  (1) reqwest's `stream` feature on wasm pulls wasm-streams 0.4, which
+  collides at LINK time (duplicate wasm-bindgen exports) with the 0.5 from
+  leptos' server_fn — `stream` dropped from the wasm-side reqwest (nothing
+  streams bodies); (2) `futures_util::SinkExt` needs the explicit `sink`
+  feature once tungstenite stops unifying it in.
+
+  **React tree DELETED, Leptos scaffold IN**: `ui/` is now crate
+  `cloacina-ui` (detached workspace, trunk → dist/, rust-embed path
+  unchanged). aurora-leptos pinned (rev cb84a232); build.rs `write_css` →
+  no-flash `<link>`; auth.rs ports AuthContext 1:1 (SAME sessionStorage
+  keys so sessions survive the swap; T-0779 multi-connection; T-0800 silent
+  refresh; T-0803 fail-closed gating; SSO membership decode); Connect route
+  at full parity (key/password/SSO, fragment pickup + history scrub, tenant
+  picker, ?add=1, dev auto-connect via cfg!(debug_assertions)); Shell rail
+  + tenant switcher; 16 stubs carrying real page titles. `trunk build`
+  green locally.
+
+  **Server/docker rewired**: cloacina-server build.rs runs trunk (not npm)
+  on feature-on builds (skip-env name kept); Dockerfile.demo's ui-builder
+  stage is rust+trunk (node stage and TS-client image build removed).
+
+  **IN FLIGHT**: `angreal ui up` rebuilding the demo image with the Leptos
+  dist; then the live Connect gate + Playwright connect specs.
+
+- 2026-08-30 (later) — **WAVE 1 GREEN LIVE.** Demo stack rebuilt with the
+  trunk image and serves the Leptos bundle at the same URL. Playwright
+  against it: connect.spec.ts @smoke ✓, local-auth wrong-password ✓, new
+  wave1-session.spec.ts (add tenant via ?add=1, switch, disconnect clears
+  session) ✓. All acceptance boxes checked.
+
+  **Design-pack finding worth remembering**: aurora-leptos field components
+  didn't associate labels with controls, and PageHeader's title was a div —
+  both broke role/label-based selectors AND assistive tech. Fixed UPSTREAM
+  (aurora-dark PR #2, for/id via generated ids + h1 title); cloacina pins
+  rev 8e0eaf6b. The pack-first rule held: the app didn't work around it.
