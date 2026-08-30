@@ -60,6 +60,30 @@ pub fn WorkflowDetail() -> impl IntoView {
             .unwrap_or_else(|| name.get())
     });
 
+    // Recent runs for the heatmap (last 40 of this workflow).
+    let recent_runs_res = poll_resource(move |c| {
+        let wf = wf_name.get();
+        async move {
+            c.list_executions(
+                &cloacina_api_types::ListExecutionsQuery {
+                    status: None,
+                    workflow: Some(wf).filter(|w| !w.is_empty()),
+                    limit: Some(40),
+                    offset: Some(0),
+                },
+                None,
+            )
+            .await
+        }
+    });
+    let recent_runs = Signal::derive(move || {
+        recent_runs_res
+            .get()
+            .and_then(|r| r.ok())
+            .map(|r| r.items)
+            .unwrap_or_default()
+    });
+
     let instances = poll_resource(move |c| {
         let wf = wf_name.get();
         async move {
@@ -268,6 +292,11 @@ pub fn WorkflowDetail() -> impl IntoView {
                                 }
                             }
                         }}
+                    </Panel>
+
+                    // Recent runs (RunHeatmap, T-0935)
+                    <Panel title="Recent runs" caption="last 40 · bar height = duration · hover for detail">
+                        {move || view! { <crate::charts::RunHeatmap runs=recent_runs.get() /> }}
                     </Panel>
 
                     // Named instances (T-0927, read-only)
