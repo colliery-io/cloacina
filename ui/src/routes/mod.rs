@@ -28,6 +28,7 @@ pub mod keys;
 pub mod accounts;
 pub mod fleet;
 pub mod settings;
+pub mod secrets;
 pub mod overview;
 pub mod stubs;
 pub mod trigger_detail;

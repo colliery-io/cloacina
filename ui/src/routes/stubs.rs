@@ -33,7 +33,6 @@ macro_rules! stub {
     };
 }
 
-stub!(Secrets, "Secrets", "Wave 4 (CLOACI-T-0935)");
 
 /// Unmatched in-app path.
 #[component]
