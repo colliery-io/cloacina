@@ -99,9 +99,28 @@ test("walk the UI and screenshot everything", async ({ page }) => {
     }
   } catch {}
 
+  // 10b) Graph detail (I-0141: full topology view).
+  try {
+    await page.goto("/graphs");
+    const firstGraph = page.locator("div[style*=cursor]").first();
+    await firstGraph.click();
+    await page.waitForTimeout(600);
+    await shot(page, "10-graph-detail");
+  } catch {}
+
   // 11) Keys.
   await page.goto("/keys");
   await shot(page, "11-keys");
+
+  // 11b-d) Admin surfaces (I-0141 Wave 4).
+  await page.goto("/secrets");
+  await shot(page, "11b-secrets");
+  await page.goto("/accounts");
+  await shot(page, "11c-accounts");
+  await page.goto("/fleet");
+  await shot(page, "11d-fleet");
+  await page.goto("/operations");
+  await shot(page, "11e-operations");
 
   // 12) Settings (placeholder).
   await page.goto("/settings");
