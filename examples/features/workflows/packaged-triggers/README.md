@@ -82,21 +82,15 @@ which is handy when you know what stopped rather than which trigger drives it.
 ### Run it now, without waiting for the poll
 
 ```bash
-cloacinactl workflow run file_processing
+cloacinactl trigger fire inbox_poll
 ```
 
-For a trigger declared with `on = "..."` — like this one — that is the way to
-get an immediate run. The trigger owns *when* the workflow runs; running the
-workflow directly bypasses the schedule for a one-off.
+`fire` runs everything the trigger drives — for an `on = "..."` trigger like
+this one, that is its `on` workflow; for a trigger with
+`#[workflow(triggers = ["t"])]` subscribers, it fans out to every subscriber
+(and both at once, when both shapes are wired).
 
-`cloacinactl trigger fire` does **not** apply here, and it is worth knowing why,
-because the two look interchangeable and are not:
-
-| Shape | How it is wired | `trigger fire` |
-|---|---|---|
-| `#[trigger(on = "wf")]` (this example) | the trigger names the workflow it drives | **no** — the trigger has no *subscribers* |
-| `#[workflow(triggers = ["t"])]` | workflows subscribe to a named trigger | yes — fans out to every subscriber |
-
-`trigger fire` resolves its targets from the *subscription* side, so firing a
-trigger whose only consumer is its own `on` workflow reports
-`trigger '<name>' has no subscribed workflows`. See CLOACI-T-0929.
+`cloacinactl workflow run file_processing` also works, with a subtly different
+meaning: it runs *that workflow* directly, bypassing the trigger entirely.
+`trigger fire` is "act as if the trigger fired now"; `workflow run` is "run
+this workflow regardless of its trigger".
