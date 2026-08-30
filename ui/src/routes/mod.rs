@@ -27,5 +27,6 @@ pub mod workflow_detail;
 pub mod triggers;
 pub mod graphs;
 pub mod graph_detail;
+pub mod trigger_detail;
 pub mod workflow_upload;
 pub mod workflows;

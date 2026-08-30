@@ -32,6 +32,7 @@ use crate::routes::workflow_detail::WorkflowDetail;
 use crate::routes::triggers::Triggers;
 use crate::routes::graphs::Graphs;
 use crate::routes::graph_detail::GraphDetail;
+use crate::routes::trigger_detail::TriggerDetail;
 use crate::routes::workflow_upload::WorkflowUpload;
 use crate::routes::workflows::Workflows;
 use crate::shell::Shell;
