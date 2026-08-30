@@ -4,14 +4,14 @@ level: task
 title: "Constructors/providers into the demos harness + CI — fs-grant-demo and friends stop being dark matter"
 short_code: "CLOACI-T-0892"
 created_at: 2026-07-11T22:03:34.817943+00:00
-updated_at: 2026-07-11T22:03:34.817943+00:00
+updated_at: 2026-08-30T02:00:18.827397+00:00
 parent: CLOACI-I-0138
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -72,6 +72,10 @@ The entire constructor/provider surface — `#[constructor]` (kind = task|trigge
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -142,4 +146,21 @@ The entire constructor/provider surface — `#[constructor]` (kind = task|trigge
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — DONE, VERIFIED LIVE. `fs-grant-demo` chosen as the canonical
+  example (the ticket's own lean) and registered as a bespoke
+  `demos features fs-grant-demo` command; joins the CI matrix via
+  `demos matrix` (verified present, 30 lanes). First-ever harness execution:
+  **exit 0** — provider archive packaged via the REAL
+  `package_constructor_provider` path, staged, consumed via
+  `constructor!(from = "cloacina-provider-fs@0.1.0")`, and all three grant
+  cases proven: granted read succeeds, **ungranted read DENIED**
+  (default-closed — the security property this demo guards), write-grant
+  writes. Self-checking: a sandbox leak fails the lane loudly.
+
+  Kept `cargo run` as the vehicle per the ticket's explicit allowance and the
+  [[project_fidius_wasm_authoring_shift]] caveat — the demo's value is the
+  provider LIFECYCLE + the grant proof, thin on authoring shapes.
+
+  Remaining `constructor-contract/*` dirs classified in a new inventory README
+  (demo / provider crate / test fixture, each with its consuming lane) —
+  exclude-with-reason satisfied; nothing user-facing silently unexecuted.
