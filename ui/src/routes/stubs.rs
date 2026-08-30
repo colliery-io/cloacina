@@ -34,7 +34,6 @@ macro_rules! stub {
 }
 
 stub!(TriggerDetail, "Trigger", "Wave 3 (CLOACI-T-0934)");
-stub!(GraphDetail, "Graph", "Wave 3 (CLOACI-T-0934)");
 stub!(Operations, "Operations", "Wave 3 (CLOACI-T-0934)");
 stub!(Keys, "API Keys", "Wave 4 (CLOACI-T-0935)");
 stub!(Secrets, "Secrets", "Wave 4 (CLOACI-T-0935)");
