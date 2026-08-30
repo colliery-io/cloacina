@@ -4,14 +4,14 @@ level: task
 title: "Wave 2 core routes — Overview, Workflows, Executions + data layer and WS events"
 short_code: "CLOACI-T-0933"
 created_at: 2026-08-30T11:37:54.182180+00:00
-updated_at: 2026-08-30T11:37:54.182180+00:00
+updated_at: 2026-08-30T12:49:46.842417+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -69,6 +69,8 @@ Workflow DAG summaries (MiniDag) come from `aurora_leptos::graph`.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -143,4 +145,34 @@ Workflow DAG summaries (MiniDag) come from `aurora_leptos::graph`.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — STARTED on branch `feat/i0141-wave2-core-routes` (stacked on
+  the Wave-1 branch; PR after #265 merges). Porting map from the React
+  sources (readable at `git show origin/main:ui/src/...` until #265 lands;
+  after that use the pre-merge sha).
+
+  **Data layer** (`ui/src/data.rs`, new): wasm client futures are !Send →
+  `LocalResource`. Polling = tick `RwSignal<u32>` bumped by a gloo-timers
+  interval; resource reads the tick. React parity: staleTime 10s; retry
+  ONCE and only transient (server/network) per aurora `classify`. Query
+  keys were tenant-scoped — in Leptos, resources derive from
+  `auth.connection()` so a tenant switch re-fetches naturally.
+
+  **Reference surfaces** (origin/main `ui/src/api/*`): workflows.ts
+  (list/get/upload/execute/delete), executions.ts (list/get livePoll/
+  events/live-events-WS/tasks/task-runtimes), operations.tsx
+  (useServerHealth + OpsMetricsProvider app-level WS, T-0774), health.ts
+  (graphs). WS = cloacina-client `follow_execution_events` /
+  `subscribe_delivery` (wasm-capable since Wave 1).
+
+  **Routes** (origin/main sizes): Overview 265, Workflows 156,
+  WorkflowDetail 291, WorkflowUpload 116, Executions 168, ExecutionDetail
+  292 lines TSX. Components: RunWorkflowModal, StatusStrip, ActiveRunCard,
+  RecentTasksCell, EventLog, MiniDag (pack graph.rs), ScheduleCard,
+  InputsCard, TaskTable. Heavy chart pieces (TaskGantt etc.) are Wave 4 —
+  ExecutionDetail's Gantt section stubs until then.
+
+  **Upload**: multipart via cloacina-client (reqwest multipart works on
+  wasm); file bytes from web_sys::File.
+
+  **Acceptance**: demo stack live upload→run→Completed + the
+  walk/scenarios Playwright subsets that need only Waves 1–2 surface.

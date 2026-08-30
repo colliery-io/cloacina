@@ -4,9 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cloacina</title>
-    <!-- Aurora Dark, emitted by build.rs (write_css) — render-blocking link, no
-         first-paint flash. -->
-    <link data-trunk rel="css" href="style/aurora.css" />
+    <!-- Critical pre-wasm style: the app injects the full Aurora Dark
+         stylesheet at mount (<AuroraStyles/>); this one rule keeps the
+         loading blank page on the Aurora surface so there is no light
+         flash. Value = the pack's `--bg` token. -->
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #0e1116;
+      }
+    </style>
   </head>
   <body></body>
 </html>

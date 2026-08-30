@@ -1,6 +1,4 @@
 dist/
 target/
 node_modules/
-# emitted by build.rs from the aurora pack
-style/aurora.css
 test-results/

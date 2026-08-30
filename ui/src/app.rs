@@ -45,6 +45,10 @@ fn RequireAuth() -> impl IntoView {
 pub fn App() -> impl IntoView {
     provide_auth();
     view! {
+        // The full Aurora Dark stylesheet, injected at mount. index.html
+        // carries a one-rule critical style (the --bg surface) so the
+        // pre-wasm blank page doesn't flash light.
+        <aurora_leptos::AuroraStyles />
         <Router>
             <Routes fallback=NotFound>
                 <Route path=path!("/connect") view=Connect />

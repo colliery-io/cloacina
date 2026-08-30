@@ -41,11 +41,6 @@ web-sys = { version = "0.3", features = [
 ] }
 js-sys = "0.3"
 
-[build-dependencies]
-# leptos-free build of the design pack: emits style/aurora.css (no-flash link).
-# Resolver v2 keeps this feature set separate from the wasm dependency above.
-colliery-io-aurora = { git = "https://github.com/colliery-io/aurora-dark.git", rev = "8e0eaf6bf1cd87940c1e9aa41710a594f9cb3895", default-features = false }
-
 [profile.release]
 opt-level = "z"
 lto = true
