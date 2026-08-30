@@ -29,6 +29,7 @@ use crate::routes::executions::Executions;
 use crate::routes::overview::Overview;
 use crate::routes::stubs::*;
 use crate::routes::workflow_detail::WorkflowDetail;
+use crate::routes::triggers::Triggers;
 use crate::routes::workflow_upload::WorkflowUpload;
 use crate::routes::workflows::Workflows;
 use crate::shell::Shell;

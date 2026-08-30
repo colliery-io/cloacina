@@ -33,7 +33,6 @@ macro_rules! stub {
     };
 }
 
-stub!(Triggers, "Triggers", "Wave 3 (CLOACI-T-0934)");
 stub!(TriggerDetail, "Trigger", "Wave 3 (CLOACI-T-0934)");
 stub!(Graphs, "Graphs", "Wave 3 (CLOACI-T-0934)");
 stub!(GraphDetail, "Graph", "Wave 3 (CLOACI-T-0934)");
