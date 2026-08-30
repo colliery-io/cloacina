@@ -1,0 +1,30 @@
+# CLOACI-T-0851: HA window-survival fixture. Version deps ON PURPOSE — this is
+# built by the IN-CLUSTER compiler, whose dev-workspace escape hatch
+# (CLOACINA_COMPILER_DEV_WORKSPACE) patches crates.io versions to the baked
+# source. Path deps here would bake this machine's filesystem into the archive
+# and fail `cargo fetch` inside the container (the exact 13ms failure the
+# k8s-leader lane hit with the host-flavored dist archives).
+[package]
+name = "ha-state-example"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[features]
+default = ["packaged"]
+packaged = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cloacina-computation-graph = "0.10"
+cloacina-macros = "0.10"
+cloacina-workflow = { version = "0.10", features = ["packaged"] }
+cloacina-workflow-plugin = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[build-dependencies]
+cloacina-build = "0.10"

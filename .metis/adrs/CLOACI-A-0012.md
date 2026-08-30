@@ -43,19 +43,23 @@ the remaining gap.
    inject), so with N replicas a stream's events split across N independent
    buffers. A `state` accumulator's window or a `when_all` criteria set may
    never assemble on any single replica.
-3. **Half the state is already durable; the other half is not.**
+3. ~~**Half the state is already durable; the other half is not.**
    `persist_reactor_state` (`reactor.rs:1180`) snapshots the reactor's
    `InputCache`, `DirtyFlags` and `SeqQueue` through
    `save_reactor_state(graph_name, ..)`, with failure counters and a `Degraded`
    health transition already wired. **Accumulator buffers are persisted
    nowhere** — there is no `save_accumulator*` / `persist_accumulator` anywhere
-   in the tree.
+   in the tree.~~
+   **RETRACTED 2026-08-18 — THIS WAS FALSE. See CORRECTION 1 below.**
 
-Point 3 is the one that shapes this decision, and it is not in the original
+~~Point 3 is the one that shapes this decision, and it is not in the original
 ticket. Reactor leadership ALONE would give failover in which the reactor
 resumes from its snapshot while every accumulator restarts empty — a
-half-filled window silently gone. Maintainer decision (2026-08-16): that loss
-is **not acceptable**; accumulator buffers must survive failover.
+half-filled window silently gone.~~ Maintainer decision (2026-08-16):
+accumulator loss on failover is **not acceptable**; accumulator buffers must
+survive failover. That requirement stands and is unaffected by the retraction —
+but the premise offered for it was wrong, and most of the machinery to satisfy
+it already existed.
 
 Single-replica and embedded deployments are unaffected by any of this and must
 stay byte-for-byte unchanged.
@@ -177,8 +181,201 @@ Permanent as a direction, but two triggers would reopen the durability half:
   acceptable for the current model; a latency-sensitive consumer would need
   hand-off rather than expiry-based failover.
 
-### Open Question For Implementation
+### Open Question For Implementation — RESOLVED 2026-08-16
 Per-reactor advisory lock-key allocation across tenants (see Consequences →
-Negative). This ADR fixes the direction, not the key scheme; resolve that in
-[[CLOACI-T-0851]] before writing the lease code, since getting it wrong is a
-cross-tenant bug and those are the expensive kind here.
+Negative). Resolved in `computation_graph::reactor_lock_key`: a fixed-constant
+FNV-1a over a length-delimited `(tenant, reactor)` encoding, sign bit forced so
+reactor keys occupy the negative i64 half and cannot collide with hand-picked
+small positive keys like `FLEET_CONTROL_LOCK_KEY`. The hazard was real —
+tenants are isolated by SCHEMA within one database, while advisory locks are
+database-wide.
+
+Note for anyone extending this: a seeded hasher (`DefaultHasher`/`RandomState`)
+would have been a split-brain bug, since it is seeded PER PROCESS — every
+replica would compute a different key, every replica would win "the lock", and
+all of them would run the reactor. The stability test pins exact key literals
+for that reason.
+
+---
+
+## AMENDMENT 1 (2026-08-16) — long-held ownership DOES need a liveness check
+
+**What this amends:** the Decision's reliance on the A-0008 property that
+session-scoped advisory locks need no lease or heartbeat bookkeeping, because a
+dead replica's locks auto-release. That reasoning is sound for FAILOVER and it
+is NOT sufficient for ownership held across many ticks. This was found while
+implementing [[CLOACI-T-0851]]; it does not change the chosen design, but the
+original text would lead an implementer to omit something load-bearing.
+
+**The gap.** The fleet control loop re-acquires its lock EVERY TICK, so a
+dropped connection simply means it stops being leader — self-correcting. Reactor
+ownership is acquired once and then assumed. That admits a failure the fleet
+loop cannot have:
+
+> The ownership connection drops (network blip, PgBouncer recycle, database
+> restart) while the replica keeps running. Postgres releases every lock that
+> session held. Another replica legitimately claims the reactor. **The original
+> replica never notices and keeps running it.** Two replicas, one reactor, no
+> error raised anywhere.
+
+That is the exact split-brain this ADR exists to prevent, re-entering through
+the side door — and presenting as intermittent duplicate work rather than as an
+error.
+
+**Amended decision (maintainer, 2026-08-16): self-check and halt.** The
+ownership session periodically re-asserts that Postgres still reports every lock
+it believes it holds (`SESSION_HELD_LOCKS_SQL`, scoped by
+`pid = pg_backend_pid()` so another replica's lock cannot read as our own). On
+loss, the affected reactors are stopped locally BEFORE any re-claim is
+attempted.
+
+This is loss DETECTION, not lease renewal. There is still no TTL, no clock
+assumption, and no bookkeeping row; Postgres remains the single source of truth
+and we only ask whether what we believe is still true. The "no lease/heartbeat
+bookkeeping" property survives in substance — what does not survive is the
+inference that *nothing* need be checked.
+
+A three-state result is required, not a boolean: "we lost locks" and "the check
+could not run" are different situations, and conflating them yields either
+needless stops of healthy reactors or confident operation of unowned ones. An
+indeterminate check must be treated as UNKNOWN, never as healthy.
+
+**Considered and deferred: fencing tokens.** A monotonic token per claim,
+carried on every checkpoint write and rejected when stale, is strictly safer —
+a zombie replica could not corrupt state even inside the detection window. It
+needs a schema change and touches the checkpoint write path, so it is not in
+v1. Revisit if the detection window proves too wide in practice.
+
+## AMENDMENT 2 (2026-08-16) — ownership is ONE session holding many locks
+
+**What this amends:** an unstated assumption that reactor locks would be taken
+the way `autoscaler/leader.rs` takes its lock. They cannot be, and the reason is
+resource exhaustion rather than correctness.
+
+`with_fleet_leadership` holds one pooled connection for the duration of ONE
+TICK — lock, work, unlock, return to pool. Advisory locks are session-scoped, so
+a lock survives only while its connection is held. Reactor ownership must
+persist for as long as the replica runs the reactor, so the same shape would pin
+one pooled connection PER OWNED REACTOR for the process lifetime, exhausting the
+pool as reactor count grows.
+
+**Amended decision:** ONE dedicated ownership session per replica, carrying ALL
+of that replica's reactor locks — a Postgres session may hold many. Connection
+cost is O(1) in reactor count instead of O(reactors), and replica death still
+ends the session and releases every reactor lock at once, which is exactly the
+failover behaviour the Decision relies on.
+
+Operator-visible consequence (maintainer chose "take one and document it" over
+raising the default): each replica permanently reserves one connection from the
+pool. Pool sizing must account for it.
+
+## CORRECTION 1 (2026-08-18) — accumulator state was ALREADY durable
+
+**Context point 3 was factually wrong, and it was load-bearing.** It claimed
+accumulator buffers are "persisted nowhere". That conclusion came from grepping
+for `save_accumulator*` / `persist_accumulator`, which are not the names this
+codebase uses. The mechanism exists, predates this ADR, and is in active use:
+
+* `AccumulatorContext` carries `checkpoint: Option<CheckpointHandle>`.
+* `CheckpointHandle::save<T>` / `load<T>` wrap the DAL's
+  `save_checkpoint` / `load_checkpoint`, keyed `(graph_name, accumulator_name)`.
+* Per-kind, all in `computation_graph/accumulator.rs`:
+  * **polling** — restores its last output on startup (`load`, ~line 678) and
+    saves each output (~714).
+  * **batch** — restores its buffer (`load::<Vec<Vec<u8>>>`, ~810) and saves it
+    (~882).
+  * **state** — the kind this ADR specifically worried about — restores via a
+    dedicated `load_state_buffer` (~1079) and saves via `save_state_buffer`
+    (~1147) on every event.
+* `Accumulator::init`'s doc has said "use to restore state from last checkpoint"
+  all along.
+
+So "a half-filled `state` window silently gone" was not an accurate description
+of the status quo: that window is checkpointed per event and restored at
+accumulator startup — which is exactly when a NEW OWNER spawns it after
+takeover.
+
+**What this changes.**
+* The Decision's item 3 ("extend `persist_reactor_state` to include accumulator
+  buffers") is largely REDUNDANT and should not be built as written. Folding
+  buffers into the reactor checkpoint would duplicate a working mechanism and
+  create the two-writers-of-one-truth problem the ADR elsewhere argues against.
+* The Consequences bullet claiming buffers "become durable for the first time"
+  is wrong for the same reason, as is the negative bullet about checkpoints
+  growing by the accumulator buffer size.
+* The maintainer's requirement is UNCHANGED and still correct — it simply turns
+  out to be mostly already met, so the remaining work is **verification and gap
+  -closing**, not construction.
+
+**What genuinely remains** (for [[CLOACI-T-0851]]):
+1. Prove end-to-end that a partially-filled window actually survives a real
+   takeover. Save and restore both exist; nobody has demonstrated them across
+   an ownership change, and per-kind cadence differs (state saves per event;
+   batch on flush), so the amount at risk differs by kind.
+2. Decide whether the reactor snapshot and the accumulator checkpoints need to
+   be mutually consistent. They are separate writes today, so a takeover can
+   restore a reactor snapshot from instant T1 alongside accumulator buffers
+   from T2. Whether that skew is benign is a real question this ADR never
+   asked, because it assumed one checkpoint.
+3. Confirm the checkpoint keys are tenant-safe. They key by
+   `(graph_name, accumulator_name)` and rely on schema-per-tenant DAL scoping —
+   the same reasoning that makes `save_reactor_state` safe, and the same
+   reasoning that did NOT hold for advisory locks. Worth an explicit check
+   rather than an assumption.
+
+**Process note.** The original claim was presented as "verified against the
+code, not inferred". It was neither: it was a grep for names that do not exist,
+reported as an absence proof. A grep that finds nothing is evidence about the
+search term, not about the codebase.
+
+## AMENDMENT 3 (2026-08-24) — the outbox is the FALLBACK, not the routing path
+
+**What this amends:** Decision item 2, which says a non-owner "forwards it to
+the owner over the existing delivery substrate/outbox". That is correct for
+correctness and wrong for throughput, and the ADR never priced it.
+
+**The problem.** Injection is the reactive layer's hot path. With N replicas and
+events distributed across them, roughly (N−1)/N of injects land on a non-owner —
+so "forward via the outbox" makes the DURABLE PATH THE COMMON CASE. An outbox
+hop is a durable INSERT plus NOTIFY plus a drain on the far side: milliseconds,
+against microseconds for an in-process channel send. That puts steady-state
+stream ingest onto Postgres and scales the database with event rate rather than
+with reactor count.
+
+This directly contradicts one of the ADR's own selling points — the Consequences
+entry "the accumulator hot path is unchanged, so no throughput risk on
+high-rate streams". Item 2 as written reintroduces exactly that risk one layer
+earlier, at ingest rather than inside the accumulator.
+
+**Amended decision (maintainer, 2026-08-24): edge affinity, outbox as fallback.**
+Events should LAND on the owner rather than be relayed after arriving in the
+wrong place:
+
+1. **Local stays hot and unchanged.** An inject for an accumulator this replica
+   hosts is a direct channel send with no database involvement. This is already
+   how `reactor_routing::inject_event` behaves — local first, outbox only on a
+   miss — so nothing built so far is wasted.
+2. **The edge routes to the owner.** Ownership already lives in Postgres, so a
+   replica can answer "who owns this reactor" and steer the connection there
+   (redirect, or LB affinity keyed by reactor) instead of accepting the event
+   and relaying it. Requires publishing the owner's advertised address at claim
+   time — the advisory lock proves ownership but is not routable by itself.
+3. **The outbox remains, demoted.** It is the correctness backstop for the
+   window where ownership is CHANGING and the edge's view is briefly stale —
+   rare and self-limiting — rather than the steady-state transport. Its
+   at-least-once durability is exactly what that window needs, and paying
+   database cost for a rare event is fine.
+
+**Why not direct replica-to-replica transport (considered, rejected for now).**
+Forwarding over HTTP/gRPC would be fast and keep Postgres out of it, but it
+needs a peer roster and reachable addresses — the very thing
+`DeliveryOutcome::NoRoute` was designed to avoid — plus its own retry and
+failure semantics, and it forfeits the at-least-once durability that makes the
+takeover window safe. Edge affinity removes the forward entirely rather than
+making it faster, which is the better trade.
+
+**Status:** the sink and producer halves are built and tested
+(`AccumulatorDeliverySink`, `inject_event`, `CompositeDeliverySink`). The
+server's inject routes were NOT switched over — doing so before edge affinity
+exists would have made the Postgres path the default for every non-local inject.
+Owner-address publication and edge routing are the remaining work.

@@ -692,6 +692,84 @@ pub async fn inject_accumulator(
 ) -> impl IntoResponse {
     let ctx = key_context(&auth);
 
+    // CLOACI-T-0851: a FOREIGN accumulator (its reactor is owned by another
+    // replica) has no local endpoint registration, so the local auth check
+    // below fails CLOSED for it — observed live as a 403 at the non-owner
+    // while the identical inject returned 200 at the owner. The foreign check
+    // must therefore run FIRST, with its own equivalent authz: admins, or a
+    // caller whose tenant matches the reactor's. Redirect authorized callers
+    // to the owner; everyone else falls through to the local check and gets
+    // the same 403/404 they always got — the redirect must not become an
+    // unauthenticated probe for which reactors exist where.
+    if let Some(reactor_key) = state
+        .graph_scheduler
+        .foreign_reactor_for_accumulator(ctx.tenant_id, &name)
+        .await
+    {
+        let authorized = ctx.is_admin
+            || ctx.tenant_id.is_none()
+            || ctx.tenant_id == reactor_key.tenant_id.as_deref();
+        if authorized {
+            let dal = cloacina::dal::unified::DAL::new(state.database.clone());
+            match dal
+                .reactor_owner_addresses()
+                .lookup(reactor_key.tenant_id.as_deref(), &reactor_key.name)
+                .await
+            {
+                Ok(Some(owner_addr)) => {
+                    let location = format!(
+                        "{}/v1/health/accumulators/{}/inject",
+                        owner_addr.trim_end_matches('/'),
+                        name
+                    );
+                    return axum::response::Response::builder()
+                        .status(axum::http::StatusCode::TEMPORARY_REDIRECT)
+                        .header(axum::http::header::LOCATION, location)
+                        .body(axum::body::Body::empty())
+                        .unwrap_or_else(|_| {
+                            ApiError::internal("redirect construction failed").into_response()
+                        });
+                }
+                // Mid-takeover (no address yet): the durable outbox keeps the
+                // event from being lost; scoped to known-foreign only so a
+                // typo'd name still 404s below.
+                Ok(None) => {
+                    let bytes = match serde_json::to_vec(&req.event) {
+                        Ok(b) => b,
+                        Err(e) => {
+                            return ApiError::bad_request(
+                                "invalid_input",
+                                format!("encode event: {}", e),
+                            )
+                            .into_response()
+                        }
+                    };
+                    match cloacina::computation_graph::reactor_routing::inject_event(
+                        &state.endpoint_registry,
+                        Some(&dal),
+                        &name,
+                        reactor_key.tenant_id.as_deref(),
+                        bytes,
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            return Json(InjectAccumulatorResponse {
+                                accumulator: name,
+                                delivered: 0,
+                            })
+                            .into_response()
+                        }
+                        Err(_) => { /* fall through to the local path */ }
+                    }
+                }
+                Err(e) => {
+                    warn!("owner-address lookup failed for '{}': {}", name, e);
+                }
+            }
+        }
+    }
+
     // Endpoint authZ — same policy the WS accumulator endpoint enforces.
     if state
         .endpoint_registry
@@ -777,11 +855,15 @@ pub async fn inject_accumulator(
             })
             .into_response()
         }
-        // The registry only fails here if the accumulator isn't registered or
-        // its channels are closed — surface as not-found.
-        Err(e) => ApiError::not_found(
+        // Not hosted here and NOT known-foreign — the foreign case (redirect /
+        // outbox) is fully handled BEFORE the local auth check at the top of
+        // this handler, because a foreign accumulator has no local policy and
+        // the auth check fails closed for it. Reaching this arm therefore
+        // means the accumulator is unknown everywhere we can see:
+        // single-replica behaviour, byte-for-byte.
+        Err(registry_err) => ApiError::not_found(
             "accumulator_not_found",
-            format!("accumulator '{}' not available: {}", name, e),
+            format!("accumulator '{}' not available: {}", name, registry_err),
         )
         .into_response(),
     }

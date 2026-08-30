@@ -208,6 +208,27 @@ service:
   annotations: {}
 
 # ---------------------------------------------------------------------------
+# Reactor affinity (CLOACI-T-0851 / ADR CLOACI-A-0012 Amendment 3)
+# ---------------------------------------------------------------------------
+# Under per-reactor leadership exactly ONE replica runs a given reactor. An
+# event injected on any other replica must reach the owner. Steering the
+# request to the owner keeps injection on the hot path; relaying it through the
+# durable outbox instead would put steady-state stream ingest on Postgres.
+#
+# Enabling this makes each replica advertise its POD IP when it claims a
+# reactor. (Pod IP rather than a per-pod DNS name: Kubernetes only creates
+# per-pod A records when a pod sets both `hostname` and `subdomain`, which
+# Deployment replicas cannot do distinctly — and a stale IP self-corrects
+# because the address is republished on every claim.)
+#
+# Only meaningful with replicaCount > 1. A single-replica deployment always owns
+# every reactor locally, so there is nothing to steer and leaving this off costs
+# nothing.
+reactorAffinity:
+  # Inject CLOACINA_ADVERTISED_ADDRESS (http://<podIP>:<service.port>).
+  enabled: false
+
+# ---------------------------------------------------------------------------
 # Ingress
 # ---------------------------------------------------------------------------
 ingress:

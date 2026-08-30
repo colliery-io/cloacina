@@ -81,6 +81,55 @@ pub trait DeliverySink: Send + Sync {
     async fn deliver(&self, row: &DeliveryOutbox) -> Result<DeliveryOutcome, DeliveryError>;
 }
 
+/// Fans one outbox row out across several sinks, first successful delivery wins.
+///
+/// The relay takes a single sink, but a replica now has more than one kind of
+/// recipient to serve: WebSocket subscribers and (CLOACI-T-0851) reactive
+/// events addressed to locally-owned accumulators.
+///
+/// This is safe precisely because [`DeliveryOutcome::NoRoute`] already means
+/// "not mine, right now" rather than "failure" — every sink is expected to see
+/// rows belonging to other subsystems and decline them. Composition therefore
+/// needs no recipient-prefix dispatch table, which would be a second place for
+/// addressing knowledge to live and drift out of step with the sinks.
+pub struct CompositeDeliverySink {
+    sinks: Vec<Arc<dyn DeliverySink>>,
+}
+
+impl CompositeDeliverySink {
+    pub fn new(sinks: Vec<Arc<dyn DeliverySink>>) -> Self {
+        Self { sinks }
+    }
+}
+
+#[async_trait]
+impl DeliverySink for CompositeDeliverySink {
+    async fn deliver(&self, row: &DeliveryOutbox) -> Result<DeliveryOutcome, DeliveryError> {
+        // Hold the first error but keep trying: a sink that failed says nothing
+        // about whether a later one owns this recipient. Reporting the error
+        // immediately would leave a deliverable row pending behind an unrelated
+        // subsystem's transient fault.
+        let mut first_error: Option<DeliveryError> = None;
+        for sink in &self.sinks {
+            match sink.deliver(row).await {
+                Ok(DeliveryOutcome::Delivered) => return Ok(DeliveryOutcome::Delivered),
+                Ok(DeliveryOutcome::NoRoute) => continue,
+                Err(e) => {
+                    if first_error.is_none() {
+                        first_error = Some(e);
+                    }
+                }
+            }
+        }
+        // Nobody delivered. Surface an error if one occurred, so a real fault is
+        // not silently indistinguishable from "no replica owns this yet".
+        match first_error {
+            Some(e) => Err(e),
+            None => Ok(DeliveryOutcome::NoRoute),
+        }
+    }
+}
+
 /// A cloneable handle producers (and the LISTEN task) use to wake the relay.
 #[derive(Clone)]
 pub struct WakeHandle {
@@ -320,6 +369,89 @@ mod tests {
             .await
             .expect("migrations should succeed");
         DAL::new(db)
+    }
+
+    /// A sink with a fixed answer, for composing.
+    struct ScriptedSink(std::sync::Mutex<Option<Result<DeliveryOutcome, DeliveryError>>>);
+
+    impl ScriptedSink {
+        fn delivered() -> Arc<Self> {
+            Arc::new(Self(Mutex::new(Some(Ok(DeliveryOutcome::Delivered)))))
+        }
+        fn no_route() -> Arc<Self> {
+            Arc::new(Self(Mutex::new(Some(Ok(DeliveryOutcome::NoRoute)))))
+        }
+        fn failing() -> Arc<Self> {
+            Arc::new(Self(Mutex::new(Some(Err(DeliveryError::Sink(
+                "boom".into(),
+            ))))))
+        }
+    }
+
+    #[async_trait]
+    impl DeliverySink for ScriptedSink {
+        async fn deliver(&self, _row: &DeliveryOutbox) -> Result<DeliveryOutcome, DeliveryError> {
+            match self.0.lock().unwrap().as_ref() {
+                Some(Ok(o)) => Ok(*o),
+                Some(Err(DeliveryError::Sink(m))) => Err(DeliveryError::Sink(m.clone())),
+                None => Ok(DeliveryOutcome::NoRoute),
+            }
+        }
+    }
+
+    fn composite_row() -> DeliveryOutbox {
+        DeliveryOutbox {
+            id: 1,
+            recipient: "accumulator:win".to_string(),
+            kind: "reactor_event".to_string(),
+            tenant_id: None,
+            payload: b"x".to_vec(),
+            delivery_state: "pending".to_string(),
+            delivery_attempts: 0,
+            created_at: crate::database::universal_types::UniversalTimestamp::now(),
+            delivered_at: None,
+            acked_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn composite_delivers_via_the_sink_that_owns_the_recipient() {
+        let c =
+            CompositeDeliverySink::new(vec![ScriptedSink::no_route(), ScriptedSink::delivered()]);
+        assert_eq!(
+            c.deliver(&composite_row()).await.unwrap(),
+            DeliveryOutcome::Delivered
+        );
+    }
+
+    #[tokio::test]
+    async fn composite_reports_no_route_when_nobody_owns_it() {
+        let c =
+            CompositeDeliverySink::new(vec![ScriptedSink::no_route(), ScriptedSink::no_route()]);
+        assert_eq!(
+            c.deliver(&composite_row()).await.unwrap(),
+            DeliveryOutcome::NoRoute
+        );
+    }
+
+    /// One sink's transient fault must not mask another sink that CAN deliver —
+    /// otherwise an unrelated subsystem's blip strands a deliverable row.
+    #[tokio::test]
+    async fn composite_keeps_trying_after_a_sink_errors() {
+        let c =
+            CompositeDeliverySink::new(vec![ScriptedSink::failing(), ScriptedSink::delivered()]);
+        assert_eq!(
+            c.deliver(&composite_row()).await.unwrap(),
+            DeliveryOutcome::Delivered
+        );
+    }
+
+    /// But a real fault must still surface when nothing delivered — otherwise it
+    /// is indistinguishable from "no replica owns this yet" and hides forever.
+    #[tokio::test]
+    async fn composite_surfaces_an_error_when_nothing_delivered() {
+        let c = CompositeDeliverySink::new(vec![ScriptedSink::failing(), ScriptedSink::no_route()]);
+        assert!(c.deliver(&composite_row()).await.is_err());
     }
 
     fn work(recipient: &str) -> NewDeliveryOutbox {

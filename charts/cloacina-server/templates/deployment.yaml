@@ -58,6 +58,28 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
+            {{- if .Values.reactorAffinity.enabled }}
+            # CLOACI-T-0851 / A-0012 Amendment 3: the address this replica
+            # publishes when it claims a reactor, so injects landing elsewhere
+            # can be steered here instead of relayed through the outbox.
+            #
+            # POD IP, deliberately NOT a per-pod headless DNS name. Kubernetes
+            # only creates per-pod A records when the pod sets BOTH `hostname`
+            # and `subdomain` — and Deployment replicas cannot each declare a
+            # distinct static hostname, which is why per-pod DNS implies a
+            # StatefulSet. This was tried: the published DNS name resolved
+            # nowhere and every redirected inject died with a connection
+            # failure. IP churn is a non-issue here because the address row is
+            # REWRITTEN ON EVERY CLAIM — a rescheduled pod re-claims and
+            # republishes its new IP, so a stale IP lives only as long as a
+            # stale claim, which the ownership watchdog already bounds.
+            - name: CLOACINA_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: CLOACINA_ADVERTISED_ADDRESS
+              value: "http://$(CLOACINA_POD_IP):{{ .Values.service.port }}"
+            {{- end }}
             {{- if .Values.postgresql.enabled }}
             - name: DATABASE_URL
               value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}"

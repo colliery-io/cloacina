@@ -1084,9 +1084,28 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
             .await
         {
             Ok(Some((data, _cap))) => {
-                if let Ok(buffer) = types::deserialize::<std::collections::VecDeque<T>>(&data) {
-                    acc.buffer = buffer;
-                    tracing::info!(name = %ctx.name, entries = acc.buffer.len(), "state accumulator restored from DAL");
+                // JSON first (the current write format — see the save site for
+                // why bincode cannot work here), then bincode for rows written
+                // by older builds with a concrete T. A row that parses as
+                // NEITHER is reported loudly: the silent `if let Ok` this
+                // replaces is exactly how packaged windows vanished on
+                // takeover without a single log line.
+                match serde_json::from_slice::<std::collections::VecDeque<T>>(&data)
+                    .ok()
+                    .or_else(|| types::deserialize::<std::collections::VecDeque<T>>(&data).ok())
+                {
+                    Some(buffer) => {
+                        acc.buffer = buffer;
+                        tracing::info!(name = %ctx.name, entries = acc.buffer.len(), "state accumulator restored from DAL");
+                    }
+                    None => {
+                        tracing::warn!(
+                            name = %ctx.name,
+                            bytes = data.len(),
+                            "persisted state buffer could not be decoded as JSON or legacy \
+                             bincode — the window is LOST and will restart empty"
+                        );
+                    }
                 }
             }
             Ok(None) => {
@@ -1145,7 +1164,19 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
 
                         // Persist to DAL
                         if let Some(ref handle) = ctx.checkpoint {
-                            let data = match types::serialize(&acc.buffer) {
+                            // serde_json, NOT the bincode used elsewhere
+                            // (CLOACI-T-0851): the packaged path instantiates
+                            // this runtime with T = serde_json::Value, and
+                            // bincode can SERIALIZE a Value but can never
+                            // DESERIALIZE one (Value requires deserialize_any,
+                            // which bincode does not support). Bincode here
+                            // meant packaged state windows were persisted in a
+                            // format that could not be read back — write-only
+                            // durability, found when a takeover restored an
+                            // empty window on a live cluster. JSON is
+                            // self-describing, so every T this runtime accepts
+                            // round-trips.
+                            let data = match serde_json::to_vec(&acc.buffer) {
                                 Ok(d) => d,
                                 Err(e) => {
                                     tracing::warn!(name = %ctx.name, "state buffer serialization failed: {}", e);
@@ -2002,5 +2033,54 @@ mod tests {
 
         shutdown_tx.send(true).unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    }
+
+    /// CLOACI-T-0851: the packaged state path runs with T = serde_json::Value,
+    /// and bincode can serialize a Value but can NEVER deserialize one
+    /// (deserialize_any is unsupported). This test pins the failure that made
+    /// packaged windows write-only — if it ever starts passing under bincode,
+    /// the fallback ordering in the restore path deserves a rethink.
+    #[test]
+    fn bincode_cannot_round_trip_a_value_window() {
+        use std::collections::VecDeque;
+        let window: VecDeque<serde_json::Value> =
+            vec![serde_json::json!(11), serde_json::json!(22)].into();
+        let bytes = types::serialize(&window).expect("serializing succeeds — that is the trap");
+        assert!(
+            types::deserialize::<VecDeque<serde_json::Value>>(&bytes).is_err(),
+            "bincode deserialized a serde_json::Value — the JSON buffer format \
+             and its legacy fallback should be revisited"
+        );
+    }
+
+    /// The fix: JSON round-trips every T the runtime accepts, including Value.
+    #[test]
+    fn json_round_trips_both_value_and_typed_windows() {
+        use std::collections::VecDeque;
+        let vals: VecDeque<serde_json::Value> =
+            vec![serde_json::json!({"p": 1.5}), serde_json::json!(7)].into();
+        let bytes = serde_json::to_vec(&vals).unwrap();
+        let back: VecDeque<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(vals, back);
+
+        let nums: VecDeque<u64> = vec![11, 22, 33].into();
+        let bytes = serde_json::to_vec(&nums).unwrap();
+        let back: VecDeque<u64> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(nums, back);
+    }
+
+    /// Legacy migration: a bincode row written by an older build with a
+    /// CONCRETE T must still restore through the fallback arm.
+    #[test]
+    fn legacy_bincode_typed_rows_still_decode_via_the_fallback() {
+        use std::collections::VecDeque;
+        let nums: VecDeque<u64> = vec![1, 2, 3].into();
+        let legacy = types::serialize(&nums).unwrap();
+        // Mirrors the restore path's ordering: JSON first, bincode second.
+        let restored = serde_json::from_slice::<VecDeque<u64>>(&legacy)
+            .ok()
+            .or_else(|| types::deserialize::<VecDeque<u64>>(&legacy).ok())
+            .expect("legacy typed row must decode via the bincode fallback");
+        assert_eq!(restored, nums);
     }
 }
