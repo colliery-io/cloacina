@@ -15,15 +15,28 @@ cloacina-api-types = { workspace = true }
 async-stream = "0.3"
 base64 = "0.22"
 dirs = "6"
-futures-util = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+futures-util = { version = "0.3", features = ["sink"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json.workspace = true
 thiserror = "1.0"
-tokio = { version = "1.0", features = ["macros", "rt", "time"] }
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
 toml.workspace = true
 urlencoding = "2.1"
+
+# Native transports (CLOACI-T-0932): the WS stream rides tokio-tungstenite and
+# tokio::time off-browser. On wasm32 the same protocol loop runs over the
+# browser WebSocket (gloo-net) with gloo-timers backoff — see src/ws.rs.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+tokio = { version = "1.0", features = ["macros", "rt", "time"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# No `stream` on wasm: it pulls wasm-streams 0.4, which collides at link time
+# (duplicate wasm-bindgen exports) with the 0.5 that leptos' server_fn brings
+# into a consuming app. Nothing in the client streams response bodies.
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+gloo-net = { version = "0.6", default-features = false, features = ["websocket"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
 
 [dev-dependencies]
 tempfile = "3.2"

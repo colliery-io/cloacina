@@ -25,14 +25,108 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use async_stream::try_stream;
-use futures_util::{SinkExt, Stream, StreamExt};
-use tokio_tungstenite::tungstenite::Message;
+use futures_util::{Stream, StreamExt};
 
 pub use cloacina_api_types::delivery::DELIVERY_PROTOCOL_VERSION;
 use cloacina_api_types::delivery::{ClientMessage, ServerMessage};
 
 use crate::error::ClientError;
 use crate::Client;
+
+/// The slice of WebSocket traffic the delivery protocol cares about, decoded
+/// per target by [`socket::Socket`]. Anything else (pings, binary) is `Other`.
+enum WsEvent {
+    Text(String),
+    /// Peer closed; carries the close code when the transport exposes one.
+    Close(Option<u16>),
+    Other,
+}
+
+/// Per-target socket transport (CLOACI-T-0932). The protocol loop below is
+/// target-independent; only connect/next/send/sleep differ:
+/// tokio-tungstenite natively, the browser WebSocket (gloo-net) on wasm32.
+#[cfg(not(target_arch = "wasm32"))]
+mod socket {
+    use super::WsEvent;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    pub struct Socket(
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    );
+
+    impl Socket {
+        pub async fn connect(url: &str) -> Result<Self, String> {
+            let (socket, _resp) = tokio_tungstenite::connect_async(url)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(Self(socket))
+        }
+
+        pub async fn next(&mut self) -> Option<Result<WsEvent, String>> {
+            let msg = self.0.next().await?;
+            Some(match msg {
+                Ok(Message::Text(text)) => Ok(WsEvent::Text(text)),
+                Ok(Message::Close(frame)) => Ok(WsEvent::Close(frame.map(|f| f.code.into()))),
+                Ok(_) => Ok(WsEvent::Other),
+                Err(e) => Err(e.to_string()),
+            })
+        }
+
+        pub async fn send_text(&mut self, text: String) -> Result<(), String> {
+            self.0
+                .send(Message::Text(text))
+                .await
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    pub async fn sleep(d: std::time::Duration) {
+        tokio::time::sleep(d).await;
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod socket {
+    use super::WsEvent;
+    use futures_util::{SinkExt, StreamExt};
+    use gloo_net::websocket::{futures::WebSocket, Message, WebSocketError};
+
+    pub struct Socket(WebSocket);
+
+    impl Socket {
+        pub async fn connect(url: &str) -> Result<Self, String> {
+            // gloo's open is synchronous (the browser connects in the
+            // background); failures surface on the first read.
+            WebSocket::open(url).map(Self).map_err(|e| e.to_string())
+        }
+
+        pub async fn next(&mut self) -> Option<Result<WsEvent, String>> {
+            let msg = self.0.next().await?;
+            Some(match msg {
+                Ok(Message::Text(text)) => Ok(WsEvent::Text(text)),
+                Ok(Message::Bytes(_)) => Ok(WsEvent::Other),
+                // The browser API folds close into the error path; keep the
+                // code so 4426 (protocol-version) stays terminal.
+                Err(WebSocketError::ConnectionClose(ev)) => Ok(WsEvent::Close(Some(ev.code))),
+                Err(e) => Err(e.to_string()),
+            })
+        }
+
+        pub async fn send_text(&mut self, text: String) -> Result<(), String> {
+            self.0
+                .send(Message::Text(text))
+                .await
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    pub async fn sleep(d: std::time::Duration) {
+        gloo_timers::future::TimeoutFuture::new(d.as_millis() as u32).await;
+    }
+}
 
 /// One decoded delivery push.
 #[derive(Debug, Clone)]
@@ -99,7 +193,7 @@ pub(crate) fn subscribe_delivery(
                 urlencoding::encode(&ticket),
             );
 
-            let (mut socket, _resp) = tokio_tungstenite::connect_async(&url)
+            let mut socket = socket::Socket::connect(&url)
                 .await
                 .map_err(|e| ClientError::Ws(format!("connect failed for {url}: {e}")))?;
 
@@ -111,7 +205,7 @@ pub(crate) fn subscribe_delivery(
             })
             .expect("hello serializes");
             socket
-                .send(Message::Text(hello))
+                .send_text(hello)
                 .await
                 .map_err(|e| ClientError::Ws(format!("hello send failed: {e}")))?;
 
@@ -128,7 +222,7 @@ pub(crate) fn subscribe_delivery(
                     }
                 };
                 match msg {
-                    Message::Text(text) => {
+                    WsEvent::Text(text) => {
                         let frame: ServerMessage = match serde_json::from_str(&text) {
                             Ok(f) => f,
                             Err(_) => continue, // tolerate unknown frames
@@ -156,17 +250,17 @@ pub(crate) fn subscribe_delivery(
                                 id: ack_id,
                             })
                             .expect("ack serializes");
-                            if socket.send(Message::Text(ack)).await.is_err() {
+                            if socket.send_text(ack).await.is_err() {
                                 break;
                             }
                         }
                         backoff = options.reconnect_initial;
                     }
-                    Message::Close(frame) => {
-                        close_code = frame.map(|f| f.code.into());
+                    WsEvent::Close(code) => {
+                        close_code = code;
                         break;
                     }
-                    _ => {}
+                    WsEvent::Other => {}
                 }
             }
 
@@ -179,7 +273,7 @@ pub(crate) fn subscribe_delivery(
             if !options.reconnect {
                 break;
             }
-            tokio::time::sleep(backoff).await;
+            socket::sleep(backoff).await;
             backoff = (backoff * 2).min(options.reconnect_max);
         }
     }

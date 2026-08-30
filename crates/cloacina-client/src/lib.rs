@@ -132,11 +132,21 @@ impl ClientBuilder {
         let api_key = self
             .api_key
             .ok_or_else(|| ClientError::Config("no API key configured".into()))?;
+        // reqwest's wasm builder exposes neither timeout knob — the browser
+        // owns connection/request timeouts there (CLOACI-T-0932).
+        #[cfg(not(target_arch = "wasm32"))]
         let http = reqwest::Client::builder()
             .connect_timeout(self.connect_timeout.unwrap_or(Duration::from_secs(5)))
             .timeout(self.timeout.unwrap_or(Duration::from_secs(30)))
             .build()
             .map_err(ClientError::from_reqwest)?;
+        #[cfg(target_arch = "wasm32")]
+        let http = {
+            let _ = (&self.connect_timeout, &self.timeout);
+            reqwest::Client::builder()
+                .build()
+                .map_err(ClientError::from_reqwest)?
+        };
         Ok(Client {
             inner: Arc::new(ClientInner {
                 server: self.server.trim_end_matches('/').to_string(),

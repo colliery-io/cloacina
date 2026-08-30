@@ -4,14 +4,14 @@ level: initiative
 title: "Packaged-first examples — server/daemon gold path as the standard for all examples"
 short_code: "CLOACI-I-0138"
 created_at: 2026-07-10T00:22:40.417461+00:00
-updated_at: 2026-07-10T01:16:19.910293+00:00
-parent:
+updated_at: 2026-08-30T11:07:39.771456+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
