@@ -14,7 +14,7 @@ version: 0.1.0
 # Tracks the cloacina-ui release the default image.tag points at. The UI
 # is version-locked to the server (NFR-004) — keep this in step with the
 # cloacina-server chart's appVersion when deploying the pair.
-appVersion: "0.10.0"
+appVersion: "0.11.0"
 
 home: https://cloacina.dev
 sources:
