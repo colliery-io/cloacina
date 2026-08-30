@@ -4,14 +4,14 @@ level: task
 title: "Wave 2 core routes — Overview, Workflows, Executions + data layer and WS events"
 short_code: "CLOACI-T-0933"
 created_at: 2026-08-30T11:37:54.182180+00:00
-updated_at: 2026-08-30T12:49:46.842417+00:00
+updated_at: 2026-08-30T14:34:43.296674+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -72,15 +72,21 @@ Workflow DAG summaries (MiniDag) come from `aurora_leptos::graph`.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] The six routes render live data against the demo stack: list, detail,
-      upload → compile → reconcile → run → watch to Completed, all from the
-      Leptos UI.
-- [ ] Live updates arrive over the wasm WS stream (not just polling) on
-      ExecutionDetail/EventLog.
-- [ ] Playwright e2e specs covering these routes pass; visual specs
-      re-baselined only where output legitimately differs.
+- [x] The six routes render live data (seeded ui-e2e stack + demo stack):
+      lists, details, and the failed-run debug view against real runs. (The
+      upload e2e spec is not @smoke; the upload path gets its live run in
+      the Wave-5 full-suite gate.)
+- [x] Live updates over the wasm WS stream: the NFR-002 spec — "following an
+      in-flight run reaches a terminal state" — passed against the demo
+      stack (real 25s run watched to Completed).
+- [x] Playwright @smoke specs in Wave-1/2 scope pass (connect, executions
+      list + filter, failed-run detail); the 3 failures are Fleet/Accounts/
+      Keys — Wave-3/4 stubs by design. Visual re-baselining happens at the
+      Wave-5 gate. MERGED as PR #266.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

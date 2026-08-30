@@ -21,8 +21,13 @@
 pub mod connect;
 pub mod execution_detail;
 pub mod executions;
+pub mod graph_detail;
+pub mod graphs;
+pub mod operations;
 pub mod overview;
 pub mod stubs;
+pub mod trigger_detail;
+pub mod triggers;
 pub mod workflow_detail;
 pub mod workflow_upload;
 pub mod workflows;

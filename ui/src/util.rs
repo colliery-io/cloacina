@@ -80,3 +80,55 @@ pub fn ago(ts: Option<&str>) -> String {
 pub fn short_id(id: &str) -> String {
     id.chars().take(8).collect()
 }
+
+use aurora_leptos::tokens::token;
+
+/// Health-state → accent color (app vocabulary; the pack renders).
+pub fn health_color(state: &str) -> &'static str {
+    match state.to_lowercase().as_str() {
+        "running" | "live" | "ok" | "healthy" => token::OK,
+        "degraded" | "stale" | "paused" => token::GOLD,
+        "error" | "failed" | "stopped" => token::BAD,
+        _ => token::MUTED,
+    }
+}
+
+/// Node-kind → accent color (graph legend vocabulary).
+pub fn node_kind_color(kind: &str) -> &'static str {
+    match kind {
+        "accumulator" => token::TEAL,
+        "reactor" => token::VIOLET,
+        _ => token::ICE,
+    }
+}
+
+/// Events/min derived from a monotonic counter (the React
+/// `useGraphThroughput` hook): remembers the last (total, at) per name and
+/// reports the delta rate once two samples exist.
+#[derive(Default, Clone)]
+pub struct Throughput {
+    samples: std::collections::HashMap<String, (f64, f64, Option<f64>)>,
+}
+
+impl Throughput {
+    /// Feed a fresh `total` for `name`; returns the current ~per-minute rate.
+    pub fn sample(&mut self, name: &str, total: f64) -> Option<f64> {
+        let now = js_sys::Date::now();
+        match self.samples.get(name).copied() {
+            Some((last_total, last_at, last_rate)) => {
+                let dt_min = (now - last_at) / 60_000.0;
+                if dt_min <= 0.0 {
+                    return last_rate;
+                }
+                let rate = ((total - last_total).max(0.0) / dt_min).round();
+                self.samples
+                    .insert(name.to_string(), (total, now, Some(rate)));
+                Some(rate)
+            }
+            None => {
+                self.samples.insert(name.to_string(), (total, now, None));
+                None
+            }
+        }
+    }
+}

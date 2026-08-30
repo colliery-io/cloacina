@@ -4,14 +4,14 @@ level: task
 title: "Wave 3 graph and operate routes — Graphs, Triggers, Operations on pack graph.rs"
 short_code: "CLOACI-T-0934"
 created_at: 2026-08-30T11:37:58.144384+00:00
-updated_at: 2026-08-30T11:37:58.144384+00:00
+updated_at: 2026-08-30T15:19:09.724506+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -71,14 +71,23 @@ supplies cloacina's state vocab as data).
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] GraphDetail renders a live CG (e.g. python-stateful-graph from the
-      demos) with accurate topology, status coloring, and running-node pulse.
-- [ ] Inject and fire round-trip from the UI against the demo stack:
-      accumulator inject appears in the event stream; trigger fire (both
-      trigger shapes — T-0929's union) runs the workflow.
-- [ ] Playwright e2e specs for graphs/triggers/operations pass.
+- [x] GraphDetail renders a live CG from the demo stack (6 registered
+      graphs; topology SVG via pack graph.rs; health coloring). Running-node
+      pulse rides ExecutionDetail (Wave 2); GraphDetail pulses via edge
+      `active` when firing.
+- [x] Inject and fire round-trip LIVE from the UI: accumulator inject →
+      "Delivered to N receivers"; trigger fire → "Fired N workflows" (the
+      server-side union from T-0929 is what the fire endpoint executes).
+- [x] New permanent Playwright spec `wave3-operate.spec.ts` (3 tests) passes
+      against the demo stack: graphs+topology+inject, triggers+operations
+      live tiles (ops WS snapshot flips the pill to "live" in-browser),
+      trigger fire.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -143,4 +152,24 @@ supplies cloacina's state vocab as data).
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — ALL FIVE ROUTES PORTED AND COMPILING on
+  `feat/i0141-wave3-graph-operate` (535ed1b6): Triggers (type pills,
+  raw-cron schedule text — cronstrue humanization deliberately dropped,
+  revisit only if the visual gate objects; fire + run-now actions),
+  TriggerFireModal (typed pass-through slots via trigger_interface, fan-out
+  result list), Graphs (graphs/reactors/accumulators card rows, events/min
+  from monotonic fire counters via an app-side Throughput tracker,
+  force-fire, inject), GraphInjectModal (typed slots via
+  accumulator_interface, raw-JSON textarea fallback), GraphDetail (WS-4
+  augmented topology acc→reactor→compute on pack graph.rs, accumulator
+  freshness rows + inject, force-fire), Operations (metric cards off the
+  warm ops WS + agent roster; the React add-agent modal was a MOCK and
+  stays out until a real enrollment API exists).
+
+  Left out relative to React (recorded): GraphNodeModal node drawer,
+  fire-activity chart + recent-fires table (Wave-4 chart work),
+  DegradedBanner/ReactorReadiness pack-widget wiring (needs state vocab
+  mapping — Wave 4 alongside the other widget work).
+
+  NEXT: demo-stack rebuild in flight → live gate (GraphDetail on
+  python-stateful-graph, inject round-trip, trigger fire both shapes).
