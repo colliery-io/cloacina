@@ -18,16 +18,23 @@ The feature is on in **released binaries and images**. Building from source:
 cargo build -p cloacina-server --features embedded-ui
 ```
 
-Feature-on builds require a Node toolchain: `build.rs` runs
-`npm --prefix ui run build` and embeds `ui/dist` into the binary (release
-builds embed compressed bytes; debug builds read from disk so UI iteration
-doesn't require recompiling Rust). A stale bundle is impossible by
-construction. The default `cargo build` remains Node-free and serves no UI.
+Feature-on builds require the wasm toolchain: `build.rs` runs
+`trunk build --release` in `ui/` (the web UI is a Rust/Leptos app,
+CLOACI-I-0141) and embeds `ui/dist` into the binary. Install
+[trunk](https://trunkrs.dev) plus the `wasm32-unknown-unknown` target:
 
-Container builds that pre-build the SPA in a separate Node stage can set
-`CLOACINA_EMBEDDED_UI_SKIP_NPM=1` to make `build.rs` use the existing
-`ui/dist` instead of invoking npm (the Rust build stage then needs no
-Node toolchain).
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install --locked trunk
+```
+
+A stale bundle is impossible by construction. The default `cargo build`
+stays trunk-free and serves no UI. No Node toolchain is involved anywhere
+in the server build.
+
+Container builds that pre-build the UI in a separate trunk stage can set
+`CLOACINA_EMBEDDED_UI_SKIP_NPM=1` (name kept from the npm era) to make
+`build.rs` use the existing `ui/dist` instead of invoking trunk.
 
 ## Behavior
 

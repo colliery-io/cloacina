@@ -1,49 +1,59 @@
 ---
-id: wave-5-parity-gate-and-release
+id: ui-e2e-lane-fresh-tenant-pool
 level: task
-title: "Wave 5 parity gate and release — full e2e/visual run, CI lane swap, lockstep, 0.11.0 resumes"
-short_code: "CLOACI-T-0936"
-created_at: 2026-08-30T11:38:06.699741+00:00
-updated_at: 2026-08-30T16:26:56.033685+00:00
-parent: CLOACI-I-0141
+title: "ui-e2e lane: fresh tenant pool trips the T-0582 search_path guard — acme connects 500 while public works"
+short_code: "CLOACI-T-0937"
+created_at: 2026-08-30T16:37:02.593686+00:00
+updated_at: 2026-08-30T16:37:02.593686+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/backlog"
+  - "#bug"
 
 
 exit_criteria_met: false
-initiative_id: CLOACI-I-0141
+initiative_id: NULL
 ---
 
-# Wave 5 parity gate and release — full e2e/visual run, CI lane swap, lockstep, 0.11.0 resumes
+# ui-e2e lane: fresh tenant pool trips the T-0582 search_path guard — acme connects 500 while public works
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
 ## Parent Initiative **[CONDITIONAL: Assigned Task]**
 
-[[CLOACI-I-0141]]
+[[Parent Initiative]]
 
 ## Objective **[REQUIRED]**
 
-Close the migration and un-park the release train:
+In `angreal test ui-e2e` (host-built server on :18085, `_create_tenant("acme")`
+at boot), every connect into the `acme` tenant 500s:
 
-1. Full Playwright e2e + visual parity run against the demo stack; fix what
-   falls out.
-2. CI: ui lanes swap node/vite for rust/trunk (UI Checks, ui-visual,
-   nightly ui-e2e); wasm32 target where needed.
-3. Version lockstep: `ui/package.json`/harness touchpoints drop out of
-   `angreal release bump` + the drift guard + the UI Checks REQ-008 gate;
-   the Leptos crate version becomes a touchpoint.
-4. Docs: embedded-UI pages updated (build prereqs: trunk, wasm target);
-   npm removed from the release path.
-5. 0.11.0 resumes: rebase release/v0.11.0 (PR #264), add the UI-migration
-   changelog entry (breaking: node no longer needed to build the server UI),
-   fix the parked `docs/static/openapi.json` info.version touchpoint
-   (regenerate via emit-openapi), tag v0.11.0 on merge (maintainer-approved
-   2026-08-30).
+```
+Database error: Failed to ping database: search_path setup failed for tenant
+'acme': search_path mismatch: expected 'acme', got Some("public") (CLOACI-T-0582)
+```
+
+while `public` connects work. Once it fires, ALL subsequent acme requests in
+the run fail the same way (observed as 4 spec failures in one lane run,
+2026-08-30, during the I-0141 Wave-5 gate). The T-0582 guard is doing its
+job — a pooled connection handed to the acme tenant carries `public`'s
+search_path — the bug is whoever put that connection in acme's pool.
+
+**Server-side, NOT a UI issue**: the identical specs pass against the demo
+stack (docker compose), where acme is provisioned by compose seeds rather
+than created-then-immediately-used on a warm server. Suspect the
+create-tenant → first-use window: the tenant pool cache (T-0921/T-0924
+territory) may hand back a pool whose ping/setup raced tenant creation.
+
+Repro: `angreal test ui-e2e` (full) → fleet.spec / local-auth.spec /
+tenant-admin.spec / wave1-session.spec fail at the acme connect.
+
+### Priority
+- [x] P1 - High (the ui-e2e nightly lane cannot go green while this fires)
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -79,17 +89,11 @@ Close the migration and un-park the release train:
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] Full e2e + visual suites green against the demo stack serving the
-      Leptos UI.
-- [ ] All CI ui lanes green on the trunk build; no node step remains in any
-      server/UI build path.
-- [ ] `angreal release check` passes with the updated touchpoint set.
-- [ ] v0.11.0 tagged; unified_release's nightly-suite gate passes and the
-      release publishes.
+- [ ] {Specific, testable requirement 1}
+- [ ] {Specific, testable requirement 2}
+- [ ] {Specific, testable requirement 3}
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -154,21 +158,4 @@ Close the migration and un-park the release train:
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-08-30 — ACTIVE. Waves 1–4 ALL MERGED (#265/#266/#267/#268). Gate
-  rehearsal against the demo stack (full bundle, 18 routes): **22 passed /
-  0 failed / 3 skipped** across the entire functional e2e corpus (walk
-  tours, ws1–ws8, scenarios, connect, admin trio, wave1/3/4 specs). Skips =
-  seeded-lane execution-id specs; `angreal test ui-e2e` (full, seeded) in
-  flight to close them.
-
-  Remaining checklist:
-  1. Seeded ui-e2e full lane green (in flight).
-  2. Visual baselines: pixels changed framework-wide → regenerate via the
-     ui-visual workflow_dispatch `update_baselines=true` on Linux (local
-     macOS shots are NOT the gate).
-  3. Lockstep: ui/Cargo.toml (crate version) joins bump+drift touchpoints;
-     ui/package.json (playwright tooling) stays.
-  4. Docs: embedded-ui pages — build prereqs now trunk + wasm32, not node.
-  5. Release: rebase release/v0.11.0 (#264), UI changelog entry, regenerate
-     docs/static/openapi.json (parked info.version fix), merge, tag v0.11.0
-     (maintainer pre-approved tag-on-merge).
+*To be added during implementation*

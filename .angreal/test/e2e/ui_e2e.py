@@ -269,6 +269,10 @@ def _ui_e2e(smoke: bool) -> int:
                 "public:clk_demo_public_key_0003:admin,"
                 "acme:clk_demo_acme_key_0002:admin"
             ),
+            # Secrets are part of the UI surface (wave4-admin.spec.ts drives
+            # create/rotate/delete) — the lane's server must have a KEK, same
+            # value as the demo stack.
+            "CLOACINA_SECRET_KEK": "ZGVtby1rZWstZGVtby1rZWstZGVtby1rZWstMDAwMSE=",
         }
 
         with _process(server_cmd, home / "server.log", env=server_env) as server:
