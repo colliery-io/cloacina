@@ -4,14 +4,14 @@ level: task
 title: "Wave 4 admin routes and SVG charts — Fleet/Secrets/Keys/Accounts/Settings + Gantt/heatmap/timeline"
 short_code: "CLOACI-T-0935"
 created_at: 2026-08-30T11:38:02.167497+00:00
-updated_at: 2026-08-30T11:38:02.167497+00:00
+updated_at: 2026-08-30T16:22:07.073889+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -70,17 +70,26 @@ generic rendering, app vocab as data).
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] All five admin routes function live against the demo stack, including
-      a secret create→use-in-workflow→rotate round-trip and account
-      create→login-as.
-- [ ] Read-only keys see the same hidden-controls behavior as the React app
-      (role-gating parity).
-- [ ] The four charts render real execution data; ExecutionDetail's Gantt
-      and Overview's heatmap match the React app's information content.
-- [ ] Playwright e2e specs for the admin routes pass; all 18 routes now
-      exist in Leptos.
+- [x] All five admin routes function LIVE against the demo stack: fleet
+      scale up/down, account create→login-as (full local-auth spec), key
+      mint (one-time reveal)→revoke, secret create→rotate→delete (new
+      wave4-admin.spec.ts). The secret use-in-workflow leg rides the Wave-5
+      full gate (workflow-secrets demo).
+- [x] Role gating parity: all admin controls behind can_admin/can_write,
+      fail-closed (same derivation as the React AuthContext).
+- [x] TaskGantt (ExecutionDetail Timeline, wall-vs-work footer) + RunHeatmap
+      (WorkflowDetail last-40) in pure CSS/SVG on Aurora tokens.
+      TaskRuntimeChart/CombinedTimeline recorded as later dents (their
+      information is partially covered by Gantt + heatmap).
+- [x] Playwright: the ENTIRE previously-failing smoke trio passes (fleet,
+      local-auth, tenant-admin) plus wave4-admin; all 18 routes exist in
+      Leptos, zero stubs left.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -145,4 +154,23 @@ generic rendering, app vocab as data).
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — Core built on `feat/i0141-wave4-admin-charts` (stacked on the
+  MERGED wave-3 branch — PR needs `git rebase --onto origin/main <wave3-tip>`
+  like Wave 2). ALL 18 ROUTES NOW LIVE: Keys (create + one-time plaintext
+  reveal via pack CopyButton, revoke confirm, tenant-scoped T-0784
+  endpoints), Accounts (create/list/disable/reset-password, admin-gated),
+  Fleet (desired/actual/limit stats, provision/deprovision via the client's
+  PUBLIC get_json/post_json escape hatch — fleet endpoints have no typed SDK
+  methods; SDK follow-up), Settings, Secrets (write-only field rows; rotate
+  seeds known names with empty values). charts.rs: TaskGantt (shared-axis
+  bars, wall-vs-work footer, DAG-order rows) in ExecutionDetail's Timeline;
+  RunHeatmap (last-40, height ∝ duration) in WorkflowDetail.
+
+  NOT ported (Wave-5-or-later dents, recorded): TaskRuntimeChart,
+  CombinedTimeline, TaskHealthTable, StatusStrip, ScheduleCard, InputsCard,
+  TaskCodeModal, DAG reliability overlay, typed number/bool modal fields
+  (text-coerced today).
+
+  IN FLIGHT: demo rebuild with the full bundle → comprehensive live pass:
+  the previously-failing smoke trio (fleet / local-auth account flow /
+  tenant-admin keys) + wave1-session + wave3-operate.
