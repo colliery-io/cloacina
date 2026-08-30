@@ -38,6 +38,7 @@ use crate::auth::use_auth;
 
 /// Map the client's error onto the pack's [`ApiError`] shape (the app-side
 /// half of the aurora `classify` contract).
+#[allow(dead_code)] // consumed by ErrorState views as they land (Waves 2+)
 pub fn map_client_error(e: &ClientError) -> ApiError {
     match e {
         ClientError::Transport(_) => ApiError::Network,

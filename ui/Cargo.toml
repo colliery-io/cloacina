@@ -38,6 +38,10 @@ web-sys = { version = "0.3", features = [
     "History",
     "Url",
     "UrlSearchParams",
+    "File",
+    "FileList",
+    "HtmlInputElement",
+    "HtmlElement",
 ] }
 js-sys = "0.3"
 urlencoding = "2.1"

@@ -177,7 +177,7 @@ fn ActiveRunCard(e: ExecutionSummary) -> impl IntoView {
                 style:width="9px"
                 style:height="9px"
                 style:border-radius="50%"
-                style:background=color.clone()
+                style:background=color
                 style:flex="none"
             ></span>
             <div style:flex="1" style:min-width="0">
