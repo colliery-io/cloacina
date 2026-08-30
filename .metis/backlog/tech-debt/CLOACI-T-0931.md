@@ -4,15 +4,15 @@ level: task
 title: "constructor_loader hand-rolls JSON marshaling while every other FFI bridge passes typed values"
 short_code: "CLOACI-T-0931"
 created_at: 2026-08-16T14:32:50.577879+00:00
-updated_at: 2026-08-16T14:32:50.577879+00:00
+updated_at: 2026-08-30T02:35:47.049153+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -110,19 +110,31 @@ Any uniform treatment has to accommodate that or deliberately leave it alone.
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `constructor_loader.rs` contains no `serde_json::to_string` /
-      `from_str` around a `call_method` — the four bridges pass typed values.
-- [ ] Guest-side signatures updated to match, with the plugin interface version
-      bumped and the version check rejecting stale packages.
-- [ ] `METHOD_INGEST`'s sync/`Option` shape either accommodated or explicitly
-      left as-is with the reason recorded in-code.
-- [ ] All packaged fixtures rebuilt and the packaged e2e lane green
-      (`angreal test e2e compiler`) — this is an ABI change, so a passing
-      `cargo check` proves nothing about whether real packages still load.
-- [ ] Verified against a live server, not just unit tests: a constructor-backed
-      workflow executes end to end (constructors are the surface T-0925 touched).
+**Resolved as infeasible-by-evidence (see 2026-08-30 status update); the
+original criteria below are moot — kept for the record.**
+
+- [ ] ~~`constructor_loader.rs` contains no `serde_json::to_string` /
+      `from_str` around a `call_method` — the four bridges pass typed
+      values.~~ Impossible on the fidius wasm component path without per-crate
+      build.rs + vendored wire types (fidius 0.5.5–0.5.8).
+- [ ] ~~Guest-side signatures updated to match, with the plugin interface
+      version bumped and the version check rejecting stale packages.~~
+- [ ] ~~`METHOD_INGEST`'s sync/`Option` shape either accommodated or
+      explicitly left as-is with the reason recorded in-code.~~ (Was
+      accommodated cleanly in the attempt, for what it's worth.)
+- [ ] ~~All packaged fixtures rebuilt and the packaged e2e lane green.~~
+- [ ] ~~Verified against a live server.~~
+- [x] The four String-wire bridges' existence is now EXPLAINED by recorded
+      evidence (fidius primitives-only inline-WIT path), with concrete unlock
+      conditions for re-opening.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -187,4 +199,53 @@ Any uniform treatment has to accommodate that or deliberately leave it alone.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — **CLOSED: conversion attempted, proven infeasible on current
+  fidius; the String wire stays, and now we know exactly why.** Like T-0873,
+  the investigation answered the ticket's question with "no" — but this time
+  by building it.
+
+  **What was built:** the full typed conversion — contract object traits typed
+  (`execute(TaskInvocation) -> TaskOutcome` etc.), all four host bridges on
+  `call_method::<_, XOutcome>`, guest glue with the JSON layer deleted, shell
+  + host `plugin_interface(version = 2)`, contract consts bumped, stream
+  accumulator deliberately kept at v1. Host side compiled clean everywhere.
+
+  **Where it died — the fidius wasm component path:** guest builds failed with
+  `failed to read path for WIT [<fixture>/wit]`. Root cause, from fidius
+  0.5.5–0.5.8 source (`fidius-macro/src/impl_macro.rs`,
+  `fidius-build/src/lib.rs`):
+
+  1. A wasm `#[plugin_interface]` whose signatures are primitives-only
+     (String et al.) gets **self-contained inline WIT** — no build step. That
+     is the path today's String wire rides, and WHY it exists.
+  2. Any **user type** in a signature switches codegen to
+     `wit_bindgen::generate!({ path: "wit", .. })` + an OUT_DIR conversions
+     include — which require a `build.rs` calling `fidius_build::emit_wit()`
+     in EVERY provider crate.
+  3. `emit_wit` v1 parses the crate's own `src/` for BOTH the trait and the
+     `#[derive(WitType)]` types. Ours fail both ways: the trait is EMITTED BY
+     `constructor_provider!` (invisible to source parsing), and the wire
+     types live in `cloacina-constructor-contract` (cross-crate; generated
+     conversions reference `crate::` paths). Unchanged through fidius 0.5.8.
+
+  Forcing it would mean vendoring the wire types into every provider crate
+  (destroying the shared contract) plus hand-added build.rs machinery in every
+  provider crate — the exact anti-pattern of
+  [[feedback_macro_generated_deps_invisible]]. Counterfactual verified both
+  ways: typed build fails wanting `wit/`; reverted build green
+  (`constructor_accumulator_wasm` passes).
+
+  **Why family A gets typed calls and family B can't:** family A's typed
+  `call_method` sites ride the NATIVE cdylib path (positional bincode, no
+  WIT). Family B is the wasm COMPONENT path, where the component-model
+  boundary makes user types a build-step feature. The two families are not an
+  inconsistency — they are two different fidius transports with different
+  type-system reach. Typing only the native constructor variant would fork
+  the shell trait shape per target and make the loader LESS consistent.
+
+  **Unlock conditions (re-open then):** fidius gains descriptor-driven WIT
+  generation (from the `#[plugin_interface]` expansion, not source parsing)
+  AND cross-crate `WitType` resolution. Also plausibly mooted if
+  [[project_fidius_wasm_authoring_shift]] reshapes authoring.
+
+  All code reverted; zero diff shipped. The evidence above is the deliverable.
