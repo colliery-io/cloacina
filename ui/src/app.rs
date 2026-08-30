@@ -31,6 +31,8 @@ use crate::routes::graphs::Graphs;
 use crate::routes::operations::Operations;
 use crate::routes::keys::Keys;
 use crate::routes::accounts::Accounts;
+use crate::routes::fleet::Fleet;
+use crate::routes::settings::Settings;
 use crate::routes::overview::Overview;
 use crate::routes::stubs::*;
 use crate::routes::trigger_detail::TriggerDetail;

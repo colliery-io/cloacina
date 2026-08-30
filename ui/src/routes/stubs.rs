@@ -34,8 +34,6 @@ macro_rules! stub {
 }
 
 stub!(Secrets, "Secrets", "Wave 4 (CLOACI-T-0935)");
-stub!(Fleet, "Agent fleet", "Wave 4 (CLOACI-T-0935)");
-stub!(Settings, "Settings", "Wave 4 (CLOACI-T-0935)");
 
 /// Unmatched in-app path.
 #[component]
