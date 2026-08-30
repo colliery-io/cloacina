@@ -398,10 +398,18 @@ async fn test_cron_backstop_fires_unnotified_schedule() {
         .cron_poll_interval(Duration::from_secs(2))
         .build()
         .unwrap();
-    // Share the fixture's Database so the runner's scheduler and the DAL
-    // below hit the SAME postgres schema (the fixture is schema-isolated;
-    // a URL-constructed runner would look at `public` and never see the row).
-    let runner = DefaultRunner::with_database(fixture.get_database(), config, None)
+    // The runner needs its OWN pool aimed at the fixture's schema. Sharing
+    // `fixture.get_database()` would let `runner.shutdown()` close the
+    // fixture's pool and poison every later test in this binary ("Pool has
+    // been closed"); a plain URL-constructed runner would watch `public` on
+    // postgres and never see the fixture-schema row.
+    let runner_db = cloacina::database::Database::new_with_schema(
+        &fixture.get_database_url(),
+        "cloacina",
+        4,
+        Some(&fixture.get_schema()),
+    );
+    let runner = DefaultRunner::with_database(runner_db, config, None)
         .await
         .unwrap();
 
