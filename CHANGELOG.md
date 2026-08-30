@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — Python `@cloaca.task` retry kwargs now validate** (CLOACI-T-0930):
+  unrecognized `retry_backoff` / `retry_condition` strings raise `ValueError`
+  naming the accepted values, instead of silently defaulting to `fixed` /
+  `all`. A workflow that previously passed a typo (e.g.
+  `retry_backoff="exponentail"`) was already misconfigured — it ran with Fixed
+  backoff regardless of intent; it now fails at decoration time with a message
+  that names the fix. Accepted values are unchanged: `fixed`/`linear`/
+  `exponential` and `never`/`transient`/`all`.
+
 ## [0.10.0] - 2026-07-28
 
 ### Added

@@ -110,11 +110,15 @@ Worth a release-notes line.
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] An unrecognized `retry_backoff` raises `ValueError` naming the valid values.
-- [ ] An unrecognized `retry_condition` raises `ValueError` naming the valid values.
-- [ ] Python tests cover both rejections AND confirm every valid value still works
+- [x] An unrecognized `retry_backoff` raises `ValueError` naming the valid values.
+- [x] An unrecognized `retry_condition` raises `ValueError` naming the valid values.
+- [x] Python tests cover both rejections AND confirm every valid value still works
       (the regression risk is over-tightening and breaking a legitimate string).
-- [ ] Release-notes entry flagging the behavior change.
+      → 6 passed in test_scenario_11_retry_mechanisms.py; rejection messages
+      contain both the typo AND the nearest valid value, so the error teaches
+      the fix.
+- [x] Release-notes entry flagging the behavior change.
+      → CHANGELOG [Unreleased], BREAKING entry.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -179,4 +183,10 @@ Worth a release-notes line.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-30 — FIXED AND VERIFIED. `build_retry_policy` returns `PyResult`;
+  both `_ =>` fallthroughs raise `ValueError` naming the accepted values.
+  Verified via pytest against a rebuilt wheel: both typo rejections plus the
+  full valid-value sweep (fixed/linear/exponential, never/transient/all) —
+  6 passed. Test-authoring note: valid-value decorations must sit inside a
+  `WorkflowBuilder` context, because valid strings get PAST retry parsing and
+  reach the workflow-context check that typo'd ones never do.

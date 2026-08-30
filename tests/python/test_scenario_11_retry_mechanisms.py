@@ -111,3 +111,52 @@ class TestRetryMechanisms:
         message = str(excinfo.value)
         assert "retry_attempts" in message
         assert "not both" in message
+
+    def test_unknown_retry_strings_are_rejected(self):
+        """CLOACI-T-0930: a typo'd retry string must FAIL, not silently default.
+
+        The old fallthrough mapped retry_backoff="exponentail" to Fixed and any
+        unknown retry_condition to AllErrors -- the workflow ran with retry
+        semantics its author never asked for, invisibly. The population hitting
+        the fallback is exactly the misconfigured one, so it fails loudly now.
+        """
+        import cloaca
+        import pytest
+
+        with pytest.raises(ValueError) as excinfo:
+            @cloaca.task(id="typo_backoff_task", retry_backoff="exponentail")
+            def typo_backoff_task(context):
+                return context
+        assert "exponentail" in str(excinfo.value)
+        assert "exponential" in str(excinfo.value)  # the message teaches the fix
+
+        with pytest.raises(ValueError) as excinfo:
+            @cloaca.task(id="typo_condition_task", retry_condition="transiant")
+            def typo_condition_task(context):
+                return context
+        assert "transiant" in str(excinfo.value)
+        assert "transient" in str(excinfo.value)
+
+    def test_all_valid_retry_strings_still_accepted(self):
+        """CLOACI-T-0930 regression guard: tightening must not over-tighten.
+
+        Every documented value must still construct -- the risk of the loud-
+        failure change is breaking a legitimate string that used to work.
+        """
+        import cloaca
+
+        # Inside builder contexts: valid strings get PAST retry parsing, so
+        # they reach the workflow-context requirement the typo tests never do.
+        with cloaca.WorkflowBuilder("valid_backoff_wf") as builder:
+            builder.description("T-0930 valid backoff values")
+            for i, backoff in enumerate(("fixed", "linear", "exponential")):
+                @cloaca.task(id=f"valid_backoff_{i}", retry_backoff=backoff)
+                def _t(context):
+                    return context
+
+        with cloaca.WorkflowBuilder("valid_condition_wf") as builder:
+            builder.description("T-0930 valid condition values")
+            for i, condition in enumerate(("never", "transient", "all")):
+                @cloaca.task(id=f"valid_condition_{i}", retry_condition=condition)
+                def _t2(context):
+                    return context
