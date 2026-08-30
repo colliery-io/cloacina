@@ -4,15 +4,15 @@ level: task
 title: "Workflow-instance registration has no server surface — I-0116 instances are embedded-runner-only"
 short_code: "CLOACI-T-0894"
 created_at: 2026-07-11T22:28:03.026241+00:00
-updated_at: 2026-07-11T22:28:03.026241+00:00
+updated_at: 2026-08-08T13:23:07.940563+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -74,11 +74,21 @@ The engine side is ready: schedules rows carry `params` JSON + `instance_name` (
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [x] Per-tenant routes to create/list/get/delete named workflow instances
+- [x] Instance params validated against the workflow's declared InputSlots with the same `validate_declared_params` the execute route uses
+- [x] Instances persisted via the existing schedule DAL (`find_by_instance_name`, params/instance_name fields) — no new engine machinery
+- [x] A `cloacinactl instance` noun with create/list/inspect/delete, `--param k=v` / `--params file.json`, `--cron`
+- [ ] NOT DONE — end-to-end proof against the demo stack: a packaged workflow with `params(...)` gets a named scheduled instance via cloacinactl and fires on schedule with its bound params visible in the execution context
+- [ ] NOT DONE — T-0889's example README gains the instance section it currently can't have
+- [ ] NOT DONE — UI surface (scoped by the ticket itself as a separate follow-up)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -143,4 +153,53 @@ The engine side is ready: schedules rows carry `params` JSON + `instance_name` (
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-08: SURFACE COMPLETE — PR #247 merged (squash). Closing with the
+  live-stack proof and docs EXPLICITLY NOT DONE; carried to a follow-up rather
+  than left implied. See the unchecked criteria above.
+
+  WHAT SHIPPED. Four tenant-scoped routes (POST/GET list, GET one, DELETE)
+  under `/v1/tenants/{t}/workflows/{name}/instances`, a `cloacinactl instance`
+  noun, and the operations added to all three SDKs. Nothing in the execution
+  path changed: the engine was already complete (schedules rows carry params +
+  instance_name from migration 040, the fire-time merge delivers bound params
+  as top-level context keys, the DAL already had create /
+  find_by_instance_name / find_by_workflow / delete). This was the missing
+  surface, not new machinery.
+
+  Tenant scoping follows the house rule — everything through the tenant-scoped
+  Database from TenantDatabaseCache, so a cross-tenant request 404s naturally
+  instead of leaking existence through a distinct error code. Routes are
+  declared BEFORE the `{version}` workflow-delete so the static `instances`
+  segment is never shadowed by the version wildcard.
+
+  DESIGN POINT worth keeping: `cron` is optional per this ticket's own body,
+  which raises the question of what an unscheduled instance does. It is stored
+  with `next_run_at = NULL`, and the scheduler's due query filters
+  `next_run_at <= now` — NULL never satisfies that, so it can never fire. The
+  entire "optional cron" affordance rests on that one SQL property, so it is
+  asserted by test rather than reasoned about, PLUS a scheduled counterpart
+  test so the first cannot pass merely because nothing is ever due.
+
+  Duplicate names are caught twice: a find_by_instance_name pre-check for the
+  common case and the unique index for the genuine race, both mapped to 409
+  (new `ApiError::conflict` — there was no constructor for it).
+
+  PRE-EXISTING DRIFT SURFACED: regenerating the python SDK with ITS OWN
+  documented pin (openapi-python-client 0.29.0, per clients/python/README.md)
+  rewrote ~100 already-committed model files, i.e. the committed output came
+  from a different generator build than the README claims. The emitted code
+  imports typing_extensions, which was NOT a declared dependency and IS
+  required on the supported 3.10 floor — now declared in
+  clients/python/pyproject.toml. Included rather than hand-reverted, because
+  selectively keeping stale generated files is how the drift arrived. CI passed
+  with it, so nothing downstream depended on the old shape.
+
+  Tests: 3 schedule-DAL (unscheduled never due; scheduled round-trips params
+  and IS due; named vs anonymous) — 30 schedule tests pass; 3 CLI tests for
+  --param typing, values containing '=', malformed pairs. cargo check
+  --workspace, cargo fmt --check, docs spec-check, SDK coverage (59 ops across
+  3 SDKs) and version lockstep all clean.
+
+  ALSO NOT INCLUDED, deliberately: PATCH/update of an existing instance (delete
+  and recreate for now); pause/resume, already reachable through the existing
+  trigger pause/resume endpoints since instances ARE schedule rows.
