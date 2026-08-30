@@ -251,7 +251,7 @@ pub fn Keys() -> impl IntoView {
                     {move || plaintext.get().map(|(kname, key)| view! {
                         <div style:display="flex" style:flex-direction="column" style:gap="14px">
                             <Alert title=kname color="var(--ok)">
-                                "Copy this key now. It cannot be shown again."
+                                "Copy this now — you won't see it again"
                             </Alert>
                             <code
                                 class="cl-code"

@@ -271,7 +271,7 @@ checksum = "2550f75b8cfac212855f6b1885455df8eaee8fe8e246b647d69146142e016084"
 [[package]]
 name = "colliery-io-aurora"
 version = "0.1.0"
-source = "git+https://github.com/colliery-io/aurora-dark.git?rev=8e0eaf6bf1cd87940c1e9aa41710a594f9cb3895#8e0eaf6bf1cd87940c1e9aa41710a594f9cb3895"
+source = "git+https://github.com/colliery-io/aurora-dark.git?rev=e8497f5b682dada2305bd245a391f324698affa9#e8497f5b682dada2305bd245a391f324698affa9"
 dependencies = [
  "js-sys",
  "leptos",
@@ -1481,7 +1481,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2738,7 +2738,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
