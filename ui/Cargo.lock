@@ -234,15 +234,18 @@ name = "cloacina-ui"
 version = "0.10.0"
 dependencies = [
  "base64",
+ "cloacina-api-types",
  "cloacina-client",
  "colliery-io-aurora",
  "console_error_panic_hook",
+ "futures-util",
  "gloo-timers",
  "js-sys",
  "leptos",
  "leptos_router",
  "serde",
  "serde_json",
+ "urlencoding",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

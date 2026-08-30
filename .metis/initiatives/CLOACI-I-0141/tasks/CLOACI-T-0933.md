@@ -176,3 +176,29 @@ Workflow DAG summaries (MiniDag) come from `aurora_leptos::graph`.
 
   **Acceptance**: demo stack live upload→run→Completed + the
   walk/scenarios Playwright subsets that need only Waves 1–2 surface.
+
+- 2026-08-30 (later) — **ALL SIX ROUTES PORTED AND COMPILING** (trunk green),
+  pushed to `feat/i0141-wave2-core-routes` (430b683b):
+  data.rs (poll/once LocalResources bound to the active connection, transient-
+  only single-retry, ClientError→pack-ApiError map), ops.rs (warm
+  `ops_metrics:global` WS provider with generation-guarded resubscribe),
+  util.rs (format_duration/ago via js_sys::Date), components.rs (RunCircles,
+  RunWorkflowModal with typed slot coercion, TagPill), Overview, Workflows
+  (pause/resume + run modal), Executions (URL-reflected chips/filter/paging),
+  WorkflowUpload (web_sys File → multipart), ExecutionDetail (REST backfill +
+  live WS tail merged on sequence_num, pack-graph DAG colored by task rows,
+  task table, event log), WorkflowDetail (build badge/error, execute/pause/
+  delete, pack-graph DAG, named instances read-only).
+
+  **Deliberate Wave-4 deferrals** (noted in module docs): TaskGantt,
+  TaskCodeModal, StatusStrip, RunHeatmap, TaskHealthTable, CombinedTimeline,
+  ScheduleCard, InputsCard, and the DAG reliability overlay (fail counts).
+
+  **Leptos gotchas recorded**: non-Copy `use_navigate` in Fn-closures →
+  `StoredValue::new(use_navigate())` + `with_value`; multi-line/turbofish
+  attr closures need braces in view!; pack `classify` takes the typed
+  `ApiError`, not a string.
+
+  **IN FLIGHT**: `angreal test ui-e2e --smoke` (own stack on :18085; first
+  exercise of the trunk-based embedded-ui build.rs) + demo-stack rebuild for
+  manual verification.

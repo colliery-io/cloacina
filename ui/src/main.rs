@@ -24,9 +24,13 @@
 mod app;
 mod auth;
 mod brand;
+mod components;
 mod config;
+mod data;
+mod ops;
 mod routes;
 mod shell;
+mod util;
 
 fn main() {
     console_error_panic_hook::set_once();
