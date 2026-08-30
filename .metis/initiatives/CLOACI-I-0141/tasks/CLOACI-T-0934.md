@@ -4,14 +4,14 @@ level: task
 title: "Wave 3 graph and operate routes — Graphs, Triggers, Operations on pack graph.rs"
 short_code: "CLOACI-T-0934"
 created_at: 2026-08-30T11:37:58.144384+00:00
-updated_at: 2026-08-30T11:37:58.144384+00:00
+updated_at: 2026-08-30T14:33:44.258630+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -70,6 +70,8 @@ supplies cloacina's state vocab as data).
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
