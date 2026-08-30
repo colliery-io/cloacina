@@ -375,3 +375,75 @@ async fn test_workflow_instance_register_roundtrip() {
 
     runner.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+#[serial]
+async fn test_cron_backstop_fires_unnotified_schedule() {
+    // CLOACI-T-0928: a cron row written directly to the DB — no `cron_change`
+    // notification, as when another replica wrote it — must still fire via the
+    // `cron_poll_interval` backstop. Before the fix the backstop sleep was
+    // rebuilt from zero on every loop iteration, so the 1s trigger tick always
+    // won the select and the backstop could never elapse: this row would sit
+    // due forever, silently.
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+    let dal = fixture.get_dal();
+
+    // Short backstop; trigger tick stays at its 1s default so the pre-fix
+    // starvation shape (tick interval < backstop) is exactly reproduced.
+    let config = DefaultRunnerConfig::builder()
+        .enable_cron_scheduling(true)
+        .cron_poll_interval(Duration::from_secs(2))
+        .build()
+        .unwrap();
+    // The runner needs its OWN pool aimed at the fixture's schema. Sharing
+    // `fixture.get_database()` would let `runner.shutdown()` close the
+    // fixture's pool and poison every later test in this binary ("Pool has
+    // been closed"); a plain URL-constructed runner would watch `public` on
+    // postgres and never see the fixture-schema row.
+    let runner_db = cloacina::database::Database::new_with_schema(
+        &fixture.get_database_url(),
+        "cloacina",
+        4,
+        Some(&fixture.get_schema()),
+    );
+    let runner = DefaultRunner::with_database(runner_db, config, None)
+        .await
+        .unwrap();
+
+    // Let the scheduler arm its backstop with zero cron schedules present.
+    sleep(Duration::from_millis(300)).await;
+
+    // Write the row through the DAL directly — deliberately NOT via
+    // register_cron_workflow, which would notify and mask the backstop.
+    let due = UniversalTimestamp(Utc::now());
+    let created = dal
+        .schedule()
+        .create(NewSchedule::cron("backstop-wf", "0 0 * * *", due))
+        .await
+        .unwrap();
+    let original_next_run = created.next_run_at;
+
+    // The claim path advances next_run_at before any workflow lookup, so an
+    // advanced next_run_at IS the proof the cron branch ran. Backstop is 2s;
+    // allow 10s for slow CI.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut fired = false;
+    while std::time::Instant::now() < deadline {
+        let row = dal.schedule().get_by_id(created.id).await.unwrap();
+        if row.next_run_at != original_next_run {
+            fired = true;
+            break;
+        }
+        sleep(Duration::from_millis(250)).await;
+    }
+    assert!(
+        fired,
+        "backstop never fired: unnotified due cron row still holds its \
+         original next_run_at after 10s (backstop = 2s)"
+    );
+
+    runner.shutdown().await.unwrap();
+}

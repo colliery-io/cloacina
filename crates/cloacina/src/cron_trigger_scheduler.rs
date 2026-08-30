@@ -275,13 +275,18 @@ impl Scheduler {
         // `cron_poll_interval`, cache the next due instant and sleep until it.
         // Recomputed only after a fire or a `cron_change` notification, so the
         // 1 s trigger/reactor tick does NOT re-query the DB for cron.
+        //
+        // CLOACI-T-0928: the sleep must be created ONCE and live across loop
+        // iterations. The earlier shape rebuilt it from zero every iteration,
+        // and the 1 s trigger tick always won the select first — so a sleep
+        // longer than ~1 s never accumulated progress and the backstop could
+        // never elapse. Now only the branches that consume or invalidate the
+        // deadline reset it.
         let mut next_cron_due = self.query_next_cron_due().await;
+        let cron_sleep = tokio::time::sleep(self.cron_sleep_delay(next_cron_due));
+        tokio::pin!(cron_sleep);
 
         loop {
-            let cron_delay = self.cron_sleep_delay(next_cron_due);
-            let cron_sleep = tokio::time::sleep(cron_delay);
-            tokio::pin!(cron_sleep);
-
             tokio::select! {
                 _ = interval.tick() => {
                     // --- Triggers ---
@@ -320,11 +325,19 @@ impl Scheduler {
                         error!("Error processing cron schedules: {}", e);
                     }
                     next_cron_due = self.query_next_cron_due().await;
+                    // An elapsed Sleep stays ready forever — re-arm it, or this
+                    // branch would win every subsequent select (busy loop).
+                    cron_sleep.as_mut().reset(
+                        tokio::time::Instant::now() + self.cron_sleep_delay(next_cron_due),
+                    );
                 }
                 // --- Cron schedule changed (registered/enabled/deleted): re-arm ---
                 _ = self.cron_change.notified() => {
                     debug!("Cron change notification — recomputing next due time");
                     next_cron_due = self.query_next_cron_due().await;
+                    cron_sleep.as_mut().reset(
+                        tokio::time::Instant::now() + self.cron_sleep_delay(next_cron_due),
+                    );
                 }
                 _ = self.shutdown.changed() => {
                     if *self.shutdown.borrow() {
