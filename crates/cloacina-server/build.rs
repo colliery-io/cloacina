@@ -17,13 +17,14 @@
 fn main() {
     cloacina_build::configure();
 
-    // CLOACI-I-0130 (T-0847): with `embedded-ui` on, build the SPA so
-    // rust-embed has a fresh `ui/dist` to embed — staleness is impossible by
-    // construction (every feature-on build rebuilds when UI inputs changed).
-    // Feature-off builds never touch Node.
+    // CLOACI-I-0130 (T-0847), reshaped by I-0141 (T-0932): with `embedded-ui`
+    // on, build the Leptos UI (trunk) so rust-embed has a fresh `ui/dist` to
+    // embed — staleness is impossible by construction (every feature-on build
+    // rebuilds when UI inputs changed). Feature-off builds never touch trunk.
     if std::env::var_os("CARGO_FEATURE_EMBEDDED_UI").is_some() {
-        // Containerized builds prebuild ui/dist in a node:20 stage and set
-        // this to skip the npm step (the Rust stage then needs no Node).
+        // Containerized builds prebuild ui/dist in a trunk stage and set this
+        // to skip the step (the server stage then needs no trunk/wasm target).
+        // (Env var name kept from the npm era so existing build wiring works.)
         if std::env::var_os("CLOACINA_EMBEDDED_UI_SKIP_NPM").is_some() {
             println!(
                 "cargo:warning=embedded-ui: using prebuilt ui/dist (CLOACINA_EMBEDDED_UI_SKIP_NPM)"
@@ -34,24 +35,21 @@ fn main() {
             .join("../../ui")
             .canonicalize()
             .expect("ui/ directory not found — embedded-ui requires the UI sources");
-        for input in [
-            "src",
-            "index.html",
-            "package.json",
-            "package-lock.json",
-            "vite.config.ts",
-        ] {
+        for input in ["src", "index.html", "Cargo.toml", "Trunk.toml", "build.rs"] {
             println!("cargo:rerun-if-changed={}", ui_dir.join(input).display());
         }
-        let status = std::process::Command::new("npm")
-            .arg("--prefix")
-            .arg(&ui_dir)
-            .args(["run", "build"])
+        let status = std::process::Command::new("trunk")
+            .arg("build")
+            .arg("--release")
+            .current_dir(&ui_dir)
             .status()
-            .expect("embedded-ui: failed to run npm — a Node toolchain is required for feature-on builds");
+            .expect(
+                "embedded-ui: failed to run trunk — install it (`cargo install trunk`) plus \
+                 the wasm32-unknown-unknown target for feature-on builds",
+            );
         assert!(
             status.success(),
-            "embedded-ui: `npm run build` failed (see output above)"
+            "embedded-ui: `trunk build --release` failed (see output above)"
         );
     }
 }

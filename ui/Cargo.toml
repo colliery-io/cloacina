@@ -1,0 +1,52 @@
+# The Cloacina control-plane UI — a Leptos CSR app (CLOACI-I-0141 / T-0932).
+#
+# Deliberately NOT a member of the root cargo workspace (the [workspace] table
+# below detaches it): like the React SPA it replaces, the UI builds separately
+# (trunk → dist/) so wasm/web dependencies never enter the server dependency
+# tree. cloacina-server embeds `ui/dist` via rust-embed (embedded-ui feature).
+[package]
+name = "cloacina-ui"
+version = "0.11.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+leptos = { version = "0.8", features = ["csr"] }
+leptos_router = { version = "0.8" }
+
+# Aurora Dark — Colliery's Leptos design system (tokens, primitives, widgets,
+# graph). Lib name is `aurora_leptos`. Pinned by rev; bump deliberately.
+colliery-io-aurora = { git = "https://github.com/colliery-io/aurora-dark.git", rev = "cb84a23299aa792a45222dadb1a618a5c3e23df4" }
+
+# The same contract-tested Rust SDK the CLI uses — wasm transport (T-0932).
+cloacina-client = { path = "../crates/cloacina-client" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+gloo-timers = { version = "0.3", features = ["futures"] }
+console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Storage",
+    "Location",
+    "History",
+    "Url",
+    "UrlSearchParams",
+] }
+js-sys = "0.3"
+
+[build-dependencies]
+# leptos-free build of the design pack: emits style/aurora.css (no-flash link).
+# Resolver v2 keeps this feature set separate from the wasm dependency above.
+colliery-io-aurora = { git = "https://github.com/colliery-io/aurora-dark.git", rev = "cb84a23299aa792a45222dadb1a618a5c3e23df4", default-features = false }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1

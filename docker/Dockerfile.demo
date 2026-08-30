@@ -23,14 +23,31 @@ ARG RUST_VERSION=1.94
 # ---------------------------------------------------------------------------
 # Shared builder — ONE workspace compile produces all three binaries.
 # ---------------------------------------------------------------------------
-# CLOACI-I-0130: the SPA builds in a proper node:20 stage (Debian's apt node
-# is v18; the UI requires >=20); the Rust stage embeds the prebuilt dist.
-FROM node:20-slim AS ui-builder
+# CLOACI-I-0141 (T-0932): the UI is a Leptos CSR app now — trunk builds it to
+# static wasm/js/css; the Rust stage embeds the prebuilt dist. No node stage:
+# npm left the server build path with the React SPA.
+FROM rust:${RUST_VERSION}-slim-bookworm AS ui-builder
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup target add wasm32-unknown-unknown
+# Prebuilt trunk binary (compiling it from source is ~10min under emulation).
+ARG TRUNK_VERSION=v0.21.14
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+      arm64) T=aarch64-unknown-linux-gnu ;; \
+      *) T=x86_64-unknown-linux-gnu ;; \
+    esac \
+ && curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/${TRUNK_VERSION}/trunk-${T}.tar.gz" \
+    | tar -xz -C /usr/local/bin trunk
 WORKDIR /workspace
-COPY clients/typescript clients/typescript
-COPY ui ui
-RUN cd clients/typescript && npm ci && npm run build
-RUN cd ui && npm ci && npm run build
+# The whole tree: ui/ path-depends on crates/cloacina-client, which inherits
+# workspace fields from the root manifest.
+COPY . /workspace
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,id=cloacina-demo-ui-target-${TARGETARCH},target=/workspace/ui/target \
+    cd ui && trunk build --release
 
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 RUN apt-get update \

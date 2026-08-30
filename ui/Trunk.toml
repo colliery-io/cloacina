@@ -1,0 +1,11 @@
+# Trunk build for the Leptos control-plane UI (CLOACI-I-0141).
+# `dist` is what cloacina-server's rust-embed folder attribute points at.
+[build]
+target = "index.html"
+dist = "dist"
+
+[serve]
+# Dev flow: `trunk serve` here + the compose demo stack on :8080. The app is
+# same-origin in production (embedded); in dev the connect gate prefills the
+# demo server URL (see src/config.rs).
+port = 5173
