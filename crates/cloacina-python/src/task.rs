@@ -589,7 +589,15 @@ impl cloacina::Task for PythonTaskWrapper {
     }
 }
 
-/// Build retry policy from Python decorator parameters
+/// Build retry policy from Python decorator parameters.
+///
+/// CLOACI-T-0930: unrecognized `retry_backoff` / `retry_condition` strings are
+/// ERRORS, not silent defaults. The old `_ =>` fallthroughs meant
+/// `retry_backoff="exponentail"` (typo) quietly configured Fixed backoff and an
+/// unknown condition quietly retried ALL errors — the workflow ran with retry
+/// semantics its author never asked for, invisibly. Failing loudly here is a
+/// deliberate behavior change: the population currently hitting the fallback
+/// is exactly the misconfigured one.
 fn build_retry_policy(
     retry_attempts: Option<usize>,
     retry_backoff: Option<String>,
@@ -597,7 +605,7 @@ fn build_retry_policy(
     retry_max_delay_ms: Option<u64>,
     retry_condition: Option<String>,
     retry_jitter: Option<bool>,
-) -> cloacina::retry::RetryPolicy {
+) -> PyResult<cloacina::retry::RetryPolicy> {
     use cloacina::retry::*;
     use std::time::Duration;
 
@@ -615,7 +623,12 @@ fn build_retry_policy(
                 base: 2.0,
                 multiplier: 1.0,
             },
-            _ => BackoffStrategy::Fixed,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown retry_backoff {other:?}: expected one of \
+                     \"fixed\", \"linear\", \"exponential\""
+                )))
+            }
         };
         builder = builder.backoff_strategy(strategy);
     }
@@ -633,7 +646,12 @@ fn build_retry_policy(
             "never" => RetryCondition::Never,
             "transient" => RetryCondition::TransientOnly,
             "all" => RetryCondition::AllErrors,
-            _ => RetryCondition::AllErrors,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown retry_condition {other:?}: expected one of \
+                     \"never\", \"transient\", \"all\""
+                )))
+            }
         };
         builder = builder.retry_condition(retry_cond);
     }
@@ -642,7 +660,7 @@ fn build_retry_policy(
         builder = builder.with_jitter(jitter);
     }
 
-    builder.build()
+    Ok(builder.build())
 }
 
 /// Decorator class that holds task configuration
@@ -934,7 +952,7 @@ pub fn task(
             retry_max_delay_ms,
             retry_condition,
             retry_jitter,
-        ),
+        )?,
     };
 
     // CLOACI-T-0763: parse + validate the trigger rule (default = Always).
