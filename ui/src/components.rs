@@ -453,3 +453,184 @@ pub fn TriggerFireModal(
         </Show>
     }
 }
+
+/// Accumulator inject modal (React `GraphInjectModal`, CLOACI-T-0753): typed
+/// slot fields from the accumulator's declared interface, injected as one
+/// JSON event. Falls back to a raw-JSON textarea when nothing is declared.
+#[component]
+pub fn GraphInjectModal(
+    open: RwSignal<bool>,
+    accumulator: RwSignal<Option<String>>,
+) -> impl IntoView {
+    use cloacina_api_types::InjectAccumulatorRequest;
+
+    let auth = use_auth();
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(String::new());
+    let delivered = RwSignal::new(Option::<usize>::None);
+    let values = RwSignal::new(std::collections::HashMap::<String, String>::new());
+    let raw_json = RwSignal::new(String::from("{}"));
+
+    let iface = once_resource(move |c| {
+        let name = accumulator.get();
+        async move {
+            match name {
+                Some(n) => c.accumulator_interface(&n).await.map(Some),
+                None => Ok(None),
+            }
+        }
+    });
+    let slots = Signal::derive(move || {
+        iface
+            .get()
+            .and_then(|r| r.ok())
+            .flatten()
+            .map(|s| s.slots)
+            .unwrap_or_default()
+    });
+
+    let close = move || {
+        open.set(false);
+        values.set(Default::default());
+        raw_json.set("{}".into());
+        delivered.set(None);
+        error.set(String::new());
+    };
+
+    let inject = move || {
+        let Some(name) = accumulator.get_untracked() else { return };
+        let Some(conn) = auth.connection() else { return };
+        busy.set(true);
+        error.set(String::new());
+        let fields = slots.get_untracked();
+        let vals = values.get_untracked();
+        let raw = raw_json.get_untracked();
+        leptos::task::spawn_local(async move {
+            let event = if fields.is_empty() {
+                match serde_json::from_str::<serde_json::Value>(&raw) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        busy.set(false);
+                        error.set(format!("event is not valid JSON: {e}"));
+                        return;
+                    }
+                }
+            } else {
+                let mut obj = serde_json::Map::new();
+                for slot in &fields {
+                    let ty = slot.schema["type"].as_str().unwrap_or("string");
+                    let Some(rawv) = vals.get(&slot.name) else { continue };
+                    if rawv.is_empty() {
+                        continue;
+                    }
+                    let v = match ty {
+                        "integer" => rawv
+                            .parse::<i64>()
+                            .map(serde_json::Value::from)
+                            .unwrap_or_else(|_| serde_json::Value::String(rawv.clone())),
+                        "number" => rawv
+                            .parse::<f64>()
+                            .map(serde_json::Value::from)
+                            .unwrap_or_else(|_| serde_json::Value::String(rawv.clone())),
+                        "boolean" => serde_json::Value::Bool(rawv == "true"),
+                        _ => serde_json::Value::String(rawv.clone()),
+                    };
+                    obj.insert(slot.name.clone(), v);
+                }
+                serde_json::Value::Object(obj)
+            };
+            let outcome = async {
+                let client = client_for(&conn)?;
+                client
+                    .inject_accumulator(&name, &InjectAccumulatorRequest { event })
+                    .await
+                    .map_err(|e| e.to_string())
+            }
+            .await;
+            busy.set(false);
+            match outcome {
+                Ok(res) => delivered.set(Some(res.delivered)),
+                Err(e) => error.set(e),
+            }
+        });
+    };
+
+    let title = move || {
+        accumulator
+            .get()
+            .map(|a| format!("{a} · inject"))
+            .unwrap_or_default()
+    };
+
+    view! {
+        <Show when=move || open.get()>
+            <Modal open=open title=title()>
+                <div style:display="flex" style:flex-direction="column" style:gap="14px">
+                    <Show
+                        when=move || delivered.get().is_some()
+                        fallback=move || view! {
+                            <Show
+                                when=move || !slots.get().is_empty()
+                                fallback=move || view! {
+                                    <aurora_leptos::components::Textarea
+                                        label="Event (JSON)"
+                                        value=raw_json
+                                    />
+                                }
+                            >
+                                <For
+                                    each=move || slots.get()
+                                    key=|s| s.name.clone()
+                                    children=move |s| {
+                                        let ty = s.schema["type"].as_str().unwrap_or("string").to_string();
+                                        let name = s.name.clone();
+                                        let field = RwSignal::new(String::new());
+                                        Effect::new(move |_| {
+                                            let v = field.get();
+                                            values.update(|m| {
+                                                m.insert(name.clone(), v);
+                                            });
+                                        });
+                                        view! {
+                                            <TextInput label=format!("{} · {}", s.name, ty) value=field />
+                                        }
+                                    }
+                                />
+                            </Show>
+
+                            <Show when=move || !error.get().is_empty()>
+                                <div style:color="var(--bad)" style:font-size="12.5px">{move || error.get()}</div>
+                            </Show>
+
+                            <div style:display="flex" style:justify-content="flex-end" style:gap="10px">
+                                <Button variant="default" on_click=Callback::new(move |_| close())>
+                                    "Cancel"
+                                </Button>
+                                <button
+                                    class="cl-btn cl-btn--filled"
+                                    disabled=move || busy.get()
+                                    on:click=move |_| inject()
+                                >
+                                    "＋ Inject"
+                                </button>
+                            </div>
+                        }
+                    >
+                        <div style:font-size="13px" style:color="var(--fg)">
+                            {move || format!(
+                                "Delivered to {} receiver{}.",
+                                delivered.get().unwrap_or(0),
+                                if delivered.get() == Some(1) { "" } else { "s" }
+                            )}
+                        </div>
+                        <div style:display="flex" style:justify-content="flex-end">
+                            <button class="cl-btn cl-btn--filled" on:click=move |_| close()>
+                                "Done"
+                            </button>
+                        </div>
+                    </Show>
+                </div>
+            </Modal>
+        </Show>
+    }
+}

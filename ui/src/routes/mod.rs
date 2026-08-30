@@ -25,5 +25,6 @@ pub mod overview;
 pub mod stubs;
 pub mod workflow_detail;
 pub mod triggers;
+pub mod graphs;
 pub mod workflow_upload;
 pub mod workflows;
