@@ -1,6 +1,6 @@
 {
   "name": "@cloacina/ui-e2e",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "description": "Playwright tooling for the Cloacina web UI (the app itself is the Rust/Leptos crate in this directory — CLOACI-I-0141). This package exists ONLY for the e2e + visual suites.",

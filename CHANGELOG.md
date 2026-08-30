@@ -7,9 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.11.0] - 2026-08-30
 
-- **BREAKING — Python `@cloaca.task` retry kwargs now validate** (CLOACI-T-0930):
+### Added
+
+- **The web UI is now Rust end-to-end** (CLOACI-I-0141) — the control plane
+  is a Leptos/WASM app built on the Aurora Dark design pack
+  (`colliery-io-aurora`), replacing the React SPA at strict parity (all 18
+  routes; the full Playwright e2e corpus passes against it). The UI consumes
+  the same contract-tested `cloacina-client` SDK as the CLI — which now
+  compiles for wasm32 with a browser WebSocket transport — so client drift
+  can no longer split the UI from the SDKs. Served exactly as before
+  (rust-embed, same origin, same URLs); live sessions survive the swap.
+- **Reactive-layer high availability** (CLOACI-T-0851 / ADR A-0012) — reactors
+  and their accumulator state survive replica loss on a multi-replica server.
+  Each reactor has exactly one owner, claimed via Postgres session-level
+  advisory locks (one ownership session holding N locks); a self-check watchdog
+  detects lock loss and halts the unowned copy, and surviving replicas claim
+  and respawn orphaned reactors, restoring accumulator state windows from the
+  durable store. Event injection stays on the hot path: each owner publishes
+  its pod address and a non-owner replica answers an inject with a 307 redirect
+  to the owner (a durable outbox catches only the mid-takeover gap). The Helm
+  chart gains `reactorAffinity`; migration 050 adds `reactor_owner_addresses`.
+  Proven live on a 2-replica k3s cluster: kill the owner, the survivor takes
+  over, republishes, and a 3-of-8 state window comes back intact.
+- **Named workflow instances on the server** (CLOACI-T-0894 / T-0927) —
+  register named, param-bound, cron-scheduled instances of a packaged workflow
+  over HTTP (`/v1/tenants/{t}/workflows/{name}/instances`), with the instance
+  surface proven against a live stack (which also surfaced and fixed two
+  routing/notify bugs).
+- **`defer_until` for packaged tasks** (CLOACI-T-0897) — deferral now crosses
+  the plugin FFI boundary, so packaged workflows can park a task until a
+  wall-clock instant, not just embedded ones.
+- **Provider release waves** (CLOACI-T-0871 / T-0872) — first-party providers
+  (`cloacina-provider-kafka`, `cloacina-provider-fs`) moved out of examples
+  into `providers/` in ship form, with certify harnesses, a wave release
+  workflow, a PR guard, and a published compat table. Inaugural wave
+  2026.08 shipped.
+- **Python cron scaffold** (CLOACI-T-0913) — `cloacinactl package new` can
+  scaffold a Python package with a cron trigger wired.
+- **The packaged example standard is now written down** (CLOACI-T-0886,
+  CONTRIBUTING.md) — placement, `package.toml`-keyed auto-discovery into the
+  demos harness + CI matrix, version-deps-never-path-deps, the canonical
+  README shape, and the enforcement contract: every documented command runs
+  in CI.
+- **Constructor grants demo in CI** (CLOACI-T-0892) — `fs-grant-demo` (the
+  provider lifecycle + default-closed capability grants, including the
+  denied-without-grant case) joined the demos surface and the CI examples
+  matrix; the remaining constructor-contract dirs are inventoried as
+  provider crates / fixtures with reasons.
+
+### Changed (breaking)
+
+- **Building the server UI no longer involves Node** (CLOACI-I-0141):
+  `embedded-ui` builds run `trunk` against the Leptos crate in `ui/` —
+  install `trunk` and the `wasm32-unknown-unknown` target. npm/vite are gone
+  from every server build path (node remains only for the TypeScript SDK and
+  the Playwright test tooling).
+- **Python `@cloaca.task` retry kwargs now validate** (CLOACI-T-0930):
   unrecognized `retry_backoff` / `retry_condition` strings raise `ValueError`
   naming the accepted values, instead of silently defaulting to `fixed` /
   `all`. A workflow that previously passed a typo (e.g.
@@ -17,6 +72,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backoff regardless of intent; it now fails at decoration time with a message
   that names the fix. Accepted values are unchanged: `fixed`/`linear`/
   `exponential` and `never`/`transient`/`all`.
+
+### Fixed
+
+- **Packaged/Python accumulator state windows were write-only** (found by the
+  T-0851 e2e): state windows whose events were `serde_json::Value` persisted
+  but could never be restored (bincode cannot deserialize `Value`). Buffers
+  now persist as JSON with a legacy-bincode read fallback; a pinning test
+  keeps the failure mode documented. Every packaged/Python state accumulator
+  window had been silently unrecoverable since the feature shipped.
+- **`trigger fire` now fires `#[trigger(on = ...)]` workflows**
+  (CLOACI-T-0929): the route only consulted registry subscribers and 404'd
+  the schedules-table shape; it now unions both. The packaged-triggers
+  example's "Operate it" verb works as documented and is asserted in CI.
+- **The cron backstop could never elapse** (CLOACI-T-0928): the unified
+  scheduler rebuilt its backstop sleep every loop iteration, so the 1s
+  trigger tick always won and a cron row written without a notification
+  (e.g. by a replica that died before firing) sat due forever. The sleep now
+  persists across iterations; a regression test proves a DAL-written,
+  unnotified row fires via the backstop on both backends.
+- **`execution events` was completely broken** (CLOACI-T-0893) and is now
+  asserted on every demo lane.
+- **Execution-core crash edges** (CLOACI-T-0914): unsweepable claim window,
+  recovery cap, fail-closed claims, outbox removal ordering, cron
+  duplicate-fires.
+- **Computation-graph runtime defects** (CLOACI-T-0915): CEL tenant stub,
+  reactor state restore, lock-free supervisor backoff.
+- **Server HA truthfulness** (CLOACI-T-0916): WebSocket tickets and the agent
+  roster are DB-backed (multi-replica correct); `/ready` is platform-scoped.
+- **Tenant isolation hardening**: process-global registries keyed by tenant,
+  not bare name (CLOACI-T-0921, T-0924); provider resolution scoped per load
+  instead of a process-global path (T-0925); tenant connection strings derived
+  from the admin endpoint (T-0888).
+- **Cron recovery attempt cap persisted + CAS'd** (CLOACI-T-0926) — the cap
+  survives restarts and concurrent recoverers can't double-fire.
+- **CEL predicate errors hold the watermark** (CLOACI-T-0922) so an erroring
+  predicate can't silently skip events; predicates lint at subscribe time.
+- **Auth hardening** (CLOACI-T-0923): OIDC session refresh, login throttling,
+  and a username-enumeration timing oracle closed.
+- **Python runtime robustness** (CLOACI-T-0919): hung imports are
+  interruptible, a wedged runtime surfaces on `/ready`, and the workflow
+  context stack is thread-local.
+- **Contract-crate convergence** (CLOACI-T-0920) and an explicit native trust
+  cliff at the call site.
+- **`import cloaca` unbroken locally** (CLOACI-T-0882) — the RetryPolicy value
+  objects are wired through the shared authoring registration.
+- **glibc getenv/setenv segfault race killed** (CLOACI-T-0910) —
+  `gssencmode=disable` plus env-mutation hygiene.
+- **Docs corpus verified against code** (CLOACI-T-0911 / T-0912) — every page
+  of the docs overhauled and drift fixed (image org, scaffold claims, inert
+  sqlite URLs, retired compose).
+- CI verification-lattice holes closed (CLOACI-T-0917); the constructor test
+  suite now runs nightly. Installer convergence and compiler `env_clear`
+  (CLOACI-T-0918). The Python SDK generator is pinned in CI (CLOACI-T-0899).
+
+### Investigated
+
+- **Typed constructor FFI rejected with evidence** (CLOACI-T-0931): converting
+  the constructor loader's four JSON-String bridges to typed fidius calls is
+  infeasible on the wasm component path — user types in a `plugin_interface`
+  signature require per-crate `build.rs` WIT generation that cannot see
+  macro-emitted traits or cross-crate wire types (fidius 0.5.5–0.5.8). The
+  String wire is load-bearing; unlock conditions are recorded in the ticket.
 
 ## [0.10.0] - 2026-07-28
 
