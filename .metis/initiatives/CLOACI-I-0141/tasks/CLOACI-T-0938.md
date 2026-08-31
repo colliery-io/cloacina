@@ -1,10 +1,10 @@
 ---
-id: wave-5-parity-gate-and-release
+id: uat-round-1-graphs-operational
 level: task
-title: "Wave 5 parity gate and release — full e2e/visual run, CI lane swap, lockstep, 0.11.0 resumes"
-short_code: "CLOACI-T-0936"
-created_at: 2026-08-30T11:38:06.699741+00:00
-updated_at: 2026-08-30T16:26:56.033685+00:00
+title: "UAT round 1 — graphs operational dashboard, trigger type sections + action columns, workflow list clarity, history vs current-execution views"
+short_code: "CLOACI-T-0938"
+created_at: 2026-08-31T12:59:12.230586+00:00
+updated_at: 2026-08-31T12:59:33.879077+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
@@ -18,7 +18,7 @@ exit_criteria_met: false
 initiative_id: CLOACI-I-0141
 ---
 
-# Wave 5 parity gate and release — full e2e/visual run, CI lane swap, lockstep, 0.11.0 resumes
+# UAT round 1 — graphs operational dashboard, trigger type sections + action columns, workflow list clarity, history vs current-execution views
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,22 +28,37 @@ initiative_id: CLOACI-I-0141
 
 ## Objective **[REQUIRED]**
 
-Close the migration and un-park the release train:
+Maintainer UAT feedback (2026-08-31), verbatim intent:
 
-1. Full Playwright e2e + visual parity run against the demo stack; fix what
-   falls out.
-2. CI: ui lanes swap node/vite for rust/trunk (UI Checks, ui-visual,
-   nightly ui-e2e); wasm32 target where needed.
-3. Version lockstep: `ui/package.json`/harness touchpoints drop out of
-   `angreal release bump` + the drift guard + the UI Checks REQ-008 gate;
-   the Leptos crate version becomes a touchpoint.
-4. Docs: embedded-UI pages updated (build prereqs: trunk, wasm target);
-   npm removed from the release path.
-5. 0.11.0 resumes: rebase release/v0.11.0 (PR #264), add the UI-migration
-   changelog entry (breaking: node no longer needed to build the server UI),
-   fix the parked `docs/static/openapi.json` info.version touchpoint
-   (regenerate via emit-openapi), tag v0.11.0 on merge (maintainer-approved
-   2026-08-30).
+1. **/graphs** — fully functional but bare. Add a computation-graphs
+   OVERVIEW on the page: make it an "operational dashboard", not a pure
+   "list of objects".
+2. **/triggers** — separate triggers BY TYPE (cron vs poll — implemented
+   the same but behave differently). Polls have a next/last run derived
+   from their poll frequency — those cells must not be blank. Action
+   column: justify the ⚡/▸ icons LEFT so they align vertically; pick a
+   LARGER icon for the run control; add COLUMN HEADERS for both clickables
+   (not obvious what they do).
+3. **/workflows** — same action-clarity feedback as triggers (aligned,
+   larger, labeled controls).
+4. **Workflow/graph detail needs TWO views**: the historical "operational
+   history" and the "specific execution / current execution" view.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [ ] /graphs opens with an operational overview strip (aggregate state,
+      fires, events/min, paused/degraded counts) above the sections.
+- [ ] /triggers renders cron and polling triggers as separate sections;
+      poll rows show derived next/last run; action columns are headed
+      ("Fire", "Run"), left-justified, vertically aligned, larger run icon.
+- [ ] /workflows action controls get the same treatment (headed, aligned,
+      larger).
+- [ ] WorkflowDetail and GraphDetail each expose a History view and a
+      Current-execution view, cleanly separated.
+- [ ] Verified live on the demo stack + fresh screenshots delivered for
+      re-review.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -79,24 +94,11 @@ Close the migration and un-park the release train:
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
-- [x] Full e2e green: 22/22 functional specs vs the demo stack; VISUAL gate
-      green on fresh Linux baselines (regenerated via workflow_dispatch;
-      assert run 33339537362 success).
-- [x] All CI ui lanes green on trunk (ui-checks / ui-visual / helm-e2e image
-      / demo image); no node in any server/UI build path.
-- [x] `angreal release check` green with 68 touchpoints — including the new
-      cloacina-ui crate pin AND the example crates.io pins (stale example
-      pins broke the 0.11 plugin-ABI handshake in release CI, seen as
-      `bincode wire error`; the bump now sweeps them).
-- [ ] v0.11.0 tagged — **HELD by maintainer instruction pending their UI
-      review (2026-08-30; supersedes the earlier tag-on-merge approval)**.
-      PR #264 itself is MERGED (version/changelog/openapi on main); the tag
-      is the only remaining action and fires unified_release's
-      nightly-gated publish.
+- [ ] {Specific, testable requirement 1}
+- [ ] {Specific, testable requirement 2}
+- [ ] {Specific, testable requirement 3}
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -161,21 +163,4 @@ Close the migration and un-park the release train:
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-08-30 — ACTIVE. Waves 1–4 ALL MERGED (#265/#266/#267/#268). Gate
-  rehearsal against the demo stack (full bundle, 18 routes): **22 passed /
-  0 failed / 3 skipped** across the entire functional e2e corpus (walk
-  tours, ws1–ws8, scenarios, connect, admin trio, wave1/3/4 specs). Skips =
-  seeded-lane execution-id specs; `angreal test ui-e2e` (full, seeded) in
-  flight to close them.
-
-  Remaining checklist:
-  1. Seeded ui-e2e full lane green (in flight).
-  2. Visual baselines: pixels changed framework-wide → regenerate via the
-     ui-visual workflow_dispatch `update_baselines=true` on Linux (local
-     macOS shots are NOT the gate).
-  3. Lockstep: ui/Cargo.toml (crate version) joins bump+drift touchpoints;
-     ui/package.json (playwright tooling) stays.
-  4. Docs: embedded-ui pages — build prereqs now trunk + wasm32, not node.
-  5. Release: rebase release/v0.11.0 (#264), UI changelog entry, regenerate
-     docs/static/openapi.json (parked info.version fix), merge, tag v0.11.0
-     (maintainer pre-approved tag-on-merge).
+*To be added during implementation*
