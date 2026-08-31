@@ -83,7 +83,9 @@ pub fn Workflows() -> impl IntoView {
     let pausing = RwSignal::new(false);
 
     let toggle_pause = move |name: String, to_paused: bool| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         pausing.set(true);
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {

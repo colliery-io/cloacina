@@ -29,8 +29,9 @@ use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::auth::{client_for, use_auth};
-use crate::components::{RunWorkflowModal, TagPill};
+use crate::components::{RunWorkflowModal, TagPill, ViewTabs};
 use crate::data::poll_resource;
+use crate::routes::execution_detail::ExecutionView;
 use crate::util::ago;
 
 const MONO: &str = "'IBM Plex Mono', monospace";
@@ -102,6 +103,22 @@ pub fn WorkflowDetail() -> impl IntoView {
             .flatten()
             .map(|r| r.items)
             .unwrap_or_default()
+    });
+
+    // Dual views (UAT round 1, T-0938): operational history vs the
+    // current/most-recent execution. Prefer a live run for the current tab.
+    let view_mode = RwSignal::new("history");
+    let current_exec_id = Signal::derive(move || {
+        let runs = recent_runs.get();
+        runs.iter()
+            .find(|e| {
+                matches!(
+                    e.status.to_lowercase().as_str(),
+                    "running" | "pending" | "queued"
+                )
+            })
+            .or_else(|| runs.first())
+            .map(|e| e.id.clone())
     });
 
     let exec_open = RwSignal::new(false);
@@ -253,6 +270,32 @@ pub fn WorkflowDetail() -> impl IntoView {
                         </Alert>
                     </Show>
 
+                    // View switcher (UAT round 1, T-0938)
+                    <ViewTabs
+                        tabs=vec![
+                            ("history", "Operational history"),
+                            ("current", "Current execution"),
+                        ]
+                        active=view_mode
+                    />
+
+                    // ---- Current-execution view ----
+                    <Show when=move || view_mode.get() == "current">
+                        <Show
+                            when=move || current_exec_id.get().is_some()
+                            fallback=|| view! { <Empty message="No executions of this workflow yet." /> }
+                        >
+                            {move || {
+                                let id = Signal::derive(move || {
+                                    current_exec_id.get().unwrap_or_default()
+                                });
+                                view! { <ExecutionView id=id embedded=true /> }
+                            }}
+                        </Show>
+                    </Show>
+
+                    // ---- Operational-history view ----
+                    <Show when=move || view_mode.get() == "history">
                     // Task graph
                     <Panel title="Task graph">
                         {move || {
@@ -356,6 +399,7 @@ pub fn WorkflowDetail() -> impl IntoView {
                             </div>
                         </Show>
                     </Panel>
+                    </Show>
 
                     // Modals
                     <RunWorkflowModal open=exec_open target=exec_target />

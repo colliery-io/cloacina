@@ -92,12 +92,28 @@ fn SectionHeader(#[prop(into)] title: String, live: Signal<bool>) -> impl IntoVi
     }
 }
 
+/// Route wrapper: reads the execution id from the URL and renders the
+/// reusable [`ExecutionView`].
 #[component]
 pub fn ExecutionDetail() -> impl IntoView {
-    let auth = use_auth();
-    let navigate = StoredValue::new(use_navigate());
     let params = use_params_map();
     let id = Signal::derive(move || params.read().get("id").unwrap_or_default());
+    view! { <ExecutionView id=id /> }
+}
+
+/// The full live execution view (status, DAG, tasks, timeline, event log).
+/// Reused by the /executions/:id route AND WorkflowDetail's
+/// current-execution tab (UAT round 1, T-0938).
+#[component]
+pub fn ExecutionView(
+    id: Signal<String>,
+    /// True when embedded in another page (WorkflowDetail's current-execution
+    /// tab): swaps the page header for a compact link to the full view.
+    #[prop(default = false)]
+    embedded: bool,
+) -> impl IntoView {
+    let auth = use_auth();
+    let navigate = StoredValue::new(use_navigate());
 
     // Status: polled until terminal (parity with livePoll).
     let detail = poll_resource(move |c| {
@@ -297,18 +313,33 @@ pub fn ExecutionDetail() -> impl IntoView {
             // Header
             <div style:display="flex" style:justify-content="space-between" style:align-items="flex-start">
                 <div>
-                    <a href="/executions" style:font-size="11.5px" style:color="var(--muted)" style:text-decoration="none">
-                        "← Executions"
-                    </a>
-                    <h1 style:font-size="22px" style:font-weight="600" style:color="var(--fg-bright)" style:margin="2px 0 0">
-                        {move || {
-                            let w = workflow_name.get();
-                            if w.is_empty() { "Execution".to_string() } else { w }
-                        }}
-                    </h1>
-                    <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="2px">
-                        {move || id.get()}
-                    </div>
+                    <Show
+                        when=move || !embedded
+                        fallback=move || view! {
+                            <a
+                                href=move || format!("/executions/{}", id.get())
+                                style:font-family=MONO
+                                style:font-size="11.5px"
+                                style:color="var(--muted)"
+                                style:text-decoration="none"
+                            >
+                                {move || format!("{} — open full view →", id.get())}
+                            </a>
+                        }
+                    >
+                        <a href="/executions" style:font-size="11.5px" style:color="var(--muted)" style:text-decoration="none">
+                            "← Executions"
+                        </a>
+                        <h1 style:font-size="22px" style:font-weight="600" style:color="var(--fg-bright)" style:margin="2px 0 0">
+                            {move || {
+                                let w = workflow_name.get();
+                                if w.is_empty() { "Execution".to_string() } else { w }
+                            }}
+                        </h1>
+                        <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="2px">
+                            {move || id.get()}
+                        </div>
+                    </Show>
                 </div>
                 <button
                     class="cl-btn cl-btn--default"

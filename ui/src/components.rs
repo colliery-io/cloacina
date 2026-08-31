@@ -679,3 +679,49 @@ pub fn PauseIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
         </svg>
     }
 }
+
+/// Segmented view switcher for the dual detail views (UAT round 1,
+/// CLOACI-T-0938): operational history vs the specific/current execution.
+#[component]
+pub fn ViewTabs(
+    tabs: Vec<(&'static str, &'static str)>,
+    active: RwSignal<&'static str>,
+) -> impl IntoView {
+    view! {
+        <div
+            style:display="inline-flex"
+            style:gap="2px"
+            style:background="var(--panel)"
+            style:border="1px solid var(--border)"
+            style:border-radius="8px"
+            style:padding="3px"
+            style:align-self="flex-start"
+        >
+            {tabs
+                .into_iter()
+                .map(|(key, label)| {
+                    view! {
+                        <button
+                            style:font-family="'IBM Plex Mono', monospace"
+                            style:font-size="11.5px"
+                            style:letter-spacing=".03em"
+                            style:padding="5px 14px"
+                            style:border="none"
+                            style:border-radius="6px"
+                            style:cursor="pointer"
+                            style:background=move || {
+                                if active.get() == key { "var(--panel-2)" } else { "transparent" }
+                            }
+                            style:color=move || {
+                                if active.get() == key { "var(--fg-bright)" } else { "var(--muted)" }
+                            }
+                            on:click=move |_| active.set(key)
+                        >
+                            {label}
+                        </button>
+                    }
+                })
+                .collect_view()}
+        </div>
+    }
+}

@@ -17,8 +17,9 @@
 //! Graph operational view (CLOACI-T-0767), parity port of `GraphDetail.tsx`:
 //! header + augmented topology (accumulators → reactor → compute nodes, the
 //! WS-4 view) on the pack's SVG graph, per-accumulator freshness, reactor
-//! force-fire and accumulator inject. The fire-activity chart and recent
-//! fires table land with the Wave-4 chart work (CLOACI-T-0935).
+//! force-fire and accumulator inject. UAT round 1 (CLOACI-T-0938) split the
+//! page into a Live view (topology + accumulators) and an Operational-history
+//! view (fire activity sparkline + recent fires table).
 
 use aurora_leptos::components::{Empty, Loading, Panel};
 use aurora_leptos::graph::{Graph, GraphEdge, GraphNode};
@@ -29,10 +30,10 @@ use leptos_router::hooks::use_params_map;
 use cloacina_api_types::FireReactorRequest;
 
 use crate::auth::{client_for, use_auth};
-use crate::components::{GraphInjectModal, TagPill};
+use crate::components::{GraphInjectModal, TagPill, ViewTabs};
 use crate::data::poll_resource;
 use crate::routes::graphs::health_state;
-use crate::util::{health_color, node_kind_color};
+use crate::util::{ago, health_color, node_kind_color};
 
 const MONO: &str = "'IBM Plex Mono', monospace";
 
@@ -59,6 +60,44 @@ pub fn GraphDetail() -> impl IntoView {
             .into_iter()
             .filter(|a| mine.contains(&a.name))
             .collect::<Vec<_>>()
+    });
+
+    // Dual views (UAT round 1, T-0938).
+    let view_mode = RwSignal::new("live");
+    let reactor_name = Signal::derive(move || data.get().and_then(|d| d.reactor));
+    let fires = poll_resource(move |c| {
+        let reactor = reactor_name.get();
+        async move {
+            match reactor {
+                Some(r) => c.list_reactor_fires(&r).await.map(Some),
+                None => Ok(None),
+            }
+        }
+    });
+    let fire_rows = Signal::derive(move || {
+        fires
+            .get()
+            .and_then(|r| r.ok())
+            .flatten()
+            .map(|r| r.items)
+            .unwrap_or_default()
+    });
+    let timeseries = poll_resource(move |c| {
+        let reactor = reactor_name.get();
+        async move {
+            match reactor {
+                Some(r) => c.reactor_fire_timeseries(&r).await.map(Some),
+                None => Ok(None),
+            }
+        }
+    });
+    let buckets = Signal::derive(move || {
+        timeseries
+            .get()
+            .and_then(|r| r.ok())
+            .flatten()
+            .map(|t| t.buckets)
+            .unwrap_or_default()
     });
 
     let inject_open = RwSignal::new(false);
@@ -143,10 +182,141 @@ pub fn GraphDetail() -> impl IntoView {
                 </Show>
             </div>
 
+            // View switcher (UAT round 1, T-0938)
+            <ViewTabs
+                tabs=vec![("live", "Live"), ("history", "Operational history")]
+                active=view_mode
+            />
+
             <Show
                 when=move || !loading.get()
                 fallback=|| view! { <Loading label="Loading graph…" /> }
             >
+                // ---- Operational-history view ----
+                <Show when=move || view_mode.get() == "history">
+                    <Panel title="Fire activity" caption="fires per minute · last 60 minutes">
+                        {move || {
+                            let b = buckets.get();
+                            if b.is_empty() {
+                                return view! { <Empty message="No fire activity recorded." /> }
+                                    .into_any();
+                            }
+                            let max = b.iter().copied().max().unwrap_or(1).max(1);
+                            view! {
+                                <div style:display="flex" style:gap="2px" style:align-items="flex-end" style:height="56px">
+                                    {b
+                                        .iter()
+                                        .map(|&count| {
+                                            let h = if count == 0 {
+                                                2.0
+                                            } else {
+                                                6.0 + 50.0 * (count as f64 / max as f64)
+                                            };
+                                            view! {
+                                                <div
+                                                    style:flex="1"
+                                                    style:height=format!("{h:.0}px")
+                                                    style:border-radius="1px"
+                                                    style:background=if count == 0 {
+                                                        "var(--border)"
+                                                    } else {
+                                                        token::ICE
+                                                    }
+                                                    title=format!("{count} fires")
+                                                ></div>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </div>
+                            }
+                            .into_any()
+                        }}
+                    </Panel>
+
+                    <Panel title="Recent fires" caption="outcome · duration · inputs">
+                        <Show
+                            when=move || !fire_rows.get().is_empty()
+                            fallback=|| view! { <Empty message="No fires yet for this graph." /> }
+                        >
+                            <table class="cl-table">
+                                <thead>
+                                    <tr>
+                                        <th>"Fired"</th>
+                                        <th>"Outcome"</th>
+                                        <th>"Duration"</th>
+                                        <th>"Inputs"</th>
+                                        <th>"Detail"</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <For
+                                        each=move || fire_rows.get()
+                                        key=|f| f.fired_at.clone()
+                                        children=|f| {
+                                            let ok = f.ok;
+                                            let inputs = f
+                                                .inputs
+                                                .keys()
+                                                .cloned()
+                                                .collect::<Vec<_>>()
+                                                .join(", ");
+                                            let detail = f
+                                                .error
+                                                .clone()
+                                                .unwrap_or_else(|| {
+                                                    format!("{} output(s)", f.outputs.len())
+                                                });
+                                            view! {
+                                                <tr>
+                                                    <td>
+                                                        <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
+                                                            {ago(Some(f.fired_at.as_str()))}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span
+                                                            style:font-size="12px"
+                                                            style:color=if ok { token::OK } else { "var(--bad)" }
+                                                        >
+                                                            {if ok { "ok" } else { "failed" }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span class="cl-tnum" style:font-size="11.5px" style:color="var(--fg-2)">
+                                                            {format!("{}ms", f.duration_ms)}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span style:font-family=MONO style:font-size="11px" style:color="var(--muted)">
+                                                            {if inputs.is_empty() { "—".to_string() } else { inputs }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span
+                                                            style:font-family=MONO
+                                                            style:font-size="11px"
+                                                            style:color=if ok { "var(--faint)" } else { "var(--bad)" }
+                                                            style:overflow="hidden"
+                                                            style:text-overflow="ellipsis"
+                                                            style:white-space="nowrap"
+                                                            style:max-width="340px"
+                                                            style:display="inline-block"
+                                                        >
+                                                            {detail}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    />
+                                </tbody>
+                            </table>
+                        </Show>
+                    </Panel>
+                </Show>
+
+                // ---- Live view ----
+                <Show when=move || view_mode.get() == "live">
                 // Topology: sources → reactor → compute nodes (WS-4).
                 <Panel title="Topology">
                     {move || {
@@ -278,6 +448,7 @@ pub fn GraphDetail() -> impl IntoView {
                         </div>
                     </Show>
                 </Panel>
+                </Show>
             </Show>
 
             <GraphInjectModal open=inject_open accumulator=inject_target />

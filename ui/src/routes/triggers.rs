@@ -50,10 +50,7 @@ fn fmt_poll_interval(ms: i64) -> String {
 /// Derived (last, next) for a polling trigger: last = the scheduler's last
 /// poll; next = last + interval. Falls back to the stored run stamps.
 fn poll_times(t: &TriggerScheduleSummary) -> (String, String) {
-    let last = t
-        .last_poll_at
-        .clone()
-        .or_else(|| t.last_run_at.clone());
+    let last = t.last_poll_at.clone().or_else(|| t.last_run_at.clone());
     match (&last, t.poll_interval_ms) {
         (Some(l), Some(ms)) => {
             let last_ms = js_sys::Date::parse(l);
@@ -72,7 +69,10 @@ fn poll_times(t: &TriggerScheduleSummary) -> (String, String) {
             }
         }
         (Some(l), None) => (l.clone(), "—".into()),
-        (None, Some(ms)) => ("not yet polled".into(), format!("within {}", fmt_poll_interval(ms))),
+        (None, Some(ms)) => (
+            "not yet polled".into(),
+            format!("within {}", fmt_poll_interval(ms)),
+        ),
         (None, None) => ("—".into(), "—".into()),
     }
 }
@@ -155,7 +155,9 @@ pub fn Triggers() -> impl IntoView {
     let running = RwSignal::new(false);
 
     let run_now = move |workflow: String| {
-        let Some(conn) = auth.connection() else { return };
+        let Some(conn) = auth.connection() else {
+            return;
+        };
         running.set(true);
         leptos::task::spawn_local(async move {
             let result = async {
@@ -169,7 +171,10 @@ pub fn Triggers() -> impl IntoView {
             running.set(false);
             if let Ok(res) = result {
                 navigate.with_value(|n| {
-                    n(&format!("/executions/{}", res.execution_id), Default::default())
+                    n(
+                        &format!("/executions/{}", res.execution_id),
+                        Default::default(),
+                    )
                 });
             }
         });
