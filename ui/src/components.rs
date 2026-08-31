@@ -648,3 +648,34 @@ pub fn GraphInjectModal(
         </Show>
     }
 }
+
+/// Lightning-bolt icon (fire action).
+#[component]
+pub fn BoltIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
+    view! {
+        <svg width=size height=size viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 3l-9 13h8l-1 5 9-13h-8l1-5z" />
+        </svg>
+    }
+}
+
+/// Play icon (run action).
+#[component]
+pub fn PlayIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
+    view! {
+        <svg width=size height=size viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M7 4v16l13-8-13-8z" />
+        </svg>
+    }
+}
+
+/// Pause icon.
+#[component]
+pub fn PauseIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
+    view! {
+        <svg width=size height=size viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <rect x="6" y="4" width="4" height="16" rx="1" />
+            <rect x="14" y="4" width="4" height="16" rx="1" />
+        </svg>
+    }
+}

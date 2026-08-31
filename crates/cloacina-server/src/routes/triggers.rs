@@ -122,6 +122,7 @@ pub async fn list_triggers(
                     created_at: s.created_at.0.to_rfc3339(),
                     paused: s.paused.is_true(),
                     paused_at: s.paused_at.map(|t| t.0.to_rfc3339()),
+                    last_poll_at: s.last_poll_at.map(|t| t.0.to_rfc3339()),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
