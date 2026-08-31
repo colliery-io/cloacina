@@ -6336,6 +6336,13 @@
                   "type": "string",
                   "description": "Schedule UUID."
                 },
+                "last_poll_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp of the scheduler's last poll of this trigger\n(`trigger`-type schedules only; `None` for cron or never-polled).\nThe next poll is due `poll_interval_ms` after this (CLOACI-T-0938)."
+                },
                 "last_run_at": {
                   "type": [
                     "string",
@@ -6761,6 +6768,13 @@
           "id": {
             "type": "string",
             "description": "Schedule UUID."
+          },
+          "last_poll_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of the scheduler's last poll of this trigger\n(`trigger`-type schedules only; `None` for cron or never-polled).\nThe next poll is due `poll_interval_ms` after this (CLOACI-T-0938)."
           },
           "last_run_at": {
             "type": [
