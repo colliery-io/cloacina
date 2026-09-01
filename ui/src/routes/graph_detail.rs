@@ -37,6 +37,27 @@ use crate::util::{ago, health_color, node_kind_color};
 
 const MONO: &str = "'IBM Plex Mono', monospace";
 
+/// Heartbeat freshness for an accumulator (UAT round 2): the dot reads
+/// green = emitted within 1s, gold = within 10s (degraded), red = >10s or
+/// never (not seen). Returns (dot color, label).
+fn heartbeat(last_event_at: Option<&str>) -> (&'static str, String) {
+    let Some(ts) = last_event_at else {
+        return ("var(--bad)", "no events".into());
+    };
+    let ms = js_sys::Date::parse(ts);
+    if ms.is_nan() {
+        return ("var(--bad)", "no events".into());
+    }
+    let age = (js_sys::Date::now() - ms) / 1000.0;
+    if age <= 1.0 {
+        (token::OK, "<1s".into())
+    } else if age <= 10.0 {
+        (token::GOLD, format!("{age:.0}s ago"))
+    } else {
+        ("var(--bad)", ago(Some(ts)))
+    }
+}
+
 #[component]
 pub fn GraphDetail() -> impl IntoView {
     let auth = use_auth();
@@ -400,14 +421,20 @@ pub fn GraphDetail() -> impl IntoView {
                                         .state
                                         .clone()
                                         .unwrap_or_else(|| health_state(&a.status));
+                                    let (hb_color, hb_label) =
+                                        heartbeat(a.last_event_at.as_deref());
+                                    let events = a
+                                        .events_total
+                                        .map(|n| n.to_string())
+                                        .unwrap_or_else(|| "—".into());
                                     let inj = a.name.clone();
                                     view! {
                                         <div style:display="flex" style:gap="12px" style:align-items="center">
                                             <span
-                                                style:width="7px"
-                                                style:height="7px"
+                                                style:width="9px"
+                                                style:height="9px"
                                                 style:border-radius="50%"
-                                                style:background=health_color(&state)
+                                                style:background=hb_color
                                                 style:flex="none"
                                             ></span>
                                             <span
@@ -420,6 +447,12 @@ pub fn GraphDetail() -> impl IntoView {
                                             </span>
                                             <span style:font-size="12px" style:color=health_color(&state)>
                                                 {state.clone()}
+                                            </span>
+                                            <span style:font-family=MONO style:font-size="11.5px" style:color="var(--fg-2)">
+                                                {format!("{events} events")}
+                                            </span>
+                                            <span style:font-family=MONO style:font-size="11px" style:color=hb_color>
+                                                {format!("last {hb_label}")}
                                             </span>
                                             <span style:flex="1"></span>
                                             <Show when=move || auth.can_write()>
