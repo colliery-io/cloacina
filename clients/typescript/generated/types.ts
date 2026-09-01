@@ -2101,6 +2101,12 @@ export interface components {
                 enabled: boolean;
                 /** @description Schedule UUID. */
                 id: string;
+                /**
+                 * @description RFC 3339 timestamp of the scheduler's last poll of this trigger
+                 *     (`trigger`-type schedules only; `None` for cron or never-polled).
+                 *     The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
+                 */
+                last_poll_at?: string | null;
                 /** @description RFC 3339 timestamp. */
                 last_run_at?: string | null;
                 /** @description RFC 3339 timestamp. */
@@ -2258,6 +2264,12 @@ export interface components {
             enabled: boolean;
             /** @description Schedule UUID. */
             id: string;
+            /**
+             * @description RFC 3339 timestamp of the scheduler's last poll of this trigger
+             *     (`trigger`-type schedules only; `None` for cron or never-polled).
+             *     The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
+             */
+            last_poll_at?: string | null;
             /** @description RFC 3339 timestamp. */
             last_run_at?: string | null;
             /** @description RFC 3339 timestamp. */

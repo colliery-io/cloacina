@@ -403,7 +403,10 @@ services:
       HARNESS_MODE: "produce"
       HARNESS_KAFKA_BROKER: "kafka:9092"
       HARNESS_KAFKA_TOPIC: "demo.kafka.stream"
-      HARNESS_PRODUCE_INTERVAL_MS: "2000"
+      # 50-100ms band: each feed draws its own interval, so every accumulator
+      # ingests 10-20 events/s at a slightly different tempo — the whole
+      # reactive surface hums without ticking in lockstep.
+      HARNESS_PRODUCE_INTERVAL_MS: "50-100"
       # Socket accumulators in the compose demo, fed over WS so every
       # socket-sourced graph actually fires:
       #   - mixed_graph's `alpha`

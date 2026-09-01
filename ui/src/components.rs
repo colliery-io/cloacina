@@ -648,3 +648,80 @@ pub fn GraphInjectModal(
         </Show>
     }
 }
+
+/// Lightning-bolt icon (fire action).
+#[component]
+pub fn BoltIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
+    view! {
+        <svg width=size height=size viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 3l-9 13h8l-1 5 9-13h-8l1-5z" />
+        </svg>
+    }
+}
+
+/// Play icon (run action).
+#[component]
+pub fn PlayIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
+    view! {
+        <svg width=size height=size viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M7 4v16l13-8-13-8z" />
+        </svg>
+    }
+}
+
+/// Pause icon.
+#[component]
+pub fn PauseIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
+    view! {
+        <svg width=size height=size viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <rect x="6" y="4" width="4" height="16" rx="1" />
+            <rect x="14" y="4" width="4" height="16" rx="1" />
+        </svg>
+    }
+}
+
+/// Segmented view switcher for the dual detail views (UAT round 1,
+/// CLOACI-T-0938): operational history vs the specific/current execution.
+#[component]
+pub fn ViewTabs(
+    tabs: Vec<(&'static str, &'static str)>,
+    active: RwSignal<&'static str>,
+) -> impl IntoView {
+    view! {
+        <div
+            style:display="inline-flex"
+            style:gap="2px"
+            style:background="var(--panel)"
+            style:border="1px solid var(--border)"
+            style:border-radius="8px"
+            style:padding="3px"
+            style:align-self="flex-start"
+        >
+            {tabs
+                .into_iter()
+                .map(|(key, label)| {
+                    view! {
+                        <button
+                            style:font-family="'IBM Plex Mono', monospace"
+                            style:font-size="11.5px"
+                            style:letter-spacing=".03em"
+                            style:padding="5px 14px"
+                            style:border="none"
+                            style:border-radius="6px"
+                            style:cursor="pointer"
+                            style:background=move || {
+                                if active.get() == key { "var(--panel-2)" } else { "transparent" }
+                            }
+                            style:color=move || {
+                                if active.get() == key { "var(--fg-bright)" } else { "var(--muted)" }
+                            }
+                            on:click=move |_| active.set(key)
+                        >
+                            {label}
+                        </button>
+                    }
+                })
+                .collect_view()}
+        </div>
+    }
+}

@@ -65,6 +65,16 @@ const GENERATORS = {
   py_window: bidAskEvent,
 };
 
+/** Per-feed interval: `cfg.intervalMs` is either a number or a `{min,max}`
+ *  range — each feed draws its own interval from the range so the feeds are
+ *  spread across the band instead of ticking in lockstep. */
+function pickIntervalMs(cfg) {
+  const iv = cfg.intervalMs;
+  if (typeof iv === "number") return iv;
+  const { min, max } = iv;
+  return Math.round(min + Math.random() * (max - min));
+}
+
 /** Socket accumulators to feed over WS, from `cfg.wsAccumulators` (a comma list;
  *  default orderbook,pricing). Empty list → Kafka-only (e.g. the compose demo,
  *  which has no socket accumulators — avoids 403 reconnect spam). */
@@ -98,6 +108,7 @@ function wsUrl(serverUrl, accumulator, ticket) {
  *  reconnects (with a fresh ticket) on close/error. Runs until `state.stop`. */
 async function runSocketFeed({ accumulator, gen }, cfg, state) {
   let seq = 0;
+  const intervalMs = pickIntervalMs(cfg);
   while (!state.stop) {
     let ws;
     try {
@@ -107,14 +118,14 @@ async function runSocketFeed({ accumulator, gen }, cfg, state) {
         ws.once("open", resolve);
         ws.once("error", reject);
       });
-      log(`ws ${accumulator}: connected`);
+      log(`ws ${accumulator}: connected (every ${intervalMs}ms ≈ ${(1000 / intervalMs).toFixed(1)}/s)`);
       while (!state.stop && ws.readyState === WebSocket.OPEN) {
         // The accumulator endpoint accepts BINARY frames only (it forwards the
         // bytes straight to the accumulator's deserializer) — send a Buffer so
         // `ws` frames it as binary, not text.
         ws.send(Buffer.from(JSON.stringify(gen(seq))), { binary: true });
         seq += 1;
-        await sleep(cfg.intervalMs);
+        await sleep(intervalMs);
       }
     } catch (err) {
       log(`ws ${accumulator}: ${err instanceof Error ? err.message : err} — reconnecting in 3s`);
@@ -156,6 +167,8 @@ async function runKafkaFeed(cfg, state) {
     return;
   }
   let seq = 0;
+  const intervalMs = pickIntervalMs(cfg);
+  log(`kafka: every ${intervalMs}ms ≈ ${(1000 / intervalMs).toFixed(1)}/s`);
   while (!state.stop) {
     try {
       await producer.send({
@@ -166,7 +179,7 @@ async function runKafkaFeed(cfg, state) {
     } catch (err) {
       log(`kafka: send failed — ${err instanceof Error ? err.message : err}`);
     }
-    await sleep(cfg.intervalMs);
+    await sleep(intervalMs);
   }
   await producer.disconnect().catch(() => {});
 }
@@ -183,8 +196,12 @@ export async function produce(cfg) {
   process.on("SIGTERM", onStop);
 
   const feeds = socketFeeds(cfg);
+  const ivDesc =
+    typeof cfg.intervalMs === "number"
+      ? `every ${cfg.intervalMs}ms`
+      : `every ${cfg.intervalMs.min}-${cfg.intervalMs.max}ms (per-feed spread)`;
   log(
-    `feeding [${feeds.map((f) => f.accumulator).join(", ") || "none"}] over WS every ${cfg.intervalMs}ms` +
+    `feeding [${feeds.map((f) => f.accumulator).join(", ") || "none"}] over WS ${ivDesc}` +
       (cfg.kafkaBroker ? ` + kafka '${cfg.kafkaTopic}'` : " (no kafka)"),
   );
 

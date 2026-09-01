@@ -28,7 +28,7 @@ use cloacina_api_types::{FireReactorRequest, GraphStatus};
 
 use crate::auth::{client_for, use_auth};
 use crate::components::{GraphInjectModal, TagPill};
-use crate::data::poll_resource;
+use crate::data::{poll_resource, use_clock};
 use crate::util::{health_color, node_kind_color, Throughput};
 
 const MONO: &str = "'IBM Plex Mono', monospace";
@@ -114,6 +114,7 @@ fn AccStrip(
 pub fn Graphs() -> impl IntoView {
     let auth = use_auth();
     let navigate = StoredValue::new(use_navigate());
+    let clock = use_clock();
 
     let graphs = poll_resource(|c| async move { c.list_graphs().await });
     let reactors = poll_resource(|c| async move { c.list_reactors().await });
@@ -182,6 +183,114 @@ pub fn Graphs() -> impl IntoView {
             <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="-10px">
                 {move || sub.get()}
             </div>
+
+            // ---- Operational overview (UAT round 1, T-0938): the fleet of
+            // graphs at a glance, before the per-object sections. ----
+            {move || {
+                clock.track(); // "last fire" ages by the second
+                let gs = graph_items.get();
+                let accs_v = acc_items.get();
+                let running = gs
+                    .iter()
+                    .filter(|g| {
+                        matches!(
+                            health_state(&g.health).to_lowercase().as_str(),
+                            "running" | "live" | "ok" | "healthy"
+                        )
+                    })
+                    .count();
+                let paused = gs.iter().filter(|g| g.paused).count();
+                let total_fires: u64 = gs.iter().map(|g| g.fires).sum();
+                let last_fire = gs
+                    .iter()
+                    .filter_map(|g| g.last_fired_at.clone())
+                    .max();
+                // Availability, not activity: socket_only counts as up
+                // (UAT round 4 — same semantics as health_color).
+                let acc_live = accs_v
+                    .iter()
+                    .filter(|a| {
+                        let s = a
+                            .state
+                            .clone()
+                            .unwrap_or_else(|| health_state(&a.status));
+                        crate::util::health_color(&s) == token::OK
+                    })
+                    .count();
+                let most_active = gs.iter().max_by_key(|g| g.fires).map(|g| g.name.clone());
+                let tile = |label: &str, value: String, color: &'static str, sub: String| {
+                    let label = label.to_string();
+                    view! {
+                        <div
+                            style:background="var(--panel)"
+                            style:border="1px solid var(--border)"
+                            style:border-radius="10px"
+                            style:padding="13px 15px"
+                        >
+                            <div
+                                style:font-family=MONO
+                                style:font-size="10px"
+                                style:letter-spacing=".07em"
+                                style:text-transform="uppercase"
+                                style:color="var(--muted)"
+                            >
+                                {label}
+                            </div>
+                            <div
+                                class="cl-tnum"
+                                style:font-size="24px"
+                                style:font-weight="600"
+                                style:line-height="1.2"
+                                style:color=color
+                                style:margin="4px 0 2px"
+                            >
+                                {value}
+                            </div>
+                            <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
+                                {sub}
+                            </div>
+                        </div>
+                    }
+                };
+                view! {
+                    <div style:display="grid" style:grid-template-columns="repeat(5, 1fr)" style:gap="12px">
+                        {tile(
+                            "Graphs running",
+                            format!("{running}/{}", gs.len()),
+                            if running == gs.len() && !gs.is_empty() { token::OK } else { token::GOLD },
+                            if paused > 0 { format!("{paused} paused") } else { "all unpaused".into() },
+                        )}
+                        {tile(
+                            "Total fires",
+                            total_fires.to_string(),
+                            token::ICE,
+                            "since load".into(),
+                        )}
+                        {tile(
+                            "Last fire",
+                            last_fire
+                                .as_deref()
+                                .map(|t| crate::util::ago(Some(t)))
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or_else(|| "never".into()),
+                            "var(--fg)",
+                            "across all graphs".into(),
+                        )}
+                        {tile(
+                            "Accumulators live",
+                            format!("{acc_live}/{}", accs_v.len()),
+                            if acc_live == accs_v.len() && !accs_v.is_empty() { token::OK } else { token::GOLD },
+                            "event sources".into(),
+                        )}
+                        {tile(
+                            "Most active",
+                            most_active.clone().unwrap_or_else(|| "—".into()),
+                            token::VIOLET,
+                            "by fire count".into(),
+                        )}
+                    </div>
+                }
+            }}
 
             // ---- Graphs ----
             <div>

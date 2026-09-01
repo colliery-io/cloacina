@@ -83,13 +83,20 @@ Close the migration and un-park the release train:
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] Full e2e + visual suites green against the demo stack serving the
-      Leptos UI.
-- [ ] All CI ui lanes green on the trunk build; no node step remains in any
-      server/UI build path.
-- [ ] `angreal release check` passes with the updated touchpoint set.
-- [ ] v0.11.0 tagged; unified_release's nightly-suite gate passes and the
-      release publishes.
+- [x] Full e2e green: 22/22 functional specs vs the demo stack; VISUAL gate
+      green on fresh Linux baselines (regenerated via workflow_dispatch;
+      assert run 33339537362 success).
+- [x] All CI ui lanes green on trunk (ui-checks / ui-visual / helm-e2e image
+      / demo image); no node in any server/UI build path.
+- [x] `angreal release check` green with 68 touchpoints — including the new
+      cloacina-ui crate pin AND the example crates.io pins (stale example
+      pins broke the 0.11 plugin-ABI handshake in release CI, seen as
+      `bincode wire error`; the bump now sweeps them).
+- [ ] v0.11.0 tagged — **HELD by maintainer instruction pending their UI
+      review (2026-08-30; supersedes the earlier tag-on-merge approval)**.
+      PR #264 itself is MERGED (version/changelog/openapi on main); the tag
+      is the only remaining action and fires unified_release's
+      nightly-gated publish.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

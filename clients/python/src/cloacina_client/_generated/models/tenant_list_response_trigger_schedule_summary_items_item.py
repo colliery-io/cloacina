@@ -23,6 +23,9 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
         schedule_type (str): `cron` or `trigger`.
         workflow_name (str):
         cron_expression (None | str | Unset):
+        last_poll_at (None | str | Unset): RFC 3339 timestamp of the scheduler's last poll of this trigger
+            (`trigger`-type schedules only; `None` for cron or never-polled).
+            The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
         last_run_at (None | str | Unset): RFC 3339 timestamp.
         next_run_at (None | str | Unset): RFC 3339 timestamp.
         paused (bool | Unset): Whether the schedule is paused (CLOACI-T-0749). A paused schedule is not
@@ -38,6 +41,7 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
     schedule_type: str
     workflow_name: str
     cron_expression: None | str | Unset = UNSET
+    last_poll_at: None | str | Unset = UNSET
     last_run_at: None | str | Unset = UNSET
     next_run_at: None | str | Unset = UNSET
     paused: bool | Unset = UNSET
@@ -62,6 +66,12 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
             cron_expression = UNSET
         else:
             cron_expression = self.cron_expression
+
+        last_poll_at: None | str | Unset
+        if isinstance(self.last_poll_at, Unset):
+            last_poll_at = UNSET
+        else:
+            last_poll_at = self.last_poll_at
 
         last_run_at: None | str | Unset
         if isinstance(self.last_run_at, Unset):
@@ -108,6 +118,8 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
         )
         if cron_expression is not UNSET:
             field_dict["cron_expression"] = cron_expression
+        if last_poll_at is not UNSET:
+            field_dict["last_poll_at"] = last_poll_at
         if last_run_at is not UNSET:
             field_dict["last_run_at"] = last_run_at
         if next_run_at is not UNSET:
@@ -144,6 +156,15 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
             return cast(None | str | Unset, data)
 
         cron_expression = _parse_cron_expression(d.pop("cron_expression", UNSET))
+
+        def _parse_last_poll_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        last_poll_at = _parse_last_poll_at(d.pop("last_poll_at", UNSET))
 
         def _parse_last_run_at(data: object) -> None | str | Unset:
             if data is None:
@@ -199,6 +220,7 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
             schedule_type=schedule_type,
             workflow_name=workflow_name,
             cron_expression=cron_expression,
+            last_poll_at=last_poll_at,
             last_run_at=last_run_at,
             next_run_at=next_run_at,
             paused=paused,
