@@ -4,14 +4,14 @@ level: initiative
 title: "Leptos web UI — migrate the control plane off React onto Rust/WASM with Aurora Dark"
 short_code: "CLOACI-I-0141"
 created_at: 2026-08-30T11:09:03.898425+00:00
-updated_at: 2026-08-30T11:40:08.479849+00:00
+updated_at: 2026-09-01T17:56:15.727388+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

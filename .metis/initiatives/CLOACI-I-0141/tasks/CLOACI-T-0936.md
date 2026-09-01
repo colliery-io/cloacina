@@ -4,14 +4,14 @@ level: task
 title: "Wave 5 parity gate and release — full e2e/visual run, CI lane swap, lockstep, 0.11.0 resumes"
 short_code: "CLOACI-T-0936"
 created_at: 2026-08-30T11:38:06.699741+00:00
-updated_at: 2026-08-30T16:26:56.033685+00:00
+updated_at: 2026-09-01T17:56:11.548358+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -78,6 +78,8 @@ Close the migration and un-park the release train:
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

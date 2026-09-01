@@ -4,14 +4,14 @@ level: task
 title: "UAT round 1 — graphs operational dashboard, trigger type sections + action columns, workflow list clarity, history vs current-execution views"
 short_code: "CLOACI-T-0938"
 created_at: 2026-08-31T12:59:12.230586+00:00
-updated_at: 2026-08-31T12:59:33.879077+00:00
+updated_at: 2026-09-01T17:56:07.572793+00:00
 parent: CLOACI-I-0141
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -43,6 +43,8 @@ Maintainer UAT feedback (2026-08-31), verbatim intent:
    larger, labeled controls).
 4. **Workflow/graph detail needs TWO views**: the historical "operational
    history" and the "specific execution / current execution" view.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
