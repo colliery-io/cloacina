@@ -199,7 +199,13 @@ pub fn Triggers() -> impl IntoView {
         } else {
             (
                 t.cron_expression.clone().unwrap_or_else(|| "—".into()),
-                t.last_run_at.clone().unwrap_or_else(|| "—".into()),
+                // Same relative form the poll rows use, so the two tables read
+                // consistently (UAT round 2).
+                t.last_run_at
+                    .as_deref()
+                    .map(|ts| ago(Some(ts)))
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "—".into()),
                 t.next_run_at.clone().unwrap_or_else(|| "—".into()),
             )
         };

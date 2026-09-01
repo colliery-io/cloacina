@@ -53,10 +53,10 @@ test("UAT round 2 walk", async ({ page }) => {
   await page.goto("/workflows");
   await shot(page, "05-workflows-table");
 
-  // 5) Workflow detail: Operational history, then Current execution.
-  const wfRow = page.locator("table tbody tr").first();
-  await wfRow.click();
-  await shot(page, "06-workflow-detail-history");
-  await page.getByRole("button", { name: "Current execution" }).click();
-  await shot(page, "07-workflow-detail-current");
+  // 5) Workflow detail (one with run history): defaults to Current execution;
+  // history behind the tab.
+  await page.goto("/workflows/demo-cron-rust");
+  await shot(page, "06-workflow-detail-default-current");
+  await page.getByRole("button", { name: "Operational history" }).click();
+  await shot(page, "07-workflow-detail-history");
 });
