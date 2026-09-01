@@ -163,4 +163,15 @@ Maintainer UAT feedback (2026-08-31), verbatim intent:
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-31: ALL four items implemented on feat/i0141-uat-round1 (4 commits):
+  1. /graphs: 5-tile operational overview strip (graphs running, total fires, last fire, accumulators live, most active).
+  2. /triggers: cron vs polling sections; poll rows derive last/next from new API field `TriggerScheduleSummary.last_poll_at` (+ server route wiring); headed left-justified Fire/Run icon columns (BoltIcon 16, PlayIcon 18).
+  3. /workflows: card list → headed table (Package/Version/Tasks/Updated/Recent runs/Pause/Run), same action-column treatment.
+  4. Dual views: shared ViewTabs segmented control; WorkflowDetail = Operational history | Current execution (reusable ExecutionView, embedded=true, prefers a live run, falls back to most recent); GraphDetail = Live (topology+accumulators) | Operational history (per-minute fire sparkline via reactor_fire_timeseries + recent-fires table via list_reactor_fires).
+- openapi.json regenerated (diff = the new field only). Server + wasm targets compile; ui cargo fmt applied.
+- Remaining: demo-stack rebuild (docker volumes pruned — fresh DB), live walk + screenshots for re-review, push + PR.
+- 2026-08-31/09-01 UAT rounds 2–4 (all committed on feat/i0141-uat-round1):
+  - R2: trigger tables share fixed column widths (aligned across sections); detail pages default to the "now" view (Current execution / Live) with Operational history behind the tab; cron last-run uses the same relative form as poll rows.
+  - R2b: 1s wall-clock signal (data.rs Clock) — all relative-time cells (trigger last/next, heartbeats, fire ages, workflows Updated, graphs Last-fire tile) tick live; root cause was keyed <For> rows freezing derived strings.
+  - R3: workflow Operational history is real history — run summary strip (runs/success rate/avg wall/failed), per-task exit-type table (completed/failed/skipped/other/retried + avg ± σ), average-timing gantt with ±1σ gold band, aggregated client-side from the last 20 runs' task rows (Memo on run-ID set, join_all fetch); short task names.
+  - R4: accumulator dot = AVAILABILITY not activity (core AccumulatorHealth: socket_only = "healthy by definition"; disconnected = degraded/retrying) — util::health_color now maps socket_only→OK; last-event age is neutral info text; /graphs Accumulators-live tile counts availability. Poll-trigger last/next projects the poll-cadence sawtooth ((now−last_poll) mod interval, resets 0s at each boundary, countdown next, "overdue" only past 2 intervals — raw age never read 0s due to fetch latency).
