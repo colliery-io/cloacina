@@ -28,7 +28,7 @@ use cloacina_api_types::{ExecutionSummary, ListExecutionsQuery};
 
 use crate::auth::{client_for, use_auth};
 use crate::components::{PauseIcon, PlayIcon, RunCircles, RunWorkflowModal, TagPill};
-use crate::data::poll_resource;
+use crate::data::{poll_resource, use_clock};
 use crate::util::ago;
 
 const MONO: &str = "'IBM Plex Mono', monospace";
@@ -37,6 +37,7 @@ const MONO: &str = "'IBM Plex Mono', monospace";
 pub fn Workflows() -> impl IntoView {
     let auth = use_auth();
     let navigate = StoredValue::new(use_navigate());
+    let clock = use_clock();
 
     let workflows = poll_resource(|c| async move { c.list_workflows(None).await });
     let recent = poll_resource(|c| async move {
@@ -201,7 +202,13 @@ pub fn Workflows() -> impl IntoView {
                                             </td>
                                             <td>
                                                 <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
-                                                    {ago(Some(w.created_at.as_str()))}
+                                                    {
+                                                        let created = StoredValue::new(w.created_at.clone());
+                                                        move || {
+                                                            clock.track();
+                                                            created.with_value(|ts| ago(Some(ts.as_str())))
+                                                        }
+                                                    }
                                                 </span>
                                             </td>
                                             <td><RunCircles runs=runs /></td>

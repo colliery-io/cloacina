@@ -104,6 +104,30 @@ pub fn poll_tick() -> RwSignal<u64> {
         .0
 }
 
+/// Wall-clock signal (ms since epoch) ticking every second. Relative-time
+/// cells ("Ns ago", "due now", heartbeats) subscribe to it so they advance
+/// between data refreshes instead of freezing until a re-render
+/// (UAT round 2, CLOACI-T-0938).
+#[derive(Clone, Copy)]
+pub struct Clock(pub RwSignal<f64>);
+
+pub fn provide_clock() {
+    let now = RwSignal::new(js_sys::Date::now());
+    provide_context(Clock(now));
+    leptos::task::spawn_local(async move {
+        loop {
+            gloo_timers::future::TimeoutFuture::new(1_000).await;
+            now.set(js_sys::Date::now());
+        }
+    });
+}
+
+pub fn use_clock() -> RwSignal<f64> {
+    use_context::<Clock>()
+        .expect("Clock installed under the shell")
+        .0
+}
+
 /// One fetch with the shared retry policy: retry once on transient
 /// (server/network) failures only.
 pub async fn fetch_with_retry<T, F, Fut>(f: F) -> Result<T, String>

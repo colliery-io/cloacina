@@ -31,7 +31,7 @@ use cloacina_api_types::FireReactorRequest;
 
 use crate::auth::{client_for, use_auth};
 use crate::components::{GraphInjectModal, TagPill, ViewTabs};
-use crate::data::poll_resource;
+use crate::data::{poll_resource, use_clock};
 use crate::routes::graphs::health_state;
 use crate::util::{ago, health_color, node_kind_color};
 
@@ -61,6 +61,7 @@ fn heartbeat(last_event_at: Option<&str>) -> (&'static str, String) {
 #[component]
 pub fn GraphDetail() -> impl IntoView {
     let auth = use_auth();
+    let clock = use_clock();
     let params = use_params_map();
     let name = Signal::derive(move || params.read().get("name").unwrap_or_default());
 
@@ -273,8 +274,9 @@ pub fn GraphDetail() -> impl IntoView {
                                     <For
                                         each=move || fire_rows.get()
                                         key=|f| f.fired_at.clone()
-                                        children=|f| {
+                                        children=move |f| {
                                             let ok = f.ok;
+                                            let fired_at = StoredValue::new(f.fired_at.clone());
                                             let inputs = f
                                                 .inputs
                                                 .keys()
@@ -291,7 +293,10 @@ pub fn GraphDetail() -> impl IntoView {
                                                 <tr>
                                                     <td>
                                                         <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
-                                                            {ago(Some(f.fired_at.as_str()))}
+                                                            {move || {
+                                                                clock.track();
+                                                                fired_at.with_value(|ts| ago(Some(ts.as_str())))
+                                                            }}
                                                         </span>
                                                     </td>
                                                     <td>
@@ -421,8 +426,13 @@ pub fn GraphDetail() -> impl IntoView {
                                         .state
                                         .clone()
                                         .unwrap_or_else(|| health_state(&a.status));
-                                    let (hb_color, hb_label) =
-                                        heartbeat(a.last_event_at.as_deref());
+                                    // Re-derived on the 1s clock so the dot
+                                    // and age advance between data refreshes.
+                                    let last_ev = StoredValue::new(a.last_event_at.clone());
+                                    let hb = move || {
+                                        clock.track();
+                                        last_ev.with_value(|ts| heartbeat(ts.as_deref()))
+                                    };
                                     let events = a
                                         .events_total
                                         .map(|n| n.to_string())
@@ -434,7 +444,7 @@ pub fn GraphDetail() -> impl IntoView {
                                                 style:width="9px"
                                                 style:height="9px"
                                                 style:border-radius="50%"
-                                                style:background=hb_color
+                                                style:background=move || hb().0
                                                 style:flex="none"
                                             ></span>
                                             <span
@@ -451,8 +461,8 @@ pub fn GraphDetail() -> impl IntoView {
                                             <span style:font-family=MONO style:font-size="11.5px" style:color="var(--fg-2)">
                                                 {format!("{events} events")}
                                             </span>
-                                            <span style:font-family=MONO style:font-size="11px" style:color=hb_color>
-                                                {format!("last {hb_label}")}
+                                            <span style:font-family=MONO style:font-size="11px" style:color=move || hb().0>
+                                                {move || format!("last {}", hb().1)}
                                             </span>
                                             <span style:flex="1"></span>
                                             <Show when=move || auth.can_write()>

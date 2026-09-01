@@ -28,7 +28,7 @@ use cloacina_api_types::{FireReactorRequest, GraphStatus};
 
 use crate::auth::{client_for, use_auth};
 use crate::components::{GraphInjectModal, TagPill};
-use crate::data::poll_resource;
+use crate::data::{poll_resource, use_clock};
 use crate::util::{health_color, node_kind_color, Throughput};
 
 const MONO: &str = "'IBM Plex Mono', monospace";
@@ -114,6 +114,7 @@ fn AccStrip(
 pub fn Graphs() -> impl IntoView {
     let auth = use_auth();
     let navigate = StoredValue::new(use_navigate());
+    let clock = use_clock();
 
     let graphs = poll_resource(|c| async move { c.list_graphs().await });
     let reactors = poll_resource(|c| async move { c.list_reactors().await });
@@ -186,6 +187,7 @@ pub fn Graphs() -> impl IntoView {
             // ---- Operational overview (UAT round 1, T-0938): the fleet of
             // graphs at a glance, before the per-object sections. ----
             {move || {
+                clock.track(); // "last fire" ages by the second
                 let gs = graph_items.get();
                 let accs_v = acc_items.get();
                 let running = gs

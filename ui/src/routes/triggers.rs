@@ -30,7 +30,7 @@ use cloacina_api_types::TriggerScheduleSummary;
 
 use crate::auth::{client_for, use_auth};
 use crate::components::{BoltIcon, PlayIcon, TriggerFireModal};
-use crate::data::poll_resource;
+use crate::data::{poll_resource, use_clock};
 use crate::util::ago;
 
 const MONO: &str = "'IBM Plex Mono', monospace";
@@ -126,6 +126,7 @@ fn StateCell(enabled: bool) -> impl IntoView {
 pub fn Triggers() -> impl IntoView {
     let auth = use_auth();
     let navigate = StoredValue::new(use_navigate());
+    let clock = use_clock();
 
     let list = poll_resource(|c| async move { c.list_triggers(Some(200), Some(0), None).await });
     let items = Signal::derive(move || {
@@ -187,27 +188,34 @@ pub fn Triggers() -> impl IntoView {
             .trigger_name
             .clone()
             .unwrap_or_else(|| t.workflow_name.clone());
-        let (schedule_text, last_text, next_text) = if poll_mode {
-            let (last, next) = poll_times(&t);
-            (
-                t.poll_interval_ms
-                    .map(|ms| format!("every {}", fmt_poll_interval(ms)))
-                    .unwrap_or_else(|| t.trigger_name.clone().unwrap_or_else(|| "—".into())),
-                last,
-                next,
-            )
+        let schedule_text = if poll_mode {
+            t.poll_interval_ms
+                .map(|ms| format!("every {}", fmt_poll_interval(ms)))
+                .unwrap_or_else(|| t.trigger_name.clone().unwrap_or_else(|| "—".into()))
         } else {
-            (
-                t.cron_expression.clone().unwrap_or_else(|| "—".into()),
-                // Same relative form the poll rows use, so the two tables read
-                // consistently (UAT round 2).
-                t.last_run_at
-                    .as_deref()
-                    .map(|ts| ago(Some(ts)))
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| "—".into()),
-                t.next_run_at.clone().unwrap_or_else(|| "—".into()),
-            )
+            t.cron_expression.clone().unwrap_or_else(|| "—".into())
+        };
+        // Live cells: re-derive on the 1s clock so "Ns ago"/"due now" advance
+        // between data refreshes (UAT round 2).
+        let tt = StoredValue::new(t.clone());
+        let times = move || {
+            clock.track();
+            tt.with_value(|t| {
+                if poll_mode {
+                    poll_times(t)
+                } else {
+                    (
+                        // Same relative form the poll rows use, so the two
+                        // tables read consistently (UAT round 2).
+                        t.last_run_at
+                            .as_deref()
+                            .map(|ts| ago(Some(ts)))
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or_else(|| "—".into()),
+                        t.next_run_at.clone().unwrap_or_else(|| "—".into()),
+                    )
+                }
+            })
         };
         let enabled = t.enabled;
         let wf_for_run = t.workflow_name.clone();
@@ -240,12 +248,12 @@ pub fn Triggers() -> impl IntoView {
                 <td><StateCell enabled=enabled /></td>
                 <td>
                     <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
-                        {next_text}
+                        {move || times().1}
                     </span>
                 </td>
                 <td>
                     <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
-                        {last_text}
+                        {move || times().0}
                     </span>
                 </td>
                 // Fire column — headed, left-justified.
