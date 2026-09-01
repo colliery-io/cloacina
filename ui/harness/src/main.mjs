@@ -68,7 +68,9 @@ const cfg = {
   registerTimeoutMs: intEnv("HARNESS_REGISTER_TIMEOUT_MS", 120000),
   // Live CG data feed (WS-11). `produce` mode pushes boundary events on this
   // interval; Kafka feed only runs when a broker is configured.
-  produceIntervalMs: intEnv("HARNESS_PRODUCE_INTERVAL_MS", 2000),
+  // Number ("500") or range ("50-100") — a range gives each feed its own
+  // interval drawn from the band so the accumulators aren't in lockstep.
+  produceIntervalMs: rangeEnv("HARNESS_PRODUCE_INTERVAL_MS", 2000),
   kafkaBroker: env.HARNESS_KAFKA_BROKER ?? "",
   kafkaTopic: env.HARNESS_KAFKA_TOPIC ?? "demo.kafka.stream",
   // Socket accumulators to feed over WS (comma list). Default orderbook,pricing
@@ -79,6 +81,16 @@ const cfg = {
 function intEnv(name, dflt) {
   const v = env[name];
   if (v === undefined || v === "") return dflt;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : dflt;
+}
+
+// "500" → 500; "50-100" → {min: 50, max: 100}.
+function rangeEnv(name, dflt) {
+  const v = env[name];
+  if (v === undefined || v === "") return dflt;
+  const m = v.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (m) return { min: Number.parseInt(m[1], 10), max: Number.parseInt(m[2], 10) };
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) ? n : dflt;
 }
