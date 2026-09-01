@@ -37,24 +37,20 @@ use crate::util::{ago, health_color, node_kind_color};
 
 const MONO: &str = "'IBM Plex Mono', monospace";
 
-/// Heartbeat freshness for an accumulator (UAT round 2): the dot reads
-/// green = emitted within 1s, gold = within 10s (degraded), red = >10s or
-/// never (not seen). Returns (dot color, label).
-fn heartbeat(last_event_at: Option<&str>) -> (&'static str, String) {
-    let Some(ts) = last_event_at else {
-        return ("var(--bad)", "no events".into());
-    };
-    let ms = js_sys::Date::parse(ts);
-    if ms.is_nan() {
-        return ("var(--bad)", "no events".into());
-    }
-    let age = (js_sys::Date::now() - ms) / 1000.0;
-    if age <= 1.0 {
-        (token::OK, "<1s".into())
-    } else if age <= 10.0 {
-        (token::GOLD, format!("{age:.0}s ago"))
-    } else {
-        ("var(--bad)", ago(Some(ts)))
+/// Last-event age label (UAT round 4): activity info only — the dot's color
+/// comes from the accumulator's availability STATE (live/socket_only/…),
+/// because liveness is "is this up", not "has it emitted recently".
+fn last_event_label(last_event_at: Option<&str>) -> String {
+    match last_event_at {
+        Some(ts) => {
+            let s = ago(Some(ts));
+            if s.is_empty() {
+                "—".into()
+            } else {
+                format!("last {s}")
+            }
+        }
+        None => "no events yet".into(),
     }
 }
 
@@ -420,18 +416,21 @@ pub fn GraphDetail() -> impl IntoView {
                         <div style:display="flex" style:flex-direction="column" style:gap="6px">
                             <For
                                 each=move || acc_rows.get()
-                                key=|a| a.name.clone()
+                                // Volatile fields in the key so the row
+                                // re-renders when state/activity move.
+                                key=|a| (a.name.clone(), a.state.clone(), a.last_event_at.clone())
                                 children=move |a| {
                                     let state = a
                                         .state
                                         .clone()
                                         .unwrap_or_else(|| health_state(&a.status));
-                                    // Re-derived on the 1s clock so the dot
-                                    // and age advance between data refreshes.
+                                    // Dot = availability (state); the event age
+                                    // is info text ticking on the 1s clock.
+                                    let dot = health_color(&state);
                                     let last_ev = StoredValue::new(a.last_event_at.clone());
-                                    let hb = move || {
+                                    let last_label = move || {
                                         clock.track();
-                                        last_ev.with_value(|ts| heartbeat(ts.as_deref()))
+                                        last_ev.with_value(|ts| last_event_label(ts.as_deref()))
                                     };
                                     let events = a
                                         .events_total
@@ -444,7 +443,7 @@ pub fn GraphDetail() -> impl IntoView {
                                                 style:width="9px"
                                                 style:height="9px"
                                                 style:border-radius="50%"
-                                                style:background=move || hb().0
+                                                style:background=dot
                                                 style:flex="none"
                                             ></span>
                                             <span
@@ -455,14 +454,14 @@ pub fn GraphDetail() -> impl IntoView {
                                             >
                                                 {a.name.clone()}
                                             </span>
-                                            <span style:font-size="12px" style:color=health_color(&state)>
+                                            <span style:font-size="12px" style:color=dot>
                                                 {state.clone()}
                                             </span>
                                             <span style:font-family=MONO style:font-size="11.5px" style:color="var(--fg-2)">
                                                 {format!("{events} events")}
                                             </span>
-                                            <span style:font-family=MONO style:font-size="11px" style:color=move || hb().0>
-                                                {move || format!("last {}", hb().1)}
+                                            <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
+                                                {last_label}
                                             </span>
                                             <span style:flex="1"></span>
                                             <Show when=move || auth.can_write()>

@@ -47,25 +47,48 @@ fn fmt_poll_interval(ms: i64) -> String {
     }
 }
 
-/// Derived (last, next) for a polling trigger: last = the scheduler's last
-/// poll; next = last + interval. Falls back to the stored run stamps.
+fn fmt_secs(ms: f64) -> String {
+    let s = (ms / 1000.0).floor().max(0.0) as i64;
+    if s < 60 {
+        format!("{s}s")
+    } else if s < 3600 {
+        format!("{}m {}s", s / 60, s % 60)
+    } else {
+        format!("{}h {}m", s / 3600, (s % 3600) / 60)
+    }
+}
+
+/// Derived (last, next) for a polling trigger. The stored `last_poll_at` is
+/// stale by up to a fetch cycle by the time it renders, so a raw age never
+/// reads "0s" — it starts at the data latency and drifts. Instead, while the
+/// scheduler is on cadence (age < 2 intervals) we project the sawtooth:
+/// age = (now − last_poll) mod interval, so the clock resets at each poll
+/// boundary and "next" counts down to it (UAT round 4, T-0938).
 fn poll_times(t: &TriggerScheduleSummary) -> (String, String) {
     let last = t.last_poll_at.clone().or_else(|| t.last_run_at.clone());
     match (&last, t.poll_interval_ms) {
         (Some(l), Some(ms)) => {
             let last_ms = js_sys::Date::parse(l);
-            if last_ms.is_nan() {
-                (l.clone(), "—".into())
+            let ivl = ms as f64;
+            if last_ms.is_nan() || ivl <= 0.0 {
+                return (l.clone(), "—".into());
+            }
+            let raw = js_sys::Date::now() - last_ms;
+            if raw < 0.0 {
+                // Clock skew: trust the stamp, show it plainly.
+                (
+                    format!("{} ago", fmt_secs(0.0)),
+                    format!("in {}", fmt_secs(ivl)),
+                )
+            } else if raw <= 2.0 * ivl {
+                let age = raw % ivl;
+                (
+                    format!("{} ago", fmt_secs(age)),
+                    format!("in {}", fmt_secs(ivl - age)),
+                )
             } else {
-                let next_ms = last_ms + ms as f64;
-                let overdue = next_ms <= js_sys::Date::now();
-                let next = if overdue {
-                    "due now".to_string()
-                } else {
-                    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(next_ms));
-                    d.to_iso_string().as_string().unwrap_or_else(|| "—".into())
-                };
-                (format!("{} ago", ago_short(l)), next)
+                // Scheduler hasn't stamped in >2 intervals — genuinely stale.
+                (format!("{} ago", fmt_secs(raw)), "overdue".into())
             }
         }
         (Some(l), None) => (l.clone(), "—".into()),
@@ -75,11 +98,6 @@ fn poll_times(t: &TriggerScheduleSummary) -> (String, String) {
         ),
         (None, None) => ("—".into(), "—".into()),
     }
-}
-
-fn ago_short(ts: &str) -> String {
-    let s = ago(Some(ts));
-    s.trim_end_matches(" ago").to_string()
 }
 
 #[component]

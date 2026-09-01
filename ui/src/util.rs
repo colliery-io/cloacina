@@ -86,9 +86,13 @@ use aurora_leptos::tokens::token;
 /// Health-state → accent color (app vocabulary; the pack renders).
 pub fn health_color(state: &str) -> &'static str {
     match state.to_lowercase().as_str() {
-        "running" | "live" | "ok" | "healthy" => token::OK,
-        "degraded" | "stale" | "paused" => token::GOLD,
-        "error" | "failed" | "stopped" => token::BAD,
+        // socket_only is availability, not activity: the ingest endpoint is
+        // up with no source attached — "healthy by definition" per the core
+        // AccumulatorHealth enum (UAT round 4, T-0938).
+        "running" | "live" | "ok" | "healthy" | "socket_only" => token::OK,
+        // disconnected = was live, socket still up, retrying the source.
+        "degraded" | "stale" | "paused" | "disconnected" | "starting" | "connecting" => token::GOLD,
+        "error" | "failed" | "stopped" | "dead" => token::BAD,
         _ => token::MUTED,
     }
 }

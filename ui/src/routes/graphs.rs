@@ -205,6 +205,8 @@ pub fn Graphs() -> impl IntoView {
                     .iter()
                     .filter_map(|g| g.last_fired_at.clone())
                     .max();
+                // Availability, not activity: socket_only counts as up
+                // (UAT round 4 — same semantics as health_color).
                 let acc_live = accs_v
                     .iter()
                     .filter(|a| {
@@ -212,7 +214,7 @@ pub fn Graphs() -> impl IntoView {
                             .state
                             .clone()
                             .unwrap_or_else(|| health_state(&a.status));
-                        matches!(s.to_lowercase().as_str(), "live" | "running" | "ok" | "healthy")
+                        crate::util::health_color(&s) == token::OK
                     })
                     .count();
                 let most_active = gs.iter().max_by_key(|g| g.fires).map(|g| g.name.clone());
