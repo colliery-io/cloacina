@@ -284,6 +284,15 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # The lane builds the Leptos UI via trunk (I-0141) before embedding it
+      # in the server build.
+      - name: Install trunk
+        run: |
+          curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin trunk
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2

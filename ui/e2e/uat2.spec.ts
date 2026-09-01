@@ -27,6 +27,14 @@ async function shot(page, name: string) {
 test("UAT round 2 walk", async ({ page }) => {
   test.setTimeout(240_000);
 
+  // Demo-stack walk only: it names compose-demo objects (market_pipeline,
+  // demo-cron-rust) that the seeded ui-e2e lane doesn't create.
+  const res = await page.request.get(`${SERVER_URL}/v1/health/graphs`, {
+    headers: { Authorization: `Bearer ${API_KEY}` },
+  });
+  const names = ((await res.json()).items ?? []).map((g: { name: string }) => g.name);
+  test.skip(!names.includes("market_pipeline"), "demo-stack fixtures not present");
+
   await page.addInitScript(
     ([key, value]) => window.sessionStorage.setItem(key, value),
     [STORAGE_KEY, JSON.stringify({ serverUrl: SERVER_URL, apiKey: API_KEY, tenant: TENANT })] as [
