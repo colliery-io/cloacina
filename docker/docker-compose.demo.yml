@@ -403,7 +403,9 @@ services:
       HARNESS_MODE: "produce"
       HARNESS_KAFKA_BROKER: "kafka:9092"
       HARNESS_KAFKA_TOPIC: "demo.kafka.stream"
-      HARNESS_PRODUCE_INTERVAL_MS: "2000"
+      # 500ms keeps the whole reactive surface visibly humming — every
+      # accumulator sees ~2 events/s and the graphs fire continuously.
+      HARNESS_PRODUCE_INTERVAL_MS: "500"
       # Socket accumulators in the compose demo, fed over WS so every
       # socket-sourced graph actually fires:
       #   - mixed_graph's `alpha`
