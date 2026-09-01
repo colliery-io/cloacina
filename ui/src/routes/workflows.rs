@@ -220,6 +220,7 @@ pub fn Workflows() -> impl IntoView {
                                                         view! {
                                                             <button
                                                                 class="cl-btn cl-btn--subtle cl-btn--xs"
+                                                                attr:aria-label=if paused { "Resume workflow" } else { "Pause workflow" }
                                                                 style:color=if paused { token::OK } else { token::GOLD }
                                                                 title=if paused {
                                                                     "Resume — allow new executions"
@@ -254,6 +255,7 @@ pub fn Workflows() -> impl IntoView {
                                                         view! {
                                                             <button
                                                                 class="cl-btn cl-btn--subtle cl-btn--xs"
+                                                                attr:aria-label="Run workflow"
                                                                 style:color=token::ICE
                                                                 title="Run this workflow now (opens the typed-input form)"
                                                                 on:click={

@@ -285,6 +285,7 @@ pub fn Triggers() -> impl IntoView {
                             view! {
                                 <button
                                     class="cl-btn cl-btn--subtle cl-btn--xs"
+                                    attr:aria-label="Fire trigger"
                                     style:color=token::GOLD
                                     title="Fire this trigger → all subscribed workflows"
                                     on:click={
@@ -310,6 +311,7 @@ pub fn Triggers() -> impl IntoView {
                             view! {
                                 <button
                                     class="cl-btn cl-btn--subtle cl-btn--xs"
+                                    attr:aria-label="Run workflow"
                                     style:color=token::ICE
                                     title="Run the workflow now (bypasses the schedule)"
                                     disabled=move || running.get()

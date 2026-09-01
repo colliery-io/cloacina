@@ -86,7 +86,7 @@ test("trigger fire from the UI runs the subscribed workflow", async ({ page }) =
   await connect(page);
   await page.goto("/triggers");
   // Open the fire modal on the first fireable row.
-  await page.getByRole("button", { name: "⚡" }).first().click();
+  await page.getByRole("button", { name: "Fire trigger" }).first().click();
   await page.getByRole("button", { name: "⚡ Fire", exact: true }).click();
   await expect(page.getByText(/Fired \d+ workflow/)).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: "Done" }).click();
