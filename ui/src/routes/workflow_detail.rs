@@ -72,6 +72,9 @@ fn aggregate_tasks(resps: &[ExecutionTasksResponse]) -> Vec<TaskAgg> {
         starts: Vec<f64>,
         durs: Vec<f64>,
     }
+    // Aggregate under the short task name (last `::` segment) — the
+    // fully-qualified form is noise at this level.
+    let short = |n: &str| n.rsplit("::").next().unwrap_or(n).to_string();
     let mut by_task = std::collections::BTreeMap::<String, Acc>::new();
     for r in resps {
         let exec_start = r
@@ -80,7 +83,7 @@ fn aggregate_tasks(resps: &[ExecutionTasksResponse]) -> Vec<TaskAgg> {
             .filter_map(|t| ts_ms(t.started_at.as_deref().unwrap_or(&t.created_at)))
             .fold(f64::INFINITY, f64::min);
         for t in &r.tasks {
-            let a = by_task.entry(t.task_name.clone()).or_default();
+            let a = by_task.entry(short(&t.task_name)).or_default();
             let status = t.status.to_lowercase();
             match status.as_str() {
                 "completed" | "success" => a.completed += 1,
