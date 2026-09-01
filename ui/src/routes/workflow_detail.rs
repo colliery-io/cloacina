@@ -105,9 +105,10 @@ pub fn WorkflowDetail() -> impl IntoView {
             .unwrap_or_default()
     });
 
-    // Dual views (UAT round 1, T-0938): operational history vs the
-    // current/most-recent execution. Prefer a live run for the current tab.
-    let view_mode = RwSignal::new("history");
+    // Dual views (UAT round 1, T-0938): current/most-recent execution is the
+    // DEFAULT view (UAT round 2); operational history sits behind the second
+    // tab, same orientation as GraphDetail. Prefer a live run.
+    let view_mode = RwSignal::new("current");
     let current_exec_id = Signal::derive(move || {
         let runs = recent_runs.get();
         runs.iter()
@@ -273,8 +274,8 @@ pub fn WorkflowDetail() -> impl IntoView {
                     // View switcher (UAT round 1, T-0938)
                     <ViewTabs
                         tabs=vec![
-                            ("history", "Operational history"),
                             ("current", "Current execution"),
+                            ("history", "Operational history"),
                         ]
                         active=view_mode
                     />

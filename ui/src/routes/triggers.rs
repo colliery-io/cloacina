@@ -299,15 +299,17 @@ pub fn Triggers() -> impl IntoView {
         }
     };
 
+    // Fixed layout + shared widths so the cron and polling tables align
+    // column-for-column (UAT round 2).
     let table_head = || {
         view! {
             <thead>
                 <tr>
-                    <th>"Workflow"</th>
-                    <th>"Schedule"</th>
-                    <th>"State"</th>
-                    <th>"Next run"</th>
-                    <th>"Last run"</th>
+                    <th style:width="22%">"Workflow"</th>
+                    <th style:width="16%">"Schedule"</th>
+                    <th style:width="12%">"State"</th>
+                    <th style:width="22%">"Next run"</th>
+                    <th style:width="18%">"Last run"</th>
                     <th style:width="52px">"Fire"</th>
                     <th style:width="52px">"Run"</th>
                 </tr>
@@ -337,7 +339,7 @@ pub fn Triggers() -> impl IntoView {
                             when=move || !crons.get().is_empty()
                             fallback=|| view! { <Empty message="No cron schedules." /> }
                         >
-                            <table class="cl-table">
+                            <table class="cl-table" style:table-layout="fixed" style:width="100%">
                                 {table_head()}
                                 <tbody>
                                     <For
@@ -360,7 +362,7 @@ pub fn Triggers() -> impl IntoView {
                             when=move || !polls.get().is_empty()
                             fallback=|| view! { <Empty message="No polling triggers." /> }
                         >
-                            <table class="cl-table">
+                            <table class="cl-table" style:table-layout="fixed" style:width="100%">
                                 {table_head()}
                                 <tbody>
                                     <For
