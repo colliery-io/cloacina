@@ -26,14 +26,45 @@ tutorials = angreal.command_group(name="tutorials", about="run tutorial examples
 python_group = angreal.command_group(name="python", about="Python tutorial examples")
 
 
-def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite", python_exe=None):
+def _fresh_tutorial_db(db_name):
+    """Drop + recreate a dedicated database on the shared postgres instance.
+
+    The `all` runner gives every tutorial its own database instead of
+    resetting one shared schema between runs — no cross-tutorial state, no
+    reset races, and a retry gets a genuinely fresh DB. Two `-c` flags:
+    CREATE/DROP DATABASE cannot run inside the implicit transaction a single
+    multi-statement `-c` would use.
+    """
+    env = os.environ.copy()
+    env.setdefault("PGPASSWORD", "cloacina")
+    drop = f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)'
+    create = f'CREATE DATABASE "{db_name}"'
+    for cmd in (
+        ["psql", "-h", "localhost", "-p", "15432", "-U", "cloacina", "-d", "cloacina",
+         "-v", "ON_ERROR_STOP=1", "-c", drop, "-c", create],
+        ["docker", "exec", "cloacina-postgres", "psql", "-U", "cloacina", "-d", "cloacina",
+         "-v", "ON_ERROR_STOP=1", "-c", drop, "-c", create],
+    ):
+        try:
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+            if proc.returncode == 0:
+                return True
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return False
+
+
+def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite", python_exe=None,
+                         db_name=None):
     """Run one Python tutorial.
 
     Standalone form (``python_exe`` is None): builds a fresh cloaca wheel +
     venv, brings the postgres stack up/down around the run, and removes the
     venv afterwards. Shared form (``python_exe`` given — the `all` command):
     the caller owns the wheel, the venv, and the services; this only resets
-    the database state and executes the tutorial.
+    the database state and executes the tutorial. With ``db_name`` the
+    tutorial runs against its own dedicated database on the shared instance
+    instead of resetting the default schema.
     """
     # All prints flush=True so CI logs land in order — buffered stdout
     # has burned us before (tutorial would exit silently between Step 5
@@ -74,9 +105,14 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite", pyth
                 except FileNotFoundError:
                     pass
         elif backend == "postgres":
-            print("Resetting PostgreSQL schema...", flush=True)
-            reset_ok = smart_postgres_reset()
-            print(f"[diagnostic] smart_postgres_reset returned {reset_ok}", flush=True)
+            if db_name:
+                print(f"Provisioning dedicated database {db_name}...", flush=True)
+                if not _fresh_tutorial_db(db_name):
+                    raise Exception(f"failed to provision database {db_name}")
+            else:
+                print("Resetting PostgreSQL schema...", flush=True)
+                reset_ok = smart_postgres_reset()
+                print(f"[diagnostic] smart_postgres_reset returned {reset_ok}", flush=True)
 
         print(f"Executing tutorial {tutorial_num}...", flush=True)
         # The harness owns the DB wiring: the dev stack publishes postgres on
@@ -84,7 +120,9 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite", pyth
         # DATABASE_URL and keep a user-facing 5432 fallback.
         env = os.environ.copy()
         if backend == "postgres":
-            env["DATABASE_URL"] = "postgres://cloacina:cloacina@localhost:15432/cloacina"
+            env["DATABASE_URL"] = (
+                f"postgres://cloacina:cloacina@localhost:15432/{db_name or 'cloacina'}"
+            )
         # `python -u` forces unbuffered stdio in the child so CI sees
         # progress + tracebacks even if the tutorial crashes mid-stream.
         result = subprocess.run(
@@ -249,12 +287,19 @@ def run_all(backend=None, attempts=None):
 
     # (number, path, effective backend) — the sqlite pass skips postgres-only
     # tutorials and routes 06 to postgres, mirroring the standalone commands.
+    # Deduped on (number, effective backend): 06's sqlite→postgres rerouting
+    # used to schedule it twice on postgres.
     plan = []
+    seen = set()
     for b in backends:
         for number, rel_path in entries:
             if b == "sqlite" and number in _POSTGRES_ONLY:
                 continue
-            plan.append((number, rel_path, _resolve_backend(number, b)))
+            eff = _resolve_backend(number, b)
+            if (number, eff) in seen:
+                continue
+            seen.add((number, eff))
+            plan.append((number, rel_path, eff))
     needs_postgres = any(b == "postgres" for _, _, b in plan)
 
     venv_name = "tutorial-all-unified"
@@ -278,7 +323,10 @@ def run_all(backend=None, attempts=None):
             rc = 1
             for attempt in range(1, max_attempts + 1):
                 print(f"\n=== {label} (attempt {attempt}/{max_attempts}) ===", flush=True)
-                rc = _run_python_tutorial(number, rel_path, b, python_exe=python_exe)
+                rc = _run_python_tutorial(
+                    number, rel_path, b, python_exe=python_exe,
+                    db_name=f"tutorial_{number}" if b == "postgres" else None,
+                )
                 if rc == 0:
                     break
             results.append((label, rc == 0))
