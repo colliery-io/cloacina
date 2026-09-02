@@ -21,12 +21,15 @@ env:
 #   * feature-builds   — compile-time backend isolation only (the per-backend
 #                        integration suite it also ran duplicated the
 #                        integration-tests lane below, minute for minute).
-#   * unit-tests       — ubuntu + macOS, unchanged.
+#   * unit-tests       — ubuntu + macOS. macOS is a library/daemon platform
+#                        (embedded cloacina, cloacina-agent, the CLI), never
+#                        a server host, so it gets the library unit tests
+#                        here and a sqlite integration pass in nightly.yml
+#                        (macos-library-daemon) — no server suites, no
+#                        Postgres cluster.
 #   * integration-tests— ubuntu only, and the Rust and Python layers are
 #                        separate parallel jobs (they share nothing but the
 #                        DB; serialized they were the longest lane at ~20m).
-#                        The macOS legs moved to nightly.yml (macos-
-#                        integration-tests), which already ran on macOS.
 #   * nothing waits on unit-tests any more: the gate saved runner-minutes
 #                        only when unit failed, and cost ~8 min of critical
 #                        path on every green run.
@@ -118,13 +121,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
-      - name: Install PostgreSQL (macOS)
+      # libpq only — cloacina's default features link it. No Postgres
+      # cluster: macOS never runs the server, and the unit tests need no DB.
+      - name: Install libpq (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          brew install postgresql@14
-          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
-          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
+          brew install libpq
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
 
       - name: Install PostgreSQL dev libraries (Ubuntu)
         if: matrix.os == 'ubuntu-latest'

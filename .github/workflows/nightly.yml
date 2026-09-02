@@ -173,73 +173,22 @@ jobs:
           fi
 
   # -----------------------------------------------------------------------
-  # macOS integration — verify builds on macOS
+  # macOS — library + daemon surface only.
+  #
+  # macOS is a workstation platform for cloacina: the embedded library (and
+  # its Python bindings) and the DB-less execution daemon (cloacina-agent).
+  # cloacina-server, the compiler service, and the Postgres they require
+  # are Linux deployments and are not checked here — no Homebrew Postgres
+  # cluster, no server lib/auth suites, no postgres integration leg. The
+  # PR lane (cloacina.yml unit-tests) already runs the macOS unit tests;
+  # this is the nightly integration pass for the library on its embedded
+  # backend. libpq is still installed: cloacina's default features link it.
   # -----------------------------------------------------------------------
 
-  macos-integration:
-    name: macOS Integration
+  macos-library-daemon:
+    name: macOS Library + Daemon (sqlite)
     runs-on: macos-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Start PostgreSQL
-        uses: ikalnytskyi/action-setup-postgres@v7
-        with:
-          username: cloacina
-          password: cloacina
-          database: cloacina
-          port: 15432
-
-      - name: Install libpq
-        run: |
-          brew install libpq
-          echo "LIBRARY_PATH=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig" >> $GITHUB_ENV
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "cloacina-nightly-macos"
-
-      - name: Build workspace
-        run: cargo build --features "postgres,sqlite,macros"
-
-      - name: Run unit tests
-        run: angreal test unit
-
-  # -----------------------------------------------------------------------
-  # macOS integration matrix (moved here from cloacina.yml, CI-perf pass
-  # 2026-09). The two macOS integration legs were 33 runner-minutes of every
-  # PR — the pipeline's longest jobs after the ubuntu postgres lane — for
-  # platform coverage that this workflow (also the release gate) already
-  # provides for unit tests. Same steps as the old PR legs: Homebrew
-  # postgres moved to 15432 (the fixtures' hardcoded dev-stack port), both
-  # layers in one job (`--skip-docker`: the runner is the host).
-  # -----------------------------------------------------------------------
-
-  macos-integration-tests:
-    name: macOS Integration Tests (${{ matrix.backend }})
-    runs-on: macos-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [postgres, sqlite]
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -256,6 +205,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
+      - name: Install libpq
+        run: |
+          brew install libpq
+          echo "LIBRARY_PATH=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig" >> $GITHUB_ENV
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -265,38 +220,13 @@ jobs:
           workspaces: "cloacina -> target"
           shared-key: "cloacina-macos-latest"
 
-      - name: Install PostgreSQL dev libs
-        run: |
-          # Always install libpq on macOS - workspace examples need it even for SQLite tests
-          brew install postgresql@14
-          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
-          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
+      - name: Build library + daemon
+        run: cargo build -p cloacina -p cloacina-agent -p cloacinactl
 
-      - name: Start PostgreSQL services
-        if: matrix.backend == 'postgres'
-        run: |
-          brew services start postgresql@14
-          sleep 5
-          # The Rust test fixtures hardcode the dev-stack port 15432 (matching the
-          # docker-compose stack used on Ubuntu), so move the Homebrew cluster off
-          # the default 5432 onto 15432 — otherwise every postgres test refuses.
-          psql -d postgres -c "ALTER SYSTEM SET port = 15432;"
-          brew services restart postgresql@14
-          sleep 5
-          # Create the cloacina user and database that tests expect (on 15432).
-          createuser -s cloacina -p 15432 || true
-          createdb -O cloacina cloacina -p 15432 || true
-
-      - name: Run integration tests (${{ matrix.backend }})
+      - name: Run integration tests (sqlite)
         env:
           RUST_BACKTRACE: full
-        run: |
-          if [ "${{ matrix.backend }}" = "postgres" ]; then
-            angreal test integration --backend postgres --skip-docker
-          else
-            angreal test integration --backend sqlite
-          fi
+        run: angreal test integration --backend sqlite
 
   # -----------------------------------------------------------------------
   # SDK contract matrix (CLOACI-I-0113 / T-0648)
@@ -452,7 +382,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -516,7 +446,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker]
     if: success()
     runs-on: ubuntu-latest
     permissions:
@@ -564,7 +494,7 @@ jobs:
 
   prune-caches:
     name: Prune Stale Caches
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker]
     if: always()
     runs-on: ubuntu-latest
     permissions:
