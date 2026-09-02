@@ -98,6 +98,25 @@ def _wait_http(url, timeout_s=60, proc=None):
     raise RuntimeError(f"{url} never came up")
 
 
+def _wait_graphs(timeout_s=1500):
+    """Wait for at least one computation graph to register (the compiler
+    finishing the CG fixture dylib — minutes on a cold cargo cache)."""
+    url = f"{SERVER_URL}/v1/health/graphs"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {BOOTSTRAP_KEY}"})
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                items = json.loads(resp.read()).get("items", [])
+                if items:
+                    print(f"graphs registered: {[g['name'] for g in items]}")
+                    return
+        except Exception:
+            pass
+        time.sleep(10)
+    raise RuntimeError("no computation graphs registered before the deadline")
+
+
 def _build():
     print("Building cloacina-server (embedded-ui) + cloacina-compiler + cloacinactl…")
     # CLOACI-I-0130: the embedded UI is THE deployment path — the harness runs
@@ -200,7 +219,10 @@ def _run_playwright(summary_file: Path, bad_pkg: Path, smoke: bool):
     if os.environ.get("CLOACINA_E2E_VISUAL") == "1":
         cmd = ["npx", "playwright", "test", "visual.spec.ts", "--reporter=list"]
     else:
-        cmd = ["npx", "playwright", "test", "--reporter=list", "--grep-invert", "@visual"]
+        # @audit = manual UX-walk/screenshot helpers ("not a CI test" per their
+        # headers) — they crash-loop on resource-starved runners and gate
+        # nothing the tagged parity specs don't already cover.
+        cmd = ["npx", "playwright", "test", "--reporter=list", "--grep-invert", "@visual|@audit"]
     if smoke:
         cmd += ["--grep", "@smoke"]
     _run(cmd, cwd=UI_DIR, env=env)
@@ -295,6 +317,13 @@ def _ui_e2e(smoke: bool) -> int:
                 # ~40s in-flight window so Playwright reliably opens the slow
                 # run while it's still streaming.
                 _seed(home, summary_file, step_seconds=8)
+
+                # Graphs register only once the compiler finishes the CG
+                # fixture package — on a cold runner that's many minutes.
+                # Wait here so the graph specs (wave3/ws8) see a settled
+                # stack instead of racing the compile (T-0938 release
+                # follow-through).
+                _wait_graphs(timeout_s=1500)
 
                 bad_pkg = home / "bad.cloacina"
                 bad_pkg.write_text("this is not a valid cloacina package")
