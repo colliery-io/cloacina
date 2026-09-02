@@ -24,16 +24,22 @@ async function connect(page) {
 }
 
 test("graphs list, topology, and an accumulator inject round-trip", async ({ page }) => {
-  // Pick a real graph (with topology if any) from the API.
-  const res = await page.request.get(`${SERVER_URL}/v1/health/graphs`, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
-  });
-  const items = (await res.json()).items as {
+  test.setTimeout(300_000);
+  // Pick a real graph (with topology if any) from the API. Graphs register
+  // asynchronously once the compiler finishes the CG fixture package — on a
+  // cold runner that lands mid-suite, so poll instead of asserting instantly.
+  let items: {
     name: string;
     topology?: { nodes: unknown[] } | null;
     accumulators: string[];
-  }[];
-  expect(items.length).toBeGreaterThan(0);
+  }[] = [];
+  await expect(async () => {
+    const res = await page.request.get(`${SERVER_URL}/v1/health/graphs`, {
+      headers: { Authorization: `Bearer ${API_KEY}` },
+    });
+    items = (await res.json()).items ?? [];
+    expect(items.length).toBeGreaterThan(0);
+  }).toPass({ timeout: 180_000, intervals: [5_000] });
   const withTopo = items.find((g) => (g.topology?.nodes?.length ?? 0) > 0) ?? items[0];
 
   await connect(page);

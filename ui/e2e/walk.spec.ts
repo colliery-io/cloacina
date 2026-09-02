@@ -16,7 +16,7 @@ const STORAGE_KEY = "cloacina.connection";
 
 async function shot(page, name: string) {
   try {
-    await page.waitForLoadState("networkidle", { timeout: 8000 });
+    await page.waitForLoadState("networkidle", { timeout: 4000 });
   } catch {}
   await page.waitForTimeout(900); // let charts/graphs settle
   await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true });
@@ -25,7 +25,7 @@ async function shot(page, name: string) {
 }
 
 test("walk the UI and screenshot everything", async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(480_000);
 
   // 1) Connect page, unauthenticated.
   await page.goto("/connect");
