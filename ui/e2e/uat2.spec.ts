@@ -24,7 +24,7 @@ async function shot(page, name: string) {
   console.log(`SHOT ${name} :: url=${page.url()}`);
 }
 
-test("UAT round 2 walk", async ({ page }) => {
+test("UAT round 2 walk @audit", async ({ page }) => {
   test.setTimeout(240_000);
 
   // Demo-stack walk only: it names compose-demo objects (market_pipeline,

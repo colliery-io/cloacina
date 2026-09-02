@@ -24,7 +24,7 @@ async function shot(page, name: string) {
   console.log(`SHOT ${name} :: url=${page.url()}`);
 }
 
-test("walk the UI and screenshot everything", async ({ page }) => {
+test("walk the UI and screenshot everything @audit", async ({ page }) => {
   test.setTimeout(480_000);
 
   // 1) Connect page, unauthenticated.
