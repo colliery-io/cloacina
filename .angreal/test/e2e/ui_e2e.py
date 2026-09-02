@@ -133,6 +133,14 @@ def _build_ui():
     # visual harness.
     print("Building the Leptos UI (trunk)…")
     _run(["trunk", "build", "--release"], cwd=UI_DIR)
+    # The seed harness links @cloacina/client from clients/typescript, whose
+    # dist/ is built, not committed — build it before the harness installs
+    # (fresh runners have no dist/; T-0938 release follow-through).
+    ts_client = PROJECT_ROOT / "clients" / "typescript"
+    if not (ts_client / "dist" / "index.js").exists():
+        print("Building @cloacina/client (tsup)…")
+        _run(["npm", "ci"], cwd=ts_client)
+        _run(["npm", "run", "build"], cwd=ts_client)
     if not (UI_DIR / "node_modules").exists():
         _run(["npm", "install"], cwd=UI_DIR)
     if not (HARNESS_DIR / "node_modules").exists():
