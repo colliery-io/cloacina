@@ -15,8 +15,28 @@ env:
   CARGO_NET_RETRY: "10"
   CARGO_HTTP_MULTIPLEXING: "false"
 
+# Lane layout (CI-perf pass, 2026-09): the account runs at most 20 jobs at
+# once and a PR fanned out to ~80, so wall-clock was queue time, not test
+# time. Every lane here now does one thing once:
+#   * feature-builds   — compile-time backend isolation only (the per-backend
+#                        integration suite it also ran duplicated the
+#                        integration-tests lane below, minute for minute).
+#   * unit-tests       — ubuntu + macOS, unchanged.
+#   * integration-tests— ubuntu only, and the Rust and Python layers are
+#                        separate parallel jobs (they share nothing but the
+#                        DB; serialized they were the longest lane at ~20m).
+#                        The macOS legs moved to nightly.yml (macos-
+#                        integration-tests), which already ran on macOS.
+#   * nothing waits on unit-tests any more: the gate saved runner-minutes
+#                        only when unit failed, and cost ~8 min of critical
+#                        path on every green run.
+
 jobs:
-  # Feature builds - verify compile-time database backend selection works
+  # Feature builds — verify compile-time database backend selection works.
+  # The sqlite-only leg removes libpq from the runner first, so a stray
+  # postgres dependency fails to link rather than silently leaking in
+  # (CLOACI-I-0134). The cloaca extension build repeats that proof for the
+  # Python bindings, which link separately from the cloacina test binary.
   feature-builds:
     name: Feature Build (${{ matrix.features.name }})
     strategy:
@@ -30,31 +50,15 @@ jobs:
             flags: --no-default-features --features sqlite,macros
             backend: sqlite
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        if: runner.os == 'Linux'
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina and
-          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
-          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+      - uses: ./.github/actions/free-disk-space
 
       - name: Remove PostgreSQL libraries (sqlite-only verification)
         if: matrix.features.backend == 'sqlite'
@@ -68,12 +72,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libpq-dev
-
-      - name: Start PostgreSQL services
-        if: matrix.features.backend == 'postgres'
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: ".angreal/docker-compose.yaml"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -89,32 +87,9 @@ jobs:
       - name: Run unit tests (${{ matrix.features.name }})
         run: cargo test -p cloacina --lib ${{ matrix.features.flags }}
 
-      - name: Run integration tests (${{ matrix.features.name }})
-        run: angreal test integration --backend ${{ matrix.features.backend }} --features ${{ matrix.features.backend }},macros
-
-      # CLOACI-T-0804: full-server auth integration suite (postgres-only — the
-      # auth tables, local accounts, OIDC mapping, and the cross-tenant
-      # key-management leak fix all require Postgres). Boots a real server and
-      # exercises roles, isolation, whoami, local login, and the leak-fix
-      # regression end-to-end.
-      - name: Run auth integration tests (postgres)
-        if: matrix.features.backend == 'postgres'
-        run: angreal test auth
-
-      # CLOACI-T-0804: OIDC relying-party tests against a real Dex issuer
-      # (discovery, JWKS, authorization-URL with PKCE/state/nonce). The OIDC
-      # tests are #[ignore]'d by default since they need a live issuer; this
-      # brings up the dex sidecar (localhost issuer — the runner is the host)
-      # and runs them.
-      - name: Run OIDC relying-party tests (postgres)
-        if: matrix.features.backend == 'postgres'
-        run: |
-          docker compose -f .angreal/docker-compose.yaml up -d dex
-          for i in $(seq 1 30); do
-            curl -fsS http://localhost:5556/dex/.well-known/openid-configuration >/dev/null 2>&1 && break
-            sleep 2
-          done
-          cargo test -p cloacina-server --lib oidc -- --ignored
+      - name: Build cloaca extension without libpq (sqlite-only)
+        if: matrix.features.backend == 'sqlite'
+        run: cargo build -p cloacina-python --no-default-features --features sqlite,macros,extension-module
 
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
@@ -126,19 +101,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        if: runner.os == 'Linux'
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina and
-          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
-          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -179,31 +147,28 @@ jobs:
       - name: Run unit tests (sqlite)
         run: angreal test unit --backend sqlite
 
-  # Integration tests - need database services, fail-fast disabled to catch multi-backend issues
+  # Integration tests — one job per (backend, layer). `rust` is the cargo
+  # `--test integration` target (+ the cloacina-server lib tests and the
+  # auth/OIDC server suites on postgres); `python` is the pytest scenario
+  # files under tests/python against a freshly built cloaca wheel. fail-fast
+  # disabled to catch multi-backend issues.
   integration-tests:
-    name: Integration Tests (${{ matrix.backend }}, ${{ matrix.os }})
-    needs: unit-tests
+    name: Integration Tests (${{ matrix.layer }}, ${{ matrix.backend }})
     strategy:
       fail-fast: false
       matrix:
         backend: [postgres, sqlite]
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        layer: [rust, python]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        if: runner.os == 'Linux'
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina and
-          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
-          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -222,24 +187,22 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "cloacina -> target"
-          shared-key: "cloacina-${{ matrix.os }}"
+          shared-key: "cloacina-ubuntu-latest"
 
-      - name: Start PostgreSQL services (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest' && env.ACT != 'true'
+      - name: Start PostgreSQL services
+        if: matrix.backend == 'postgres'
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
 
-      - name: Install debugging tools (Ubuntu)
-        # CLOACI-I-0140: all ubuntu legs, not just postgres — the segfault class
+      - name: Install debugging tools
+        # CLOACI-I-0140: all legs, not just postgres — the segfault class
         # historically rotated across BOTH backends' lanes.
-        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y gdb libpq-dev
 
-      - name: Enable core dumps (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Enable core dumps
         run: |
           ulimit -c unlimited
           # Set core pattern to a predictable location
@@ -248,52 +211,48 @@ jobs:
           echo "Core pattern: $(cat /proc/sys/kernel/core_pattern)"
           echo "Core limit: $(ulimit -c)"
 
-      - name: Install PostgreSQL dev libs (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          # Always install libpq on macOS - workspace examples need it even for SQLite tests
-          brew install postgresql@14
-          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
-          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
-
-      - name: Start PostgreSQL services (macOS)
-        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
-        run: |
-          brew services start postgresql@14
-          sleep 5
-          # The Rust test fixtures hardcode the dev-stack port 15432 (matching the
-          # docker-compose stack used on Ubuntu), so move the Homebrew cluster off
-          # the default 5432 onto 15432 — otherwise every postgres test refuses.
-          psql -d postgres -c "ALTER SYSTEM SET port = 15432;"
-          brew services restart postgresql@14
-          sleep 5
-          # Create the cloacina user and database that tests expect (on 15432).
-          createuser -s cloacina -p 15432 || true
-          createdb -O cloacina cloacina -p 15432 || true
-
-      - name: Run integration tests (${{ matrix.backend }})
+      - name: Run integration tests (${{ matrix.layer }}, ${{ matrix.backend }})
         env:
           RUST_BACKTRACE: full
         run: |
-          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
-            angreal test integration --backend ${{ matrix.backend }} --skip-docker
-          elif [ "${{ env.ACT }}" = "true" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
-            # Running under act - use host's PostgreSQL, skip docker
-            ulimit -c unlimited
-            setarch $(uname -m) -R angreal test integration --backend ${{ matrix.backend }} --skip-docker
-          elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            # Both ubuntu backends (CLOACI-I-0140): disable ASLR for consistent
-            # crash addresses; ulimit must be re-set here — the earlier step's
-            # ulimit does not persist across workflow steps.
-            ulimit -c unlimited
-            setarch $(uname -m) -R angreal test integration --backend ${{ matrix.backend }}
+          # CLOACI-I-0140: disable ASLR for consistent crash addresses; ulimit
+          # must be re-set here — the earlier step's ulimit does not persist
+          # across workflow steps.
+          ulimit -c unlimited
+          if [ "${{ matrix.layer }}" = "rust" ]; then
+            setarch $(uname -m) -R angreal test integration --backend ${{ matrix.backend }} --skip-python
           else
-            angreal test integration --backend ${{ matrix.backend }}
+            setarch $(uname -m) -R angreal test integration --backend ${{ matrix.backend }} --skip-rust
           fi
 
-      - name: Analyze core dump on failure (Ubuntu)
-        if: failure() && matrix.os == 'ubuntu-latest'
+      # CLOACI-T-0804: full-server auth integration suite (postgres-only — the
+      # auth tables, local accounts, OIDC mapping, and the cross-tenant
+      # key-management leak fix all require Postgres). Boots a real server and
+      # exercises roles, isolation, whoami, local login, and the leak-fix
+      # regression end-to-end. Lives in the rust/postgres leg because that leg
+      # already compiled cloacina-server for its lib tests.
+      - name: Run auth integration tests (postgres)
+        if: matrix.layer == 'rust' && matrix.backend == 'postgres'
+        run: angreal test auth
+
+      # CLOACI-T-0804: OIDC relying-party tests against a real Dex issuer
+      # (discovery, JWKS, authorization-URL with PKCE/state/nonce). The OIDC
+      # tests are #[ignore]'d by default since they need a live issuer; this
+      # brings up the dex sidecar (localhost issuer — the runner is the host)
+      # and runs them. The integration harness tears the stack down when it
+      # finishes, so dex is started here explicitly.
+      - name: Run OIDC relying-party tests (postgres)
+        if: matrix.layer == 'rust' && matrix.backend == 'postgres'
+        run: |
+          docker compose -f .angreal/docker-compose.yaml up -d dex
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:5556/dex/.well-known/openid-configuration >/dev/null 2>&1 && break
+            sleep 2
+          done
+          cargo test -p cloacina-server --lib oidc -- --ignored
+
+      - name: Analyze core dump on failure
+        if: failure()
         run: |
           echo "=== Checking for core dumps ==="
           ls -la /tmp/core.* 2>/dev/null || echo "No core dumps found in /tmp"
@@ -350,10 +309,10 @@ jobs:
           done
 
       - name: Report compiled workflow sizes
-        if: always()
+        if: always() && matrix.layer == 'rust'
         run: |
           echo "=== Compiled Workflow Library Sizes ==="
-          echo "Platform: ${{ matrix.os }}"
+          echo "Platform: ubuntu-latest"
           echo "Architecture: $(uname -m)"
           echo ""
 
@@ -403,7 +362,6 @@ jobs:
   # Macro tests - only need to run once per backend (ubuntu only)
   macro-tests:
     name: Macro Tests (${{ matrix.backend }})
-    needs: unit-tests
     strategy:
       fail-fast: true
       matrix:
@@ -411,19 +369,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        if: runner.os == 'Linux'
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina and
-          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
-          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -455,6 +406,7 @@ jobs:
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
+          services: postgres
 
       - name: Run macro tests (${{ matrix.backend }})
         run: angreal test macros --backend ${{ matrix.backend }}
@@ -462,22 +414,14 @@ jobs:
   # promtool /metrics exposition-format check (T-0536)
   metrics-format:
     name: Metrics Format (promtool)
-    needs: unit-tests
     runs-on: ubuntu-latest
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        if: runner.os == 'Linux'
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina and
-          # run the docker stack on a ~14GB runner. Reclaim ~18GB of preinstalled
-          # toolchains we never use. (Linux only — macOS has ample disk + no dirs.)
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Set up Python
         uses: actions/setup-python@v5

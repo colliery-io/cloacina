@@ -170,6 +170,13 @@ test = angreal.command_group(name="test", about="Cloacina test suites (unit, int
     required=False,
     help="run a single tests/python/<name>.py scenario file (still scoped per-backend)",
 )
+@angreal.argument(
+    name="skip_rust",
+    long="skip-rust",
+    help="skip the Rust cargo test layer (run only the Python pytest scenarios)",
+    takes_value=False,
+    is_flag=True,
+)
 def integration(
     filter=None,
     skip_docker=False,
@@ -177,6 +184,7 @@ def integration(
     features=None,
     skip_python=False,
     python_file=None,
+    skip_rust=False,
 ):
     """Run integration tests against PostgreSQL and/or SQLite databases.
 
@@ -184,7 +192,9 @@ def integration(
       1. Rust integration tests (cargo test -p cloacina --test integration ...).
       2. Python pytest scenarios under tests/python/ against a freshly built
          cloaca wheel — these exercise the Python binding surface end-to-end.
-    Use --skip-python to run only the Rust layer.
+    Use --skip-python to run only the Rust layer, --skip-rust to run only the
+    Python layer (CI runs the two layers as parallel jobs — they share nothing
+    but the database, and serializing them doubled the lane's critical path).
 
     Tests are compiled once with both backends enabled. By default, PostgreSQL
     tests run first, then SQLite tests run separately to avoid cross-backend
@@ -211,10 +221,17 @@ def integration(
         cargo_features = "postgres,macros"
     is_default_features = cargo_features == "postgres,sqlite,macros"
 
-    if is_default_features:
-        build_test_packages()
-    else:
-        build_test_packages(backend=backend)
+    if skip_rust and skip_python:
+        raise RuntimeError("--skip-rust and --skip-python together leave nothing to run")
+
+    # The pre-built example packages are loaded only by the Rust integration
+    # tests (tests/python has no packaged-workflow consumer), so a python-only
+    # run skips the six fixture builds entirely.
+    if not skip_rust:
+        if is_default_features:
+            build_test_packages()
+        else:
+            build_test_packages(backend=backend)
 
     project_root = Path(angreal.get_root()).parent
     venv_name = "test-env-unified"
@@ -264,22 +281,27 @@ def integration(
             feature_args = ["--no-default-features"] + feature_args
 
         for backend_name in backends_to_run:
-            print_section_header(f"Running {backend_name.title()} Rust integration tests")
-            cargo_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args
-            if backend_name == "postgres":
-                cargo_cmd += ["--", "--test-threads=1", "--nocapture", "--skip", "sqlite"]
+            if skip_rust:
+                print_section_header(
+                    f"Skipping {backend_name.title()} Rust integration tests (--skip-rust)"
+                )
             else:
-                cargo_cmd += ["--", "--test-threads=1", "--nocapture", "sqlite"]
-            if filter:
-                cargo_cmd.append(filter)
-            subprocess.run(cargo_cmd, check=True)
+                print_section_header(f"Running {backend_name.title()} Rust integration tests")
+                cargo_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args
+                if backend_name == "postgres":
+                    cargo_cmd += ["--", "--test-threads=1", "--nocapture", "--skip", "sqlite"]
+                else:
+                    cargo_cmd += ["--", "--test-threads=1", "--nocapture", "sqlite"]
+                if filter:
+                    cargo_cmd.append(filter)
+                subprocess.run(cargo_cmd, check=True)
 
             # cloacina-server lib tests (CLOACI-T-0636). These are DB-backed
             # router/handler/metrics tests living in cloacina-server's lib
             # target; they need Postgres (the server is Postgres-only) so they
             # run only in the postgres lane. Previously orphaned — no suite ran
             # them, so they drifted.
-            if backend_name == "postgres":
+            if backend_name == "postgres" and not skip_rust:
                 print_section_header("Running cloacina-server lib tests (Postgres)")
                 server_cmd = ["cargo", "test", "-p", "cloacina-server", "--lib"]
                 if filter:

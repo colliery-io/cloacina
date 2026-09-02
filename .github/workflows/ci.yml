@@ -79,6 +79,7 @@ jobs:
               - 'rust-toolchain.toml'
             workflows:
               - '.github/workflows/**'
+              - '.github/actions/**'
             harness:
               - '.angreal/**'
             examples:
@@ -128,16 +129,14 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # Swatinem/rust-cache, like the test lanes: keyed on the lockfile and
+      # toolchain, pruned of workspace artifacts on save. The raw
+      # actions/cache it replaces hashed every Cargo.toml in the tree, so any
+      # example manifest edit missed the exact key and clippy went cold.
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-check-
+          shared-key: "cloacina-quick-checks"
 
       - name: Credential-logging guard (OPS-03 / T-0443)
         run: python3 scripts/check_credential_logging.py
@@ -156,17 +155,14 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      # clippy --all-targets is a superset of `cargo check` for the same
+      # feature set (it type-checks everything check would, then lints), so
+      # the separate check steps that used to follow compiled nothing new.
       - name: Clippy (SQLite)
         run: cargo clippy --features sqlite --all-targets
 
       - name: Clippy (PostgreSQL)
         run: cargo clippy --features postgres --all-targets
-
-      - name: Cargo check (SQLite)
-        run: cargo check --features sqlite
-
-      - name: Cargo check (PostgreSQL)
-        run: cargo check --features postgres
 
   # OpenAPI spec drift gate (CLOACI-T-0643 / NFR-001): the committed
   # docs/static/openapi.json must match a fresh `emit-openapi` from the
@@ -185,16 +181,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-spec-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-spec-
-            ${{ runner.os }}-cargo-check-
+          shared-key: "cloacina-spec-check"
 
       - name: Set up Python
         uses: actions/setup-python@v5

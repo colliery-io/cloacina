@@ -1,0 +1,22 @@
+---
+# CI disk-pressure guard, shared by every Rust-building lane.
+#
+# Recurring "No space left on device": the test lanes rebuild cloacina and
+# run the docker stack on a ~14GB runner. Reclaiming ~18GB of preinstalled
+# toolchains we never use fixes that — but the synchronous `rm -rf` cost
+# 0.3–3.7 min per job, ~75 runner-minutes per CI run across 77 jobs. Nothing
+# in the job needs the space for several minutes (checkout, toolchain, cache
+# restore all come first), so the deletion runs detached and overlaps them.
+# The runner does not reap orphaned background processes between steps.
+name: Free disk space
+description: Reclaim unused preinstalled toolchains in the background (Linux only)
+runs:
+  using: composite
+  steps:
+    - name: Free disk space (background)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        df -h / | tail -1
+        sudo sh -c 'nohup rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+          /opt/hostedtoolcache/CodeQL /usr/local/share/boost >/dev/null 2>&1 &'
