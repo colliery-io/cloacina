@@ -19,9 +19,9 @@ for the full command surface.
 ├── ci/                # `angreal ci …`       — fast, full
 ├── demos/
 │   ├── tutorials/
-│   │   ├── rust.py                          # `angreal demos tutorials rust NN`
-│   │   └── python.py                        # `angreal demos tutorials python NN`
-│   └── features/                            # `angreal demos features <name>`
+│   │   ├── rust.py                          # `angreal demos tutorials rust NN` | `… rust all`
+│   │   └── python.py                        # `angreal demos tutorials python NN` | `… python all`
+│   └── features/                            # `angreal demos features <name>`; `demos matrix [--shards N]`
 ├── performance.py     # `angreal performance …`
 ├── task_check.py      # `angreal check …`     — static cargo checks
 ├── task_services.py   # `angreal services …`  — up/down/reset/clean/purge
@@ -66,6 +66,8 @@ Currently marked destructive:
 - `services reset`   — restart; with `--clean`, removes volumes
 - `demos tutorials python <NN>` — with `--backend postgres`, removes volumes
   from the shared compose stack during cleanup
+- `demos tutorials python all` — same cleanup whenever postgres is in scope
+  (the default `--backend both`); builds ONE cloaca wheel for every tutorial
 
 Test tasks that bring up docker for the duration of a run and tear it down
 on exit are not marked destructive — that is their documented lifecycle.

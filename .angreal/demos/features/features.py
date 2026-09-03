@@ -60,19 +60,42 @@ _DEMO_SECRET_KEK = "ZGVtby1rZWstZGVtby1rZWstZGVtby1rZWstMDAwMSE="
     ],
     when_not_to_use=["running the demos themselves (use demos features <name>)"],
 )
-def matrix():
+@angreal.argument(
+    name="shards",
+    long="shards",
+    required=False,
+    help="emit N balanced shards as [{shard, examples}] (space-separated names) instead of a flat list",
+)
+def matrix(shards=None):
     """CI executes ALL runnable examples. This is the single source of truth:
     the same discovery that registers `demos features <name>` commands feeds
     the CI matrix, so a new example directory automatically joins CI — no
     hand-maintained list to drift. Three sources: embedded `cargo run` examples
     (dirs without a package.toml), packaged gold-path examples (dirs WITH a
-    package.toml), and the one bespoke wheel demo (python-workflow)."""
-    names = sorted(
-        [name.replace("_", "-") for name in _rust_feature_commands]
-        + list(_packaged_commands)
-        + ["python-workflow", "fs-grant-demo"]
-    )
-    print(json.dumps(names))
+    package.toml), and the one bespoke wheel demo (python-workflow).
+
+    With --shards N the same set is dealt into N groups for a sharded CI
+    matrix (one runner per shard, examples run in sequence inside it). One
+    runner per example spent ~7 min per leg cold-compiling the same
+    dependency graph; inside a shard the compiler's shared target dir makes
+    every example after the first incremental. Packaged (server gold-path)
+    examples are the expensive ones, so they are dealt round-robin first and
+    the cheap `cargo run` examples fill in behind them."""
+    embedded = sorted(name.replace("_", "-") for name in _rust_feature_commands)
+    packaged = sorted(list(_packaged_commands) + ["python-workflow", "fs-grant-demo"])
+    if not shards:
+        print(json.dumps(sorted(embedded + packaged)))
+        return 0
+
+    n = max(1, int(shards))
+    groups = [[] for _ in range(n)]
+    for i, name in enumerate(packaged + embedded):
+        groups[i % n].append(name)
+    print(json.dumps([
+        {"shard": i + 1, "examples": " ".join(g)}
+        for i, g in enumerate(groups) if g
+    ]))
+    return 0
 
 
 # --- bespoke constructor/provider demo (CLOACI-T-0892) -----------------------

@@ -14,9 +14,30 @@ env:
   # $GITHUB_OUTPUT (and is noise everywhere else). Suppress it globally.
   ANGREAL_NO_AUTO_COMPLETION: "1"
 
+# Lane layout (CI-perf pass, 2026-09): this workflow used to fan out to ~60
+# runners (10 Rust tutorials + 21 Python tutorial/backend pairs + one per
+# feature example). Each leg paid the full runner setup and a cold compile
+# for a program that runs in seconds — the 21 Python legs each rebuilt the
+# same release-mode cloaca wheel (~7 min) — and the account's 20-runner cap
+# turned that into an hour of queueing. Now:
+#   * rust-tutorials   — one job, `angreal demos tutorials rust all`, with
+#                        CARGO_TARGET_DIR on the restored workspace build so
+#                        the shared deps compile zero times.
+#   * python-tutorials — one job, `angreal demos tutorials python all`: one
+#                        wheel, both backends, every tutorial.
+#   * rust-examples    — discovery still drives the matrix (no hand list),
+#                        dealt into a few shards; inside a shard the
+#                        compiler's shared target dir makes every example
+#                        after the first incremental, and that dir is cached
+#                        across runs on the lockfile.
+# Per-item retry moved into the harness (`--attempts`) / the shard loop, so
+# the INFRA flake tolerance the per-leg retry wrapper provided is kept.
+
 jobs:
   # -----------------------------------------------------------------------
-  # Step 0: Single build that all tutorial/example jobs share
+  # Step 0: Single build that the packaged-example shards and the Rust
+  # tutorials share (target/debug/cloacina-server + cloacina-compiler, and
+  # the workspace deps).
   # -----------------------------------------------------------------------
 
   build-cache:
@@ -25,18 +46,12 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina +
-          # an example (~GB each) and run the docker stack on a ~14GB runner.
-          # Reclaim ~18GB of preinstalled toolchains we never use.
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Install libpq
         run: sudo apt-get update && sudo apt-get install -y libpq-dev
@@ -62,34 +77,28 @@ jobs:
         run: cargo build --features "postgres,sqlite,macros"
 
   # -----------------------------------------------------------------------
-  # Rust tutorials
+  # Rust tutorials — all of them, one runner. Every tutorial is its own
+  # `[workspace]` with path deps on the workspace crates, so pointing
+  # CARGO_TARGET_DIR at the restored root target/ reuses the workspace
+  # build's artifacts (same crates, same default features, same profile).
   # -----------------------------------------------------------------------
 
   rust-tutorials:
     name: Rust Tutorial Tests
     needs: [build-cache]
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        tutorial: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
+    timeout-minutes: 40
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina +
-          # an example (~GB each) and run the docker stack on a ~14GB runner.
-          # Reclaim ~18GB of preinstalled toolchains we never use.
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Install libpq
         run: sudo apt-get update && sudo apt-get install -y libpq-dev
@@ -116,35 +125,28 @@ jobs:
             target
           key: ${{ runner.os }}-examples-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
 
-      - name: Docker Compose Cache
-        if: contains(fromJSON('["06"]'), matrix.tutorial)
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
-
+      # Only tutorial 06 (multi-tenancy) needs Postgres; nothing here needs
+      # Kafka or Dex, so start just the database.
       - name: Start backing services
-        if: contains(fromJSON('["06"]'), matrix.tutorial)
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
+          services: postgres
 
-      # CLOACI-T-0917: retries kept deliberately — this leg runs a real docker
+      # CLOACI-T-0917: retries kept deliberately — this lane runs a real docker
       # stack + crates.io fetches, so INFRA flake tolerance is still warranted.
-      # Remove the retry wrapper if/when a run history shows attempts>1 is
-      # never what saves the leg (retries can mask real product flakes).
-      - name: Run tutorial ${{ matrix.tutorial }}
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 15
-          max_attempts: 3
-          command: angreal demos tutorials rust ${{ matrix.tutorial }}
+      # Per-tutorial (`--attempts`), so one flaky tutorial doesn't re-run the
+      # rest. Remove if/when a run history shows attempts>1 is never what
+      # saves it (retries can mask real product flakes).
+      - name: Run all Rust tutorials
+        run: angreal demos tutorials rust all --attempts 3
 
   # -----------------------------------------------------------------------
   # Feature examples — CI executes ALL runnable examples. The matrix comes
   # from `angreal demos matrix` (the same discovery that registers the
   # `demos features <name>` commands), so a new example directory joins CI
-  # automatically — there is no hand-maintained list to drift.
+  # automatically — there is no hand-maintained list to drift. `--shards`
+  # deals that set into a fixed number of runners.
   # -----------------------------------------------------------------------
 
   discover-examples:
@@ -152,16 +154,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      examples: ${{ steps.list.outputs.examples }}
+      shards: ${{ steps.list.outputs.shards }}
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina +
-          # an example (~GB each) and run the docker stack on a ~14GB runner.
-          # Reclaim ~18GB of preinstalled toolchains we never use.
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
@@ -176,35 +170,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
-      - name: List runnable examples
+      - name: List runnable examples (sharded)
         id: list
-        run: echo "examples=$(angreal demos matrix)" >> "$GITHUB_OUTPUT"
+        run: |
+          shards=$(angreal demos matrix --shards 4)
+          echo "$shards"
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
 
   rust-examples:
-    name: Rust Example Tests
+    name: Rust Example Tests (shard ${{ matrix.shard }})
     needs: [build-cache, discover-examples]
-    timeout-minutes: 30
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        example: ${{ fromJSON(needs.discover-examples.outputs.examples) }}
+        include: ${{ fromJSON(needs.discover-examples.outputs.shards) }}
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina +
-          # an example (~GB each) and run the docker stack on a ~14GB runner.
-          # Reclaim ~18GB of preinstalled toolchains we never use.
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Install libpq
         run: sudo apt-get update && sudo apt-get install -y libpq-dev
@@ -235,109 +226,83 @@ jobs:
             target
           key: ${{ runner.os }}-examples-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
 
-      - name: Docker Compose Cache
+      # The packaged (server gold-path) examples are compiled by the
+      # cloacina-compiler service into this shared target dir. Every example
+      # resolves the same ~100 transitive deps, so once one has compiled the
+      # rest are incremental — and with the dir cached on the lockfile the
+      # first one is too. Keyed on Cargo.lock only: example source changes
+      # invalidate their own crates, not the dependency graph.
+      - name: Cache compiler target dir
         uses: actions/cache@v4
         with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+          path: target/compiler-e2e-cache
+          key: ${{ runner.os }}-compiler-e2e-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-compiler-e2e-
 
-      - name: Start PostgreSQL services
+      - name: Start backing services
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
 
-      # CLOACI-T-0917: retries kept deliberately — every example leg boots a
-      # real docker stack, so INFRA flake tolerance is still warranted. Remove
-      # the retry wrapper if/when a run history shows attempts>1 is never what
-      # saves the leg (retries can mask real product flakes).
-      - name: Run ${{ matrix.example }} example
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 15
-          max_attempts: 3
-          command: angreal demos features ${{ matrix.example }}
+      # CLOACI-T-0917: retries kept deliberately — every example boots
+      # against a real docker stack, so INFRA flake tolerance is still
+      # warranted. Per example (3 attempts, 15 min each — the old per-leg
+      # wrapper's numbers), so one flaky example never re-runs the shard.
+      # Remove if/when run history shows attempts>1 is never what saves it.
+      - name: Run examples (${{ matrix.examples }})
+        env:
+          EXAMPLES: ${{ matrix.examples }}
+        run: |
+          failed=()
+          for example in ${EXAMPLES}; do
+            ok=0
+            for attempt in 1 2 3; do
+              echo "::group::${example} (attempt ${attempt}/3)"
+              if timeout 15m angreal demos features "${example}"; then
+                ok=1
+              fi
+              echo "::endgroup::"
+              [ "${ok}" = 1 ] && break
+              echo "::warning::${example} failed attempt ${attempt}/3"
+            done
+            [ "${ok}" = 1 ] || failed+=("${example}")
+          done
+          echo "=== Example summary (shard ${{ matrix.shard }}) ==="
+          for example in ${EXAMPLES}; do
+            case " ${failed[*]} " in
+              *" ${example} "*) echo "  FAIL ${example}" ;;
+              *) echo "  ok   ${example}" ;;
+            esac
+          done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::${#failed[@]} example(s) failed: ${failed[*]}"
+            exit 1
+          fi
 
   # -----------------------------------------------------------------------
-  # Python tutorials
+  # Python tutorials — every tutorial against every backend it supports,
+  # one runner, one cloaca wheel. Tutorial 05 is postgres-only and 06
+  # switches itself to postgres; the harness owns those rules.
   # -----------------------------------------------------------------------
 
   python-tutorials:
     name: Python Tutorial Tests
-    needs: [build-cache]
-    timeout-minutes: 30
+    timeout-minutes: 45
     # CLOACI-T-0917: continue-on-error: true removed — it dated from the
     # PyO3/tokio GIL flake era; post-I-0140 that flake class is closed, so
     # python tutorial failures must fail CI like every other lane.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # SQLite tutorials (01-04, 06-11) - tutorial 05 requires PostgreSQL
-          - tutorial: "01"
-            backend: sqlite
-          - tutorial: "02"
-            backend: sqlite
-          - tutorial: "03"
-            backend: sqlite
-          - tutorial: "04"
-            backend: sqlite
-          - tutorial: "06"
-            backend: sqlite
-          - tutorial: "07"
-            backend: sqlite
-          - tutorial: "08"
-            backend: sqlite
-          - tutorial: "09"
-            backend: sqlite
-          - tutorial: "10"
-            backend: sqlite
-          - tutorial: "11"
-            backend: sqlite
-          # PostgreSQL tutorials (01-11, including 05 which requires postgres)
-          - tutorial: "01"
-            backend: postgres
-          - tutorial: "02"
-            backend: postgres
-          # Tutorials 03 + 04 hardcode `sqlite://:memory:` regardless of
-          # the --backend flag. After CLOACI-T-0608 fixed the sqlite
-          # `:memory:` → tempfile substitution, the postgres lane works
-          # again (it still exercises the in-memory sqlite path, but the
-          # tempfile-backed shared DB no longer races with migrations).
-          - tutorial: "03"
-            backend: postgres
-          - tutorial: "04"
-            backend: postgres
-          - tutorial: "05"
-            backend: postgres
-          - tutorial: "06"
-            backend: postgres
-          - tutorial: "07"
-            backend: postgres
-          - tutorial: "08"
-            backend: postgres
-          - tutorial: "09"
-            backend: postgres
-          - tutorial: "10"
-            backend: postgres
-          - tutorial: "11"
-            backend: postgres
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina +
-          # an example (~GB each) and run the docker stack on a ~14GB runner.
-          # Reclaim ~18GB of preinstalled toolchains we never use.
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Install libpq
         run: sudo apt-get update && sudo apt-get install -y libpq-dev
@@ -350,44 +315,25 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore build cache
-        uses: actions/cache/restore@v4
+      # The wheel is a release build of the cloacina-python crate; nothing
+      # else in CI builds that profile, so this lane keeps its own cache.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-examples-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          shared-key: "cloacina-python-tutorials"
 
       - name: Install angreal
         run: |
           python -m pip install --upgrade pip
           pip install angreal
 
-      - name: Docker Compose Cache
-        if: matrix.backend == 'postgres'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
-
-      - name: Start PostgreSQL services
-        if: matrix.backend == 'postgres'
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: ".angreal/docker-compose.yaml"
-
-      # CLOACI-T-0917: retries kept deliberately — the postgres legs run a
-      # real docker stack and every leg fetches deps, so INFRA flake tolerance
-      # is still warranted. Now that continue-on-error is gone this retry is
-      # the ONLY tolerance channel on this lane; remove it if/when run history
-      # shows attempts>1 is never what saves the leg.
-      - name: Run Python tutorial ${{ matrix.tutorial }} (${{ matrix.backend }})
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 15
-          max_attempts: 3
-          command: angreal demos tutorials python ${{ matrix.tutorial }} --backend ${{ matrix.backend }}
+      # CLOACI-T-0917: retries kept deliberately — the postgres pass runs a
+      # real docker stack, so INFRA flake tolerance is still warranted. Now
+      # that continue-on-error is gone this retry is the ONLY tolerance
+      # channel on this lane; per tutorial, so one flake never rebuilds the
+      # wheel. Remove if/when run history shows attempts>1 never saves it.
+      - name: Run all Python tutorials (sqlite + postgres)
+        run: angreal demos tutorials python all --backend both --attempts 3
 
   # -----------------------------------------------------------------------
   # Documentation
@@ -399,18 +345,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Free disk space (CI disk-pressure guard)
-        run: |
-          # Recurring "No space left on device": these jobs rebuild cloacina +
-          # an example (~GB each) and run the docker stack on a ~14GB runner.
-          # Reclaim ~18GB of preinstalled toolchains we never use.
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          df -h / | tail -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
 
       - name: Set up Python
         uses: actions/setup-python@v5

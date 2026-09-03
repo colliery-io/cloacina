@@ -173,16 +173,27 @@ jobs:
           fi
 
   # -----------------------------------------------------------------------
-  # macOS integration — verify builds on macOS
+  # macOS — library + daemon surface only.
+  #
+  # macOS is a workstation platform for cloacina: the embedded library (and
+  # its Python bindings) and the DB-less execution daemon (cloacina-agent).
+  # cloacina-server, the compiler service, and the Postgres they require
+  # are Linux deployments and are not checked here — no Homebrew Postgres
+  # cluster, no server lib/auth suites, no postgres integration leg. The
+  # PR lane (cloacina.yml unit-tests) already runs the macOS unit tests;
+  # this is the nightly integration pass for the library on its embedded
+  # backend. libpq is still installed: cloacina's default features link it.
   # -----------------------------------------------------------------------
 
-  macos-integration:
-    name: macOS Integration
+  macos-library-daemon:
+    name: macOS Library + Daemon (sqlite)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -193,14 +204,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install angreal
-
-      - name: Start PostgreSQL
-        uses: ikalnytskyi/action-setup-postgres@v7
-        with:
-          username: cloacina
-          password: cloacina
-          database: cloacina
-          port: 15432
 
       - name: Install libpq
         run: |
@@ -214,13 +217,16 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "cloacina-nightly-macos"
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-macos-latest"
 
-      - name: Build workspace
-        run: cargo build --features "postgres,sqlite,macros"
+      - name: Build library + daemon
+        run: cargo build -p cloacina -p cloacina-agent -p cloacinactl
 
-      - name: Run unit tests
-        run: angreal test unit
+      - name: Run integration tests (sqlite)
+        env:
+          RUST_BACKTRACE: full
+        run: angreal test integration --backend sqlite
 
   # -----------------------------------------------------------------------
   # SDK contract matrix (CLOACI-I-0113 / T-0648)
@@ -325,9 +331,23 @@ jobs:
   # tagged release.
   # -----------------------------------------------------------------------
 
+  # Per-arch NATIVE builds (T-0940): the old single-job
+  # `platforms: linux/amd64,linux/arm64` compiled the whole Rust workspace for
+  # arm64 under QEMU — 4.5h on a version-bump commit (every cargo layer cache
+  # busted). Native arm runners build in ~25m, in parallel with amd64; the
+  # manifest job stitches the digests into the multi-arch tag.
   nightly-docker:
     name: Nightly cloacina-server image
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -342,8 +362,68 @@ jobs:
           owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
           echo "image=ghcr.io/${owner_lc}/cloacina-server" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push by digest (native ${{ matrix.platform }})
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.img.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          cache-from: type=gha,scope=server-image-${{ matrix.arch }}
+          # ignore-error: the GHA cache backend intermittently 404s on cache
+          # export (`ERROR: failed to solve: not_found`) AFTER the image has
+          # already been pushed — a lost cache is not worth a red nightly.
+          cache-to: type=gha,mode=max,ignore-error=true,scope=server-image-${{ matrix.arch }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-image-digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  nightly-docker-manifest:
+    name: Nightly image manifest
+    needs: [nightly-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Compute image name
+        id: img
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner_lc}/cloacina-server" >> "$GITHUB_OUTPUT"
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: nightly-image-digest-*
+          merge-multiple: true
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -355,20 +435,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push :nightly
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.img.outputs.image }}:nightly
-          provenance: false
-          cache-from: type=gha
-          # ignore-error: the GHA cache backend intermittently 404s on cache
-          # export (`ERROR: failed to solve: not_found`) AFTER the image has
-          # already been pushed — a lost cache is not worth a red nightly.
-          cache-to: type=gha,mode=max,ignore-error=true
+      - name: Create :nightly manifest
+        working-directory: /tmp/digests
+        env:
+          IMAGE: ${{ steps.img.outputs.image }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create -t "${IMAGE}:nightly" \
+            $(printf -- "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools inspect "${IMAGE}:nightly"
 
   # -----------------------------------------------------------------------
   # Failure notification — auto-create GitHub issue
@@ -376,7 +451,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -440,7 +515,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
     if: success()
     runs-on: ubuntu-latest
     permissions:
@@ -488,7 +563,7 @@ jobs:
 
   prune-caches:
     name: Prune Stale Caches
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-integration, sdk-contract, ui-e2e, nightly-docker]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
     if: always()
     runs-on: ubuntu-latest
     permissions:
