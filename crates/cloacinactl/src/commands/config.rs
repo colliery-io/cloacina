@@ -196,7 +196,7 @@ impl CloacinaConfig {
 
     /// Resolve watch directories from config, expanding `~` to home dir.
     pub fn resolve_watch_dirs(&self) -> Vec<PathBuf> {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let home = crate::home_dir().unwrap_or_else(|| PathBuf::from("."));
         self.watch
             .directories
             .iter()

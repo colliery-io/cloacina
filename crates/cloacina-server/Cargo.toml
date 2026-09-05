@@ -27,11 +27,10 @@ telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetr
 # CLOACI-I-0130: serve the @cloacina/ui SPA from this binary (single-origin,
 # no Nginx/CORS). Feature-on builds REQUIRE a Node toolchain (build.rs runs
 # `npm --prefix ui run build`); the default build stays Node-free.
-embedded-ui = ["dep:rust-embed", "dep:mime_guess"]
+embedded-ui = ["dep:rust-embed"]
 
 [dependencies]
 rust-embed = { version = "8", optional = true, features = ["compression"] }
-mime_guess = { version = "2", optional = true }
 # `constructors-wasm` is explicit (not just transitive via cloacina-python) so the
 # server can always resolve packaged constructor providers (reconciler Step 5b,
 # CLOACI-T-0836) — packaged workflows are the primary consumer window.
@@ -47,17 +46,13 @@ utoipa = { version = "5" }
 # Python-language packages can be loaded by the reconciler. Compiler
 # service intentionally does not depend on this (T-0529).
 cloacina-python = { workspace = true, default-features = false }
-cloacina-workflow-plugin = { workspace = true }
 clap.workspace = true
 anyhow.workspace = true
-dirs = "6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.8"
 axum = { version = "0.8", features = ["multipart", "ws"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
-hyper = { version = "1.0" }
 lru = "0.12"
 uuid = { version = "1.0", features = ["v4"] }
 tokio = { version = "1.0", features = ["full"] }

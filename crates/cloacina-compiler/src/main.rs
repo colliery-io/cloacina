@@ -201,8 +201,20 @@ fn parse_size(s: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("size '{s}' overflows u64"))
 }
 
+/// Vendored in place of the `dirs` crate (T-0942) — home-dir lookup was the
+/// only thing we used it for.
+fn home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let var = "USERPROFILE";
+    #[cfg(not(windows))]
+    let var = "HOME";
+    std::env::var_os(var)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
 fn default_home() -> PathBuf {
-    dirs::home_dir()
+    home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".cloacina")
 }

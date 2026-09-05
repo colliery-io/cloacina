@@ -68,15 +68,11 @@ cloacina-workflow-plugin = { workspace = true, features = ["host"] }
 
 # External dependencies
 chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = { version = "0.10" }
-croner = { version = "2.1.0" }
 deadpool = { version = "0.12" }
 deadpool-diesel = { version = "0.6" }
 diesel = { version = "2.1.0", features = ["chrono", "serde_json"] }
 diesel_migrations = { version = "2.1.0" }
 libsqlite3-sys = { version = ">= 0.35", optional = true }
-dotenvy = { version = "0.15" }
-bzip2 = { version = "0.4" }
 fidius-host = { workspace = true }
 fidius-core = { workspace = true }
 # Only compiled in when `constructors-wasm` is on (host-side interface descriptor +
@@ -89,7 +85,6 @@ petgraph = { version = "0.6" }
 rand = { version = "0.8" }
 serde = { version = "1.0", features = ["derive"] }
 base64 = { version = "0.22" }
-dirs = { version = "5.0" }
 serial_test = { version = "3.2.0" }
 tempfile = { version = "3.2" }
 thiserror = { version = "1.0" }
@@ -99,9 +94,7 @@ futures = { version = "0.3" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 metrics = { version = "0.24" }
-tracing-test = { version = "0.2" }
 url = { version = "2.5" }
-urlencoding = { version = "2.1" }
 uuid = { version = "1.0", features = ["serde", "v4", "v5"] }
 regex = { version = "1.10" }
 semver = { version = "1.0" }

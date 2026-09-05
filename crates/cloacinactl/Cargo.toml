@@ -32,9 +32,7 @@ anyhow.workspace = true
 fidius-core = { workspace = true }
 fidius-host = { workspace = true }
 tempfile = "3.2"
-dirs = "6"
 serde = { version = "1.0", features = ["derive"] }
-bincode = "1.3"
 toml = "0.8"
 notify = { version = "7", default-features = false, features = ["macos_kqueue"] }
 uuid = { version = "1.0", features = ["v4"] }
@@ -47,9 +45,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
 # CLOACI-T-0629: WS client for `cloacinactl execution events --follow` (substrate consumer).
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
 futures-util = "0.3"
-base64 = "0.22"
 serde_yaml = "0.9"
 
 [dev-dependencies]

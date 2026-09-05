@@ -46,7 +46,6 @@ base64 = "0.22"
 
 # Async runtime + utilities.
 tokio = { version = "1.0", features = ["full"] }
-async-trait = "0.1"
 
 # Serialization + CLI + errors + logging.
 serde = { version = "1.0", features = ["derive"] }
