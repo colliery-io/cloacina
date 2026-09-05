@@ -1669,6 +1669,26 @@ async fn request_id_middleware(
 #[cfg(feature = "embedded-ui")]
 mod embedded_ui {
     use axum::http::{header, StatusCode, Uri};
+
+    /// Content type by extension for the embedded UI bundle — vendored in
+    /// place of `mime_guess` (T-0942): trunk emits a small, known set of
+    /// asset types, and unknown extensions fall back exactly as
+    /// `first_or_octet_stream` did.
+    fn asset_content_type(path: &str) -> &'static str {
+        match path.rsplit('.').next() {
+            Some("html") => "text/html",
+            Some("js") | Some("mjs") => "text/javascript",
+            Some("wasm") => "application/wasm",
+            Some("css") => "text/css",
+            Some("json") => "application/json",
+            Some("png") => "image/png",
+            Some("svg") => "image/svg+xml",
+            Some("ico") => "image/x-icon",
+            Some("txt") => "text/plain",
+            Some("woff2") => "font/woff2",
+            _ => "application/octet-stream",
+        }
+    }
     use axum::response::{IntoResponse, Response};
 
     #[derive(rust_embed::RustEmbed)]
@@ -1689,10 +1709,10 @@ mod embedded_ui {
         // Exact asset hit (hashed /assets/* etc.) → long-lived immutable cache.
         if !asset_path.is_empty() && asset_path != "index.html" {
             if let Some(file) = UiAssets::get(asset_path) {
-                let mime = mime_guess::from_path(asset_path).first_or_octet_stream();
+                let mime = asset_content_type(asset_path);
                 return (
                     [
-                        (header::CONTENT_TYPE, mime.as_ref().to_string()),
+                        (header::CONTENT_TYPE, mime.to_string()),
                         (
                             header::CACHE_CONTROL,
                             "public, max-age=31536000, immutable".to_string(),

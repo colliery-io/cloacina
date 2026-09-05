@@ -26,6 +26,19 @@ use serde::Deserialize;
 use crate::error::ClientError;
 use crate::ClientBuilder;
 
+/// Vendored in place of the `dirs` crate (T-0942) — home-dir lookup was the
+/// only thing we used it for. Returns `None` on wasm (no HOME), matching the
+/// old behavior.
+fn home_dir() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    let var = "USERPROFILE";
+    #[cfg(not(windows))]
+    let var = "HOME";
+    std::env::var_os(var)
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct CloacinactlConfig {
     #[serde(default)]
@@ -46,7 +59,7 @@ pub(crate) fn builder_from_profile(
 ) -> Result<ClientBuilder, ClientError> {
     let home = match home {
         Some(h) => h.to_path_buf(),
-        None => dirs::home_dir()
+        None => home_dir()
             .ok_or_else(|| ClientError::Config("cannot determine home directory".into()))?
             .join(".cloacina"),
     };

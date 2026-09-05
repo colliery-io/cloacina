@@ -32,22 +32,18 @@ cloacina = { workspace = true, default-features = false, features = ["constructo
 cloacina-api-types = { workspace = true }
 clap.workspace = true
 anyhow.workspace = true
-dirs = "6"
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 # CLOACI-T-0752: parse Rust doc-comments out of package source at build time.
 syn = { version = "2.0", features = ["full"] }
 proc-macro2 = "1.0"
 axum = { version = "0.8" }
-tower = { version = "0.5", features = ["util"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tempfile = "3"
 fidius-core = { workspace = true }
 sha2 = "0.10"
 hex = "0.4"
-chrono = { version = "0.4" }
 uuid = { version = "1.0", features = ["v4"] }
 tracing = { version = "0.1" }
 tracing-appender = { version = "0.2" }
