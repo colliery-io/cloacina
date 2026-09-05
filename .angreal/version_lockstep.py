@@ -24,6 +24,10 @@ _JSON_FILES = [
     ("npm · typescript client", "clients/typescript/package.json"),
     ("npm · ui", "ui/package.json"),
     ("npm · ui harness", "ui/harness/package.json"),
+    # info.version is the first `"version":` key in the emitted spec; the
+    # count=1 substitution below relies on that. Missed at 0.11.0 AND 0.11.1
+    # (spec-drift + sdk-version gates both failed on it) — hence a touchpoint.
+    ("openapi · spec info.version", "docs/static/openapi.json"),
 ]
 _PY_PYPROJECT = ("python · client pyproject", "clients/python/pyproject.toml")
 _PY_INIT = ("python · client __init__", "clients/python/src/cloacina_client/__init__.py")
