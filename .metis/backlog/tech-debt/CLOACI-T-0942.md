@@ -4,15 +4,15 @@ level: task
 title: "Compile-time pass — prune imports/deps, dedupe versions, trim features across the workspace"
 short_code: "CLOACI-T-0942"
 created_at: 2026-09-05T16:44:43.481673+00:00
-updated_at: 2026-09-05T16:44:43.481673+00:00
+updated_at: 2026-09-05T17:54:24.971514+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -96,6 +96,12 @@ cloacina-server` (dev) = 2m55s in a fresh target dir.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

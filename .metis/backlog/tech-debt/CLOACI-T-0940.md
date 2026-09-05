@@ -4,7 +4,7 @@ level: task
 title: "Docs reality pass at 0.11.0 — post-Leptos/UAT corpus audit"
 short_code: "CLOACI-T-0940"
 created_at: 2026-09-05T13:14:42.533965+00:00
-updated_at: 2026-09-05T13:15:21.784953+00:00
+updated_at: 2026-09-05T17:53:40.881474+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ completeness) sharded by section; findings triaged, real drift fixed, one PR.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

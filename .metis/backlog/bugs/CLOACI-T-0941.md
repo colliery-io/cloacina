@@ -4,7 +4,7 @@ level: task
 title: "Ops-metrics WS ping-pong — dueling subscribers keep every session's health tiles at connecting"
 short_code: "CLOACI-T-0941"
 created_at: 2026-09-05T15:12:56.231439+00:00
-updated_at: 2026-09-05T15:20:48.498780+00:00
+updated_at: 2026-09-05T17:53:50.016162+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -87,6 +87,8 @@ FIX (drafted during T-0940 then deliberately deferred; reconstruct from this):
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
