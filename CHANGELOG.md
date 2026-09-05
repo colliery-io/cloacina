@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - UNRELEASED
+
+### Changed
+
+- **Dependency pass** (CLOACI-T-0942): pruned 21 unused dependencies across
+  seven core crates and vendored the two trivially-replaceable ones — the
+  `dirs` crate (a home-directory lookup) leaves the dependency tree entirely,
+  and the embedded UI's asset content types are a local extension match
+  instead of `mime_guess`. One duplicate crate version (bzip2) eliminated.
+- **Docs reflect 0.11 reality** (CLOACI-T-0940): the TypeScript SDK pages
+  document the in-repo build (the package was never published to npm); the
+  web-UI tutorial and all nine doc-site screenshots now show the shipped
+  Leptos UI (dual detail views, trigger sections, availability semantics,
+  correct :8080 embedded origin); the HTTP API reference gains the
+  `last_poll_at` field, the named workflow-instance endpoints, the corrected
+  `items` list envelope, and a caveat for the `on =`-schedule manual-fire
+  limitation (CLOACI-T-0929). Version pins in docs are now swept by the
+  release bump (106 lockstep touchpoints).
+
+### Fixed
+
+- **Web UI health tiles connect** (CLOACI-T-0941): since the Leptos port the
+  warm ops-metrics WebSocket spawned dueling subscribers that closed each
+  other's sockets every ~2 seconds, so the Overview service-health row showed
+  "connecting…" forever. The subscriber is now keyed on connection identity
+  and superseded loops actually terminate; the first snapshot lands within 5s.
+- **`charts/cloacina-ui` retired**: the chart was still published each release
+  but deployed a container image that no longer exists (the standalone UI was
+  retired in CLOACI-I-0130 — the UI ships embedded in `cloacina-server`).
+  Deploy the server chart; the UI is at the server origin.
+- The `angreal ui up` banner and docs no longer point at the retired
+  standalone UI port (:8082); the embedded UI serves at the server origin.
+
 ## [Unreleased]
 
 ## [0.11.0] - 2026-08-30

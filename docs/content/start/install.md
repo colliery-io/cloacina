@@ -33,7 +33,7 @@ add to your shell rc.
 ### Pinning a version
 
 ```sh
-curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.11.0
+curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.11.1
 ```
 
 Use a specific tag from the releases page. Any release that has the
@@ -142,7 +142,7 @@ The server is published as a multi-arch container image (linux/amd64 +
 linux/arm64) on every release, tagged `X.Y.Z`, `X.Y`, and `latest`:
 
 ```sh
-docker pull ghcr.io/colliery-io/cloacina-server:0.11.0
+docker pull ghcr.io/colliery-io/cloacina-server:0.11.1
 ```
 
 See [Running the server image]({{< ref "/service/how-to/running-the-server-image" >}}) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.
