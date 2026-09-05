@@ -40,10 +40,33 @@ pub fn provide_ops_metrics() {
     // changes (the React version keyed the effect on `client`).
     let generation = StoredValue::new(0u64);
 
+    // Key the effect on the connection IDENTITY, not the whole connections
+    // Vec (T-0941): metadata patches (the T-0803 whoami role resolve) used to
+    // refire the effect and spawn a second subscriber. The server allows one
+    // consumer per delivery recipient, so the old and new loops closed each
+    // other's sockets in a ~2s ping-pong forever — the first metrics push
+    // (5s cadence) never landed and every session's health tiles sat at
+    // "connecting…".
+    let conn_key = Memo::new(move |_| {
+        auth.connection().map(|c| {
+            (
+                c.label.clone(),
+                c.server_url.clone(),
+                c.api_key.clone(),
+                c.tenant.clone(),
+            )
+        })
+    });
+
     Effect::new(move |_| {
-        let Some(conn) = auth.connection() else {
+        if conn_key.get().is_none() {
             latest.set(None);
             generation.update_value(|g| *g += 1);
+            return;
+        }
+        // Untracked: the memo above is the only reactive dependency — reading
+        // connection() tracked here would re-subscribe to the whole Vec.
+        let Some(conn) = untrack(|| auth.connection()) else {
             return;
         };
         let my_gen = generation.with_value(|g| g + 1);
@@ -53,15 +76,34 @@ pub fn provide_ops_metrics() {
             let Ok(client) = client_for(&conn) else {
                 return;
             };
-            let stream = client.subscribe_delivery("ops_metrics:global", Default::default());
-            let mut stream = std::pin::pin!(stream);
-            while let Some(push) = stream.next().await {
-                if generation.with_value(|g| *g) != my_gen {
-                    return; // superseded by a newer connection
+            // Reconnect at THIS level with the client-internal retry off
+            // (T-0941): a superseded loop's only kill point is between
+            // frames, and the internal reconnect kept a zombie socket
+            // fighting its replacement indefinitely. One shot per stream —
+            // a closed socket ends the stream and the generation checks
+            // below retire the zombie for good.
+            loop {
+                let opts = cloacina_client::SubscribeOptions {
+                    reconnect: false,
+                    ..Default::default()
+                };
+                let stream = client.subscribe_delivery("ops_metrics:global", opts);
+                let mut stream = std::pin::pin!(stream);
+                while let Some(push) = stream.next().await {
+                    if generation.with_value(|g| *g) != my_gen {
+                        return; // superseded by a newer connection
+                    }
+                    let Ok(push) = push else { continue };
+                    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&push.payload) {
+                        latest.set(Some(v));
+                    }
                 }
-                let Ok(push) = push else { continue };
-                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&push.payload) {
-                    latest.set(Some(v));
+                if generation.with_value(|g| *g) != my_gen {
+                    return;
+                }
+                gloo_timers::future::TimeoutFuture::new(2_000).await;
+                if generation.with_value(|g| *g) != my_gen {
+                    return;
                 }
             }
         });

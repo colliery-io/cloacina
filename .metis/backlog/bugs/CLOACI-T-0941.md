@@ -4,15 +4,15 @@ level: task
 title: "Ops-metrics WS ping-pong — dueling subscribers keep every session's health tiles at connecting"
 short_code: "CLOACI-T-0941"
 created_at: 2026-09-05T15:12:56.231439+00:00
-updated_at: 2026-09-05T15:12:56.231439+00:00
+updated_at: 2026-09-05T15:20:48.498780+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -88,6 +88,10 @@ FIX (drafted during T-0940 then deliberately deferred; reconstruct from this):
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] {Specific, testable requirement 1}
@@ -157,4 +161,14 @@ FIX (drafted during T-0940 then deliberately deferred; reconstruct from this):
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-09-05: Fix applied on fix/t0941-ops-ws-pingpong (ops.rs): Memo keys the
+  effect on (label, server_url, api_key, tenant) with the inner connection()
+  read UNTRACKED (a tracked read would re-subscribe the whole Vec and defeat
+  the memo); client-internal reconnect disabled, app-level retry loop with 2s
+  sleep and generation checks before/after. wasm compiles clean. Demo stack
+  rebuilding for live verification (expect: single WS, push ≤5s, tiles green).
+- Audit finding (follow-up, NOT in this PR): execution_detail.rs's
+  follow_execution_events has the same generation-check-between-frames idiom
+  with internal reconnect. No ping-pong (per-exec recipients don't collide)
+  but a superseded stream on a TERMINAL exec never gets a frame → zombie
+  socket persists per viewed execution (leak). Fold into a small follow-up.
