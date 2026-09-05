@@ -23,7 +23,7 @@ Add `cloacina-testing` as a dev dependency:
 
 ```toml
 [dev-dependencies]
-cloacina-testing = "0.10"
+cloacina-testing = "0.11"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 

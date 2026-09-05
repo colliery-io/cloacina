@@ -46,7 +46,9 @@ def _example_manifests():
         and re.search(r'^cloacina[\w-]*\s*=\s*(?:"|\{[^}]*version\s*=\s*")', pp.read_text(), re.M)
     )
 
-_EXAMPLE_PIN = re.compile(r'^(cloacina[\w-]*\s*=\s*(?:"|\{[^}]*?version\s*=\s*"))(\d+\.\d+)(")', re.M)
+# `(?!-provider)`: provider crates release on their own cadence (T-0872) and
+# their pins must NOT track the core version.
+_EXAMPLE_PIN = re.compile(r'^(cloacina(?!-provider)[\w-]*\s*=\s*(?:"|\{[^}]*?version\s*=\s*"))(\d+\.\d+)(")', re.M)
 # Helm chart appVersion = which app image tag `helm install` runs by default.
 # These drifted four minors behind before being added here (found during 0.10.0
 # release prep: server/agent said 0.6.1, ui 0.7.0 — a fresh chart install would
@@ -55,8 +57,25 @@ _EXAMPLE_PIN = re.compile(r'^(cloacina[\w-]*\s*=\s*(?:"|\{[^}]*?version\s*=\s*")
 _HELM_CHARTS = [
     ("helm · cloacina-server appVersion", "charts/cloacina-server/Chart.yaml"),
     ("helm · cloacina-agent appVersion", "charts/cloacina-agent/Chart.yaml"),
-    ("helm · cloacina-ui appVersion", "charts/cloacina-ui/Chart.yaml"),
+    # (charts/cloacina-ui retired in T-0940 — UI ships embedded in the server.)
 ]
+
+# Docs carry user-facing pins too (T-0940: every doc pin sat at 0.10 straight
+# through the 0.11 release because nothing swept them). Three shapes tracked
+# across docs/content (api-reference is generated and excluded): minor-form
+# crate pins (`cloacina = "0.11"`), server image tags, and the installer's
+# `--version vX.Y.Z` example.
+def _doc_files():
+    import pathlib
+    return sorted(
+        str(pp.relative_to(PROJECT_ROOT))
+        for pp in pathlib.Path(PROJECT_ROOT, "docs", "content").rglob("*.md")
+        if "api-reference" not in pp.parts
+    )
+
+_DOC_CRATE_PIN = re.compile(r'(cloacina(?!-provider)[\w-]*\s*=\s*(?:"|\{[^}\n]*?version\s*=\s*"))(\d+\.\d+)(")')
+_DOC_IMAGE_TAG = re.compile(r'(ghcr\.io/[\w./-]*cloacina-server:)(\d+\.\d+\.\d+)')
+_DOC_INSTALLER = re.compile(r'(--version v)(\d+\.\d+\.\d+)')
 
 
 def _read(rel: str) -> str:
@@ -109,6 +128,14 @@ def found_versions(source: str):
     for label, rel in _HELM_CHARTS:
         m = re.search(r'^appVersion:\s*"([^"]+)"', _read(rel), re.MULTILINE)
         out.append((label, m.group(1) if m else "<missing>", source))
+    for rel in _doc_files():
+        text = _read(rel)
+        for mm in _DOC_CRATE_PIN.finditer(text):
+            out.append((f"docs pin · {rel}", mm.group(2), minor))
+        for mm in _DOC_IMAGE_TAG.finditer(text):
+            out.append((f"docs image tag · {rel}", mm.group(2), source))
+        for mm in _DOC_INSTALLER.finditer(text):
+            out.append((f"docs installer · {rel}", mm.group(2), source))
     return out
 
 
@@ -159,6 +186,13 @@ def set_version(new: str) -> None:
         t = _read(rel)
         t = re.sub(r'^(appVersion:\s*")[^"]+(")', r"\g<1>" + new + r"\g<2>", t, count=1, flags=re.MULTILINE)
         _write(rel, t)
+    for rel in _doc_files():
+        t = _read(rel)
+        t2 = _DOC_CRATE_PIN.sub(lambda mm: mm.group(1) + source_minor + mm.group(3), t)
+        t2 = _DOC_IMAGE_TAG.sub(lambda mm: mm.group(1) + new, t2)
+        t2 = _DOC_INSTALLER.sub(lambda mm: mm.group(1) + new, t2)
+        if t2 != t:
+            _write(rel, t2)
 
 
 def changelog_stub(new: str) -> None:

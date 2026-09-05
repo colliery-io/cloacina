@@ -34,35 +34,22 @@ The harness drives a mix of fast / slow / failing runs continuously, so the
 dashboard and live execution view always have something moving. The first
 build is heavy (the compiler and fixtures images compile the workspace once).
 
-## Optional: standalone UI via Helm
+## Serving the UI from a different origin
 
-The `charts/cloacina-ui` chart deploys the UI as a standalone Deployment +
-Service + (optional) Ingress, using the published `cloacina-ui` image
-(`ghcr.io/colliery-software/cloacina-ui`). This is an optional alternative to
-the embedded UI — use it when you want the UI served from its own origin,
-separate from the server.
+There is no standalone UI image or chart — the embedded UI **is** the
+deployment path (the Nginx SPA container and its `cloacina-ui` chart were
+retired with CLOACI-I-0130/I-0141). If you want the control plane on a
+different origin than the server it operates, run a second
+`cloacina-server` (or point any embedded UI's connect screen at the target
+server's URL) and allow that origin on the target server:
 
-Because the browser then loads the SPA from the UI's origin and calls the
-server **cross-origin**, this path requires CORS on the server:
-
-```bash
-helm install ui charts/cloacina-ui \
-  --set serverUrl=https://cloacina.example.com \
-  --set ingress.enabled=true \
-  --set ingress.hosts[0].host=ui.example.com
-```
-
-- `serverUrl` is the address the **browser** uses to reach the server (its
-  public/ingress URL), not the in-cluster Service DNS. It is injected at
-  container start into `window.__CLOACINA_CONFIG__` and prefills the connect
-  form; leave it empty and the connect screen asks the user for it.
-- Ensure the server's `CLOACINA_CORS_ALLOWED_ORIGINS` (flag
-  `--cors-allowed-origins`) includes the UI's public origin. The allowed
-  origin is the URL users load the UI from — not the server's own address.
+- Set `CLOACINA_CORS_ALLOWED_ORIGINS` (flag `--cors-allowed-origins`) on
+  the **target** server to the origin users load the UI from.
+- On the connect screen, edit the server URL to the target server's
+  public address; the API key and tenant scope the session as usual.
 
 ## Version lockstep
 
-The UI is version-matched to the server it talks to: the `ui`/`ui-harness`
-package versions track the workspace version, asserted in CI by
-`scripts/check_sdk_versions.py`. For the standalone chart, deploy the
-`cloacina-ui` image whose tag matches your server release.
+The UI is compiled into the server binary, so it is version-matched by
+construction — the `cloacina-ui` crate version tracks the workspace
+version, asserted in CI by `scripts/check_sdk_versions.py`.

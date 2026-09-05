@@ -807,6 +807,24 @@ Unregister a specific workflow version.
 |---|---|
 | `404` | `{"error": "<detail>"}` |
 
+### Named workflow instances
+
+Persistent, named parameter bindings for a workflow — optionally on their
+own cron schedule (CLOACI-T-0894). An instance is "this workflow, with
+these params, on this cadence"; the web UI lists them on the workflow
+detail page and `cloacinactl instance` drives the same endpoints.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true}` — `params`, `cron`, `timezone`, and `enabled` are optional (no `cron` = unscheduled binding). Returns `201` with the instance summary. |
+| `GET /v1/tenants/{tenant_id}/workflows/{name}/instances` | List instances (`{items, total}` envelope; `limit`/`offset` paging). |
+| `GET /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | One instance's summary. |
+| `DELETE /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Delete the instance (and its schedule). Returns `{"deleted": true, ...}`. |
+
+Instance summary shape: `id`, `workflow_name`, `instance_name`, `params`,
+`cron_expression`, `timezone`, `enabled`, `paused`, `next_run_at`,
+`last_run_at`, `created_at`.
+
 ## Executions
 
 ### POST /v1/tenants/{tenant_id}/workflows/{name}/execute
@@ -998,7 +1016,7 @@ pagination.
 ```json
 {
   "tenant_id": "tenant_acme",
-  "schedules": [
+  "items": [
     {
       "id": "c3d4e5f6-a7b8-9012-cdef-234567890123",
       "schedule_type": "cron",
@@ -1009,7 +1027,10 @@ pagination.
       "poll_interval_ms": null,
       "next_run_at": "2026-04-03T02:00:00+00:00",
       "last_run_at": "2026-04-02T02:00:00+00:00",
-      "created_at": "2026-03-01T10:00:00+00:00"
+      "created_at": "2026-03-01T10:00:00+00:00",
+      "paused": false,
+      "paused_at": null,
+      "last_poll_at": null
     },
     {
       "id": "d4e5f6a7-b8c9-0123-def0-345678901234",
@@ -1021,11 +1042,19 @@ pagination.
       "poll_interval_ms": 5000,
       "next_run_at": null,
       "last_run_at": "2026-04-02T14:30:00+00:00",
-      "created_at": "2026-03-15T12:00:00+00:00"
+      "created_at": "2026-03-15T12:00:00+00:00",
+      "paused": false,
+      "paused_at": null,
+      "last_poll_at": "2026-04-02T14:30:57+00:00"
     }
   ]
 }
 ```
+
+`last_poll_at` is the scheduler's most recent evaluation of a
+`trigger`-type schedule (`null` for cron schedules or never-polled
+triggers); the next poll is due `poll_interval_ms` after it. The web UI
+derives the live poll cadence on the Triggers page from this field.
 
 ### GET /v1/tenants/{tenant_id}/triggers/{name}
 
@@ -1049,7 +1078,10 @@ Get trigger details and recent executions. Matches by trigger name or workflow n
     "workflow_name": "etl_pipeline",
     "enabled": true,
     "cron_expression": "0 2 * * *",
-    "trigger_name": null
+    "trigger_name": null,
+    "poll_interval_ms": null,
+    "paused": false,
+    "paused_at": null
   },
   "recent_executions": [
     {
@@ -1115,6 +1147,13 @@ started); `executions` lists each `(workflow_name, execution_id)`.
 | Status | Body | Cause |
 |---|---|---|
 | `404` | `{"error": "<detail>"}` | No enabled subscribers for this trigger. |
+
+{{< hint type=caution title="Subscription-side targets only" >}}
+Manual fire resolves **subscribers** (`#[workflow(triggers = [..])]`); a
+trigger bound to a single workflow via an `on = ..` schedule currently
+returns `404` from `/fire` (known limitation, CLOACI-T-0929). Fire that
+workflow directly via `POST .../workflows/{name}/execute` instead.
+{{< /hint >}}
 
 ### GET /v1/tenants/{tenant_id}/triggers/{name}/interface
 

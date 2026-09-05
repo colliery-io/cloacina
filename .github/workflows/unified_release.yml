@@ -619,10 +619,9 @@ jobs:
           sed -i -E "s/^version: .*/version: ${version}/" charts/cloacina-server/Chart.yaml
           sed -i -E "s/^appVersion: .*/appVersion: \"${version}\"/" charts/cloacina-server/Chart.yaml
           grep -E "^(version|appVersion):" charts/cloacina-server/Chart.yaml
-          # cloacina-ui chart tracks the same release tag (NFR-004).
-          sed -i -E "s/^version: .*/version: ${version}/" charts/cloacina-ui/Chart.yaml
-          sed -i -E "s/^appVersion: .*/appVersion: \"${version}\"/" charts/cloacina-ui/Chart.yaml
-          grep -E "^(version|appVersion):" charts/cloacina-ui/Chart.yaml
+          # (charts/cloacina-ui retired with the standalone SPA image,
+          # I-0130/I-0141 — the UI ships embedded in cloacina-server. T-0940
+          # removed the chart: it defaulted to an image that no longer exists.)
 
       - name: Log in to ghcr.io (Helm OCI push)
         env:
@@ -634,13 +633,11 @@ jobs:
       - name: Lint charts
         run: |
           helm lint charts/cloacina-server
-          helm lint charts/cloacina-ui
 
       - name: Package charts
         run: |
           mkdir -p dist-charts
           helm package charts/cloacina-server --destination dist-charts
-          helm package charts/cloacina-ui --destination dist-charts
 
       - name: Push charts to ghcr.io
         env:
@@ -648,11 +645,9 @@ jobs:
         run: |
           set -euo pipefail
           owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
-          for prefix in cloacina-server cloacina-ui; do
-            chart_pkg=$(ls dist-charts/${prefix}-*.tgz | head -n1)
-            [ -n "${chart_pkg}" ] || { echo "no ${prefix} chart package found" >&2; exit 1; }
-            helm push "${chart_pkg}" "oci://ghcr.io/${owner_lc}/charts"
-          done
+          chart_pkg=$(ls dist-charts/cloacina-server-*.tgz | head -n1)
+          [ -n "${chart_pkg}" ] || { echo "no cloacina-server chart package found" >&2; exit 1; }
+          helm push "${chart_pkg}" "oci://ghcr.io/${owner_lc}/charts"
 
   # -----------------------------------------------------------------------
   # Step 6: Cache hygiene

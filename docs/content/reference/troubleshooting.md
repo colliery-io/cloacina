@@ -455,14 +455,14 @@ The `#[computation_graph]` macro expands into code that references types from th
 2. **For packaged mode** (standalone cdylib), add the dependency explicitly:
    ```toml
    [dependencies]
-   cloacina-computation-graph = { version = "0.10" }
-   cloacina-macros = { version = "0.10" }
+   cloacina-computation-graph = { version = "0.11" }
+   cloacina-macros = { version = "0.11" }
    ```
 
 3. **Verify the feature flags** — computation graph support requires the `macros` feature (on by default):
    ```toml
    [dependencies]
-   cloacina = { version = "0.10", features = ["macros"] }
+   cloacina = { version = "0.11", features = ["macros"] }
    ```
 
 ---

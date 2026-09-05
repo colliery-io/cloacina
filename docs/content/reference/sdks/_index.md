@@ -15,7 +15,7 @@ Run cloacina-server as a managed orchestration service and call into it from you
 |---|---|---|
 | [Rust](rust/) | `cloacina-client` on crates.io | `cargo add cloacina-client` |
 | [Python](python/) | `cloacina-client` on PyPI | `pip install cloacina-client` |
-| [TypeScript](typescript/) | `@cloacina/client` on npm | `npm install @cloacina/client` |
+| [TypeScript](typescript/) | `@cloacina/client`, in-repo (`clients/typescript`) — not on npm | [build from the repo](typescript/) |
 
 **Version lockstep:** SDK `X.Y.Z` is generated from, contract-tested against, and only supported on `cloacina-server X.Y.Z`. There is no independent SDK release cadence.
 

@@ -62,7 +62,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina = { version = "0.10", features = ["macros", "sqlite"] }
+cloacina = { version = "0.11", features = ["macros", "sqlite"] }
 async-trait = "0.1"
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
@@ -76,8 +76,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina-workflow = { version = "0.10", features = ["packaged", "macros"] }
-cloacina-workflow-plugin = "0.10"
+cloacina-workflow = { version = "0.11", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ```

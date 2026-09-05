@@ -14,7 +14,7 @@ Pick your language — the engine is the same.
 
 {{< tabs "embed-quickstart" >}}
 {{< tab "Rust" >}}
-Add the dependencies — `cloacina = "0.10"` and `cloacina-workflow = "0.10"`
+Add the dependencies — `cloacina = "0.11"` and `cloacina-workflow = "0.11"`
 (the task macro generates code that references it directly), plus `tokio` and
 `serde_json` — then:
 

@@ -161,10 +161,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina-workflow = { version = "0.10", features = ["packaged", "macros"] }
-cloacina-workflow-plugin = "0.10"
-cloacina-macros = "0.10"
-cloacina-computation-graph = "0.10"
+cloacina-workflow = { version = "0.11", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.11"
+cloacina-macros = "0.11"
+cloacina-computation-graph = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ```
