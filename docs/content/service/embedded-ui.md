@@ -6,7 +6,7 @@ weight: 45
 
 # Embedded Web UI
 
-`cloacina-server` can serve the `@cloacina/ui` control plane itself, so one
+`cloacina-server` can serve the web control plane (the `cloacina-ui` Leptos app) itself, so one
 binary is the engine, the REST API, **and** the web UI — same origin, no
 Nginx container, no CORS configuration for the bundled UI.
 

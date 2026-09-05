@@ -40,7 +40,8 @@ COMPOSE_FILE = PROJECT_ROOT / "docker" / "docker-compose.demo.yml"
 # dynamically instead of the static `agent`/`agent-acme` services).
 FLEET_OVERRIDE = PROJECT_ROOT / "docker" / "docker-compose.demo.fleet.yml"
 
-UI_URL = "http://localhost:8082"
+# The UI is embedded in cloacina-server (I-0141) — one origin for both.
+UI_URL = "http://localhost:8080"
 SERVER_URL = "http://localhost:8080"
 DEMO_BOOTSTRAP_KEY = "clk_demo_bootstrap_key_0001"
 

@@ -47,7 +47,7 @@ If none of these are set, the command exits with an error message listing all th
 | `CLOACINA_SECRET_KEK` | Server key-encryption key (KEK) for the [tenant secrets]({{< ref "/service/explanation/secrets" >}}) store. Base64 or hex encoding of **exactly 32 bytes** (AES-256). It wraps each tenant's data key (envelope encryption at rest); keep it stable and backed up — losing it makes existing secrets unrecoverable, changing it invalidates them. When unset or malformed, secret routes return `503` and workflow secret resolution fails closed. Generate with `openssl rand -base64 32` or `openssl rand -hex 32`. | None (secrets disabled) | `openssl rand -base64 32` output | Server | No |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB pool. Bump for high-cardinality SaaS; drop for memory-tight deployments. | `256` | `1024` | Server | No |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; tasks ignoring cooperative cancellation will error on next DB write. | `30` | `60` | Server | No |
-| `CLOACINA_CORS_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins. **CORS is disabled by default** — set this to opt in (REQ-009). Use `*` to allow any origin. Needed when a browser app (e.g. the web UI on a different origin) calls the API. | None (CORS off) | `http://localhost:8082,https://app.example.com` | Server | No |
+| `CLOACINA_CORS_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins. **CORS is disabled by default** — set this to opt in (REQ-009). Use `*` to allow any origin. Needed when a browser app (e.g. the web UI on a different origin) calls the API. | None (CORS off) | `https://ui.internal.example.com,https://app.example.com` | Server | No |
 | `CLOACINA_CORS_ALLOWED_METHODS` | Comma-separated CORS allowed methods. Only applies once origins are set. | `GET,POST,DELETE,OPTIONS` | `GET,POST` | Server | No |
 | `CLOACINA_CORS_ALLOWED_HEADERS` | Comma-separated CORS allowed request headers. Only applies once origins are set. | `authorization,content-type` | `authorization,content-type,x-tenant` | Server | No |
 
@@ -327,7 +327,7 @@ The Python wheel (`cloaca`) is built using [maturin](https://github.com/PyO3/mat
 
 | Variable | Purpose | Default | Example | Context |
 |----------|---------|---------|---------|---------|
-| `CARGO_PKG_VERSION` | Embedded at compile time as `CLOACINA_VERSION` in the built binary. Set automatically by Cargo. | From `Cargo.toml` | `0.10.0` | Build-time (Cargo) |
+| `CARGO_PKG_VERSION` | Embedded at compile time as `CLOACINA_VERSION` in the built binary. Set automatically by Cargo. | From `Cargo.toml` | `0.11.0` | Build-time (Cargo) |
 
 ### Build Commands
 
@@ -472,7 +472,7 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_TEST_SCHEMA` | Tests | Schema isolation for CI |
 | `CLOACINA_COMPILER_DEV_WORKSPACE` | Compiler (dev) | `[patch.crates-io]` escape hatch to local crates — not for production |
 | `CLOACINA_DEMO_TENANT_KEYS` | Server (demo) | Deterministic tenant-scoped key seeding, `tenant:key:role,…` — demo stacks only |
-| `CLOACINA_EMBEDDED_UI_SKIP_NPM` | Server build | Skip the npm SPA rebuild when compiling with the `embedded-ui` feature (container builds prebuild `ui/dist`) |
+| `CLOACINA_EMBEDDED_UI_SKIP_NPM` | Server build | Skip the trunk UI rebuild when compiling with the `embedded-ui` feature and use the existing `ui/dist` (container builds prebuild it in a separate stage; the variable name predates the Leptos port) |
 | `CLOACINACTL_VERSION` | Install script | Pin to a release tag |
 | `INSTALL_DIR` | Install script | Override install root |
 

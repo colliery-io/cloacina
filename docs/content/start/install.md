@@ -33,7 +33,7 @@ add to your shell rc.
 ### Pinning a version
 
 ```sh
-curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.10.0
+curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.11.0
 ```
 
 Use a specific tag from the releases page. Any release that has the
@@ -113,8 +113,8 @@ The engine is a crate — no CLI required. Add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = "0.10"
-cloacina-workflow = "0.10"   # macro-generated task code references this crate directly
+cloacina = "0.11"
+cloacina-workflow = "0.11"   # macro-generated task code references this crate directly
 tokio = { version = "1", features = ["full"] }
 serde_json = "1.0"
 ```
@@ -142,7 +142,7 @@ The server is published as a multi-arch container image (linux/amd64 +
 linux/arm64) on every release, tagged `X.Y.Z`, `X.Y`, and `latest`:
 
 ```sh
-docker pull ghcr.io/colliery-io/cloacina-server:0.10.0
+docker pull ghcr.io/colliery-io/cloacina-server:0.11.0
 ```
 
 See [Running the server image]({{< ref "/service/how-to/running-the-server-image" >}}) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.

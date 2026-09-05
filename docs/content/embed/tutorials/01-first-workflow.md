@@ -26,7 +26,7 @@ A workflow named `greeting` with one task that writes a message into the
 {{< tab "Rust" >}}
 ```toml
 [dependencies]
-cloacina = "0.10"
+cloacina = "0.11"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 ```
