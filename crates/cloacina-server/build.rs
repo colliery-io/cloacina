@@ -35,7 +35,14 @@ fn main() {
             .join("../../ui")
             .canonicalize()
             .expect("ui/ directory not found — embedded-ui requires the UI sources");
-        for input in ["src", "index.html", "Cargo.toml", "Trunk.toml", "build.rs"] {
+        for input in [
+            "src",
+            "style",
+            "index.html",
+            "Cargo.toml",
+            "Trunk.toml",
+            "build.rs",
+        ] {
             println!("cargo:rerun-if-changed={}", ui_dir.join(input).display());
         }
         let status = std::process::Command::new("trunk")

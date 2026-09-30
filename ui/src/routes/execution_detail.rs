@@ -26,9 +26,12 @@
 //! Wave-4 follow-ups (CLOACI-T-0935): the TaskGantt timeline and the
 //! task-source modal (TaskCodeModal).
 
-use aurora_leptos::components::{Loading, StatusBadge};
+use aurora_leptos::components::{
+    Button, DetailList, KeyValue, LiveIndicator, LiveState, Loading, LogLine, LogView, PageHeader,
+    SectionLabel, StatusBadge, Table,
+};
 use aurora_leptos::graph::{Graph, GraphEdge, GraphNode};
-use aurora_leptos::tokens::{pill_bg, status_color, token};
+use aurora_leptos::tokens::{status_color, token};
 use futures_util::StreamExt;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -36,11 +39,8 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use cloacina_api_types::ExecutionEvent;
 
 use crate::auth::{client_for, use_auth};
-use aurora_leptos::components::Pill;
 use crate::data::{once_resource, poll_resource};
-use crate::util::format_duration;
-
-const MONO: &str = "'IBM Plex Mono', monospace";
+use crate::util::{clock_time, format_duration};
 
 fn is_terminal(status: &str) -> bool {
     matches!(
@@ -53,42 +53,19 @@ fn local_id(name: &str) -> String {
     name.rsplit("::").next().unwrap_or(name).to_string()
 }
 
-#[component]
-fn Field(#[prop(into)] label: String, value: Signal<String>) -> impl IntoView {
-    view! {
-        <div>
-            <div
-                style:font-family=MONO
-                style:font-size="10px"
-                style:letter-spacing=".07em"
-                style:text-transform="uppercase"
-                style:color="var(--faint)"
-            >
-                {label}
-            </div>
-            <div style:font-size="13.5px" style:color="var(--fg)" style:margin-top="3px">
-                {move || value.get()}
-            </div>
-        </div>
-    }
-}
-
+/// A section title; while the run is live it carries a live marker.
 #[component]
 fn SectionHeader(#[prop(into)] title: String, live: Signal<bool>) -> impl IntoView {
     view! {
-        <div
-            style:display="flex"
-            style:gap="10px"
-            style:align-items="center"
-            style:border-bottom="1px solid var(--border-soft)"
-            style:padding-bottom="8px"
-            style:margin-bottom="10px"
-        >
-            <span style:font-size="14px" style:font-weight="600" style:color="var(--fg)">{title}</span>
-            <Show when=move || live.get()>
-                <span style:font-family=MONO style:font-size="10.5px" style:color=token::ICE>"live"</span>
-            </Show>
-        </div>
+        <SectionLabel
+            label=title
+            divider=true
+            action=Box::new(move || view! {
+                <Show when=move || live.get()>
+                    <LiveIndicator state=LiveState::Live live_label="live" compact=true />
+                </Show>
+            }.into_any())
+        />
     }
 }
 
@@ -276,7 +253,7 @@ pub fn ExecutionView(
     });
 
     let rerunning = RwSignal::new(false);
-    let rerun = move |_| {
+    let rerun = move || {
         let wf = workflow_name.get_untracked();
         if wf.is_empty() {
             return;
@@ -308,99 +285,89 @@ pub fn ExecutionView(
 
     let live = Signal::derive(move || !terminal.get());
 
-    view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="16px">
-            // Header
-            <div style:display="flex" style:justify-content="space-between" style:align-items="flex-start">
-                <div>
-                    <Show
-                        when=move || !embedded
-                        fallback=move || view! {
-                            <a
-                                href=move || format!("/executions/{}", id.get())
-                                style:font-family=MONO
-                                style:font-size="11.5px"
-                                style:color="var(--muted)"
-                                style:text-decoration="none"
-                            >
-                                {move || format!("{} — open full view →", id.get())}
-                            </a>
-                        }
-                    >
-                        <a href="/executions" style:font-size="11.5px" style:color="var(--muted)" style:text-decoration="none">
-                            "← Executions"
-                        </a>
-                        <h1 style:font-size="22px" style:font-weight="600" style:color="var(--fg-bright)" style:margin="2px 0 0">
-                            {move || {
-                                let w = workflow_name.get();
-                                if w.is_empty() { "Execution".to_string() } else { w }
-                            }}
-                        </h1>
-                        <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="2px">
-                            {move || id.get()}
-                        </div>
-                    </Show>
+    let rerun_button = move || {
+        view! {
+            <Button
+                variant="default"
+                loading=rerunning
+                disabled=Signal::derive(move || workflow_name.get().is_empty())
+                on_click=Callback::new(move |_| rerun())
+            >
+                "↻ Re-run"
+            </Button>
+        }
+    };
+
+    let header = move || {
+        if embedded {
+            view! {
+                <div class="app-row app-row--between">
+                    <a href=move || format!("/executions/{}", id.get()) class="app-meta app-meta--md app-muted app-plainlink">
+                        {move || format!("{} — open full view →", id.get())}
+                    </a>
+                    {rerun_button}
                 </div>
-                <button
-                    class="cl-btn cl-btn--default"
-                    disabled=move || rerunning.get() || workflow_name.get().is_empty()
-                    on:click=rerun
-                >
-                    "↻ Re-run"
-                </button>
-            </div>
+            }
+            .into_any()
+        } else {
+            view! {
+                {move || {
+                    let w = workflow_name.get();
+                    let title = if w.is_empty() { "Execution".to_string() } else { w };
+                    view! {
+                        <PageHeader
+                            title=title
+                            sub=id.get()
+                            back_href="/executions"
+                            back_label="Executions"
+                            actions=Box::new(move || view! { {rerun_button} }.into_any())
+                        />
+                    }
+                }}
+            }
+            .into_any()
+        }
+    };
+
+    let log_lines = Signal::derive(move || {
+        merged
+            .get()
+            .into_iter()
+            .map(|e| {
+                LogLine::new(e.task_name.clone().unwrap_or_default())
+                    .time(clock_time(&e.created_at))
+                    .level_color(e.event_type.clone(), status_color(&e.event_type))
+            })
+            .collect::<Vec<_>>()
+    });
+
+    view! {
+        <div class="app-page">
+            {header}
 
             // Meta card
             <Show
                 when=move || detail.get().is_some()
                 fallback=|| view! { <Loading label="Loading execution…" /> }
             >
-                <div
-                    style:background="var(--panel)"
-                    style:border="1px solid var(--border)"
-                    style:border-radius="10px"
-                    style:padding="15px 18px"
-                    style:display="flex"
-                    style:gap="32px"
-                    style:align-items="center"
-                >
-                    <span data-testid="execution-status">
-                        {move || view! { <StatusBadge status=status.get() /> }}
-                    </span>
-                    <Show when=move || live.get()>
-                        <span
-                            style:background=pill_bg(token::ICE)
-                            style:color=token::ICE
-                            style:border-radius="10px"
-                            style:padding="2px 9px"
-                            style:font-family=MONO
-                            style:font-size="10.5px"
-                            style:display="inline-flex"
-                            style:align-items="center"
-                            style:gap="5px"
-                        >
-                            <span
-                                class="cl-pulse"
-                                style:width="6px"
-                                style:height="6px"
-                                style:border-radius="50%"
-                                style:background=token::ICE
-                                style:display="inline-block"
-                            ></span>
-                            " live"
+                <div class="app-panel app-meta-card">
+                    <div class="app-row">
+                        <span data-testid="execution-status">
+                            {move || view! { <StatusBadge status=status.get() /> }}
                         </span>
-                    </Show>
-                    <Field
-                        label="Started"
-                        value=Signal::derive(move || started_at.get().unwrap_or_else(|| "—".into()))
-                    />
-                    <Field
-                        label="Duration"
-                        value=Signal::derive(move || {
-                            format_duration(started_at.get().as_deref(), ended_at.get().as_deref())
-                        })
-                    />
-                    <Field label="Tasks" value=completed_of />
+                        <Show when=move || live.get()>
+                            <LiveIndicator state=LiveState::Live live_label="live" />
+                        </Show>
+                    </div>
+                    <DetailList stacked=true dividers=false>
+                        <KeyValue label="Started">
+                            {move || started_at.get().unwrap_or_else(|| "—".into())}
+                        </KeyValue>
+                        <KeyValue label="Duration">
+                            {move || format_duration(started_at.get().as_deref(), ended_at.get().as_deref())}
+                        </KeyValue>
+                        <KeyValue label="Tasks">{move || completed_of.get()}</KeyValue>
+                    </DetailList>
                 </div>
             </Show>
 
@@ -452,40 +419,42 @@ pub fn ExecutionView(
                     when=move || tasks.get().is_some()
                     fallback=|| view! { <Loading label="Loading tasks…" /> }
                 >
-                    <table class="cl-table cl-table--mono">
-                        <thead>
-                            <tr>
-                                <th>"Task"</th>
-                                <th>"Status"</th>
-                                <th>"Attempt"</th>
-                                <th>"Duration"</th>
-                                <th>"Error"</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <For
-                                each=move || task_list.get()
-                                key=|t| (t.id.clone(), t.status.clone(), t.attempt)
-                                children=|t| {
-                                    let start = t.started_at.clone().unwrap_or_else(|| t.created_at.clone());
-                                    let end = t.completed_at.clone();
-                                    view! {
-                                        <tr>
-                                            <td>{local_id(&t.task_name)}</td>
-                                            <td><StatusBadge status=t.status.clone() /></td>
-                                            <td>{format!("{}/{}", t.attempt, t.max_attempts)}</td>
-                                            <td class="cl-tnum">
-                                                {format_duration(Some(start.as_str()), end.as_deref())}
-                                            </td>
-                                            <td style:color="var(--bad)" style:font-size="11.5px">
-                                                {t.last_error.clone().unwrap_or_default()}
-                                            </td>
-                                        </tr>
+                    <div class="app-panel app-panel--flush">
+                        <Table mono=true label="Tasks">
+                            <thead>
+                                <tr>
+                                    <th>"Task"</th>
+                                    <th>"Status"</th>
+                                    <th>"Attempt"</th>
+                                    <th>"Duration"</th>
+                                    <th>"Error"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <For
+                                    each=move || task_list.get()
+                                    key=|t| (t.id.clone(), t.status.clone(), t.attempt)
+                                    children=|t| {
+                                        let start = t.started_at.clone().unwrap_or_else(|| t.created_at.clone());
+                                        let end = t.completed_at.clone();
+                                        view! {
+                                            <tr>
+                                                <td>{local_id(&t.task_name)}</td>
+                                                <td><StatusBadge status=t.status.clone() /></td>
+                                                <td>{format!("{}/{}", t.attempt, t.max_attempts)}</td>
+                                                <td class="cl-tnum">
+                                                    {format_duration(Some(start.as_str()), end.as_deref())}
+                                                </td>
+                                                <td class="app-bad app-meta--md">
+                                                    {t.last_error.clone().unwrap_or_default()}
+                                                </td>
+                                            </tr>
+                                        }
                                     }
-                                }
-                            />
-                        </tbody>
-                    </table>
+                                />
+                            </tbody>
+                        </Table>
+                    </div>
                 </Show>
             </div>
 
@@ -507,41 +476,7 @@ pub fn ExecutionView(
                     when=move || events.get().is_some()
                     fallback=|| view! { <Loading label="Loading events…" /> }
                 >
-                    <div
-                        style:background="var(--inset)"
-                        style:border="1px solid var(--border-soft)"
-                        style:border-radius="10px"
-                        style:padding="10px 13px"
-                        style:max-height="380px"
-                        style:overflow-y="auto"
-                    >
-                        <For
-                            each=move || merged.get()
-                            key=|e| e.sequence_num
-                            children=|e| {
-                                view! {
-                                    <div
-                                        style:display="flex"
-                                        style:gap="10px"
-                                        style:align-items="baseline"
-                                        style:padding="3px 0"
-                                        style:font-family=MONO
-                                        style:font-size="11.5px"
-                                    >
-                                        <span style:color="var(--fainter)" style:flex="none">
-                                            {e.created_at.clone()}
-                                        </span>
-                                        <Pill color=status_color(&e.event_type).to_string()>
-                                            {e.event_type.clone()}
-                                        </Pill>
-                                        <span style:color="var(--fg-2)">
-                                            {e.task_name.clone().unwrap_or_default()}
-                                        </span>
-                                    </div>
-                                }
-                            }
-                        />
-                    </div>
+                    <LogView lines=log_lines max_height="380px" empty="No events yet." label="Event log" />
                 </Show>
             </div>
         </div>

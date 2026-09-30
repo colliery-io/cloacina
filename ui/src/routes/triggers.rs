@@ -21,7 +21,10 @@
 //! scheduler has polled). Actions live in HEADED, left-justified columns
 //! ("Fire", "Run") with real icons so the clickables are self-explanatory.
 
-use aurora_leptos::components::{Empty, Loading, PageHeader};
+use aurora_leptos::components::{
+    Button, Dot, Empty, IconBolt, IconPlay, Loading, PageHeader, SectionLabel, Table, TableRow,
+};
+use aurora_leptos::data::use_now;
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
@@ -29,12 +32,9 @@ use leptos_router::hooks::use_navigate;
 use cloacina_api_types::TriggerScheduleSummary;
 
 use crate::auth::{client_for, use_auth};
-use aurora_leptos::components::{IconBolt, IconPlay};
-use crate::components::{TriggerFireModal};
-use crate::data::{poll_resource, use_clock};
+use crate::components::TriggerFireModal;
+use crate::data::poll_resource;
 use crate::util::ago;
-
-const MONO: &str = "'IBM Plex Mono', monospace";
 
 fn fmt_poll_interval(ms: i64) -> String {
     if ms % 3_600_000 == 0 && ms >= 3_600_000 {
@@ -101,40 +101,23 @@ fn poll_times(t: &TriggerScheduleSummary) -> (String, String) {
     }
 }
 
+/// A section title with a one-line hint on the right.
 #[component]
-fn SectionLabel(#[prop(into)] label: String, #[prop(into)] hint: String) -> impl IntoView {
+fn Section(#[prop(into)] label: String, #[prop(into)] hint: String) -> impl IntoView {
     view! {
-        <div style:margin="6px 0 8px">
-            <span
-                style:font-family=MONO
-                style:font-size="11px"
-                style:letter-spacing=".06em"
-                style:text-transform="uppercase"
-                style:color="var(--muted)"
-            >
-                {label}
-            </span>
-            <span style:font-size="11.5px" style:color="var(--faint)" style:margin-left="10px">
-                {hint}
-            </span>
-        </div>
+        <SectionLabel
+            label=label
+            action=Box::new(move || view! { <span class="app-meta app-meta--md app-faint">{hint}</span> }.into_any())
+        />
     }
 }
 
 #[component]
 fn StateCell(enabled: bool) -> impl IntoView {
     view! {
-        <span style:display="inline-flex" style:gap="6px" style:align-items="center">
-            <span
-                style:width="7px"
-                style:height="7px"
-                style:border-radius="50%"
-                style:background=if enabled { token::OK } else { token::FAINT }
-            ></span>
-            <span
-                style:font-size="12px"
-                style:color=if enabled { "var(--fg-2)" } else { "var(--faint)" }
-            >
+        <span class="app-row app-row--tight">
+            <Dot color=if enabled { token::OK } else { token::FAINT } size=7 />
+            <span class="app-small" class:app-fg2=enabled class:app-faint=!enabled>
                 {if enabled { "enabled" } else { "disabled" }}
             </span>
         </span>
@@ -145,7 +128,7 @@ fn StateCell(enabled: bool) -> impl IntoView {
 pub fn Triggers() -> impl IntoView {
     let auth = use_auth();
     let navigate = StoredValue::new(use_navigate());
-    let clock = use_clock();
+    let now = use_now();
 
     let list = poll_resource(|c| async move { c.list_triggers(Some(200), Some(0), None).await });
     let items = Signal::derive(move || {
@@ -218,7 +201,7 @@ pub fn Triggers() -> impl IntoView {
         // between data refreshes (UAT round 2).
         let tt = StoredValue::new(t.clone());
         let times = move || {
-            clock.track();
+            now.track();
             tt.with_value(|t| {
                 if poll_mode {
                     poll_times(t)
@@ -240,43 +223,22 @@ pub fn Triggers() -> impl IntoView {
         let wf_for_run = t.workflow_name.clone();
         let trig_for_fire = t.trigger_name.clone();
         view! {
-            <tr
-                style:cursor="pointer"
-                on:click=move |_| {
-                    navigate.with_value(|n| n(
-                        &format!("/triggers/{}", urlencoding::encode(&detail_name)),
-                        Default::default(),
-                    ))
-                }
-            >
+            <TableRow on_click=Callback::new(move |_| {
+                navigate.with_value(|n| n(
+                    &format!("/triggers/{}", urlencoding::encode(&detail_name)),
+                    Default::default(),
+                ))
+            })>
                 <td>
-                    <span style:font-size="13px" style:font-weight="600" style:color="var(--fg)">
-                        {t.workflow_name.clone()}
-                    </span>
-                    {t.trigger_name.clone().map(|n| view! {
-                        <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                            {n}
-                        </div>
-                    })}
+                    <span class="app-name app-block app-ellipsis">{t.workflow_name.clone()}</span>
+                    {t.trigger_name.clone().map(|n| view! { <span class="app-meta app-block app-ellipsis">{n}</span> })}
                 </td>
-                <td>
-                    <span style:font-family=MONO style:font-size="11.5px" style:color="var(--fg-2)">
-                        {schedule_text}
-                    </span>
-                </td>
+                <td class="app-meta app-meta--md">{schedule_text}</td>
                 <td><StateCell enabled=enabled /></td>
-                <td>
-                    <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
-                        {move || times().1}
-                    </span>
-                </td>
-                <td>
-                    <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
-                        {move || times().0}
-                    </span>
-                </td>
+                <td class="app-meta app-meta--sm">{move || times().1}</td>
+                <td class="app-meta app-meta--sm">{move || times().0}</td>
                 // Fire column — headed, left-justified.
-                <td style:text-align="left">
+                <td>
                     <Show when={
                         let has = trig_for_fire.is_some();
                         move || auth.can_write() && has
@@ -284,76 +246,74 @@ pub fn Triggers() -> impl IntoView {
                         {
                             let trig = trig_for_fire.clone();
                             view! {
-                                <button
-                                    class="cl-btn cl-btn--subtle cl-btn--xs"
-                                    aria-label="Fire trigger"
-                                    style:color=token::GOLD
+                                <Button
+                                    variant="subtle"
+                                    size="xs"
+                                    aria_label="Fire trigger"
                                     title="Fire this trigger → all subscribed workflows"
-                                    on:click={
-                                        let trig = trig.clone();
-                                        move |ev: leptos::ev::MouseEvent| {
-                                            ev.stop_propagation();
-                                            fire_target.set(trig.clone());
-                                            fire_open.set(true);
-                                        }
-                                    }
+                                    stop_propagation=true
+                                    on_click=Callback::new(move |_| {
+                                        fire_target.set(trig.clone());
+                                        fire_open.set(true);
+                                    })
                                 >
-                                    <IconBolt size=16 />
-                                </button>
+                                    <span class="app-hue app-gold"><IconBolt size=16 /></span>
+                                </Button>
                             }
                         }
                     </Show>
                 </td>
                 // Run column — headed, left-justified, larger icon.
-                <td style:text-align="left">
+                <td>
                     <Show when=move || auth.can_write()>
                         {
                             let wf = wf_for_run.clone();
                             view! {
-                                <button
-                                    class="cl-btn cl-btn--subtle cl-btn--xs"
-                                    aria-label="Run workflow"
-                                    style:color=token::ICE
+                                <Button
+                                    variant="subtle"
+                                    size="xs"
+                                    aria_label="Run workflow"
                                     title="Run the workflow now (bypasses the schedule)"
-                                    disabled=move || running.get()
-                                    on:click={
-                                        let wf = wf.clone();
-                                        move |ev: leptos::ev::MouseEvent| {
-                                            ev.stop_propagation();
-                                            run_now(wf.clone());
-                                        }
-                                    }
+                                    disabled=running
+                                    stop_propagation=true
+                                    on_click=Callback::new(move |_| run_now(wf.clone()))
                                 >
-                                    <IconPlay size=18 />
-                                </button>
+                                    <span class="app-hue app-ice"><IconPlay size=18 /></span>
+                                </Button>
                             }
                         }
                     </Show>
                 </td>
-            </tr>
+            </TableRow>
         }
     };
 
     // Fixed layout + shared widths so the cron and polling tables align
     // column-for-column (UAT round 2).
+    let widths = || {
+        ["22%", "16%", "12%", "22%", "18%", "52px", "52px"]
+            .iter()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+    };
     let table_head = || {
         view! {
             <thead>
                 <tr>
-                    <th style:width="22%">"Workflow"</th>
-                    <th style:width="16%">"Schedule"</th>
-                    <th style:width="12%">"State"</th>
-                    <th style:width="22%">"Next run"</th>
-                    <th style:width="18%">"Last run"</th>
-                    <th style:width="52px">"Fire"</th>
-                    <th style:width="52px">"Run"</th>
+                    <th>"Workflow"</th>
+                    <th>"Schedule"</th>
+                    <th>"State"</th>
+                    <th>"Next run"</th>
+                    <th>"Last run"</th>
+                    <th>"Fire"</th>
+                    <th>"Run"</th>
                 </tr>
             </thead>
         }
     };
 
     view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="16px">
+        <div class="app-page">
             <PageHeader title="Triggers" />
 
             <Show
@@ -366,7 +326,7 @@ pub fn Triggers() -> impl IntoView {
                 >
                     // ---- Cron schedules ----
                     <div>
-                        <SectionLabel
+                        <Section
                             label="Cron schedules"
                             hint="fire on a wall-clock expression; the scheduler owns the cadence"
                         />
@@ -374,22 +334,24 @@ pub fn Triggers() -> impl IntoView {
                             when=move || !crons.get().is_empty()
                             fallback=|| view! { <Empty message="No cron schedules." /> }
                         >
-                            <table class="cl-table" style:table-layout="fixed" style:width="100%">
-                                {table_head()}
-                                <tbody>
-                                    <For
-                                        each=move || crons.get()
-                                        key=|t| (t.id.clone(), t.enabled, t.next_run_at.clone())
-                                        children=move |t| row(t, false)
-                                    />
-                                </tbody>
-                            </table>
+                            <div class="app-panel app-panel--flush">
+                                <Table fixed=true widths=widths() label="Cron schedules">
+                                    {table_head()}
+                                    <tbody>
+                                        <For
+                                            each=move || crons.get()
+                                            key=|t| (t.id.clone(), t.enabled, t.next_run_at.clone())
+                                            children=move |t| row(t, false)
+                                        />
+                                    </tbody>
+                                </Table>
+                            </div>
                         </Show>
                     </div>
 
                     // ---- Polling triggers ----
                     <div>
-                        <SectionLabel
+                        <Section
                             label="Polling triggers"
                             hint="evaluated every poll interval; fire when their condition holds"
                         />
@@ -397,16 +359,18 @@ pub fn Triggers() -> impl IntoView {
                             when=move || !polls.get().is_empty()
                             fallback=|| view! { <Empty message="No polling triggers." /> }
                         >
-                            <table class="cl-table" style:table-layout="fixed" style:width="100%">
-                                {table_head()}
-                                <tbody>
-                                    <For
-                                        each=move || polls.get()
-                                        key=|t| (t.id.clone(), t.enabled, t.last_poll_at.clone())
-                                        children=move |t| row(t, true)
-                                    />
-                                </tbody>
-                            </table>
+                            <div class="app-panel app-panel--flush">
+                                <Table fixed=true widths=widths() label="Polling triggers">
+                                    {table_head()}
+                                    <tbody>
+                                        <For
+                                            each=move || polls.get()
+                                            key=|t| (t.id.clone(), t.enabled, t.last_poll_at.clone())
+                                            children=move |t| row(t, true)
+                                        />
+                                    </tbody>
+                                </Table>
+                            </div>
                         </Show>
                     </div>
                 </Show>

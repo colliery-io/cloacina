@@ -76,6 +76,22 @@ pub fn ago(ts: Option<&str>) -> String {
     format!("{}d ago", h / 24)
 }
 
+/// Local wall-clock time of a timestamp (`14:03:27.412`), for log lines;
+/// the input unchanged when the browser cannot parse it.
+pub fn clock_time(ts: &str) -> String {
+    let Some(ms) = parse_ms(ts) else {
+        return ts.to_string();
+    };
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms));
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        d.get_hours(),
+        d.get_minutes(),
+        d.get_seconds(),
+        d.get_milliseconds()
+    )
+}
+
 /// First 8 chars of an id (the run-id chip convention).
 pub fn short_id(id: &str) -> String {
     id.chars().take(8).collect()

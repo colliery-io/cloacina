@@ -309,3 +309,38 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-avg__band { position: absolute; top: 0; bottom: 0; background: var(--gold); opacity: 0.3; }
 .app-avg__bar { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-xs); background: var(--ice); }
 .app-avg__label { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+.app-gold { color: var(--gold); }
+.app-ice { color: var(--ice); }
+.app-violet { color: var(--violet); }
+.app-teal { color: var(--teal); }
+/* A one-line description under a name in a table row. */
+.app-desc { font-size: 11.5px; color: var(--muted); margin-top: 2px; max-width: 360px; }
+/* A table flush in a panel: the panel draws the frame. */
+.app-panel--flush > .cl-table,
+.app-panel--flush > .cl-table-scroll { margin: 0; }
+.app-block { display: block; }
+.app-w-origin { width: 90px; }
+.app-w-status { width: 120px; }
+.app-w-time { width: 90px; }
+/* A filter bar over a list: chips on the left, a search field on the right. */
+.app-filterbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: var(--space-sm);
+}
+.app-filterbar__search { width: 240px; max-width: 100%; }
+.app-plainlink { text-decoration: none; }
+.app-plainlink:hover { color: var(--fg); }
+/* The execution meta card: status + live on the left, facts on the right. */
+.app-meta-card { display: flex; align-items: center; gap: var(--space-xl); flex-wrap: wrap; }
+.app-meta-card > .cl-kvlist { flex: 1; min-width: 280px; }
+.app-grid-5 { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-sm); }
+@media (max-width: 1100px) { .app-grid-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .app-grid-5 { grid-template-columns: minmax(0, 1fr); } }
+.app-w-wide-action { width: 120px; }
+/* accumulators → graph, under a graph card */
+.app-accstrip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 7px; }
