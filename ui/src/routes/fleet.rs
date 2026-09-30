@@ -21,50 +21,12 @@
 //! hand-fetched too) — rides the client's public `get_json`/`post_json`
 //! escape hatch; typed methods are an SDK follow-up noted in the ticket.
 
-use aurora_leptos::components::{Alert, Loading, PageHeader};
+use aurora_leptos::components::{Alert, Button, Loading, PageHeader, StatTile};
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
 use crate::auth::{client_for, use_auth};
 use crate::data::poll_resource;
-
-const MONO: &str = "'IBM Plex Mono', monospace";
-
-#[component]
-fn Stat(
-    value: Signal<i64>,
-    #[prop(into)] label: String,
-    #[prop(optional, into)] color: Option<String>,
-) -> impl IntoView {
-    view! {
-        <div
-            style:flex="1"
-            style:background="var(--sidebar)"
-            style:border="1px solid var(--border)"
-            style:border-radius="12px"
-            style:padding="14px 16px"
-        >
-            <div
-                style:font-family=MONO
-                style:font-size="28px"
-                style:font-weight="600"
-                style:color=color.unwrap_or_else(|| "var(--fg)".into())
-            >
-                {move || value.get()}
-            </div>
-            <div
-                style:font-family=MONO
-                style:font-size="10px"
-                style:letter-spacing=".1em"
-                style:text-transform="uppercase"
-                style:color="var(--faint)"
-                style:margin-top="4px"
-            >
-                {label}
-            </div>
-        </div>
-    }
-}
 
 #[component]
 pub fn Fleet() -> impl IntoView {
@@ -145,8 +107,10 @@ pub fn Fleet() -> impl IntoView {
         });
     };
 
+    let n = |v: Signal<i64>| Signal::derive(move || v.get().to_string());
+
     view! {
-        <div style:max-width="820px" style:display="flex" style:flex-direction="column" style:gap="14px">
+        <div class="app-page app-narrow">
             <PageHeader
                 title="Agent fleet"
                 sub=format!(
@@ -159,10 +123,10 @@ pub fn Fleet() -> impl IntoView {
                 when=move || state.get().is_some()
                 fallback=|| view! { <Loading label="Loading fleet…" /> }
             >
-                <div style:display="flex" style:gap="12px">
-                    <Stat value=desired label="Provisioned" />
-                    <Stat value=actual label="Running" color=token::ICE />
-                    <Stat value=limit label="Effective limit" />
+                <div class="app-grid-3">
+                    <StatTile label="Provisioned" value=n(desired) />
+                    <StatTile label="Running" value=n(actual) color=token::ICE />
+                    <StatTile label="Effective limit" value=n(limit) />
                 </div>
             </Show>
 
@@ -175,51 +139,41 @@ pub fn Fleet() -> impl IntoView {
                         l["default_max_agents"].as_i64().unwrap_or(0)
                     ),
                 };
-                view! { <div style:font-size="12px" style:color="var(--muted)">{line}</div> }
+                view! { <div class="app-small app-muted">{line}</div> }
             })}
 
             <Show
                 when=move || auth.can_admin()
                 fallback=|| view! {
-                    <Alert color="var(--gold)">
+                    <Alert color=token::GOLD>
                         "You need admin access to provision or deprovision agents."
                     </Alert>
                 }
             >
-                <div
-                    style:background="var(--sidebar)"
-                    style:border="1px solid var(--border)"
-                    style:border-radius="12px"
-                    style:padding="16px"
-                >
-                    <div style:font-size="13px" style:font-weight="600" style:color="var(--fg)" style:margin-bottom="10px">
-                        "Scale fleet"
-                    </div>
-                    <div style:display="flex" style:gap="10px" style:align-items="center">
-                        <button
-                            class="cl-btn cl-btn--filled"
-                            disabled=move || busy.get() || at_capacity.get()
-                            on:click=move |_| scale("provision")
+                <div class="app-panel app-col">
+                    <div class="app-name">"Scale fleet"</div>
+                    <div class="app-row">
+                        <Button
+                            disabled=Signal::derive(move || busy.get() || at_capacity.get())
+                            on_click=Callback::new(move |_| scale("provision"))
                         >
                             "Provision +1"
-                        </button>
-                        <button
-                            class="cl-btn cl-btn--default"
-                            disabled=move || busy.get() || desired.get() <= 0
-                            on:click=move |_| scale("deprovision")
+                        </Button>
+                        <Button
+                            variant="default"
+                            disabled=Signal::derive(move || busy.get() || desired.get() <= 0)
+                            on_click=Callback::new(move |_| scale("deprovision"))
                         >
                             "Deprovision −1"
-                        </button>
+                        </Button>
                         <Show when=move || at_capacity.get()>
-                            <span style:font-size="12px" style:color="var(--muted)">
+                            <span class="app-small app-muted">
                                 {move || format!("At capacity ({}).", limit.get())}
                             </span>
                         </Show>
                     </div>
                     <Show when=move || !error.get().is_empty()>
-                        <div style:margin-top="10px">
-                            <Alert color="var(--bad)">{move || error.get()}</Alert>
-                        </div>
+                        <Alert color=token::BAD>{move || error.get()}</Alert>
                     </Show>
                 </div>
             </Show>

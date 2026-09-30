@@ -19,14 +19,16 @@
 //! connected tenant's self-managed accounts. Non-admin keys see the
 //! explanatory alert (fail-closed gating).
 
+use std::sync::Arc;
+
 use aurora_leptos::components::{
-    Alert, Loading, Modal, PageHeader, PasswordInput, Select, TextInput,
+    Alert, Button, ConfirmDialog, Loading, Modal, PageHeader, PasswordInput, Pill, Select, Table,
+    TextInput,
 };
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
 use crate::auth::{client_for, use_auth};
-use aurora_leptos::components::Pill;
 use crate::data::poll_resource;
 
 /// Account row decoded from the (Value-typed) accounts listing.
@@ -67,7 +69,7 @@ pub fn Accounts() -> impl IntoView {
     let reset_open = RwSignal::new(false);
     Effect::new(move |_| reset_open.set(reset_for.get().is_some()));
 
-    let submit_create = move |_| {
+    let submit_create = move || {
         let Some(conn) = auth.connection() else {
             return;
         };
@@ -101,21 +103,29 @@ pub fn Accounts() -> impl IntoView {
         });
     };
 
-    let disable = move |id: String| {
+    // Disable asks first (ConfirmDialog): the user can no longer sign in.
+    let disable_for = RwSignal::new(Option::<AccountRow>::None);
+    let disable_open = RwSignal::new(false);
+    Effect::new(move |_| disable_open.set(disable_for.get().is_some()));
+    let disable = move || {
+        let Some(target) = disable_for.get_untracked() else {
+            return;
+        };
         let Some(conn) = auth.connection() else {
             return;
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
             if let Ok(client) = client_for(&conn) {
-                let _ = client.disable_account(&id, None).await;
+                let _ = client.disable_account(&target.id, None).await;
             }
             busy.set(false);
+            disable_for.set(None);
             refresh.update(|n| *n += 1);
         });
     };
 
-    let do_reset = move |_| {
+    let do_reset = move || {
         let Some(target) = reset_for.get_untracked() else {
             return;
         };
@@ -139,8 +149,16 @@ pub fn Accounts() -> impl IntoView {
 
     let tenant = move || auth.connection().map(|c| c.tenant).unwrap_or_default();
 
+    let reset_footer: ChildrenFn = Arc::new(move || {
+        view! {
+            <Button variant="default" on_click=Callback::new(move |_| reset_for.set(None))>"Cancel"</Button>
+            <Button loading=busy on_click=Callback::new(move |_| do_reset())>"Reset password"</Button>
+        }
+        .into_any()
+    });
+
     view! {
-        <div style:max-width="820px" style:display="flex" style:flex-direction="column" style:gap="14px">
+        <div class="app-page app-narrow">
             <PageHeader
                 title="Local accounts"
                 sub=format!(
@@ -153,46 +171,37 @@ pub fn Accounts() -> impl IntoView {
             <Show
                 when=move || auth.can_admin()
                 fallback=|| view! {
-                    <Alert color="var(--gold)">"You need admin access to manage accounts."</Alert>
+                    <Alert color=token::GOLD>"You need admin access to manage accounts."</Alert>
                 }
             >
-                <div
-                    style:background="var(--sidebar)"
-                    style:border="1px solid var(--border)"
-                    style:border-radius="12px"
-                    style:padding="16px"
+                <form
+                    class="app-panel app-col"
+                    on:submit=move |ev| {
+                        ev.prevent_default();
+                        submit_create();
+                    }
                 >
-                    <div style:font-size="13px" style:font-weight="600" style:color="var(--fg)" style:margin-bottom="10px">
-                        "Create account"
-                    </div>
-                    <div style:display="flex" style:gap="10px" style:align-items="flex-end">
-                        <div style:flex="1">
-                            <TextInput label="Username" value=username />
+                    <div class="app-name">"Create account"</div>
+                    <div class="app-fieldrow">
+                        <div class="app-grow">
+                            <TextInput label="Username" value=username autocomplete="off" />
                         </div>
-                        <div style:flex="1">
-                            <PasswordInput label="Initial password" value=password />
+                        <div class="app-grow">
+                            <PasswordInput label="Initial password" value=password autocomplete="new-password" />
                         </div>
-                        <div style:width="120px">
+                        <div class="app-w-role">
                             <Select
                                 label="Role"
                                 options=vec!["read".to_string(), "write".to_string(), "admin".to_string()]
                                 value=role
                             />
                         </div>
-                        <button
-                            class="cl-btn cl-btn--filled"
-                            disabled=move || busy.get()
-                            on:click=submit_create
-                        >
-                            "Create"
-                        </button>
+                        <Button button_type="submit" loading=busy>"Create"</Button>
                     </div>
                     <Show when=move || !create_error.get().is_empty()>
-                        <div style:margin-top="10px">
-                            <Alert color="var(--bad)">{move || create_error.get()}</Alert>
-                        </div>
+                        <Alert color=token::BAD>{move || create_error.get()}</Alert>
                     </Show>
-                </div>
+                </form>
             </Show>
 
             // List
@@ -202,73 +211,70 @@ pub fn Accounts() -> impl IntoView {
             >
                 <Show
                     when=move || !items.get().is_empty()
-                    fallback=|| view! {
-                        <span style:color="var(--muted)" style:font-size="13px">"No local accounts yet."</span>
-                    }
+                    fallback=|| view! { <span class="app-hint">"No local accounts yet."</span> }
                 >
-                    <table class="cl-table">
-                        <thead>
-                            <tr>
-                                <th>"Username"</th>
-                                <th>"Role"</th>
-                                <th>"Status"</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <For
-                                each=move || items.get()
-                                key=|a| (a.id.clone(), a.status.clone())
-                                children=move |a| {
-                                    let active = a.status == "active";
-                                    let for_reset = a.clone();
-                                    let id_for_disable = a.id.clone();
-                                    view! {
-                                        <tr>
-                                            <td style:font-weight="500">{a.username.clone()}</td>
-                                            <td>{a.role.clone()}</td>
-                                            <td>
-                                                <Pill color=if active { token::OK } else { token::MUTED }>
-                                                    {a.status.clone()}
-                                                </Pill>
-                                            </td>
-                                            <td>
-                                                <Show when=move || auth.can_admin()>
-                                                    {
-                                                        let for_reset = for_reset.clone();
-                                                        let id = id_for_disable.clone();
-                                                        view! {
-                                                            <span style:display="inline-flex" style:gap="6px" style:justify-content="flex-end">
-                                                                <button
-                                                                    class="cl-btn cl-btn--subtle cl-btn--xs"
-                                                                    on:click={
-                                                                        let for_reset = for_reset.clone();
-                                                                        move |_| reset_for.set(Some(for_reset.clone()))
-                                                                    }
-                                                                >
-                                                                    "Reset password"
-                                                                </button>
-                                                                <button
-                                                                    class="cl-btn cl-btn--subtle cl-btn--bad cl-btn--xs"
-                                                                    disabled=move || !active || busy.get()
-                                                                    on:click={
-                                                                        let id = id.clone();
-                                                                        move |_| disable(id.clone())
-                                                                    }
-                                                                >
-                                                                    "Disable"
-                                                                </button>
-                                                            </span>
+                    <div class="app-panel app-panel--flush">
+                        <Table label="Local accounts">
+                            <thead>
+                                <tr>
+                                    <th>"Username"</th>
+                                    <th>"Role"</th>
+                                    <th>"Status"</th>
+                                    <th class="app-w-actions"><span class="cl-sr-only">"Actions"</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <For
+                                    each=move || items.get()
+                                    key=|a| (a.id.clone(), a.status.clone())
+                                    children=move |a| {
+                                        let active = a.status == "active";
+                                        let for_reset = a.clone();
+                                        let for_disable = a.clone();
+                                        view! {
+                                            <tr>
+                                                <td class="app-text app-strong">{a.username.clone()}</td>
+                                                <td class="app-mono app-small">{a.role.clone()}</td>
+                                                <td>
+                                                    <Pill color=if active { token::OK } else { token::MUTED }>
+                                                        {a.status.clone()}
+                                                    </Pill>
+                                                </td>
+                                                <td class="app-right">
+                                                    <Show when=move || auth.can_admin()>
+                                                        {
+                                                            let for_reset = for_reset.clone();
+                                                            let for_disable = for_disable.clone();
+                                                            view! {
+                                                                <span class="app-row app-row--tight app-row--end">
+                                                                    <Button
+                                                                        variant="subtle"
+                                                                        size="xs"
+                                                                        on_click=Callback::new(move |_| reset_for.set(Some(for_reset.clone())))
+                                                                    >
+                                                                        "Reset password"
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="subtle"
+                                                                        size="xs"
+                                                                        bad=true
+                                                                        disabled=Signal::derive(move || !active || busy.get())
+                                                                        on_click=Callback::new(move |_| disable_for.set(Some(for_disable.clone())))
+                                                                    >
+                                                                        "Disable"
+                                                                    </Button>
+                                                                </span>
+                                                            }
                                                         }
-                                                    }
-                                                </Show>
-                                            </td>
-                                        </tr>
+                                                    </Show>
+                                                </td>
+                                            </tr>
+                                        }
                                     }
-                                }
-                            />
-                        </tbody>
-                    </table>
+                                />
+                            </tbody>
+                        </Table>
+                    </div>
                 </Show>
             </Show>
 
@@ -277,19 +283,30 @@ pub fn Accounts() -> impl IntoView {
                 <Modal
                     open=reset_open
                     title=reset_for.get_untracked().map(|a| format!("Reset password — {}", a.username)).unwrap_or_default()
+                    footer=reset_footer.clone()
+                    locked=busy
+                    on_close=Callback::new(move |_| reset_for.set(None))
                 >
-                    <div style:display="flex" style:flex-direction="column" style:gap="12px">
-                        <PasswordInput label="New password" value=new_password />
-                        <button
-                            class="cl-btn cl-btn--filled"
-                            disabled=move || busy.get()
-                            on:click=do_reset
-                        >
-                            "Reset password"
-                        </button>
-                    </div>
+                    <PasswordInput label="New password" value=new_password autocomplete="new-password" />
                 </Modal>
             </Show>
+
+            // Disable confirm
+            <ConfirmDialog
+                open=disable_open
+                title="Disable account?"
+                confirm_label="Disable"
+                busy=busy
+                on_confirm=Callback::new(move |_| disable())
+                on_cancel=Callback::new(move |_| disable_for.set(None))
+            >
+                <span class="app-text app-fg2">
+                    {move || disable_for.get().map(|a| format!(
+                        "Disable {}? They can no longer sign in to this tenant.",
+                        a.username
+                    )).unwrap_or_default()}
+                </span>
+            </ConfirmDialog>
         </div>
     }
 }

@@ -83,7 +83,6 @@ pub fn Shell() -> impl IntoView {
     // App-level data plumbing (T-0933): the shared poll tick and the warm
     // ops-metrics WS both live for the whole authenticated session.
     crate::data::provide_poll_tick();
-    crate::data::provide_clock();
     crate::ops::provide_ops_metrics();
     let navigate = use_navigate();
 

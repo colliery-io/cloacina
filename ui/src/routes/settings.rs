@@ -14,67 +14,40 @@
  *  limitations under the License.
  */
 
-//! Settings (Aurora Dark spec 13), parity port of `Settings.tsx`:
-//! Connection (from the live session), Server (read-only, server-managed
-//! placeholders), Appearance (dark-only pack, light "soon").
+//! Settings (Aurora spec 13), parity port of `Settings.tsx`: Connection
+//! (from the live session), Server (read-only, server-managed
+//! placeholders), and Appearance — the Aurora light / dark / system choice
+//! (the same setting as the top-bar toggle).
 
+use aurora_leptos::components::{Card, DetailList, Dot, KeyValue, Panel, PageHeader};
+use aurora_leptos::theme::{use_theme, Theme};
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
 use crate::auth::use_auth;
 
-const MONO: &str = "'IBM Plex Mono', monospace";
-
+/// One theme choice as a selectable card.
 #[component]
-fn Section(#[prop(into)] title: String, children: Children) -> impl IntoView {
+fn ThemeCard(theme: Theme, #[prop(into)] note: String) -> impl IntoView {
+    let ctx = use_theme();
+    let selected = Signal::derive(move || ctx.choice.get() == theme);
     view! {
-        <div>
-            <div
-                style:font-size="14px"
-                style:font-weight="600"
-                style:color="var(--fg)"
-                style:border-bottom="1px solid var(--border-soft)"
-                style:padding-bottom="8px"
-                style:margin-bottom="12px"
-            >
-                {title}
-            </div>
-            {children()}
-        </div>
-    }
-}
-
-#[component]
-fn ConfigCard(
-    #[prop(into)] label: String,
-    #[prop(into)] value: String,
-    #[prop(optional, into)] color: Option<String>,
-) -> impl IntoView {
-    view! {
-        <div
-            style:background="var(--panel)"
-            style:border="1px solid var(--border)"
-            style:border-radius="11px"
-            style:padding="13px 16px"
+        <Card
+            on_click=Callback::new(move |_| ctx.set(theme))
+            selected=selected
+            label=format!("{} theme", theme.label())
         >
-            <div
-                style:font-family=MONO
-                style:font-size="10.5px"
-                style:letter-spacing=".06em"
-                style:text-transform="uppercase"
-                style:color="var(--faint)"
-                style:margin-bottom="6px"
-            >
-                {label}
+            <div class="app-row app-row--between">
+                <span class="app-row app-row--tight">
+                    {move || view! { <Dot color=if selected.get() { token::ICE } else { token::MUTED } /> }}
+                    <span class="app-text app-strong">{theme.label()}</span>
+                </span>
+                <Show when=move || selected.get()>
+                    <span class="app-meta app-ice">"active"</span>
+                </Show>
             </div>
-            <div
-                style:font-family=MONO
-                style:font-size="12.5px"
-                style:color=color.unwrap_or_else(|| "var(--fg)".into())
-            >
-                {value}
-            </div>
-        </div>
+            <div class="app-meta app-theme-note">{note.clone()}</div>
+        </Card>
     }
 }
 
@@ -93,80 +66,32 @@ pub fn Settings() -> impl IntoView {
     };
 
     view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="22px">
-            <h1 style:font-size="22px" style:font-weight="600" style:color="var(--fg-bright)" style:margin="0">
-                "Settings"
-            </h1>
+        <div class="app-page app-page--loose">
+            <PageHeader title="Settings" />
 
-            <Section title="Connection">
-                <div style:display="grid" style:grid-template-columns="1fr 1fr" style:gap="13px">
-                    <ConfigCard label="Tenant" value=tenant() />
-                    <ConfigCard label="Server URL" value=server() />
-                </div>
-            </Section>
+            <Panel title="Connection">
+                <DetailList mono=true stacked=true>
+                    <KeyValue label="Tenant">{tenant}</KeyValue>
+                    <KeyValue label="Server URL">{server}</KeyValue>
+                </DetailList>
+            </Panel>
 
-            <Section title="Server">
-                <div style:display="grid" style:grid-template-columns="1fr 1fr" style:gap="13px">
-                    <ConfigCard label="CLOACINA_BIND_ADDR" value="server-managed" color="var(--faint)" />
-                    <ConfigCard label="DATABASE_URL" value="server-managed" color="var(--faint)" />
-                    <ConfigCard label="SECRET_KEY" value="set · credentials encrypted" color=token::OK />
-                    <ConfigCard label="SCHEDULER" value="enabled" />
-                </div>
-            </Section>
+            <Panel title="Server" caption="read-only · managed by the server">
+                <DetailList mono=true stacked=true>
+                    <KeyValue label="CLOACINA_BIND_ADDR"><span class="app-faint">"server-managed"</span></KeyValue>
+                    <KeyValue label="DATABASE_URL"><span class="app-faint">"server-managed"</span></KeyValue>
+                    <KeyValue label="SECRET_KEY"><span class="app-ok">"set · credentials encrypted"</span></KeyValue>
+                    <KeyValue label="SCHEDULER">"enabled"</KeyValue>
+                </DetailList>
+            </Panel>
 
-            <Section title="Appearance">
-                <div style:display="grid" style:grid-template-columns="1fr 1fr" style:gap="13px">
-                    <div
-                        style:background="var(--panel)"
-                        style:border=format!("1px solid {}7a", token::ICE)
-                        style:border-radius="11px"
-                        style:padding="14px 16px"
-                        style:display="flex"
-                        style:justify-content="space-between"
-                        style:align-items="center"
-                    >
-                        <span style:display="inline-flex" style:gap="9px" style:align-items="center">
-                            <span
-                                style:width="8px"
-                                style:height="8px"
-                                style:border-radius="50%"
-                                style:background=token::ICE
-                            ></span>
-                            <span style:font-size="13px" style:font-weight="500" style:color="var(--fg)">
-                                "Aurora dark"
-                            </span>
-                        </span>
-                        <span style:font-family=MONO style:font-size="10.5px" style:color=token::ICE>
-                            "active"
-                        </span>
-                    </div>
-                    <div
-                        style:background="var(--panel)"
-                        style:border="1px solid var(--border)"
-                        style:border-radius="11px"
-                        style:padding="14px 16px"
-                        style:opacity="0.6"
-                        style:display="flex"
-                        style:justify-content="space-between"
-                        style:align-items="center"
-                    >
-                        <span style:display="inline-flex" style:gap="9px" style:align-items="center">
-                            <span
-                                style:width="8px"
-                                style:height="8px"
-                                style:border-radius="50%"
-                                style:background=token::MUTED
-                            ></span>
-                            <span style:font-size="13px" style:font-weight="500" style:color="var(--muted)">
-                                "Light"
-                            </span>
-                        </span>
-                        <span style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                            "soon"
-                        </span>
-                    </div>
+            <Panel title="Appearance" caption="stored in this browser · same as the top-bar toggle">
+                <div class="app-grid-3">
+                    <ThemeCard theme=Theme::Light note="Aurora light" />
+                    <ThemeCard theme=Theme::Dark note="Aurora dark" />
+                    <ThemeCard theme=Theme::System note="follow the operating system" />
                 </div>
-            </Section>
+            </Panel>
         </div>
     }
 }

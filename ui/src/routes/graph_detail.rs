@@ -25,6 +25,7 @@ use aurora_leptos::components::{
     Button, Dot, Empty, Loading, PageHeader, Panel, Pill, RelativeTime, Sparkline, TabItem,
     TabPanel, Table, Tabs,
 };
+use aurora_leptos::data::use_now;
 use aurora_leptos::graph::{Graph, GraphEdge, GraphNode};
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
@@ -34,7 +35,7 @@ use cloacina_api_types::FireReactorRequest;
 
 use crate::auth::{client_for, use_auth};
 use crate::components::GraphInjectModal;
-use crate::data::{poll_resource, use_clock};
+use crate::data::poll_resource;
 use crate::routes::graphs::health_state;
 use crate::util::{ago, health_color, node_kind_color};
 
@@ -58,7 +59,7 @@ fn last_event_label(last_event_at: Option<&str>) -> String {
 #[component]
 pub fn GraphDetail() -> impl IntoView {
     let auth = use_auth();
-    let clock = use_clock();
+    let now = use_now();
     let params = use_params_map();
     let name = Signal::derive(move || params.read().get("name").unwrap_or_default());
 
@@ -379,7 +380,7 @@ pub fn GraphDetail() -> impl IntoView {
                                         let dot = health_color(&state);
                                         let last_ev = StoredValue::new(a.last_event_at.clone());
                                         let last_label = move || {
-                                            clock.track();
+                                            now.track();
                                             last_ev.with_value(|ts| last_event_label(ts.as_deref()))
                                         };
                                         let events = a

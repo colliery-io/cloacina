@@ -40,7 +40,8 @@ test("secret create → rotate → delete round-trip", async ({ page }) => {
   await page.getByRole("dialog").getByRole("button", { name: "Rotate", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });
 
-  // Delete.
+  // Delete (asks first: Aurora ConfirmDialog).
   await row.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
   await expect(page.locator("tr", { hasText: name })).toHaveCount(0, { timeout: 15_000 });
 });

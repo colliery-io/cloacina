@@ -344,3 +344,65 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-w-wide-action { width: 120px; }
 /* accumulators → graph, under a graph card */
 .app-accstrip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 7px; }
+/* The key glyph box on an API key row. */
+.app-keyicon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+/* A narrow page (forms and short lists). */
+.app-narrow { max-width: 820px; }
+/* Two fields and an action on one line, aligned on the field bottoms. */
+.app-fieldrow { display: flex; gap: 8px; align-items: flex-end; }
+.app-w-role { width: 120px; flex: none; }
+.app-w-actions { width: 220px; }
+.app-theme-note { margin-top: 6px; }
+.app-narrow-sm { max-width: 560px; }
+/* The package drop zone on the upload page (a button that opens the picker). */
+.app-dropzone {
+  display: block;
+  width: 100%;
+  border: 1px dashed var(--border-control);
+  border-radius: var(--radius-panel);
+  background: var(--inset);
+  padding: 22px var(--space-md);
+  text-align: center;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.app-dropzone:hover { border-color: var(--ice); }
+.app-dropzone:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; }
+.app-dropzone__file { display: block; margin-top: 4px; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--faint); }
+.app-dropzone__file--set { color: var(--ice); }
+
+/* ---------- Connect gate (CenterScreen + AuthCard) ---------- */
+.app-connect { position: relative; background: var(--bg); min-height: 100vh; }
+.app-connect__theme { position: absolute; top: var(--space-md); right: var(--space-md); z-index: 1; }
+.app-connect .cl-auth-card { width: min(430px, 100%); }
+.app-connect__hint { margin: 0; }
+.app-connect__submit .cl-btn { width: 100%; }
+/* One tenant in the SSO picker: name left, role right. */
+.app-tenant-pick {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 8px var(--space-sm);
+  background: var(--control);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.app-tenant-pick:hover { background: var(--control-hover); }
+.app-tenant-pick:focus-visible { outline: 2px solid var(--ice); outline-offset: 1px; }
+.app-tenant-pick:disabled { opacity: 0.55; cursor: not-allowed; }

@@ -21,12 +21,16 @@
 //! tenant picker; `?add=1` keeps the gate open while already connected
 //! (add-a-tenant from the switcher).
 
-use aurora_leptos::components::{Alert, Button, PasswordInput, SegmentedControl, TextInput};
+use aurora_leptos::components::{
+    Alert, AuthCard, Button, CenterScreen, PasswordInput, SegmentedControl, TextInput,
+};
+use aurora_leptos::theme::ThemeToggle;
+use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_query_map};
 
 use crate::auth::{client_for, decode_memberships, use_auth, Connection, Membership};
-use crate::brand::BrandMark;
+use crate::brand::Brand;
 use crate::config::{runtime_config, APP_VERSION};
 
 const SSO_SERVER_KEY: &str = "cloacina.sso.server";
@@ -285,53 +289,26 @@ pub fn Connect() -> impl IntoView {
 
     let do_connect_click = do_connect.clone();
 
-    view! {
-        <div
-            style:min-height="100vh"
-            style:display="flex"
-            style:align-items="center"
-            style:justify-content="center"
-            style:padding="16px"
-            style:background="radial-gradient(120% 90% at 50% -10%, #131922, #0e1116)"
-        >
-            <div style:width="430px">
-                <div
-                    style:display="flex"
-                    style:justify-content="center"
-                    style:align-items="center"
-                    style:gap="9px"
-                    style:margin-bottom="18px"
-                >
-                    <BrandMark size=26 />
-                    <span style:font-size="22px" style:font-weight="600" style:color="var(--fg-bright)">
-                        "Cloacina"
-                    </span>
-                </div>
+    let footer_line = format!("cloacina v{APP_VERSION} · tenant-scoped control plane");
 
-                <div
-                    style:background="var(--sidebar)"
-                    style:border="1px solid var(--border)"
-                    style:border-radius="14px"
-                    style:padding="22px 22px 20px"
-                    style:box-shadow="0 24px 60px rgba(0,0,0,.5)"
-                >
-                    <Show
-                        when=move || sso_picker.get().is_some()
-                        fallback=move || {
-                            let do_connect = do_connect_click.clone();
-                            let on_submit = do_connect.clone();
-                            view! {
-                                <div style:font-size="16px" style:font-weight="600" style:color="var(--fg)">
-                                    "Connect to a server"
-                                </div>
-                                <div
-                                    style:font-size="12.5px"
-                                    style:color="var(--muted)"
-                                    style:margin-top="3px"
-                                    style:margin-bottom="14px"
-                                >
-                                    {mode_hint}
-                                </div>
+    view! {
+        <div class="app-connect">
+            // The theme choice is on the gate too (there is no top bar here).
+            <div class="app-connect__theme"><ThemeToggle /></div>
+            <CenterScreen>
+                <Show
+                    when=move || sso_picker.get().is_some()
+                    fallback=move || {
+                        let do_connect = do_connect_click.clone();
+                        let on_submit = do_connect.clone();
+                        let footer_line = footer_line.clone();
+                        view! {
+                            <AuthCard
+                                title="Connect to a server"
+                                brand=Box::new(|| view! { <Brand size=26 large=true /> }.into_any())
+                                footer=Box::new(move || view! { <span class="app-meta">{footer_line}</span> }.into_any())
+                            >
+                                <p class="app-hint app-connect__hint">{mode_hint}</p>
 
                                 <SegmentedControl
                                     options=vec![
@@ -342,128 +319,112 @@ pub fn Connect() -> impl IntoView {
                                     value=mode
                                 />
 
-                                <form on:submit=move |ev| {
-                                    ev.prevent_default();
-                                    on_submit();
-                                }>
-                                    <div
-                                        style:display="flex"
-                                        style:flex-direction="column"
-                                        style:gap="12px"
-                                        style:margin-top="14px"
+                                <form
+                                    class="app-col app-col--loose"
+                                    on:submit=move |ev| {
+                                        ev.prevent_default();
+                                        on_submit();
+                                    }
+                                >
+                                    <TextInput
+                                        label="Server URL"
+                                        placeholder="http://localhost:8080"
+                                        value=server_url
+                                        autocomplete="url"
+                                    />
+
+                                    <Show
+                                        when=move || mode.get() == "SSO"
+                                        fallback=move || {
+                                            view! {
+                                                <Show when=move || mode.get() == "Username & password">
+                                                    <TextInput label="Username" placeholder="alice" value=username autocomplete="username" />
+                                                    <PasswordInput label="Password" value=password autocomplete="current-password" />
+                                                </Show>
+                                                <Show when=move || mode.get() == "Key">
+                                                    <PasswordInput label="API key" placeholder="clk_…" value=api_key autocomplete="off" />
+                                                </Show>
+                                                <TextInput label="Tenant" placeholder="public" value=tenant />
+                                            }
+                                        }
                                     >
-                                        <TextInput
-                                            label="Server URL"
-                                            placeholder="http://localhost:8080"
-                                            value=server_url
-                                        />
+                                        <span></span>
+                                    </Show>
 
-                                        <Show
-                                            when=move || mode.get() == "SSO"
-                                            fallback=move || {
-                                                view! {
-                                                    <Show when=move || mode.get() == "Username & password">
-                                                        <TextInput label="Username" placeholder="alice" value=username />
-                                                        <PasswordInput label="Password" value=password />
-                                                    </Show>
-                                                    <Show when=move || mode.get() == "Key">
-                                                        <PasswordInput label="API key" placeholder="clk_…" value=api_key />
-                                                    </Show>
-                                                    <TextInput label="Tenant" placeholder="public" value=tenant />
-                                                }
-                                            }
-                                        >
-                                            <div></div>
-                                        </Show>
+                                    <Show when=move || !error.get().is_empty()>
+                                        <Alert color=token::BAD>{move || error.get()}</Alert>
+                                    </Show>
 
-                                        <Show when=move || !error.get().is_empty()>
-                                            <Alert color="var(--bad)">{move || error.get()}</Alert>
-                                        </Show>
-
-                                        <Show
-                                            when=move || mode.get() == "SSO"
-                                            fallback=move || {
-                                                view! {
-                                                    <button
-                                                        class="cl-btn cl-btn--filled"
-                                                        type="submit"
-                                                        disabled=move || submitting.get()
-                                                        style:width="100%"
-                                                    >
+                                    <Show
+                                        when=move || mode.get() == "SSO"
+                                        fallback=move || {
+                                            view! {
+                                                <div class="app-connect__submit">
+                                                    <Button button_type="submit" loading=submitting>
                                                         {submit_word}
-                                                    </button>
-                                                }
+                                                    </Button>
+                                                </div>
                                             }
-                                        >
+                                        }
+                                    >
+                                        // Reactive: the button follows `submitting` (it
+                                        // took a one-time snapshot before Aurora 0.4).
+                                        <div class="app-connect__submit">
                                             <Button
-                                                disabled=submitting.get_untracked()
+                                                button_type="button"
+                                                loading=submitting
                                                 on_click=Callback::new(move |_| start_sso())
                                             >
                                                 "Continue with SSO"
                                             </Button>
-                                        </Show>
-                                    </div>
+                                        </div>
+                                    </Show>
                                 </form>
-                            }
+                            </AuthCard>
                         }
+                    }
+                >
+                    // ---- SSO tenant picker ----
+                    {
+                    let pick_membership = pick_membership.clone();
+                    view! {
+                    <AuthCard
+                        title="Choose a tenant"
+                        sub="Your sign-in grants access to multiple tenants. Pick one to enter — the rest stay one click away in the tenant switcher."
+                        brand=Box::new(|| view! { <Brand size=26 large=true /> }.into_any())
                     >
-                        // ---- SSO tenant picker ----
-                        <div style:display="flex" style:flex-direction="column" style:gap="10px">
-                            <div style:font-size="16px" style:font-weight="600" style:color="var(--fg)">
-                                "Choose a tenant"
-                            </div>
-                            <div style:font-size="12.5px" style:color="var(--muted)" style:margin-bottom="4px">
-                                "Your sign-in grants access to multiple tenants. Pick one to enter — the rest stay one click away in the tenant switcher."
-                            </div>
-                            <For
-                                each=move || {
-                                    sso_picker.get().map(|(_, m)| m).unwrap_or_default()
-                                }
-                                key=|m| m.tenant.clone()
-                                children={
-                                    let pick = pick_membership.clone();
-                                    move |m| {
-                                        let pick = pick.clone();
-                                        let tenant_name = m.tenant.clone();
-                                        view! {
-                                            <button
-                                                class="cl-btn cl-btn--default"
-                                                style:width="100%"
-                                                style:display="flex"
-                                                style:justify-content="space-between"
-                                                disabled=move || submitting.get()
-                                                on:click=move |_| pick(tenant_name.clone())
-                                            >
-                                                <span>{m.tenant.clone()}</span>
-                                                <span
-                                                    style:font-family="'IBM Plex Mono', monospace"
-                                                    style:font-size="11px"
-                                                    style:color="var(--muted)"
-                                                >
-                                                    {m.role.clone()}
-                                                </span>
-                                            </button>
-                                        }
+                        <For
+                            each=move || {
+                                sso_picker.get().map(|(_, m)| m).unwrap_or_default()
+                            }
+                            key=|m| m.tenant.clone()
+                            children={
+                                let pick = pick_membership.clone();
+                                move |m| {
+                                    let pick = pick.clone();
+                                    let tenant_name = m.tenant.clone();
+                                    view! {
+                                        <button
+                                            type="button"
+                                            class="app-tenant-pick"
+                                            disabled=move || submitting.get()
+                                            on:click=move |_| pick(tenant_name.clone())
+                                        >
+                                            <span>{m.tenant.clone()}</span>
+                                            <span class="app-meta app-meta--sm app-muted">{m.role.clone()}</span>
+                                        </button>
                                     }
                                 }
-                            />
-                            <Show when=move || !error.get().is_empty()>
-                                <Alert color="var(--bad)">{move || error.get()}</Alert>
-                            </Show>
-                        </div>
-                    </Show>
-                </div>
-
-                <div
-                    style:text-align="center"
-                    style:margin-top="14px"
-                    style:font-family="'IBM Plex Mono', monospace"
-                    style:font-size="10.5px"
-                    style:color="var(--faint)"
-                >
-                    {format!("cloacina v{APP_VERSION} · tenant-scoped control plane")}
-                </div>
-            </div>
+                            }
+                        />
+                        <Show when=move || !error.get().is_empty()>
+                            <Alert color=token::BAD>{move || error.get()}</Alert>
+                        </Show>
+                    </AuthCard>
+                    }
+                    }
+                </Show>
+            </CenterScreen>
         </div>
     }
 }
