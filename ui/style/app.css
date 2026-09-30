@@ -1,0 +1,311 @@
+/*
+ *  Copyright 2026 Colliery Software
+ *  SPDX-License-Identifier: Apache-2.0
+ *
+ *  Cloacina UI — local classes on the Aurora tokens (COLLIERY-T-1837).
+ *
+ *  Aurora (colliery-io-aurora 0.4) draws the components and owns the tokens
+ *  (--bg, --panel, --fg, --ice, --space-*, --radius-*, --fs-*, ...). This
+ *  file holds only the layout and the Cloacina-specific chrome that no
+ *  Aurora component covers. Rules:
+ *
+ *  - Colours come from Aurora tokens only. No raw colour in this file, so
+ *    both themes work.
+ *  - Spacing, radii and font sizes use the Aurora scales where a step is
+ *    near (--space-xs 10px, --space-sm 12px, --space-md 16px, --space-lg
+ *    20px; --fs-xs 12px, --fs-sm 14px; --radius-xs/sm/md, --radius-pill,
+ *    --radius-panel). The small mono sizes below 12px (10px to 11.5px) have
+ *    no token; Aurora's own stylesheet uses the same literal sizes for its
+ *    mono labels, and this file does too.
+ *  - Class prefix `app-` (Aurora's is `cl-`).
+ */
+
+/* ---------- Brand ---------- */
+.app-brandmark path { stroke-width: 1.6; stroke-linecap: round; fill: none; }
+path.app-brandmark__ice { stroke: var(--ice); }
+path.app-brandmark__teal { stroke: var(--teal); }
+path.app-brandmark__violet { stroke: var(--violet); }
+circle.app-brandmark__ice { fill: var(--ice); }
+circle.app-brandmark__teal { fill: var(--teal); }
+circle.app-brandmark__violet { fill: var(--violet); }
+circle.app-brandmark__node { fill: var(--brand-stroke); }
+
+.app-brand { display: inline-flex; align-items: center; gap: 9px; }
+.app-brand__name { font-size: var(--fs-md); font-weight: 600; color: var(--fg-bright); }
+.app-brand--lg { gap: var(--space-xs); }
+.app-brand--lg .app-brand__name { font-size: 22px; }
+
+/* ---------- Shell (AppShell + SideNav) ---------- */
+.app-topbar { display: flex; align-items: center; gap: var(--space-sm); width: 100%; min-width: 0; }
+.app-topbar__server {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.app-topbar__spacer { flex: 1; }
+.app-nav-cta { padding: 0 0 var(--space-xs); }
+.app-nav-cta .cl-btn { width: 100%; }
+.app-conn { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.app-conn__label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.app-conn__url {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-linkbtn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.app-linkbtn:hover { color: var(--fg); }
+.app-linkbtn:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+/* Tenant switcher: a flip-up list of the saved connections. */
+.app-tenant { position: relative; }
+.app-tenant__trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: var(--control);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  padding: 5px 8px;
+  cursor: pointer;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.app-tenant__trigger:hover { background: var(--control-hover); }
+.app-tenant__trigger:focus-visible,
+.app-tenant__item:focus-visible,
+.app-tenant__remove:focus-visible { outline: 2px solid var(--ice); outline-offset: 1px; }
+.app-tenant__current { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-tenant__caret { color: var(--faint); }
+.app-tenant__list {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 30;
+}
+.app-tenant__row { display: flex; align-items: center; }
+.app-tenant__item,
+.app-tenant__add {
+  flex: 1;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.app-tenant__item:hover,
+.app-tenant__add:hover { background: var(--control-hover); }
+.app-tenant__remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--faint);
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+}
+.app-tenant__remove:hover { color: var(--bad); }
+.app-tenant__add {
+  margin-top: 4px;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0;
+  color: var(--muted);
+  font-family: var(--font-sans);
+}
+
+/* ---------- Page layout ---------- */
+.app-page { display: flex; flex-direction: column; gap: var(--space-md); min-width: 0; }
+.app-page--loose { gap: var(--space-lg); }
+/* A PageHeader inside a page column: the column gap spaces it. */
+.app-page > .cl-page-header { margin-bottom: 0; }
+.app-row { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; }
+.app-row--tight { gap: 6px; }
+.app-row--loose { gap: var(--space-lg); }
+.app-row--between { justify-content: space-between; }
+.app-row--end { justify-content: flex-end; }
+.app-row--top { align-items: flex-start; }
+.app-row--baseline { align-items: baseline; }
+.app-row--wrap { flex-wrap: wrap; }
+.app-col { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; }
+.app-col--tight { gap: 4px; }
+.app-col--loose { gap: var(--space-md); }
+.app-grow { flex: 1; min-width: 0; }
+.app-none { flex: none; }
+.app-right { text-align: right; }
+.app-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
+.app-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-sm); }
+.app-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-sm); }
+.app-grid-6 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; }
+/* A main column and a side column (7 : 5). */
+.app-split { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-lg); align-items: start; }
+@media (max-width: 1100px) {
+  .app-grid-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .app-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .app-grid-2, .app-grid-3, .app-grid-4, .app-grid-6 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- Text ---------- */
+.app-mono { font-family: var(--font-mono); }
+.app-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); }
+.app-meta--xs { font-size: 10px; color: var(--fainter); }
+.app-meta--sm { font-size: 11px; }
+.app-meta--md { font-size: 11.5px; color: var(--fg-2); }
+.app-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.app-sub { font-family: var(--font-mono); font-size: 11px; color: var(--faint); margin-top: -10px; }
+.app-name { font-size: var(--fs-sm); font-weight: 600; color: var(--fg); }
+.app-text { font-size: var(--fs-sm); color: var(--fg); }
+.app-small { font-size: var(--fs-xs); }
+.app-muted { color: var(--muted); }
+.app-faint { color: var(--faint); }
+.app-fg { color: var(--fg); }
+.app-fg2 { color: var(--fg-2); }
+.app-bright { color: var(--fg-bright); }
+.app-bad { color: var(--bad); }
+.app-ok { color: var(--ok); }
+.app-strong { font-weight: 600; }
+.app-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-hint { font-size: var(--fs-sm); color: var(--muted); }
+.app-error { font-size: var(--fs-xs); color: var(--bad); }
+.app-link { color: var(--ice); text-decoration: none; }
+.app-link:hover { text-decoration: underline; }
+/* A duration or time column: fixed width, right aligned. */
+.app-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.app-w-64 { width: 64px; }
+
+/* ---------- Surfaces ---------- */
+.app-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  padding: var(--space-sm) var(--space-md);
+  min-width: 0;
+}
+.app-panel--flush { padding: 0; overflow: hidden; }
+.app-panel--quiet { background: var(--panel-2); border-color: var(--border-soft); }
+.app-inset {
+  background: var(--inset);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-sm);
+}
+/* A dashed "nothing here" box, smaller than Aurora's Empty. */
+.app-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-panel);
+  padding: var(--space-md);
+  color: var(--faint);
+  font-size: var(--fs-xs);
+}
+
+/* ---------- Markers ---------- */
+/* A small coloured square (the orchestration kind marker). The colour is
+   data (a hue token) and is set inline. */
+.app-square { display: inline-block; width: 9px; height: 9px; border-radius: var(--radius-xs); flex: none; }
+.app-square--lg { width: 10px; height: 10px; }
+/* An icon in a hue: the icon draws in currentColor. */
+.app-hue { display: inline-flex; align-items: center; }
+
+/* ---------- Overview ---------- */
+.app-health {
+  background: var(--panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-sm);
+  min-width: 0;
+}
+.app-health__name { font-size: var(--fs-xs); font-weight: 500; color: var(--fg); }
+.app-runcard { display: flex; align-items: center; gap: var(--space-sm); color: var(--fg); text-decoration: none; }
+.app-runcard__name { font-size: var(--fs-sm); color: var(--fg); }
+
+/* ---------- Charts (Gantt, run heatmap) ---------- */
+.app-gantt { display: flex; flex-direction: column; gap: 4px; }
+.app-gantt__row { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: center; gap: 8px; }
+.app-gantt__name { font-size: 11.5px; font-weight: 500; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-gantt__track { position: relative; height: 18px; background: var(--inset); border-radius: var(--radius-sm); }
+/* Position and width are computed from the task times, so they stay inline. */
+.app-gantt__bar { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-sm); opacity: 0.85; }
+.app-gantt__foot { margin-top: 8px; }
+.app-heatmap { display: flex; align-items: flex-end; gap: 3px; height: 64px; }
+/* Height is the run duration relative to the longest run: inline. */
+.app-heatmap__bar { flex: 1; max-width: 14px; border-radius: var(--radius-xs); opacity: 0.8; }
+.app-legend { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); }
+.app-search {
+  width: 300px;
+  box-sizing: border-box;
+  background: var(--field);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  padding: 8px var(--space-sm);
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  text-decoration: none;
+}
+.app-search:hover { border-color: var(--ice); color: var(--muted); }
+.app-panel--feed { padding: 2px var(--space-md); }
+.app-panel--feed .cl-feed__item:last-child { border-bottom: none; }
+.app-pad { padding: var(--space-xs) 2px; }
+
+/* ---------- Run history dots ---------- */
+.app-rundots { display: flex; gap: 4px; align-items: center; }
+/* The colour is the run status (data), set inline. */
+.app-rundot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+/* ---------- Tables ---------- */
+/* A cell whose text is cut with an ellipsis at a set width. */
+.app-clip { display: inline-block; max-width: 340px; vertical-align: bottom; }
+.app-w-action { width: 60px; }
+.app-fires { padding-top: 4px; }
+.app-count { font-size: var(--fs-xs); }
+.app-prewrap { white-space: pre-wrap; }
+
+/* ---------- Workflow detail: average task timing ---------- */
+.app-avg { display: flex; flex-direction: column; gap: 7px; }
+.app-avg__row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 96px; gap: var(--space-sm); align-items: center; }
+.app-avg__name { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-2); text-align: right; }
+.app-avg__track { position: relative; height: 14px; background: var(--inset); border-radius: var(--radius-sm); overflow: hidden; }
+/* left/width are computed from the task times: inline. */
+.app-avg__band { position: absolute; top: 0; bottom: 0; background: var(--gold); opacity: 0.3; }
+.app-avg__bar { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-xs); background: var(--ice); }
+.app-avg__label { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }

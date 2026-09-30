@@ -26,7 +26,7 @@ use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::auth::{client_for, use_auth};
-use crate::components::TagPill;
+use aurora_leptos::components::Pill;
 use crate::data::poll_resource;
 
 const MONO: &str = "'IBM Plex Mono', monospace";
@@ -156,9 +156,9 @@ pub fn TriggerDetail() -> impl IntoView {
                                 style:gap="10px"
                             >
                                 <div style:display="flex" style:gap="10px" style:align-items="center">
-                                    <TagPill color=if is_cron { token::VIOLET } else { token::TEAL }>
+                                    <Pill color=if is_cron { token::VIOLET } else { token::TEAL }>
                                         {if is_cron { "cron schedule" } else { "polling trigger" }}
-                                    </TagPill>
+                                    </Pill>
                                     <span style:display="inline-flex" style:gap="6px" style:align-items="center">
                                         <span
                                             style:width="7px"

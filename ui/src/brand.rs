@@ -18,20 +18,34 @@
 //! node. App branding is supplied downstream of the design pack by contract
 //! (the pack ships no logo).
 
-use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
+/// The mark draws from the Aurora hue tokens through CSS classes
+/// (`style/app.css`), so it follows the light and dark themes. SVG
+/// presentation attributes do not take `var(--…)`, so the colours are not
+/// set as `stroke=`/`fill=` attributes.
 #[component]
 pub fn BrandMark(#[prop(default = 22)] size: u32) -> impl IntoView {
     view! {
-        <svg width=size height=size viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M5 4 C5 12, 12 12, 12 19" stroke=token::ICE stroke-width="1.6" stroke-linecap="round" />
-            <path d="M12 4 C12 12, 12 12, 12 19" stroke=token::TEAL stroke-width="1.6" stroke-linecap="round" />
-            <path d="M19 4 C19 12, 12 12, 12 19" stroke=token::VIOLET stroke-width="1.6" stroke-linecap="round" />
-            <circle cx="5" cy="4" r="1.8" fill=token::ICE />
-            <circle cx="12" cy="4" r="1.8" fill=token::TEAL />
-            <circle cx="19" cy="4" r="1.8" fill=token::VIOLET />
-            <circle cx="12" cy="20" r="2" fill="#8fbcff" />
+        <svg class="app-brandmark" width=size height=size viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path class="app-brandmark__ice" d="M5 4 C5 12, 12 12, 12 19" />
+            <path class="app-brandmark__teal" d="M12 4 C12 12, 12 12, 12 19" />
+            <path class="app-brandmark__violet" d="M19 4 C19 12, 12 12, 12 19" />
+            <circle class="app-brandmark__ice" cx="5" cy="4" r="1.8" />
+            <circle class="app-brandmark__teal" cx="12" cy="4" r="1.8" />
+            <circle class="app-brandmark__violet" cx="19" cy="4" r="1.8" />
+            <circle class="app-brandmark__node" cx="12" cy="20" r="2" />
         </svg>
+    }
+}
+
+/// The brand lock-up: the mark and the product name.
+#[component]
+pub fn Brand(#[prop(default = 22)] size: u32, #[prop(optional)] large: bool) -> impl IntoView {
+    view! {
+        <span class="app-brand" class:app-brand--lg=large>
+            <BrandMark size=size />
+            <span class="app-brand__name">"Cloacina"</span>
+        </span>
     }
 }

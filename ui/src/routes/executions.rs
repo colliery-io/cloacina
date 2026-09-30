@@ -25,7 +25,7 @@ use leptos_router::hooks::{use_navigate, use_query_map};
 
 use cloacina_api_types::ListExecutionsQuery;
 
-use crate::components::TagPill;
+use aurora_leptos::components::Pill;
 use crate::data::poll_resource;
 use crate::util::{ago, format_duration};
 
@@ -292,7 +292,7 @@ pub fn Executions() -> impl IntoView {
                                         </div>
                                         <div style:display="flex" style:gap="18px" style:align-items="center" style:flex="none">
                                             <Show when=move || manual>
-                                                <TagPill color=token::GOLD>"manual"</TagPill>
+                                                <Pill color=token::GOLD>"manual"</Pill>
                                             </Show>
                                             <StatusBadge status=e.status.clone() />
                                             <div

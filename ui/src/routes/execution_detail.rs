@@ -36,7 +36,7 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use cloacina_api_types::ExecutionEvent;
 
 use crate::auth::{client_for, use_auth};
-use crate::components::TagPill;
+use aurora_leptos::components::Pill;
 use crate::data::{once_resource, poll_resource};
 use crate::util::format_duration;
 
@@ -531,9 +531,9 @@ pub fn ExecutionView(
                                         <span style:color="var(--fainter)" style:flex="none">
                                             {e.created_at.clone()}
                                         </span>
-                                        <TagPill color=status_color(&e.event_type).to_string()>
+                                        <Pill color=status_color(&e.event_type).to_string()>
                                             {e.event_type.clone()}
-                                        </TagPill>
+                                        </Pill>
                                         <span style:color="var(--fg-2)">
                                             {e.task_name.clone().unwrap_or_default()}
                                         </span>

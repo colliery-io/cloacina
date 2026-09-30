@@ -27,7 +27,8 @@ use leptos_router::hooks::use_navigate;
 use cloacina_api_types::{ExecutionSummary, ListExecutionsQuery};
 
 use crate::auth::{client_for, use_auth};
-use crate::components::{PauseIcon, PlayIcon, RunCircles, RunWorkflowModal, TagPill};
+use aurora_leptos::components::{IconPause, IconPlay, Pill};
+use crate::components::{RunCircles, RunWorkflowModal};
 use crate::data::{poll_resource, use_clock};
 use crate::util::ago;
 
@@ -175,7 +176,7 @@ pub fn Workflows() -> impl IntoView {
                                                         {w.package_name.clone()}
                                                     </span>
                                                     <Show when=move || paused>
-                                                        <TagPill color=token::GOLD>"paused"</TagPill>
+                                                        <Pill color=token::GOLD>"paused"</Pill>
                                                     </Show>
                                                 </span>
                                                 {w.description.clone().map(|d| view! {
@@ -193,7 +194,7 @@ pub fn Workflows() -> impl IntoView {
                                                 })}
                                             </td>
                                             <td>
-                                                <TagPill color=token::VIOLET>{format!("v{}", w.version)}</TagPill>
+                                                <Pill color=token::VIOLET>{format!("v{}", w.version)}</Pill>
                                             </td>
                                             <td>
                                                 <span style:font-family=MONO style:font-size="11.5px" style:color="var(--fg-2)">
@@ -237,9 +238,9 @@ pub fn Workflows() -> impl IntoView {
                                                                 }
                                                             >
                                                                 {if paused {
-                                                                    view! { <PlayIcon size=16 /> }.into_any()
+                                                                    view! { <IconPlay size=16 /> }.into_any()
                                                                 } else {
-                                                                    view! { <PauseIcon size=16 /> }.into_any()
+                                                                    view! { <IconPause size=16 /> }.into_any()
                                                                 }}
                                                             </button>
                                                         }
@@ -268,7 +269,7 @@ pub fn Workflows() -> impl IntoView {
                                                                     }
                                                                 }
                                                             >
-                                                                <PlayIcon size=18 />
+                                                                <IconPlay size=18 />
                                                             </button>
                                                         }
                                                     }

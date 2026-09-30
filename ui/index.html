@@ -4,18 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cloacina</title>
-    <!-- Critical pre-wasm style: the app injects the full Aurora Dark
-         stylesheet at mount (<AuroraStyles/>); this one rule keeps the
-         loading blank page on the Aurora surface so there is no light
-         flash. Value = the pack's `--bg` token. -->
+    <!-- Light and dark (Aurora 0.4). With no stored choice the page follows
+         the operating system; native controls follow too. -->
+    <meta name="color-scheme" content="light dark" />
+    <!-- aurora_leptos::THEME_INIT_SCRIPT, verbatim (a unit test in
+         src/main.rs keeps it in step with the crate). It sets data-theme
+         from localStorage before the first paint, so there is no flash of
+         the wrong theme. -->
+    <script>(function(){try{var t=localStorage.getItem("aurora-theme");if(t==="light"||t==="dark"){var d=document.documentElement;d.setAttribute("data-theme",t);d.style.colorScheme=t;}}catch(e){}})();</script>
+    <!-- Critical pre-wasm style: the app injects the full Aurora stylesheet
+         at mount (<AuroraStyles/>). Until then the blank page uses the system
+         canvas colour of the active colour scheme, so it is light in the
+         light theme and dark in the dark theme, with no raw colour here. -->
     <style>
       html,
       body {
         height: 100%;
         margin: 0;
-        background: #0e1116;
+        background: Canvas;
       }
     </style>
+    <!-- Cloacina's own token-based classes (layout and app-specific chrome
+         that Aurora has no component for). -->
+    <link data-trunk rel="css" href="style/app.css" />
   </head>
   <body></body>
 </html>

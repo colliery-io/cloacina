@@ -60,11 +60,18 @@ fn RequireAuth() -> impl IntoView {
 #[component]
 pub fn App() -> impl IntoView {
     provide_auth();
+    // Light / dark / system (Aurora 0.4): the ThemeToggle in the top bar and
+    // on the connect gate reads this; index.html runs THEME_INIT_SCRIPT so
+    // the first paint already has the stored theme.
+    aurora_leptos::theme::provide_theme();
+    // Toasts from any view (use_toaster()).
+    aurora_leptos::components::provide_toaster();
     view! {
-        // The full Aurora Dark stylesheet, injected at mount. index.html
-        // carries a one-rule critical style (the --bg surface) so the
-        // pre-wasm blank page doesn't flash light.
+        // The full Aurora stylesheet, injected at mount. index.html carries
+        // a one-rule critical style (the system canvas colour) so the
+        // pre-wasm blank page has the right theme.
         <aurora_leptos::AuroraStyles />
+        <aurora_leptos::components::ToastStack />
         <Router>
             <Routes fallback=NotFound>
                 <Route path=path!("/connect") view=Connect />

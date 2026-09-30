@@ -27,7 +27,7 @@ use leptos::prelude::*;
 use cloacina_api_types::{KeyInfo, KeyRole};
 
 use crate::auth::{client_for, use_auth};
-use crate::components::TagPill;
+use aurora_leptos::components::Pill;
 use crate::data::poll_resource;
 
 const MONO: &str = "'IBM Plex Mono', monospace";
@@ -179,7 +179,7 @@ pub fn Keys() -> impl IntoView {
                                                         {k.name.clone()}
                                                     </span>
                                                     <Show when=move || revoked>
-                                                        <TagPill color=token::MUTED>"revoked"</TagPill>
+                                                        <Pill color=token::MUTED>"revoked"</Pill>
                                                     </Show>
                                                 </div>
                                                 <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="2px">

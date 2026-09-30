@@ -29,7 +29,8 @@ use leptos_router::hooks::use_navigate;
 use cloacina_api_types::TriggerScheduleSummary;
 
 use crate::auth::{client_for, use_auth};
-use crate::components::{BoltIcon, PlayIcon, TriggerFireModal};
+use aurora_leptos::components::{IconBolt, IconPlay};
+use crate::components::{TriggerFireModal};
 use crate::data::{poll_resource, use_clock};
 use crate::util::ago;
 
@@ -297,7 +298,7 @@ pub fn Triggers() -> impl IntoView {
                                         }
                                     }
                                 >
-                                    <BoltIcon size=16 />
+                                    <IconBolt size=16 />
                                 </button>
                             }
                         }
@@ -323,7 +324,7 @@ pub fn Triggers() -> impl IntoView {
                                         }
                                     }
                                 >
-                                    <PlayIcon size=18 />
+                                    <IconPlay size=18 />
                                 </button>
                             }
                         }

@@ -21,7 +21,10 @@
 //! (StatusStrip, RunHeatmap, TaskHealthTable, CombinedTimeline, ScheduleCard,
 //! InputsCard, TaskCodeModal) are Wave-4 work (CLOACI-T-0935).
 
-use aurora_leptos::components::{Alert, Empty, Loading, Modal, Panel};
+use aurora_leptos::components::{
+    Alert, Button, ConfirmDialog, Empty, List, ListItem, Loading, PageHeader, Panel, Pill,
+    RelativeTime, StatTile, TabItem, TabPanel, Table, Tabs,
+};
 use aurora_leptos::graph::{Graph, GraphEdge, GraphNode};
 use aurora_leptos::tokens::token;
 use aurora_leptos::widgets::BuildStatusBadge;
@@ -31,12 +34,9 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use cloacina_api_types::ExecutionTasksResponse;
 
 use crate::auth::{client_for, use_auth};
-use crate::components::{RunWorkflowModal, TagPill, ViewTabs};
+use crate::components::RunWorkflowModal;
 use crate::data::poll_resource;
 use crate::routes::execution_detail::ExecutionView;
-use crate::util::ago;
-
-const MONO: &str = "'IBM Plex Mono', monospace";
 
 fn ts_ms(ts: &str) -> Option<f64> {
     let v = js_sys::Date::parse(ts);
@@ -146,11 +146,8 @@ fn aggregate_tasks(resps: &[ExecutionTasksResponse]) -> Vec<TaskAgg> {
 #[component]
 fn CountCell(n: u32, color: &'static str) -> impl IntoView {
     view! {
-        <span
-            class="cl-tnum"
-            style:font-size="12px"
-            style:color=if n == 0 { "var(--fainter)" } else { color }
-        >
+        // The hue is the outcome (data); zero stays quiet.
+        <span class="app-count cl-tnum" style:color=if n == 0 { "var(--fainter)" } else { color }>
             {n}
         </span>
     }
@@ -264,7 +261,7 @@ pub fn WorkflowDetail() -> impl IntoView {
     // Dual views (UAT round 1, T-0938): current/most-recent execution is the
     // DEFAULT view (UAT round 2); operational history sits behind the second
     // tab, same orientation as GraphDetail. Prefer a live run.
-    let view_mode = RwSignal::new("current");
+    let view_mode = RwSignal::new("current".to_string());
     let current_exec_id = Signal::derive(move || {
         let runs = recent_runs.get();
         runs.iter()
@@ -284,7 +281,7 @@ pub fn WorkflowDetail() -> impl IntoView {
     let del_error = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
 
-    let toggle_pause = move |_| {
+    let toggle_pause = move || {
         let Some(d) = data.get_untracked() else {
             return;
         };
@@ -305,7 +302,7 @@ pub fn WorkflowDetail() -> impl IntoView {
         });
     };
 
-    let do_delete = move |_| {
+    let do_delete = move || {
         let Some(d) = data.get_untracked() else {
             return;
         };
@@ -332,6 +329,333 @@ pub fn WorkflowDetail() -> impl IntoView {
         });
     };
 
+    let paused = Signal::derive(move || data.get().map(|d| d.paused).unwrap_or(false));
+
+    let header = move || {
+        view! {
+            <PageHeader
+                title=name.get()
+                back_href="/workflows"
+                back_label="Workflows"
+                meta=Box::new(move || view! {
+                    <Show when=move || paused.get()>
+                        <Pill color=token::GOLD>"⏸ paused"</Pill>
+                    </Show>
+                    {move || data.get().map(|d| view! {
+                        <BuildStatusBadge status=d.build_status.clone() />
+                        <span class="app-meta app-meta--md app-faint">
+                            {format!("v{} · created ", d.version)}
+                            <RelativeTime iso=d.created_at.clone() />
+                            " · workflow "
+                            <span class="app-muted">{d.workflow_name.clone()}</span>
+                        </span>
+                    })}
+                }.into_any())
+                actions=Box::new(move || view! {
+                    <Show when=move || auth.can_write()>
+                        <Button on_click=Callback::new(move |_| {
+                            exec_target.set(Some((name.get_untracked(), wf_name.get_untracked())));
+                            exec_open.set(true);
+                        })>
+                            "▸ Execute"
+                        </Button>
+                        <Button variant="default" loading=busy on_click=Callback::new(move |_| toggle_pause())>
+                            {move || if paused.get() { "▸ Resume" } else { "⏸ Pause" }}
+                        </Button>
+                    </Show>
+                    <Button variant="subtle" bad=true on_click=Callback::new(move |_| del_open.set(true))>
+                        "Delete"
+                    </Button>
+                }.into_any())
+            />
+        }
+    };
+
+    // Run-level summary strip (UAT round 3).
+    let summary = move || {
+        let runs = recent_runs.get();
+        let done: Vec<_> = runs
+            .iter()
+            .filter(|r| !r.status.eq_ignore_ascii_case("running"))
+            .collect();
+        let ok = done
+            .iter()
+            .filter(|r| r.status.eq_ignore_ascii_case("completed"))
+            .count();
+        let rate = if done.is_empty() {
+            "—".to_string()
+        } else {
+            format!("{:.0}%", 100.0 * ok as f64 / done.len() as f64)
+        };
+        let walls: Vec<f64> = runs
+            .iter()
+            .filter_map(|r| {
+                let s = ts_ms(&r.started_at)?;
+                let e = ts_ms(r.completed_at.as_deref()?)?;
+                (e >= s).then_some((e - s) / 1000.0)
+            })
+            .collect();
+        let avg_wall = if walls.is_empty() {
+            "—".to_string()
+        } else {
+            format!("{:.1}s", walls.iter().sum::<f64>() / walls.len() as f64)
+        };
+        let failed = done.len().saturating_sub(ok);
+        let rate_color = if rate.starts_with("100") { token::OK } else { token::GOLD };
+        let failed_color = if failed > 0 { token::BAD } else { "var(--fainter)" };
+        view! {
+            <div class="app-grid-4">
+                <StatTile label="Runs analyzed" value=runs_analyzed.get().to_string() />
+                <StatTile label="Success rate" value=rate color=rate_color />
+                <StatTile label="Avg wall-clock" value=avg_wall color=token::ICE />
+                <StatTile label="Failed runs" value=failed.to_string() color=failed_color />
+            </div>
+        }
+    };
+
+    // Exit types per task (UAT round 3).
+    let outcomes = move || {
+        let aggs = task_aggs.get();
+        if aggs.is_empty() {
+            return view! { <Empty message="No run history to aggregate yet." /> }.into_any();
+        }
+        view! {
+            <Table label="Task outcomes">
+                <thead>
+                    <tr>
+                        <th>"Task"</th>
+                        <th>"Completed"</th>
+                        <th>"Failed"</th>
+                        <th>"Skipped"</th>
+                        <th>"Other"</th>
+                        <th>"Retried"</th>
+                        <th>"Avg duration"</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {aggs
+                        .into_iter()
+                        .map(|a| {
+                            let dur = if a.samples == 0 {
+                                "—".to_string()
+                            } else if a.sd_dur > 0.05 {
+                                format!("{:.1}s ± {:.1}s", a.avg_dur, a.sd_dur)
+                            } else {
+                                format!("{:.1}s", a.avg_dur)
+                            };
+                            view! {
+                                <tr>
+                                    <td class="app-mono app-small app-fg">{a.name.clone()}</td>
+                                    <td><CountCell n=a.completed color=token::OK /></td>
+                                    <td><CountCell n=a.failed color=token::BAD /></td>
+                                    <td><CountCell n=a.skipped color=token::VIOLET /></td>
+                                    <td><CountCell n=a.other color=token::GOLD /></td>
+                                    <td><CountCell n=a.retried color=token::GOLD /></td>
+                                    <td class="app-count cl-tnum app-fg2">{dur}</td>
+                                </tr>
+                            }
+                        })
+                        .collect_view()}
+                </tbody>
+            </Table>
+        }
+        .into_any()
+    };
+
+    // Average timing gantt with variance (UAT round 3).
+    let timing = move || {
+        let mut aggs = task_aggs.get();
+        aggs.retain(|a| a.samples > 0);
+        if aggs.is_empty() {
+            return view! { <Empty message="No completed runs to average yet." /> }.into_any();
+        }
+        aggs.sort_by(|x, y| {
+            x.avg_start
+                .partial_cmp(&y.avg_start)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let total = aggs
+            .iter()
+            .map(|a| a.avg_start + a.avg_dur + a.sd_dur)
+            .fold(0.0f64, f64::max)
+            .max(0.001);
+        view! {
+            <div class="app-avg">
+                {aggs
+                    .into_iter()
+                    .map(|a| {
+                        let left = 100.0 * a.avg_start / total;
+                        let width = (100.0 * a.avg_dur / total).max(0.8);
+                        let band_start = a.avg_start + (a.avg_dur - a.sd_dur).max(0.0);
+                        let band_left = 100.0 * band_start / total;
+                        let band_width =
+                            (100.0 * ((a.avg_start + a.avg_dur + a.sd_dur) - band_start) / total).max(0.0);
+                        let has_band = a.sd_dur > 0.02;
+                        let label = format!("{:.1}s ± {:.1}s", a.avg_dur, a.sd_dur);
+                        view! {
+                            <div class="app-avg__row">
+                                <span class="app-avg__name app-ellipsis" title=a.name.clone()>{a.name.clone()}</span>
+                                <div class="app-avg__track">
+                                    // Offsets and widths are computed from the task times.
+                                    <Show when=move || has_band>
+                                        <div
+                                            class="app-avg__band"
+                                            style:left=format!("{band_left:.2}%")
+                                            style:width=format!("{band_width:.2}%")
+                                        ></div>
+                                    </Show>
+                                    <div
+                                        class="app-avg__bar"
+                                        style:left=format!("{left:.2}%")
+                                        style:width=format!("{width:.2}%")
+                                    ></div>
+                                </div>
+                                <span class="app-avg__label cl-tnum">{label}</span>
+                            </div>
+                        }
+                    })
+                    .collect_view()}
+            </div>
+        }
+        .into_any()
+    };
+
+    let task_graph = move || {
+        let d = data.get();
+        let graph = d.as_ref().map(|d| d.task_graph.clone()).unwrap_or_default();
+        if !graph.is_empty() {
+            let nodes = graph
+                .iter()
+                .map(|n| GraphNode::new(n.id.clone(), n.id.clone()).color(token::ICE))
+                .collect::<Vec<_>>();
+            let edges = graph
+                .iter()
+                .flat_map(|n| {
+                    n.dependencies.iter().map(move |dep| GraphEdge {
+                        from: dep.clone(),
+                        to: n.id.clone(),
+                        active: false,
+                    })
+                })
+                .collect::<Vec<_>>();
+            view! {
+                <div data-testid="workflow-graph">
+                    <Graph nodes=nodes edges=edges direction="LR" />
+                </div>
+            }
+            .into_any()
+        } else {
+            let tasks = d.map(|d| d.tasks).unwrap_or_default();
+            if tasks.is_empty() {
+                view! { <span class="app-hint">"No tasks."</span> }.into_any()
+            } else {
+                view! {
+                    <List>
+                        {tasks.into_iter().map(|t| view! { <ListItem>{t}</ListItem> }).collect_view()}
+                    </List>
+                }
+                .into_any()
+            }
+        }
+    };
+
+    let instances_view = move || {
+        view! {
+            <Show
+                when=move || !instance_items.get().is_empty()
+                fallback=|| view! {
+                    <Empty message="No named instances. Create one with `cloacinactl instance create`." />
+                }
+            >
+                <Table label="Named instances">
+                    <thead>
+                        <tr>
+                            <th>"Instance"</th>
+                            <th>"Schedule"</th>
+                            <th>"Params"</th>
+                            <th>"Next run"</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <For
+                            each=move || instance_items.get()
+                            key=|i| i.id.clone()
+                            children=|i| {
+                                let cron_pill = i.cron_expression.clone();
+                                let params = i
+                                    .params
+                                    .as_ref()
+                                    .map(|p| p.to_string())
+                                    .unwrap_or_else(|| "—".into());
+                                view! {
+                                    <tr>
+                                        <td class="app-mono app-text">{i.instance_name.clone()}</td>
+                                        <td>
+                                            <span class="app-row app-row--tight">
+                                                <Pill color=if cron_pill.is_some() { token::TEAL } else { token::MUTED }>
+                                                    {cron_pill.unwrap_or_else(|| "unscheduled".into())}
+                                                </Pill>
+                                                <Show when=move || i.paused>
+                                                    <Pill color=token::GOLD>"⏸ paused"</Pill>
+                                                </Show>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="app-meta app-meta--sm app-muted app-ellipsis app-clip" title=params.clone()>
+                                                {params.clone()}
+                                            </span>
+                                        </td>
+                                        <td class="app-meta">
+                                            {i.next_run_at.as_ref().map(|t| format!("next {t}")).unwrap_or_default()}
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        />
+                    </tbody>
+                </Table>
+            </Show>
+        }
+    };
+
+    let history = move || {
+        view! {
+            <div class="app-col app-col--loose">
+                {summary}
+                <Panel title="Task outcomes" caption="exit types over the analyzed runs">{outcomes}</Panel>
+                <Panel
+                    title="Average task timing"
+                    caption="mean start → duration across the analyzed runs · gold band = ±1σ"
+                >
+                    {timing}
+                </Panel>
+                <Panel title="Task graph">{task_graph}</Panel>
+                // Recent runs (RunHeatmap, T-0935)
+                <Panel title="Recent runs" caption="last 40 · bar height = duration · hover for detail">
+                    {move || view! { <crate::charts::RunHeatmap runs=recent_runs.get() /> }}
+                </Panel>
+                // Named instances (T-0927, read-only)
+                <Panel title="Named instances" caption="persistent param bindings, optionally scheduled">
+                    {instances_view}
+                </Panel>
+            </div>
+        }
+    };
+
+    let current = move || {
+        view! {
+            <Show
+                when=move || current_exec_id.get().is_some()
+                fallback=|| view! { <Empty message="No executions of this workflow yet." /> }
+            >
+                {move || {
+                    let id = Signal::derive(move || current_exec_id.get().unwrap_or_default());
+                    view! { <ExecutionView id=id embedded=true /> }
+                }}
+            </Show>
+        }
+    };
+
     view! {
         <Show
             when=move || !loading.get()
@@ -341,491 +665,55 @@ pub fn WorkflowDetail() -> impl IntoView {
                 when=move || data.get().is_some()
                 fallback=|| view! { <Empty message="Workflow not found." /> }
             >
-                <div style:display="flex" style:flex-direction="column" style:gap="18px">
-                    // Header
-                    <div style:display="flex" style:justify-content="space-between" style:align-items="flex-start">
-                        <div>
-                            <a
-                                href="/workflows"
-                                style:font-family=MONO
-                                style:font-size="11.5px"
-                                style:color="var(--muted)"
-                                style:text-decoration="none"
-                            >
-                                "← Workflows"
-                            </a>
-                            <div style:display="flex" style:gap="10px" style:align-items="center" style:margin-top="3px">
-                                <h1
-                                    style:font-size="23px"
-                                    style:font-weight="600"
-                                    style:color="var(--fg-bright)"
-                                    style:letter-spacing="-.01em"
-                                    style:margin="0"
-                                >
-                                    {move || name.get()}
-                                </h1>
-                                <Show when=move || data.get().map(|d| d.paused).unwrap_or(false)>
-                                    <TagPill color=token::GOLD>"⏸ paused"</TagPill>
-                                </Show>
-                            </div>
-                            <div style:display="flex" style:gap="8px" style:align-items="center" style:margin-top="5px">
-                                {move || {
-                                    data.get().map(|d| view! {
-                                        <BuildStatusBadge status=d.build_status.clone() />
-                                        <span style:font-family=MONO style:font-size="11.5px" style:color="var(--faint)">
-                                            {format!(
-                                                "v{} · created {} · workflow ",
-                                                d.version,
-                                                ago(Some(d.created_at.as_str()))
-                                            )}
-                                            <span style:color="var(--muted)">{d.workflow_name.clone()}</span>
-                                        </span>
-                                    })
-                                }}
-                            </div>
-                        </div>
-                        <div style:display="flex" style:gap="8px">
-                            <Show when=move || auth.can_write()>
-                                <button
-                                    class="cl-btn cl-btn--filled"
-                                    on:click=move |_| {
-                                        exec_target.set(Some((name.get_untracked(), wf_name.get_untracked())));
-                                        exec_open.set(true);
-                                    }
-                                >
-                                    "▸ Execute"
-                                </button>
-                                <button
-                                    class="cl-btn cl-btn--default"
-                                    disabled=move || busy.get()
-                                    on:click=toggle_pause
-                                >
-                                    {move || {
-                                        if data.get().map(|d| d.paused).unwrap_or(false) {
-                                            "▸ Resume"
-                                        } else {
-                                            "⏸ Pause"
-                                        }
-                                    }}
-                                </button>
-                            </Show>
-                            <button
-                                class="cl-btn cl-btn--subtle cl-btn--bad"
-                                on:click=move |_| del_open.set(true)
-                            >
-                                "Delete"
-                            </button>
-                        </div>
-                    </div>
+                <div class="app-page app-page--loose">
+                    {header}
 
                     // Build error
                     <Show when=move || data.get().and_then(|d| d.build_error).is_some()>
-                        <Alert title="Build error" color="var(--bad)">
-                            <span style:white-space="pre-wrap">
+                        <Alert title="Build error" color=token::BAD>
+                            <span class="app-prewrap">
                                 {move || data.get().and_then(|d| d.build_error).unwrap_or_default()}
                             </span>
                         </Alert>
                     </Show>
 
-                    // View switcher (UAT round 1, T-0938)
-                    <ViewTabs
+                    // Dual views (UAT round 1, T-0938): the current execution
+                    // is the default; operational history is the second tab.
+                    <Tabs
                         tabs=vec![
-                            ("current", "Current execution"),
-                            ("history", "Operational history"),
+                            TabItem::new("current", "Current execution"),
+                            TabItem::new("history", "Operational history"),
                         ]
-                        active=view_mode
-                    />
-
-                    // ---- Current-execution view ----
-                    <Show when=move || view_mode.get() == "current">
-                        <Show
-                            when=move || current_exec_id.get().is_some()
-                            fallback=|| view! { <Empty message="No executions of this workflow yet." /> }
-                        >
-                            {move || {
-                                let id = Signal::derive(move || {
-                                    current_exec_id.get().unwrap_or_default()
-                                });
-                                view! { <ExecutionView id=id embedded=true /> }
-                            }}
-                        </Show>
-                    </Show>
-
-                    // ---- Operational-history view ----
-                    <Show when=move || view_mode.get() == "history">
-                    // Run-level summary strip (UAT round 3)
-                    {move || {
-                        let runs = recent_runs.get();
-                        let done: Vec<_> = runs
-                            .iter()
-                            .filter(|r| !r.status.eq_ignore_ascii_case("running"))
-                            .collect();
-                        let ok = done
-                            .iter()
-                            .filter(|r| r.status.eq_ignore_ascii_case("completed"))
-                            .count();
-                        let rate = if done.is_empty() {
-                            "—".to_string()
-                        } else {
-                            format!("{:.0}%", 100.0 * ok as f64 / done.len() as f64)
-                        };
-                        let walls: Vec<f64> = runs
-                            .iter()
-                            .filter_map(|r| {
-                                let s = ts_ms(&r.started_at)?;
-                                let e = ts_ms(r.completed_at.as_deref()?)?;
-                                (e >= s).then_some((e - s) / 1000.0)
-                            })
-                            .collect();
-                        let avg_wall = if walls.is_empty() {
-                            "—".to_string()
-                        } else {
-                            format!("{:.1}s", walls.iter().sum::<f64>() / walls.len() as f64)
-                        };
-                        let stat = |label: &str, value: String, color: &'static str| {
-                            let label = label.to_string();
-                            view! {
-                                <div>
-                                    <span
-                                        style:font-family=MONO
-                                        style:font-size="10px"
-                                        style:letter-spacing=".07em"
-                                        style:text-transform="uppercase"
-                                        style:color="var(--muted)"
-                                        style:display="block"
-                                    >
-                                        {label}
-                                    </span>
-                                    <span
-                                        class="cl-tnum"
-                                        style:font-size="19px"
-                                        style:font-weight="600"
-                                        style:color=color
-                                    >
-                                        {value}
-                                    </span>
-                                </div>
-                            }
-                        };
-                        view! {
-                            <div
-                                style:display="flex"
-                                style:gap="40px"
-                                style:background="var(--panel)"
-                                style:border="1px solid var(--border)"
-                                style:border-radius="10px"
-                                style:padding="12px 18px"
-                            >
-                                {stat("Runs analyzed", runs_analyzed.get().to_string(), "var(--fg)")}
-                                {stat(
-                                    "Success rate",
-                                    rate.clone(),
-                                    if rate.starts_with("100") { token::OK } else { token::GOLD },
-                                )}
-                                {stat("Avg wall-clock", avg_wall, token::ICE)}
-                                {stat(
-                                    "Failed runs",
-                                    done.len().saturating_sub(ok).to_string(),
-                                    if done.len() > ok { "var(--bad)" } else { "var(--fainter)" },
-                                )}
-                            </div>
-                        }
-                    }}
-
-                    // Exit types per task (UAT round 3)
-                    <Panel title="Task outcomes" caption="exit types over the analyzed runs">
-                        {move || {
-                            let aggs = task_aggs.get();
-                            if aggs.is_empty() {
-                                return view! { <Empty message="No run history to aggregate yet." /> }
-                                    .into_any();
-                            }
-                            view! {
-                                <table class="cl-table">
-                                    <thead>
-                                        <tr>
-                                            <th>"Task"</th>
-                                            <th>"Completed"</th>
-                                            <th>"Failed"</th>
-                                            <th>"Skipped"</th>
-                                            <th>"Other"</th>
-                                            <th>"Retried"</th>
-                                            <th>"Avg duration"</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {aggs
-                                            .into_iter()
-                                            .map(|a| {
-                                                let dur = if a.samples == 0 {
-                                                    "—".to_string()
-                                                } else if a.sd_dur > 0.05 {
-                                                    format!("{:.1}s ± {:.1}s", a.avg_dur, a.sd_dur)
-                                                } else {
-                                                    format!("{:.1}s", a.avg_dur)
-                                                };
-                                                view! {
-                                                    <tr>
-                                                        <td>
-                                                            <span style:font-family=MONO style:font-size="12.5px" style:color="var(--fg)">
-                                                                {a.name.clone()}
-                                                            </span>
-                                                        </td>
-                                                        <td><CountCell n=a.completed color=token::OK /></td>
-                                                        <td><CountCell n=a.failed color="var(--bad)" /></td>
-                                                        <td><CountCell n=a.skipped color=token::VIOLET /></td>
-                                                        <td><CountCell n=a.other color=token::GOLD /></td>
-                                                        <td><CountCell n=a.retried color=token::GOLD /></td>
-                                                        <td>
-                                                            <span class="cl-tnum" style:font-size="12px" style:color="var(--fg-2)">
-                                                                {dur}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            })
-                                            .collect_view()}
-                                    </tbody>
-                                </table>
-                            }
-                            .into_any()
-                        }}
-                    </Panel>
-
-                    // Average timing gantt with variance (UAT round 3)
-                    <Panel
-                        title="Average task timing"
-                        caption="mean start → duration across the analyzed runs · gold band = ±1σ"
+                        value=view_mode
+                        label="Workflow views"
                     >
-                        {move || {
-                            let mut aggs = task_aggs.get();
-                            aggs.retain(|a| a.samples > 0);
-                            if aggs.is_empty() {
-                                return view! { <Empty message="No completed runs to average yet." /> }
-                                    .into_any();
-                            }
-                            aggs.sort_by(|x, y| {
-                                x.avg_start
-                                    .partial_cmp(&y.avg_start)
-                                    .unwrap_or(std::cmp::Ordering::Equal)
-                            });
-                            let total = aggs
-                                .iter()
-                                .map(|a| a.avg_start + a.avg_dur + a.sd_dur)
-                                .fold(0.0f64, f64::max)
-                                .max(0.001);
-                            view! {
-                                <div style:display="flex" style:flex-direction="column" style:gap="7px">
-                                    {aggs
-                                        .into_iter()
-                                        .map(|a| {
-                                            let left = 100.0 * a.avg_start / total;
-                                            let width = (100.0 * a.avg_dur / total).max(0.8);
-                                            let band_start =
-                                                a.avg_start + (a.avg_dur - a.sd_dur).max(0.0);
-                                            let band_left = 100.0 * band_start / total;
-                                            let band_width = (100.0
-                                                * ((a.avg_start + a.avg_dur + a.sd_dur) - band_start)
-                                                / total)
-                                                .max(0.0);
-                                            let has_band = a.sd_dur > 0.02;
-                                            let label =
-                                                format!("{:.1}s ± {:.1}s", a.avg_dur, a.sd_dur);
-                                            view! {
-                                                <div style:display="flex" style:gap="12px" style:align-items="center">
-                                                    <span
-                                                        style:font-family=MONO
-                                                        style:font-size="11.5px"
-                                                        style:color="var(--fg-2)"
-                                                        style:min-width="150px"
-                                                        style:text-align="right"
-                                                    >
-                                                        {a.name.clone()}
-                                                    </span>
-                                                    <div
-                                                        style:flex="1"
-                                                        style:position="relative"
-                                                        style:height="14px"
-                                                        style:background="var(--inset)"
-                                                        style:border-radius="3px"
-                                                        style:overflow="hidden"
-                                                    >
-                                                        <Show when=move || has_band>
-                                                            <div
-                                                                style:position="absolute"
-                                                                style:left=format!("{band_left:.2}%")
-                                                                style:width=format!("{band_width:.2}%")
-                                                                style:top="0"
-                                                                style:bottom="0"
-                                                                style:background=token::GOLD
-                                                                style:opacity="0.3"
-                                                            ></div>
-                                                        </Show>
-                                                        <div
-                                                            style:position="absolute"
-                                                            style:left=format!("{left:.2}%")
-                                                            style:width=format!("{width:.2}%")
-                                                            style:top="2px"
-                                                            style:bottom="2px"
-                                                            style:border-radius="2px"
-                                                            style:background=token::ICE
-                                                        ></div>
-                                                    </div>
-                                                    <span
-                                                        class="cl-tnum"
-                                                        style:font-size="11px"
-                                                        style:color="var(--faint)"
-                                                        style:min-width="96px"
-                                                    >
-                                                        {label}
-                                                    </span>
-                                                </div>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </div>
-                            }
-                            .into_any()
-                        }}
-                    </Panel>
-
-                    // Task graph
-                    <Panel title="Task graph">
-                        {move || {
-                            let d = data.get();
-                            let graph = d.as_ref().map(|d| d.task_graph.clone()).unwrap_or_default();
-                            if !graph.is_empty() {
-                                let nodes = graph
-                                    .iter()
-                                    .map(|n| GraphNode::new(n.id.clone(), n.id.clone()).color(token::ICE))
-                                    .collect::<Vec<_>>();
-                                let edges = graph
-                                    .iter()
-                                    .flat_map(|n| {
-                                        n.dependencies.iter().map(move |dep| GraphEdge {
-                                            from: dep.clone(),
-                                            to: n.id.clone(),
-                                            active: false,
-                                        })
-                                    })
-                                    .collect::<Vec<_>>();
-                                view! { <Graph nodes=nodes edges=edges direction="LR" /> }.into_any()
-                            } else {
-                                let tasks = d.map(|d| d.tasks).unwrap_or_default();
-                                if tasks.is_empty() {
-                                    view! { <span style:color="var(--muted)" style:font-size="13px">"No tasks."</span> }
-                                        .into_any()
-                                } else {
-                                    view! {
-                                        <ul class="cl-list">
-                                            {tasks
-                                                .into_iter()
-                                                .map(|t| view! { <li>{t}</li> })
-                                                .collect_view()}
-                                        </ul>
-                                    }
-                                    .into_any()
-                                }
-                            }
-                        }}
-                    </Panel>
-
-                    // Recent runs (RunHeatmap, T-0935)
-                    <Panel title="Recent runs" caption="last 40 · bar height = duration · hover for detail">
-                        {move || view! { <crate::charts::RunHeatmap runs=recent_runs.get() /> }}
-                    </Panel>
-
-                    // Named instances (T-0927, read-only)
-                    <Panel title="Named instances" caption="persistent param bindings, optionally scheduled">
-                        <Show
-                            when=move || !instance_items.get().is_empty()
-                            fallback=|| view! {
-                                <Empty message="No named instances. Create one with `cloacinactl instance create`." />
-                            }
-                        >
-                            <div style:display="flex" style:flex-direction="column" style:gap="6px">
-                                <For
-                                    each=move || instance_items.get()
-                                    key=|i| i.id.clone()
-                                    children=|i| {
-                                        let cron_pill = i.cron_expression.clone();
-                                        view! {
-                                            <div style:display="flex" style:gap="12px" style:align-items="baseline">
-                                                <span
-                                                    style:font-family=MONO
-                                                    style:font-size="13px"
-                                                    style:color="var(--fg)"
-                                                    style:min-width="160px"
-                                                >
-                                                    {i.instance_name.clone()}
-                                                </span>
-                                                <TagPill color=if cron_pill.is_some() { token::TEAL } else { token::MUTED }>
-                                                    {cron_pill.unwrap_or_else(|| "unscheduled".into())}
-                                                </TagPill>
-                                                <Show when=move || i.paused>
-                                                    <TagPill color=token::GOLD>"⏸ paused"</TagPill>
-                                                </Show>
-                                                <span
-                                                    style:font-family=MONO
-                                                    style:font-size="11px"
-                                                    style:color="var(--muted)"
-                                                    style:flex="1"
-                                                    style:overflow="hidden"
-                                                    style:text-overflow="ellipsis"
-                                                    style:white-space="nowrap"
-                                                >
-                                                    {i.params
-                                                        .as_ref()
-                                                        .map(|p| p.to_string())
-                                                        .unwrap_or_else(|| "—".into())}
-                                                </span>
-                                                <span style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                                                    {i.next_run_at
-                                                        .as_ref()
-                                                        .map(|t| format!("next {t}"))
-                                                        .unwrap_or_default()}
-                                                </span>
-                                            </div>
-                                        }
-                                    }
-                                />
-                            </div>
-                        </Show>
-                    </Panel>
-                    </Show>
+                        <TabPanel value="current">{current}</TabPanel>
+                        <TabPanel value="history">{history}</TabPanel>
+                    </Tabs>
 
                     // Modals
                     <RunWorkflowModal open=exec_open target=exec_target />
-                    <Show when=move || del_open.get()>
-                        <Modal open=del_open title="Delete workflow?">
-                            <div style:display="flex" style:flex-direction="column" style:gap="14px">
-                                <span style:font-size="13px" style:color="var(--fg-2)">
-                                    {move || format!(
-                                        "Unregister {} v{}? This removes the package from the tenant.",
-                                        name.get(),
-                                        data.get().map(|d| d.version).unwrap_or_default()
-                                    )}
-                                </span>
-                                <Show when=move || !del_error.get().is_empty()>
-                                    <span style:color="var(--bad)" style:font-size="12.5px">
-                                        {move || del_error.get()}
-                                    </span>
-                                </Show>
-                                <div style:display="flex" style:justify-content="flex-end" style:gap="10px">
-                                    <button class="cl-btn cl-btn--default" on:click=move |_| del_open.set(false)>
-                                        "Cancel"
-                                    </button>
-                                    <button
-                                        class="cl-btn cl-btn--filled cl-btn--bad"
-                                        disabled=move || busy.get()
-                                        on:click=do_delete
-                                    >
-                                        "Delete"
-                                    </button>
-                                </div>
-                            </div>
-                        </Modal>
-                    </Show>
+                    <ConfirmDialog
+                        open=del_open
+                        title="Delete workflow?"
+                        confirm_label="Delete"
+                        busy=busy
+                        on_confirm=Callback::new(move |_| do_delete())
+                        on_cancel=Callback::new(move |_| del_error.set(String::new()))
+                    >
+                        <div class="app-col">
+                            <span class="app-text app-fg2">
+                                {move || format!(
+                                    "Unregister {} v{}? This removes the package from the tenant.",
+                                    name.get(),
+                                    data.get().map(|d| d.version).unwrap_or_default()
+                                )}
+                            </span>
+                            <Show when=move || !del_error.get().is_empty()>
+                                <span class="app-error" role="alert">{move || del_error.get()}</span>
+                            </Show>
+                        </div>
+                    </ConfirmDialog>
                 </div>
             </Show>
         </Show>

@@ -27,7 +27,8 @@ use leptos_router::hooks::use_navigate;
 use cloacina_api_types::{FireReactorRequest, GraphStatus};
 
 use crate::auth::{client_for, use_auth};
-use crate::components::{GraphInjectModal, TagPill};
+use aurora_leptos::components::{Pill};
+use crate::components::{GraphInjectModal};
 use crate::data::{poll_resource, use_clock};
 use crate::util::{health_color, node_kind_color, Throughput};
 
@@ -99,7 +100,7 @@ fn AccStrip(
                 })
                 .collect_view()}
             <span style:color="var(--faint)">"→"</span>
-            <TagPill color=token::VIOLET>{graph}</TagPill>
+            <Pill color=token::VIOLET>{graph}</Pill>
             {reaction_mode.map(|m| view! {
                 <span style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
                     {m}
@@ -342,7 +343,7 @@ pub fn Graphs() -> impl IntoView {
                                                         {if hs.is_empty() { "unknown".to_string() } else { hs.clone() }}
                                                     </span>
                                                     <Show when={let p = g.paused; move || p}>
-                                                        <TagPill color=token::GOLD>"paused"</TagPill>
+                                                        <Pill color=token::GOLD>"paused"</Pill>
                                                     </Show>
                                                 </div>
                                                 <span style:font-family=MONO style:font-size="11.5px" style:color="var(--faint)">
@@ -401,7 +402,7 @@ pub fn Graphs() -> impl IntoView {
                                             </span>
                                             <span style:font-size="12px" style:color=hcolor>{hs.clone()}</span>
                                             <Show when={let p = r.paused; move || p}>
-                                                <TagPill color=token::GOLD>"paused"</TagPill>
+                                                <Pill color=token::GOLD>"paused"</Pill>
                                             </Show>
                                             <span style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
                                                 {format!(

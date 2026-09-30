@@ -26,7 +26,7 @@ use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
 use crate::auth::{client_for, use_auth};
-use crate::components::TagPill;
+use aurora_leptos::components::Pill;
 use crate::data::poll_resource;
 
 /// Account row decoded from the (Value-typed) accounts listing.
@@ -228,9 +228,9 @@ pub fn Accounts() -> impl IntoView {
                                             <td style:font-weight="500">{a.username.clone()}</td>
                                             <td>{a.role.clone()}</td>
                                             <td>
-                                                <TagPill color=if active { token::OK } else { token::MUTED }>
+                                                <Pill color=if active { token::OK } else { token::MUTED }>
                                                     {a.status.clone()}
-                                                </TagPill>
+                                                </Pill>
                                             </td>
                                             <td>
                                                 <Show when=move || auth.can_admin()>
