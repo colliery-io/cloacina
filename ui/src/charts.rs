@@ -80,7 +80,8 @@ pub fn TaskGantt(
     let mut bars: Vec<Bar> = tasks
         .iter()
         .filter_map(|t| {
-            let start = parse_ms(t.started_at.as_deref().unwrap_or(&t.created_at))?;
+            // A task that never started (not started, skipped) has no bar.
+            let start = parse_ms(t.started_at.as_deref()?)?;
             let running = !is_terminal(&t.status);
             let end = t
                 .completed_at
