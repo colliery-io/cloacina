@@ -406,3 +406,26 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-tenant-pick:hover { background: var(--control-hover); }
 .app-tenant-pick:focus-visible { outline: 2px solid var(--ice); outline-offset: 1px; }
 .app-tenant-pick:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ---------- Workarounds for Aurora 0.4 (report upstream) ---------- */
+/* `Button bad=true` only colours the filled and light variants
+   (components.css:140-141); a subtle or default danger button stays ice. */
+.cl-btn--bad.cl-btn--subtle { color: var(--bad-fg); }
+.cl-btn--bad.cl-btn--subtle:hover { background: var(--bad-bg); }
+.cl-btn--bad.cl-btn--default { color: var(--bad-fg); }
+/* The password letter-spacing (components.css:197-199) also spaces out the
+   placeholder text. */
+.cl-input[type="password"]::placeholder { letter-spacing: normal; }
+
+/* A StatTile whose value is text (a name, "just now"): smaller, one line. */
+.app-stat-text { display: flex; min-width: 0; }
+.app-stat-text > .cl-stat { flex: 1; }
+.app-stat-text .cl-stat__value { font-size: var(--fs-xl); min-width: 0; }
+.app-stat-text .cl-stat__value .cl-tnum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* ---------- Small screens ---------- */
+@media (max-width: 767px) {
+  .app-topbar__server { display: none; }
+  .app-search { width: 100%; }
+  .app-topbar .cl-segmented__item { padding: 4px 8px; }
+}

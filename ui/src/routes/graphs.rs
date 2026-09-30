@@ -177,7 +177,7 @@ pub fn Graphs() -> impl IntoView {
                     sub={if paused > 0 { format!("{paused} paused") } else { "all unpaused".to_string() }}
                 />
                 <StatTile label="Total fires" value=total_fires.to_string() color=token::ICE sub="since load".to_string() />
-                <StatTile
+                <div class="app-stat-text"><StatTile
                     label="Last fire"
                     value={last_fire
                         .as_deref()
@@ -185,19 +185,19 @@ pub fn Graphs() -> impl IntoView {
                         .filter(|s| !s.is_empty())
                         .unwrap_or_else(|| "never".into())}
                     sub="across all graphs".to_string()
-                />
+                /></div>
                 <StatTile
                     label="Accumulators live"
                     value=format!("{acc_live}/{}", accs_v.len())
                     color={if all_live { token::OK } else { token::GOLD }}
                     sub="event sources".to_string()
                 />
-                <StatTile
+                <div class="app-stat-text"><StatTile
                     label="Most active"
                     value=most_active.unwrap_or_else(|| "—".into())
                     color=token::VIOLET
                     sub="by fire count".to_string()
-                />
+                /></div>
             </div>
         }
     };

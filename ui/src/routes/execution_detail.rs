@@ -28,7 +28,7 @@
 
 use aurora_leptos::components::{
     Button, DetailList, KeyValue, LiveIndicator, LiveState, Loading, LogLine, LogView, PageHeader,
-    SectionLabel, StatusBadge, Table,
+    RelativeTime, SectionLabel, StatusBadge, Table,
 };
 use aurora_leptos::graph::{Graph, GraphEdge, GraphNode};
 use aurora_leptos::tokens::{status_color, token};
@@ -62,7 +62,7 @@ fn SectionHeader(#[prop(into)] title: String, live: Signal<bool>) -> impl IntoVi
             divider=true
             action=Box::new(move || view! {
                 <Show when=move || live.get()>
-                    <LiveIndicator state=LiveState::Live live_label="live" compact=true />
+                    <LiveIndicator state=LiveState::Live live_label="live" />
                 </Show>
             }.into_any())
         />
@@ -361,7 +361,10 @@ pub fn ExecutionView(
                     </div>
                     <DetailList stacked=true dividers=false>
                         <KeyValue label="Started">
-                            {move || started_at.get().unwrap_or_else(|| "—".into())}
+                            {move || match started_at.get() {
+                                Some(ts) => view! { <RelativeTime iso=ts /> }.into_any(),
+                                None => view! { "—" }.into_any(),
+                            }}
                         </KeyValue>
                         <KeyValue label="Duration">
                             {move || format_duration(started_at.get().as_deref(), ended_at.get().as_deref())}

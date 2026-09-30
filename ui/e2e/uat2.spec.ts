@@ -50,7 +50,7 @@ test("UAT round 2 walk @audit", async ({ page }) => {
   // 2) Graph detail: Live view, then Operational history.
   await page.goto("/graphs/market_pipeline");
   await shot(page, "02-graph-detail-live");
-  await page.getByRole("button", { name: "Operational history" }).click();
+  await page.getByRole("tab", { name: "Operational history" }).click();
   await shot(page, "03-graph-detail-history");
 
   // 3) Triggers: cron vs polling sections, headed Fire/Run columns.
@@ -65,6 +65,6 @@ test("UAT round 2 walk @audit", async ({ page }) => {
   // history behind the tab.
   await page.goto("/workflows/demo-cron-rust");
   await shot(page, "06-workflow-detail-default-current");
-  await page.getByRole("button", { name: "Operational history" }).click();
+  await page.getByRole("tab", { name: "Operational history" }).click();
   await shot(page, "07-workflow-detail-history");
 });

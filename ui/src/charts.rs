@@ -186,8 +186,7 @@ pub fn RunHeatmap(runs: Vec<ExecutionSummary>) -> impl IntoView {
     let max = durations.iter().copied().fold(1.0_f64, f64::max);
 
     if runs.is_empty() {
-        return view! { <span class="app-hint">"No runs yet."</span> }
-        .into_any();
+        return view! { <span class="app-hint">"No runs yet."</span> }.into_any();
     }
 
     view! {

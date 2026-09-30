@@ -322,15 +322,27 @@ pub fn GraphDetail() -> impl IntoView {
                     .sublabel("reactor"),
             );
             for a in &acc_ids {
-                edges.push(GraphEdge { from: a.clone(), to: rid.clone(), active: false });
+                edges.push(GraphEdge {
+                    from: a.clone(),
+                    to: rid.clone(),
+                    active: false,
+                });
             }
             for r in &roots {
-                edges.push(GraphEdge { from: rid.clone(), to: r.clone(), active: false });
+                edges.push(GraphEdge {
+                    from: rid.clone(),
+                    to: r.clone(),
+                    active: false,
+                });
             }
         } else {
             for a in &acc_ids {
                 for r in &roots {
-                    edges.push(GraphEdge { from: a.clone(), to: r.clone(), active: false });
+                    edges.push(GraphEdge {
+                        from: a.clone(),
+                        to: r.clone(),
+                        active: false,
+                    });
                 }
             }
         }

@@ -167,7 +167,11 @@ pub fn Executions() -> impl IntoView {
     let page_limit = RwSignal::new(PAGE_SIZE as usize);
     Effect::new(move |_| page_offset.set(offset.get() as usize));
     let on_page = Callback::new(move |(next, _limit): (usize, usize)| {
-        let v = if next == 0 { String::new() } else { next.to_string() };
+        let v = if next == 0 {
+            String::new()
+        } else {
+            next.to_string()
+        };
         navigate.with_value(|n| set_param(n, &current_qs(), "offset", &v));
     });
 

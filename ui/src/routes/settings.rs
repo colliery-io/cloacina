@@ -19,7 +19,7 @@
 //! placeholders), and Appearance — the Aurora light / dark / system choice
 //! (the same setting as the top-bar toggle).
 
-use aurora_leptos::components::{Card, DetailList, Dot, KeyValue, Panel, PageHeader};
+use aurora_leptos::components::{Card, DetailList, Dot, KeyValue, PageHeader, Panel};
 use aurora_leptos::theme::{use_theme, Theme};
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;

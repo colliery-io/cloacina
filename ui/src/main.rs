@@ -77,8 +77,13 @@ mod tests {
             "index.html must carry aurora_leptos::THEME_INIT_SCRIPT verbatim"
         );
         let script = INDEX_HTML.find("<script>").expect("inline script");
-        let css = INDEX_HTML.find("<link data-trunk rel=\"css\"").expect("stylesheet link");
-        assert!(script < css, "the init script must come before the stylesheet");
+        let css = INDEX_HTML
+            .find("<link data-trunk rel=\"css\"")
+            .expect("stylesheet link");
+        assert!(
+            script < css,
+            "the init script must come before the stylesheet"
+        );
         assert!(INDEX_HTML.contains(r#"<meta name="color-scheme" content="light dark" />"#));
     }
 
@@ -97,9 +102,15 @@ mod tests {
                 let path = entry.expect("entry").path();
                 if path.is_dir() {
                     stack.push(path);
-                } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("main.rs") {
+                } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("main.rs")
+                {
                     let text = std::fs::read_to_string(&path).expect("read file");
-                    assert_eq!(raw_colours(&text), Vec::<String>::new(), "{}", path.display());
+                    assert_eq!(
+                        raw_colours(&text),
+                        Vec::<String>::new(),
+                        "{}",
+                        path.display()
+                    );
                 }
             }
         }

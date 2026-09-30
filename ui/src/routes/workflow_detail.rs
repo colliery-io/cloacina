@@ -401,8 +401,16 @@ pub fn WorkflowDetail() -> impl IntoView {
             format!("{:.1}s", walls.iter().sum::<f64>() / walls.len() as f64)
         };
         let failed = done.len().saturating_sub(ok);
-        let rate_color = if rate.starts_with("100") { token::OK } else { token::GOLD };
-        let failed_color = if failed > 0 { token::BAD } else { "var(--fainter)" };
+        let rate_color = if rate.starts_with("100") {
+            token::OK
+        } else {
+            token::GOLD
+        };
+        let failed_color = if failed > 0 {
+            token::BAD
+        } else {
+            "var(--fainter)"
+        };
         view! {
             <div class="app-grid-4">
                 <StatTile label="Runs analyzed" value=runs_analyzed.get().to_string() />
@@ -589,7 +597,7 @@ pub fn WorkflowDetail() -> impl IntoView {
                                     .unwrap_or_else(|| "—".into());
                                 view! {
                                     <tr>
-                                        <td class="app-mono app-text">{i.instance_name.clone()}</td>
+                                        <td class="app-mono app-small app-fg">{i.instance_name.clone()}</td>
                                         <td>
                                             <span class="app-row app-row--tight">
                                                 <Pill color=if cron_pill.is_some() { token::TEAL } else { token::MUTED }>

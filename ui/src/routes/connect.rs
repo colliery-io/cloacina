@@ -386,42 +386,42 @@ pub fn Connect() -> impl IntoView {
                 >
                     // ---- SSO tenant picker ----
                     {
-                    let pick_membership = pick_membership.clone();
-                    view! {
-                    <AuthCard
-                        title="Choose a tenant"
-                        sub="Your sign-in grants access to multiple tenants. Pick one to enter — the rest stay one click away in the tenant switcher."
-                        brand=Box::new(|| view! { <Brand size=26 large=true /> }.into_any())
-                    >
-                        <For
-                            each=move || {
-                                sso_picker.get().map(|(_, m)| m).unwrap_or_default()
-                            }
-                            key=|m| m.tenant.clone()
-                            children={
-                                let pick = pick_membership.clone();
-                                move |m| {
-                                    let pick = pick.clone();
-                                    let tenant_name = m.tenant.clone();
-                                    view! {
-                                        <button
-                                            type="button"
-                                            class="app-tenant-pick"
-                                            disabled=move || submitting.get()
-                                            on:click=move |_| pick(tenant_name.clone())
-                                        >
-                                            <span>{m.tenant.clone()}</span>
-                                            <span class="app-meta app-meta--sm app-muted">{m.role.clone()}</span>
-                                        </button>
+                        let pick_membership = pick_membership.clone();
+                        view! {
+                            <AuthCard
+                                title="Choose a tenant"
+                                sub="Your sign-in grants access to multiple tenants. Pick one to enter — the rest stay one click away in the tenant switcher."
+                                brand=Box::new(|| view! { <Brand size=26 large=true /> }.into_any())
+                            >
+                                <For
+                                    each=move || {
+                                        sso_picker.get().map(|(_, m)| m).unwrap_or_default()
                                     }
-                                }
-                            }
-                        />
-                        <Show when=move || !error.get().is_empty()>
-                            <Alert color=token::BAD>{move || error.get()}</Alert>
-                        </Show>
-                    </AuthCard>
-                    }
+                                    key=|m| m.tenant.clone()
+                                    children={
+                                        let pick = pick_membership.clone();
+                                        move |m| {
+                                            let pick = pick.clone();
+                                            let tenant_name = m.tenant.clone();
+                                            view! {
+                                                <button
+                                                    type="button"
+                                                    class="app-tenant-pick"
+                                                    disabled=move || submitting.get()
+                                                    on:click=move |_| pick(tenant_name.clone())
+                                                >
+                                                    <span>{m.tenant.clone()}</span>
+                                                    <span class="app-meta app-meta--sm app-muted">{m.role.clone()}</span>
+                                                </button>
+                                            }
+                                        }
+                                    }
+                                />
+                                <Show when=move || !error.get().is_empty()>
+                                    <Alert color=token::BAD>{move || error.get()}</Alert>
+                                </Show>
+                            </AuthCard>
+                        }
                     }
                 </Show>
             </CenterScreen>

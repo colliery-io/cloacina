@@ -141,11 +141,17 @@ pub fn Workflows() -> impl IntoView {
                                         let pkg_for_run = w.package_name.clone();
                                         let wf_for_run = w.workflow_name.clone();
                                         let paused = w.paused;
-                                        let runs = runs_by_workflow
-                                            .get()
-                                            .get(&w.workflow_name)
-                                            .cloned()
-                                            .unwrap_or_default();
+                                        // Reactive: the executions request can land after
+                                        // the workflows one, and the row is keyed without it.
+                                        let wf_for_runs = w.workflow_name.clone();
+                                        let runs = move || {
+                                            let runs = runs_by_workflow
+                                                .get()
+                                                .get(&wf_for_runs)
+                                                .cloned()
+                                                .unwrap_or_default();
+                                            view! { <RunCircles runs=runs /> }
+                                        };
                                         view! {
                                             <TableRow on_click=Callback::new(move |_| {
                                                 navigate.with_value(|n| n(
@@ -172,7 +178,7 @@ pub fn Workflows() -> impl IntoView {
                                                 <td class="app-meta app-meta--sm">
                                                     <RelativeTime iso=w.created_at.clone() />
                                                 </td>
-                                                <td><RunCircles runs=runs /></td>
+                                                <td>{runs}</td>
                                                 // Pause column — headed, left-justified.
                                                 <td>
                                                     <Show when=move || auth.can_write()>

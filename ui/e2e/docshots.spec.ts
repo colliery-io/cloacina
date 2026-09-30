@@ -43,7 +43,7 @@ test("regenerate doc-site web-ui screenshots @audit", async ({ page }) => {
   await shot(page, "02-workflows");
 
   await page.goto("/workflows/demo-cron-rust");
-  await page.getByRole("button", { name: "Operational history" }).click();
+  await page.getByRole("tab", { name: "Operational history" }).click();
   await shot(page, "03-workflow-detail");
 
   await page.goto("/executions");

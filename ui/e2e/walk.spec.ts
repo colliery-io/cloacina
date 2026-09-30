@@ -102,7 +102,7 @@ test("walk the UI and screenshot everything @audit", async ({ page }) => {
   // 10b) Graph detail (I-0141: full topology view).
   try {
     await page.goto("/graphs");
-    const firstGraph = page.locator("div[style*=cursor]").first();
+    const firstGraph = page.locator("a.cl-card").first();
     await firstGraph.click();
     await page.waitForTimeout(600);
     await shot(page, "10-graph-detail");

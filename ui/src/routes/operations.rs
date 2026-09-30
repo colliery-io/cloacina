@@ -78,7 +78,13 @@ fn MetricCard(
 pub fn Operations() -> impl IntoView {
     let ops = use_ops_metrics();
     let live = Signal::derive(move || ops.get().is_some());
-    let live_state = Signal::derive(move || if live.get() { LiveState::Live } else { LiveState::Connecting });
+    let live_state = Signal::derive(move || {
+        if live.get() {
+            LiveState::Live
+        } else {
+            LiveState::Connecting
+        }
+    });
 
     view! {
         <div class="app-page">
