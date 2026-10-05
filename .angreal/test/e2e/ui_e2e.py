@@ -178,7 +178,9 @@ def _seed(home: Path, summary_file: Path, step_seconds: int):
     _run(["node", "src/main.mjs"], cwd=HARNESS_DIR, env=env)
 
 
-def _run_playwright(summary_file: Path, bad_pkg: Path, smoke: bool):
+def _run_playwright(
+    summary_file: Path, bad_pkg: Path, smoke: bool, visual: bool, update_baselines: bool
+):
     summary = json.loads(summary_file.read_text())
     env = {
         **os.environ,
@@ -193,12 +195,18 @@ def _run_playwright(summary_file: Path, bad_pkg: Path, smoke: bool):
         "CI": os.environ.get("CI", ""),
     }
     # The @visual suite (CLOACI-T-0771) is a pixel gate with its own committed
-    # baselines + environment (the demo stack), run by the `ui-visual` workflow —
-    # exclude it here so the functional e2e isn't coupled to screenshot baselines.
-    # CLOACI-I-0130: CLOACINA_E2E_VISUAL=1 runs the @visual pixel-baseline
-    # suite instead of the functional one — same seeded embedded-server stack.
-    if os.environ.get("CLOACINA_E2E_VISUAL") == "1":
+    # baselines — exclude it here so the functional e2e isn't coupled to
+    # screenshot baselines. `--visual` (or CLOACINA_E2E_VISUAL=1, CLOACI-I-0130)
+    # runs the @visual suite instead of the functional one, on the same seeded
+    # embedded-server stack, in the light and the dark theme (CLOACINA-T-0943).
+    # `--update-baselines` writes new baseline images instead of asserting.
+    if visual or os.environ.get("CLOACINA_E2E_VISUAL") == "1":
+        # The detail route the spec shoots: the seeded lane packs demo-slow-rust
+        # (the spec's default is the demo stack's demo-py-workflow).
+        env["E2E_VISUAL_WORKFLOW"] = "demo-slow-rust"
         cmd = ["npx", "playwright", "test", "visual.spec.ts", "--reporter=list"]
+        if update_baselines:
+            cmd.append("--update-snapshots")
     else:
         # @audit = manual UX-walk/screenshot helpers ("not a CI test" per their
         # headers) — they crash-loop on resource-starved runners and gate
@@ -233,8 +241,11 @@ def _create_tenant(name: str):
             raise
 
 
-def _ui_e2e(smoke: bool) -> int:
-    label = "smoke subset" if smoke else "full suite"
+def _ui_e2e(smoke: bool, visual: bool = False, update_baselines: bool = False) -> int:
+    if visual:
+        label = "visual baselines" if update_baselines else "visual suite"
+    else:
+        label = "smoke subset" if smoke else "full suite"
     print_section_header(f"UI acceptance e2e ({label})")
     # UI first: the embedded-ui cargo build below runs `trunk build` in ui/
     # via build.rs; prebuilding here also installs the Playwright tooling a
@@ -302,7 +313,7 @@ def _ui_e2e(smoke: bool) -> int:
                 bad_pkg = home / "bad.cloacina"
                 bad_pkg.write_text("this is not a valid cloacina package")
 
-                _run_playwright(summary_file, bad_pkg, smoke)
+                _run_playwright(summary_file, bad_pkg, smoke, visual, update_baselines)
 
     print_final_success(f"UI acceptance e2e passed ({label})")
     return 0
@@ -316,7 +327,9 @@ def _ui_e2e(smoke: bool) -> int:
         "Boots postgres (fresh DB) + cloacina-server + cloacina-compiler, "
         "builds + serves the SPA, seeds a deterministic workload (T-0660), and "
         "runs the Playwright acceptance suite against it. Full suite by "
-        "default; --smoke runs the @smoke subset for the PR gate."
+        "default; --smoke runs the @smoke subset for the PR gate; --visual "
+        "runs the @visual pixel suite in both themes (--update-baselines "
+        "refreshes its images)."
     ),
     when_to_use=["validating the UI end-to-end", "release validation", "nightly"],
     when_not_to_use=["unit testing", "running without docker/node"],
@@ -325,5 +338,15 @@ def _ui_e2e(smoke: bool) -> int:
     name="smoke", long="smoke", help="run only the @smoke subset (PR gate)",
     required=False, takes_value=False, is_flag=True,
 )
-def ui_e2e(smoke: bool = False):
-    return _ui_e2e(smoke)
+@angreal.argument(
+    name="visual", long="visual",
+    help="run the @visual pixel suite (light and dark) instead of the functional one",
+    required=False, takes_value=False, is_flag=True,
+)
+@angreal.argument(
+    name="update_baselines", long="update-baselines",
+    help="with --visual: write new baseline images instead of asserting",
+    required=False, takes_value=False, is_flag=True,
+)
+def ui_e2e(smoke: bool = False, visual: bool = False, update_baselines: bool = False):
+    return _ui_e2e(smoke, visual, update_baselines)
