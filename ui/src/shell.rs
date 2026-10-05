@@ -15,7 +15,7 @@
  */
 
 //! Authenticated shell (CLOACI-I-0129, moved onto Aurora 0.4 by
-//! COLLIERY-T-1837): Aurora's `AppShell` (sticky top bar, sidebar that is a
+//! CLOACINA-T-0943): Aurora's `AppShell` (sticky top bar, sidebar that is a
 //! drawer below 768 px, one `<main>`) with a `SideNav` — a Run-workflow
 //! primary, grouped links, and the connection footer (tenant switcher,
 //! server URL, disconnect). The top bar carries the brand, the server badge

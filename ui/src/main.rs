@@ -41,7 +41,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    //! Theme guards (COLLIERY-T-1837): the page must follow the Aurora
+    //! Theme guards (CLOACINA-T-0943): the page must follow the Aurora
     //! tokens in both themes.
 
     const INDEX_HTML: &str = include_str!("../index.html");
