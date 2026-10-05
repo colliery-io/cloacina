@@ -153,11 +153,8 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-page > .cl-page-header { margin-bottom: 0; }
 .app-row { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; }
 .app-row--tight { gap: 6px; }
-.app-row--loose { gap: var(--space-lg); }
 .app-row--between { justify-content: space-between; }
 .app-row--end { justify-content: flex-end; }
-.app-row--top { align-items: flex-start; }
-.app-row--baseline { align-items: baseline; }
 .app-row--wrap { flex-wrap: wrap; }
 .app-col { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; }
 .app-col--tight { gap: 4px; }
@@ -165,7 +162,6 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-grow { flex: 1; min-width: 0; }
 .app-none { flex: none; }
 .app-right { text-align: right; }
-.app-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
 .app-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-sm); }
 .app-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-sm); }
 .app-grid-6 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; }
@@ -177,7 +173,7 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
   .app-split { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 720px) {
-  .app-grid-2, .app-grid-3, .app-grid-4, .app-grid-6 { grid-template-columns: minmax(0, 1fr); }
+  .app-grid-3, .app-grid-4, .app-grid-6 { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ---------- Text ---------- */
@@ -186,14 +182,6 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-meta--xs { font-size: 10px; color: var(--fainter); }
 .app-meta--sm { font-size: 11px; }
 .app-meta--md { font-size: 11.5px; color: var(--fg-2); }
-.app-label {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.app-sub { font-family: var(--font-mono); font-size: 11px; color: var(--faint); margin-top: -10px; }
 .app-name { font-size: var(--fs-sm); font-weight: 600; color: var(--fg); }
 .app-text { font-size: var(--fs-sm); color: var(--fg); }
 .app-small { font-size: var(--fs-xs); }
@@ -212,7 +200,6 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-link:hover { text-decoration: underline; }
 /* A duration or time column: fixed width, right aligned. */
 .app-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
-.app-w-64 { width: 64px; }
 
 /* ---------- Surfaces ---------- */
 .app-panel {
@@ -223,13 +210,6 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
   min-width: 0;
 }
 .app-panel--flush { padding: 0; overflow: hidden; }
-.app-panel--quiet { background: var(--panel-2); border-color: var(--border-soft); }
-.app-inset {
-  background: var(--inset);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
-  padding: var(--space-xs) var(--space-sm);
-}
 /* A dashed "nothing here" box, smaller than Aurora's Empty. */
 .app-empty {
   border: 1px dashed var(--border);
@@ -274,7 +254,6 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-heatmap { display: flex; align-items: flex-end; gap: 3px; height: 64px; }
 /* Height is the run duration relative to the longest run: inline. */
 .app-heatmap__bar { flex: 1; max-width: 14px; border-radius: var(--radius-xs); opacity: 0.8; }
-.app-legend { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); }
 .app-search {
   width: 300px;
   box-sizing: border-box;
@@ -315,8 +294,6 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-avg__label { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
 .app-gold { color: var(--gold); }
 .app-ice { color: var(--ice); }
-.app-violet { color: var(--violet); }
-.app-teal { color: var(--teal); }
 /* A one-line description under a name in a table row. */
 .app-desc { font-size: 11.5px; color: var(--muted); margin-top: 2px; max-width: 360px; }
 /* A table flush in a panel: the panel draws the frame. */
