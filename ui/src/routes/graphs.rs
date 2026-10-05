@@ -292,7 +292,7 @@ pub fn Graphs() -> impl IntoView {
                                             <tr>
                                                 <td>
                                                     <span class="app-row">
-                                                        <span class="app-square" style:background=node_kind_color("reactor")></span>
+                                                        <span class="app-square app-square--violet"></span>
                                                         <span class="app-name">{r.name.clone()}</span>
                                                         <Show when=move || paused>
                                                             <Pill color=token::GOLD>"paused"</Pill>

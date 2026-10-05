@@ -240,10 +240,14 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 }
 
 /* ---------- Markers ---------- */
-/* A small coloured square (the orchestration kind marker). The colour is
-   data (a hue token) and is set inline. */
+/* A small coloured square (the orchestration kind marker). The hue
+   modifiers follow node_kind_color in util.rs: teal is a computation graph
+   or an accumulator, ice is a workflow, violet is a reactor. */
 .app-square { display: inline-block; width: 9px; height: 9px; border-radius: var(--radius-xs); flex: none; }
 .app-square--lg { width: 10px; height: 10px; }
+.app-square--teal { background: var(--teal); }
+.app-square--ice { background: var(--ice); }
+.app-square--violet { background: var(--violet); }
 /* An icon in a hue: the icon draws in currentColor. */
 .app-hue { display: inline-flex; align-items: center; }
 

@@ -112,7 +112,7 @@ fn GraphMiniCard(g: GraphStatus) -> impl IntoView {
     view! {
         <Card href=format!("/graphs/{}", urlencoding::encode(&g.name))>
             <div class="app-runcard">
-                <span class="app-square" style:background=token::TEAL></span>
+                <span class="app-square app-square--teal"></span>
                 <div class="app-grow">
                     <div class="app-runcard__name app-ellipsis">{g.name.clone()}</div>
                     <div class="app-meta">

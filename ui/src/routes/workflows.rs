@@ -161,7 +161,7 @@ pub fn Workflows() -> impl IntoView {
                                             })>
                                                 <td>
                                                     <span class="app-row app-row--tight">
-                                                        <span class="app-square app-square--lg" style:background=token::ICE></span>
+                                                        <span class="app-square app-square--lg app-square--ice"></span>
                                                         <span class="app-name">{w.package_name.clone()}</span>
                                                         <Show when=move || paused>
                                                             <Pill color=token::GOLD>"paused"</Pill>
