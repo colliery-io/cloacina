@@ -19,7 +19,9 @@
 //! recent-run dots — with the same left-justified, labeled action columns
 //! as /triggers ("Pause", "Run") so every clickable is self-explanatory.
 
-use aurora_leptos::components::{Empty, Loading, PageHeader};
+use aurora_leptos::components::{
+    Button, Empty, IconPause, IconPlay, Loading, PageHeader, Pill, RelativeTime, Table, TableRow,
+};
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
@@ -27,17 +29,13 @@ use leptos_router::hooks::use_navigate;
 use cloacina_api_types::{ExecutionSummary, ListExecutionsQuery};
 
 use crate::auth::{client_for, use_auth};
-use crate::components::{PauseIcon, PlayIcon, RunCircles, RunWorkflowModal, TagPill};
-use crate::data::{poll_resource, use_clock};
-use crate::util::ago;
-
-const MONO: &str = "'IBM Plex Mono', monospace";
+use crate::components::{RunCircles, RunWorkflowModal};
+use crate::data::poll_resource;
 
 #[component]
 pub fn Workflows() -> impl IntoView {
     let auth = use_auth();
     let navigate = StoredValue::new(use_navigate());
-    let clock = use_clock();
 
     let workflows = poll_resource(|c| async move { c.list_workflows(None).await });
     let recent = poll_resource(|c| async move {
@@ -101,18 +99,16 @@ pub fn Workflows() -> impl IntoView {
     };
 
     view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="14px">
-            <div style:display="flex" style:justify-content="space-between" style:align-items="flex-start">
-                <PageHeader
-                    title="Workflows"
-                    sub="Registered packages; run history right off each row."
-                />
-                <Show when=move || auth.can_write()>
-                    <a href="/workflows/upload" class="cl-btn cl-btn--filled" style:text-decoration="none">
-                        "↑ Upload package"
-                    </a>
-                </Show>
-            </div>
+        <div class="app-page">
+            <PageHeader
+                title="Workflows"
+                sub="Registered packages; run history right off each row."
+                actions=Box::new(move || view! {
+                    <Show when=move || auth.can_write()>
+                        <Button href="/workflows/upload">"↑ Upload package"</Button>
+                    </Show>
+                }.into_any())
+            />
 
             <Show
                 when=move || !loading.get()
@@ -122,164 +118,127 @@ pub fn Workflows() -> impl IntoView {
                     when=move || !items.get().is_empty()
                     fallback=|| view! { <Empty message="No workflows uploaded yet." /> }
                 >
-                    <table class="cl-table">
-                        <thead>
-                            <tr>
-                                <th>"Package"</th>
-                                <th>"Version"</th>
-                                <th>"Tasks"</th>
-                                <th>"Updated"</th>
-                                <th>"Recent runs"</th>
-                                <th style:width="60px">"Pause"</th>
-                                <th style:width="60px">"Run"</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <For
-                                each=move || items.get()
-                                key=|w| (w.id.clone(), w.paused, w.version.clone())
-                                children=move |w| {
-                                    let pkg_for_nav = w.package_name.clone();
-                                    let pkg_for_pause = w.package_name.clone();
-                                    let pkg_for_run = w.package_name.clone();
-                                    let wf_for_run = w.workflow_name.clone();
-                                    let paused = w.paused;
-                                    let runs = runs_by_workflow
-                                        .get()
-                                        .get(&w.workflow_name)
-                                        .cloned()
-                                        .unwrap_or_default();
-                                    view! {
-                                        <tr
-                                            style:cursor="pointer"
-                                            on:click=move |_| {
+                    <div class="app-panel app-panel--flush">
+                        <Table label="Workflows">
+                            <thead>
+                                <tr>
+                                    <th>"Package"</th>
+                                    <th>"Version"</th>
+                                    <th>"Tasks"</th>
+                                    <th>"Updated"</th>
+                                    <th>"Recent runs"</th>
+                                    <th class="app-w-action">"Pause"</th>
+                                    <th class="app-w-action">"Run"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <For
+                                    each=move || items.get()
+                                    key=|w| (w.id.clone(), w.paused, w.version.clone())
+                                    children=move |w| {
+                                        let pkg_for_nav = w.package_name.clone();
+                                        let pkg_for_pause = w.package_name.clone();
+                                        let pkg_for_run = w.package_name.clone();
+                                        let wf_for_run = w.workflow_name.clone();
+                                        let paused = w.paused;
+                                        // Reactive: the executions request can land after
+                                        // the workflows one, and the row is keyed without it.
+                                        let wf_for_runs = w.workflow_name.clone();
+                                        let runs = move || {
+                                            let runs = runs_by_workflow
+                                                .get()
+                                                .get(&wf_for_runs)
+                                                .cloned()
+                                                .unwrap_or_default();
+                                            view! { <RunCircles runs=runs /> }
+                                        };
+                                        view! {
+                                            <TableRow on_click=Callback::new(move |_| {
                                                 navigate.with_value(|n| n(
-                                                    &format!(
-                                                        "/workflows/{}",
-                                                        urlencoding::encode(&pkg_for_nav)
-                                                    ),
+                                                    &format!("/workflows/{}", urlencoding::encode(&pkg_for_nav)),
                                                     Default::default(),
                                                 ))
-                                            }
-                                        >
-                                            <td>
-                                                <span style:display="inline-flex" style:gap="9px" style:align-items="center">
-                                                    <span
-                                                        style:width="10px"
-                                                        style:height="10px"
-                                                        style:border-radius="2px"
-                                                        style:background=token::ICE
-                                                        style:flex="none"
-                                                    ></span>
-                                                    <span style:font-size="13.5px" style:font-weight="600" style:color="var(--fg)">
-                                                        {w.package_name.clone()}
+                                            })>
+                                                <td>
+                                                    <span class="app-row app-row--tight">
+                                                        <span class="app-square app-square--lg app-square--ice"></span>
+                                                        <span class="app-name">{w.package_name.clone()}</span>
+                                                        <Show when=move || paused>
+                                                            <Pill color=token::GOLD>"paused"</Pill>
+                                                        </Show>
                                                     </span>
-                                                    <Show when=move || paused>
-                                                        <TagPill color=token::GOLD>"paused"</TagPill>
-                                                    </Show>
-                                                </span>
-                                                {w.description.clone().map(|d| view! {
-                                                    <div
-                                                        style:font-size="11.5px"
-                                                        style:color="var(--muted)"
-                                                        style:margin-top="2px"
-                                                        style:max-width="360px"
-                                                        style:overflow="hidden"
-                                                        style:text-overflow="ellipsis"
-                                                        style:white-space="nowrap"
-                                                    >
-                                                        {d}
-                                                    </div>
-                                                })}
-                                            </td>
-                                            <td>
-                                                <TagPill color=token::VIOLET>{format!("v{}", w.version)}</TagPill>
-                                            </td>
-                                            <td>
-                                                <span style:font-family=MONO style:font-size="11.5px" style:color="var(--fg-2)">
-                                                    {w.tasks.len()}
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <span style:font-family=MONO style:font-size="11px" style:color="var(--faint)">
-                                                    {
-                                                        let created = StoredValue::new(w.created_at.clone());
-                                                        move || {
-                                                            clock.track();
-                                                            created.with_value(|ts| ago(Some(ts.as_str())))
-                                                        }
-                                                    }
-                                                </span>
-                                            </td>
-                                            <td><RunCircles runs=runs /></td>
-                                            // Pause column — headed, left-justified.
-                                            <td style:text-align="left">
-                                                <Show when=move || auth.can_write()>
-                                                    {
-                                                        let pkg = pkg_for_pause.clone();
-                                                        view! {
-                                                            <button
-                                                                class="cl-btn cl-btn--subtle cl-btn--xs"
-                                                                aria-label=if paused { "Resume workflow" } else { "Pause workflow" }
-                                                                style:color=if paused { token::OK } else { token::GOLD }
-                                                                title=if paused {
-                                                                    "Resume — allow new executions"
-                                                                } else {
-                                                                    "Pause — refuse new executions"
-                                                                }
-                                                                disabled=move || pausing.get()
-                                                                on:click={
-                                                                    let pkg = pkg.clone();
-                                                                    move |ev: leptos::ev::MouseEvent| {
-                                                                        ev.stop_propagation();
-                                                                        toggle_pause(pkg.clone(), !paused);
+                                                    {w.description.clone().map(|d| view! {
+                                                        <div class="app-desc app-ellipsis" title=d.clone()>{d.clone()}</div>
+                                                    })}
+                                                </td>
+                                                <td>
+                                                    <Pill color=token::VIOLET>{format!("v{}", w.version)}</Pill>
+                                                </td>
+                                                <td class="app-meta app-meta--md">{w.tasks.len()}</td>
+                                                <td class="app-meta app-meta--sm">
+                                                    <RelativeTime iso=w.created_at.clone() />
+                                                </td>
+                                                <td>{runs}</td>
+                                                // Pause column — headed, left-justified.
+                                                <td>
+                                                    <Show when=move || auth.can_write()>
+                                                        {
+                                                            let pkg = pkg_for_pause.clone();
+                                                            view! {
+                                                                <Button
+                                                                    variant="subtle"
+                                                                    size="xs"
+                                                                    aria_label=if paused { "Resume workflow" } else { "Pause workflow" }
+                                                                    title=if paused {
+                                                                        "Resume — allow new executions"
+                                                                    } else {
+                                                                        "Pause — refuse new executions"
                                                                     }
-                                                                }
-                                                            >
-                                                                {if paused {
-                                                                    view! { <PlayIcon size=16 /> }.into_any()
-                                                                } else {
-                                                                    view! { <PauseIcon size=16 /> }.into_any()
-                                                                }}
-                                                            </button>
+                                                                    disabled=pausing
+                                                                    stop_propagation=true
+                                                                    on_click=Callback::new(move |_| toggle_pause(pkg.clone(), !paused))
+                                                                >
+                                                                    {if paused {
+                                                                        view! { <span class="app-hue app-ok"><IconPlay size=16 /></span> }.into_any()
+                                                                    } else {
+                                                                        view! { <span class="app-hue app-gold"><IconPause size=16 /></span> }.into_any()
+                                                                    }}
+                                                                </Button>
+                                                            }
                                                         }
-                                                    }
-                                                </Show>
-                                            </td>
-                                            // Run column — headed, left-justified, larger icon.
-                                            <td style:text-align="left">
-                                                <Show when=move || auth.can_write()>
-                                                    {
-                                                        let pkg = pkg_for_run.clone();
-                                                        let wf = wf_for_run.clone();
-                                                        view! {
-                                                            <button
-                                                                class="cl-btn cl-btn--subtle cl-btn--xs"
-                                                                aria-label="Run workflow"
-                                                                style:color=token::ICE
-                                                                title="Run this workflow now (opens the typed-input form)"
-                                                                on:click={
-                                                                    let pkg = pkg.clone();
-                                                                    let wf = wf.clone();
-                                                                    move |ev: leptos::ev::MouseEvent| {
-                                                                        ev.stop_propagation();
+                                                    </Show>
+                                                </td>
+                                                // Run column — headed, left-justified, larger icon.
+                                                <td>
+                                                    <Show when=move || auth.can_write()>
+                                                        {
+                                                            let pkg = pkg_for_run.clone();
+                                                            let wf = wf_for_run.clone();
+                                                            view! {
+                                                                <Button
+                                                                    variant="subtle"
+                                                                    size="xs"
+                                                                    aria_label="Run workflow"
+                                                                    title="Run this workflow now (opens the typed-input form)"
+                                                                    stop_propagation=true
+                                                                    on_click=Callback::new(move |_| {
                                                                         run_target.set(Some((pkg.clone(), wf.clone())));
                                                                         run_open.set(true);
-                                                                    }
-                                                                }
-                                                            >
-                                                                <PlayIcon size=18 />
-                                                            </button>
+                                                                    })
+                                                                >
+                                                                    <span class="app-hue app-ice"><IconPlay size=18 /></span>
+                                                                </Button>
+                                                            }
                                                         }
-                                                    }
-                                                </Show>
-                                            </td>
-                                        </tr>
+                                                    </Show>
+                                                </td>
+                                            </TableRow>
+                                        }
                                     }
-                                }
-                            />
-                        </tbody>
-                    </table>
+                                />
+                            </tbody>
+                        </Table>
+                    </div>
                 </Show>
             </Show>
 

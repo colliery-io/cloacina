@@ -14,24 +14,10 @@
  *  limitations under the License.
  */
 
-//! Wave-gated placeholders. Each carries the page's real title so nav e2e
-//! specs bind now; the view arrives with its wave (T-0933/T-0934/T-0935)
-//! and deletes its stub.
+//! The not-found view for an unmatched in-app path.
 
 use aurora_leptos::components::{Empty, PageHeader};
 use leptos::prelude::*;
-
-macro_rules! stub {
-    ($fn_name:ident, $title:expr, $wave:expr) => {
-        #[component]
-        pub fn $fn_name() -> impl IntoView {
-            view! {
-                <PageHeader title=$title />
-                <Empty message=concat!("This view arrives with ", $wave, ".") />
-            }
-        }
-    };
-}
 
 /// Unmatched in-app path.
 #[component]

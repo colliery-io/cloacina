@@ -19,13 +19,12 @@
 //! wasm client) → result, behind the write gate. Busy state rather than a
 //! byte-progress bar, same as the React SPA.
 
-use aurora_leptos::components::Alert;
+use aurora_leptos::components::{Alert, Button, PageHeader};
+use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::auth::{client_for, use_auth};
-
-const MONO: &str = "'IBM Plex Mono', monospace";
 
 async fn file_bytes(file: &web_sys::File) -> Result<Vec<u8>, String> {
     let buf = wasm_bindgen_futures::JsFuture::from(file.array_buffer())
@@ -52,7 +51,7 @@ pub fn WorkflowUpload() -> impl IntoView {
         }
     };
 
-    let do_upload = move |_| {
+    let do_upload = move || {
         let Some(f) = file.get_untracked() else {
             return;
         };
@@ -80,90 +79,72 @@ pub fn WorkflowUpload() -> impl IntoView {
     };
 
     view! {
-        <div style:max-width="560px" style:display="flex" style:flex-direction="column" style:gap="14px">
-            <div>
-                <a href="/workflows" style:font-size="11.5px" style:color="var(--muted)" style:text-decoration="none">
-                    "← Workflows"
-                </a>
-                <h1 style:font-size="22px" style:font-weight="600" style:color="var(--fg-bright)" style:margin="2px 0 0">
-                    "Upload workflow"
-                </h1>
-                <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="2px">
-                    "Register a compiled .cloacina package for this tenant."
-                </div>
-            </div>
+        <div class="app-page app-narrow-sm">
+            <PageHeader
+                title="Upload workflow"
+                sub="Register a compiled .cloacina package for this tenant."
+                back_href="/workflows"
+                back_label="Workflows"
+            />
 
             <Show
                 when=move || auth.can_write()
                 fallback=|| view! {
-                    <Alert title="Write access required" color="var(--gold)">
+                    <Alert title="Write access required" color=token::GOLD>
                         "You need write access to upload packages."
                     </Alert>
                 }
             >
-                <div
-                    style:background="var(--panel)"
-                    style:border="1px solid var(--border)"
-                    style:border-radius="10px"
-                    style:padding="16px 18px"
-                    style:display="flex"
-                    style:flex-direction="column"
-                    style:gap="14px"
-                >
+                <div class="app-panel app-col app-col--loose">
+                    // The native picker is hidden; the drop zone opens it.
                     <input
                         node_ref=input_ref
                         type="file"
                         accept=".cloacina"
-                        style:display="none"
+                        class="cl-sr-only"
+                        tabindex="-1"
+                        aria-hidden="true"
                         on:change=on_pick
                     />
-                    <div
-                        style:border="1px dashed var(--border-control)"
-                        style:border-radius="10px"
-                        style:background="var(--inset)"
-                        style:padding="22px 16px"
-                        style:text-align="center"
-                        style:cursor="pointer"
+                    <button
+                        type="button"
+                        class="app-dropzone"
                         on:click=move |_| {
                             if let Some(input) = input_ref.get_untracked() {
                                 input.unchecked_ref::<web_sys::HtmlElement>().click();
                             }
                         }
                     >
-                        <div style:font-size="13px" style:color="var(--fg-2)">
+                        <span class="app-text app-fg2 app-block">
                             {move || if file.get().is_some() { "Selected file" } else { "Choose a .cloacina package" }}
-                        </div>
-                        <div
-                            style:font-family=MONO
-                            style:font-size="12px"
-                            style:margin-top="4px"
-                            style:color=move || if file.get().is_some() { "var(--ice)" } else { "var(--faint)" }
-                        >
+                        </span>
+                        <span class="app-dropzone__file" class:app-dropzone__file--set=move || file.get().is_some()>
                             {move || file.get().map(|f| f.name()).unwrap_or_else(|| "click to browse".into())}
-                        </div>
-                    </div>
-
-                    <button
-                        class="cl-btn cl-btn--filled"
-                        disabled=move || file.get().is_none() || uploading.get()
-                        on:click=do_upload
-                    >
-                        {move || if uploading.get() { "Uploading…" } else { "↑ Upload" }}
+                        </span>
                     </button>
 
+                    <Button
+                        loading=uploading
+                        loading_label="Uploading…"
+                        disabled=Signal::derive(move || file.get().is_none())
+                        on_click=Callback::new(move |_| do_upload())
+                    >
+                        "↑ Upload"
+                    </Button>
+
                     <Show when=move || !error.get().is_empty()>
-                        <Alert color="var(--bad)">{move || error.get()}</Alert>
+                        <Alert color=token::BAD>{move || error.get()}</Alert>
                     </Show>
 
                     <Show when=move || uploaded.get().is_some()>
-                        <Alert title="Uploaded" color="var(--ok)">
+                        <Alert title="Uploaded" color=token::OK>
                             "Package registered. "
                             <a
+                                class="app-link"
                                 href=move || format!(
                                     "/workflows/{}",
                                     urlencoding::encode(&uploaded.get().unwrap_or_default())
                                 )
-                                style:color="var(--ice)"
                             >
                                 "View"
                             </a>

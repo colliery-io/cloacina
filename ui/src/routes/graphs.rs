@@ -19,19 +19,19 @@
 //! derived from the monotonic fire counters, reactor force-fire, and the
 //! accumulator inject modal.
 
-use aurora_leptos::components::{Empty, Loading, PageHeader};
+use aurora_leptos::components::{
+    Button, Card, Dot, Empty, Loading, PageHeader, Pill, SectionLabel, StatTile, Table,
+};
+use aurora_leptos::data::use_now;
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
-use leptos_router::hooks::use_navigate;
 
 use cloacina_api_types::{FireReactorRequest, GraphStatus};
 
 use crate::auth::{client_for, use_auth};
-use crate::components::{GraphInjectModal, TagPill};
-use crate::data::{poll_resource, use_clock};
+use crate::components::GraphInjectModal;
+use crate::data::poll_resource;
 use crate::util::{health_color, node_kind_color, Throughput};
-
-const MONO: &str = "'IBM Plex Mono', monospace";
 
 pub(crate) fn health_state(v: &serde_json::Value) -> String {
     if let Some(s) = v.as_str() {
@@ -41,22 +41,6 @@ pub(crate) fn health_state(v: &serde_json::Value) -> String {
         .and_then(|s| s.as_str())
         .unwrap_or("")
         .to_string()
-}
-
-#[component]
-fn SectionLabel(#[prop(into)] label: String) -> impl IntoView {
-    view! {
-        <div
-            style:font-family=MONO
-            style:font-size="11px"
-            style:letter-spacing=".06em"
-            style:text-transform="uppercase"
-            style:color="var(--muted)"
-            style:margin="6px 0 8px"
-        >
-            {label}
-        </div>
-    }
 }
 
 /// The accumulators → graph flow strip under a graph card.
@@ -70,41 +54,19 @@ fn AccStrip(
         return ().into_any();
     }
     view! {
-        <div
-            style:margin-top="7px"
-            style:display="flex"
-            style:align-items="center"
-            style:gap="8px"
-            style:flex-wrap="wrap"
-        >
+        <div class="app-accstrip">
             {accumulators
                 .into_iter()
                 .map(|name| view! {
-                    <span
-                        style:display="inline-flex"
-                        style:align-items="center"
-                        style:gap="5px"
-                        style:font-family=MONO
-                        style:font-size="11px"
-                        style:color="var(--fg-2)"
-                    >
-                        <span
-                            style:width="6px"
-                            style:height="6px"
-                            style:border-radius="50%"
-                            style:background=node_kind_color("accumulator")
-                        ></span>
+                    <span class="app-row app-row--tight app-meta app-meta--sm app-fg2">
+                        <Dot color=node_kind_color("accumulator") size=6 />
                         {name}
                     </span>
                 })
                 .collect_view()}
-            <span style:color="var(--faint)">"→"</span>
-            <TagPill color=token::VIOLET>{graph}</TagPill>
-            {reaction_mode.map(|m| view! {
-                <span style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                    {m}
-                </span>
-            })}
+            <span class="app-faint" aria-hidden="true">"→"</span>
+            <Pill color=token::VIOLET>{graph}</Pill>
+            {reaction_mode.map(|m| view! { <span class="app-meta">{m}</span> })}
         </div>
     }
     .into_any()
@@ -113,8 +75,7 @@ fn AccStrip(
 #[component]
 pub fn Graphs() -> impl IntoView {
     let auth = use_auth();
-    let navigate = StoredValue::new(use_navigate());
-    let clock = use_clock();
+    let now = use_now();
 
     let graphs = poll_resource(|c| async move { c.list_graphs().await });
     let reactors = poll_resource(|c| async move { c.list_reactors().await });
@@ -177,124 +138,82 @@ pub fn Graphs() -> impl IntoView {
         )
     });
 
-    view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="16px">
-            <PageHeader title="Computation graphs" />
-            <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="-10px">
-                {move || sub.get()}
+    // ---- Operational overview (UAT round 1, T-0938): the fleet of graphs
+    // at a glance, before the per-object sections. ----
+    let overview = move || {
+        now.track(); // "last fire" ages by the second
+        let gs = graph_items.get();
+        let accs_v = acc_items.get();
+        let running = gs
+            .iter()
+            .filter(|g| {
+                matches!(
+                    health_state(&g.health).to_lowercase().as_str(),
+                    "running" | "live" | "ok" | "healthy"
+                )
+            })
+            .count();
+        let paused = gs.iter().filter(|g| g.paused).count();
+        let total_fires: u64 = gs.iter().map(|g| g.fires).sum();
+        let last_fire = gs.iter().filter_map(|g| g.last_fired_at.clone()).max();
+        // Availability, not activity: socket_only counts as up
+        // (UAT round 4 — same semantics as health_color).
+        let acc_live = accs_v
+            .iter()
+            .filter(|a| {
+                let s = a.state.clone().unwrap_or_else(|| health_state(&a.status));
+                crate::util::health_color(&s) == token::OK
+            })
+            .count();
+        let most_active = gs.iter().max_by_key(|g| g.fires).map(|g| g.name.clone());
+        let all_running = running == gs.len() && !gs.is_empty();
+        let all_live = acc_live == accs_v.len() && !accs_v.is_empty();
+        view! {
+            <div class="app-grid-5">
+                <StatTile
+                    label="Graphs running"
+                    value=format!("{running}/{}", gs.len())
+                    color={if all_running { token::OK } else { token::GOLD }}
+                    sub={if paused > 0 { format!("{paused} paused") } else { "all unpaused".to_string() }}
+                />
+                <StatTile label="Total fires" value=total_fires.to_string() color=token::ICE sub="since load".to_string() />
+                <div class="app-stat-text"><StatTile
+                    label="Last fire"
+                    value={last_fire
+                        .as_deref()
+                        .map(|t| crate::util::ago(Some(t)))
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "never".into())}
+                    sub="across all graphs".to_string()
+                /></div>
+                <StatTile
+                    label="Accumulators live"
+                    value=format!("{acc_live}/{}", accs_v.len())
+                    color={if all_live { token::OK } else { token::GOLD }}
+                    sub="event sources".to_string()
+                />
+                <div class="app-stat-text"><StatTile
+                    label="Most active"
+                    value=most_active.unwrap_or_else(|| "—".into())
+                    color=token::VIOLET
+                    sub="by fire count".to_string()
+                /></div>
             </div>
+        }
+    };
 
-            // ---- Operational overview (UAT round 1, T-0938): the fleet of
-            // graphs at a glance, before the per-object sections. ----
-            {move || {
-                clock.track(); // "last fire" ages by the second
-                let gs = graph_items.get();
-                let accs_v = acc_items.get();
-                let running = gs
-                    .iter()
-                    .filter(|g| {
-                        matches!(
-                            health_state(&g.health).to_lowercase().as_str(),
-                            "running" | "live" | "ok" | "healthy"
-                        )
-                    })
-                    .count();
-                let paused = gs.iter().filter(|g| g.paused).count();
-                let total_fires: u64 = gs.iter().map(|g| g.fires).sum();
-                let last_fire = gs
-                    .iter()
-                    .filter_map(|g| g.last_fired_at.clone())
-                    .max();
-                // Availability, not activity: socket_only counts as up
-                // (UAT round 4 — same semantics as health_color).
-                let acc_live = accs_v
-                    .iter()
-                    .filter(|a| {
-                        let s = a
-                            .state
-                            .clone()
-                            .unwrap_or_else(|| health_state(&a.status));
-                        crate::util::health_color(&s) == token::OK
-                    })
-                    .count();
-                let most_active = gs.iter().max_by_key(|g| g.fires).map(|g| g.name.clone());
-                let tile = |label: &str, value: String, color: &'static str, sub: String| {
-                    let label = label.to_string();
-                    view! {
-                        <div
-                            style:background="var(--panel)"
-                            style:border="1px solid var(--border)"
-                            style:border-radius="10px"
-                            style:padding="13px 15px"
-                        >
-                            <div
-                                style:font-family=MONO
-                                style:font-size="10px"
-                                style:letter-spacing=".07em"
-                                style:text-transform="uppercase"
-                                style:color="var(--muted)"
-                            >
-                                {label}
-                            </div>
-                            <div
-                                class="cl-tnum"
-                                style:font-size="24px"
-                                style:font-weight="600"
-                                style:line-height="1.2"
-                                style:color=color
-                                style:margin="4px 0 2px"
-                            >
-                                {value}
-                            </div>
-                            <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                                {sub}
-                            </div>
-                        </div>
-                    }
-                };
-                view! {
-                    <div style:display="grid" style:grid-template-columns="repeat(5, 1fr)" style:gap="12px">
-                        {tile(
-                            "Graphs running",
-                            format!("{running}/{}", gs.len()),
-                            if running == gs.len() && !gs.is_empty() { token::OK } else { token::GOLD },
-                            if paused > 0 { format!("{paused} paused") } else { "all unpaused".into() },
-                        )}
-                        {tile(
-                            "Total fires",
-                            total_fires.to_string(),
-                            token::ICE,
-                            "since load".into(),
-                        )}
-                        {tile(
-                            "Last fire",
-                            last_fire
-                                .as_deref()
-                                .map(|t| crate::util::ago(Some(t)))
-                                .filter(|s| !s.is_empty())
-                                .unwrap_or_else(|| "never".into()),
-                            "var(--fg)",
-                            "across all graphs".into(),
-                        )}
-                        {tile(
-                            "Accumulators live",
-                            format!("{acc_live}/{}", accs_v.len()),
-                            if acc_live == accs_v.len() && !accs_v.is_empty() { token::OK } else { token::GOLD },
-                            "event sources".into(),
-                        )}
-                        {tile(
-                            "Most active",
-                            most_active.clone().unwrap_or_else(|| "—".into()),
-                            token::VIOLET,
-                            "by fire count".into(),
-                        )}
-                    </div>
-                }
-            }}
+    view! {
+        <div class="app-page">
+            <PageHeader
+                title="Computation graphs"
+                meta=Box::new(move || view! { <span class="app-meta app-meta--sm">{move || sub.get()}</span> }.into_any())
+            />
+
+            {overview}
 
             // ---- Graphs ----
             <div>
-                <SectionLabel label="Graphs" />
+                <SectionLabel label="Graphs" count=Signal::derive(move || Some(graph_items.get().len())) />
                 <Show
                     when=move || graphs.get().is_some()
                     fallback=|| view! { <Loading label="Loading graphs…" /> }
@@ -303,7 +222,7 @@ pub fn Graphs() -> impl IntoView {
                         when=move || !graph_items.get().is_empty()
                         fallback=|| view! { <Empty message="No graphs loaded." /> }
                     >
-                        <div style:display="flex" style:flex-direction="column" style:gap="8px">
+                        <div class="app-col">
                             <For
                                 each=move || graph_items.get()
                                 key=|g: &GraphStatus| (g.name.clone(), g.fires, g.paused)
@@ -311,41 +230,21 @@ pub fn Graphs() -> impl IntoView {
                                     let hs = health_state(&g.health);
                                     let hcolor = health_color(&hs);
                                     let rate = rate_of(&g.name, g.fires as f64);
-                                    let nav_name = g.name.clone();
+                                    let paused = g.paused;
                                     view! {
-                                        <div
-                                            style:background="var(--panel)"
-                                            style:border="1px solid var(--border)"
-                                            style:border-radius="10px"
-                                            style:padding="12px 15px"
-                                            style:cursor="pointer"
-                                            on:click=move |_| {
-                                                navigate.with_value(|n| n(
-                                                    &format!("/graphs/{}", urlencoding::encode(&nav_name)),
-                                                    Default::default(),
-                                                ))
-                                            }
-                                        >
-                                            <div style:display="flex" style:justify-content="space-between" style:align-items="center">
-                                                <div style:display="flex" style:gap="10px" style:align-items="center" style:min-width="0">
-                                                    <span
-                                                        style:width="8px"
-                                                        style:height="8px"
-                                                        style:border-radius="50%"
-                                                        style:background=hcolor
-                                                        style:flex="none"
-                                                    ></span>
-                                                    <span style:font-size="14px" style:font-weight="600" style:color="var(--fg)">
-                                                        {g.name.clone()}
-                                                    </span>
-                                                    <span style:font-size="12px" style:color=hcolor>
+                                        <Card href=format!("/graphs/{}", urlencoding::encode(&g.name))>
+                                            <div class="app-row app-row--between">
+                                                <div class="app-row">
+                                                    <Dot color=hcolor />
+                                                    <span class="app-name app-bright">{g.name.clone()}</span>
+                                                    <Pill color=hcolor>
                                                         {if hs.is_empty() { "unknown".to_string() } else { hs.clone() }}
-                                                    </span>
-                                                    <Show when={let p = g.paused; move || p}>
-                                                        <TagPill color=token::GOLD>"paused"</TagPill>
+                                                    </Pill>
+                                                    <Show when=move || paused>
+                                                        <Pill color=token::GOLD>"paused"</Pill>
                                                     </Show>
                                                 </div>
-                                                <span style:font-family=MONO style:font-size="11.5px" style:color="var(--faint)">
+                                                <span class="app-meta app-meta--md app-faint">
                                                     {rate.map(|r| format!("~{r}/min")).unwrap_or_else(|| "—".into())}
                                                 </span>
                                             </div>
@@ -354,7 +253,7 @@ pub fn Graphs() -> impl IntoView {
                                                 graph=g.name.clone()
                                                 reaction_mode=g.reaction_mode.clone()
                                             />
-                                        </div>
+                                        </Card>
                                     }
                                 }
                             />
@@ -365,148 +264,140 @@ pub fn Graphs() -> impl IntoView {
 
             // ---- Reactors ----
             <div>
-                <SectionLabel label="Reactors" />
+                <SectionLabel label="Reactors" count=Signal::derive(move || Some(reactor_items.get().len())) />
                 <Show
                     when=move || !reactor_items.get().is_empty()
                     fallback=|| view! { <Empty message="No reactors." /> }
                 >
-                    <div style:display="flex" style:flex-direction="column" style:gap="8px">
-                        <For
-                            each=move || reactor_items.get()
-                            key=|r| (r.name.clone(), r.paused)
-                            children=move |r| {
-                                let hs = health_state(&r.health);
-                                let hcolor = health_color(&hs);
-                                let fire_name = r.name.clone();
-                                view! {
-                                    <div
-                                        style:background="var(--panel)"
-                                        style:border="1px solid var(--border)"
-                                        style:border-radius="10px"
-                                        style:padding="12px 15px"
-                                        style:display="flex"
-                                        style:justify-content="space-between"
-                                        style:align-items="center"
-                                    >
-                                        <div style:display="flex" style:gap="10px" style:align-items="center">
-                                            <span
-                                                style:width="8px"
-                                                style:height="8px"
-                                                style:border-radius="2px"
-                                                style:background=node_kind_color("reactor")
-                                                style:flex="none"
-                                            ></span>
-                                            <span style:font-size="13.5px" style:font-weight="600" style:color="var(--fg)">
-                                                {r.name.clone()}
-                                            </span>
-                                            <span style:font-size="12px" style:color=hcolor>{hs.clone()}</span>
-                                            <Show when={let p = r.paused; move || p}>
-                                                <TagPill color=token::GOLD>"paused"</TagPill>
-                                            </Show>
-                                            <span style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                                                {format!(
-                                                    "{} · {}",
-                                                    r.reaction_mode.clone().unwrap_or_else(|| "—".into()),
-                                                    r.input_strategy.clone().unwrap_or_else(|| "—".into())
-                                                )}
-                                            </span>
-                                        </div>
-                                        <Show when=move || auth.can_write()>
-                                            {
-                                                let name = fire_name.clone();
-                                                view! {
-                                                    <button
-                                                        class="cl-btn cl-btn--subtle cl-btn--xs"
-                                                        title="Force-fire with the current cache"
-                                                        disabled=move || firing.get().is_some()
-                                                        on:click={
-                                                            let name = name.clone();
-                                                            move |_| force_fire(name.clone())
+                    <div class="app-panel app-panel--flush">
+                        <Table label="Reactors">
+                            <thead>
+                                <tr>
+                                    <th>"Reactor"</th>
+                                    <th>"Health"</th>
+                                    <th>"Mode · strategy"</th>
+                                    <th class="app-w-wide-action"><span class="cl-sr-only">"Actions"</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <For
+                                    each=move || reactor_items.get()
+                                    key=|r| (r.name.clone(), r.paused)
+                                    children=move |r| {
+                                        let hs = health_state(&r.health);
+                                        let hcolor = health_color(&hs);
+                                        let fire_name = r.name.clone();
+                                        let paused = r.paused;
+                                        view! {
+                                            <tr>
+                                                <td>
+                                                    <span class="app-row">
+                                                        <span class="app-square app-square--violet"></span>
+                                                        <span class="app-name">{r.name.clone()}</span>
+                                                        <Show when=move || paused>
+                                                            <Pill color=token::GOLD>"paused"</Pill>
+                                                        </Show>
+                                                    </span>
+                                                </td>
+                                                <td><Pill color=hcolor>{hs.clone()}</Pill></td>
+                                                <td class="app-meta">
+                                                    {format!(
+                                                        "{} · {}",
+                                                        r.reaction_mode.clone().unwrap_or_else(|| "—".into()),
+                                                        r.input_strategy.clone().unwrap_or_else(|| "—".into())
+                                                    )}
+                                                </td>
+                                                <td class="app-right">
+                                                    <Show when=move || auth.can_write()>
+                                                        {
+                                                            let name = fire_name.clone();
+                                                            view! {
+                                                                <Button
+                                                                    variant="subtle"
+                                                                    size="xs"
+                                                                    title="Force-fire with the current cache"
+                                                                    disabled=Signal::derive(move || firing.get().is_some())
+                                                                    on_click=Callback::new(move |_| force_fire(name.clone()))
+                                                                >
+                                                                    "⚡ force-fire"
+                                                                </Button>
+                                                            }
                                                         }
-                                                    >
-                                                        "⚡ force-fire"
-                                                    </button>
-                                                }
-                                            }
-                                        </Show>
-                                    </div>
-                                }
-                            }
-                        />
+                                                    </Show>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                />
+                            </tbody>
+                        </Table>
                     </div>
                 </Show>
             </div>
 
             // ---- Accumulators ----
             <div>
-                <SectionLabel label="Accumulators" />
+                <SectionLabel label="Accumulators" count=Signal::derive(move || Some(acc_items.get().len())) />
                 <Show
                     when=move || !acc_items.get().is_empty()
                     fallback=|| view! { <Empty message="No accumulators." /> }
                 >
-                    <div style:display="flex" style:flex-direction="column" style:gap="8px">
-                        <For
-                            each=move || acc_items.get()
-                            key=|a| a.name.clone()
-                            children=move |a| {
-                                let state = a
-                                    .state
-                                    .clone()
-                                    .unwrap_or_else(|| health_state(&a.status));
-                                let hcolor = health_color(&state);
-                                let inj_name = a.name.clone();
-                                view! {
-                                    <div
-                                        style:background="var(--panel)"
-                                        style:border="1px solid var(--border)"
-                                        style:border-radius="10px"
-                                        style:padding="12px 15px"
-                                        style:display="flex"
-                                        style:justify-content="space-between"
-                                        style:align-items="center"
-                                    >
-                                        <div style:display="flex" style:gap="10px" style:align-items="center">
-                                            <span
-                                                style:width="8px"
-                                                style:height="8px"
-                                                style:border-radius="50%"
-                                                style:background=node_kind_color("accumulator")
-                                                style:flex="none"
-                                            ></span>
-                                            <span style:font-size="13.5px" style:font-weight="600" style:color="var(--fg)">
-                                                {a.name.clone()}
-                                            </span>
-                                            <span style:font-size="12px" style:color=hcolor>{state.clone()}</span>
-                                            {a.reactor.clone().map(|r| view! {
-                                                <span style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                                                    {format!("→ {r}")}
-                                                </span>
-                                            })}
-                                        </div>
-                                        <Show when=move || auth.can_write()>
-                                            {
-                                                let name = inj_name.clone();
-                                                view! {
-                                                    <button
-                                                        class="cl-btn cl-btn--subtle cl-btn--xs"
-                                                        title="Inject a typed event"
-                                                        on:click={
-                                                            let name = name.clone();
-                                                            move |_| {
-                                                                inject_target.set(Some(name.clone()));
-                                                                inject_open.set(true);
+                    <div class="app-panel app-panel--flush">
+                        <Table label="Accumulators">
+                            <thead>
+                                <tr>
+                                    <th>"Accumulator"</th>
+                                    <th>"State"</th>
+                                    <th>"Reactor"</th>
+                                    <th class="app-w-wide-action"><span class="cl-sr-only">"Actions"</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <For
+                                    each=move || acc_items.get()
+                                    key=|a| a.name.clone()
+                                    children=move |a| {
+                                        let state = a.state.clone().unwrap_or_else(|| health_state(&a.status));
+                                        let hcolor = health_color(&state);
+                                        let inj_name = a.name.clone();
+                                        view! {
+                                            <tr>
+                                                <td>
+                                                    <span class="app-row">
+                                                        <Dot color=node_kind_color("accumulator") />
+                                                        <span class="app-name">{a.name.clone()}</span>
+                                                    </span>
+                                                </td>
+                                                <td><Pill color=hcolor>{state.clone()}</Pill></td>
+                                                <td class="app-meta">
+                                                    {a.reactor.clone().map(|r| format!("→ {r}")).unwrap_or_else(|| "—".into())}
+                                                </td>
+                                                <td class="app-right">
+                                                    <Show when=move || auth.can_write()>
+                                                        {
+                                                            let name = inj_name.clone();
+                                                            view! {
+                                                                <Button
+                                                                    variant="subtle"
+                                                                    size="xs"
+                                                                    title="Inject a typed event"
+                                                                    on_click=Callback::new(move |_| {
+                                                                        inject_target.set(Some(name.clone()));
+                                                                        inject_open.set(true);
+                                                                    })
+                                                                >
+                                                                    "＋ inject"
+                                                                </Button>
                                                             }
                                                         }
-                                                    >
-                                                        "＋ inject"
-                                                    </button>
-                                                }
-                                            }
-                                        </Show>
-                                    </div>
-                                }
-                            }
-                        />
+                                                    </Show>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                />
+                            </tbody>
+                        </Table>
                     </div>
                 </Show>
             </div>

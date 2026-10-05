@@ -20,14 +20,12 @@
 //! into aurora-leptos once stable (pack contract: generic rendering, app
 //! vocab as data).
 
-use aurora_leptos::tokens::{status_color, token};
+use aurora_leptos::tokens::status_color;
 use leptos::prelude::*;
 
 use cloacina_api_types::{ExecutionSummary, TaskExecutionDetail};
 
 use crate::util::format_duration;
-
-const MONO: &str = "'IBM Plex Mono', monospace";
 
 fn parse_ms(ts: &str) -> Option<f64> {
     let ms = js_sys::Date::parse(ts);
@@ -72,7 +70,6 @@ pub fn TaskGantt(
 ) -> impl IntoView {
     let now = js_sys::Date::now();
     struct Bar {
-        id: String,
         name: String,
         full_name: String,
         status: String,
@@ -83,7 +80,8 @@ pub fn TaskGantt(
     let mut bars: Vec<Bar> = tasks
         .iter()
         .filter_map(|t| {
-            let start = parse_ms(t.started_at.as_deref().unwrap_or(&t.created_at))?;
+            // A task that never started (not started, skipped) has no bar.
+            let start = parse_ms(t.started_at.as_deref()?)?;
             let running = !is_terminal(&t.status);
             let end = t
                 .completed_at
@@ -93,7 +91,6 @@ pub fn TaskGantt(
                 .unwrap_or(now)
                 .max(start);
             Some(Bar {
-                id: t.id.clone(),
                 name: local_id(&t.task_name),
                 full_name: t.task_name.clone(),
                 status: t.status.clone(),
@@ -106,9 +103,7 @@ pub fn TaskGantt(
 
     if bars.is_empty() {
         return view! {
-            <span style:color="var(--muted)" style:font-size="13px">
-                "No task timing recorded for this run yet."
-            </span>
+            <span class="app-hint">"No task timing recorded for this run yet."</span>
         }
         .into_any();
     }
@@ -130,7 +125,7 @@ pub fn TaskGantt(
 
     view! {
         <div>
-            <div style:display="flex" style:flex-direction="column" style:gap="4px">
+            <div class="app-gantt">
                 {bars
                     .into_iter()
                     .map(|b| {
@@ -144,40 +139,18 @@ pub fn TaskGantt(
                             if b.running { " (running)" } else { "" }
                         );
                         view! {
-                            <div
-                                style:display="grid"
-                                style:grid-template-columns="180px 1fr"
-                                style:align-items="center"
-                                style:gap="8px"
-                            >
-                                <span
-                                    title=b.full_name.clone()
-                                    style:font-size="11.5px"
-                                    style:font-weight="500"
-                                    style:color="var(--fg-2)"
-                                    style:overflow="hidden"
-                                    style:text-overflow="ellipsis"
-                                    style:white-space="nowrap"
-                                >
-                                    {b.name.clone()}
-                                </span>
-                                <div
-                                    style:position="relative"
-                                    style:height="18px"
-                                    style:background="var(--inset)"
-                                    style:border-radius="3px"
-                                >
+                            <div class="app-gantt__row">
+                                <span class="app-gantt__name" title=b.full_name.clone()>{b.name.clone()}</span>
+                                <div class="app-gantt__track">
+                                    // Offset and width come from the task times; the
+                                    // colour is the task status (data).
                                     <div
+                                        class="app-gantt__bar"
                                         class:cl-pulse=b.running
                                         title=tip
-                                        style:position="absolute"
-                                        style:top="2px"
-                                        style:bottom="2px"
-                                        style:border-radius="3px"
                                         style:left=format!("{left}%")
                                         style:width=format!("{width}%")
                                         style:background=color
-                                        style:opacity="0.85"
                                     ></div>
                                 </div>
                             </div>
@@ -185,12 +158,7 @@ pub fn TaskGantt(
                     })
                     .collect_view()}
             </div>
-            <div
-                style:margin-top="8px"
-                style:font-family=MONO
-                style:font-size="10.5px"
-                style:color="var(--faint)"
-            >
+            <div class="app-meta app-gantt__foot">
                 {format!("wall {} · work {}", fmt_ms(wall), fmt_ms(work))}
             </div>
         </div>
@@ -219,14 +187,11 @@ pub fn RunHeatmap(runs: Vec<ExecutionSummary>) -> impl IntoView {
     let max = durations.iter().copied().fold(1.0_f64, f64::max);
 
     if runs.is_empty() {
-        return view! {
-            <span style:color="var(--muted)" style:font-size="13px">"No runs yet."</span>
-        }
-        .into_any();
+        return view! { <span class="app-hint">"No runs yet."</span> }.into_any();
     }
 
     view! {
-        <div style:display="flex" style:align-items="flex-end" style:gap="3px" style:height="64px">
+        <div class="app-heatmap">
             {runs
                 .into_iter()
                 .zip(durations)
@@ -239,14 +204,12 @@ pub fn RunHeatmap(runs: Vec<ExecutionSummary>) -> impl IntoView {
                         crate::util::short_id(&r.id)
                     );
                     view! {
+                        // Height = duration relative to the longest run; colour = status.
                         <div
+                            class="app-heatmap__bar"
                             title=tip
-                            style:flex="1"
-                            style:max-width="14px"
                             style:height=format!("{pct}%")
-                            style:border-radius="2px"
                             style:background=status_color(&r.status)
-                            style:opacity="0.8"
                         ></div>
                     }
                 })
@@ -254,28 +217,4 @@ pub fn RunHeatmap(runs: Vec<ExecutionSummary>) -> impl IntoView {
         </div>
     }
     .into_any()
-}
-
-/// Wall-clock legend chip used beside charts.
-#[component]
-pub fn LegendDot(#[prop(into)] label: String, #[prop(into)] color: String) -> impl IntoView {
-    let _ = token::MUTED;
-    view! {
-        <span
-            style:display="inline-flex"
-            style:align-items="center"
-            style:gap="5px"
-            style:font-family=MONO
-            style:font-size="10.5px"
-            style:color="var(--faint)"
-        >
-            <span
-                style:width="8px"
-                style:height="8px"
-                style:border-radius="50%"
-                style:background=color
-            ></span>
-            {label}
-        </span>
-    }
 }

@@ -20,12 +20,13 @@
 //! (The add-agent enrollment modal was a MOCK in the React app; it stays out
 //! until the enrollment API exists.)
 
-use aurora_leptos::tokens::{pill_bg, token};
+use aurora_leptos::components::{
+    DetailList, Dot, KeyValue, LiveIndicator, LiveState, PageHeader, Pill, SectionLabel, Table,
+};
+use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
 use crate::ops::use_ops_metrics;
-
-const MONO: &str = "'IBM Plex Mono', monospace";
 
 fn ago_secs(seconds: Option<i64>) -> String {
     match seconds {
@@ -43,6 +44,8 @@ fn fmt_time(ts: Option<&str>) -> String {
     }
 }
 
+/// One component card: a title with its state pill, then label / value rows
+/// (a value may carry a hue token).
 #[component]
 fn MetricCard(
     #[prop(into)] title: String,
@@ -51,49 +54,22 @@ fn MetricCard(
     rows: Vec<(String, String, Option<String>)>,
 ) -> impl IntoView {
     view! {
-        <div
-            style:background="var(--panel)"
-            style:border="1px solid var(--border)"
-            style:border-radius="11px"
-            style:padding="15px 16px"
-        >
-            <div
-                style:display="flex"
-                style:justify-content="space-between"
-                style:align-items="center"
-                style:margin-bottom="12px"
-            >
-                <span style:font-size="14.5px" style:font-weight="600" style:color="var(--fg)">{title}</span>
-                <span
-                    style:background=pill_bg(&color)
-                    style:color=color.clone()
-                    style:border-radius="10px"
-                    style:padding="2px 9px"
-                    style:font-family=MONO
-                    style:font-size="10.5px"
-                >
-                    {state}
-                </span>
+        <div class="app-panel app-col">
+            <div class="app-row app-row--between">
+                <span class="app-name">{title}</span>
+                <Pill color=color>{state}</Pill>
             </div>
-            <div style:display="flex" style:flex-direction="column" style:gap="7px">
+            <DetailList mono=true label_width="96px">
                 {rows
                     .into_iter()
                     .map(|(label, value, vcolor)| view! {
-                        <div style:display="flex" style:justify-content="space-between" style:gap="8px">
-                            <span style:font-family=MONO style:font-size="11.5px" style:color="var(--faint)">
-                                {label}
-                            </span>
-                            <span
-                                style:font-family=MONO
-                                style:font-size="11.5px"
-                                style:color=vcolor.unwrap_or_else(|| "var(--fg-2)".into())
-                            >
-                                {value}
-                            </span>
-                        </div>
+                        <KeyValue label=label>
+                            // The hue is the value's state (data).
+                            <span style:color=vcolor.unwrap_or_else(|| "var(--fg-2)".into())>{value}</span>
+                        </KeyValue>
                     })
                     .collect_view()}
-            </div>
+            </DetailList>
         </div>
     }
 }
@@ -102,38 +78,27 @@ fn MetricCard(
 pub fn Operations() -> impl IntoView {
     let ops = use_ops_metrics();
     let live = Signal::derive(move || ops.get().is_some());
+    let live_state = Signal::derive(move || {
+        if live.get() {
+            LiveState::Live
+        } else {
+            LiveState::Connecting
+        }
+    });
 
     view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="16px">
-            // Header
-            <div>
-                <div style:display="flex" style:gap="10px" style:align-items="center">
-                    <h1 style:font-size="22px" style:font-weight="600" style:color="var(--fg-bright)" style:margin="0">
-                        "Operations"
-                    </h1>
-                    <span
-                        style:background=move || pill_bg(if live.get() { token::OK } else { token::MUTED })
-                        style:color=move || if live.get() { token::OK } else { token::MUTED }
-                        style:border-radius="10px"
-                        style:padding="2px 10px"
-                        style:font-family=MONO
-                        style:font-size="10.5px"
-                    >
-                        {move || if live.get() { "live" } else { "connecting…" }}
-                    </span>
-                </div>
-                <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="3px">
-                    "Deployment health for the connected server, pushed over the control-plane socket."
-                </div>
-            </div>
+        <div class="app-page">
+            <PageHeader
+                title="Operations"
+                sub="Deployment health for the connected server, pushed over the control-plane socket."
+                meta=Box::new(move || view! {
+                    <LiveIndicator state=live_state live_label="live" connecting_label="connecting…" />
+                }.into_any())
+            />
 
             <Show
                 when=move || live.get()
-                fallback=|| view! {
-                    <span style:color="var(--faint)" style:font-size="13px">
-                        "Subscribing to operational metrics…"
-                    </span>
-                }
+                fallback=|| view! { <span class="app-hint">"Subscribing to operational metrics…"</span> }
             >
                 {move || {
                     let m = ops.get().unwrap_or_default();
@@ -153,7 +118,7 @@ pub fn Operations() -> impl IntoView {
                     };
                     let failed = m["reconciler"]["failed"].as_i64().unwrap_or(0);
                     view! {
-                        <div style:display="grid" style:grid-template-columns="repeat(4, 1fr)" style:gap="13px">
+                        <div class="app-grid-4">
                             <MetricCard
                                 title="Server"
                                 state={if alive { "alive" } else { "down" }}
@@ -220,100 +185,71 @@ pub fn Operations() -> impl IntoView {
                         </div>
 
                         // Agents roster
-                        <div
-                            style:display="flex"
-                            style:justify-content="space-between"
-                            style:border-bottom="1px solid var(--border-soft)"
-                            style:padding-bottom="8px"
-                            style:margin-top="6px"
-                        >
-                            <span style:font-size="14px" style:font-weight="600" style:color="var(--fg)">
-                                "Execution agents"
-                            </span>
+                        <div>
+                            <SectionLabel label="Execution agents" divider=true count=Some(fleet.len()) />
+                            {if fleet.is_empty() {
+                                view! {
+                                    <div class="app-empty">
+                                        "No agents registered — work runs on the in-process executor."
+                                    </div>
+                                }
+                                .into_any()
+                            } else {
+                                view! {
+                                    <div class="app-panel app-panel--flush">
+                                        <Table label="Execution agents">
+                                            <thead>
+                                                <tr>
+                                                    <th>"Agent"</th>
+                                                    <th>"Target"</th>
+                                                    <th>"Capacity"</th>
+                                                    <th>"Heartbeat"</th>
+                                                    <th>"Tenant"</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {fleet
+                                                    .iter()
+                                                    .map(|a| {
+                                                        let hb = a["seconds_since_heartbeat"].as_i64();
+                                                        let stale = hb.map(|s| s > 60).unwrap_or(false);
+                                                        view! {
+                                                            <tr>
+                                                                <td>
+                                                                    <span class="app-row app-row--tight">
+                                                                        <Dot color=if stale { token::GOLD } else { token::OK } size=7 />
+                                                                        <span class="app-text app-strong">
+                                                                            {a["agent_id"].as_str().unwrap_or("—").to_string()}
+                                                                        </span>
+                                                                    </span>
+                                                                </td>
+                                                                <td class="app-meta app-meta--md app-faint">
+                                                                    {a["target_triple"].as_str().unwrap_or("—").to_string()}
+                                                                </td>
+                                                                <td class="app-meta app-meta--md">
+                                                                    {format!(
+                                                                        "{}/{} in flight",
+                                                                        a["in_flight"].as_i64().unwrap_or(0),
+                                                                        a["max_concurrency"].as_i64().unwrap_or(0)
+                                                                    )}
+                                                                </td>
+                                                                <td class="app-meta app-meta--md app-faint" class:app-gold=stale>
+                                                                    {ago_secs(hb)}
+                                                                </td>
+                                                                <td class="app-meta app-meta--md app-faint">
+                                                                    {a["tenant_id"].as_str().unwrap_or("—").to_string()}
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    })
+                                                    .collect_view()}
+                                            </tbody>
+                                        </Table>
+                                    </div>
+                                }
+                                .into_any()
+                            }}
                         </div>
-                        {if fleet.is_empty() {
-                            view! {
-                                <div
-                                    style:border="1px dashed var(--border)"
-                                    style:border-radius="10px"
-                                    style:padding="18px 15px"
-                                    style:color="var(--faint)"
-                                    style:font-size="12.5px"
-                                >
-                                    "No agents registered — work runs on the in-process executor."
-                                </div>
-                            }
-                            .into_any()
-                        } else {
-                            view! {
-                                <table class="cl-table">
-                                    <thead>
-                                        <tr>
-                                            <th>"Agent"</th>
-                                            <th>"Target"</th>
-                                            <th>"Capacity"</th>
-                                            <th>"Heartbeat"</th>
-                                            <th>"Tenant"</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {fleet
-                                            .iter()
-                                            .map(|a| {
-                                                let hb = a["seconds_since_heartbeat"].as_i64();
-                                                let stale = hb.map(|s| s > 60).unwrap_or(false);
-                                                view! {
-                                                    <tr>
-                                                        <td>
-                                                            <span style:display="inline-flex" style:gap="8px" style:align-items="center">
-                                                                <span
-                                                                    style:width="7px"
-                                                                    style:height="7px"
-                                                                    style:border-radius="50%"
-                                                                    style:background=if stale { token::GOLD } else { token::OK }
-                                                                ></span>
-                                                                <span style:font-size="13px" style:font-weight="500" style:color="var(--fg)">
-                                                                    {a["agent_id"].as_str().unwrap_or("—").to_string()}
-                                                                </span>
-                                                            </span>
-                                                        </td>
-                                                        <td>
-                                                            <span style:font-family=MONO style:font-size="11.5px" style:color="var(--faint)">
-                                                                {a["target_triple"].as_str().unwrap_or("—").to_string()}
-                                                            </span>
-                                                        </td>
-                                                        <td>
-                                                            <span style:font-family=MONO style:font-size="11.5px" style:color="var(--fg-2)">
-                                                                {format!(
-                                                                    "{}/{} in flight",
-                                                                    a["in_flight"].as_i64().unwrap_or(0),
-                                                                    a["max_concurrency"].as_i64().unwrap_or(0)
-                                                                )}
-                                                            </span>
-                                                        </td>
-                                                        <td>
-                                                            <span
-                                                                style:font-family=MONO
-                                                                style:font-size="11.5px"
-                                                                style:color=if stale { token::GOLD } else { "var(--faint)" }
-                                                            >
-                                                                {ago_secs(hb)}
-                                                            </span>
-                                                        </td>
-                                                        <td>
-                                                            <span style:font-family=MONO style:font-size="11.5px" style:color="var(--faint)">
-                                                                {a["tenant_id"].as_str().unwrap_or("—").to_string()}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            })
-                                            .collect_view()}
-                                    </tbody>
-                                </table>
-                            }
-                            .into_any()
-                        }}
                     }
                 }}
             </Show>

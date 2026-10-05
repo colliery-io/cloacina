@@ -18,6 +18,8 @@
 //! Run-workflow modal. Generic rendering comes from the pack; these carry
 //! cloacina vocabulary (execution statuses, declared-input slots).
 
+use std::sync::Arc;
+
 use aurora_leptos::components::{Button, Modal, Switch, TextInput};
 use aurora_leptos::tokens::status_color;
 use leptos::prelude::*;
@@ -28,26 +30,22 @@ use cloacina_api_types::ExecutionSummary;
 use crate::auth::{client_for, use_auth};
 use crate::data::once_resource;
 
-const MONO: &str = "'IBM Plex Mono', monospace";
-
 /// Last-N run dots for a workflow (React `RunCircles`): newest first, colored
 /// by status, capped at 7.
 #[component]
 pub fn RunCircles(runs: Vec<ExecutionSummary>) -> impl IntoView {
     view! {
-        <div style:display="flex" style:gap="4px" style:align-items="center">
+        <div class="app-rundots">
             {runs
                 .into_iter()
                 .take(7)
                 .map(|r| {
                     view! {
+                        // The colour is the run status (data).
                         <span
+                            class="app-rundot"
                             title=format!("{} · {}", r.status.to_lowercase(), crate::util::short_id(&r.id))
-                            style:width="8px"
-                            style:height="8px"
-                            style:border-radius="50%"
                             style:background=status_color(&r.status)
-                            style:flex="none"
                         ></span>
                     }
                 })
@@ -167,14 +165,27 @@ pub fn RunWorkflowModal(
             .unwrap_or_else(|| "Run".to_string())
     };
 
+    let footer: ChildrenFn = Arc::new(move || {
+        view! {
+            <Button variant="default" on_click=Callback::new(move |_| open.set(false))>
+                "Cancel"
+            </Button>
+            <Button loading=running on_click=Callback::new(move |_| run())>
+                "▸ Run"
+            </Button>
+        }
+        .into_any()
+    });
+
     view! {
+        // Re-mounted on each open so the title follows the target.
         <Show when=move || open.get()>
-            <Modal open=open title=title()>
-                <div style:display="flex" style:flex-direction="column" style:gap="14px">
+            <Modal open=open title=title() footer=footer.clone() locked=running>
+                <div class="app-col app-col--loose">
                     <Show
                         when=move || !params.get().is_empty()
                         fallback=|| view! {
-                            <div style:color="var(--muted)" style:font-size="13px">
+                            <div class="app-hint">
                                 "This workflow declares no inputs — run it with an empty context."
                             </div>
                         }
@@ -222,41 +233,11 @@ pub fn RunWorkflowModal(
                     </Show>
 
                     <Show when=move || !error.get().is_empty()>
-                        <div style:color="var(--bad)" style:font-size="12.5px">{move || error.get()}</div>
+                        <div class="app-error" role="alert">{move || error.get()}</div>
                     </Show>
-
-                    <div style:display="flex" style:justify-content="flex-end" style:gap="10px">
-                        <Button variant="default" on_click=Callback::new(move |_| open.set(false))>
-                            "Cancel"
-                        </Button>
-                        <button
-                            class="cl-btn cl-btn--filled"
-                            disabled=move || running.get()
-                            on:click=move |_| run()
-                        >
-                            "▸ Run"
-                        </button>
-                    </div>
                 </div>
             </Modal>
         </Show>
-    }
-}
-
-/// Version / status pill (the inline `pillBg` chips).
-#[component]
-pub fn TagPill(#[prop(into)] color: String, children: Children) -> impl IntoView {
-    view! {
-        <span
-            style:background=aurora_leptos::tokens::pill_bg(&color)
-            style:color=color.clone()
-            style:border-radius="10px"
-            style:padding="1px 7px"
-            style:font-family=MONO
-            style:font-size="10.5px"
-        >
-            {children()}
-        </span>
     }
 }
 
@@ -371,17 +352,43 @@ pub fn TriggerFireModal(open: RwSignal<bool>, trigger: RwSignal<Option<String>>)
             .unwrap_or_default()
     };
 
+    let footer: ChildrenFn = Arc::new(move || {
+        view! {
+            <Show
+                when=move || result.get().is_some()
+                fallback=move || view! {
+                    <Button variant="default" on_click=Callback::new(move |_| close())>
+                        "Cancel"
+                    </Button>
+                    <Button loading=firing on_click=Callback::new(move |_| fire())>
+                        "⚡ Fire"
+                    </Button>
+                }
+            >
+                <Button on_click=Callback::new(move |_| close())>"Done"</Button>
+            </Show>
+        }
+        .into_any()
+    });
+
     view! {
+        // Re-mounted on each open so the title follows the trigger.
         <Show when=move || open.get()>
-            <Modal open=open title=title()>
-                <div style:display="flex" style:flex-direction="column" style:gap="14px">
+            <Modal
+                open=open
+                title=title()
+                footer=footer.clone()
+                locked=firing
+                on_close=Callback::new(move |_| close())
+            >
+                <div class="app-col app-col--loose">
                     <Show
                         when=move || result.get().is_some()
                         fallback=move || view! {
                             <Show
                                 when=move || !slots.get().is_empty()
                                 fallback=|| view! {
-                                    <div style:color="var(--muted)" style:font-size="13px">
+                                    <div class="app-hint">
                                         "No declared inputs — fire with just the trigger metadata."
                                     </div>
                                 }
@@ -418,41 +425,23 @@ pub fn TriggerFireModal(open: RwSignal<bool>, trigger: RwSignal<Option<String>>)
                             </Show>
 
                             <Show when=move || !error.get().is_empty()>
-                                <div style:color="var(--bad)" style:font-size="12.5px">{move || error.get()}</div>
+                                <div class="app-error" role="alert">{move || error.get()}</div>
                             </Show>
-
-                            <div style:display="flex" style:justify-content="flex-end" style:gap="10px">
-                                <Button variant="default" on_click=Callback::new(move |_| close())>
-                                    "Cancel"
-                                </Button>
-                                <button
-                                    class="cl-btn cl-btn--filled"
-                                    disabled=move || firing.get()
-                                    on:click=move |_| fire()
-                                >
-                                    "⚡ Fire"
-                                </button>
-                            </div>
                         }
                     >
                         {move || result.get().map(|r| view! {
-                            <div style:font-size="13px" style:color="var(--fg)">
+                            <div class="app-text">
                                 {format!("Fired {} workflow{}:", r.fired, if r.fired == 1 { "" } else { "s" })}
                             </div>
-                            <div style:display="flex" style:flex-direction="column" style:gap="4px">
+                            <div class="app-col app-col--tight">
                                 {r.executions
                                     .iter()
                                     .map(|e| view! {
-                                        <div style:font-family=MONO style:font-size="12px" style:color="var(--fg-2)">
+                                        <div class="app-mono app-small app-fg2">
                                             {format!("↳ {}", e.workflow_name)}
                                         </div>
                                     })
                                     .collect_view()}
-                            </div>
-                            <div style:display="flex" style:justify-content="flex-end">
-                                <button class="cl-btn cl-btn--filled" on:click=move |_| close()>
-                                    "Done"
-                                </button>
                             </div>
                         })}
                     </Show>
@@ -576,10 +565,36 @@ pub fn GraphInjectModal(
             .unwrap_or_default()
     };
 
+    let footer: ChildrenFn = Arc::new(move || {
+        view! {
+            <Show
+                when=move || delivered.get().is_some()
+                fallback=move || view! {
+                    <Button variant="default" on_click=Callback::new(move |_| close())>
+                        "Cancel"
+                    </Button>
+                    <Button loading=busy on_click=Callback::new(move |_| inject())>
+                        "＋ Inject"
+                    </Button>
+                }
+            >
+                <Button on_click=Callback::new(move |_| close())>"Done"</Button>
+            </Show>
+        }
+        .into_any()
+    });
+
     view! {
+        // Re-mounted on each open so the title follows the accumulator.
         <Show when=move || open.get()>
-            <Modal open=open title=title()>
-                <div style:display="flex" style:flex-direction="column" style:gap="14px">
+            <Modal
+                open=open
+                title=title()
+                footer=footer.clone()
+                locked=busy
+                on_close=Callback::new(move |_| close())
+            >
+                <div class="app-col app-col--loose">
                     <Show
                         when=move || delivered.get().is_some()
                         fallback=move || view! {
@@ -589,6 +604,7 @@ pub fn GraphInjectModal(
                                     <aurora_leptos::components::Textarea
                                         label="Event (JSON)"
                                         value=raw_json
+                                        mono=true
                                     />
                                 }
                             >
@@ -613,115 +629,20 @@ pub fn GraphInjectModal(
                             </Show>
 
                             <Show when=move || !error.get().is_empty()>
-                                <div style:color="var(--bad)" style:font-size="12.5px">{move || error.get()}</div>
+                                <div class="app-error" role="alert">{move || error.get()}</div>
                             </Show>
-
-                            <div style:display="flex" style:justify-content="flex-end" style:gap="10px">
-                                <Button variant="default" on_click=Callback::new(move |_| close())>
-                                    "Cancel"
-                                </Button>
-                                <button
-                                    class="cl-btn cl-btn--filled"
-                                    disabled=move || busy.get()
-                                    on:click=move |_| inject()
-                                >
-                                    "＋ Inject"
-                                </button>
-                            </div>
                         }
                     >
-                        <div style:font-size="13px" style:color="var(--fg)">
+                        <div class="app-text">
                             {move || format!(
                                 "Delivered to {} receiver{}.",
                                 delivered.get().unwrap_or(0),
                                 if delivered.get() == Some(1) { "" } else { "s" }
                             )}
                         </div>
-                        <div style:display="flex" style:justify-content="flex-end">
-                            <button class="cl-btn cl-btn--filled" on:click=move |_| close()>
-                                "Done"
-                            </button>
-                        </div>
                     </Show>
                 </div>
             </Modal>
         </Show>
-    }
-}
-
-/// Lightning-bolt icon (fire action).
-#[component]
-pub fn BoltIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
-    view! {
-        <svg width=size height=size viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M13 3l-9 13h8l-1 5 9-13h-8l1-5z" />
-        </svg>
-    }
-}
-
-/// Play icon (run action).
-#[component]
-pub fn PlayIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
-    view! {
-        <svg width=size height=size viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <path d="M7 4v16l13-8-13-8z" />
-        </svg>
-    }
-}
-
-/// Pause icon.
-#[component]
-pub fn PauseIcon(#[prop(default = 16)] size: u32) -> impl IntoView {
-    view! {
-        <svg width=size height=size viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <rect x="6" y="4" width="4" height="16" rx="1" />
-            <rect x="14" y="4" width="4" height="16" rx="1" />
-        </svg>
-    }
-}
-
-/// Segmented view switcher for the dual detail views (UAT round 1,
-/// CLOACI-T-0938): operational history vs the specific/current execution.
-#[component]
-pub fn ViewTabs(
-    tabs: Vec<(&'static str, &'static str)>,
-    active: RwSignal<&'static str>,
-) -> impl IntoView {
-    view! {
-        <div
-            style:display="inline-flex"
-            style:gap="2px"
-            style:background="var(--panel)"
-            style:border="1px solid var(--border)"
-            style:border-radius="8px"
-            style:padding="3px"
-            style:align-self="flex-start"
-        >
-            {tabs
-                .into_iter()
-                .map(|(key, label)| {
-                    view! {
-                        <button
-                            style:font-family="'IBM Plex Mono', monospace"
-                            style:font-size="11.5px"
-                            style:letter-spacing=".03em"
-                            style:padding="5px 14px"
-                            style:border="none"
-                            style:border-radius="6px"
-                            style:cursor="pointer"
-                            style:background=move || {
-                                if active.get() == key { "var(--panel-2)" } else { "transparent" }
-                            }
-                            style:color=move || {
-                                if active.get() == key { "var(--fg-bright)" } else { "var(--muted)" }
-                            }
-                            on:click=move |_| active.set(key)
-                        >
-                            {label}
-                        </button>
-                    }
-                })
-                .collect_view()}
-        </div>
     }
 }

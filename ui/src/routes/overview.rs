@@ -18,18 +18,19 @@
 //! `Overview.tsx`: metrics + health strip + active executions /
 //! computation graphs / recently-completed.
 
+use aurora_leptos::components::{
+    Card, Dot, FeedList, FeedRow, PageHeader, RelativeTime, SectionLabel, StatTile, StatusBadge,
+};
+use aurora_leptos::data::parse_timestamp;
 use aurora_leptos::tokens::{status_color, token};
 use leptos::prelude::*;
-use leptos_router::hooks::use_navigate;
 
 use cloacina_api_types::{ExecutionSummary, GraphStatus, ListExecutionsQuery, WorkflowSummary};
 
 use crate::auth::use_auth;
 use crate::data::poll_resource;
 use crate::ops::use_ops_metrics;
-use crate::util::{ago, format_duration, short_id};
-
-const MONO: &str = "'IBM Plex Mono', monospace";
+use crate::util::{format_duration, short_id};
 
 fn is_running(s: &str) -> bool {
     matches!(s.to_lowercase().as_str(), "running" | "paused")
@@ -41,46 +42,7 @@ fn is_done(s: &str) -> bool {
     )
 }
 
-#[component]
-fn MetricCard(
-    #[prop(into)] label: String,
-    value: Signal<usize>,
-    #[prop(into)] color: String,
-    #[prop(into)] sub: String,
-) -> impl IntoView {
-    view! {
-        <div
-            style:background="var(--panel)"
-            style:border="1px solid var(--border)"
-            style:border-radius="10px"
-            style:padding="15px 16px"
-        >
-            <div
-                style:font-family=MONO
-                style:font-size="10.5px"
-                style:letter-spacing=".07em"
-                style:text-transform="uppercase"
-                style:color="var(--muted)"
-            >
-                {label}
-            </div>
-            <div
-                class="cl-tnum"
-                style:font-size="30px"
-                style:font-weight="600"
-                style:line-height="1"
-                style:color=color
-                style:margin="6px 0 4px"
-            >
-                {move || value.get()}
-            </div>
-            <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                {sub}
-            </div>
-        </div>
-    }
-}
-
+/// One component in the health strip: a status dot, the name, a detail line.
 #[component]
 fn HealthTile(
     #[prop(into)] name: String,
@@ -88,33 +50,24 @@ fn HealthTile(
     detail: Signal<String>,
 ) -> impl IntoView {
     view! {
-        <div
-            style:background="var(--panel-2)"
-            style:border="1px solid var(--border-soft)"
-            style:border-radius="9px"
-            style:padding="10px 12px"
-        >
-            <div style:display="flex" style:align-items="center" style:gap="6px" style:margin-bottom="3px">
-                <span
-                    style:width="8px"
-                    style:height="8px"
-                    style:border-radius="50%"
-                    style:flex="none"
-                    style:background=move || match ok.get() {
-                        None => token::MUTED.to_string(),
-                        Some(true) => token::OK.to_string(),
-                        Some(false) => token::BAD.to_string(),
-                    }
-                ></span>
-                <span style:font-size="12px" style:font-weight="500" style:color="var(--fg)">{name}</span>
+        <div class="app-health">
+            <div class="app-row app-row--tight">
+                {move || {
+                    let color = match ok.get() {
+                        None => token::MUTED,
+                        Some(true) => token::OK,
+                        Some(false) => token::BAD,
+                    };
+                    view! { <Dot color=color /> }
+                }}
+                <span class="app-health__name">{name}</span>
             </div>
-            <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                {move || detail.get()}
-            </div>
+            <div class="app-meta">{move || detail.get()}</div>
         </div>
     }
 }
 
+/// A section title with a link on the right ("3 in flight", "View all").
 #[component]
 fn SectionHeader(
     #[prop(into)] title: String,
@@ -122,113 +75,52 @@ fn SectionHeader(
     #[prop(into)] to: String,
 ) -> impl IntoView {
     view! {
-        <div
-            style:display="flex"
-            style:justify-content="space-between"
-            style:align-items="center"
-            style:border-bottom="1px solid var(--border-soft)"
-            style:padding-bottom="8px"
-            style:margin-bottom="10px"
-        >
-            <span style:font-size="13px" style:font-weight="600" style:color="var(--fg)">{title}</span>
-            <a href=to style:font-size="12px" style:color="var(--ice)" style:text-decoration="none">
-                {move || right.get()}
-            </a>
-        </div>
-    }
-}
-
-#[component]
-fn EmptyCard(#[prop(into)] message: String) -> impl IntoView {
-    view! {
-        <div
-            style:border="1px dashed var(--border)"
-            style:border-radius="10px"
-            style:padding="18px 15px"
-            style:color="var(--faint)"
-            style:font-size="12.5px"
-        >
-            {message}
-        </div>
+        <SectionLabel
+            label=title
+            divider=true
+            action=Box::new(move || {
+                view! { <a href=to class="app-link">{move || right.get()}</a> }.into_any()
+            })
+        />
     }
 }
 
 /// One in-flight execution (the ActiveRunCard essentials: status pulse,
-/// workflow, id chip, started-ago).
+/// workflow, id chip, status, started-ago).
 #[component]
 fn ActiveRunCard(e: ExecutionSummary) -> impl IntoView {
-    let navigate = use_navigate();
-    let id = e.id.clone();
-    let color = status_color(&e.status);
     view! {
-        <div
-            style:display="flex"
-            style:align-items="center"
-            style:gap="12px"
-            style:background="var(--panel)"
-            style:border="1px solid var(--border)"
-            style:border-radius="10px"
-            style:padding="12px 15px"
-            style:cursor="pointer"
-            on:click=move |_| navigate(&format!("/executions/{id}"), Default::default())
-        >
-            <span
-                class="cl-pulse"
-                style:width="9px"
-                style:height="9px"
-                style:border-radius="50%"
-                style:background=color
-                style:flex="none"
-            ></span>
-            <div style:flex="1" style:min-width="0">
-                <div style:font-size="13.5px" style:color="var(--fg)">{e.workflow_name.clone()}</div>
-                <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                    {short_id(&e.id)}
+        <Card href=format!("/executions/{}", e.id)>
+            <div class="app-runcard">
+                <span class="cl-pulse app-none"><Dot color=status_color(&e.status) size=9 /></span>
+                <div class="app-grow">
+                    <div class="app-runcard__name app-ellipsis">{e.workflow_name.clone()}</div>
+                    <div class="app-meta">{short_id(&e.id)}</div>
+                </div>
+                <div class="app-col app-col--tight app-right">
+                    <StatusBadge status=e.status.to_lowercase() />
+                    <span class="app-meta app-meta--xs"><RelativeTime iso=e.started_at.clone() /></span>
                 </div>
             </div>
-            <div style:text-align="right">
-                <div style:font-family=MONO style:font-size="11.5px" style:color=color>
-                    {e.status.to_lowercase()}
-                </div>
-                <div style:font-family=MONO style:font-size="10px" style:color="var(--fainter)">
-                    {ago(Some(e.started_at.as_str()))}
-                </div>
-            </div>
-        </div>
+        </Card>
     }
 }
 
 /// One loaded computation graph (GraphMiniCard essentials).
 #[component]
 fn GraphMiniCard(g: GraphStatus) -> impl IntoView {
-    let navigate = use_navigate();
-    let name = g.name.clone();
     view! {
-        <div
-            style:display="flex"
-            style:align-items="center"
-            style:gap="12px"
-            style:background="var(--panel)"
-            style:border="1px solid var(--border)"
-            style:border-radius="10px"
-            style:padding="12px 15px"
-            style:cursor="pointer"
-            on:click=move |_| navigate(&format!("/graphs/{name}"), Default::default())
-        >
-            <span
-                style:width="9px"
-                style:height="9px"
-                style:border-radius="2px"
-                style:background=token::TEAL
-                style:flex="none"
-            ></span>
-            <div style:flex="1" style:min-width="0">
-                <div style:font-size="13.5px" style:color="var(--fg)">{g.name.clone()}</div>
-                <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                    {format!("{} accumulators · reactor {}", g.accumulators.len(), g.reactor.clone().unwrap_or_else(|| "—".into()))}
+        <Card href=format!("/graphs/{}", urlencoding::encode(&g.name))>
+            <div class="app-runcard">
+                <span class="app-square app-square--teal"></span>
+                <div class="app-grow">
+                    <div class="app-runcard__name app-ellipsis">{g.name.clone()}</div>
+                    <div class="app-meta">
+                        {format!("{} accumulators · reactor {}", g.accumulators.len(), g.reactor.clone().unwrap_or_else(|| "—".into()))}
+                    </div>
                 </div>
             </div>
-        </div>
+        </Card>
     }
 }
 
@@ -391,43 +283,28 @@ pub fn Overview() -> impl IntoView {
         )
     };
 
+    let count = |n: Signal<usize>| Signal::derive(move || n.get().to_string());
+
     view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="18px">
-            // Header
-            <div style:display="flex" style:justify-content="space-between" style:align-items="flex-start">
-                <div>
-                    <h2 style:font-size="22px" style:font-weight="600" style:color="var(--fg-bright)" style:margin="0">
-                        "Overview"
-                    </h2>
-                    <div style:font-family=MONO style:font-size="11px" style:color="var(--faint)" style:margin-top="2px">
-                        {tenant_line}
-                    </div>
-                </div>
-                <a
-                    href="/executions"
-                    style:width="300px"
-                    style:background="var(--panel)"
-                    style:border="1px solid var(--border)"
-                    style:border-radius="9px"
-                    style:padding="8px 12px"
-                    style:color="var(--faint)"
-                    style:font-size="12.5px"
-                    style:text-decoration="none"
-                >
-                    "⌕ Find a workflow, run, or task…"
-                </a>
-            </div>
+        <div class="app-page app-page--loose">
+            <PageHeader
+                title="Overview"
+                meta=Box::new(move || view! { <span class="app-meta app-meta--sm">{tenant_line}</span> }.into_any())
+                actions=Box::new(|| view! {
+                    <a href="/executions" class="app-search">"⌕ Find a workflow, run, or task…"</a>
+                }.into_any())
+            />
 
             // Metrics
-            <div style:display="grid" style:grid-template-columns="repeat(4, 1fr)" style:gap="13px">
-                <MetricCard label="Workflows" value=wf_count color="var(--fg)" sub="registered" />
-                <MetricCard label="Running" value=Signal::derive(move || running_count.get()) color=token::ICE sub="in flight" />
-                <MetricCard label="Completed" value=Signal::derive(move || completed_count.get()) color=token::OK sub="recent" />
-                <MetricCard label="Failed" value=Signal::derive(move || failed_count.get()) color=token::BAD sub="recent" />
+            <div class="app-grid-4">
+                <StatTile label="Workflows" value=count(wf_count) sub="registered".to_string() />
+                <StatTile label="Running" value=count(running_count) color=token::ICE sub="in flight".to_string() />
+                <StatTile label="Completed" value=count(completed_count) color=token::OK sub="recent".to_string() />
+                <StatTile label="Failed" value=count(failed_count) color=token::BAD sub="recent".to_string() />
             </div>
 
             // Health strip
-            <div style:display="grid" style:grid-template-columns="repeat(6, 1fr)" style:gap="9px">
+            <div class="app-grid-6">
                 <HealthTile name="Server" ok=Signal::derive(move || server.get().0) detail=Signal::derive(move || server.get().1) />
                 <HealthTile name="Compiler" ok=Signal::derive(move || compiler.get().0) detail=Signal::derive(move || compiler.get().1) />
                 <HealthTile name="Reconciler" ok=Signal::derive(move || reconciler.get().0) detail=Signal::derive(move || reconciler.get().1) />
@@ -437,23 +314,25 @@ pub fn Overview() -> impl IntoView {
             </div>
 
             // Two columns
-            <div style:display="grid" style:grid-template-columns="7fr 5fr" style:gap="18px">
-                <div>
-                    <SectionHeader
-                        title="Active executions"
-                        right=Signal::derive(move || format!("{} in flight", active.get().len()))
-                        to="/executions"
-                    />
-                    <Show
-                        when=move || !active.get().is_empty()
-                        fallback=|| view! { <EmptyCard message="No executions in flight." /> }
-                    >
-                        <div style:display="flex" style:flex-direction="column" style:gap="10px">
-                            <For each=move || active.get() key=|e| e.id.clone() children=|e| view! { <ActiveRunCard e=e /> } />
-                        </div>
-                    </Show>
+            <div class="app-split">
+                <div class="app-col app-col--loose">
+                    <div>
+                        <SectionHeader
+                            title="Active executions"
+                            right=Signal::derive(move || format!("{} in flight", active.get().len()))
+                            to="/executions"
+                        />
+                        <Show
+                            when=move || !active.get().is_empty()
+                            fallback=|| view! { <div class="app-empty">"No executions in flight."</div> }
+                        >
+                            <div class="app-col">
+                                <For each=move || active.get() key=|e| e.id.clone() children=|e| view! { <ActiveRunCard e=e /> } />
+                            </div>
+                        </Show>
+                    </div>
 
-                    <div style:margin-top="18px">
+                    <div>
                         <SectionHeader
                             title="Computation graphs"
                             right=Signal::derive(move || format!("{} active", graph_items.get().len()))
@@ -461,9 +340,9 @@ pub fn Overview() -> impl IntoView {
                         />
                         <Show
                             when=move || !graph_items.get().is_empty()
-                            fallback=|| view! { <EmptyCard message="No computation graphs loaded." /> }
+                            fallback=|| view! { <div class="app-empty">"No computation graphs loaded."</div> }
                         >
-                            <div style:display="flex" style:flex-direction="column" style:gap="10px">
+                            <div class="app-col">
                                 <For each=move || graph_items.get() key=|g| g.name.clone() children=|g| view! { <GraphMiniCard g=g /> } />
                             </div>
                         </Show>
@@ -473,74 +352,34 @@ pub fn Overview() -> impl IntoView {
                 // Recently completed
                 <div>
                     <SectionHeader title="Recently completed" right=Signal::derive(|| "View all".to_string()) to="/executions" />
-                    <div
-                        style:background="var(--panel)"
-                        style:border="1px solid var(--border)"
-                        style:border-radius="10px"
-                        style:padding="13px 15px"
-                    >
+                    <div class="app-panel app-panel--feed">
                         <Show
                             when=move || !completed.get().is_empty()
-                            fallback=|| view! {
-                                <div style:color="var(--faint)" style:font-size="12.5px" style:padding="8px 2px">
-                                    "No completed runs yet."
-                                </div>
-                            }
+                            fallback=|| view! { <div class="app-hint app-pad">"No completed runs yet."</div> }
                         >
-                            <For
-                                each={move || completed.get().into_iter().take(8).collect::<Vec<_>>()}
-                                key=|e| e.id.clone()
-                                children=|e| {
-                                    let navigate = use_navigate();
-                                    let id = e.id.clone();
-                                    let failed = e.status.eq_ignore_ascii_case("failed");
-                                    view! {
-                                        <div
-                                            style:display="flex"
-                                            style:align-items="center"
-                                            style:gap="10px"
-                                            style:padding="9px 2px"
-                                            style:border-top="1px solid var(--border-fainter)"
-                                            style:cursor="pointer"
-                                            on:click=move |_| navigate(&format!("/executions/{id}"), Default::default())
-                                        >
-                                            <span
-                                                style:width="8px"
-                                                style:height="8px"
-                                                style:border-radius="50%"
-                                                style:flex="none"
-                                                style:background=status_color(&e.status)
-                                            ></span>
-                                            <div style:flex="1" style:min-width="0">
-                                                <div
-                                                    style:font-size="13px"
-                                                    style:color="var(--fg)"
-                                                    style:overflow="hidden"
-                                                    style:text-overflow="ellipsis"
-                                                    style:white-space="nowrap"
-                                                >
-                                                    {e.workflow_name.clone()}
-                                                </div>
-                                                <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                                                    {short_id(&e.id)}
-                                                </div>
-                                            </div>
-                                            <div style:text-align="right">
-                                                <div
-                                                    style:font-family=MONO
-                                                    style:font-size="11.5px"
-                                                    style:color=if failed { token::BAD } else { "var(--fg-2)" }
-                                                >
+                            <FeedList label="Recently completed executions">
+                                <For
+                                    each={move || completed.get().into_iter().take(8).collect::<Vec<_>>()}
+                                    key=|e| e.id.clone()
+                                    children=|e| {
+                                        let failed = e.status.eq_ignore_ascii_case("failed");
+                                        let at = parse_timestamp(&e.started_at);
+                                        view! {
+                                            <FeedRow
+                                                at=at.unwrap_or_default()
+                                                dot=status_color(&e.status)
+                                                subject=e.workflow_name.clone()
+                                                actor=short_id(&e.id)
+                                                href=format!("/executions/{}", e.id)
+                                            >
+                                                <span class="app-mono" class:app-bad=failed>
                                                     {format_duration(Some(e.started_at.as_str()), e.completed_at.as_deref())}
-                                                </div>
-                                                <div style:font-family=MONO style:font-size="10px" style:color="var(--fainter)">
-                                                    {ago(Some(e.started_at.as_str()))}
-                                                </div>
-                                            </div>
-                                        </div>
+                                                </span>
+                                            </FeedRow>
+                                        }
                                     }
-                                }
-                            />
+                                />
+                            </FeedList>
                         </Show>
                     </div>
                 </div>

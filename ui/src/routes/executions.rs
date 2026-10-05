@@ -18,18 +18,19 @@
 //! URL-reflected status chips + a workflow filter; rows are dark cards with
 //! status dot, run id, pill, duration, and started-ago. Page size 50.
 
-use aurora_leptos::components::{Chip, Empty, Loading, PageHeader, StatusBadge};
+use aurora_leptos::components::{
+    Chip, Dot, Empty, Loading, PageHeader, Pagination, Pill, RelativeTime, StatusBadge, Table,
+    TableRow, TextInput,
+};
 use aurora_leptos::tokens::{status_color, token};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_query_map};
 
 use cloacina_api_types::ListExecutionsQuery;
 
-use crate::components::TagPill;
 use crate::data::poll_resource;
-use crate::util::{ago, format_duration};
+use crate::util::format_duration;
 
-const MONO: &str = "'IBM Plex Mono', monospace";
 const PAGE_SIZE: i64 = 50;
 
 const CHIPS: [(&str, &str); 5] = [
@@ -160,68 +161,59 @@ pub fn Executions() -> impl IntoView {
         v
     });
 
-    let page = move |delta: i64| {
-        let next = (offset.get_untracked() + delta * PAGE_SIZE).max(0);
+    // Aurora Pagination drives these; the URL stays the source of truth
+    // (the offset is reflected into ?offset=, replace navigation).
+    let page_offset = RwSignal::new(0usize);
+    let page_limit = RwSignal::new(PAGE_SIZE as usize);
+    Effect::new(move |_| page_offset.set(offset.get() as usize));
+    let on_page = Callback::new(move |(next, _limit): (usize, usize)| {
         let v = if next == 0 {
             String::new()
         } else {
             next.to_string()
         };
         navigate.with_value(|n| set_param(n, &current_qs(), "offset", &v));
-    };
+    });
 
     view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="14px">
-            <PageHeader title="Executions" />
-            <div
-                style:font-family=MONO
-                style:font-size="11px"
-                style:color="var(--faint)"
-                style:margin-top="-10px"
-            >
-                {move || format!(
-                    "{} runs · {} running · {} failed",
-                    total.get(),
-                    count_of("running"),
-                    count_of("failed")
-                )}
-            </div>
+        <div class="app-page">
+            <PageHeader
+                title="Executions"
+                meta=Box::new(move || view! {
+                    <span class="app-meta app-meta--sm">
+                        {move || format!(
+                            "{} runs · {} running · {} failed",
+                            total.get(),
+                            count_of("running"),
+                            count_of("failed")
+                        )}
+                    </span>
+                }.into_any())
+            />
 
             // Filter bar
-            <div
-                style:display="flex"
-                style:justify-content="space-between"
-                style:align-items="center"
-                style:border-bottom="1px solid var(--border-soft)"
-                style:padding-bottom="12px"
-            >
-                <div style:display="flex" style:gap="8px">
+            <div class="app-filterbar">
+                <div class="app-row app-row--wrap">
                     {CHIPS
                         .iter()
                         .map(|(label, value)| {
                             let value = value.to_string();
                             let value_for_active = value.clone();
-                            let active =
-                                Signal::derive(move || status.get() == value_for_active);
+                            let active = Signal::derive(move || status.get() == value_for_active);
                             view! {
                                 <Chip
                                     label=*label
                                     active=active
                                     on_click=Callback::new(move |_| {
-                                        navigate.with_value(|n| {
-                                            set_param(n, &current_qs(), "status", &value)
-                                        })
+                                        navigate.with_value(|n| set_param(n, &current_qs(), "status", &value))
                                     })
                                 />
                             }
                         })
                         .collect_view()}
                 </div>
-                <div style:width="240px">
-                    <aurora_leptos::components::TextInput
-                        placeholder="Filter by workflow or run id…"
-                        value=filter_text
-                    />
+                <div class="app-filterbar__search">
+                    <TextInput placeholder="Filter by workflow or run id…" value=filter_text />
                 </div>
             </div>
 
@@ -240,103 +232,60 @@ pub fn Executions() -> impl IntoView {
                         view! { <Empty message=msg /> }
                     }
                 >
-                    <div style:display="flex" style:flex-direction="column" style:gap="8px">
-                        <For
-                            each=move || items.get()
-                            key=|e| (e.id.clone(), e.status.clone())
-                            children=move |e| {
-                                let id = e.id.clone();
-                                let running = e.status.eq_ignore_ascii_case("running");
-                                let manual = e.trigger_origin.as_deref() == Some("manual");
-                                view! {
-                                    <div
-                                        style:background="var(--panel)"
-                                        style:border="1px solid var(--border)"
-                                        style:border-radius="10px"
-                                        style:padding="11px 15px"
-                                        style:cursor="pointer"
-                                        style:display="flex"
-                                        style:justify-content="space-between"
-                                        style:align-items="center"
-                                        on:click=move |_| {
-                                            navigate.with_value(|n| n(
-                                                &format!("/executions/{id}"),
-                                                Default::default(),
-                                            ))
+                    <div class="app-panel app-panel--flush">
+                        <Table label="Executions">
+                            <thead>
+                                <tr>
+                                    <th>"Workflow · run"</th>
+                                    <th class="app-w-origin"></th>
+                                    <th class="app-w-status">"Status"</th>
+                                    <th class="app-w-time app-right">"Duration"</th>
+                                    <th class="app-w-time app-right">"Started"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <For
+                                    each=move || items.get()
+                                    key=|e| (e.id.clone(), e.status.clone())
+                                    children=move |e| {
+                                        let id = e.id.clone();
+                                        let running = e.status.eq_ignore_ascii_case("running");
+                                        let manual = e.trigger_origin.as_deref() == Some("manual");
+                                        view! {
+                                            <TableRow on_click=Callback::new(move |_| {
+                                                navigate.with_value(|n| n(&format!("/executions/{id}"), Default::default()))
+                                            })>
+                                                <td>
+                                                    <span class="app-row">
+                                                        <span class="app-none" class:cl-pulse=running>
+                                                            <Dot color=status_color(&e.status) />
+                                                        </span>
+                                                        <span class="app-grow">
+                                                            <span class="app-name app-ellipsis app-block">{e.workflow_name.clone()}</span>
+                                                            <span class="app-meta app-block">{e.id.clone()}</span>
+                                                        </span>
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <Show when=move || manual>
+                                                        <Pill color=token::GOLD>"manual"</Pill>
+                                                    </Show>
+                                                </td>
+                                                <td><StatusBadge status=e.status.clone() /></td>
+                                                <td class="app-num app-meta--md cl-tnum">
+                                                    {format_duration(Some(e.started_at.as_str()), e.completed_at.as_deref())}
+                                                </td>
+                                                <td class="app-num app-meta">
+                                                    <RelativeTime iso=e.started_at.clone() />
+                                                </td>
+                                            </TableRow>
                                         }
-                                    >
-                                        <div style:display="flex" style:gap="11px" style:align-items="center" style:min-width="0">
-                                            <span
-                                                class:cl-pulse=running
-                                                style:width="8px"
-                                                style:height="8px"
-                                                style:border-radius="50%"
-                                                style:flex="none"
-                                                style:background=status_color(&e.status)
-                                            ></span>
-                                            <div style:min-width="0">
-                                                <div
-                                                    style:font-size="13.5px"
-                                                    style:font-weight="600"
-                                                    style:color="var(--fg)"
-                                                    style:overflow="hidden"
-                                                    style:text-overflow="ellipsis"
-                                                    style:white-space="nowrap"
-                                                >
-                                                    {e.workflow_name.clone()}
-                                                </div>
-                                                <div style:font-family=MONO style:font-size="10.5px" style:color="var(--faint)">
-                                                    {e.id.clone()}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div style:display="flex" style:gap="18px" style:align-items="center" style:flex="none">
-                                            <Show when=move || manual>
-                                                <TagPill color=token::GOLD>"manual"</TagPill>
-                                            </Show>
-                                            <StatusBadge status=e.status.clone() />
-                                            <div
-                                                class="cl-tnum"
-                                                style:font-family=MONO
-                                                style:font-size="11.5px"
-                                                style:color="var(--fg-2)"
-                                                style:width="64px"
-                                                style:text-align="right"
-                                            >
-                                                {format_duration(Some(e.started_at.as_str()), e.completed_at.as_deref())}
-                                            </div>
-                                            <div
-                                                style:font-family=MONO
-                                                style:font-size="10.5px"
-                                                style:color="var(--fainter)"
-                                                style:width="64px"
-                                                style:text-align="right"
-                                            >
-                                                {ago(Some(e.started_at.as_str()))}
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                            }
-                        />
-
-                        <div style:display="flex" style:justify-content="flex-end" style:gap="10px" style:margin-top="4px">
-                            <button
-                                class="cl-btn cl-btn--default cl-btn--xs"
-                                disabled=move || offset.get() == 0
-                                on:click=move |_| page(-1)
-                            >
-                                "Previous"
-                            </button>
-                            <button
-                                class="cl-btn cl-btn--default cl-btn--xs"
-                                disabled=move || (items.get().len() as i64) < PAGE_SIZE
-                                on:click=move |_| page(1)
-                            >
-                                "Next"
-                            </button>
-                        </div>
+                                    }
+                                />
+                            </tbody>
+                        </Table>
                     </div>
+                    <Pagination offset=page_offset limit=page_limit total=total on_change=on_page />
                 </Show>
             </Show>
         </div>

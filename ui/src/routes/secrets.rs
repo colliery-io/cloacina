@@ -20,8 +20,12 @@
 //! KNOWN field names with empty values.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use aurora_leptos::components::{Alert, Loading, Modal, PageHeader, PasswordInput, TextInput};
+use aurora_leptos::components::{
+    Alert, Button, ConfirmDialog, Loading, Modal, PageHeader, PasswordInput, Table, TextInput,
+};
+use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 
 use cloacina_api_types::{CreateSecretRequest, RotateSecretRequest, SecretMetadataResponse};
@@ -77,7 +81,7 @@ pub fn Secrets() -> impl IntoView {
     let rotate_open = RwSignal::new(false);
     Effect::new(move |_| rotate_open.set(rotate_for.get().is_some()));
 
-    let submit_create = move |_| {
+    let submit_create = move || {
         let Some(conn) = auth.connection() else {
             return;
         };
@@ -123,7 +127,7 @@ pub fn Secrets() -> impl IntoView {
         rotate_for.set(Some(s));
     };
 
-    let submit_rotate = move |_| {
+    let submit_rotate = move || {
         let Some(target) = rotate_for.get_untracked() else {
             return;
         };
@@ -148,7 +152,15 @@ pub fn Secrets() -> impl IntoView {
         });
     };
 
-    let delete = move |name: String| {
+    // Delete asks first (ConfirmDialog): a secret delete breaks every
+    // workflow that reads it.
+    let delete_for = RwSignal::new(Option::<String>::None);
+    let delete_open = RwSignal::new(false);
+    Effect::new(move |_| delete_open.set(delete_for.get().is_some()));
+    let delete = move || {
+        let Some(name) = delete_for.get_untracked() else {
+            return;
+        };
         let Some(conn) = auth.connection() else {
             return;
         };
@@ -158,14 +170,23 @@ pub fn Secrets() -> impl IntoView {
                 let _ = client.delete_secret(&name, None).await;
             }
             busy.set(false);
+            delete_for.set(None);
             refresh.update(|x| *x += 1);
         });
     };
 
     let tenant = move || auth.connection().map(|c| c.tenant).unwrap_or_default();
 
+    let rotate_footer: ChildrenFn = Arc::new(move || {
+        view! {
+            <Button variant="default" on_click=Callback::new(move |_| rotate_for.set(None))>"Cancel"</Button>
+            <Button loading=busy on_click=Callback::new(move |_| submit_rotate())>"Rotate"</Button>
+        }
+        .into_any()
+    });
+
     view! {
-        <div style:max-width="820px" style:display="flex" style:flex-direction="column" style:gap="14px">
+        <div class="app-page app-narrow">
             <PageHeader
                 title="Secrets"
                 sub=format!(
@@ -178,73 +199,68 @@ pub fn Secrets() -> impl IntoView {
             <Show
                 when=move || auth.can_admin()
                 fallback=|| view! {
-                    <Alert color="var(--gold)">"You need admin access to manage secrets."</Alert>
+                    <Alert color=token::GOLD>"You need admin access to manage secrets."</Alert>
                 }
             >
-                <div
-                    style:background="var(--sidebar)"
-                    style:border="1px solid var(--border)"
-                    style:border-radius="12px"
-                    style:padding="16px"
-                    style:display="flex"
-                    style:flex-direction="column"
-                    style:gap="10px"
+                <form
+                    class="app-panel app-col"
+                    on:submit=move |ev| {
+                        ev.prevent_default();
+                        submit_create();
+                    }
                 >
-                    <div style:font-size="13px" style:font-weight="600" style:color="var(--fg)">
-                        "Create secret"
-                    </div>
+                    <div class="app-name">"Create secret"</div>
                     <TextInput label="Name" placeholder="db_prod" value=name />
-                    <div style:font-size="12px" style:color="var(--muted)">"Fields"</div>
+                    <div class="app-small app-muted">"Fields"</div>
                     <For
                         each={move || rows.get().into_iter().enumerate().collect::<Vec<_>>()}
                         key=|(i, _)| *i
                         children=move |(i, (k, v))| {
                             view! {
-                                <div style:display="flex" style:gap="8px" style:align-items="flex-end">
-                                    <div style:flex="1">
+                                <div class="app-fieldrow">
+                                    <div class="app-grow">
                                         <TextInput placeholder="password" value=k />
                                     </div>
-                                    <div style:flex="1">
+                                    <div class="app-grow">
                                         <PasswordInput placeholder="value (write-only)" value=v />
                                     </div>
-                                    <button
-                                        class="cl-btn cl-btn--subtle cl-btn--bad cl-btn--xs"
-                                        aria-label="remove field"
-                                        on:click=move |_| {
+                                    <Button
+                                        variant="subtle"
+                                        size="xs"
+                                        bad=true
+                                        button_type="button"
+                                        aria_label="remove field"
+                                        on_click=Callback::new(move |_| {
                                             rows.update(|r| {
                                                 if r.len() > 1 {
                                                     r.remove(i);
                                                 }
                                             })
-                                        }
+                                        })
                                     >
                                         "✕"
-                                    </button>
+                                    </Button>
                                 </div>
                             }
                         }
                     />
-                    <div style:display="flex" style:justify-content="space-between">
-                        <button
-                            class="cl-btn cl-btn--subtle cl-btn--xs"
-                            on:click=move |_| rows.update(|r| {
+                    <div class="app-row app-row--between">
+                        <Button
+                            variant="subtle"
+                            size="xs"
+                            button_type="button"
+                            on_click=Callback::new(move |_| rows.update(|r| {
                                 r.push((RwSignal::new(String::new()), RwSignal::new(String::new())))
-                            })
+                            }))
                         >
                             "+ Add field"
-                        </button>
-                        <button
-                            class="cl-btn cl-btn--filled"
-                            disabled=move || busy.get()
-                            on:click=submit_create
-                        >
-                            "Create"
-                        </button>
+                        </Button>
+                        <Button button_type="submit" loading=busy>"Create"</Button>
                     </div>
                     <Show when=move || !create_error.get().is_empty()>
-                        <Alert color="var(--bad)">{move || create_error.get()}</Alert>
+                        <Alert color=token::BAD>{move || create_error.get()}</Alert>
                     </Show>
-                </div>
+                </form>
             </Show>
 
             // List — metadata only.
@@ -254,72 +270,65 @@ pub fn Secrets() -> impl IntoView {
             >
                 <Show
                     when=move || !items.get().is_empty()
-                    fallback=|| view! {
-                        <span style:color="var(--muted)" style:font-size="13px">"No secrets yet."</span>
-                    }
+                    fallback=|| view! { <span class="app-hint">"No secrets yet."</span> }
                 >
-                    <table class="cl-table">
-                        <thead>
-                            <tr>
-                                <th>"Name"</th>
-                                <th>"Fields"</th>
-                                <th>"Updated"</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <For
-                                each=move || items.get()
-                                key=|s| (s.id.clone(), s.updated_at.clone())
-                                children=move |s| {
-                                    let for_rotate = s.clone();
-                                    let name_for_delete = s.name.clone();
-                                    view! {
-                                        <tr>
-                                            <td style:font-weight="500">{s.name.clone()}</td>
-                                            <td style:color="var(--muted)" style:font-size="12.5px">
-                                                {s.field_names.join(", ")}
-                                            </td>
-                                            <td style:color="var(--muted)" style:font-size="12.5px">
-                                                {s.updated_at.clone()}
-                                            </td>
-                                            <td>
-                                                <Show when=move || auth.can_admin()>
-                                                    {
-                                                        let for_rotate = for_rotate.clone();
-                                                        let name = name_for_delete.clone();
-                                                        view! {
-                                                            <span style:display="inline-flex" style:gap="6px" style:justify-content="flex-end">
-                                                                <button
-                                                                    class="cl-btn cl-btn--subtle cl-btn--xs"
-                                                                    on:click={
-                                                                        let s = for_rotate.clone();
-                                                                        move |_| open_rotate(s.clone())
-                                                                    }
-                                                                >
-                                                                    "Rotate"
-                                                                </button>
-                                                                <button
-                                                                    class="cl-btn cl-btn--subtle cl-btn--bad cl-btn--xs"
-                                                                    disabled=move || busy.get()
-                                                                    on:click={
-                                                                        let name = name.clone();
-                                                                        move |_| delete(name.clone())
-                                                                    }
-                                                                >
-                                                                    "Delete"
-                                                                </button>
-                                                            </span>
+                    <div class="app-panel app-panel--flush">
+                        <Table label="Secrets">
+                            <thead>
+                                <tr>
+                                    <th>"Name"</th>
+                                    <th>"Fields"</th>
+                                    <th>"Updated"</th>
+                                    <th class="app-w-wide-action"><span class="cl-sr-only">"Actions"</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <For
+                                    each=move || items.get()
+                                    key=|s| (s.id.clone(), s.updated_at.clone())
+                                    children=move |s| {
+                                        let for_rotate = s.clone();
+                                        let name_for_delete = s.name.clone();
+                                        view! {
+                                            <tr>
+                                                <td class="app-text app-strong">{s.name.clone()}</td>
+                                                <td class="app-small app-muted">{s.field_names.join(", ")}</td>
+                                                <td class="app-small app-muted">{s.updated_at.clone()}</td>
+                                                <td class="app-right">
+                                                    <Show when=move || auth.can_admin()>
+                                                        {
+                                                            let for_rotate = for_rotate.clone();
+                                                            let name = name_for_delete.clone();
+                                                            view! {
+                                                                <span class="app-row app-row--tight app-row--end">
+                                                                    <Button
+                                                                        variant="subtle"
+                                                                        size="xs"
+                                                                        on_click=Callback::new(move |_| open_rotate(for_rotate.clone()))
+                                                                    >
+                                                                        "Rotate"
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="subtle"
+                                                                        size="xs"
+                                                                        bad=true
+                                                                        disabled=busy
+                                                                        on_click=Callback::new(move |_| delete_for.set(Some(name.clone())))
+                                                                    >
+                                                                        "Delete"
+                                                                    </Button>
+                                                                </span>
+                                                            }
                                                         }
-                                                    }
-                                                </Show>
-                                            </td>
-                                        </tr>
+                                                    </Show>
+                                                </td>
+                                            </tr>
+                                        }
                                     }
-                                }
-                            />
-                        </tbody>
-                    </table>
+                                />
+                            </tbody>
+                        </Table>
+                    </div>
                 </Show>
             </Show>
 
@@ -328,34 +337,46 @@ pub fn Secrets() -> impl IntoView {
                 <Modal
                     open=rotate_open
                     title=rotate_for.get_untracked().map(|s| format!("Rotate {}", s.name)).unwrap_or_default()
+                    footer=rotate_footer.clone()
+                    locked=busy
+                    on_close=Callback::new(move |_| rotate_for.set(None))
                 >
-                    <div style:display="flex" style:flex-direction="column" style:gap="12px">
+                    <div class="app-col">
                         <For
                             each={move || rotate_rows.get().into_iter().enumerate().collect::<Vec<_>>()}
                             key=|(i, _)| *i
                             children=|(_, (k, v))| {
                                 view! {
-                                    <div style:display="flex" style:gap="8px" style:align-items="flex-end">
-                                        <div style:flex="1">
+                                    <div class="app-fieldrow">
+                                        <div class="app-grow">
                                             <TextInput value=k />
                                         </div>
-                                        <div style:flex="1">
+                                        <div class="app-grow">
                                             <PasswordInput placeholder="new value" value=v />
                                         </div>
                                     </div>
                                 }
                             }
                         />
-                        <button
-                            class="cl-btn cl-btn--filled"
-                            disabled=move || busy.get()
-                            on:click=submit_rotate
-                        >
-                            "Rotate"
-                        </button>
                     </div>
                 </Modal>
             </Show>
+
+            // Delete confirm
+            <ConfirmDialog
+                open=delete_open
+                title="Delete secret?"
+                confirm_label="Delete"
+                busy=busy
+                on_confirm=Callback::new(move |_| delete())
+                on_cancel=Callback::new(move |_| delete_for.set(None))
+            >
+                <span class="app-text app-fg2">
+                    {move || delete_for.get().map(|n| format!(
+                        "Delete {n}? Workflows that read it fail on their next fire."
+                    )).unwrap_or_default()}
+                </span>
+            </ConfirmDialog>
         </div>
     }
 }

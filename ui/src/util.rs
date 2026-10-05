@@ -52,7 +52,9 @@ pub fn format_duration(started: Option<&str>, completed: Option<&str>) -> String
     format!("{h}h {:02}m", m % 60)
 }
 
-/// `42s ago` / `3m ago` / `2h ago` / `5d ago`; empty when unknown.
+/// `42s ago` / `3m ago` / `2h ago` / `5d ago`; empty when unknown. The same
+/// wording as Aurora's `RelativeTime` (`format_relative`), for text that is
+/// built into a longer string.
 pub fn ago(ts: Option<&str>) -> String {
     let Some(then) = ts.and_then(parse_ms) else {
         return String::new();
@@ -61,19 +63,23 @@ pub fn ago(ts: Option<&str>) -> String {
     if ms.is_nan() || ms < 0.0 {
         return String::new();
     }
-    let s = (ms / 1000.0).floor() as u64;
-    if s < 60 {
-        return format!("{s}s ago");
-    }
-    let m = s / 60;
-    if m < 60 {
-        return format!("{m}m ago");
-    }
-    let h = m / 60;
-    if h < 24 {
-        return format!("{h}h ago");
-    }
-    format!("{}d ago", h / 24)
+    aurora_leptos::data::format_relative(ms)
+}
+
+/// Local wall-clock time of a timestamp (`14:03:27.412`), for log lines;
+/// the input unchanged when the browser cannot parse it.
+pub fn clock_time(ts: &str) -> String {
+    let Some(ms) = parse_ms(ts) else {
+        return ts.to_string();
+    };
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms));
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        d.get_hours(),
+        d.get_minutes(),
+        d.get_seconds(),
+        d.get_milliseconds()
+    )
 }
 
 /// First 8 chars of an id (the run-id chip convention).

@@ -20,36 +20,15 @@
 //! executions stay unlinked (rows carry a schedule-execution id, not a
 //! workflow-execution id — the SDK/server gap noted in the task).
 
-use aurora_leptos::components::{Empty, Loading};
+use aurora_leptos::components::{
+    Button, DetailList, Dot, Empty, KeyValue, Loading, PageHeader, Panel, Pill, Table,
+};
 use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
 use crate::auth::{client_for, use_auth};
-use crate::components::TagPill;
 use crate::data::poll_resource;
-
-const MONO: &str = "'IBM Plex Mono', monospace";
-
-#[component]
-fn Field(#[prop(into)] label: String, #[prop(into)] value: String) -> impl IntoView {
-    view! {
-        <div style:display="flex" style:gap="8px" style:align-items="baseline">
-            <span
-                style:font-family=MONO
-                style:font-size="10.5px"
-                style:letter-spacing=".04em"
-                style:text-transform="uppercase"
-                style:color="var(--faint)"
-            >
-                {label}
-            </span>
-            <span style:font-family=MONO style:font-size="12.5px" style:color="var(--fg-2)">
-                {value}
-            </span>
-        </div>
-    }
-}
 
 #[component]
 pub fn TriggerDetail() -> impl IntoView {
@@ -67,7 +46,7 @@ pub fn TriggerDetail() -> impl IntoView {
 
     let running = RwSignal::new(false);
     let error = RwSignal::new(String::new());
-    let run_now = move |_| {
+    let run_now = move || {
         let Some(workflow) = data.get_untracked().map(|d| d.schedule.workflow_name) else {
             return;
         };
@@ -99,39 +78,24 @@ pub fn TriggerDetail() -> impl IntoView {
     };
 
     view! {
-        <div style:display="flex" style:flex-direction="column" style:gap="16px">
-            <div style:display="flex" style:justify-content="space-between" style:align-items="flex-start">
-                <div>
-                    <a
-                        href="/triggers"
-                        style:font-size="11.5px"
-                        style:color="var(--muted)"
-                        style:text-decoration="none"
-                    >
-                        "← Triggers"
-                    </a>
-                    <h1
-                        style:font-size="22px"
-                        style:font-weight="600"
-                        style:color="var(--fg-bright)"
-                        style:margin="2px 0 0"
-                    >
-                        {move || name.get()}
-                    </h1>
-                </div>
-                <Show when=move || auth.can_write() && data.get().is_some()>
-                    <button
-                        class="cl-btn cl-btn--filled"
-                        disabled=move || running.get()
-                        on:click=run_now
-                    >
-                        "▸ Run now"
-                    </button>
-                </Show>
-            </div>
+        <div class="app-page">
+            {move || view! {
+                <PageHeader
+                    title=name.get()
+                    back_href="/triggers"
+                    back_label="Triggers"
+                    actions=Box::new(move || view! {
+                        <Show when=move || auth.can_write() && data.get().is_some()>
+                            <Button loading=running on_click=Callback::new(move |_| run_now())>
+                                "▸ Run now"
+                            </Button>
+                        </Show>
+                    }.into_any())
+                />
+            }}
 
             <Show when=move || !error.get().is_empty()>
-                <span style:color="var(--bad)" style:font-size="12.5px">{move || error.get()}</span>
+                <span class="app-error" role="alert">{move || error.get()}</span>
             </Show>
 
             <Show
@@ -146,67 +110,38 @@ pub fn TriggerDetail() -> impl IntoView {
                         let is_cron = d.schedule.cron_expression.is_some();
                         let enabled = d.schedule.enabled;
                         view! {
-                            <div
-                                style:background="var(--panel)"
-                                style:border="1px solid var(--border)"
-                                style:border-radius="10px"
-                                style:padding="15px 18px"
-                                style:display="flex"
-                                style:flex-direction="column"
-                                style:gap="10px"
-                            >
-                                <div style:display="flex" style:gap="10px" style:align-items="center">
-                                    <TagPill color=if is_cron { token::VIOLET } else { token::TEAL }>
+                            <div class="app-panel app-col">
+                                <div class="app-row">
+                                    <Pill color=if is_cron { token::VIOLET } else { token::TEAL }>
                                         {if is_cron { "cron schedule" } else { "polling trigger" }}
-                                    </TagPill>
-                                    <span style:display="inline-flex" style:gap="6px" style:align-items="center">
-                                        <span
-                                            style:width="7px"
-                                            style:height="7px"
-                                            style:border-radius="50%"
-                                            style:background=if enabled { token::OK } else { token::FAINT }
-                                        ></span>
-                                        <span
-                                            style:font-size="12px"
-                                            style:color=if enabled { "var(--fg-2)" } else { "var(--faint)" }
-                                        >
+                                    </Pill>
+                                    <span class="app-row app-row--tight">
+                                        <Dot color=if enabled { token::OK } else { token::FAINT } size=7 />
+                                        <span class="app-small" class:app-fg2=enabled class:app-faint=!enabled>
                                             {if enabled { "enabled" } else { "disabled" }}
                                         </span>
                                     </span>
                                 </div>
-                                <Field label="Fires workflow" value=d.schedule.workflow_name.clone() />
-                                {d.schedule.cron_expression.clone().map(|c| view! {
-                                    <Field label="Cron" value=c />
-                                })}
-                                {d.schedule.poll_interval_ms.map(|ms| view! {
-                                    <Field label="Polls" value=format!("every {}ms", ms) />
-                                })}
-                                {d.schedule.trigger_name.clone().map(|t| view! {
-                                    <Field label="Trigger" value=t />
-                                })}
+                                <DetailList mono=true>
+                                    <KeyValue label="Fires workflow">{d.schedule.workflow_name.clone()}</KeyValue>
+                                    {d.schedule.cron_expression.clone().map(|c| view! {
+                                        <KeyValue label="Cron">{c}</KeyValue>
+                                    })}
+                                    {d.schedule.poll_interval_ms.map(|ms| view! {
+                                        <KeyValue label="Polls">{format!("every {}ms", ms)}</KeyValue>
+                                    })}
+                                    {d.schedule.trigger_name.clone().map(|t| view! {
+                                        <KeyValue label="Trigger">{t}</KeyValue>
+                                    })}
+                                </DetailList>
                             </div>
 
-                            <div>
-                                <div
-                                    style:font-size="14px"
-                                    style:font-weight="600"
-                                    style:color="var(--fg)"
-                                    style:border-bottom="1px solid var(--border-soft)"
-                                    style:padding-bottom="8px"
-                                    style:margin-bottom="10px"
-                                >
-                                    "Recent executions"
-                                </div>
+                            <Panel title="Recent executions">
                                 {if d.recent_executions.is_empty() {
-                                    view! {
-                                        <span style:color="var(--muted)" style:font-size="13px">
-                                            "No recent executions."
-                                        </span>
-                                    }
-                                    .into_any()
+                                    view! { <span class="app-hint">"No recent executions."</span> }.into_any()
                                 } else {
                                     view! {
-                                        <table class="cl-table cl-table--mono">
+                                        <Table mono=true label="Recent executions">
                                             <thead>
                                                 <tr>
                                                     <th>"Scheduled"</th>
@@ -226,11 +161,11 @@ pub fn TriggerDetail() -> impl IntoView {
                                                     })
                                                     .collect_view()}
                                             </tbody>
-                                        </table>
+                                        </Table>
                                     }
                                     .into_any()
                                 }}
-                            </div>
+                            </Panel>
                         }
                     })}
                 </Show>
