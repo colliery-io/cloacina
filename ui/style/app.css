@@ -221,8 +221,8 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 
 /* ---------- Markers ---------- */
 /* A small coloured square (the orchestration kind marker). The hue
-   modifiers follow node_kind_color in util.rs: teal is a computation graph
-   or an accumulator, ice is a workflow, violet is a reactor. */
+   modifiers follow node_kind_color in util.rs. Teal marks a computation
+   graph or an accumulator, ice a workflow, violet a reactor. */
 .app-square { display: inline-block; width: 9px; height: 9px; border-radius: var(--radius-xs); flex: none; }
 .app-square--lg { width: 10px; height: 10px; }
 .app-square--teal { background: var(--teal); }
