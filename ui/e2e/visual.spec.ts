@@ -16,8 +16,9 @@
  *  The detail routes come from the environment, so one spec serves both
  *  stacks: E2E_VISUAL_WORKFLOW (a package name; default `demo-py-workflow`,
  *  the demo stack's) and E2E_VISUAL_GRAPH (default `market_pipeline`). The
- *  graph-detail shot skips when the server has no such graph: the seeded e2e
- *  lane packs no computation-graph fixture (CLOACI-T-0939).
+ *  graph-detail shot skips when the server has no such graph. The seeded e2e
+ *  lane sets E2E_VISUAL_GRAPH=demo_py_graph, the Python graph it packs
+ *  (CLOACINA-T-0939).
  *
  *  Theme: Aurora reads `localStorage["aurora-theme"]` before the first paint
  *  (THEME_INIT_SCRIPT in index.html), so each shot seeds that key and
@@ -142,7 +143,7 @@ for (const theme of THEMES) {
       const names = await graphNames(page);
       test.skip(
         !names.includes(VISUAL_GRAPH),
-        `the server has no graph "${VISUAL_GRAPH}" (the seeded e2e lane packs no CG fixture, CLOACI-T-0939)`,
+        `the server has no graph "${VISUAL_GRAPH}"`,
       );
       await page.goto(`/graphs/${encodeURIComponent(VISUAL_GRAPH)}`);
       await settle(page);
