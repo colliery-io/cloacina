@@ -54,6 +54,8 @@ COMPILER_BIND = "127.0.0.1:19001"
 PREVIEW_PORT = 4173
 PREVIEW_URL = f"http://localhost:{PREVIEW_PORT}"
 BOOTSTRAP_KEY = "ui-e2e-bootstrap-key"
+# Tenants the lane creates (the acme auth specs connect into `acme`).
+LANE_TENANTS = ("acme",)
 DB_URL = "postgres://cloacina:cloacina@localhost:15432/cloacina"
 TARGET_DIR = str(PROJECT_ROOT / "target")
 
@@ -76,9 +78,15 @@ def _fresh_database():
     # pattern into the shared helper every lane now uses.
     from .._utils import psql_retry
 
+    # Tenant roles are cluster-wide: DROP DATABASE leaves them behind, and the
+    # next run's `POST /v1/tenants` then fails at `CREATE USER` ("role already
+    # exists"), rolling back the tenant schema with it. Drop them with the
+    # database so each run starts from nothing. (CLOACINA-T-0937)
+    drop_roles = [a for t in LANE_TENANTS for a in ("-c", f"DROP ROLE IF EXISTS {t};")]
     psql_retry(
         [
             "-c", "DROP DATABASE IF EXISTS cloacina WITH (FORCE);",
+            *drop_roles,
             "-c", "CREATE DATABASE cloacina OWNER cloacina;",
         ],
         compose_file=str(COMPOSE_FILE),
@@ -237,8 +245,24 @@ def _create_tenant(name: str):
         with urllib.request.urlopen(req) as resp:
             resp.read()
     except urllib.error.HTTPError as e:
-        if e.code not in (400, 409):  # already-exists (either shape) is fine on re-runs
-            raise
+        # The server answers every creation failure with 400, so the status
+        # alone does not say "already exists". Accept the error only when the
+        # tenant is really there; otherwise fail the lane here, not later as a
+        # search_path 500 on every connect into the tenant. (CLOACINA-T-0937)
+        detail = e.read().decode(errors="replace")
+        if name not in _tenant_names():
+            raise RuntimeError(
+                f"creating tenant '{name}' failed: HTTP {e.code}: {detail}"
+            ) from e
+
+
+def _tenant_names() -> set:
+    req = urllib.request.Request(
+        f"{SERVER_URL}/v1/tenants",
+        headers={"Authorization": f"Bearer {BOOTSTRAP_KEY}"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        return {t["name"] for t in json.loads(resp.read())["items"]}
 
 
 def _ui_e2e(smoke: bool, visual: bool = False, update_baselines: bool = False) -> int:
@@ -301,7 +325,8 @@ def _ui_e2e(smoke: bool, visual: bool = False, update_baselines: bool = False) -
             _wait_http(f"{SERVER_URL}/health", proc=server)
             # Create the `acme` tenant schema the auth specs connect into (the
             # scoped key is seeded above, but the tenant itself is not).
-            _create_tenant("acme")
+            for tenant in LANE_TENANTS:
+                _create_tenant(tenant)
             with _process(compiler_cmd, home / "compiler.log"):
                 _wait_http(SERVER_URL, proc=server)  # SPA at the server origin
 
