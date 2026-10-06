@@ -60,8 +60,17 @@ DB_URL = "postgres://cloacina:cloacina@localhost:15432/cloacina"
 TARGET_DIR = str(PROJECT_ROOT / "target")
 
 FIXTURES_DIR = PROJECT_ROOT / "examples" / "fixtures"
-FIXTURES_DIST = FIXTURES_DIR / "dist"
+# Lane-owned archive dir, wiped on each run: the seed harness uploads every
+# `.cloacina` in it, so a shared dir let stale archives from other runs decide
+# what the lane tested. (CLOACINA-T-0939)
+FIXTURES_DIST = FIXTURES_DIR / "dist" / "ui-e2e"
 DEMO_FIXTURES = ["demo-slow-rust", "demo-fail-rust"]
+# Pure-Python packages: no cargo build (the compiler skips them, the server
+# imports them through its embedded cloaca), so a computation graph costs the
+# lane seconds, not a cold CG dylib build. (CLOACINA-T-0939)
+PY_FIXTURES = ["demo-py-graph"]
+# The graph that PY_FIXTURES registers; the lane waits for it before the specs.
+LANE_GRAPH = "demo_py_graph"
 UI_DIR = PROJECT_ROOT / "ui"
 HARNESS_DIR = UI_DIR / "harness"
 SDK_DIR = PROJECT_ROOT / "clients" / "typescript"
@@ -118,7 +127,9 @@ def _build():
 
 def _pack_fixtures(home: Path):
     """Stage (rewrite __WORKSPACE__ → repo) + pack the demo fixtures."""
-    FIXTURES_DIST.mkdir(parents=True, exist_ok=True)
+    if FIXTURES_DIST.exists():
+        shutil.rmtree(FIXTURES_DIST)
+    FIXTURES_DIST.mkdir(parents=True)
     cloacinactl = PROJECT_ROOT / "target" / "debug" / "cloacinactl"
     for fx in DEMO_FIXTURES:
         src = FIXTURES_DIR / fx
@@ -133,6 +144,50 @@ def _pack_fixtures(home: Path):
         print(f"  packing {fx}…")
         _run([str(cloacinactl), "--home", str(home), "package", "pack",
               str(staged), "--out", str(archive)])
+    for fx in PY_FIXTURES:
+        _pack_python(FIXTURES_DIR / fx, FIXTURES_DIST / f"{fx}.cloacina")
+
+
+def _pack_python(src: Path, archive: Path):
+    """Pack a pure-Python package the way docker/pack-demo-fixtures.sh does:
+    a bzip2 tar of `<name>-<version>/` holding package.toml + the module tree."""
+    import re
+    import tarfile
+
+    # [package] name/version are the first two such keys in package.toml; a
+    # regex keeps this free of tomllib (Python 3.11+).
+    toml = (src / "package.toml").read_text()
+    name = re.search(r'^name\s*=\s*"([^"]+)"', toml, re.M).group(1)
+    version = re.search(r'^version\s*=\s*"([^"]+)"', toml, re.M).group(1)
+    prefix = f"{name}-{version}"
+    print(f"  packing {src.name} (python)…")
+
+    def _no_cache(info):
+        return None if "__pycache__" in info.name else info
+
+    with tarfile.open(archive, "w:bz2") as tar:
+        tar.add(src, arcname=prefix, filter=_no_cache)
+
+
+def _wait_graph(name: str, timeout_s: int = 180):
+    """Block until the server reports the graph loaded. The graph specs read
+    /v1/health/graphs once and skip when it is empty, so a slow load would
+    turn them into silent skips. Fail the lane instead."""
+    deadline = time.time() + timeout_s
+    req = urllib.request.Request(
+        f"{SERVER_URL}/v1/health/graphs",
+        headers={"Authorization": f"Bearer {BOOTSTRAP_KEY}"},
+    )
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(req) as resp:
+                items = json.loads(resp.read()).get("items", [])
+            if any(g.get("name") == name for g in items):
+                return
+        except (urllib.error.URLError, ValueError):
+            pass
+        time.sleep(2)
+    raise RuntimeError(f"graph '{name}' did not register within {timeout_s}s")
 
 
 def _build_ui():
@@ -212,6 +267,7 @@ def _run_playwright(
         # The detail route the spec shoots: the seeded lane packs demo-slow-rust
         # (the spec's default is the demo stack's demo-py-workflow).
         env["E2E_VISUAL_WORKFLOW"] = "demo-slow-rust"
+        env["E2E_VISUAL_GRAPH"] = LANE_GRAPH
         cmd = ["npx", "playwright", "test", "visual.spec.ts", "--reporter=list"]
         if update_baselines:
             cmd.append("--update-snapshots")
@@ -334,6 +390,9 @@ def _ui_e2e(smoke: bool, visual: bool = False, update_baselines: bool = False) -
                 # ~40s in-flight window so Playwright reliably opens the slow
                 # run while it's still streaming.
                 _seed(home, summary_file, step_seconds=8)
+                # The harness uploaded the Python graph during the seed; it is
+                # normally loaded by now, so this returns at once.
+                _wait_graph(LANE_GRAPH)
 
                 bad_pkg = home / "bad.cloacina"
                 bad_pkg.write_text("this is not a valid cloacina package")

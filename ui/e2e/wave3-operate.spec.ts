@@ -26,9 +26,9 @@ async function connect(page) {
 test("graphs list, topology, and an accumulator inject round-trip", async ({ page }) => {
   test.setTimeout(300_000);
   // Pick a real graph (with topology if any) from the API. The seeded ui-e2e
-  // lane packs no CG fixture (CLOACI-T-0939), so graphs may legitimately be
-  // absent — skip rather than fail; the demo stack and UAT walks cover the
-  // graph surfaces.
+  // lane packs the Python graph demo_py_graph and waits for it before the
+  // specs run (CLOACINA-T-0939), and the demo stack has its own graphs. Skip
+  // only on a stack that has none.
   const res = await page.request.get(`${SERVER_URL}/v1/health/graphs`, {
     headers: { Authorization: `Bearer ${API_KEY}` },
   });
@@ -37,7 +37,7 @@ test("graphs list, topology, and an accumulator inject round-trip", async ({ pag
     topology?: { nodes: unknown[] } | null;
     accumulators: string[];
   }[];
-  test.skip(items.length === 0, "no CG fixtures in this stack (CLOACI-T-0939)");
+  test.skip(items.length === 0, "no computation graph on this stack");
   const withTopo = items.find((g) => (g.topology?.nodes?.length ?? 0) > 0) ?? items[0];
 
   await connect(page);
@@ -50,8 +50,11 @@ test("graphs list, topology, and an accumulator inject round-trip", async ({ pag
   await expect(page.getByRole("heading", { name: withTopo.name })).toBeVisible();
   await expect(page.getByText("Topology")).toBeVisible();
   if ((withTopo.topology?.nodes?.length ?? 0) > 0) {
-    // The pack's SVG graph rendered.
-    await expect(page.locator("svg").first()).toBeVisible();
+    // The Aurora graph rendered, with its nodes. Not `svg` alone: since the
+    // Aurora 0.4 move the first svg on the page is a nav icon.
+    const dag = page.locator("svg.cl-dag");
+    await expect(dag).toBeVisible();
+    await expect(dag.locator(".cl-dag__item").first()).toBeVisible();
   }
 
   // Inject round-trip (bootstrap key is god → write-gated controls visible).
