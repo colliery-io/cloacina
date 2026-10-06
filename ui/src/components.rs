@@ -178,9 +178,11 @@ pub fn RunWorkflowModal(
     });
 
     view! {
-        // Re-mounted on each open so the title follows the target.
+        // Re-mounted on each open so each input field starts empty (the field
+        // signals are created per mount). The title is a signal and follows
+        // the target on its own (Aurora 0.4.1).
         <Show when=move || open.get()>
-            <Modal open=open title=title() footer=footer.clone() locked=running>
+            <Modal open=open title=Signal::derive(title) footer=footer.clone() locked=running>
                 <div class="app-col app-col--loose">
                     <Show
                         when=move || !params.get().is_empty()

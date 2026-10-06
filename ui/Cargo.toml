@@ -19,7 +19,7 @@ leptos_router = { version = "0.8" }
 
 # Aurora — Colliery's Leptos design system (tokens, primitives, frame, data
 # components, graph; light + dark themes). Lib name is `aurora_leptos`.
-colliery-io-aurora = "0.4.0"
+colliery-io-aurora = "0.4.1"
 
 # The same contract-tested Rust SDK the CLI uses — wasm transport (T-0932).
 cloacina-client = { path = "../crates/cloacina-client" }
