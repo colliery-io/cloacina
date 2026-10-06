@@ -2848,8 +2848,18 @@
               }
             }
           },
+          "400": {
+            "description": "Event does not match the trigger's declared pass-through schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No enabled subscribers for this trigger",
+            "description": "The trigger drives no workflow: no `on = ..` schedule and no subscriber",
             "content": {
               "application/json": {
                 "schema": {
@@ -4888,7 +4898,7 @@
           "fired": {
             "type": "integer",
             "format": "int32",
-            "description": "How many subscribed workflows were fired (the fan-out count).",
+            "description": "How many workflows were fired (the fan-out count): the `on = ..`\nworkflow of the trigger plus its subscribers, each once.",
             "minimum": 0
           },
           "tenant_id": {

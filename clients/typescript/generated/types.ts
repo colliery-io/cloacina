@@ -1430,7 +1430,8 @@ export interface components {
             executions: components["schemas"]["FiredExecution"][];
             /**
              * Format: int32
-             * @description How many subscribed workflows were fired (the fan-out count).
+             * @description How many workflows were fired (the fan-out count): the `on = ..`
+             *     workflow of the trigger plus its subscribers, each once.
              */
             fired: number;
             tenant_id: string;
@@ -4581,7 +4582,16 @@ export interface operations {
                     "application/json": components["schemas"]["FireTriggerResponse"];
                 };
             };
-            /** @description No enabled subscribers for this trigger */
+            /** @description Event does not match the trigger's declared pass-through schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The trigger drives no workflow: no `on = ..` schedule and no subscriber */
             404: {
                 headers: {
                     [name: string]: unknown;

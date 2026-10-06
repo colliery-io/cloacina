@@ -120,7 +120,8 @@ pub struct FireTriggerResponse {
     pub tenant_id: String,
     /// The trigger name fired.
     pub trigger: String,
-    /// How many subscribed workflows were fired (the fan-out count).
+    /// How many workflows were fired (the fan-out count): the `on = ..`
+    /// workflow of the trigger plus its subscribers, each once.
     pub fired: u32,
     /// The started executions: `(workflow_name, execution_id)`.
     pub executions: Vec<FiredExecution>,

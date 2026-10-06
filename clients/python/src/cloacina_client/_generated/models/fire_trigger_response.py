@@ -20,7 +20,8 @@ class FireTriggerResponse:
 
     Attributes:
         executions (list[FiredExecution]): The started executions: `(workflow_name, execution_id)`.
-        fired (int): How many subscribed workflows were fired (the fan-out count).
+        fired (int): How many workflows were fired (the fan-out count): the `on = ..`
+            workflow of the trigger plus its subscribers, each once.
         tenant_id (str):
         trigger (str): The trigger name fired.
     """

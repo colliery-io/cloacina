@@ -1102,9 +1102,10 @@ Get trigger details and recent executions. Matches by trigger name or workflow n
 
 ### POST /v1/tenants/{tenant_id}/triggers/{name}/fire
 
-Manually fire a trigger, **fanning out to every subscribed workflow**
-. One operator action instead of running each workflow by
-hand. An optional `event` is merged into each fired workflow's context
+Manually fire a trigger, **fanning out to every workflow it drives**:
+the workflow its `on = ..` schedule names, plus every workflow that
+subscribes to it with `#[workflow(triggers = [..])]`, each started once.
+One operator action instead of running each workflow by hand. An optional `event` is merged into each fired workflow's context
 (alongside the trigger metadata) and validated against the trigger's
 declared pass-through schema (see `/interface` below). The started
 executions are marked `manual`. `name` resolves by
@@ -1139,21 +1140,16 @@ trigger name or workflow name.
 }
 ```
 
-`fired` is the fan-out count (how many subscribed workflows were
-started); `executions` lists each `(workflow_name, execution_id)`.
+`fired` is the fan-out count (how many workflows were started: the
+`on = ..` workflow and the subscribers); `executions` lists each
+`(workflow_name, execution_id)`.
 
 **Errors:**
 
 | Status | Body | Cause |
 |---|---|---|
-| `404` | `{"error": "<detail>"}` | No enabled subscribers for this trigger. |
-
-{{< hint type=caution title="Subscription-side targets only" >}}
-Manual fire resolves **subscribers** (`#[workflow(triggers = [..])]`); a
-trigger bound to a single workflow via an `on = ..` schedule currently
-returns `404` from `/fire` (known limitation, CLOACI-T-0929). Fire that
-workflow directly via `POST .../workflows/{name}/execute` instead.
-{{< /hint >}}
+| `400` | `{"error": "<detail>"}` | `event` does not match the trigger's declared pass-through schema. |
+| `404` | `{"error": "<detail>"}` | The trigger drives no workflow: it has no `on = ..` schedule and no `#[workflow(triggers = [..])]` subscriber. |
 
 ### GET /v1/tenants/{tenant_id}/triggers/{name}/interface
 
