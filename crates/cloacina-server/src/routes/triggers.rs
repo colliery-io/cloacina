@@ -381,7 +381,8 @@ async fn set_trigger_paused(
     request_body = FireTriggerRequest,
     responses(
         (status = 200, description = "Trigger fired; fan-out result", body = FireTriggerResponse),
-        (status = 404, description = "No enabled subscribers for this trigger", body = cloacina_api_types::ErrorBody),
+        (status = 400, description = "Event does not match the trigger's declared pass-through schema", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "The trigger drives no workflow: no `on = ..` schedule and no subscriber", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
 )]
