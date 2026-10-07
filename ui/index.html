@@ -11,7 +11,7 @@
          src/main.rs keeps it in step with the crate). It sets data-theme
          from localStorage before the first paint, so there is no flash of
          the wrong theme. -->
-    <script>(function(){try{var t=localStorage.getItem("aurora-theme");if(t==="light"||t==="dark"){var d=document.documentElement;d.setAttribute("data-theme",t);d.style.colorScheme=t;}}catch(e){}})();</script>
+    <script>(function(){try{var t=localStorage.getItem("aurora-theme");if(t==="light"||t==="dark"||t==="hyper"){var d=document.documentElement;d.setAttribute("data-theme",t);if(t!=="hyper")d.style.colorScheme=t;}}catch(e){}})();</script>
     <!-- Critical pre-wasm style: the app injects the full Aurora stylesheet
          at mount (<AuroraStyles/>). Until then the blank page uses the system
          canvas colour of the active colour scheme, so it is light in the
