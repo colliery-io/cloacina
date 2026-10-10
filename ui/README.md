@@ -1,64 +1,72 @@
-# @cloacina/ui
+# cloacina-ui
 
-The Cloacina web UI — a tenant-scoped control plane (CLOACI-I-0117). A React + Vite + TypeScript SPA that consumes [`@cloacina/client`](../clients/typescript) as its only data layer.
+The Cloacina web UI: a tenant-scoped control plane (CLOACI-I-0117), written in
+[Leptos](https://leptos.dev) as a client-side app and compiled to wasm with
+[trunk](https://trunkrs.dev) (CLOACI-I-0141).
 
-> **Status:** app skeleton (T-0651). Feature views land in follow-on tasks (T-0652–T-0662).
+There is no separate UI service. `cloacina-server`, built with the
+`embedded-ui` feature, embeds `ui/dist` and serves the UI at the root of its
+own origin, next to the REST API. Paths under `/v1`, `/health`, `/ready`,
+`/metrics` and `/openapi.json` stay API; every other path serves the app.
 
-## Stack
-
-- **React 18 + Vite + TypeScript**
-- **Mantine** (accessible component library)
-- **TanStack Query** over `@cloacina/client`
-- **React Router**
-- Auth: API key + tenant in `sessionStorage`; OIDC "Login with…" is a later task (T-0662, gated on the server auth initiative I-0118)
+This crate is not a member of the root cargo workspace, so wasm dependencies
+never enter the server build.
 
 ## Develop
 
-The UI links the TypeScript SDK locally (`file:../clients/typescript`). **Build the SDK first**, then install the UI:
+Install `trunk` and the wasm target:
 
 ```bash
-# 1. build the SDK (once, or after SDK changes)
-cd ../clients/typescript && npm install && npm run build
-
-# 2. install + run the UI
-cd ../../ui && npm install
-npm run dev          # http://localhost:5173
+cargo install trunk
+rustup target add wasm32-unknown-unknown
 ```
 
-On the connect screen, point it at a running `cloacina-server` (e.g. `http://localhost:8080`) with a tenant API key. The server must have CORS enabled for the UI origin:
+Run the demo stack (server on `http://localhost:8080`), then serve the UI with
+live reload:
 
 ```bash
-cloacina-server … --cors-allowed-origins http://localhost:5173
+docker compose -f docker/docker-compose.demo.yml up --build
+cd ui && trunk serve   # http://localhost:5173
 ```
 
-## Scripts
+A debug build prefills and connects to the demo server
+(`http://localhost:8080`, the demo bootstrap key, tenant `public`); see
+`src/config.rs`. A release build uses its own origin.
 
-| script | what |
-|---|---|
-| `npm run dev` | Vite dev server |
-| `npm run build` | typecheck + production build |
-| `npm run typecheck` | types only |
-| `npm run lint` | ESLint |
-| `npm run test` | Vitest (component/hook tests) |
+## Build
+
+```bash
+trunk build --release                                         # ui/dist
+cargo build -p cloacina-server --features embedded-ui         # runs trunk itself
+```
+
+The `Dockerfile` builds `ui/dist` in a trunk stage and sets
+`CLOACINA_EMBEDDED_UI_SKIP_NPM=1` so the server stage embeds it without
+running trunk again.
+
+## Test
+
+Node is used only for the Playwright tests (`e2e/`) and the seed harness
+(`harness/`).
+
+```bash
+angreal test e2e ui-e2e           # full lane: builds, starts a server, runs Playwright
+angreal test e2e ui-e2e --smoke   # @smoke subset
+```
 
 ## Layout
 
 ```
 src/
-  main.tsx            providers (Mantine, Query, Auth, Router)
-  App.tsx             route map (IA)
-  config.ts           runtime server-URL config (T-0659)
-  auth/AuthContext    connection state, CloacinaClient, sessionStorage, gate
-  api/
-    errors.ts         CloacinaApiError → typed UI kind (REQ-007)
-    queryClient.ts    TanStack Query client + retry policy
-    hooks.ts          query-key factory + hook convention the feature tasks follow
-  components/
-    Shell             authenticated shell (nav + connection + disconnect)
-    RequireAuth       route guard
-    states/States     Loading / Empty / ErrorState primitives (NFR-001)
-  routes/
-    Connect           manual API-key gate
-    Overview          landing (real rollup in T-0655)
-    Placeholder       stubs for not-yet-built views
+  main.rs, app.rs   entry point and route map
+  config.rs         runtime config (server URL, demo prefill)
+  auth.rs           connection state, API key and tenant
+  shell.rs          authenticated shell (nav, connection)
+  components.rs     shared components
+  data.rs, ops.rs   API calls through cloacina-client
+  routes/           one module per view
+style/              app.css
+design/             Aurora design reference
+e2e/                Playwright specs
+harness/            seed / demo workload driver
 ```

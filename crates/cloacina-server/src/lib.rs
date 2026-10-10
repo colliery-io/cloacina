@@ -1663,7 +1663,7 @@ async fn request_id_middleware(
     response
 }
 
-/// CLOACI-I-0130 (T-0847): the embedded @cloacina/ui SPA, served from this
+/// CLOACI-I-0130 (T-0847): the embedded Leptos UI, served from this
 /// binary under the `embedded-ui` feature. One origin — engine, REST API,
 /// and control plane — no Nginx container, no CORS for the bundled UI.
 #[cfg(feature = "embedded-ui")]
