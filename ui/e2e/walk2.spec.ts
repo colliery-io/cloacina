@@ -22,7 +22,7 @@ async function clickFirstRow(page) {
 }
 
 async function tryNodeClick(page, name: string) {
-  for (const sel of [".react-flow__node", "svg g.node", "[data-id]", "svg rect", "svg circle"]) {
+  for (const sel of ["svg g.node", "[data-id]", "svg rect", "svg circle"]) {
     const n = page.locator(sel).first();
     try { if (await n.count()) { await n.click({ timeout: 2500 }); await shot(page, name); return; } } catch {}
   }

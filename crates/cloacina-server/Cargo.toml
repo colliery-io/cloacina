@@ -24,9 +24,10 @@ postgres = ["cloacina/postgres", "diesel/postgres"]
 sqlite = ["cloacina/sqlite"]
 
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
-# CLOACI-I-0130: serve the @cloacina/ui SPA from this binary (single-origin,
-# no Nginx/CORS). Feature-on builds REQUIRE a Node toolchain (build.rs runs
-# `npm --prefix ui run build`); the default build stays Node-free.
+# CLOACI-I-0130: serve the Leptos UI from this binary at the root (single
+# origin, no CORS). Feature-on builds need `trunk` and the
+# wasm32-unknown-unknown target (build.rs runs `trunk build --release` in ui/,
+# unless CLOACINA_EMBEDDED_UI_SKIP_NPM points it at a prebuilt ui/dist).
 embedded-ui = ["dep:rust-embed"]
 
 [dependencies]
