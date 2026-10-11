@@ -43,7 +43,7 @@ cloacina/
     typescript/                    # TypeScript client SDK (@cloacina/client)
 
   ui/                              # Leptos/WASM SPA (embedded in the server behind `embedded-ui`)
-  charts/                          # Helm charts: cloacina-server (local Postgres subchart), cloacina-agent, cloacina-ui
+  charts/                          # Helm charts: cloacina-server (local Postgres subchart), cloacina-agent
   deploy/                          # Deploy templates (docker-compose, k8s)
   docker/                          # Dockerfiles + demo compose stack
   docs/                            # Hugo documentation site

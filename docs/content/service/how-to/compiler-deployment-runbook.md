@@ -89,12 +89,14 @@ Images are published to `ghcr.io/colliery-io/cloacina-server` and
 I-0111). Pin to a concrete tag in real deployments — `:latest` is
 a maintenance hazard, not a contract.
 
-Dockerfiles used by those images live in `deploy/docker/`:
+Dockerfiles used by those images:
 
-- `server.Dockerfile` — debian-slim runtime, no Rust toolchain.
-  Includes the `rdkafka` build deps (T-0609) so Kafka stream
-  accumulators work in containerized server deployments.
-- `compiler.Dockerfile` — `rust:1.85-bookworm` (toolchain included).
+- `Dockerfile` (repository root) — the server: debian-slim runtime, no
+  Rust toolchain, the web UI embedded. Includes the `rdkafka` build deps
+  (T-0609) so Kafka stream accumulators work in containerized server
+  deployments.
+- `deploy/docker/compiler.Dockerfile` — `rust:1.85-bookworm` (toolchain
+  included).
 
 ## Kubernetes
 
