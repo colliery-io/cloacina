@@ -59,7 +59,7 @@ The server must opt in to CORS (`--cors-allowed-origins` / `CLOACINA_CORS_ALLOWE
 `generated/types.ts` is produced by `openapi-typescript` (pinned in `devDependencies`) from the committed server contract:
 
 ```bash
-npm run generate    # regenerate from docs/static/openapi.json
+npm run generate    # regenerate from docs/public/openapi.json
 npm run check:generated  # CI drift gate
 ```
 

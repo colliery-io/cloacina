@@ -355,7 +355,7 @@ fn load_native_member<C: Serialize>(
 
 /// A loaded, configured WASM task constructor wrapped as a cloacina [`Task`].
 ///
-/// Holds the configured fidius [`PluginHandle`](fidius_host::PluginHandle) (the
+/// Holds the configured fidius [`fidius_host::PluginHandle`] (the
 /// `configure` hook bound the constructor's config once at load, so per-call
 /// `execute` dispatches on the already-configured persistent store). The handle
 /// is held behind an [`Arc`] so the async bridge can hand a `'static + Send`
@@ -1183,11 +1183,11 @@ pub fn load_accumulator_constructor<C: Serialize>(
 // (which now also enables `fidius-host/streaming`).
 
 /// An [`EventSource`] that drains a native provider's server-streaming `source`
-/// (a [`ChunkStream`](fidius_host::ChunkStream) from
-/// [`PluginHandle::call_streaming`](fidius_host::PluginHandle::call_streaming)) and
+/// (a [`fidius_host::ChunkStream`] from
+/// [`fidius_host::PluginHandle::call_streaming`]) and
 /// pushes each boundary-JSON item onto the accumulator merge channel.
 ///
-/// The held [`Arc<PluginHandle>`](fidius_host::PluginHandle) keeps the dlopen'd
+/// The held `Arc` of [`fidius_host::PluginHandle`] keeps the dlopen'd
 /// provider (and thus its stream producer) alive for the stream's lifetime.
 /// Dropping this source drops the `ChunkStream`, which tears the producer down —
 /// the fidius host-pull backpressure/teardown contract (REQ-003), matching how an

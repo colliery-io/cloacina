@@ -1,5 +1,0 @@
----
-title: "trigger"
----
-
-{{< toc-tree >}}

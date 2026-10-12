@@ -1,0 +1,49 @@
+---
+title: "Python Runtime Architecture"
+description: "How the Python surface relates to the underlying Rust runtime — PyO3 boundary, the `cloacina-python` crate split, GIL trade-offs, and the FFI it sits on."
+sidebar:
+  order: 10
+---
+
+This page explains how the Python `cloaca` module fits onto the underlying Rust runtime. Three points worth knowing:
+
+## The `cloacina-python` crate split (CLOACI-T-0529 / CLOACI-T-0532)
+
+The Python bindings live in a dedicated `cloacina-python` crate, distinct from the core `cloacina` crate. This split lets `cloacina` ship without PyO3 / maturin in its dependency closure — Python support is a build-time opt-in (`pip install cloaca`) rather than a feature flag on the base library.
+
+The wheel (`cloaca`) wraps `cloacina-python`, which depends on `cloacina` at the Rust source level. The Python surface you call (`cloaca.DefaultRunner`, `@cloaca.task`, `cloaca.WorkflowBuilder`, etc.) is a PyO3 layer over the same Rust types the Rust crate exposes.
+
+## The PyO3 boundary
+
+Every Python call crosses into Rust. Some implications:
+
+- **Task scheduling lives in the Rust async executor**, not a Python event loop. A Python task body is a synchronous callable; the runtime executes it on tokio's blocking-thread pool (`spawn_blocking`), acquiring the GIL only for the duration of the Python call. There is no asyncio integration — task bodies are plain `def` functions.
+- **Type marshalling is explicit.** Context values cross the boundary as JSON (or `serde_json::Value` equivalents in PyO3). Because that marshalling happens at every task boundary, large or binary state is expensive to round-trip through context repeatedly.
+- **The GIL is held while Python code runs.** Cloacina releases the GIL before blocking on Rust futures (`Python::allow_threads` inside the bindings' single async→sync bridge), but a Python task body holds the GIL for its duration. Pure-CPU Python tasks will not parallelize across threads in the same way Rust tasks do.
+
+## One authoring surface, two entry points
+
+The `cloaca` module is materialized in two ways: the pip wheel (a maturin-built PyO3 module) and a synthetic module the server injects into its embedded interpreter when it loads a Python package. Both call the same registration function (`register_authoring` in `crates/cloacina-python/src/lib.rs`), so the authoring surface — `@cloaca.task`, `@cloaca.trigger`, `WorkflowBuilder`, and friends — is identical by construction. The wheel additionally exposes host-side symbols the server has no use for (`DefaultRunner`, `DefaultRunnerConfig`, `WorkflowResult`, and the postgres-only admin classes): inside the server, the server itself *is* the runner.
+
+## What "feature parity" means
+
+Python is a first-class surface of Cloacina, not an add-on. The Rust and Python surfaces aim to track each other 1:1 on every macro / decorator / runtime API:
+
+| Rust | Python equivalent |
+|---|---|
+| `#[task(...)]` | `@cloaca.task(...)` |
+| `#[workflow(...)]` | `cloaca.WorkflowBuilder` context manager (groups `@cloaca.task` definitions; in a packaged workflow, `workflow_name` in `package.toml` names it) |
+| `#[trigger(...)]` | `@cloaca.trigger(...)` |
+| `#[reactor(...)]` | `@cloaca.reactor(...)` |
+| `#[computation_graph(...)]` | `ComputationGraphBuilder` context manager |
+| `DefaultRunner` | `cloaca.DefaultRunner` |
+
+Drift between the two surfaces is treated as a bug — a Rust capability missing in Python is a parity gap, not an intended limitation.
+
+## See also
+
+- [Rust · Workflow Architecture Overview](../../engine/architecture-overview/).
+- [Rust · Macro System](../../engine/macro-system/).
+- [Python · API Reference](../../../reference/python-api/).
+- **CLOACI-T-0529** — Python crate split (carve PyO3 leakage out of `cloacina`).
+- **CLOACI-T-0532** — Python wheel / packaging cleanup.

@@ -12,9 +12,9 @@ target/
 .git/
 .gitignore
 
-# Documentation site (pre-built)
-docs/public/
-docs/themes/
+# Documentation site (built)
+docs/dist/
+docs/.astro/
 
 # Build outputs — the Dockerfile builds ui/dist itself; never ship host
 # node_modules or a stale dist into the build context.

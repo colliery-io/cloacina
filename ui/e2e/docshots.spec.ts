@@ -1,6 +1,6 @@
 /*
  *  Doc-site screenshot generator (not a CI test): recaptures the nine
- *  docs/static/images/web-ui/*.png images from the live Leptos UI on the
+ *  docs/public/images/web-ui/*.png images from the live Leptos UI on the
  *  demo stack (CLOACI-T-0940 — the committed images were React-era). Run:
  *    E2E_BASE_URL=http://localhost:8080 E2E_SERVER_URL=http://localhost:8080 \
  *    E2E_API_KEY=clk_demo_bootstrap_key_0001 E2E_TENANT=public \

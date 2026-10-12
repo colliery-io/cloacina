@@ -1,5 +1,0 @@
----
-title: "database"
----
-
-{{< toc-tree >}}

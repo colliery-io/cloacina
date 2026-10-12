@@ -34,10 +34,7 @@ examples/**/Cargo.lock
 # Exclude working-docs directory
 /working-docs/
 
-# Hugo documentation
-/docs/public/
-/docs/.hugo_build.lock
-/docs/static/api/
+# Documentation site: docs/.gitignore ignores node_modules/, dist/ and .astro/
 
 # Python files
 *.pyc
@@ -63,7 +60,6 @@ test-quick/
 .claude_handovers/
 diataxis/
 run_demos.sh
-docs/content/api-reference/_nav.yml
 
 # Transient test output (don't commit)
 integration-test.log
