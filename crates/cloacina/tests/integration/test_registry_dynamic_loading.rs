@@ -21,13 +21,13 @@ use tempfile::TempDir;
 use tokio::sync::watch;
 use uuid::Uuid;
 
+use cloacina::Database;
 use cloacina::registry::loader::{PackageLoader, TaskRegistrar};
 use cloacina::registry::reconciler::{ReconcilerConfig, RegistryReconciler};
 use cloacina::registry::storage::FilesystemRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::types::WorkflowMetadata;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
-use cloacina::Database;
 
 /// Test that the reconciler can be created with dynamic loading components
 /// This test uses SQLite in-memory database
