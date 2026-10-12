@@ -315,7 +315,7 @@ The connection stays open after the execution completes; close it client-side wh
 
 ## Message Schemas
 
-JSON Schema (draft 2020-12) for every message variant, served by this documentation site and checked into the repository under `docs/static/schemas/ws/`:
+JSON Schema (draft 2020-12) for every message variant, served by this documentation site and checked into the repository under `docs/public/schemas/ws/`:
 
 | Schema | Covers |
 |---|---|

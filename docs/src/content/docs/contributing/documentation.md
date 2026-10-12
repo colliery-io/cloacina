@@ -11,17 +11,17 @@ This guide provides practical information about writing and maintaining document
 
 ## Documentation Structure
 
-The docs are a [Hugo](https://gohugo.io/) site (`docs/`, theme `hugo-geekdoc`) organized around the [Diátaxis Framework](https://diataxis.fr/), but the top level is **reader-path first, then quadrant** — not the canonical "tutorials / how-to / reference / explanation at the top level". The top-level sections under `docs/content/` are:
+The docs are an [Astro Starlight](https://starlight.astro.build/) site (`docs/`, theme [starlight-aurora](https://github.com/colliery-io/starlight-aurora)) organized by the [Diátaxis Framework](https://diataxis.fr/). The pages are in `docs/src/content/docs/`:
 
-- `start/` — Orientation: what Cloacina is, whether it fits your problem, core concepts, features, and installation. Read-first pages, no deep quadrant split.
-- `embed/` — The **embedded-library path** (Rust or Python application embedding the engine). Contains `quick-start.md` plus its own `tutorials/`, `how-to/`, and `explanation/` trees.
-- `service/` — The **service path** (running `cloacina-server` as a multi-tenant control plane with HTTP/WebSocket API and web UI). Same shape: `quick-start.md`, `tutorials/`, `how-to/`, `explanation/`.
-- `engine/` — The shared **engine primitives**, described once and referenced from both paths: `workflows/`, `computation-graphs/`, `constructors/`, `packaging/`, `scheduling/`, and `explanation/`.
+- `tutorials/`, `how-to/`, `explanation/` — one folder for each reader path inside each: `embed/` (the **embedded library**) and `service/` (**`cloacina-server`**). How-to guides for the engine primitives are in `how-to/workflows/`, `how-to/computation-graphs/` and `how-to/constructors/`; the primitives themselves are described in `explanation/primitives/`, and the engine internals in `explanation/engine/`.
+- `start/`, `embed/`, `service/`, `engine/` — the orientation pages of each path ("Start Here" in the sidebar).
 - `reference/` — Hand-written **lookup reference**: CLI, HTTP API, WebSocket protocol, configuration, environment variables, macros, errors, metrics catalog, glossary, troubleshooting, plus `python-api/` and `sdks/` subtrees.
-- `api-reference/` — **Generated** API reference (Rust crates + the `cloaca` Python module). Never hand-edit these pages; see [Generated documentation pipelines](#generated-documentation-pipelines) below.
+- `reference/api/` — **Generated** API reference (Rust crates + the `cloaca` Python bindings). Never hand-edit these pages; see [Generated documentation pipelines](#generated-documentation-pipelines) below.
 - `contributing/` — This section.
 
-When adding a new doc, decide first which section it belongs to (which reader path, or the shared engine/reference material), then which quadrant within that section. Tutorials teach one path, how-tos solve one task, reference looks things up, explanation explains. If a doc spans sections, it lives in the most relevant one and the others cross-link to it.
+When adding a new doc, decide first which quadrant it belongs to, then which reader path. Tutorials teach one path, how-tos solve one task, reference looks things up, explanation explains. If a doc spans paths, it lives in the most relevant one and the others cross-link to it.
+
+The sidebar (`docs/src/sidebar.mjs`) lists each folder as a group, labelled with the title of its `index.md`, in the order of `sidebar.order`. Link between pages with relative links to the route (`../workflows/task/`), so that the links work under the base path of the published site. The old Hugo addresses redirect to the new pages (`docs/src/redirects.json`).
 
 ### Nomenclature compliance
 
@@ -29,29 +29,26 @@ All docs must comply with [`CLOACI-S-0011`](https://github.com/colliery-io/cloac
 
 ## Generated documentation pipelines
 
-Three documentation surfaces are generated from source rather than hand-written. Know which one you are touching before you edit anything.
+Two documentation surfaces are generated from source rather than hand-written. Know which one you are touching before you edit anything.
 
-### 1. plissken → `docs/content/api-reference/`
+### 1. plissken → `docs/src/content/docs/reference/api/`
 
-The [plissken](https://github.com/colliery-io/plissken) tool generates the entire `api-reference/` section (except `_index.md`) from source:
+The [plissken](https://github.com/colliery-io/plissken) tool generates the entire `reference/api/` folder from source (the overview page is `reference/api.md`):
 
-- **Config**: `plissken.toml` at the repository root. It lists the Rust crates to document (`crates/cloacina`, `crates/cloacina-computation-graph`, `crates/cloacina-workflow`) and the Python package (`cloaca`, generated from the PyO3 binding source in `crates/cloacina-python/src`).
-- **Command**: `plissken render` from the project root. Output lands in `docs/content/api-reference/` and is committed like any other content.
+- **Config**: `plissken.toml` at the repository root, with `template = "starlight"`. It lists the Rust crates to document (`crates/cloacina`, `crates/cloacina-computation-graph`, `crates/cloacina-workflow`, `crates/cloacina-python`) and the Python package (`cloaca`, generated from the PyO3 binding source in `crates/cloacina-python/src`).
+- **Command**: `plissken render` from the project root. Output lands in `docs/src/content/docs/reference/api/` (one page for each module, and `_sidebar.mjs`, the sidebar group) and is committed like any other content. plissken does not delete pages: remove the folder before you render.
 - **Wiring**: this pipeline is **not** run by any angreal task or CI workflow — regeneration is a manual step. If you add, move, or remove public modules in the covered crates, rerun `plissken render` and commit the result; otherwise the generated tree drifts (orphaned pages for removed modules, missing pages for new ones).
+- **Doc links**: write rustdoc links to other crates in the intra-doc form, `` [`cloacina_workflow::Context::secret`] ``. plissken copies a link written as `[text](cloacina_workflow::Context::secret)` into the page as is, and it is a broken link there.
 
-### 2. rustdoc → `docs/static/api/` (the `api-link` shortcode target)
-
-`angreal docs serve` and `angreal docs build` (defined in `.angreal/task_docs.py`) first run `cargo doc --no-deps` and copy `target/doc` into `docs/static/api/` before invoking Hugo. This rustdoc tree is what the `api-link` shortcode links into (URLs under `/api/...`). It is rebuilt on every docs build and is never committed.
-
-### 3. utoipa → `docs/static/openapi.json` (CI drift-gated)
+### 2. utoipa → `docs/public/openapi.json` (CI drift-gated)
 
 The REST API spec is emitted from the server's utoipa annotations:
 
 ```bash
-cargo run -p cloacina-server --bin cloacina-server -- emit-openapi > docs/static/openapi.json
+cargo run -p cloacina-server --bin cloacina-server -- emit-openapi > docs/public/openapi.json
 ```
 
-The committed spec is the public API contract. CI runs `angreal docs spec-check`, which re-emits the spec and diffs it against the committed `docs/static/openapi.json`; any change to server routes or `cloacina-api-types` DTOs must ship with a regenerated spec or the check fails. Note the gate only covers what is utoipa-annotated — annotate new routes so they appear in the spec.
+The committed spec is the public API contract. CI runs `angreal docs spec-check`, which re-emits the spec and diffs it against the committed `docs/public/openapi.json`; any change to server routes or `cloacina-api-types` DTOs must ship with a regenerated spec or the check fails. Note the gate only covers what is utoipa-annotated — annotate new routes so they appear in the spec.
 
 ## Writing Guidelines
 
@@ -64,37 +61,26 @@ The committed spec is the public API contract. CI runs `angreal docs spec-check`
 
 ### API Documentation and Cross-Linking
 
-When documenting API features or referring to API components in the documentation, use the `api-link` shortcode. It uses Rust's namespace syntax to create links into the rustdoc tree (pipeline 2 above):
+When documenting API features or referring to API components in the documentation, link to the page of the module in `reference/api/`, with a relative link. Each item has a fixed anchor:
 
-`{{< api-link path="path::to::component" >}}`
-Renders as: [`cloacina::models`](../../reference/api/rust/cloacina/models/)
+| Item | Anchor |
+|------|--------|
+| Rust struct | `#struct.Name` |
+| Rust enum | `#enum.Name` |
+| Function | `#fn.name` |
+| Method | `#Type.method` |
+| Python class | `#class.Name` |
 
-You can also customize the display text:
-`{{< api-link path="path::to::component" display="Custom Text" >}}`
-Example: [`Data Models`](../../reference/api/rust/cloacina/models/)
-
-#### Item Types
-
-The shortcode supports different Rust item types through the optional `type` parameter:
+For example, from a page in `explanation/engine/`:
 
 ```markdown
-{{< api-link path="cloacina::context::Context" type="struct" >}}    <!-- For structs -->
-{{< api-link path="cloacina::task::Task" type="trait" >}}           <!-- For traits -->
-{{< api-link path="cloacina::models" type="module" >}}              <!-- For modules -->
-{{< api-link path="cloacina::error::Error" type="enum" >}}          <!-- For enums -->
-{{< api-link path="cloacina::types::Result" type="type" >}}         <!-- For type aliases -->
-{{< api-link path="cloacina::utils::format_error" type="fn" >}}     <!-- For functions -->
+[`cloacina::models`](../../../reference/api/rust/cloacina/models/)
+[`Context`](../../../reference/api/rust/cloacina-workflow/context/#struct.Context)
 ```
 
-Available types:
-- `struct` - For structs (default if not specified)
-- `enum` - For enums
-- `trait` - For traits
-- `type` - For type aliases
-- `fn` - For functions
-- `module` - For modules (uses index.html)
+### Pages: Markdown and MDX
 
-These links will automatically stay up-to-date with the API documentation.
+A page is Markdown (`.md`). A page that uses a Starlight component, such as `<Tabs>`, is MDX (`.mdx`): in MDX, write `{`, `}` and `<` in text as `\{`, `\}` and `&lt;`. Use Starlight's asides (`:::note`, `:::tip`, `:::caution`, `:::danger`) for hints, and a `mermaid` code block for a diagram.
 
 ## Documentation Review Process
 
@@ -115,10 +101,10 @@ These links will automatically stay up-to-date with the API documentation.
   ```bash
   angreal docs serve
   ```
-  (which integrates rustdoc into `docs/static/api` and wraps `hugo server -D` with the project's configured theme and shortcodes — prefer this over raw `hugo` so theme + shortcode resolution match CI).
-- Use `angreal docs build` to validate the site builds without broken cross-links before opening a PR.
+  (which runs the Starlight dev server at http://localhost:4321, with live reload; it installs the npm packages of `docs/` on the first run).
+- Use `angreal docs build` to validate the site builds before opening a PR. The site is in `docs/dist`.
 - Use `angreal docs spec-check` before opening a PR that touches server routes or API DTOs — CI runs the same gate.
-- Check the [Hugo documentation](https://gohugo.io/documentation/) for markdown syntax and shortcodes
+- Check the [Starlight documentation](https://starlight.astro.build/) for Markdown, MDX and components
 - Review existing documentation for style and format consistency
 
 ## Need Help?

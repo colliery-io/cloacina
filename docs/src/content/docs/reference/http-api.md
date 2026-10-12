@@ -152,7 +152,7 @@ Machine-readable OpenAPI contract for the server, generated from the
 handlers' utoipa annotations. This is the same document the
 `cloacina-server emit-openapi` subcommand (on the **server binary**,
 not cloacinactl; needs no database) prints to stdout; a committed copy
-lives at `docs/static/openapi.json` and `angreal docs spec-check` gates
+lives at `docs/public/openapi.json` and `angreal docs spec-check` gates
 drift between them.
 
 **Response:** `200 OK` with `Content-Type: application/json` — the OpenAPI spec.

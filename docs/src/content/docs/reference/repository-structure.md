@@ -42,7 +42,7 @@ cloacina/
   charts/                          # Helm charts: cloacina-server (local Postgres subchart), cloacina-agent, cloacina-ui
   deploy/                          # Deploy templates (docker-compose, k8s)
   docker/                          # Dockerfiles + demo compose stack
-  docs/                            # Hugo documentation site
+  docs/                            # Starlight documentation site
   examples/                        # Runnable examples (see below)
   scripts/                         # Maintenance scripts (provider_wave.py, SDK checks, install.sh — served at get.cloacina.dev)
   tests/                           # Integration tests
@@ -165,7 +165,7 @@ Test fixtures: `TestRunner` for no-DB workflow testing, `BoundaryEmitter` for co
 
 ### `examples/tutorials/`
 
-Progressive learning path. Each track mirrors a documented tutorial under `docs/content/`.
+Progressive learning path. Each track mirrors a documented tutorial under `docs/src/content/docs/tutorials/`.
 
 - **`workflows/library/`** — Rust embedded-mode tutorials (numbered 01-06 against the canonical docs).
 - **`computation-graphs/library/`** — Rust CG tutorials (07-10).
@@ -265,7 +265,7 @@ angreal test all                   # Unit + macros + integration
 angreal test coverage              # Merged llvm-cov across the workspace
 angreal lint all                   # fmt + clippy + credential-logging guard
 angreal services up                # Bring up local Postgres (host port 15432) + Kafka + dex (Docker)
-angreal docs build                 # Build the Hugo docs site
+angreal docs build                 # Build the Starlight docs site
 angreal demos features <name>      # Run a feature example
 angreal demos tutorials rust NN    # Run Rust tutorial NN
 angreal demos tutorials python NN  # Run Python tutorial NN
