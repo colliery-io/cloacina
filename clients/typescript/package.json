@@ -27,8 +27,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "generate": "openapi-typescript ../../docs/static/openapi.json -o generated/types.ts",
-    "check:generated": "openapi-typescript ../../docs/static/openapi.json -o /tmp/cloacina-ts-types-fresh.ts && diff generated/types.ts /tmp/cloacina-ts-types-fresh.ts",
+    "generate": "openapi-typescript ../../docs/public/openapi.json -o generated/types.ts",
+    "check:generated": "openapi-typescript ../../docs/public/openapi.json -o /tmp/cloacina-ts-types-fresh.ts && diff generated/types.ts /tmp/cloacina-ts-types-fresh.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

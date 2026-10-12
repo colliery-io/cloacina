@@ -157,7 +157,7 @@ struct Cli {
 enum Command {
     /// Print the OpenAPI 3.1 document for the REST API to stdout and exit.
     /// No database or network access. The committed copy lives at
-    /// `docs/static/openapi.json`; `angreal docs spec-check` diffs the two.
+    /// `docs/public/openapi.json`; `angreal docs spec-check` diffs the two.
     EmitOpenapi,
 }
 

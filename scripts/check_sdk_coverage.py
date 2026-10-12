@@ -75,7 +75,7 @@ def rust_skeletons(source: str) -> set[str]:
 
 
 def main() -> int:
-    spec = json.loads((ROOT / "docs/static/openapi.json").read_text())
+    spec = json.loads((ROOT / "docs/public/openapi.json").read_text())
     ts_src = (ROOT / "clients/typescript/src/client.ts").read_text()
     rust_src = (ROOT / "crates/cloacina-client/src/lib.rs").read_text()
     py_src = (ROOT / "clients/python/src/cloacina_client/_client.py").read_text()

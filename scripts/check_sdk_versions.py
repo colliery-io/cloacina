@@ -74,9 +74,9 @@ def main() -> int:
             f"cloacina_client.__version__: {m.group(1) if m else 'missing'}"
         )
 
-    spec = json.loads((ROOT / "docs/static/openapi.json").read_text())
+    spec = json.loads((ROOT / "docs/public/openapi.json").read_text())
     if spec["info"]["version"] != expected:
-        failures.append(f"docs/static/openapi.json info.version: {spec['info']['version']}")
+        failures.append(f"docs/public/openapi.json info.version: {spec['info']['version']}")
 
     if failures:
         print(f"SDK VERSION DRIFT — workspace is {expected}, but:")

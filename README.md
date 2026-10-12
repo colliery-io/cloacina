@@ -5,7 +5,7 @@
 
 
 <div align="center">
-  <img src="https://github.com/colliery-io/cloacina/raw/main/docs/static/images/image.png" alt="Cloacina Logo" width="400">
+  <img src="https://github.com/colliery-io/cloacina/raw/main/docs/public/images/image.png" alt="Cloacina Logo" width="400">
 </div>
 
 Cloacina is a **workflow orchestration engine for Rust and Python**, built by [Colliery Software](https://colliery.io). Its only hard dependency is a database — PostgreSQL or SQLite. No broker, no queue, no coordinator.
