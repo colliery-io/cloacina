@@ -50,8 +50,8 @@ Node is used only for the Playwright tests (`e2e/`) and the seed harness
 (`harness/`).
 
 ```bash
-angreal test e2e ui-e2e           # full lane: builds, starts a server, runs Playwright
-angreal test e2e ui-e2e --smoke   # @smoke subset
+angreal test ui-e2e               # full lane: builds, starts a server, runs Playwright
+angreal test ui-e2e --smoke       # @smoke subset
 ```
 
 ## Layout
