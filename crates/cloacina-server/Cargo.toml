@@ -53,7 +53,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 axum = { version = "0.8", features = ["multipart", "ws"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "limit"] }
 lru = "0.18"
 uuid = { version = "1.0", features = ["v4"] }
 tokio = { version = "1.0", features = ["full"] }
@@ -88,7 +88,7 @@ opentelemetry-otlp = { version = "0.33", optional = true, features = ["grpc-toni
 opentelemetry_sdk = { version = "0.33", optional = true, features = ["rt-tokio"] }
 
 [dev-dependencies]
-serial_test = "3"
+serial_test = "4"
 # T-0570 contract test signs a temp-file payload before driving the upload
 # handler. Used in tests only.
 tempfile = "3"
