@@ -515,7 +515,7 @@ fn build_native_cdylib(crate_dir: &Path, release: bool) -> Result<PathBuf, Provi
 /// Best-effort crate name (`[package].name`, `-`→`_`) for artifact matching.
 fn crate_name(crate_dir: &Path) -> Option<String> {
     let toml = std::fs::read_to_string(crate_dir.join("Cargo.toml")).ok()?;
-    let value: toml::Value = toml.parse().ok()?;
+    let value = toml::Value::Table(toml.parse::<toml::Table>().ok()?);
     let name = value.get("package")?.get("name")?.as_str()?;
     Some(name.replace('-', "_"))
 }
@@ -624,7 +624,7 @@ mod tests {
         assert!(toml.contains("name = \"cloacina-provider-fs\""));
         assert!(toml.contains("extension = \"cloacina\""));
         // Parses as valid TOML.
-        let _: toml::Value = toml.parse().expect("rendered package.toml is valid TOML");
+        let _: toml::Table = toml.parse().expect("rendered package.toml is valid TOML");
     }
 
     #[test]
@@ -653,7 +653,7 @@ mod tests {
         );
         assert!(toml.contains("primitive_kind = \"task\""));
         // Parses as valid TOML.
-        let _: toml::Value = toml
+        let _: toml::Table = toml
             .parse()
             .expect("rendered native package.toml is valid TOML");
     }

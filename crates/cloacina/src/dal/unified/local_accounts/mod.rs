@@ -27,7 +27,7 @@
 use crate::dal::unified::DAL;
 use crate::error::ValidationError;
 
-use argon2::password_hash::{rand_core::OsRng, PasswordHash, SaltString};
+use argon2::password_hash::phc::PasswordHash;
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 
 #[cfg(feature = "postgres")]
@@ -37,9 +37,9 @@ use uuid::Uuid;
 
 /// Hash a password with argon2id (random salt; returns a PHC string).
 pub fn hash_password(plaintext: &str) -> Result<String, ValidationError> {
-    let salt = SaltString::generate(&mut OsRng);
+    // argon2 0.6 draws the random salt itself.
     Argon2::default()
-        .hash_password(plaintext.as_bytes(), &salt)
+        .hash_password(plaintext.as_bytes())
         .map(|h| h.to_string())
         .map_err(|e| ValidationError::ConnectionPool(format!("password hash: {e}")))
 }

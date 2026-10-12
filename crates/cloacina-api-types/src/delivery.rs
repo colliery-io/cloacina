@@ -44,8 +44,8 @@
 //! after `welcome`. The `Hello.since_id` field is advisory (an optimization
 //! hint for future cursor-based catch-up; v1 ignores it).
 
-use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::{Deserialize, Serialize};
 
 /// Wire-protocol version for the substrate envelope. Bumped on

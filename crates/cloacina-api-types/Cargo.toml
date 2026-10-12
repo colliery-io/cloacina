@@ -1,7 +1,8 @@
 [package]
 name = "cloacina-api-types"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -18,6 +19,6 @@ openapi = ["dep:utoipa"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json.workspace = true
-base64 = { version = "0.22" }
-thiserror = { version = "1.0" }
-utoipa = { version = "5", optional = true }
+base64 = { version = "0.23" }
+thiserror = { version = "2" }
+utoipa = { version = "6", optional = true }

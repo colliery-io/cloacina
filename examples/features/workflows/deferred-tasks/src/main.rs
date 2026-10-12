@@ -40,10 +40,10 @@
 
 use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError, TaskHandle};
+use cloacina::{Context, TaskError, TaskHandle, task, workflow};
 use serde_json::json;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tracing::info;
 

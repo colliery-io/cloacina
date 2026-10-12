@@ -120,8 +120,8 @@ impl<'a> TaskExecutionDAL<'a> {
 #[cfg(test)]
 mod tests {
     use crate::dal::DAL;
-    use crate::database::universal_types::UniversalUuid;
     use crate::database::Database;
+    use crate::database::universal_types::UniversalUuid;
     use crate::models::task_execution::NewTaskExecution;
     use crate::models::workflow_execution::NewWorkflowExecution;
 

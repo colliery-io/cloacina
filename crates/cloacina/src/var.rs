@@ -161,25 +161,30 @@ mod tests {
 
     #[test]
     fn test_var_found() {
-        std::env::set_var("CLOACINA_VAR_TEST_VAR_1", "hello");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACINA_VAR_TEST_VAR_1", "hello") };
         assert_eq!(var("TEST_VAR_1").unwrap(), "hello");
-        std::env::remove_var("CLOACINA_VAR_TEST_VAR_1");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_VAR_TEST_VAR_1") };
     }
 
     #[test]
     fn test_var_not_found() {
         let err = var("NONEXISTENT_VAR_12345").unwrap_err();
         assert_eq!(err.name, "NONEXISTENT_VAR_12345");
-        assert!(err
-            .to_string()
-            .contains("CLOACINA_VAR_NONEXISTENT_VAR_12345"));
+        assert!(
+            err.to_string()
+                .contains("CLOACINA_VAR_NONEXISTENT_VAR_12345")
+        );
     }
 
     #[test]
     fn test_var_or_found() {
-        std::env::set_var("CLOACINA_VAR_TEST_VAR_2", "value");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACINA_VAR_TEST_VAR_2", "value") };
         assert_eq!(var_or("TEST_VAR_2", "default"), "value");
-        std::env::remove_var("CLOACINA_VAR_TEST_VAR_2");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_VAR_TEST_VAR_2") };
     }
 
     #[test]
@@ -189,14 +194,18 @@ mod tests {
 
     #[test]
     fn test_resolve_template_simple() {
-        std::env::set_var("CLOACINA_VAR_TMPL_HOST", "localhost");
-        std::env::set_var("CLOACINA_VAR_TMPL_PORT", "9092");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACINA_VAR_TMPL_HOST", "localhost") };
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACINA_VAR_TMPL_PORT", "9092") };
 
         let result = resolve_template("{{ TMPL_HOST }}:{{ TMPL_PORT }}").unwrap();
         assert_eq!(result, "localhost:9092");
 
-        std::env::remove_var("CLOACINA_VAR_TMPL_HOST");
-        std::env::remove_var("CLOACINA_VAR_TMPL_PORT");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_VAR_TMPL_HOST") };
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_VAR_TMPL_PORT") };
     }
 
     #[test]
@@ -213,20 +222,24 @@ mod tests {
 
     #[test]
     fn test_resolve_template_mixed() {
-        std::env::set_var("CLOACINA_VAR_TMPL_FOUND", "yes");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACINA_VAR_TMPL_FOUND", "yes") };
 
         let err = resolve_template("a={{ TMPL_FOUND }},b={{ TMPL_MISSING }}").unwrap_err();
         assert_eq!(err.len(), 1);
         assert_eq!(err[0].name, "TMPL_MISSING");
 
-        std::env::remove_var("CLOACINA_VAR_TMPL_FOUND");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_VAR_TMPL_FOUND") };
     }
 
     #[test]
     fn test_resolve_template_whitespace_trimmed() {
-        std::env::set_var("CLOACINA_VAR_TMPL_WS", "trimmed");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACINA_VAR_TMPL_WS", "trimmed") };
         let result = resolve_template("{{  TMPL_WS  }}").unwrap();
         assert_eq!(result, "trimmed");
-        std::env::remove_var("CLOACINA_VAR_TMPL_WS");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_VAR_TMPL_WS") };
     }
 }

@@ -63,16 +63,16 @@
 
 use std::time::Duration;
 
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
+use axum::{Extension, Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
-use crate::identity::{mint_for_principal, ResolvedPrincipal, DEFAULT_MINTED_KEY_TTL};
+use crate::AppState;
+use crate::identity::{DEFAULT_MINTED_KEY_TTL, ResolvedPrincipal, mint_for_principal};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::routes::local_auth::LocalLoginResponse;
-use crate::AppState;
 
 /// Default absolute lifetime of an OIDC login session: the wall past which
 /// refreshing stops working and the user must sign in through the IdP again.
@@ -169,7 +169,7 @@ pub async fn refresh(
                 "not_refreshable",
                 "only minted login keys can be refreshed",
             )
-            .into_response()
+            .into_response();
         }
     };
 

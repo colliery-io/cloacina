@@ -45,13 +45,13 @@ use std::sync::OnceLock;
 
 use cloacina::executor::WorkflowExecutor;
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::{
     load_constructor_node, set_provider_search_path, unpack_provider_archive,
 };
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{Context, TaskError, task, workflow};
 use serde_json::json;
 
 fn examples_dir() -> PathBuf {

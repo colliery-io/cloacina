@@ -50,8 +50,8 @@
 //! block the interrupter, but the async exception only lands when the sleep
 //! returns. A long sleep therefore looks like a wedge until it finishes.
 
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use pyo3::prelude::*;

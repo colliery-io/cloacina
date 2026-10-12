@@ -27,8 +27,8 @@ use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{
-    parse::{Parse, ParseStream},
     Ident, ItemFn, LitStr, Result as SynResult, Token,
+    parse::{Parse, ParseStream},
 };
 
 use crate::tasks::to_pascal_case;
@@ -411,7 +411,8 @@ fn validate_cron_expression(expr: &str) -> Result<(), String> {
     if fields.len() < 5 || fields.len() > 7 {
         return Err(format!(
             "Invalid cron expression '{}': expected 5-7 fields (minute hour day month weekday [year] [seconds]), got {}",
-            expr, fields.len()
+            expr,
+            fields.len()
         ));
     }
 

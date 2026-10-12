@@ -90,7 +90,7 @@ Dockerfiles used by those images live in `deploy/docker/`:
 - `server.Dockerfile` — debian-slim runtime, no Rust toolchain.
   Includes the `rdkafka` build deps (T-0609) so Kafka stream
   accumulators work in containerized server deployments.
-- `compiler.Dockerfile` — `rust:1.85-bookworm` (toolchain included).
+- `compiler.Dockerfile` — `rust:1.99.0-bookworm` (toolchain included).
 
 ## Kubernetes
 

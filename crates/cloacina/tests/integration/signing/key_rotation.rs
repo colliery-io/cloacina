@@ -20,7 +20,7 @@
 //! allowing smooth transition from old keys to new keys.
 
 use cloacina::crypto::generate_signing_keypair;
-use cloacina::security::{verify_package_offline, DetachedSignature};
+use cloacina::security::{DetachedSignature, verify_package_offline};
 use tempfile::NamedTempFile;
 
 /// Test that multiple keys can sign different packages.

@@ -19,10 +19,10 @@
 use tracing::{debug, error, info, warn};
 
 use super::{PackageState, RegistryReconciler};
+use crate::Runtime;
 use crate::registry::error::RegistryError;
 use crate::registry::types::{WorkflowMetadata, WorkflowPackageId};
 use crate::task::TaskNamespace;
-use crate::Runtime;
 use std::sync::Arc;
 
 /// Best-effort humantime parser for trigger metadata's poll_interval
@@ -199,7 +199,7 @@ impl RegistryReconciler {
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
                 hasher.update(&loaded_workflow.package_data);
-                format!("{:x}", hasher.finalize())
+                hex::encode(hasher.finalize())
             };
             let has_sig = self
                 .registry
@@ -522,16 +522,15 @@ impl RegistryReconciler {
 
             let staging = work_dir.path().join("python-staging");
             let tenant_id = self.config.default_tenant_id.clone();
-            let cloacina_runtime =
-                self.runtime
-                    .clone()
-                    .ok_or_else(|| RegistryError::RegistrationFailed {
-                        message: format!(
+            let cloacina_runtime = self.runtime.clone().ok_or_else(|| {
+                RegistryError::RegistrationFailed {
+                    message: format!(
                         "Python package {} received but the reconciler has no Runtime attached — \
                          Python loads require a scoped Runtime",
                         metadata.package_name
                     ),
-                    })?;
+                }
+            })?;
 
             // CLOACI-T-0831: stage the package's bundled constructor providers
             // BEFORE the module import — `cloaca.constructor(...)` calls resolve
@@ -651,11 +650,11 @@ impl RegistryReconciler {
             (vec![], None, vec![], None)
         } else {
             return Err(RegistryError::RegistrationFailed {
-                    message: format!(
-                        "Unsupported package language '{}' for package {} — only 'rust' and 'python' are supported",
-                        cloacina_manifest.metadata.language, metadata.package_name
-                    ),
-                });
+                message: format!(
+                    "Unsupported package language '{}' for package {} — only 'rust' and 'python' are supported",
+                    cloacina_manifest.metadata.language, metadata.package_name
+                ),
+            });
         };
 
         // --- Step 7: Python computation graph routing ---
@@ -671,7 +670,7 @@ impl RegistryReconciler {
                 // `PythonRuntime` trait. Same reasoning as the workflow
                 // branch — binaries without Python support error out here
                 // instead of trying to run pyo3 they don't link.
-                if let (Some(ref graph_name), Some(ref entry_module)) = (
+                if let (Some(graph_name), Some(entry_module)) = (
                     &cloacina_manifest.metadata.graph_name,
                     &cloacina_manifest.metadata.entry_module,
                 ) {
@@ -696,16 +695,15 @@ impl RegistryReconciler {
                     let gn = graph_name.clone();
                     let em = entry_module.clone();
 
-                    let cloacina_runtime =
-                        self.runtime
-                            .clone()
-                            .ok_or_else(|| RegistryError::RegistrationFailed {
-                                message: format!(
+                    let cloacina_runtime = self.runtime.clone().ok_or_else(|| {
+                        RegistryError::RegistrationFailed {
+                            message: format!(
                                 "Python CG package {} received but the reconciler has no Runtime \
                                  attached — Python loads require a scoped Runtime",
                                 metadata.package_name
                             ),
-                            })?;
+                        }
+                    })?;
                     // CLOACI-T-0925: this branch previously staged NOTHING, so a
                     // Python CG package's provider-backed accumulators resolved
                     // against whatever directory the last load left in the
@@ -1562,8 +1560,8 @@ impl RegistryReconciler {
         accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
     ) -> PackageLoadView {
         use cloacina_workflow_plugin::{
-            types::AccumulatorDeclarationEntry, GraphPackageMetadata, ReactorPackageMetadata,
-            TriggerPackageMetadata,
+            GraphPackageMetadata, ReactorPackageMetadata, TriggerPackageMetadata,
+            types::AccumulatorDeclarationEntry,
         };
 
         let runtime = match self.runtime.as_ref() {
@@ -2032,7 +2030,9 @@ impl RegistryReconciler {
         let Some(scheduler) = scheduler_guard.as_ref() else {
             warn!(
                 "Package {} v{}: {} reactor(s) declared but no ComputationGraphScheduler is configured",
-                metadata.package_name, metadata.version, view.reactors.len()
+                metadata.package_name,
+                metadata.version,
+                view.reactors.len()
             );
             return Ok(());
         };
@@ -2617,9 +2617,9 @@ pub(super) struct PackageLoadView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Runtime;
     use crate::registry::reconciler::ReconcilerConfig;
     use crate::registry::workflow_registry::filesystem::FilesystemWorkflowRegistry;
-    use crate::Runtime;
     use serial_test::serial;
     use std::sync::Arc;
     use uuid::Uuid;
@@ -2727,10 +2727,11 @@ mod tests {
         assert_eq!(r.reaction_mode, "when_any");
         let acc_names: Vec<&str> = r.accumulators.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(acc_names, vec!["src_a", "src_b"]);
-        assert!(r
-            .accumulators
-            .iter()
-            .all(|a| a.accumulator_type == "passthrough"));
+        assert!(
+            r.accumulators
+                .iter()
+                .all(|a| a.accumulator_type == "passthrough")
+        );
     }
 
     #[tokio::test]
@@ -3062,7 +3063,7 @@ mod tests {
         upstream_reactor: &str,
         subscriber_accumulators: Vec<&str>,
     ) -> PackageLoadView {
-        use cloacina_workflow_plugin::{types::AccumulatorDeclarationEntry, GraphPackageMetadata};
+        use cloacina_workflow_plugin::{GraphPackageMetadata, types::AccumulatorDeclarationEntry};
         let accumulators: Vec<AccumulatorDeclarationEntry> = subscriber_accumulators
             .into_iter()
             .map(|n| AccumulatorDeclarationEntry {
@@ -3218,7 +3219,7 @@ mod tests {
         // the test path here does not include step 3). The validation must
         // detect "publisher_in_same_package" via view.reactors and skip.
         use cloacina_workflow_plugin::{
-            types::AccumulatorDeclarationEntry, GraphPackageMetadata, ReactorPackageMetadata,
+            GraphPackageMetadata, ReactorPackageMetadata, types::AccumulatorDeclarationEntry,
         };
         let endpoint_registry = EndpointRegistry::new();
         let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
@@ -3549,7 +3550,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn manifest_input_strategy_overrides_ffi_wire_default() {
-        use cloacina_workflow_plugin::{types::AccumulatorDeclarationEntry, GraphPackageMetadata};
+        use cloacina_workflow_plugin::{GraphPackageMetadata, types::AccumulatorDeclarationEntry};
 
         let endpoint_registry = EndpointRegistry::new();
         let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
@@ -3610,8 +3611,8 @@ mod tests {
     #[cfg(feature = "constructors-wasm")]
     mod constructor_nodes {
         use super::*;
-        use crate::registry::types::LoadedWorkflow;
         use crate::registry::WorkflowRegistry;
+        use crate::registry::types::LoadedWorkflow;
         use async_trait::async_trait;
         use std::path::PathBuf;
         use std::sync::OnceLock;

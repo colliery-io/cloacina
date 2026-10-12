@@ -32,13 +32,13 @@ use std::sync::OnceLock;
 
 use cloacina::computation_graph::accumulator::Accumulator;
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::constructor_loader::{
-    load_accumulator_constructor, load_reactor_constructor, load_trigger_constructor,
-    TriggerBinding,
+    TriggerBinding, load_accumulator_constructor, load_reactor_constructor,
+    load_trigger_constructor,
 };
-use cloacina::registry::loader::grants::{translate, GrantSpec, ResolvedGrants};
+use cloacina::registry::loader::grants::{GrantSpec, ResolvedGrants, translate};
 use cloacina::registry::loader::unpack_provider_archive;
 use cloacina::trigger::TriggerResult;
 use serde::Serialize;

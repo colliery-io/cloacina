@@ -6,3 +6,16 @@ ser
 inout
 afterall
 inflight
+wast
+WIT
+caf
+tennant
+implementor
+implementors
+Implementors
+statics
+re-use
+re-used
+re-declares
+pre-empted
+unparseable

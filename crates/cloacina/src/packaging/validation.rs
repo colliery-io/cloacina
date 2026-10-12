@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};

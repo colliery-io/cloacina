@@ -836,7 +836,7 @@ A graph package uses the same minimal shell as a workflow package — no `[lib] 
 [package]
 name = "my-market-maker"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 cloacina-workflow = { version = "0.11", features = ["packaged", "macros"] }

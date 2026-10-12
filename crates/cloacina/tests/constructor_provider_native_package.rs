@@ -43,12 +43,12 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use cloacina::Context;
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::constructor_loader::load_task_constructor_from_package;
 use cloacina::registry::loader::grants::ResolvedGrants;
-use cloacina::Context;
 
 const PROVIDER: &str = "native-task-provider-fixture";
 

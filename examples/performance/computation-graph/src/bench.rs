@@ -20,19 +20,19 @@
 //! - Event-to-execution latency: p50, p95, p99
 //! - Maximum sustained throughput: events/sec before channel backup
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime, shutdown_signal, AccumulatorContext, AccumulatorRuntimeConfig,
-    BoundarySender,
+    AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, accumulator_runtime,
+    shutdown_signal,
 };
 use cloacina::computation_graph::reactor::{
     CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
 };
-use cloacina::computation_graph::types::{serialize, InputCache, SourceName};
+use cloacina::computation_graph::types::{InputCache, SourceName, serialize};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 

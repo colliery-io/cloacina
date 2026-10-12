@@ -4997,11 +4997,11 @@
           "topology": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/GraphTopology",
                 "description": "Node/edge topology of the computation graph, for rendering its DAG.\n`None` for graphs predating topology emission. (CLOACI-T-0673)"
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -5552,11 +5552,11 @@
                 "topology": {
                   "oneOf": [
                     {
-                      "type": "null"
-                    },
-                    {
                       "$ref": "#/components/schemas/GraphTopology",
                       "description": "Node/edge topology of the computation graph, for rendering its DAG.\n`None` for graphs predating topology emission. (CLOACI-T-0673)"
+                    },
+                    {
+                      "type": "null"
                     }
                   ]
                 }

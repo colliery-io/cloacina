@@ -17,7 +17,7 @@ import cloaca
 
 cloaca.constructor(
     id="py_reader",
-    from_="cloacina-provider-fs@0.1.0",
+    from_="cloacina-provider-fs@0.1.1",
     constructor="read_file",
     config={"path": "/etc/hostname"},
     grants={"fs": ["ro:/etc"]},

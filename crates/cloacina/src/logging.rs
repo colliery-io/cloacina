@@ -104,7 +104,7 @@
 //! - Test logging initialization is idempotent and safe to call multiple times
 
 use tracing::Level;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Initializes the logging system with the specified log level.
 ///

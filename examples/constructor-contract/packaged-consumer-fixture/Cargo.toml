@@ -10,7 +10,12 @@
 [package]
 name = "packaged-consumer-fixture"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
+
+# cloacina-provider-fs is declared so the provider is bundled with the package (A-0010).
+[package.metadata.cargo-machete]
+ignored = ["cloacina-provider-fs", "cloacina-macros"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -26,16 +31,9 @@ packaged = []
 # the dep is the resolution + version pin.
 cloacina-provider-fs = { path = "__WORKSPACE__/providers/cloacina-provider-fs" }
 cloacina-macros = { path = "__WORKSPACE__/crates/cloacina-macros" }
-cloacina-computation-graph = { path = "__WORKSPACE__/crates/cloacina-computation-graph" }
 cloacina-workflow = { path = "__WORKSPACE__/crates/cloacina-workflow", features = ["packaged"] }
 cloacina-workflow-plugin = { path = "__WORKSPACE__/crates/cloacina-workflow-plugin" }
 serde_json = "1.0"
-futures = "0.3"
-async-trait = "0.1"
-tracing = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4"] }
-tokio = { version = "1.0", features = ["time"] }
 
 [build-dependencies]
 cloacina-build = { path = "__WORKSPACE__/crates/cloacina-build" }

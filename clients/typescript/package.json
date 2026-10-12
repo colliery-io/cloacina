@@ -35,13 +35,13 @@
     "test:contract": "vitest run test/contract.test.ts"
   },
   "dependencies": {
-    "openapi-fetch": "0.13.5"
+    "openapi-fetch": "0.17.0"
   },
   "devDependencies": {
-    "@types/node": "^22.19.20",
+    "@types/node": "^22.20.5",
     "openapi-typescript": "7.13.0",
-    "tsup": "8.5.0",
-    "typescript": "5.7.3",
-    "vitest": "3.2.4"
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3"
   }
 }

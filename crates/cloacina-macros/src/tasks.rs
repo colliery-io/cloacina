@@ -20,12 +20,12 @@ use quote::quote;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use syn::{
-    parse::{Parse, ParseStream},
     Expr, FnArg, GenericArgument, Ident, ItemFn, LitStr, Pat, PathArguments, Result as SynResult,
     ReturnType, Token, Type,
+    parse::{Parse, ParseStream},
 };
 
-use crate::registry::{get_registry, TaskInfo};
+use crate::registry::{TaskInfo, get_registry};
 
 /// Attributes for the task macro that define task behavior and configuration
 ///

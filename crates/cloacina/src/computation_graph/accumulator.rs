@@ -20,11 +20,11 @@
 //! optionally aggregates them, and pushes typed boundaries to a reactor.
 //! See CLOACI-S-0004 for the full specification.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tokio::sync::{mpsc, watch};
 
 use super::types::{self, SourceName};
@@ -316,31 +316,19 @@ impl FreshnessHandle {
     /// Unix-millis of the last emit, or `None` if nothing has been emitted yet.
     pub fn last_event_ms(&self) -> Option<i64> {
         let v = self.last_event_ms.load(Ordering::Relaxed);
-        if v > 0 {
-            Some(v)
-        } else {
-            None
-        }
+        if v > 0 { Some(v) } else { None }
     }
     /// Buffered-event count for buffering kinds (batch/state), or `None` for
     /// kinds that don't buffer / runtimes predating the gauge (CLOACI-T-0744).
     pub fn buffer_depth(&self) -> Option<u64> {
         let v = self.buffer_depth.load(Ordering::Relaxed);
-        if v >= 0 {
-            Some(v as u64)
-        } else {
-            None
-        }
+        if v >= 0 { Some(v as u64) } else { None }
     }
     /// Declared buffer capacity for bounded kinds, or `None` when unbounded /
     /// not applicable (CLOACI-T-0744). The UI renders `depth/capacity`.
     pub fn buffer_capacity(&self) -> Option<u64> {
         let v = self.buffer_capacity.load(Ordering::Relaxed);
-        if v > 0 {
-            Some(v as u64)
-        } else {
-            None
-        }
+        if v > 0 { Some(v as u64) } else { None }
     }
 }
 

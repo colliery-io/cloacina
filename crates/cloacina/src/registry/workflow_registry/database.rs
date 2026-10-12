@@ -1458,16 +1458,20 @@ mod tests {
 
         // No artifact for this triple+version → None (caller falls back to the
         // primary build) — including when only ANOTHER version has that triple.
-        assert!(registry
-            .get_compiled_data_for_target("arch-pkg", "1.0.0", "missing-arch")
-            .await
-            .unwrap()
-            .is_none());
-        assert!(registry
-            .get_compiled_data_for_target("arch-pkg", "1.0.0", "otherarch-testos")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .get_compiled_data_for_target("arch-pkg", "1.0.0", "missing-arch")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            registry
+                .get_compiled_data_for_target("arch-pkg", "1.0.0", "otherarch-testos")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[cfg(feature = "sqlite")]
@@ -1590,12 +1594,14 @@ mod tests {
 
         // Not paused on registration.
         assert!(!registry.is_workflow_paused("pause-pkg").await.unwrap());
-        assert!(registry
-            .list_all_packages()
-            .await
-            .unwrap()
-            .iter()
-            .all(|w| !w.paused));
+        assert!(
+            registry
+                .list_all_packages()
+                .await
+                .unwrap()
+                .iter()
+                .all(|w| !w.paused)
+        );
 
         // Pause by name → flag set everywhere the gate / API read it.
         let affected = registry
@@ -1604,12 +1610,14 @@ mod tests {
             .unwrap();
         assert_eq!(affected, Some(pkg_id));
         assert!(registry.is_workflow_paused("pause-pkg").await.unwrap());
-        assert!(registry
-            .list_all_packages()
-            .await
-            .unwrap()
-            .iter()
-            .any(|w| w.package_name == "pause-pkg" && w.paused));
+        assert!(
+            registry
+                .list_all_packages()
+                .await
+                .unwrap()
+                .iter()
+                .any(|w| w.package_name == "pause-pkg" && w.paused)
+        );
 
         // Resume clears it.
         registry
@@ -1690,11 +1698,13 @@ mod tests {
             .unwrap();
 
         // Confirm exists
-        assert!(registry
-            .get_package_metadata("del-pkg", "1.0.0")
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            registry
+                .get_package_metadata("del-pkg", "1.0.0")
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         // Delete
         registry
@@ -1703,11 +1713,13 @@ mod tests {
             .unwrap();
 
         // Confirm gone
-        assert!(registry
-            .get_package_metadata("del-pkg", "1.0.0")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .get_package_metadata("del-pkg", "1.0.0")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[cfg(feature = "sqlite")]
@@ -1764,11 +1776,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(registry
-            .get_package_metadata_by_id(pkg_id)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .get_package_metadata_by_id(pkg_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[cfg(feature = "sqlite")]
@@ -1852,23 +1866,29 @@ mod tests {
         assert_eq!(active.2, "hash-v2");
 
         // Old row is no longer visible through filtered reads.
-        assert!(registry
-            .get_package_metadata("pkg-b", "1")
-            .await
-            .unwrap()
-            .is_none());
-        assert!(registry
-            .get_package_metadata_by_id(id_v1)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .get_package_metadata("pkg-b", "1")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            registry
+                .get_package_metadata_by_id(id_v1)
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         // New row is visible.
-        assert!(registry
-            .get_package_metadata("pkg-b", "2")
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            registry
+                .get_package_metadata("pkg-b", "2")
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         // list_all_packages returns only the active row.
         let list = registry.list_all_packages().await.unwrap();
@@ -2026,11 +2046,13 @@ mod tests {
         let meta = sample_metadata("hash-reuse-pkg", "1");
 
         // No match when nothing has been built.
-        assert!(registry
-            .find_success_by_hash("abc")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .find_success_by_hash("abc")
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let pkg_id = registry
             .supersede_and_insert(None, &reg_id, &meta, "abc")
@@ -2038,11 +2060,13 @@ mod tests {
             .unwrap();
 
         // Still no match — row is pending, not success.
-        assert!(registry
-            .find_success_by_hash("abc")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .find_success_by_hash("abc")
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         registry.claim_next_build().await.unwrap();
         registry

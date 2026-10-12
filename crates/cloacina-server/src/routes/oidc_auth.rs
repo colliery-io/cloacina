@@ -33,10 +33,10 @@ use tracing::{info, warn};
 
 use base64::Engine as _;
 
-use crate::identity::{mint_for_principal, DEFAULT_MINTED_KEY_TTL};
+use crate::AppState;
+use crate::identity::{DEFAULT_MINTED_KEY_TTL, mint_for_principal};
 use crate::routes::error::ApiError;
 use crate::routes::session::oidc_session_max_age;
-use crate::AppState;
 
 /// One minted tenant membership handed back to the SPA after an OIDC login.
 #[derive(serde::Serialize)]

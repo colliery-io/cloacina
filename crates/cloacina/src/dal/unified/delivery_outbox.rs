@@ -33,8 +33,8 @@
 //! The substrate is Postgres-only at runtime; the SQLite arms exist for unified
 //! schema parity and test coverage.
 
-use super::models::{NewUnifiedDeliveryOutbox, UnifiedDeliveryOutbox};
 use super::DAL;
+use super::models::{NewUnifiedDeliveryOutbox, UnifiedDeliveryOutbox};
 use crate::database::schema::unified::delivery_outbox;
 use crate::database::universal_types::{UniversalBinary, UniversalTimestamp};
 use crate::error::ValidationError;
@@ -504,12 +504,13 @@ mod tests {
         dal.delivery_outbox().mark_acked(row.id).await.unwrap();
 
         // Row is `acked` and stops appearing in the open set.
-        assert!(dal
-            .delivery_outbox()
-            .list_open_for_recipient("agent:1", 10)
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            dal.delivery_outbox()
+                .list_open_for_recipient("agent:1", 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[cfg(feature = "sqlite")]

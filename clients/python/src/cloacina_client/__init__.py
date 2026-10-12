@@ -41,11 +41,11 @@ from ._generated import models
 from ._ws import DELIVERY_PROTOCOL_VERSION, DeliveryPush
 
 __all__ = [
+    "DELIVERY_PROTOCOL_VERSION",
     "AsyncClient",
     "Client",
     "CloacinaApiError",
     "DeliveryPush",
-    "DELIVERY_PROTOCOL_VERSION",
     "models",
 ]
 

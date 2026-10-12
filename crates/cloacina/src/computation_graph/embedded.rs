@@ -116,8 +116,8 @@ mod tests {
     use crate::computation_graph::reactor::{InputStrategy, ReactionCriteria};
     use crate::computation_graph::scheduler::{AccumulatorDeclaration, ReactorDeclaration};
     use cloacina_computation_graph::{CompiledGraphFn, GraphResult, InputCache};
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     /// CLOACI-T-0738 regression guard: the minimal embedded author — one
     /// declaration + EmbeddedGraph::spawn + push — with NO hand-wired

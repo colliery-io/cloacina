@@ -26,7 +26,7 @@
 //! that runs this fixture stages the secret at exactly this path (mirrors
 //! fs-grant-demo).
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 // I-0102 / T-C: unified plugin shell (projects ConstructorEntry declarations into
 // `get_constructor_metadata()` for the reconciler).
@@ -42,7 +42,7 @@ pub mod provider_consumer {
 
     constructor!(
         id = "reader",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/tmp/cloacina-packaged-consumer-fixture/secret.txt" },
         grants = { fs = ["ro:/tmp/cloacina-packaged-consumer-fixture"] },

@@ -32,17 +32,17 @@
 //! - `GET .../fleet` → **tenant-scoped read** (own tenant only).
 
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
 use serde::Serialize;
 use tracing::warn;
 use utoipa::ToSchema;
 
-use crate::routes::error::ApiError;
 use crate::AppState;
+use crate::routes::error::ApiError;
 
 /// A tenant's fleet-scaling view: requested count, live count, and the ceiling.
 #[derive(Debug, Serialize, ToSchema)]

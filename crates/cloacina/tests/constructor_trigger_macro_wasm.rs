@@ -41,7 +41,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use cloacina::registry::loader::constructor_loader::{load_trigger_constructor, TriggerBinding};
+use cloacina::registry::loader::constructor_loader::{TriggerBinding, load_trigger_constructor};
 use cloacina::trigger::TriggerResult;
 use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 use serde::Serialize;

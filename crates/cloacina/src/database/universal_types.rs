@@ -321,11 +321,7 @@ impl UniversalBool {
 
     /// Convert to i32 for SQLite INTEGER storage
     pub fn to_i32(&self) -> i32 {
-        if self.0 {
-            1
-        } else {
-            0
-        }
+        if self.0 { 1 } else { 0 }
     }
 
     /// Create from i32 (SQLite INTEGER)

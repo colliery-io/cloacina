@@ -19,8 +19,8 @@
 //! This module demonstrates various types of tasks that might be executed
 //! on a schedule, including data backup, health checks, and reporting tasks.
 
-use cloacina::{task, workflow, Context, TaskError};
-use serde_json::{json, Value};
+use cloacina::{Context, TaskError, task, workflow};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 //
@@ -35,11 +35,7 @@ pub mod data_backup_workflow {
     use super::*;
 
     /// Check if backup prerequisites are met
-    #[task(
-        retry_attempts = 2,
-        retry_backoff = "fixed",
-        retry_delay_ms = 5000
-    )]
+    #[task(retry_attempts = 2, retry_backoff = "fixed", retry_delay_ms = 5000)]
     pub async fn check_backup_prerequisites(context: &mut Context<Value>) -> Result<(), TaskError> {
         info!("Checking backup prerequisites...");
 
@@ -149,11 +145,7 @@ pub mod health_check_workflow {
     use super::*;
 
     /// Check system resources (CPU, memory, disk)
-    #[task(
-        retry_attempts = 1,
-        retry_backoff = "fixed",
-        retry_delay_ms = 1000
-    )]
+    #[task(retry_attempts = 1, retry_backoff = "fixed", retry_delay_ms = 1000)]
     pub async fn check_system_resources(context: &mut Context<Value>) -> Result<(), TaskError> {
         info!("Checking system resources...");
 
@@ -218,11 +210,7 @@ pub mod health_check_workflow {
     }
 
     /// Check external service availability
-    #[task(
-        retry_attempts = 2,
-        retry_backoff = "linear",
-        retry_delay_ms = 2000
-    )]
+    #[task(retry_attempts = 2, retry_backoff = "linear", retry_delay_ms = 2000)]
     pub async fn check_external_services(context: &mut Context<Value>) -> Result<(), TaskError> {
         info!("Checking external services...");
 

@@ -30,17 +30,17 @@
 //! - `Reactor` with `WhenAny` + `Latest`
 //! - Pushing serialized events and watching the graph fire
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime, shutdown_signal, AccumulatorContext, AccumulatorRuntimeConfig,
-    BoundarySender,
+    AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, accumulator_runtime,
+    shutdown_signal,
 };
 use cloacina::computation_graph::reactor::{
     CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
 };
-use cloacina::computation_graph::types::{serialize, GraphResult, InputCache, SourceName};
+use cloacina::computation_graph::types::{GraphResult, InputCache, SourceName, serialize};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------

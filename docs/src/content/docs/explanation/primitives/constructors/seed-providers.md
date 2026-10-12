@@ -29,7 +29,7 @@ Example — the fs task member in a workflow:
 ```rust
 constructor!(
     id = "reader",
-    from = "cloacina-provider-fs@0.1.0",
+    from = "cloacina-provider-fs@0.1.1",
     constructor = "read_file",
     config = { path = "/etc/hostname" },
     grants = { fs = ["ro:/etc"] },

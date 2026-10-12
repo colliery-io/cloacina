@@ -56,13 +56,13 @@ use std::sync::OnceLock;
 use serde_json::json;
 
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::error::LoaderError;
 use cloacina::registry::loader::grants::GrantSpec;
 use cloacina::registry::loader::{
-    load_constructor_node, load_constructor_node_pinned, set_provider_search_path,
-    unpack_provider_archive, ProviderRuntime,
+    ProviderRuntime, load_constructor_node, load_constructor_node_pinned, set_provider_search_path,
+    unpack_provider_archive,
 };
 
 /// The NATIVE provider's `[package].name` (the suite its cdylib carries).
@@ -331,7 +331,7 @@ fn grants_against_wasm_provider_are_unchanged() {
 #[cfg(feature = "macros")]
 #[cloacina::workflow(name = "pinned_greet", description = "constructor! runtime-pin e2e")]
 pub mod pinned_greet {
-    use cloacina::{task, Context, TaskError};
+    use cloacina::{Context, TaskError, task};
     use serde_json::json;
 
     #[task(id = "seed_name", dependencies = [])]
@@ -355,9 +355,9 @@ pub mod pinned_greet {
 #[cfg(feature = "macros")]
 #[tokio::test]
 async fn constructor_macro_runtime_pin_threads_through_to_the_loader() {
+    use cloacina::Context;
     use cloacina::executor::WorkflowExecutor;
     use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-    use cloacina::Context;
 
     set_provider_search_path(providers_dir());
 

@@ -37,7 +37,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
-use tokio::time::{interval, Interval};
+use tokio::time::{Interval, interval};
 use tracing::{debug, error, info, warn};
 
 use crate::computation_graph::scheduler::ComputationGraphScheduler;

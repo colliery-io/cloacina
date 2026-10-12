@@ -6,6 +6,22 @@
  *  You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+/*
+ *  Copyright 2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
  */
 
 //! # CEL-Filtered Reactor Subscriptions (CLOACI-T-0602)
@@ -43,7 +59,7 @@
 use cloacina::dal::DAL;
 use cloacina::database::universal_types::UniversalTimestamp;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{Context, TaskError, task, workflow};
 use std::collections::HashMap;
 use tracing::info;
 
@@ -60,10 +76,7 @@ pub mod alert_workflow {
 
     #[task]
     pub async fn emit_alert(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-        let value = context
-            .get("value")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(-1);
+        let value = context.get("value").and_then(|v| v.as_i64()).unwrap_or(-1);
         info!(
             "alert_workflow fired for high-value event (value={}, reactor={:?})",
             value,
@@ -103,23 +116,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // SQLite in-memory: per CLOACI-T-0608, this is substituted to a
     // per-Database tempfile under the hood so background services and
     // queries see the same schema.
-    let runner = DefaultRunner::with_config(
-        "sqlite://:memory:",
-        DefaultRunnerConfig::builder().build()?,
-    )
-    .await?;
+    let runner =
+        DefaultRunner::with_config("sqlite://:memory:", DefaultRunnerConfig::builder().build()?)
+            .await?;
 
     // Subscribe with a CEL filter — fire only when payload.value > 100.
     let reactor = "pricing_reactor";
     let workflow = "alert_workflow";
     let tenant = None; // defaults to "public"
     runner
-        .subscribe_workflow_to_reactor(
-            reactor,
-            workflow,
-            tenant,
-            Some("payload.value > 100"),
-        )
+        .subscribe_workflow_to_reactor(reactor, workflow, tenant, Some("payload.value > 100"))
         .await?;
     info!(
         "subscribed {} → {} with predicate 'payload.value > 100'",

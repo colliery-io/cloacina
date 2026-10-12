@@ -51,7 +51,7 @@ WebSocket connections never carry the long-lived key: the SDK mints a single-use
 `src/cloacina_client/_generated/` is produced by a pinned generator from the committed server contract:
 
 ```bash
-uvx openapi-python-client@0.29.0 generate \
+uvx openapi-python-client@0.29.1 generate \
   --path ../../docs/public/openapi.json \
   --config generator-config.yaml --meta none \
   --output-path src/cloacina_client/_generated --overwrite

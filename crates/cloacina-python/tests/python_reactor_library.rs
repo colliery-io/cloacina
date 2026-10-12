@@ -85,10 +85,12 @@ class LibRxB: pass
         vec!["lib_rx_a".to_string(), "lib_rx_b".to_string()]
     );
     assert!(scheduler.list_graphs().await.is_empty());
-    assert!(registry
-        .get_reactor_handle("lib_rx_a", EndpointScope::untenanted())
-        .await
-        .is_none());
+    assert!(
+        registry
+            .get_reactor_handle("lib_rx_a", EndpointScope::untenanted())
+            .await
+            .is_none()
+    );
 
     // ---- Dispatch into the scheduler ----
     let dispatched =

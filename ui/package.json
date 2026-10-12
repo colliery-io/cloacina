@@ -13,7 +13,7 @@
     "test:visual": "E2E_BASE_URL=http://localhost:8080 E2E_SERVER_URL=http://localhost:8080 E2E_API_KEY=clk_demo_bootstrap_key_0001 E2E_TENANT=public playwright test visual.spec.ts --project=chromium"
   },
   "devDependencies": {
-    "@playwright/test": "1.49.1",
-    "typescript": "5.7.2"
+    "@playwright/test": "1.64.0",
+    "typescript": "5.9.3"
   }
 }

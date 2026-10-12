@@ -81,9 +81,9 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
+    Data, DeriveInput, Fields, Ident, LitStr, Path, Result as SynResult, Token, Type,
     parse::{Parse, ParseStream},
-    parse_macro_input, Data, DeriveInput, Fields, Ident, LitStr, Path, Result as SynResult, Token,
-    Type,
+    parse_macro_input,
 };
 
 /// Which cloacina primitive the constructor plugs into.
@@ -104,7 +104,9 @@ impl Kind {
             "reactor" => Ok(Kind::Reactor),
             other => Err(syn::Error::new(
                 id.span(),
-                format!("unknown constructor kind `{other}`; expected one of: task, trigger, accumulator, reactor"),
+                format!(
+                    "unknown constructor kind `{other}`; expected one of: task, trigger, accumulator, reactor"
+                ),
             )),
         }
     }
@@ -182,8 +184,10 @@ impl Parse for ConstructorArgs {
                         other => {
                             return Err(syn::Error::new(
                                 id.span(),
-                                format!("unknown constructor `mode = {other}`; expected `stream` or `per_event`"),
-                            ))
+                                format!(
+                                    "unknown constructor `mode = {other}`; expected `stream` or `per_event`"
+                                ),
+                            ));
                         }
                     };
                 }
@@ -200,7 +204,9 @@ impl Parse for ConstructorArgs {
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!("unknown #[constructor] argument `{other}`; valid: kind, mode, name, version, contract, fidius_crate, interface, interface_version, description, author"),
+                        format!(
+                            "unknown #[constructor] argument `{other}`; valid: kind, mode, name, version, contract, fidius_crate, interface, interface_version, description, author"
+                        ),
                     ));
                 }
             }
@@ -295,7 +301,7 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
             return Err(syn::Error::new_spanned(
                 &struct_ident,
                 "#[constructor] must be applied to a struct",
-            ))
+            ));
         }
     };
     let named = match &data.fields {
@@ -304,7 +310,7 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
             return Err(syn::Error::new_spanned(
                 &struct_ident,
                 "#[constructor] requires a struct with named fields",
-            ))
+            ));
         }
     };
 
@@ -660,7 +666,7 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
             return Err(syn::Error::new_spanned(
                 &struct_ident,
                 "#[constructor] must be applied to a struct",
-            ))
+            ));
         }
     };
     let named = match &data.fields {
@@ -669,7 +675,7 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
             return Err(syn::Error::new_spanned(
                 &struct_ident,
                 "#[constructor] requires a struct with named fields",
-            ))
+            ));
         }
     };
 
@@ -920,7 +926,7 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
             return Err(syn::Error::new_spanned(
                 &struct_ident,
                 "#[constructor] must be applied to a struct",
-            ))
+            ));
         }
     };
     let named = match &data.fields {
@@ -929,7 +935,7 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
             return Err(syn::Error::new_spanned(
                 &struct_ident,
                 "#[constructor] requires a struct with named fields",
-            ))
+            ));
         }
     };
 
@@ -1183,7 +1189,7 @@ fn expand_stream_accumulator(args: ConstructorArgs, item: DeriveInput) -> SynRes
             return Err(syn::Error::new_spanned(
                 &struct_ident,
                 "#[constructor] must be applied to a struct",
-            ))
+            ));
         }
     };
     let named = match &data.fields {
@@ -1192,7 +1198,7 @@ fn expand_stream_accumulator(args: ConstructorArgs, item: DeriveInput) -> SynRes
             return Err(syn::Error::new_spanned(
                 &struct_ident,
                 "#[constructor] requires a struct with named fields",
-            ))
+            ));
         }
     };
 

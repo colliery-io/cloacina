@@ -24,12 +24,12 @@ use tempfile::TempDir;
 use tokio::sync::watch;
 
 use cloacina::{
+    Database,
     registry::{
         reconciler::{ReconcilerConfig, RegistryReconciler},
         storage::FilesystemRegistryStorage,
         workflow_registry::WorkflowRegistryImpl,
     },
-    Database,
 };
 
 /// Test that verifies the reconciler can be created with dynamic loading enabled

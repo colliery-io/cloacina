@@ -20,7 +20,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{extract::State, routing::get, Json, Router};
+use axum::{Json, Router, extract::State, routing::get};
 use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use metrics_exporter_prometheus::PrometheusHandle;

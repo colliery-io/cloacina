@@ -28,7 +28,7 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::Parser;
 
-use cloacina_compiler::{run, BuildRlimits, CompilerConfig};
+use cloacina_compiler::{BuildRlimits, CompilerConfig, run};
 
 /// cloacina-compiler — DB-queue-driven build service.
 #[derive(Parser)]

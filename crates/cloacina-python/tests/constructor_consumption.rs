@@ -86,7 +86,7 @@ import cloaca
 with cloaca.WorkflowBuilder("pyflow") as _:
     cloaca.constructor(
         id="reader",
-        from_="cloacina-provider-fs@0.1.0",
+        from_="cloacina-provider-fs@0.1.1",
         constructor="read_file",
         config={{"path": "{secret}"}},
         grants={{"fs": ["ro:{data}"]}},

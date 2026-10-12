@@ -342,7 +342,7 @@ use std::sync::Arc;
 // Re-export core task types from cloacina_workflow
 // This ensures type compatibility between macro-generated code and runtime
 pub use cloacina_workflow::{Task, TaskState};
-pub use namespace::{parse_namespace, TaskNamespace};
+pub use namespace::{TaskNamespace, parse_namespace};
 
 // The Task trait is now re-exported from cloacina_workflow above.
 // This ensures type compatibility between macro-generated code and runtime.
@@ -628,9 +628,9 @@ impl Default for TaskRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Context;
     use crate::error::TaskError;
     use crate::init_test_logging;
-    use crate::Context;
     use async_trait::async_trait;
     use chrono::Utc;
 

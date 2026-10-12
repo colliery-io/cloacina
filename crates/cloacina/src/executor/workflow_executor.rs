@@ -48,9 +48,9 @@ use chrono::{DateTime, Utc};
 use std::time::Duration;
 use uuid::Uuid;
 
+use crate::Context;
 use crate::error::{ExecutorError, TaskError, ValidationError};
 use crate::task::TaskState;
-use crate::Context;
 
 /// Callback trait for receiving real-time status updates during workflow execution.
 ///
@@ -472,7 +472,7 @@ pub trait WorkflowExecutor: Send + Sync {
     /// * `Ok(Vec<WorkflowExecutionResult>)` - List of recent execution results
     /// * `Err(WorkflowExecutionError)` - If the list cannot be retrieved
     async fn list_executions(&self)
-        -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>;
+    -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>;
 
     /// Shuts down the executor and its background services.
     ///

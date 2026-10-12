@@ -28,9 +28,9 @@ use tokio::task::JoinHandle;
 use cloacina_workflow_plugin::{GraphExecutionRequest, GraphPackageMetadata};
 
 use super::accumulator::{
-    accumulator_runtime, batch_accumulator_runtime, flush_signal, state_accumulator_runtime,
     AccumulatorContext, AccumulatorRuntimeConfig, BatchAccumulator, BatchAccumulatorConfig,
-    BoundarySender, StateAccumulator,
+    BoundarySender, StateAccumulator, accumulator_runtime, batch_accumulator_runtime, flush_signal,
+    state_accumulator_runtime,
 };
 use super::reactor::{CompiledGraphFn, InputStrategy, ReactionCriteria};
 use super::scheduler::{
@@ -117,8 +117,8 @@ impl LoadedGraphPlugin {
 pub use cloacina_workflow_plugin::{
     METHOD_EXECUTE_GRAPH, METHOD_EXECUTE_TASK, METHOD_GET_CONSTRUCTOR_METADATA,
     METHOD_GET_GRAPH_METADATA, METHOD_GET_REACTOR_METADATA, METHOD_GET_TASK_METADATA,
-    METHOD_GET_TRIGGERLESS_GRAPH_METADATA, METHOD_GET_TRIGGER_METADATA,
-    METHOD_INVOKE_TRIGGERLESS_GRAPH, METHOD_INVOKE_TRIGGER_POLL,
+    METHOD_GET_TRIGGER_METADATA, METHOD_GET_TRIGGERLESS_GRAPH_METADATA, METHOD_INVOKE_TRIGGER_POLL,
+    METHOD_INVOKE_TRIGGERLESS_GRAPH,
 };
 
 /// Call `get_reactor_metadata` (method index 4) on a loaded fidius plugin.

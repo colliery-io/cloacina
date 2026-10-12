@@ -27,7 +27,7 @@
 // `merge` depends on both; a Skipped dependency counts as resolved, so merge
 // still runs. Net: decide/branch_a/merge complete (green), branch_b skips.
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 cloacina_workflow_plugin::package!();
 

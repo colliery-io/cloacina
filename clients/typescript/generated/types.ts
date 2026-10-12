@@ -1481,7 +1481,7 @@ export interface components {
              *     only; the list leaves it `None`.
              */
             source_package?: string | null;
-            topology?: null | components["schemas"]["GraphTopology"];
+            topology?: components["schemas"]["GraphTopology"] | null;
         };
         /** @description Node/edge topology of a computation graph (CLOACI-T-0673). */
         GraphTopology: {
@@ -1748,7 +1748,7 @@ export interface components {
                  *     only; the list leaves it `None`.
                  */
                 source_package?: string | null;
-                topology?: null | components["schemas"]["GraphTopology"];
+                topology?: components["schemas"]["GraphTopology"] | null;
             }[];
             total: number;
         };

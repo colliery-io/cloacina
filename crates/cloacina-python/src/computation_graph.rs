@@ -80,7 +80,7 @@ use pyo3::types::{PyCFunction, PyDict, PyList, PyString, PyTuple};
 
 use cloacina::computation_graph::types::{GraphError, GraphResult};
 
-use crate::registration_scope::{current_registration_scope, RegistrationScope};
+use crate::registration_scope::{RegistrationScope, current_registration_scope};
 
 // ---------------------------------------------------------------------------
 // Global node registry (scoped by active builder context)
@@ -1136,7 +1136,7 @@ pub fn build_python_graph_declaration(
 /// (`{"nodes":[{"id","inputs":[..]}],"edges":[{"from","to","label":null|"Variant"}]}`),
 /// so the API/UI render Python and Rust CG DAGs identically. (CLOACI-T-0673)
 fn python_graph_topology_json(executor: &PythonGraphExecutor) -> String {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     let nodes: Vec<Value> = executor
         .execution_order
@@ -1586,34 +1586,35 @@ fn parse_graph_dict(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>> {
             .downcast::<PyDict>()
             .map_err(|_| PyTypeError::new_err(format!("graph['{}'] must be a dict", name)))?;
 
-        let cache_inputs: Vec<String> = if let Some(inputs) = node_dict.get_item("inputs")? {
-            inputs
+        let cache_inputs: Vec<String> = match node_dict.get_item("inputs")? {
+            Some(inputs) => inputs
                 .downcast::<PyList>()
                 .map_err(|_| {
                     PyTypeError::new_err(format!("graph['{}']['inputs'] must be a list", name))
                 })?
                 .iter()
                 .map(|item| item.extract::<String>())
-                .collect::<PyResult<_>>()?
-        } else {
-            Vec::new()
+                .collect::<PyResult<_>>()?,
+            _ => Vec::new(),
         };
 
-        let edge = if let Some(routes) = node_dict.get_item("routes")? {
-            let routes_dict = routes.downcast::<PyDict>().map_err(|_| {
-                PyTypeError::new_err(format!("graph['{}']['routes'] must be a dict", name))
-            })?;
-            let mut variants = Vec::new();
-            for (v_key, v_val) in routes_dict.iter() {
-                variants.push((v_key.extract::<String>()?, v_val.extract::<String>()?));
+        let edge = match node_dict.get_item("routes")? {
+            Some(routes) => {
+                let routes_dict = routes.downcast::<PyDict>().map_err(|_| {
+                    PyTypeError::new_err(format!("graph['{}']['routes'] must be a dict", name))
+                })?;
+                let mut variants = Vec::new();
+                for (v_key, v_val) in routes_dict.iter() {
+                    variants.push((v_key.extract::<String>()?, v_val.extract::<String>()?));
+                }
+                PyEdgeDecl::Routing { variants }
             }
-            PyEdgeDecl::Routing { variants }
-        } else if let Some(next) = node_dict.get_item("next")? {
-            PyEdgeDecl::Linear {
-                target: next.extract::<String>()?,
-            }
-        } else {
-            PyEdgeDecl::Terminal
+            _ => match node_dict.get_item("next")? {
+                Some(next) => PyEdgeDecl::Linear {
+                    target: next.extract::<String>()?,
+                },
+                _ => PyEdgeDecl::Terminal,
+            },
         };
 
         nodes.push(PyNodeDecl {
@@ -1655,7 +1656,7 @@ fn compute_execution_order(nodes: &[PyNodeDecl]) -> Vec<String> {
 
     let mut queue: Vec<String> = in_degree
         .iter()
-        .filter(|(_, &deg)| deg == 0)
+        .filter(|&(_, &deg)| deg == 0)
         .map(|(name, _)| name.clone())
         .collect();
     queue.sort();

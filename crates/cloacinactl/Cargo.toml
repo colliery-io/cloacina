@@ -1,7 +1,8 @@
 [package]
 name = "cloacinactl"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "Command-line interface for Cloacina task orchestration engine."
 authors.workspace = true
 license.workspace = true
@@ -33,8 +34,8 @@ fidius-core = { workspace = true }
 fidius-host = { workspace = true }
 tempfile = "3.2"
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
-notify = { version = "7", default-features = false, features = ["macos_kqueue"] }
+toml = "1"
+notify = { version = "8", default-features = false, features = ["macos_kqueue"] }
 uuid = { version = "1.0", features = ["v4"] }
 tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
@@ -43,10 +44,7 @@ tracing = { version = "0.1" }
 tracing-appender = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 libc = "0.2"
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
 # CLOACI-T-0629: WS client for `cloacinactl execution events --follow` (substrate consumer).
 futures-util = "0.3"
 serde_yaml = "0.9"
-
-[dev-dependencies]
-serial_test = "3"

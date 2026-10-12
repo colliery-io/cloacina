@@ -31,22 +31,22 @@
 //! with a dispatcher to receive task events directly. The dispatcher routes `TaskReadyEvent`s
 //! to the executor based on routing rules.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::Semaphore;
 
 use super::slot_token::SlotToken;
-use super::task_handle::{with_task_handle, TaskHandle};
+use super::task_handle::{TaskHandle, with_task_handle};
 use super::types::{ClaimedTask, ExecutorConfig};
+use crate::Runtime;
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::dispatcher::{
     DispatchError, ExecutionResult, ExecutorMetrics, TaskExecutor, TaskReadyEvent,
 };
 use crate::error::ExecutorError;
-use crate::Runtime;
-use crate::{parse_namespace, Context, Database, Task, TaskRegistry};
+use crate::{Context, Database, Task, TaskRegistry, parse_namespace};
 use async_trait::async_trait;
 
 /// Bounded reason value for `cloacina_tasks_total{status="failed", reason=...}`.

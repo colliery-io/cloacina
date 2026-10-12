@@ -27,8 +27,8 @@
 //! it takes a `Result<Context, ExecutorError>` (the outcome) plus identity +
 //! retry policy + elapsed duration, and applies all persistent-state effects.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -485,8 +485,10 @@ mod is_transient_tests {
 
     #[test]
     fn test_is_transient_connection_pool() {
-        assert!(handler()
-            .is_transient_error(&ExecutorError::ConnectionPool("pool exhausted".to_string())));
+        assert!(
+            handler()
+                .is_transient_error(&ExecutorError::ConnectionPool("pool exhausted".to_string()))
+        );
     }
 
     #[test]

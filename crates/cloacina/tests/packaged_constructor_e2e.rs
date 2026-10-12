@@ -33,10 +33,10 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use cloacina::packaging::provider_bundle::{bundle_providers, ProviderRef};
+use cloacina::Context;
+use cloacina::packaging::provider_bundle::{ProviderRef, bundle_providers};
 use cloacina::registry::loader::grants::GrantSpec;
 use cloacina::registry::loader::{load_constructor_node, set_provider_search_path};
-use cloacina::Context;
 
 fn consumer_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -94,7 +94,7 @@ async fn bundled_provider_node_resolves_by_name_and_runs_with_a_grant() {
     // "read_file", ...)` lowers to — and run it with a read grant.
     let task = load_constructor_node(
         "reader",
-        "cloacina-provider-fs@0.1.0",
+        "cloacina-provider-fs@0.1.1",
         "read_file",
         vec![(
             "path".to_string(),
@@ -126,7 +126,7 @@ async fn bundled_provider_node_fails_closed_without_a_grant() {
     // Same bundled member, but NO grant → default-closed sandbox denies the read.
     let task = load_constructor_node(
         "reader_denied",
-        "cloacina-provider-fs@0.1.0",
+        "cloacina-provider-fs@0.1.1",
         "read_file",
         vec![(
             "path".to_string(),
@@ -153,7 +153,7 @@ async fn unknown_member_of_bundled_provider_fails_closed() {
     let _ = provider_search_root();
     let err = load_constructor_node(
         "nope",
-        "cloacina-provider-fs@0.1.0",
+        "cloacina-provider-fs@0.1.1",
         "delete_file", // not a member of this suite
         vec![("path".to_string(), serde_json::json!("/x"))],
         vec![],

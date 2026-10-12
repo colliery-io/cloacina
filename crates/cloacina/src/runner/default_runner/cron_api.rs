@@ -20,10 +20,10 @@
 
 use std::sync::Arc;
 
+use crate::UniversalUuid;
 use crate::dal::DAL;
 use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::registry::traits::WorkflowRegistry;
-use crate::UniversalUuid;
 
 use super::DefaultRunner;
 
@@ -496,9 +496,9 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
         cron_expression: &str,
         timezone: &str,
     ) -> Result<String, String> {
+        use crate::CronEvaluator;
         use crate::database::universal_types::UniversalTimestamp;
         use crate::models::schedule::NewSchedule;
-        use crate::CronEvaluator;
 
         CronEvaluator::validate(cron_expression, timezone)
             .map_err(|e| format!("Invalid cron expression or timezone: {}", e))?;

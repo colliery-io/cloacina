@@ -22,7 +22,7 @@
 //! the one helper that needs the diesel-backed outbox model.
 
 pub use cloacina_api_types::delivery::{
-    ClientMessage, EnvelopeError, ServerMessage, DELIVERY_PROTOCOL_VERSION,
+    ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, ServerMessage,
 };
 
 use crate::models::delivery_outbox::DeliveryOutbox;

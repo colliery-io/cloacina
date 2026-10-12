@@ -3,6 +3,13 @@
 All notable changes to this provider. Providers version independently of
 cloacina core (ADR A-0010); config-schema changes are breaking changes.
 
+## [0.1.1] - UNRELEASED
+
+### Changed
+
+- Edition 2024 and `rust-version = "1.99"`, with the 2024 rustfmt style; no
+  behavior or config-schema change (CLOACINA-T-0954).
+
 ## [0.1.0] - UNRELEASED
 
 ### Added

@@ -241,42 +241,45 @@ impl AsyncRuntimeHandle {
         }
 
         // Wait for thread to finish with timeout
-        if let Some(handle) = self.thread_handle.take() {
-            let (done_tx, done_rx) = std::sync::mpsc::channel();
+        match self.thread_handle.take() {
+            Some(handle) => {
+                let (done_tx, done_rx) = std::sync::mpsc::channel();
 
-            let join_thread = thread::spawn(move || {
-                let result = handle.join();
-                let _ = done_tx.send(result);
-            });
+                let join_thread = thread::spawn(move || {
+                    let result = handle.join();
+                    let _ = done_tx.send(result);
+                });
 
-            match done_rx.recv_timeout(SHUTDOWN_TIMEOUT) {
-                Ok(Ok(())) => {
-                    debug!(
-                        duration_ms = start.elapsed().as_millis() as u64,
-                        "Async runtime shutdown completed successfully"
-                    );
-                    Ok(())
-                }
-                Ok(Err(_panic_payload)) => {
-                    error!("Async runtime thread panicked during shutdown");
-                    Err(ShutdownError::ThreadPanic)
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    error!(
-                        timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
-                        "Async runtime shutdown timed out - thread may be stuck"
-                    );
-                    drop(join_thread);
-                    Err(ShutdownError::Timeout(SHUTDOWN_TIMEOUT.as_secs()))
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    error!("Join thread disconnected unexpectedly");
-                    Err(ShutdownError::ThreadPanic)
+                match done_rx.recv_timeout(SHUTDOWN_TIMEOUT) {
+                    Ok(Ok(())) => {
+                        debug!(
+                            duration_ms = start.elapsed().as_millis() as u64,
+                            "Async runtime shutdown completed successfully"
+                        );
+                        Ok(())
+                    }
+                    Ok(Err(_panic_payload)) => {
+                        error!("Async runtime thread panicked during shutdown");
+                        Err(ShutdownError::ThreadPanic)
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        error!(
+                            timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
+                            "Async runtime shutdown timed out - thread may be stuck"
+                        );
+                        drop(join_thread);
+                        Err(ShutdownError::Timeout(SHUTDOWN_TIMEOUT.as_secs()))
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        error!("Join thread disconnected unexpectedly");
+                        Err(ShutdownError::ThreadPanic)
+                    }
                 }
             }
-        } else {
-            debug!("Async runtime already shut down");
-            Ok(())
+            _ => {
+                debug!("Async runtime already shut down");
+                Ok(())
+            }
         }
     }
 }
@@ -722,24 +725,27 @@ async fn run_event_loop(
                 let runner = runner.clone();
                 tokio::spawn(async move {
                     let result = async {
-                        if let Some(scheduler) = runner.unified_scheduler().await {
-                            if enabled {
-                                scheduler.enable_trigger(&trigger_name).await
-                            } else {
-                                scheduler.disable_trigger(&trigger_name).await
-                            }
-                        } else {
-                            let dal = runner.dal();
-                            if let Some(schedule) =
-                                dal.schedule().get_by_trigger_name(&trigger_name).await?
-                            {
+                        match runner.unified_scheduler().await {
+                            Some(scheduler) => {
                                 if enabled {
-                                    dal.schedule().enable(schedule.id).await
+                                    scheduler.enable_trigger(&trigger_name).await
                                 } else {
-                                    dal.schedule().disable(schedule.id).await
+                                    scheduler.disable_trigger(&trigger_name).await
                                 }
-                            } else {
-                                Ok(())
+                            }
+                            _ => {
+                                let dal = runner.dal();
+                                if let Some(schedule) =
+                                    dal.schedule().get_by_trigger_name(&trigger_name).await?
+                                {
+                                    if enabled {
+                                        dal.schedule().enable(schedule.id).await
+                                    } else {
+                                        dal.schedule().disable(schedule.id).await
+                                    }
+                                } else {
+                                    Ok(())
+                                }
                             }
                         }
                     }
@@ -904,7 +910,7 @@ where
         Err(_) => {
             return Err(PyRuntimeError::new_err(
                 "Runtime thread died during initialization",
-            ))
+            ));
         }
     }
 
@@ -1528,11 +1534,12 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
+    /// `:memory:` becomes a tempfile per runner (WAL + busy_timeout), so the
+    /// background scheduler and the test never hit shared-cache table locks
+    /// ("database table is locked") the way a `mode=memory&cache=shared` URI
+    /// does (CLOACINA-T-0955).
     fn unique_sqlite_url() -> String {
-        format!(
-            "file:cloacina_runner_test_{}?mode=memory&cache=shared",
-            uuid::Uuid::new_v4()
-        )
+        "sqlite://:memory:".to_string()
     }
 
     #[test]

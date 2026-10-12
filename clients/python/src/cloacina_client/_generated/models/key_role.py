@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class KeyRole(str, Enum):
+class KeyRole(StrEnum):
     ADMIN = "admin"
     READ = "read"
     WRITE = "write"

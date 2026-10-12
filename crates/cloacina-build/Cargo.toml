@@ -7,7 +7,8 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 readme.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "Build-time helper for binaries that depend on cloacina. Sets up Python rpath so the Python shared library can be found at runtime."
 
 [dependencies]

@@ -37,7 +37,7 @@ use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{parse2, Expr, Ident, ItemStruct, LitStr, Token};
+use syn::{Expr, Ident, ItemStruct, LitStr, Token, parse2};
 
 /// Parsed form of the `#[reactor(...)]` arguments.
 struct ReactorArgs {
@@ -695,9 +695,10 @@ mod tests {
             config = { gate = 5.0 },
         };
         let err = syn::parse2::<ReactorArgs>(args).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("'config' is only valid alongside a 'constructor'"));
+        assert!(
+            err.to_string()
+                .contains("'config' is only valid alongside a 'constructor'")
+        );
     }
 
     #[test]

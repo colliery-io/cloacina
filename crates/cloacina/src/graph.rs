@@ -149,7 +149,7 @@ impl WorkflowGraph {
     }
 
     /// Get an iterator over direct dependencies of a task
-    pub fn get_dependencies(&self, task_id: &str) -> impl Iterator<Item = &str> {
+    pub fn get_dependencies(&self, task_id: &str) -> impl Iterator<Item = &str> + use<'_> {
         self.task_index
             .get(task_id)
             .into_iter()
@@ -161,7 +161,7 @@ impl WorkflowGraph {
     }
 
     /// Get an iterator over tasks that depend on the given task
-    pub fn get_dependents(&self, task_id: &str) -> impl Iterator<Item = &str> {
+    pub fn get_dependents(&self, task_id: &str) -> impl Iterator<Item = &str> + use<'_> {
         self.task_index
             .get(task_id)
             .into_iter()

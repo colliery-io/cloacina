@@ -22,10 +22,10 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use cloacina::UniversalUuid;
 use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
-use cloacina::UniversalUuid;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tracing::{debug, info, warn};
@@ -645,7 +645,7 @@ fn ensure_build_wiring(source_dir: &Path) {
     let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
         return;
     };
-    let Ok(mut doc) = raw.parse::<toml::Value>() else {
+    let Ok(mut doc) = raw.parse::<toml::Table>().map(toml::Value::Table) else {
         return;
     };
     let Some(root) = doc.as_table_mut() else {
@@ -708,7 +708,7 @@ fn inject_dev_patch(source_dir: &Path, workspace: &Path) {
         let Ok(raw) = std::fs::read_to_string(dir.join("Cargo.toml")) else {
             continue;
         };
-        let Ok(doc) = raw.parse::<toml::Value>() else {
+        let Ok(doc) = raw.parse::<toml::Table>().map(toml::Value::Table) else {
             continue;
         };
         if let Some(name) = doc
@@ -731,7 +731,7 @@ fn inject_dev_patch(source_dir: &Path, workspace: &Path) {
     let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
         return;
     };
-    let Ok(mut doc) = raw.parse::<toml::Value>() else {
+    let Ok(mut doc) = raw.parse::<toml::Table>().map(toml::Value::Table) else {
         return;
     };
     let Some(root) = doc.as_table_mut() else {
@@ -1170,6 +1170,31 @@ mod tests {
     use std::net::SocketAddr;
     use std::time::Instant;
 
+    /// CLOACINA-T-0957: a minimal package gets the cdylib crate-type and the
+    /// `packaged` feature. Parsing the manifest as a document (toml 1.x reads
+    /// `str::parse::<Value>` as a single value) must not make this a no-op.
+    #[test]
+    fn ensure_build_wiring_injects_crate_type_and_packaged_feature() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"minimal\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+             [dependencies]\nserde_json = \"1.0\"\n",
+        )
+        .expect("write Cargo.toml");
+
+        ensure_build_wiring(tmp.path());
+
+        let doc: toml::Table = std::fs::read_to_string(tmp.path().join("Cargo.toml"))
+            .expect("read Cargo.toml")
+            .parse()
+            .expect("valid TOML");
+        let crate_type = doc["lib"]["crate-type"].as_array().expect("crate-type");
+        assert!(crate_type.iter().any(|v| v.as_str() == Some("cdylib")));
+        assert!(doc["features"].get("packaged").is_some());
+        assert_eq!(doc["dependencies"]["serde_json"].as_str(), Some("1.0"));
+    }
+
     /// Build a minimal cargo package whose `build.rs` sleeps for `sleep_secs`
     /// seconds. The library itself is an empty cdylib; the slow component is
     /// the build script. Returns the package directory.
@@ -1181,7 +1206,7 @@ mod tests {
             "[package]\n\
              name = \"t0573-sleeper\"\n\
              version = \"0.0.0\"\n\
-             edition = \"2021\"\n\
+             edition = \"2024\"\n\
              \n\
              [lib]\n\
              crate-type = [\"cdylib\"]\n",
@@ -1282,7 +1307,8 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn compile_env_clears_ambient_database_url() {
-        std::env::set_var("DATABASE_URL", "postgres://user:secret@host/db");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("DATABASE_URL", "postgres://user:secret@host/db") };
 
         let mut cmd = tokio::process::Command::new("env");
         apply_compile_env(&mut cmd);
@@ -1299,14 +1325,16 @@ mod tests {
             "PATH must pass through the allowlist:\n{printed}"
         );
 
-        std::env::remove_var("DATABASE_URL");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("DATABASE_URL") };
     }
 
     /// Allowlisted vars present in the parent env pass through unchanged.
     #[tokio::test]
     #[serial_test::serial]
     async fn compile_env_passes_allowlisted_vars_through() {
-        std::env::set_var("CARGO_PROFILE_DEV_DEBUG", "0");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CARGO_PROFILE_DEV_DEBUG", "0") };
 
         let mut cmd = tokio::process::Command::new("env");
         apply_compile_env(&mut cmd);
@@ -1317,7 +1345,8 @@ mod tests {
             "allowlisted CARGO_PROFILE_DEV_DEBUG must pass through:\n{printed}"
         );
 
-        std::env::remove_var("CARGO_PROFILE_DEV_DEBUG");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CARGO_PROFILE_DEV_DEBUG") };
     }
 
     // -----------------------------------------------------------------------
@@ -1420,7 +1449,7 @@ Caused by:\n  attempting to make an HTTP request, but --offline was specified\n"
             "[package]\n\
              name = \"t0575-memhog\"\n\
              version = \"0.0.0\"\n\
-             edition = \"2021\"\n\
+             edition = \"2024\"\n\
              \n\
              [lib]\n\
              crate-type = [\"cdylib\"]\n",

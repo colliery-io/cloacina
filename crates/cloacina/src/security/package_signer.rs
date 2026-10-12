@@ -23,12 +23,12 @@
 
 use super::audit;
 use crate::crypto::{compute_key_fingerprint, sign_package as crypto_sign, verify_signature};
-use crate::dal::unified::models::{NewUnifiedPackageSignature, UnifiedPackageSignature};
 use crate::dal::unified::DAL;
+use crate::dal::unified::models::{NewUnifiedPackageSignature, UnifiedPackageSignature};
 use crate::database::schema::unified::package_signatures;
 use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

@@ -1,5 +1,6 @@
 # Builds the Starlight docs in docs/ on each pull request that changes them,
 # and publishes them to the GitHub Pages of this repository on a push to main.
+---
 name: Documentation
 
 on:

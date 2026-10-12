@@ -44,14 +44,14 @@ use std::path::PathBuf;
 use ed25519_dalek::SigningKey;
 use serde::Serialize;
 
+use cloacina::Context;
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
-use cloacina::registry::loader::grants::{translate, GrantSpec, ResolvedGrants};
+use cloacina::registry::loader::grants::{GrantSpec, ResolvedGrants, translate};
 use cloacina::registry::loader::{
     load_task_constructor, load_task_constructor_from_package, unpack_provider_archive,
 };
-use cloacina::Context;
 
 /// The provider's fidius `[package].name` — the suite the archive carries.
 const PROVIDER: &str = "cloacina-provider-fs";

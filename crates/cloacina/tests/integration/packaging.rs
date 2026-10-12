@@ -24,7 +24,7 @@ use serial_test::serial;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-use cloacina::packaging::{package_workflow, CompileOptions};
+use cloacina::packaging::{CompileOptions, package_workflow};
 
 /// Write a minimal `package.toml` into a project directory for testing.
 fn write_package_toml(project_path: &Path) {

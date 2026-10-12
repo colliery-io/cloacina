@@ -28,8 +28,8 @@
 //! yields `None`. Works identically on both backends (no RETURNING needed:
 //! the winner then reads the row it now exclusively owns).
 
-use super::models::{NewUnifiedWsTicket, UnifiedWsTicket};
 use super::DAL;
+use super::models::{NewUnifiedWsTicket, UnifiedWsTicket};
 use crate::database::schema::unified::ws_tickets;
 use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
@@ -206,12 +206,13 @@ mod tests {
     #[tokio::test]
     async fn unknown_ticket_is_rejected() {
         let dal = dal_for(&shared_url()).await;
-        assert!(dal
-            .ws_tickets()
-            .redeem("not-a-real-ticket")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            dal.ws_tickets()
+                .redeem("not-a-real-ticket")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[cfg(feature = "sqlite")]

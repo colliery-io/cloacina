@@ -23,8 +23,8 @@
 //! Tests run on all enabled backends (SQLite, PostgreSQL) using `get_all_fixtures()`.
 
 use crate::fixtures::get_all_fixtures;
-use cloacina::dal::unified::task_execution::{HeartbeatResult, RunnerClaimResult};
 use cloacina::dal::DAL;
+use cloacina::dal::unified::task_execution::{HeartbeatResult, RunnerClaimResult};
 use cloacina::database::universal_types::UniversalUuid;
 use cloacina::models::task_execution::NewTaskExecution;
 use cloacina::models::workflow_execution::NewWorkflowExecution;

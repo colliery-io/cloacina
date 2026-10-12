@@ -48,9 +48,9 @@ use lru::LruCache;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
 use cloacina::Database;
 use cloacina::Runtime;
+use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
 use cloacina::{DefaultRunner, DefaultRunnerConfig};
 
 /// Outcome of a bounded-drain eviction. CLOACI-T-0581.

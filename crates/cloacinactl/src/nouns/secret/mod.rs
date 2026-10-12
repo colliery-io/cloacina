@@ -26,12 +26,12 @@ use std::io::{Read, Write};
 
 use clap::{Args, Subcommand};
 
+use crate::GlobalOpts;
 use crate::commands::config::CloacinaConfig;
 use crate::shared::client::CliClient;
 use crate::shared::client_ctx::ClientContext;
 use crate::shared::error::CliError;
 use crate::shared::render;
-use crate::GlobalOpts;
 
 #[derive(Args)]
 pub struct SecretCmd {

@@ -43,9 +43,9 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use tracing::warn;
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::AppState;
 
 /// Permission level required by — or held by — a principal.
 ///

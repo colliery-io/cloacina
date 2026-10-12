@@ -94,8 +94,8 @@ pub use oidc_login_flows::OidcLoginFlowDAL;
 #[cfg(feature = "postgres")]
 pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
 pub use reactor_subscriptions::{
-    compile_predicate, lint_predicate_variables, truncate_predicate_text, ReactorFiring,
-    ReactorSubscription, ReactorSubscriptionsDAL, PREDICATE_VARIABLES,
+    PREDICATE_VARIABLES, ReactorFiring, ReactorSubscription, ReactorSubscriptionsDAL,
+    compile_predicate, lint_predicate_variables, truncate_predicate_text,
 };
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;

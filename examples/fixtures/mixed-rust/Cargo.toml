@@ -1,9 +1,14 @@
 [package]
 name = "mixed-rust"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 description = "Mixed primitive fixture: reactor + trigger + reactor-bound CG + trigger-subscribing workflow"
 publish = false
+
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["cloacina-computation-graph"]
 
 [workspace]
 
@@ -22,7 +27,5 @@ cloacina-workflow-plugin = { path = "../../../crates/cloacina-workflow-plugin" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # CLOACI-I-0128: opt into typed reactor/accumulator boundary schemas.
-schemars = "0.8"
-async-trait = "0.1"
-chrono = "0.4"
+schemars = "1"
 tokio = { version = "1", features = ["time"] }

@@ -39,11 +39,7 @@ fn injected_server_url() -> Option<String> {
     let s = url.as_string()?;
     // The deploy container may inject an empty string — treat as absent
     // (the React code used `||`, not `??`).
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
+    if s.is_empty() { None } else { Some(s) }
 }
 
 pub fn runtime_config() -> RuntimeConfig {

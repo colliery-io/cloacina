@@ -23,8 +23,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::error::ClientError;
 use crate::ClientBuilder;
+use crate::error::ClientError;
 
 /// Vendored in place of the `dirs` crate (T-0942) — home-dir lookup was the
 /// only thing we used it for. Returns `None` on wasm (no HOME), matching the
@@ -133,12 +133,14 @@ mod tests {
 
     #[test]
     fn env_scheme() {
-        std::env::set_var("CLOACI_CLIENT_TEST_KEY", "secret-from-env");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACI_CLIENT_TEST_KEY", "secret-from-env") };
         assert_eq!(
             resolve_api_key_scheme("env:CLOACI_CLIENT_TEST_KEY").unwrap(),
             "secret-from-env"
         );
-        std::env::remove_var("CLOACI_CLIENT_TEST_KEY");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACI_CLIENT_TEST_KEY") };
     }
 
     #[test]

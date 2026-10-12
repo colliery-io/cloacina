@@ -958,7 +958,7 @@ fn generate_routing_use_stmts(
 /// Linear edges have `label: null`; routing edges carry the variant name. The
 /// node order follows the IR's topological sort. (CLOACI-T-0673)
 pub(super) fn graph_topology_json(ir: &GraphIR) -> String {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     let nodes: Vec<Value> = ir
         .sorted_nodes
@@ -999,7 +999,7 @@ mod topology_tests {
     //! Guards the CG topology emission (CLOACI-T-0673): the macro must serialize
     //! the GraphIR's nodes + edges into the JSON the API/UI render as a DAG.
     use super::super::graph_ir::GraphRoutingVariant;
-    use super::{graph_topology_json, GraphEdge, GraphIR, GraphNode, TriggerSpec};
+    use super::{GraphEdge, GraphIR, GraphNode, TriggerSpec, graph_topology_json};
     use std::collections::HashMap;
 
     fn node(name: &str, inputs: &[&str], edges: Vec<GraphEdge>, terminal: bool) -> GraphNode {

@@ -17,8 +17,8 @@ it mechanically.
 
 | Provider | Version | Kind | Members | Certified core | Status |
 |---|---|---|---|---|---|
-| `cloacina-provider-kafka` | 0.1.0 | native stream accumulator | `kafka_source` | 0.10 (in-repo build) | pre-publication (`publish = false` until first wave) |
-| `cloacina-provider-fs` | 0.1.0 | WASM task suite | `read_file`, `write_file` | 0.10 (in-repo build) | pre-publication (`publish = false` until first wave) |
+| `cloacina-provider-kafka` | 0.1.1 | native stream accumulator | `kafka_source` | 0.10 (in-repo build) | pre-publication (`publish = false` until first wave) |
+| `cloacina-provider-fs` | 0.1.1 | WASM task suite | `read_file`, `write_file` | 0.10 (in-repo build) | pre-publication (`publish = false` until first wave) |
 
 ## Seed providers (in `examples/constructor-contract/`, not yet promoted)
 

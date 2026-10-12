@@ -455,5 +455,5 @@ pub trait Graph {
 
 // Re-export types module for backward compat path: `cloacina_computation_graph::types::serialize`
 pub mod types {
-    pub use crate::{deserialize, serialize, GraphError, GraphResult, InputCache, SourceName};
+    pub use crate::{GraphError, GraphResult, InputCache, SourceName, deserialize, serialize};
 }

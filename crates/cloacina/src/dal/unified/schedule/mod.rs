@@ -602,8 +602,8 @@ impl<'a> ScheduleDAL<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::universal_types::UniversalTimestamp;
     use crate::database::Database;
+    use crate::database::universal_types::UniversalTimestamp;
     use crate::models::schedule::NewSchedule;
     use std::time::Duration;
 

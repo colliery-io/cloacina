@@ -125,7 +125,7 @@ pub struct Counter {
 impl Counter {
     /// The ONLY thing the author writes for a stream accumulator: return an
     /// iterator of boundary-JSON strings. Owns `base`/`count` (moved into the map).
-    fn source(&self) -> impl Iterator<Item = String> {
+    fn source(&self) -> impl Iterator<Item = String> + use<> {
         let base = self.base;
         (0..self.count).map(move |i| serde_json::json!({ "tick": base + i }).to_string())
     }

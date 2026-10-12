@@ -38,8 +38,8 @@
 
 use std::str::FromStr;
 
-use cloacina_workflow_plugin::fidius::PluginError;
 use cloacina_workflow_plugin::CloacinaHost;
+use cloacina_workflow_plugin::fidius::PluginError;
 use tokio::runtime::Handle;
 
 use super::deferral_registry;

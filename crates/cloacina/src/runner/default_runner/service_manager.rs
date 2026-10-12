@@ -24,14 +24,14 @@
 
 use async_trait::async_trait;
 use std::sync::Arc;
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{RwLock, broadcast, watch};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
 use crate::computation_graph::scheduler::ComputationGraphScheduler;
 use crate::execution_planner::stale_claim_sweeper::StaleClaimSweeper;
 use crate::executor::workflow_executor::WorkflowExecutionError;
-use crate::registry::{traits::WorkflowRegistry, RegistryReconciler};
+use crate::registry::{RegistryReconciler, traits::WorkflowRegistry};
 use crate::{CronRecoveryService, Scheduler, TaskScheduler};
 
 /// A background service whose lifecycle is owned by the [`ServiceManager`].

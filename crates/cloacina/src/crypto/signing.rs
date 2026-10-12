@@ -64,8 +64,11 @@ pub struct GeneratedKeypair {
 ///
 /// A `GeneratedKeypair` containing the private key, public key, and fingerprint.
 pub fn generate_signing_keypair() -> GeneratedKeypair {
-    let mut csprng = rand::thread_rng();
-    let signing_key = SigningKey::generate(&mut csprng);
+    // ed25519-dalek 2 wants a rand_core 0.6 RNG; draw the 32-byte seed
+    // from rand 0.10 instead (CLOACINA-T-0963).
+    let mut seed = [0u8; 32];
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut seed);
+    let signing_key = SigningKey::from_bytes(&seed);
     let verifying_key = signing_key.verifying_key();
 
     let public_key_bytes = verifying_key.to_bytes();

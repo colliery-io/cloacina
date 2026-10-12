@@ -34,10 +34,10 @@ use tempfile::TempDir;
 
 use dynamic_task::DynamicLibraryTask;
 
+use crate::Runtime;
 use crate::registry::error::LoaderError;
 use crate::registry::loader::package_loader::PackageMetadata;
 use crate::task::{Task, TaskNamespace};
-use crate::Runtime;
 
 /// Task registrar for managing dynamically loaded package tasks.
 ///

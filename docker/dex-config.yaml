@@ -9,6 +9,7 @@
 # single /etc/hosts line:  127.0.0.1 host.docker.internal
 # (For a pure host-run demo — server binary on the host — use
 #  CLOACINA_OIDC_ISSUER=http://localhost:5556/dex instead; no hosts edit needed.)
+---
 issuer: http://host.docker.internal:5556/dex
 
 storage:

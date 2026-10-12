@@ -3,6 +3,7 @@
 # server runs in a container), the test/CI server runs on the HOST, so a plain
 # `localhost` issuer works for both the test process and Dex — no split-horizon,
 # no /etc/hosts entry. In-memory + static creds; NOT for production.
+---
 issuer: http://localhost:5556/dex
 
 storage:

@@ -17,8 +17,8 @@
 //! Integration tests for workflow pause/resume functionality.
 
 use async_trait::async_trait;
-use cloacina::executor::workflow_executor::{WorkflowExecution, WorkflowStatus};
 use cloacina::executor::WorkflowExecutor;
+use cloacina::executor::workflow_executor::{WorkflowExecution, WorkflowStatus};
 use cloacina::runner::DefaultRunner;
 use cloacina::*;
 use serde_json::Value;

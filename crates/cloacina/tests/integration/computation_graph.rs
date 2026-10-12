@@ -19,7 +19,7 @@
 //! These tests verify that the macro correctly parses topology, validates the
 //! graph, and generates a callable async function that routes data correctly.
 
-use cloacina::computation_graph::types::{serialize, GraphResult, InputCache, SourceName};
+use cloacina::computation_graph::types::{GraphResult, InputCache, SourceName, serialize};
 use serde::{Deserialize, Serialize};
 
 // --- Test boundary types ---
@@ -206,8 +206,8 @@ async fn test_routing_no_action_path() {
 // =============================================================================
 
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime, shutdown_signal, AccumulatorContext, AccumulatorRuntimeConfig,
-    BoundarySender,
+    AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, accumulator_runtime,
+    shutdown_signal,
 };
 use cloacina::computation_graph::reactor::{
     CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
@@ -519,8 +519,8 @@ async fn test_computation_graph_scheduler_end_to_end() {
 // Test 6: Polling accumulator → reactor → compiled graph
 // =============================================================================
 
-use cloacina::computation_graph::accumulator::polling_accumulator_runtime;
 use cloacina::computation_graph::PollingAccumulator;
+use cloacina::computation_graph::accumulator::polling_accumulator_runtime;
 
 struct TestPoller {
     value: f64,
@@ -603,10 +603,10 @@ async fn test_polling_accumulator_to_reactor() {
 // Test 7: Batch accumulator → reactor → compiled graph
 // =============================================================================
 
-use cloacina::computation_graph::accumulator::{
-    batch_accumulator_runtime, flush_signal, BatchAccumulatorConfig,
-};
 use cloacina::computation_graph::BatchAccumulator;
+use cloacina::computation_graph::accumulator::{
+    BatchAccumulatorConfig, batch_accumulator_runtime, flush_signal,
+};
 
 struct TestBatcher;
 
@@ -1037,7 +1037,7 @@ mod resilience_tests {
 
     #[tokio::test]
     async fn test_accumulator_health_channel() {
-        use cloacina::computation_graph::accumulator::{health_channel, AccumulatorHealth};
+        use cloacina::computation_graph::accumulator::{AccumulatorHealth, health_channel};
 
         let (tx, rx) = health_channel();
 
@@ -1268,9 +1268,9 @@ mod resilience_tests {
     // =============================================================================
 
     use cloacina::computation_graph::accumulator::{
-        health_channel, AccumulatorHealth, CheckpointHandle,
+        AccumulatorHealth, CheckpointHandle, health_channel,
     };
-    use cloacina::computation_graph::reactor::{reactor_health_channel, ReactorHealth};
+    use cloacina::computation_graph::reactor::{ReactorHealth, reactor_health_channel};
 
     /// Test: Reactor cache persists to DAL and survives restart.
     ///
@@ -1588,7 +1588,7 @@ mod resilience_tests {
     #[tokio::test]
     async fn test_state_accumulator_survives_restart() {
         use cloacina::computation_graph::accumulator::{
-            state_accumulator_runtime, StateAccumulator,
+            StateAccumulator, state_accumulator_runtime,
         };
 
         let dal = test_dal().await;

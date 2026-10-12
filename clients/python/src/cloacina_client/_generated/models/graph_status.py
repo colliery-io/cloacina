@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Self, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -201,9 +200,9 @@ class GraphStatus:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                topology_type_1 = GraphTopology.from_dict(data)
+                topology_type_0 = GraphTopology.from_dict(data)
 
-                return topology_type_1
+                return topology_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             return cast(GraphTopology | None | Unset, data)

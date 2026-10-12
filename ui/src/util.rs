@@ -22,11 +22,7 @@
 /// browser's parser (handles the server's ISO strings).
 fn parse_ms(ts: &str) -> Option<f64> {
     let ms = js_sys::Date::parse(ts);
-    if ms.is_nan() {
-        None
-    } else {
-        Some(ms)
-    }
+    if ms.is_nan() { None } else { Some(ms) }
 }
 
 /// `1.2s` / `3m 04s` style duration between two timestamps; em-dash when

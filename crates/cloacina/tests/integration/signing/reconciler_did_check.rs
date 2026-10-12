@@ -34,8 +34,8 @@ mod postgres_tests {
     use crate::fixtures::get_or_init_fixture;
     use cloacina::dal::FilesystemRegistryStorage;
     use cloacina::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
-    use cloacina::registry::traits::WorkflowRegistry;
     use cloacina::registry::WorkflowRegistryImpl;
+    use cloacina::registry::traits::WorkflowRegistry;
     use serial_test::serial;
     use sha2::{Digest, Sha256};
     use tempfile::TempDir;
@@ -43,7 +43,7 @@ mod postgres_tests {
     fn sha256_hex(bytes: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(bytes);
-        format!("{:x}", hasher.finalize())
+        hex::encode(hasher.finalize())
     }
 
     /// Build a registry impl backed by the test fixture's database.

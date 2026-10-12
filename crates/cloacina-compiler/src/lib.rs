@@ -35,7 +35,7 @@ use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 /// Start the compiler service. Blocks until SIGINT / SIGTERM.
 pub async fn run(config: CompilerConfig) -> Result<()> {

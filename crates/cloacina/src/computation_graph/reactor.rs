@@ -25,11 +25,11 @@
 //! See CLOACI-S-0005 for the full specification.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, watch, RwLock};
+use tokio::sync::{RwLock, mpsc, watch};
 
 use super::types::{GraphResult, InputCache, SourceName};
 
@@ -1250,7 +1250,7 @@ async fn persist_reactor_state(
     // degraded due to persist trouble.
     let prev = persist_streak.swap(0, std::sync::atomic::Ordering::Relaxed);
     if prev >= PERSIST_FAILURE_DEGRADE_THRESHOLD {
-        if let Some(ref tx) = health {
+        if let Some(tx) = health {
             tracing::info!(graph = %graph_name, "persist recovered after {} failures", prev);
             let _ = tx.send(ReactorHealth::Live);
         }
@@ -1278,7 +1278,7 @@ fn record_reactor_persist_failure(
     .increment(1);
     let streak = persist_streak.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     if streak == PERSIST_FAILURE_DEGRADE_THRESHOLD {
-        if let Some(ref tx) = health {
+        if let Some(tx) = health {
             tracing::warn!(
                 graph = %graph_name,
                 streak,

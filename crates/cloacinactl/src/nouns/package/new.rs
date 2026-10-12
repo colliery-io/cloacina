@@ -363,7 +363,7 @@ fn rust_cargo_toml(name: &str, graph: bool) -> String {
         r#"[package]
 name = "{name}"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # CLOACI-T-0737: this is the WHOLE shell. The compiler injects the cdylib
 # crate-type + `packaged` feature at build; the macros route their runtime

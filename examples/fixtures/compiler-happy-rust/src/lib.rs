@@ -18,7 +18,7 @@
 // green through the compiler service, loads cleanly through the reconciler,
 // and is runnable end-to-end.
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 // I-0102 / T-C: unified plugin shell.
 cloacina_workflow_plugin::package!();
@@ -31,9 +31,7 @@ cloacina_workflow_plugin::package!();
 pub mod compiler_happy_workflow {
     use super::*;
 
-    #[task(
-        retry_attempts = 0
-    )]
+    #[task(retry_attempts = 0)]
     pub async fn noop(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("compiler_e2e_happy_ran", serde_json::json!(true))?;
         Ok(())

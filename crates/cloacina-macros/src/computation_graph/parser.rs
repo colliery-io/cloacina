@@ -46,7 +46,7 @@
 
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{braced, Ident, LitStr, Token};
+use syn::{Ident, LitStr, Token, braced};
 
 /// The full parsed topology from the macro attribute.
 ///

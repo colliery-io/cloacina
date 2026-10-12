@@ -20,9 +20,9 @@
 //! error responses with request correlation IDs.
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 
 /// Standardized API error response.
