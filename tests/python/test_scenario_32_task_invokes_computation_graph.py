@@ -13,7 +13,6 @@ selected by `CLOACA_BACKEND`).
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Happy path: trigger-less CG invoked by a workflow task
 # ---------------------------------------------------------------------------

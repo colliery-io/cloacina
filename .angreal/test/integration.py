@@ -1,22 +1,18 @@
+import os
 import shutil
 import subprocess
 import sys
-import os
 from pathlib import Path
 
 import angreal  # type: ignore
+from utils import docker_clean, docker_down, docker_up
 
-from utils import docker_up, docker_down, docker_clean
-
-from ._utils import (
-    print_section_header,
-    print_final_success
-)
 from ._python_utils import (
     TestAggregator,
     _build_and_install_cloaca_unified,
     run_pytest_scenarios,
 )
+from ._utils import print_final_success, print_section_header
 
 
 def _local_crate_patch_block() -> str:

@@ -11,10 +11,10 @@ Event triggers poll user-defined conditions and fire workflows when
 those conditions are met, unlike cron scheduling which is time-based.
 """
 
-import cloaca
-from datetime import datetime
 import random
+from datetime import datetime
 
+import cloaca
 
 # =============================================================================
 # Part 1: Task Callbacks

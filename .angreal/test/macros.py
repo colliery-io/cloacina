@@ -1,11 +1,8 @@
 import subprocess
+
 import angreal  # type: ignore
 
-from ._utils import (
-    PROJECT_ROOT,
-    print_section_header,
-    print_final_success
-)
+from ._utils import PROJECT_ROOT, print_final_success, print_section_header
 
 test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 
@@ -52,7 +49,7 @@ def macros(backend=None):
                 cmd,
                 cwd=str(PROJECT_ROOT / "examples/features/workflows/validation-failures"),
                 capture_output=True,
-                text=True
+                text=True, check=False
             )
 
             if result.returncode == 0:

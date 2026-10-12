@@ -90,6 +90,7 @@ def helm_lint():
     rc = subprocess.run(
         ["helm", "template", "cloacina", str(CHART_DIR)],
         capture_output=True, text=True,
+        check=False,
     )
     if rc.returncode == 0:
         print(
@@ -126,6 +127,7 @@ def helm_lint():
     rc = subprocess.run(
         ["helm", "template", "fleet", str(AGENT_CHART_DIR)],
         capture_output=True, text=True,
+        check=False,
     )
     if rc.returncode == 0:
         print(
@@ -174,7 +176,7 @@ def _kubectl_get_health(namespace: str, service: str) -> bool:
         f"http://{service}:8080/health",
     ]
     print(f"$ {' '.join(cmd)}", flush=True)
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     print(proc.stdout)
     print(proc.stderr, file=sys.stderr)
     if proc.returncode != 0:
@@ -395,7 +397,7 @@ def _kubectl_apply_stdin(manifest: str) -> None:
 def _ctl(home: Path, *args, check=True):
     """cloacinactl against the port-forwarded server."""
     cmd = ["target/debug/cloacinactl", "--home", str(home), *args]
-    proc = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, check=False)
     if check and proc.returncode != 0:
         raise AssertionError(
             f"{' '.join(cmd)} exited {proc.returncode}\n"
@@ -493,6 +495,7 @@ def _server_logs() -> str:
         ["kubectl", "logs", f"deploy/{FLEET_RELEASE}-cloacina-server",
          "-n", FLEET_NS, "--tail=400"],
         capture_output=True, text=True,
+        check=False,
     )
     return proc.stdout + proc.stderr
 
@@ -501,6 +504,7 @@ def _pod_logs(pod: str, tail: int = 200) -> str:
     proc = subprocess.run(
         ["kubectl", "logs", pod, "-n", FLEET_NS, f"--tail={tail}"],
         capture_output=True, text=True,
+        check=False,
     )
     return proc.stdout + proc.stderr
 
@@ -532,7 +536,7 @@ def _wait_rollout_or_dump(deploy: str, label: str, timeout: str = "5m") -> None:
 
 
 def _run_workflow(home: Path, workflow: str, timeout_s: float = 120.0,
-                  context: str = None) -> str:
+                  context: str | None = None) -> str:
     """Trigger `workflow run` via cloacinactl, retrying until the reconciler
     has loaded the workflow into the registry. Returns the execution id.
     `context`, if given, is a path to a JSON context file (`--context`).

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 
 test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 e2e = angreal.command_group(name="e2e", about="end-to-end tests against a live server")
@@ -67,7 +67,7 @@ def _wait_for_health(base_url: str, timeout_s: float = 30.0, server_proc=None):
 def _cloacinactl(home: Path, *args, env=None, check=True):
     """Run `cloacinactl` as a subprocess and return (exitcode, stdout, stderr)."""
     cmd = ["target/debug/cloacinactl", "--home", str(home), *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     if check and proc.returncode != 0:
         raise AssertionError(
             f"{' '.join(cmd)} exited {proc.returncode}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
@@ -120,7 +120,7 @@ def cli():
         # Drain stderr to a file so the buffer doesn't fill (causing the
         # server to block on writes and the /health probe to flap).
         # Captured for the failure diagnostic if the test fails.
-        server_stderr = open(home / "server-stderr.log", "wb")
+        server_stderr = open(home / "server-stderr.log", "wb")  # noqa: SIM115 - stays open for the subprocess
         server = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
@@ -678,6 +678,7 @@ def default_executor():
             capture_output=True,
             text=True,
             timeout=90,
+            check=False,
         )
         if proc.returncode == 0:
             raise AssertionError(
@@ -698,7 +699,7 @@ def default_executor():
     base_url = f"http://{bind}"
     with tempfile.TemporaryDirectory() as home_s:
         home = Path(home_s)
-        server_stderr = open(home / "server-stderr.log", "wb")
+        server_stderr = open(home / "server-stderr.log", "wb")  # noqa: SIM115 - stays open for the subprocess
         server = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
@@ -714,7 +715,7 @@ def default_executor():
         try:
             if server.poll() is not None:
                 server_stderr.flush()
-                tail = open(home / "server-stderr.log").read()[-4096:]
+                tail = Path(home / "server-stderr.log").read_text()[-4096:]
                 raise AssertionError(
                     f"server with --default-executor fleet exited "
                     f"{server.returncode} during startup\nstderr tail:\n{tail}"
@@ -725,7 +726,7 @@ def default_executor():
         except Exception:
             server_stderr.flush()
             try:
-                tail = open(home / "server-stderr.log").read()[-4096:]
+                tail = Path(home / "server-stderr.log").read_text()[-4096:]
                 print(f"--- server stderr tail ---\n{tail}\n--- end ---")
             except Exception as e:
                 print(f"(failed to read server-stderr.log: {e})")

@@ -20,10 +20,11 @@ at stage time, so the compiler service's `cargo build` can resolve the
 unpublished cloacina path-deps from any unpacked tmpdir.
 """
 
+import contextlib
 import json
 import os
-import signal
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -117,6 +118,7 @@ def _port_free(port: int) -> bool:
         ["lsof", f"-iTCP:{port}", "-sTCP:LISTEN"],
         capture_output=True,
         text=True,
+        check=False,
     )
     return r.returncode != 0 or not r.stdout.strip()
 
@@ -169,6 +171,7 @@ def _cloacinactl(home: Path, *args, check=True, env=None):
         capture_output=True,
         text=True,
         env=env or os.environ.copy(),
+        check=False,
     )
     if check and proc.returncode != 0:
         raise AssertionError(
@@ -331,15 +334,13 @@ def _poll_graph_topology(
     deadline = time.time() + timeout_s
     last: dict = {}
     while time.time() < deadline:
-        try:
+        with contextlib.suppress(Exception):
             last = _get_json(
                 f"{server_url}/v1/health/graphs/{graph_name}", bootstrap_key
             )
             topo = last.get("topology")
             if topo and topo.get("nodes"):
                 return last
-        except Exception:
-            pass
         time.sleep(1.0)
     raise AssertionError(
         f"graph '{graph_name}' never reported a topology within {timeout_s}s; "
@@ -522,7 +523,7 @@ def compiler(version_deps=False):
     print(f"compiler-e2e home: {home}")
 
     try:
-        server_log = open(home / "server.log", "w")
+        server_log = open(home / "server.log", "w")  # noqa: SIM115 - stays open for the subprocess
         server_proc = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
@@ -543,7 +544,7 @@ def compiler(version_deps=False):
         # across the whole harness run (and across re-runs in dev).
         shared_target = REPO_ROOT / "target" / "compiler-e2e-cache"
         shared_target.mkdir(parents=True, exist_ok=True)
-        compiler_log = open(home / "compiler.log", "w")
+        compiler_log = open(home / "compiler.log", "w")  # noqa: SIM115 - stays open for the subprocess
         # Build fixtures in debug so the fidius wire format (JSON in debug,
         # bincode in release) matches the debug-built server we're running
         # here. In prod both server and compiler are release builds and the
@@ -998,7 +999,7 @@ def compiler(version_deps=False):
             f"at least one concurrent upload must succeed; got {outcomes!r}"
         )
         if success_count == 1:
-            loser = [err for (code, _, err) in outcomes if code != 0][0]
+            loser = next(err for (code, _, err) in outcomes if code != 0)
             assert "already exists" in loser.lower() or "packageexists" in loser.lower(), (
                 f"losing upload must report PackageExists, got: {loser!r}"
             )

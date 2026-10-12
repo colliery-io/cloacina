@@ -1,11 +1,9 @@
 import subprocess
 import sys
+
 import angreal  # type: ignore
 
-from ._utils import (
-    print_section_header,
-    print_final_success
-)
+from ._utils import print_final_success, print_section_header
 
 test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 

@@ -112,6 +112,7 @@ def main() -> int:
             cwd=CLIENT,
             capture_output=True,
             text=True,
+            check=False,
         )
         if proc.returncode != 0:
             print(proc.stdout, file=sys.stderr)

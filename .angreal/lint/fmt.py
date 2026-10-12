@@ -29,4 +29,4 @@ def fmt(check=False):
     cmd = ["cargo", "fmt", "--all"]
     if check:
         cmd += ["--", "--check"]
-    return subprocess.run(cmd, cwd=PROJECT_ROOT).returncode
+    return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False).returncode

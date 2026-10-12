@@ -8,7 +8,6 @@ import subprocess
 import time
 
 import angreal  # type: ignore
-
 from test._python_utils import _build_and_install_cloaca_unified
 from utils import run_example_or_tutorial
 
@@ -168,6 +167,7 @@ def python_workflow():
             capture_output=True,
             text=True,
             timeout=120,
+            check=False,
         )
         if result.returncode == 0:
             print("SUCCESS: Python workflow example completed.")
@@ -271,7 +271,7 @@ def _run_gold_path(
         env = os.environ.copy()
         if server_env:
             env.update(server_env)
-        server_log = open(home / "server.log", "w")
+        server_log = open(home / "server.log", "w")  # noqa: SIM115 - stays open for the subprocess
         server_proc = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
@@ -293,7 +293,7 @@ def _run_gold_path(
         # cold-compile once across all harness lanes.
         shared_target = PROJECT_ROOT / "target" / "compiler-e2e-cache"
         shared_target.mkdir(parents=True, exist_ok=True)
-        compiler_log = open(home / "compiler.log", "w")
+        compiler_log = open(home / "compiler.log", "w")  # noqa: SIM115 - stays open for the subprocess
         compiler_proc = subprocess.Popen(
             [
                 "target/debug/cloacina-compiler",
@@ -456,7 +456,7 @@ def _multi_tenant_steps(workflow_name):
     only, so this lane does its own tenant-aware run/poll)."""
 
     def steps(ctl, home):
-        from test.e2e.compiler import _cloacinactl, _wait_http, _kill
+        from test.e2e.compiler import _cloacinactl, _kill, _wait_http
 
         def tctl(tenant, *args, check=True):
             return _cloacinactl(home, "--tenant", tenant, *args, check=check)
@@ -532,7 +532,7 @@ def _multi_tenant_steps(workflow_name):
         try:
             mt_home = home / "mtbeta-compiler"
             mt_home.mkdir(exist_ok=True)
-            mt_log = open(mt_home / "compiler.log", "w")
+            mt_log = open(mt_home / "compiler.log", "w")  # noqa: SIM115 - stays open for the subprocess
             mt_compiler = subprocess.Popen(
                 [
                     "target/debug/cloacina-compiler",
@@ -598,7 +598,7 @@ def _multi_tenant_steps(workflow_name):
         # process-shared `Runtime`, so an uninstalled workflow is rejected even
         # though other tenants have loaded the same name.
         ctl("tenant", "create", "mtgamma", check=False)
-        code, out, err = tctl(
+        code, out, _err = tctl(
             "mtgamma", "workflow", "run", workflow_name, check=False,
         )
         if code == 0 and _exec_id(out):
@@ -730,6 +730,7 @@ def _graph_kafka_steps(label, workflow_name, reactor, topic, payloads):
             input="\n".join(payloads) + "\n",
             text=True,
             capture_output=True,
+            check=False,
         )
         if produce.returncode != 0:
             raise RuntimeError(

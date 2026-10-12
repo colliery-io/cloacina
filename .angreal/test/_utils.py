@@ -5,6 +5,7 @@ Shared utilities for Cloacina core engine test commands.
 import os
 import re
 from pathlib import Path
+
 import angreal  # type: ignore
 
 # Project root for accessing examples, cloacina, etc. (one level up from .angreal)
@@ -17,7 +18,7 @@ PROJECT_ROOT = Path(angreal.get_root()).parent
 _toolchain = re.search(
     r'^channel\s*=\s*"([^"]+)"',
     (PROJECT_ROOT / "rust-toolchain.toml").read_text(),
-    re.M,
+    re.MULTILINE,
 )
 if _toolchain:
     os.environ.setdefault("RUSTUP_TOOLCHAIN", _toolchain.group(1))
@@ -66,6 +67,7 @@ def wait_for_postgres_stable(
             ],
             capture_output=True,
             cwd=cwd,
+            check=False,
         )
         if r.returncode == 0:
             streak += 1
@@ -109,6 +111,7 @@ def psql_retry(
             + list(sql_args),
             capture_output=True,
             cwd=cwd,
+            check=False,
         )
         if last.returncode == 0:
             return last

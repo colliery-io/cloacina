@@ -25,6 +25,7 @@ source of truth), and seeding/producing run as compose services, not host
 processes.
 """
 
+import contextlib
 import json
 import subprocess
 import time
@@ -88,12 +89,10 @@ def _api(method, path, key=DEMO_BOOTSTRAP_KEY, expect=(200, 201, 409)):
 def _wait_health(timeout_s=180):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        try:
+        with contextlib.suppress(Exception):
             code, _ = _api("GET", "/health")
             if code == 200:
                 return True
-        except Exception:
-            pass
         time.sleep(2)
     return False
 
@@ -104,7 +103,7 @@ def _provision(tenant, n):
     code, fleet = _api("GET", f"/v1/tenants/{tenant}/fleet")
     have = fleet.get("desired_count", 0) if isinstance(fleet, dict) else 0
     for _ in range(max(0, n - have)):
-        code, body = _api("POST", f"/v1/tenants/{tenant}/fleet/provision")
+        code, _body = _api("POST", f"/v1/tenants/{tenant}/fleet/provision")
         if code == 409:
             break  # at effective limit
     code, fleet = _api("GET", f"/v1/tenants/{tenant}/fleet")
@@ -196,7 +195,7 @@ def down(clean: bool = False):
     help="only this service (e.g. server, agent, compiler, ui, harness, producer)",
     required=False, takes_value=True, is_flag=False,
 )
-def logs(service: str = None):
+def logs(service: str | None = None):
     args = ["logs", "-f", "--tail", "100"]
     if service:
         args.append(service)
@@ -233,7 +232,7 @@ def logs(service: str = None):
     help="desired agents to provision for the public realm (default 2)",
     required=False, takes_value=True, is_flag=False,
 )
-def fleet_up(no_build: bool = False, agents: str = None):
+def fleet_up(no_build: bool = False, agents: str | None = None):
     n_public = int(agents) if agents else 2
     args = ["up", "-d"]
     if not no_build:
@@ -260,7 +259,7 @@ def fleet_up(no_build: bool = False, agents: str = None):
     print(f"  Provisioned desired_count → public={pub}  acme={acme}")
     print("  The actuator is spawning agents. Watch them appear:")
     print("    docker ps --filter label=cloacina.managed")
-    print("    curl -H 'Authorization: Bearer %s' %s/v1/agents" % (DEMO_BOOTSTRAP_KEY, SERVER_URL))
+    print(f"    curl -H 'Authorization: Bearer {DEMO_BOOTSTRAP_KEY}' {SERVER_URL}/v1/agents")
     print("  Logs: `angreal ui logs`   Stop: `angreal ui fleet-down`")
     print("=" * 64 + "\n")
     return 0

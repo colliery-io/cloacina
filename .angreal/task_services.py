@@ -2,12 +2,12 @@
 Service management tasks for Cloacina.
 """
 
-import angreal  # type: ignore
 import shutil
 from pathlib import Path
 
-from utils import docker_up, docker_down, docker_clean
+import angreal  # type: ignore
 from test._python_utils import scrub_python_artifacts
+from utils import docker_clean, docker_down, docker_up
 
 # Define command group
 services = angreal.command_group(name="services", about="commands for managing backing services")

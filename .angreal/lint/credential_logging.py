@@ -30,5 +30,6 @@ def credential_logging():
     result = subprocess.run(
         ["python3", str(script)],
         cwd=PROJECT_ROOT,
+        check=False,
     )
     return result.returncode

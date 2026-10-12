@@ -14,16 +14,17 @@ Kafka load is intentionally not run here — the demo compose has no broker;
 adding a Kafka soak compose-profile is the tracked follow-up.
 """
 
+import contextlib
 import json
 import subprocess
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 
 test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 soak = angreal.command_group(name="soak", about="sustained-load soak tests")
@@ -91,9 +92,9 @@ class PersistentWebSocket:
     """Persistent WebSocket connection for high-throughput event injection."""
 
     def __init__(self, host, port, path, token, timeout=5):
-        import socket as _socket
         import base64 as _base64
         import os as _os
+        import socket as _socket
 
         self.sock = _socket.create_connection((host, port), timeout=timeout)
         ws_key = _base64.b64encode(_os.urandom(16)).decode()
@@ -122,8 +123,8 @@ class PersistentWebSocket:
 
     def send(self, payload_str):
         """Send a masked binary frame. Returns True on success."""
-        import struct
         import os
+        import struct
 
         try:
             payload = payload_str.encode() if isinstance(payload_str, str) else payload_str
@@ -154,12 +155,10 @@ class PersistentWebSocket:
 
     def close(self):
         import os
-        try:
+        with contextlib.suppress(Exception):
             close_frame = bytearray([0x88, 0x80]) + os.urandom(4)
             self.sock.sendall(close_frame)
             self.sock.close()
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -215,12 +214,10 @@ class KafkaProducer:
 def _wait_health(timeout_s=180):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        try:
+        with contextlib.suppress(Exception):
             s, _ = api_request("GET", f"{BASE_URL}/health")
             if s == 200:
                 return True
-        except Exception:
-            pass
         time.sleep(2)
     raise RuntimeError(f"server /health not ready within {timeout_s}s")
 
@@ -355,8 +352,8 @@ def server(minutes=None):
         f"Step 4: Operational soak ({soak_duration}s / {soak_duration / 60:.1f} min)")
     print("  Executing workflows + WS market-data + API polling concurrently...")
 
-    import threading
     import math
+    import threading
 
     stop_event = threading.Event()
     stats = {

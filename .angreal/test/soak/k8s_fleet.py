@@ -61,6 +61,7 @@ Tunable via env (flags override):
   CLOACINA_SOAK_K8S_DISK_FLOOR    disk-free abort threshold, percent (12)
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -68,20 +69,18 @@ import signal
 import subprocess
 import sys
 import time
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 
 # Reuse the e2e platform bring-up + API/kubectl helpers verbatim — the soak MUST
 # exercise the SAME real-RBAC path as the e2e (don't duplicate brittle logic).
 from ..e2e.k8s_fleet import (
-    RELEASE,
     NS,
-    BOOTSTRAP_KEY,
+    RELEASE,
     _api,
     _check_tool,
     _compose,
@@ -209,7 +208,7 @@ def _metric(text, name):
     for line in text.splitlines():
         if line.startswith("#"):
             continue
-        if line.startswith(name + " ") or line.startswith(name + "{"):
+        if line.startswith((name + " ", name + "{")):
             try:
                 return float(line.rsplit(None, 1)[-1])
             except (ValueError, IndexError):
@@ -335,7 +334,7 @@ def _disk_free_pct():
 # ---------------------------------------------------------------------------
 
 def _now_iso():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class DurableLog:
@@ -344,7 +343,7 @@ class DurableLog:
 
     def __init__(self, path):
         self.path = path
-        self._f = open(path, "a", buffering=1)  # line-buffered
+        self._f = open(path, "a", buffering=1)  # noqa: SIM115 - line-buffered
 
     def write(self, obj):
         self._f.write(json.dumps(obj, separators=(",", ":")) + "\n")
@@ -352,10 +351,8 @@ class DurableLog:
         os.fsync(self._f.fileno())
 
     def close(self):
-        try:
+        with contextlib.suppress(Exception):
             self._f.close()
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -413,10 +410,8 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
               no_teardown=False, disk_floor=None, skip_build=False):
     # Line-buffer stdout so a 24h run redirected to a file is live-tailable
     # (the DURABLE LOG is still the fsync'd source of truth either way).
-    try:
+    with contextlib.suppress(Exception):
         sys.stdout.reconfigure(line_buffering=True)
-    except Exception:
-        pass
 
     _check_tool("docker", "install Docker Desktop or colima")
     _check_tool("kubectl", "sudo port install kubectl")
@@ -428,7 +423,7 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
 
     PLATFORM_DIR.mkdir(parents=True, exist_ok=True)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     log_path = RUNS_DIR / f"k8s-soak-{ts}.log"
     log = DurableLog(log_path)
 
@@ -466,7 +461,7 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
         # --- platform bring-up (or re-attach) ------------------------------
         print_section_header("Step 1: platform (k3s + registry + server, real RBAC)")
         bring_up_cluster(PROJECT, PLATFORM_DIR, compose_env, KUBECONFIG, reuse=reuse_cluster)
-        server_ref, agent_ref = _prepare_images(TAG, skip_build or reuse_cluster)
+        _server_ref, agent_ref = _prepare_images(TAG, skip_build or reuse_cluster)
         helm_deploy_server(KUBECONFIG, PLATFORM_DIR, TAG, agent_ref, reuse=reuse_cluster)
 
         print_section_header("Step 2: port-forward + readiness")
@@ -718,7 +713,7 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
 
     except SystemExit:
         raise
-    except BaseException as exc:  # noqa: BLE001 — log the cause durably, then re-raise
+    except BaseException as exc:
         log.write({"event": "ERROR", "ts": _now_iso(), "error": repr(exc)})
         raise
     finally:

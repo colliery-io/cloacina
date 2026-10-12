@@ -93,9 +93,9 @@ def main() -> int:
             ("lldb", ["lldb", "-p", str(pid), "-b", "-o", "thread backtrace all", "-o", "detach"]),
         ]:
             try:
-                r = subprocess.run(dump_cmd, capture_output=True, text=True, timeout=60)
+                r = subprocess.run(dump_cmd, capture_output=True, text=True, timeout=60, check=False)
                 chunks.append(f"===== {label} =====\n{r.stdout}\n{r.stderr}\n")
-            except Exception as e:  # noqa: BLE001 — diagnostics best-effort
+            except Exception as e:
                 chunks.append(f"===== {label} FAILED: {e} =====\n")
         return "\n".join(chunks)
 

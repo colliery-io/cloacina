@@ -5,17 +5,17 @@ Spawns the daemon process, drops packages into the watch directory,
 verifies reconciliation, removes packages, and verifies clean shutdown.
 """
 
+import io
 import json
 import signal
 import subprocess
 import tarfile
 import time
-import io
 from pathlib import Path
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 
 test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 soak = angreal.command_group(name="soak", about="sustained-load soak tests")
@@ -261,7 +261,7 @@ def daemon(duration=None):
 
         # Start daemon process (stderr to log file to avoid mixing with test output)
         daemon_stderr_path = Path(daemon_home) / "daemon_stderr.log"
-        daemon_stderr_file = open(daemon_stderr_path, "w")
+        daemon_stderr_file = open(daemon_stderr_path, "w")  # noqa: SIM115 - stays open for the subprocess
         daemon_proc = subprocess.Popen(
             [daemon_binary, "daemon", "--home", daemon_home, "--poll-interval", "1000"],
             stdout=subprocess.PIPE,

@@ -10,6 +10,7 @@ Exit codes:
 """
 
 import sys
+
 import cloaca
 
 # Register tasks inside a WorkflowBuilder context so the @task decorators

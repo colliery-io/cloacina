@@ -101,7 +101,7 @@ def fleet():
 
     try:
         # --- server (all tasks routed to the fleet) -------------------------
-        server_log = open(home / "server.log", "w")
+        server_log = open(home / "server.log", "w")  # noqa: SIM115 - stays open for the subprocess
         server_env = os.environ.copy()
         # CLOACI-T-0640: the executor is a single server-level knob now. Send
         # every task to the fleet by setting the default executor — no globs.
@@ -126,7 +126,7 @@ def fleet():
         # --- compiler service ----------------------------------------------
         shared_target = REPO_ROOT / "target" / "compiler-e2e-cache"
         shared_target.mkdir(parents=True, exist_ok=True)
-        compiler_log = open(home / "compiler.log", "w")
+        compiler_log = open(home / "compiler.log", "w")  # noqa: SIM115 - stays open for the subprocess
         compiler_proc = subprocess.Popen(
             [
                 "target/debug/cloacina-compiler",
@@ -163,7 +163,7 @@ def fleet():
         print("  ok: workflow compiled (build_status = success)")
 
         # --- start the agent (after the artifact exists to fetch) ----------
-        agent_log = open(home / "agent.log", "w")
+        agent_log = open(home / "agent.log", "w")  # noqa: SIM115 - stays open for the subprocess
         agent_proc = subprocess.Popen(
             [
                 "target/debug/cloacina-agent",

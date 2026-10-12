@@ -51,7 +51,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 
 test = angreal.command_group(
     name="test", about="Cloacina test suites (unit, integration, e2e, soak)"
@@ -440,7 +440,7 @@ def k8s_fleet(no_cleanup=False, skip_build=False, agents="2", tag="k8s-e2e"):
 
         # --- images ----------------------------------------------------------
         print("\n--- 2. build/push images to the local registry ---\n")
-        server_ref, agent_ref = _prepare_images(tag, skip_build)
+        _server_ref, agent_ref = _prepare_images(tag, skip_build)
 
         # --- helm install: server in-cluster, fleet.actuator=kubernetes ------
         print("\n--- 3. helm install cloacina-server (fleet.actuator=kubernetes) ---\n")

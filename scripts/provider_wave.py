@@ -261,11 +261,11 @@ def check_runtime_flip(provider_dir: Path, name: str, local: str, recorded: dict
     new_major = local.split(".")[0]
     if old_major == new_major:
         return [
-            f"runtime changed {was} → {now} without a MAJOR bump "
+            (f"runtime changed {was} → {now} without a MAJOR bump "
             f"(v{prev.get('version')} → v{local}). Grants are ENFORCED on wasm and "
             f"ADVISORY on native: this silently rewrites every consumer's trust "
             f"posture. Bump the major version and say so in the CHANGELOG "
-            f"(see providers/PROVIDERS.md)"
+            f"(see providers/PROVIDERS.md)")
         ]
     print(f"  note: {name} runtime {was} → {now} across a MAJOR bump — allowed, "
           f"consumers must re-pin `runtime = \"{now}\"`")

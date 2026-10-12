@@ -1,8 +1,8 @@
 import angreal  # type: ignore
 
-from .unit import unit
-from .macros import macros
 from .integration import integration
+from .macros import macros
+from .unit import unit
 
 test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 
@@ -23,21 +23,21 @@ def all():
     try:
         unit()
     except Exception as e:
-        failed_tests.append(f"Unit tests: {str(e)}")
+        failed_tests.append(f"Unit tests: {e!s}")
 
     # Run macro tests
     print("\n=== Running Macro Tests ===")
     try:
         macros()
     except Exception as e:
-        failed_tests.append(f"Macro tests: {str(e)}")
+        failed_tests.append(f"Macro tests: {e!s}")
 
     # Run integration tests last
     print("\n=== Running Integration Tests ===")
     try:
         integration()
     except Exception as e:
-        failed_tests.append(f"Integration tests: {str(e)}")
+        failed_tests.append(f"Integration tests: {e!s}")
 
     if failed_tests:
         failure_summary = "\n".join(f"- {test}" for test in failed_tests)

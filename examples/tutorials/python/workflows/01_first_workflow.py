@@ -20,6 +20,7 @@ Prerequisites:
 """
 
 import sys
+
 import cloaca
 
 # Create workflow using the new workflow-scoped pattern

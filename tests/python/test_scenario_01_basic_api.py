@@ -148,8 +148,9 @@ class TestContextOperations:
 
     def test_context_serialization(self):
         """Test JSON serialization and deserialization."""
-        import cloaca
         import json
+
+        import cloaca
 
         original_data = {
             "string": "test_string",
@@ -348,7 +349,6 @@ class TestTaskDecorator:
             def none_return_task(context):
                 context.set("none_task_executed", True)
                 # Return None indicates success
-                return None
 
             ctx = cloaca.Context()
             result = none_return_task(ctx)

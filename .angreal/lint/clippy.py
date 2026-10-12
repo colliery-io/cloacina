@@ -29,4 +29,4 @@ def clippy(deny_warnings=False):
     cmd = ["cargo", "clippy", "--all-targets", "--all-features"]
     if deny_warnings:
         cmd += ["--", "-D", "warnings"]
-    return subprocess.run(cmd, cwd=PROJECT_ROOT).returncode
+    return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False).returncode

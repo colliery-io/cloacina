@@ -7,12 +7,11 @@ import sys
 import time
 
 import angreal  # type: ignore
-
 from test._python_utils import _build_and_install_cloaca_unified
 from utils import (
-    docker_up,
-    docker_down,
     check_postgres_container_health,
+    docker_down,
+    docker_up,
     smart_postgres_reset,
 )
 
@@ -46,7 +45,7 @@ def _fresh_tutorial_db(db_name):
          "-v", "ON_ERROR_STOP=1", "-c", drop, "-c", create],
     ):
         try:
-            proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30, check=False)
             if proc.returncode == 0:
                 return True
         except (OSError, subprocess.TimeoutExpired):
@@ -85,11 +84,11 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite", pyth
         if backend == "postgres" and owns_env:
             print("Starting PostgreSQL container...", flush=True)
             if docker_up() != 0:
-                raise Exception("Failed to start PostgreSQL container")
+                raise RuntimeError("Failed to start PostgreSQL container")
             print("Waiting for PostgreSQL to be ready...", flush=True)
             time.sleep(10)
             if not check_postgres_container_health():
-                raise Exception("PostgreSQL container is not healthy")
+                raise RuntimeError("PostgreSQL container is not healthy")
 
         if owns_env:
             print("Building cloaca wheel and tutorial venv...", flush=True)
@@ -108,7 +107,7 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite", pyth
             if db_name:
                 print(f"Provisioning dedicated database {db_name}...", flush=True)
                 if not _fresh_tutorial_db(db_name):
-                    raise Exception(f"failed to provision database {db_name}")
+                    raise RuntimeError(f"failed to provision database {db_name}")
             else:
                 print("Resetting PostgreSQL schema...", flush=True)
                 reset_ok = smart_postgres_reset()
@@ -132,6 +131,7 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite", pyth
             text=True,
             timeout=300,
             env=env,
+            check=False,
         )
 
         if result.returncode == 0:
@@ -309,11 +309,11 @@ def run_all(backend=None, attempts=None):
         if needs_postgres:
             print("Starting PostgreSQL container...", flush=True)
             if docker_up() != 0:
-                raise Exception("Failed to start PostgreSQL container")
+                raise RuntimeError("Failed to start PostgreSQL container")
             print("Waiting for PostgreSQL to be ready...", flush=True)
             time.sleep(10)
             if not check_postgres_container_health():
-                raise Exception("PostgreSQL container is not healthy")
+                raise RuntimeError("PostgreSQL container is not healthy")
 
         print("Building cloaca wheel and shared tutorial venv (once)...", flush=True)
         _venv, python_exe, _pip_exe = _build_and_install_cloaca_unified(venv_name)

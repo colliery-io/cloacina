@@ -11,7 +11,7 @@ itself stays a HUMAN step (same convention as core's `release bump`).
 
 import subprocess
 import sys
-from datetime import timezone, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import angreal  # type: ignore
@@ -23,7 +23,7 @@ providers = angreal.command_group(name="providers", about="first-party provider 
 
 
 def _run(*args) -> int:
-    return subprocess.run([sys.executable, str(SCRIPT), *args], cwd=PROJECT_ROOT).returncode
+    return subprocess.run([sys.executable, str(SCRIPT), *args], cwd=PROJECT_ROOT, check=False).returncode
 
 
 @providers()
@@ -33,6 +33,7 @@ def check():
     out = subprocess.run(
         [sys.executable, str(SCRIPT), "classify", "--json"],
         cwd=PROJECT_ROOT, capture_output=True, text=True,
+        check=False,
     )
     import json
     worst = rc
@@ -51,6 +52,7 @@ def wave():
     out = subprocess.run(
         [sys.executable, str(SCRIPT), "classify", "--json"],
         cwd=PROJECT_ROOT, capture_output=True, text=True,
+        check=False,
     )
     import json
     rows = json.loads(out.stdout or "[]")
@@ -63,7 +65,7 @@ def wave():
         print("\nguards FAILED — fix the above before cutting a wave", file=sys.stderr)
         return 1
 
-    wave_id = datetime.now(timezone.utc).strftime("%Y.%m")
+    wave_id = datetime.now(UTC).strftime("%Y.%m")
     tag = f"providers-v{wave_id}"
     print("\n== ready ==")
     print(f"candidates: {[r['name'] for r in candidates] or 'none (re-certify-only wave)'}")

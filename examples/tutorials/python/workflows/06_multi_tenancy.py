@@ -24,11 +24,11 @@ Prerequisites:
 """
 
 import os
-import sys
-import cloaca
 import random
+import sys
 from datetime import datetime
-from typing import Dict, Optional
+
+import cloaca
 
 # Multi-tenant workflow definitions using workflow-scoped pattern
 # Create tenant onboarding workflow
@@ -169,8 +169,8 @@ class TenantManager:
     def __init__(self, admin_postgres_url: str):
         """Initialize with PostgreSQL admin connection URL."""
         self.admin_postgres_url = admin_postgres_url
-        self.tenant_runners: Dict[str, cloaca.DefaultRunner] = {}
-        self.tenant_credentials: Dict[str, cloaca.TenantCredentials] = {}
+        self.tenant_runners: dict[str, cloaca.DefaultRunner] = {}
+        self.tenant_credentials: dict[str, cloaca.TenantCredentials] = {}
 
         # Initialize database admin for tenant provisioning
         self.db_admin = cloaca.DatabaseAdmin(admin_postgres_url)
@@ -217,7 +217,7 @@ class TenantManager:
         print(f"Runner created for tenant {tenant_id} with dedicated credentials")
         return runner
 
-    def get_tenant_runner(self, tenant_id: str) -> Optional[cloaca.DefaultRunner]:
+    def get_tenant_runner(self, tenant_id: str) -> cloaca.DefaultRunner | None:
         """Get existing runner for tenant."""
         return self.tenant_runners.get(tenant_id)
 
@@ -230,7 +230,7 @@ class TenantManager:
         print(f"Executing {workflow_name} for tenant {tenant_id}")
         return runner.execute(workflow_name, context)
 
-    def onboard_new_tenant(self, tenant_id: str, tenant_info: Dict) -> Dict:
+    def onboard_new_tenant(self, tenant_id: str, tenant_info: dict) -> dict:
         """Complete onboarding workflow for new tenant."""
         print(f"Starting onboarding for tenant: {tenant_id}")
 
@@ -262,7 +262,7 @@ class TenantManager:
                 "error": getattr(result, 'error', 'Unknown error')
             }
 
-    def process_tenant_data(self, tenant_id: str) -> Dict:
+    def process_tenant_data(self, tenant_id: str) -> dict:
         """Process data for specific tenant."""
         print(f"Processing data for tenant: {tenant_id}")
 
@@ -461,7 +461,7 @@ if __name__ == "__main__":
         print(f"Onboarding success rate: {results['onboarding_success_rate']:.1%}")
         print(f"Processing success rate: {results['processing_success_rate']:.1%}")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - the tutorial reports any failure
         print(f"Tutorial failed: {e}")
         print()
         print("Common issues:")

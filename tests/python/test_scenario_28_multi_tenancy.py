@@ -14,9 +14,9 @@ is only supported with PostgreSQL schema-based isolation.
 """
 
 import os
-import pytest
-import cloaca
 
+import cloaca
+import pytest
 
 # Skip the entire test file if we're using SQLite backend
 pytestmark = pytest.mark.skipif(
@@ -162,7 +162,7 @@ class TestMultiTenancyIntegration:
             cloaca.DefaultRunner.with_schema(
                 "postgresql://test:test@invalid_host/test",
                 "cron_tenant_a"
-            )  # noqa: F841
+            )
 
 
 class TestMultiTenancyDocumentation:

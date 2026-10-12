@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+
 import angreal
 
 # Define command group
@@ -176,7 +177,7 @@ def performance_all():
             test_func()
             print(f"SUCCESS: {test_name} completed successfully")
         except Exception as e:
-            failed_tests.append(f"{test_name}: {str(e)}")
+            failed_tests.append(f"{test_name}: {e!s}")
             print(f"ERROR: {test_name} failed with exception: {e}")
 
     # Summary
@@ -229,7 +230,7 @@ def performance_quick():
                 ["cargo", "run", "--"] + args,
                 cwd=example_dir,
                 capture_output=True,
-                text=True
+                text=True, check=False
             )
 
             print(result.stdout)
@@ -253,7 +254,7 @@ def performance_quick():
                  "--latency-duration", "5", "--throughput-duration", "3"],
                 cwd=cg_dir,
                 capture_output=True,
-                text=True
+                text=True, check=False
             )
             print(result.stdout)
             results.append(("computation-graph-bench", result.returncode))
