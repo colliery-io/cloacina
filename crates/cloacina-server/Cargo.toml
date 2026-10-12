@@ -42,7 +42,7 @@ cloacina = { workspace = true, default-features = false, features = ["constructo
 # `postgres` feature so it tracks `cloacina/postgres`.
 diesel = { version = "2.1.0" }
 cloacina-api-types = { workspace = true, features = ["openapi"] }
-utoipa = { version = "5" }
+utoipa = { version = "6" }
 # Python runtime — server registers the impl at startup so uploaded
 # Python-language packages can be loaded by the reconciler. Compiler
 # service intentionally does not depend on this (T-0529).
