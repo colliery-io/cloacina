@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -351,7 +352,8 @@ def _run_gold_path(
         for name in ("server.log", "compiler.log"):
             log_path = home / name
             if log_path.exists():
-                lines = log_path.read_text(errors="replace").splitlines()
+                text = re.sub(r"\x1b\[[0-9;]*m", "", log_path.read_text(errors="replace"))
+                lines = text.splitlines()
                 flagged = [l for l in lines if " ERROR " in l or " WARN " in l][:60]
                 tails.append(
                     f"--- first ERROR/WARN lines of {name} ---\n" + "\n".join(flagged)
