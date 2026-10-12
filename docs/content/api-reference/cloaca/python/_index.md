@@ -1,5 +1,0 @@
----
-title: "python"
----
-
-{{< toc-tree >}}

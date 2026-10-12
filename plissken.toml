@@ -4,21 +4,26 @@ version_from = "cargo"
 
 [output]
 format = "markdown"
-path = "docs/content/api-reference"
-template = "mkdocs-material"
+path = "docs/src/content/docs/reference/api"
+template = "starlight"
 
+# crates/cloacina-python is listed so that plissken finds the PyO3 bindings:
+# it writes them as the Python API (reference/api/cloacina-python/) next to
+# their Rust pages.
 [rust]
 crates = [
     "crates/cloacina",
     "crates/cloacina-computation-graph",
     "crates/cloacina-workflow",
+    "crates/cloacina-python",
 ]
 
 # Python (cloaca) API pages are generated from the PyO3 binding source.
 # The bindings moved out of crates/cloacina into the dedicated
 # crates/cloacina-python crate (T-0529); keep this path pointed there.
-# Regenerate the whole api-reference tree with `plissken render` from the
-# project root and commit the output.
+# Regenerate the whole reference/api tree with `plissken render` from the
+# project root and commit the output. plissken does not delete pages: remove
+# the folder first.
 [python]
 package = "cloaca"
 source = "crates/cloacina-python/src"

@@ -18,7 +18,7 @@
 //! (CLOACI-I-0133 / T-0858, design D-1).
 //!
 //! [`SecretStoreResolver`] is the embedded / in-process backend for the
-//! [`Context::secret`](cloacina_workflow::Context::secret) accessor: it bundles
+//! [`cloacina_workflow::Context::secret`] accessor: it bundles
 //! the three things resolution needs — a [`SecretStore`] handle, the tenant
 //! `org_id`, and the server **KEK** — and decrypts a named secret into its
 //! `{field: value}` map at fire time via [`SecretStore::resolve_secret`]. The

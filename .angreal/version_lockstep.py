@@ -27,7 +27,7 @@ _JSON_FILES = [
     # info.version is the first `"version":` key in the emitted spec; the
     # count=1 substitution below relies on that. Missed at 0.11.0 AND 0.11.1
     # (spec-drift + sdk-version gates both failed on it) — hence a touchpoint.
-    ("openapi · spec info.version", "docs/static/openapi.json"),
+    ("openapi · spec info.version", "docs/public/openapi.json"),
 ]
 _PY_PYPROJECT = ("python · client pyproject", "clients/python/pyproject.toml")
 _PY_INIT = ("python · client __init__", "clients/python/src/cloacina_client/__init__.py")
@@ -66,15 +66,17 @@ _HELM_CHARTS = [
 
 # Docs carry user-facing pins too (T-0940: every doc pin sat at 0.10 straight
 # through the 0.11 release because nothing swept them). Three shapes tracked
-# across docs/content (api-reference is generated and excluded): minor-form
-# crate pins (`cloacina = "0.11"`), server image tags, and the installer's
-# `--version vX.Y.Z` example.
+# across docs/src/content/docs (reference/api is generated and excluded):
+# minor-form crate pins (`cloacina = "0.11"`), server image tags, and the
+# installer's `--version vX.Y.Z` example.
 def _doc_files():
     import pathlib
+    root = pathlib.Path(PROJECT_ROOT, "docs", "src", "content", "docs")
     return sorted(
         str(pp.relative_to(PROJECT_ROOT))
-        for pp in pathlib.Path(PROJECT_ROOT, "docs", "content").rglob("*.md")
-        if "api-reference" not in pp.parts
+        for pp in root.rglob("*.md*")
+        if pp.suffix in (".md", ".mdx")
+        and pp.relative_to(root).parts[:2] != ("reference", "api")
     )
 
 _DOC_CRATE_PIN = re.compile(r'(cloacina(?!-provider)[\w-]*\s*=\s*(?:"|\{[^}\n]*?version\s*=\s*"))(\d+\.\d+)(")')

@@ -1,0 +1,48 @@
+---
+title: "Package Manifest Reference"
+description: "The package.toml manifest — moved to the Package Format reference"
+sidebar:
+  order: 45
+  label: "Package Manifest"
+---
+
+:::caution[Moved — `manifest.json` has been removed]
+The old `manifest.json` schema this page documented is **no longer used**.
+Packages are described by a top-level **`package.toml`** (`[package]` identity +
+a closed `[metadata]` table), and the server reads `package.toml` directly. The
+`manifest.json` reader/writer machinery has been removed.
+:::
+
+The canonical manifest schema now lives with the archive format:
+
+- **[Package Format](../../explanation/engine/package-format/)** — the
+  `.cloacina` archive layout (Rust + Python) and the full `package.toml`
+  `[package]` / `[metadata]` schema, including which keys are accepted and which
+  are rejected (`package_type`, `[[metadata.triggers]]`).
+- **[Packaging Python Workflows](../../how-to/embed/packaging-python-workflows/)**
+  — the step-by-step Python packaging procedure.
+
+## Triggers
+
+Triggers are **not** declared in the manifest. They are declared in code —
+`#[trigger]` (Rust) or `@cloaca.trigger` (Python) — and registered when the
+package is compiled/imported at load time. See
+[Packaged Triggers](../../tutorials/embed/14-packaged-triggers/).
+
+## Declared params and per-task docs
+
+The package metadata (the `workflow_packages.metadata` JSON the server reads
+from `package.toml`) now also carries:
+
+- **`declared_params`** — the JSON-Schema input slots derived from
+  `#[workflow(params(...))]` / `@cloaca.workflow_params(...)`. These are the
+  workflow's typed execute-time inputs; the web UI renders a typed Run-workflow
+  form from them, and the execute API validates against them. See
+  [Declared params](../macros/#declared-params).
+- **Per-task `what` / `why` doc fields** — the structured task documentation
+  parsed from `#[task]` doc-comments / `@task` docstrings (the `what:` / `why:`
+  convention). These surface on each `WorkflowTaskNode` as `doc_what` /
+  `doc_why`.
+
+No manifest migration was needed to add these — they are additive fields in the
+existing metadata JSON.

@@ -28,7 +28,7 @@
 //!   ciphertext leaves the server.
 //! - **Agent:** [`InMemorySecretResolver::from_wrapped`] unwraps those blobs with
 //!   the agent's ephemeral private key into an in-memory map, then serves them to
-//!   task bodies via [`Context::secret`](cloacina_workflow::Context::secret). The
+//!   task bodies via [`cloacina_workflow::Context::secret`]. The
 //!   agent never holds the at-rest KEK and never persists the plaintext.
 //!
 //! ## Binding (replay/isolation)
@@ -241,7 +241,7 @@ impl SecretResolver for InMemorySecretResolver {
 
 /// Extract the concrete secret NAMES a fire context references via the T-0859
 /// `{"$secret": name}` alias map (stored under
-/// [`SECRET_REFS_KEY`](cloacina_workflow::secret::SECRET_REFS_KEY)).
+/// [`cloacina_workflow::secret::SECRET_REFS_KEY`]).
 ///
 /// Returns the deduped, sorted set of secret names a fleet dispatch must resolve
 /// + wrap. NAMES only — this reads the alias map, which by construction carries

@@ -96,7 +96,7 @@ jobs:
             api:
               - 'crates/cloacina-server/**'
               - 'crates/cloacina-api-types/**'
-              - 'docs/static/openapi.json'
+              - 'docs/public/openapi.json'
               - 'clients/typescript/**'
               - 'Cargo.*'
             # UI ship-readiness gate (CLOACI-I-0117 / T-0661): the SPA, the
@@ -104,7 +104,7 @@ jobs:
             ui:
               - 'ui/**'
               - 'clients/typescript/**'
-              - 'docs/static/openapi.json'
+              - 'docs/public/openapi.json'
             # CLOACI-T-0917: CI guard scripts (credential-logging, version
             # lockstep, publish tiers) must at minimum re-run quick-checks
             # when they change.
@@ -165,7 +165,7 @@ jobs:
         run: cargo clippy --features postgres --all-targets
 
   # OpenAPI spec drift gate (CLOACI-T-0643 / NFR-001): the committed
-  # docs/static/openapi.json must match a fresh `emit-openapi` from the
+  # docs/public/openapi.json must match a fresh `emit-openapi` from the
   # server. Fails when routes/DTOs change without regenerating the spec.
   spec-check:
     name: OpenAPI Spec Drift

@@ -147,5 +147,5 @@ way, with no instance-specific code.
 Because an instance *is* a schedule, the existing pause/resume controls apply
 to it (`cloacinactl trigger pause sync_file`).
 
-See [Workflow Instances](../../../../docs/content/engine/scheduling/workflow-instances.md)
+See [Workflow Instances](../../../../docs/src/content/docs/explanation/primitives/scheduling/workflow-instances.md)
 for the full model.

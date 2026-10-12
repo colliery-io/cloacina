@@ -19,13 +19,13 @@
 //! Every REST handler carries a `#[utoipa::path]` annotation; this module
 //! collects them into one document, served at `/openapi.json` and emitted
 //! by the `emit-openapi` subcommand. The committed copy lives at
-//! `docs/static/openapi.json` (published at the docs-site root);
+//! `docs/public/openapi.json` (published at the docs-site root);
 //! `angreal docs spec-check` fails CI when the two diverge.
 //!
 //! Scope: the public REST surface only. The agent-fleet routes are
 //! intentionally absent (server↔agent internal protocol, not public
 //! contract), and the WebSocket endpoints are documented separately in
-//! `docs/content/platform/reference/websocket-protocol.md` (T-0644) since
+//! `docs/src/content/docs/reference/websocket-protocol.md` (T-0644) since
 //! OpenAPI cannot describe WS message flows.
 
 use cloacina_api_types::{

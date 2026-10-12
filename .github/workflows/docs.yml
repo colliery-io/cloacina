@@ -1,5 +1,7 @@
----
+# Builds the Starlight docs in docs/ on each pull request that changes them,
+# and publishes them to the GitHub Pages of this repository on a push to main.
 name: Documentation
+
 on:
   workflow_call:
   push:
@@ -7,93 +9,53 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow one concurrent deployment
 concurrency:
-  group: "pages"
+  group: docs-${{ github.ref }}
   cancel-in-progress: true
 
-# Default to bash
-defaults:
-  run:
-    shell: bash
-
 jobs:
-  # Build job
   build:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    defaults:
+      run:
+        working-directory: docs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          fetch-depth: 0
-
-      - name: Setup Pages
-        id: pages
-        uses: actions/configure-pages@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+          node-version: 22
+      # On a pull request DOCS_SITE and DOCS_BASE stay empty: the site builds at /.
+      - id: pages
+        uses: actions/configure-pages@v6
+        if: github.event_name != 'pull_request'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+        env:
+          DOCS_SITE: ${{ steps.pages.outputs.origin }}
+          DOCS_BASE: ${{ steps.pages.outputs.base_path }}
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:
-          python-version: '3.x'
+          path: docs/dist
 
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Set up Hugo
-        uses: peaceiris/actions-hugo@v2
-        with:
-          hugo-version: '0.147.0'
-          extended: true
-
-      - name: Cache Hugo modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/hugo
-            resources
-          key: ${{ runner.os }}-hugo-${{ hashFiles('**/go.mod', '**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-hugo-
-
-      - name: Docker Compose Cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
-
-      - name: docker compose up
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: ".angreal/docker-compose.yaml"
-
-      - name: Build docs
-        run: angreal docs build
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        if: github.ref == 'refs/heads/main'
-        with:
-          path: ./docs/public
-
-  # Deployment job
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - id: deployment
+        uses: actions/deploy-pages@v5

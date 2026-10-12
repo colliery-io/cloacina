@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CLIENT = ROOT / "clients" / "python"
 GENERATED = CLIENT / "src" / "cloacina_client" / "_generated"
-SPEC = ROOT / "docs" / "static" / "openapi.json"
+SPEC = ROOT / "docs" / "public" / "openapi.json"
 CONFIG = CLIENT / "generator-config.yaml"
 
 # THE pin. Keep this in lockstep with clients/python/README.md's regeneration
@@ -48,7 +48,7 @@ def _fail(msg: str) -> int:
     print(
         "\nRegenerate with the pinned generator and commit the result:\n"
         f"  cd clients/python && uvx {GENERATOR} generate \\\n"
-        "    --path ../../docs/static/openapi.json \\\n"
+        "    --path ../../docs/public/openapi.json \\\n"
         "    --config generator-config.yaml --meta none \\\n"
         "    --output-path src/cloacina_client/_generated --overwrite",
         file=sys.stderr,

@@ -12,9 +12,9 @@ target/
 .git/
 .gitignore
 
-# Documentation site (pre-built)
-docs/public/
-docs/themes/
+# Documentation site (built)
+docs/dist/
+docs/.astro/
 
 # Node — installed and built inside the UI image (ui/Dockerfile); never
 # ship host node_modules or stale dist into the build context.
