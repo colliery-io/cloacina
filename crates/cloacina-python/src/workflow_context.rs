@@ -18,7 +18,7 @@ use super::namespace::PyTaskNamespace;
 use pyo3::prelude::*;
 
 /// WorkflowContext provides namespace management for Python workflows
-#[pyclass(name = "WorkflowContext")]
+#[pyclass(name = "WorkflowContext", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyWorkflowContext {
     tenant_id: String,

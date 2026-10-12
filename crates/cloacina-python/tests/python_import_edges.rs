@@ -83,7 +83,7 @@ def never_registered(context):
 #[test]
 #[serial_test::serial(python_import)]
 fn hostile_module_scope_loop_is_interrupted_and_subsystem_survives() {
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
 
     // Shorten the deadline — the 60s default is not a test-shaped number.
     // FIXME: Audit that the environment access only happens in single-threaded code.
@@ -158,7 +158,7 @@ fn hostile_module_scope_loop_is_interrupted_and_subsystem_survives() {
 #[test]
 #[serial_test::serial(python_import)]
 fn concurrent_loads_from_two_threads_namespace_their_own_tasks() {
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
 
     let dir_a = TempDir::new().unwrap();
     let dir_b = TempDir::new().unwrap();
@@ -246,7 +246,7 @@ fn decorating_from_a_foreign_thread_hard_errors() {
     };
     use cloacina_python::workflow_context::PyWorkflowContext;
 
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
 
     // This thread enters a workflow scope...
     push_workflow_context(PyWorkflowContext::new("tenant_x", "pkg-x", "wf_x"));
