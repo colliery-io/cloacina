@@ -25,8 +25,8 @@ pub use postgres_impl::*;
 
 mod postgres_impl {
     use crate::database::connection::{
-        escape_password, validate_schema_name, validate_username, Database, SchemaError,
-        UsernameError,
+        Database, SchemaError, UsernameError, escape_password, validate_schema_name,
+        validate_username,
     };
     use diesel::connection::Connection;
     use diesel::prelude::*;

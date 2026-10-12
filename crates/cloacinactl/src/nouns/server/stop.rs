@@ -16,8 +16,8 @@
 
 use anyhow::Result;
 
-use crate::shared::pid;
 use crate::GlobalOpts;
+use crate::shared::pid;
 
 pub async fn run(globals: &GlobalOpts, force: bool) -> Result<()> {
     let pid_path = globals.home.join("server.pid");

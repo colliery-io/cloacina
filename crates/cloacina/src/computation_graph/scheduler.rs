@@ -23,18 +23,18 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch, RwLock};
+use tokio::sync::{RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use super::accumulator::{health_channel, shutdown_signal, AccumulatorHealth};
+use super::accumulator::{AccumulatorHealth, health_channel, shutdown_signal};
 use super::reactor::{
-    reactor_health_channel, CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
-    ReactorFireDecider, ReactorHandle,
+    CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor, ReactorFireDecider, ReactorHandle,
+    reactor_health_channel,
 };
 use super::registry::{AccumulatorAuthPolicy, EndpointRegistry, ReactorAuthPolicy};
 use super::types::{GraphResult, InputCache, SourceName};
-use crate::tenant_scope::{resolve_tenant_key, TenantKey, TenantScope};
+use crate::tenant_scope::{TenantKey, TenantScope, resolve_tenant_key};
 
 /// Declaration of a computation graph to be loaded by the [`ComputationGraphScheduler`].
 #[derive(Clone)]
@@ -2531,8 +2531,8 @@ impl ComputationGraphScheduler {
 mod tests {
     use super::*;
     use crate::computation_graph::accumulator::{
-        accumulator_runtime, Accumulator, AccumulatorContext, AccumulatorRuntimeConfig,
-        BoundarySender, CheckpointHandle,
+        Accumulator, AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender,
+        CheckpointHandle, accumulator_runtime,
     };
     use crate::computation_graph::types::{GraphResult, InputCache};
     use serde::{Deserialize, Serialize};
@@ -2691,10 +2691,12 @@ mod tests {
                 .await,
             1
         );
-        assert!(registry
-            .list_reactors()
-            .await
-            .contains(&"test_graph".to_string()));
+        assert!(
+            registry
+                .list_reactors()
+                .await
+                .contains(&"test_graph".to_string())
+        );
 
         // Unload
         scheduler
@@ -2803,14 +2805,18 @@ mod tests {
 
         // Unknown accumulators and other tenants stay unmapped — a typo must
         // NOT produce a redirect.
-        assert!(scheduler
-            .foreign_reactor_for_accumulator(Some("acme"), "nope")
-            .await
-            .is_none());
-        assert!(scheduler
-            .foreign_reactor_for_accumulator(Some("globex"), "events")
-            .await
-            .is_none());
+        assert!(
+            scheduler
+                .foreign_reactor_for_accumulator(Some("acme"), "nope")
+                .await
+                .is_none()
+        );
+        assert!(
+            scheduler
+                .foreign_reactor_for_accumulator(Some("globex"), "events")
+                .await
+                .is_none()
+        );
         scheduler.shutdown_all().await;
     }
 
@@ -2836,10 +2842,12 @@ mod tests {
             .await
             .expect("claim-lost load still succeeds");
         assert!(scheduler.reactors.read().await.is_empty(), "not started");
-        assert!(scheduler
-            .foreign_reactor_for_accumulator(Some("acme"), "pipeline_acc")
-            .await
-            .is_some());
+        assert!(
+            scheduler
+                .foreign_reactor_for_accumulator(Some("acme"), "pipeline_acc")
+                .await
+                .is_some()
+        );
 
         // Owner still alive: the tick must NOT take over.
         let mut wd = OwnershipWatchdog::new(3);
@@ -3251,30 +3259,38 @@ mod tests {
             .unwrap();
 
         let outsider = TenantScope::tenant("globex");
-        assert!(scheduler
-            .reactor_accumulator_names("rx", outsider)
-            .await
-            .is_none());
+        assert!(
+            scheduler
+                .reactor_accumulator_names("rx", outsider)
+                .await
+                .is_none()
+        );
         assert!(scheduler.unload_reactor("rx", outsider).await.is_err());
-        assert!(scheduler
-            .unbind_graph_from_reactor("pipeline", outsider)
-            .await
-            .is_err());
-        assert!(scheduler
-            .bind_graph_to_reactor(
-                "intruder".to_string(),
-                "rx".to_string(),
-                outsider,
-                nop_graph_fn(),
-            )
-            .await
-            .is_err());
+        assert!(
+            scheduler
+                .unbind_graph_from_reactor("pipeline", outsider)
+                .await
+                .is_err()
+        );
+        assert!(
+            scheduler
+                .bind_graph_to_reactor(
+                    "intruder".to_string(),
+                    "rx".to_string(),
+                    outsider,
+                    nop_graph_fn(),
+                )
+                .await
+                .is_err()
+        );
 
         // The owner's entries are untouched.
-        assert!(scheduler
-            .reactor_accumulator_names("rx", TenantScope::tenant("acme"))
-            .await
-            .is_some());
+        assert!(
+            scheduler
+                .reactor_accumulator_names("rx", TenantScope::tenant("acme"))
+                .await
+                .is_some()
+        );
         assert_eq!(scheduler.reactors.read().await.len(), 1);
 
         scheduler.shutdown_all().await;
@@ -3304,17 +3320,21 @@ mod tests {
         assert_eq!(key, TenantKey::new(None, "rx"));
 
         // Untenanted callers address it by bare name, as always…
-        assert!(scheduler
-            .reactor_accumulator_names("rx", TenantScope::untenanted())
-            .await
-            .is_some());
+        assert!(
+            scheduler
+                .reactor_accumulator_names("rx", TenantScope::untenanted())
+                .await
+                .is_some()
+        );
         // …and a tenant-scoped caller reaches it through the untenanted
         // fallback, which is how an embedded/inventory reactor stays usable
         // once a deployment grows tenants.
-        assert!(scheduler
-            .reactor_accumulator_names("rx", TenantScope::tenant("acme"))
-            .await
-            .is_some());
+        assert!(
+            scheduler
+                .reactor_accumulator_names("rx", TenantScope::tenant("acme"))
+                .await
+                .is_some()
+        );
 
         scheduler
             .unload_graph("pipeline", TenantScope::untenanted())

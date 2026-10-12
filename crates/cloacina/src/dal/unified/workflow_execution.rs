@@ -19,10 +19,10 @@
 //! All state transitions are transactional: the status update and execution event
 //! are written atomically. If either fails, both are rolled back.
 
+use super::DAL;
 use super::models::{
     NewUnifiedExecutionEvent, NewUnifiedWorkflowExecution, UnifiedWorkflowExecution,
 };
-use super::DAL;
 use crate::database::schema::unified::{execution_events, workflow_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;

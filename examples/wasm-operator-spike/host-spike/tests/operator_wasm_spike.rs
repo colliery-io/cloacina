@@ -42,10 +42,8 @@ fn component() -> &'static [u8] {
             .status()
             .expect("cargo build --target wasm32-wasip2");
         assert!(status.success(), "operator-fixture wasm build failed");
-        std::fs::read(
-            fixture.join("target/wasm32-wasip2/release/wasm_operator_fixture.wasm"),
-        )
-        .unwrap()
+        std::fs::read(fixture.join("target/wasm32-wasip2/release/wasm_operator_fixture.wasm"))
+            .unwrap()
     })
 }
 
@@ -77,7 +75,9 @@ fn configured_operator_loads_and_invokes() {
         .load_wasm_configured(
             "wasm-operator-pkg",
             &__fidius_MinimalOperator::MinimalOperator_WASM_DESCRIPTOR,
-            &Config { op: "prefix".into() },
+            &Config {
+                op: "prefix".into(),
+            },
         )
         .expect("load_wasm_configured");
 
@@ -103,14 +103,18 @@ fn n_differently_configured_instances_coexist() {
         .load_wasm_configured(
             "wasm-operator-pkg",
             &__fidius_MinimalOperator::MinimalOperator_WASM_DESCRIPTOR,
-            &Config { op: "prefix".into() },
+            &Config {
+                op: "prefix".into(),
+            },
         )
         .unwrap();
     let b = host
         .load_wasm_configured(
             "wasm-operator-pkg",
             &__fidius_MinimalOperator::MinimalOperator_WASM_DESCRIPTOR,
-            &Config { op: "suffix".into() },
+            &Config {
+                op: "suffix".into(),
+            },
         )
         .unwrap();
 

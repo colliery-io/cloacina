@@ -103,7 +103,7 @@ pub fn resolve_manifest_str(raw: &str, dir: &Path) -> Result<toml::Value, String
                      (Cargo.toml + src/lib.rs) and a Python workflow/ dir — declare \
                      language explicitly"
                         .to_string(),
-                )
+                );
             }
             (false, false) => {
                 return Err(
@@ -111,7 +111,7 @@ pub fn resolve_manifest_str(raw: &str, dir: &Path) -> Result<toml::Value, String
                      and no workflow/ dir (Python) — declare language explicitly or fix \
                      the layout"
                         .to_string(),
-                )
+                );
             }
         };
         meta.insert("language".into(), toml::Value::String(lang.into()));

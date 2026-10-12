@@ -44,8 +44,8 @@ use std::process::Command;
 use cloacina_constructor_contract::ProviderManifest;
 
 use super::constructor_provider::{
-    package_constructor_provider, ProviderPackageError, ProviderPackageOptions,
-    PROVIDER_MANIFEST_FILE,
+    PROVIDER_MANIFEST_FILE, ProviderPackageError, ProviderPackageOptions,
+    package_constructor_provider,
 };
 
 /// The subdirectory (inside a package / bundle) that holds unpacked provider
@@ -425,7 +425,7 @@ pub fn pack_providers_from_specs(
          [package]\n\
          name = \"cloacina-provider-fetch\"\n\
          version = \"0.0.0\"\n\
-         edition = \"2021\"\n\n\
+         edition = \"2024\"\n\n\
          [dependencies]\n",
     );
     for (name, spec) in specs {

@@ -17,8 +17,8 @@
 use std::path::Path;
 use tempfile::TempDir;
 
-use crate::shared::error::CliError;
 use crate::GlobalOpts;
+use crate::shared::error::CliError;
 
 pub async fn run(
     globals: &GlobalOpts,

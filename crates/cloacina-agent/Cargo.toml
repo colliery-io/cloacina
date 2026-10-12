@@ -1,7 +1,8 @@
 [package]
 name = "cloacina-agent"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "DB-less execution agent for the Cloacina fleet (CLOACI-I-0114)."
 authors.workspace = true
 license.workspace = true

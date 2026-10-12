@@ -35,10 +35,10 @@ pub mod validation;
 
 #[cfg(test)]
 mod tests;
-pub use platform::{detect_current_platform, SUPPORTED_TARGETS};
+pub use platform::{SUPPORTED_TARGETS, detect_current_platform};
 pub use types::{CargoToml, CompileOptions};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::path::PathBuf;
 
 /// High-level function to package a workflow project using fidius source packaging.

@@ -1,7 +1,8 @@
 [package]
 name = "cloacina"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "A Rust library for resilient task execution and orchestration."
 authors.workspace = true
 license.workspace = true

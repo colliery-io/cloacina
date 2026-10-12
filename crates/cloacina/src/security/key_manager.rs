@@ -137,7 +137,7 @@ pub trait KeyManager: Send + Sync {
 
     /// Get information about a signing key (without the private key).
     async fn get_signing_key_info(&self, key_id: UniversalUuid)
-        -> Result<SigningKeyInfo, KeyError>;
+    -> Result<SigningKeyInfo, KeyError>;
 
     /// Get the decrypted signing key for signing operations.
     ///

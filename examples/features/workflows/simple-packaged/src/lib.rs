@@ -39,7 +39,7 @@ cargo run --example end_to_end_demo
 ```
 */
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 // I-0102 / T-C: unified plugin shell. Replaces the per-macro `_ffi`
 // emission that `#[workflow]` previously generated.
@@ -58,9 +58,7 @@ pub mod data_processing {
     use super::*;
 
     /// Step 1: Collect input data
-    #[task(
-        retry_attempts = 2
-    )]
+    #[task(retry_attempts = 2)]
     pub async fn collect_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         println!("🔍 Collecting data...");
 

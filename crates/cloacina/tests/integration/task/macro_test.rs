@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, Context, Task, TaskError, TaskNamespace, TaskRegistry};
+use cloacina::{Context, Task, TaskError, TaskNamespace, TaskRegistry, task};
 use serde_json::Value;
 
 #[task(id = "macro-test-simple-task", dependencies = [])]

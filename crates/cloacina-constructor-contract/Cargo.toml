@@ -18,7 +18,8 @@
 [package]
 name = "cloacina-constructor-contract"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

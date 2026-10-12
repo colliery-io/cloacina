@@ -256,7 +256,7 @@ fn topological_sort(nodes: &HashMap<String, GraphNode>) -> Result<Vec<String>, G
     // Start with nodes that have no incoming edges
     let mut queue: VecDeque<String> = in_degree
         .iter()
-        .filter(|(_, &deg)| deg == 0)
+        .filter(|&(_, &deg)| deg == 0)
         .map(|(name, _)| name.clone())
         .collect();
 

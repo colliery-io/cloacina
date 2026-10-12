@@ -166,7 +166,7 @@ pub fn lint_predicate_variables(expr: &str) -> Result<(), String> {
             return Err(format!(
                 "could not parse CEL predicate '{}' (the CEL parser rejected it)",
                 truncate_predicate_text(expr)
-            ))
+            ));
         }
     };
 

@@ -26,7 +26,7 @@ tasks may only persist non-sensitive derived facts.
 See the README for the gold-path run recipe.
 */
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 cloacina_workflow_plugin::package!();
 

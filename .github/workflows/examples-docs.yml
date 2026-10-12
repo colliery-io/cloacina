@@ -62,7 +62,7 @@ jobs:
           python-version: '3.x'
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
 
       - name: Cache Rust build
         uses: actions/cache@v4
@@ -114,7 +114,7 @@ jobs:
           pip install angreal
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
 
       - name: Restore build cache
         uses: actions/cache/restore@v4
@@ -211,7 +211,7 @@ jobs:
           pip install angreal
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
         with:
           # fs-grant-demo packages a constructor provider to wasm32-wasip2 at
           # runtime (CLOACI-T-0892); the target is a no-op for other examples.
@@ -313,7 +313,7 @@ jobs:
           python-version: '3.x'
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
 
       # The wheel is a release build of the cloacina-python crate; nothing
       # else in CI builds that profile, so this lane keeps its own cache.

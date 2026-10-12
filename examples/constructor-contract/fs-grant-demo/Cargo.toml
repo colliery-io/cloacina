@@ -10,7 +10,8 @@
 [package]
 name = "fs-grant-demo"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 publish = false
 
 # Used by macro output, which cargo-machete cannot see.

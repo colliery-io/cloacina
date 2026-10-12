@@ -1,7 +1,8 @@
 [package]
 name = "cloacina-python"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "Python runtime + pyo3 bindings for Cloacina. Split out of the main cloacina crate so binaries that don't execute Python don't transitively link pyo3 (CLOACI-T-0529)."
 authors.workspace = true
 license.workspace = true

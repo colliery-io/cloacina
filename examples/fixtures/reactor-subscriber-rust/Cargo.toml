@@ -1,7 +1,8 @@
 [package]
 name = "reactor-subscriber-rust"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 description = "Subscriber CG referencing the reactor declared in reactor-only-rust by string name"
 publish = false
 

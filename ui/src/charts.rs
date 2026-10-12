@@ -29,11 +29,7 @@ use crate::util::format_duration;
 
 fn parse_ms(ts: &str) -> Option<f64> {
     let ms = js_sys::Date::parse(ts);
-    if ms.is_nan() {
-        None
-    } else {
-        Some(ms)
-    }
+    if ms.is_nan() { None } else { Some(ms) }
 }
 
 fn is_terminal(status: &str) -> bool {

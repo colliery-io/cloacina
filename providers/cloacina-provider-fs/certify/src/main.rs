@@ -43,11 +43,11 @@
 use std::path::PathBuf;
 
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::{set_provider_search_path, unpack_provider_archive};
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError, WorkflowExecutor, WorkflowStatus};
+use cloacina::{Context, TaskError, WorkflowExecutor, WorkflowStatus, task, workflow};
 use serde_json::json;
 
 // Fixed on-disk locations. The `constructor!` macro needs STRING LITERALS for its

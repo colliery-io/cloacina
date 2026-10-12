@@ -115,12 +115,12 @@ impl CorsConfig {
 }
 
 use anyhow::{Context, Result};
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::get};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{info, warn};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use cloacina::computation_graph::registry::EndpointRegistry;
 use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
@@ -466,7 +466,9 @@ pub async fn run(
     info!("  Bind:     {}", bind);
     info!("  Database: {}", mask_db_url(&database_url));
     info!("  Home:     {}", home.display());
-    warn!("Server running without TLS -- use a TLS-terminating reverse proxy (nginx, Caddy, Envoy) in production");
+    warn!(
+        "Server running without TLS -- use a TLS-terminating reverse proxy (nginx, Caddy, Envoy) in production"
+    );
 
     // Initialize Prometheus metrics recorder
     let metrics_builder = metrics_exporter_prometheus::PrometheusBuilder::new();
@@ -1394,7 +1396,7 @@ pub async fn run(
             "fleet control loop started (leader-gated)"
         );
         tokio::spawn(async move {
-            use crate::autoscaler::{decide, should_act_at, tenant_utilizations, ScaleAction};
+            use crate::autoscaler::{ScaleAction, decide, should_act_at, tenant_utilizations};
             // Cooldown state lives in the DB (`agent_desired_counts.last_autoscaled_at`),
             // not in a per-replica in-memory map: leadership rotates per tick, so an
             // in-memory cooldown could be bypassed by a later-leading replica. Reading
@@ -1668,7 +1670,7 @@ async fn request_id_middleware(
 /// and control plane — no Nginx container, no CORS for the bundled UI.
 #[cfg(feature = "embedded-ui")]
 mod embedded_ui {
-    use axum::http::{header, StatusCode, Uri};
+    use axum::http::{StatusCode, Uri, header};
 
     /// Content type by extension for the embedded UI bundle — vendored in
     /// place of `mime_guess` (T-0942): trunk emits a small, known set of
@@ -1746,7 +1748,7 @@ mod embedded_ui {
 
 #[cfg(all(test, feature = "embedded-ui"))]
 mod embedded_ui_tests {
-    use axum::http::{header, StatusCode, Uri};
+    use axum::http::{StatusCode, Uri, header};
     use axum::response::IntoResponse;
 
     /// CLOACI-I-0130 (T-0850): the fallback's three contracts — SPA paths
@@ -1763,13 +1765,14 @@ mod embedded_ui_tests {
             resp.headers().get(header::CACHE_CONTROL).unwrap(),
             "no-store"
         );
-        assert!(resp
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("text/html"));
+        assert!(
+            resp.headers()
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
 
         // Root → index.html too.
         let resp = super::embedded_ui::ui_fallback(Uri::from_static("/"))
@@ -1782,11 +1785,12 @@ mod embedded_ui_tests {
             .await
             .into_response();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-        assert!(resp
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .map(|v| v.to_str().unwrap_or("").contains("json"))
-            .unwrap_or(false));
+        assert!(
+            resp.headers()
+                .get(header::CONTENT_TYPE)
+                .map(|v| v.to_str().unwrap_or("").contains("json"))
+                .unwrap_or(false)
+        );
 
         // A real hashed asset → immutable cache. Find one from the bundle.
         let asset = <super::embedded_ui::UiAssets as rust_embed::RustEmbed>::iter()
@@ -2619,16 +2623,19 @@ mod tests {
     #[serial]
     async fn secret_factory_resolves_stored_secret_end_to_end() {
         use crate::fleet_executor::FleetSecretResolverFactory;
-        use crate::secrets::{tenant_org_id, ServerFleetSecretResolverFactory};
+        use crate::secrets::{ServerFleetSecretResolverFactory, tenant_org_id};
         use base64::Engine;
-        use cloacina::security::{SecretStore, KEK_ENV_VAR};
+        use cloacina::security::{KEK_ENV_VAR, SecretStore};
 
         let state = test_state().await;
         let kek_bytes = [5u8; 32];
-        std::env::set_var(
-            KEK_ENV_VAR,
-            base64::engine::general_purpose::STANDARD.encode(kek_bytes),
-        );
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe {
+            std::env::set_var(
+                KEK_ENV_VAR,
+                base64::engine::general_purpose::STANDARD.encode(kek_bytes),
+            )
+        };
 
         // Write a secret into the public tenant the way create_secret does.
         let store = SecretStore::new(cloacina::dal::DAL::new(state.database.clone()));
@@ -2661,22 +2668,27 @@ mod tests {
 
         // Fail closed: with the KEK unset the factory yields NO resolver, so a
         // secret-referencing dispatch cannot proceed (never a plaintext leak).
-        std::env::remove_var(KEK_ENV_VAR);
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var(KEK_ENV_VAR) };
         assert!(
             factory.resolver_for("public", "any_pkg").await.is_none(),
             "factory must fail closed (None) when CLOACINA_SECRET_KEK is unset"
         );
 
         // Cleanup.
-        std::env::set_var(
-            KEK_ENV_VAR,
-            base64::engine::general_purpose::STANDARD.encode(kek_bytes),
-        );
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe {
+            std::env::set_var(
+                KEK_ENV_VAR,
+                base64::engine::general_purpose::STANDARD.encode(kek_bytes),
+            )
+        };
         store
             .delete_secret(tenant_org_id("public"), &name)
             .await
             .expect("cleanup delete");
-        std::env::remove_var(KEK_ENV_VAR);
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var(KEK_ENV_VAR) };
     }
 
     /// Create a tenant-scoped (non-admin) API key and return the plaintext
@@ -3009,8 +3021,8 @@ mod tests {
     #[serial]
     async fn ready_stays_200_with_crashed_graph_visible_in_health_routes() {
         use cloacina::computation_graph::accumulator::{
-            accumulator_runtime, Accumulator, AccumulatorContext, AccumulatorRuntimeConfig,
-            BoundarySender, CheckpointHandle,
+            Accumulator, AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender,
+            CheckpointHandle, accumulator_runtime,
         };
         use cloacina::computation_graph::reactor::{
             CompiledGraphFn, InputStrategy, ReactionCriteria,
@@ -5862,7 +5874,7 @@ mod tests {
 
     // ── Auth lifecycle: OIDC refresh + login throttle (CLOACI-T-0923) ──────
 
-    use crate::identity::{mint_for_principal, ResolvedPrincipal};
+    use crate::identity::{ResolvedPrincipal, mint_for_principal};
     use crate::routes::local_auth::LoginThrottleConfig;
     use cloacina::dal::unified::login_throttle::ThrottlePolicy;
 

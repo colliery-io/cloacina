@@ -39,12 +39,12 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::grants::GrantSpec;
 use cloacina::registry::loader::{
-    clear_provider_search_path, load_constructor_node, load_constructor_node_in,
-    set_provider_search_path, unpack_provider_archive, ProviderScope, ScopedProviderSearch,
+    ProviderScope, ScopedProviderSearch, clear_provider_search_path, load_constructor_node,
+    load_constructor_node_in, set_provider_search_path, unpack_provider_archive,
 };
 use serde_json::json;
 

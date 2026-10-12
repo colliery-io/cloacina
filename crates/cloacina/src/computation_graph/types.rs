@@ -19,5 +19,5 @@
 //! Re-exported from `cloacina-computation-graph` crate.
 
 pub use cloacina_computation_graph::{
-    deserialize, serialize, GraphError, GraphResult, InputCache, SourceName,
+    GraphError, GraphResult, InputCache, SourceName, deserialize, serialize,
 };

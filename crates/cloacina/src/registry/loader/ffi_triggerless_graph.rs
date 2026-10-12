@@ -28,7 +28,7 @@
 use cloacina_computation_graph::{GraphError, GraphResult};
 use cloacina_workflow::Context;
 use cloacina_workflow_plugin::{
-    TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult, METHOD_INVOKE_TRIGGERLESS_GRAPH,
+    METHOD_INVOKE_TRIGGERLESS_GRAPH, TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult,
 };
 use std::sync::Arc;
 

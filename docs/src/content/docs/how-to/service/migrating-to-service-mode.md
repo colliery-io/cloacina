@@ -55,7 +55,7 @@ Swap the full `cloacina` crate for the packaged dependencies. This is the **whol
 [package]
 name = "my-workflow"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 cloacina = { version = "0.11", features = ["macros", "sqlite"] }
@@ -69,7 +69,7 @@ tokio = { version = "1", features = ["full"] }
 [package]
 name = "my-workflow"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 cloacina-workflow = { version = "0.11", features = ["packaged", "macros"] }

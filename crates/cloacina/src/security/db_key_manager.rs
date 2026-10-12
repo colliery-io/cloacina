@@ -25,11 +25,11 @@ use super::key_manager::{KeyError, KeyManager, PublicKeyExport, SigningKeyInfo, 
 use crate::crypto::{
     compute_key_fingerprint, decrypt_private_key, encrypt_private_key, generate_signing_keypair,
 };
+use crate::dal::unified::DAL;
 use crate::dal::unified::models::{
     NewUnifiedKeyTrustAcl, NewUnifiedSigningKey, NewUnifiedTrustedKey, UnifiedKeyTrustAcl,
     UnifiedSigningKey, UnifiedTrustedKey,
 };
-use crate::dal::unified::DAL;
 use crate::database::schema::unified::{key_trust_acls, signing_keys, trusted_keys};
 use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
 use async_trait::async_trait;

@@ -20,8 +20,8 @@
 //! both PostgreSQL and SQLite backends, selecting the appropriate implementation
 //! at runtime based on the database connection type.
 
-use super::models::{NewUnifiedRecoveryEvent, UnifiedRecoveryEvent};
 use super::DAL;
+use super::models::{NewUnifiedRecoveryEvent, UnifiedRecoveryEvent};
 use crate::database::schema::unified::recovery_events;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;

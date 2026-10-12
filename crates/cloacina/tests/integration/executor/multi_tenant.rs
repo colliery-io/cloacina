@@ -428,20 +428,28 @@ mod sqlite_multi_tenant_tests {
         let executions_b = dal_b.workflow_execution().list_recent(100).await?;
 
         // Tenant A only sees A's execution
-        assert!(executions_a
-            .iter()
-            .any(|e| e.id == UniversalUuid(execution_a_id)));
-        assert!(!executions_a
-            .iter()
-            .any(|e| e.id == UniversalUuid(execution_b_id)));
+        assert!(
+            executions_a
+                .iter()
+                .any(|e| e.id == UniversalUuid(execution_a_id))
+        );
+        assert!(
+            !executions_a
+                .iter()
+                .any(|e| e.id == UniversalUuid(execution_b_id))
+        );
 
         // Tenant B only sees B's execution
-        assert!(executions_b
-            .iter()
-            .any(|e| e.id == UniversalUuid(execution_b_id)));
-        assert!(!executions_b
-            .iter()
-            .any(|e| e.id == UniversalUuid(execution_a_id)));
+        assert!(
+            executions_b
+                .iter()
+                .any(|e| e.id == UniversalUuid(execution_b_id))
+        );
+        assert!(
+            !executions_b
+                .iter()
+                .any(|e| e.id == UniversalUuid(execution_a_id))
+        );
 
         // Shutdown executors
         runner_a.shutdown().await?;

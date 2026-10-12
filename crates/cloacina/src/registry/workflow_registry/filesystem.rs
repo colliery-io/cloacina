@@ -485,22 +485,26 @@ description = "Test package"
 
         let mut registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
 
-        assert!(registry
-            .get_workflow("rm-pkg", "1.0.0")
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            registry
+                .get_workflow("rm-pkg", "1.0.0")
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         registry
             .unregister_workflow("rm-pkg", "1.0.0")
             .await
             .unwrap();
 
-        assert!(registry
-            .get_workflow("rm-pkg", "1.0.0")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .get_workflow("rm-pkg", "1.0.0")
+                .await
+                .unwrap()
+                .is_none()
+        );
         assert!(!dir.path().join("rm-pkg-1.0.0.cloacina").exists());
     }
 

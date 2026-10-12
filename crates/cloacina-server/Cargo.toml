@@ -1,7 +1,8 @@
 [package]
 name = "cloacina-server"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "HTTP API server for Cloacina task orchestration engine."
 authors.workspace = true
 license.workspace = true

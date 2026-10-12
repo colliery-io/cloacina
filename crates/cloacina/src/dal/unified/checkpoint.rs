@@ -20,12 +20,12 @@
 //! reactor state, and state accumulator buffers. All operations use upsert
 //! semantics keyed by (graph_name, accumulator_name) or (graph_name).
 
+use super::DAL;
 use super::models::{
     NewUnifiedAccumulatorBoundary, NewUnifiedAccumulatorCheckpoint, NewUnifiedReactorState,
     NewUnifiedStateAccumulatorBuffer, UnifiedAccumulatorBoundary, UnifiedAccumulatorCheckpoint,
     UnifiedReactorState, UnifiedStateAccumulatorBuffer,
 };
-use super::DAL;
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, reactor_state, state_accumulator_buffers,
 };

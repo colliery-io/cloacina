@@ -22,7 +22,7 @@
 //! - Tasks with a `task_handle` parameter report `requires_handle() == true`
 //! - Handle-aware tasks can still execute (context-only path via `Task::execute`)
 
-use cloacina::{task, Context, Task, TaskError, TaskHandle};
+use cloacina::{Context, Task, TaskError, TaskHandle, task};
 use serde_json::Value;
 
 // --- Task WITHOUT handle parameter ---

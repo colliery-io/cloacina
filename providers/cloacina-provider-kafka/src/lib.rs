@@ -97,7 +97,7 @@ impl KafkaSource {
     /// at the stream-init FFI boundary and surfaces it as a clear load-time
     /// error (`CallError::Panic`), which is the fail-fast behavior a
     /// misconfigured provider should have.
-    fn source(&self) -> impl Iterator<Item = String> {
+    fn source(&self) -> impl Iterator<Item = String> + use<> {
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", &self.broker)
             .set("group.id", &self.group)

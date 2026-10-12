@@ -17,7 +17,7 @@
 //! Resolves `GlobalOpts` + `CloacinaConfig` into a concrete `ClientContext`
 //! that client-side commands use to hit the server.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use crate::commands::config::CloacinaConfig;
 use crate::{GlobalOpts, OutputFormat};
@@ -173,10 +173,12 @@ mod tests {
 
     #[test]
     fn env_scheme() {
-        std::env::set_var("CLOACI_TEST_KEY_12345", "secret-from-env");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACI_TEST_KEY_12345", "secret-from-env") };
         let v = resolve_api_key_scheme("env:CLOACI_TEST_KEY_12345").unwrap();
         assert_eq!(v, "secret-from-env");
-        std::env::remove_var("CLOACI_TEST_KEY_12345");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACI_TEST_KEY_12345") };
     }
 
     #[test]

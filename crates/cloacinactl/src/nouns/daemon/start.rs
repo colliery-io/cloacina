@@ -17,8 +17,8 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use crate::shared::pid;
 use crate::GlobalOpts;
+use crate::shared::pid;
 
 pub async fn run(
     globals: &GlobalOpts,

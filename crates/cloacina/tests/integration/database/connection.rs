@@ -50,7 +50,7 @@ fn test_url_parsing_with_default_port() {
 
     let parsed = result.unwrap();
     assert_eq!(parsed.port(), None); // No explicit port means None from url crate
-                                     // Note: port_or_known_default() only works for http/https, not postgresql
+    // Note: port_or_known_default() only works for http/https, not postgresql
     assert_eq!(parsed.scheme(), "postgresql");
 }
 

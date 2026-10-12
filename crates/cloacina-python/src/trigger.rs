@@ -236,20 +236,23 @@ impl Trigger for PythonTriggerWrapper {
                 {
                     let py_result = py_result_bound.borrow();
                     Ok(py_result.clone_into_rust())
-                } else if let Ok(should_fire) = call_result.extract::<bool>(py) {
-                    // Shorthand: return True/False
-                    if should_fire {
-                        Ok(RustTriggerResult::Fire(None))
-                    } else {
-                        Ok(RustTriggerResult::Skip)
-                    }
                 } else {
-                    Err(TriggerError::PollError {
-                        message: format!(
-                            "Python trigger must return TriggerResult or bool, got {:?}",
-                            call_result.bind(py).get_type().name()
-                        ),
-                    })
+                    match call_result.extract::<bool>(py) {
+                        Ok(should_fire) => {
+                            // Shorthand: return True/False
+                            if should_fire {
+                                Ok(RustTriggerResult::Fire(None))
+                            } else {
+                                Ok(RustTriggerResult::Skip)
+                            }
+                        }
+                        _ => Err(TriggerError::PollError {
+                            message: format!(
+                                "Python trigger must return TriggerResult or bool, got {:?}",
+                                call_result.bind(py).get_type().name()
+                            ),
+                        }),
+                    }
                 }
             })
         })
@@ -359,15 +362,17 @@ mod tests {
         // cron requires `on`
         assert!(trigger(None, None, None, Some("0 9 * * *".to_string()), None, false).is_err());
         // cron and poll_interval are mutually exclusive
-        assert!(trigger(
-            None,
-            Some("wf".to_string()),
-            Some("30s".to_string()),
-            Some("0 9 * * *".to_string()),
-            None,
-            false
-        )
-        .is_err());
+        assert!(
+            trigger(
+                None,
+                Some("wf".to_string()),
+                Some("30s".to_string()),
+                Some("0 9 * * *".to_string()),
+                None,
+                false
+            )
+            .is_err()
+        );
     }
 
     #[tokio::test]

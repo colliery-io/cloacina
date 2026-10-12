@@ -1,7 +1,8 @@
 [package]
 name = "cloacinactl"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "Command-line interface for Cloacina task orchestration engine."
 authors.workspace = true
 license.workspace = true

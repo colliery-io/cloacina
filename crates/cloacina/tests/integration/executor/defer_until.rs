@@ -25,8 +25,8 @@ use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::DefaultRunner;
 use cloacina::*;
 use serde_json::Value;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::time;
 

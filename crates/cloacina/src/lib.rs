@@ -591,9 +591,9 @@ pub use error::{
 };
 pub use execution_planner::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use executor::{
-    return_task_handle, take_task_handle, with_task_handle, ExecutorConfig, TaskHandle, TaskResult,
-    ThreadTaskExecutor, WorkflowExecution, WorkflowExecutionError, WorkflowExecutionResult,
-    WorkflowExecutor, WorkflowStatus,
+    ExecutorConfig, TaskHandle, TaskResult, ThreadTaskExecutor, WorkflowExecution,
+    WorkflowExecutionError, WorkflowExecutionResult, WorkflowExecutor, WorkflowStatus,
+    return_task_handle, take_task_handle, with_task_handle,
 };
 pub use graph::{
     DependencyEdge, GraphEdge, GraphMetadata, GraphNode, TaskNode, WorkflowGraph, WorkflowGraphData,

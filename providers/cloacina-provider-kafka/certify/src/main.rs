@@ -30,12 +30,12 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime_with_source, shutdown_signal, Accumulator, AccumulatorContext,
-    AccumulatorError, AccumulatorRuntimeConfig, BoundarySender,
+    Accumulator, AccumulatorContext, AccumulatorError, AccumulatorRuntimeConfig, BoundarySender,
+    accumulator_runtime_with_source, shutdown_signal,
 };
-use cloacina::computation_graph::types::{deserialize, SourceName};
+use cloacina::computation_graph::types::{SourceName, deserialize};
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::constructor_loader::{
     load_stream_accumulator_source, unpack_provider_archive,

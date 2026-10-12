@@ -358,8 +358,8 @@ impl TaskHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Semaphore;
 
     fn make_handle(semaphore: &Arc<Semaphore>) -> TaskHandle {

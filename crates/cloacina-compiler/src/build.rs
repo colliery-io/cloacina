@@ -22,10 +22,10 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use cloacina::UniversalUuid;
 use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
-use cloacina::UniversalUuid;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tracing::{debug, info, warn};
@@ -1181,7 +1181,7 @@ mod tests {
             "[package]\n\
              name = \"t0573-sleeper\"\n\
              version = \"0.0.0\"\n\
-             edition = \"2021\"\n\
+             edition = \"2024\"\n\
              \n\
              [lib]\n\
              crate-type = [\"cdylib\"]\n",
@@ -1282,7 +1282,8 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn compile_env_clears_ambient_database_url() {
-        std::env::set_var("DATABASE_URL", "postgres://user:secret@host/db");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("DATABASE_URL", "postgres://user:secret@host/db") };
 
         let mut cmd = tokio::process::Command::new("env");
         apply_compile_env(&mut cmd);
@@ -1299,14 +1300,16 @@ mod tests {
             "PATH must pass through the allowlist:\n{printed}"
         );
 
-        std::env::remove_var("DATABASE_URL");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("DATABASE_URL") };
     }
 
     /// Allowlisted vars present in the parent env pass through unchanged.
     #[tokio::test]
     #[serial_test::serial]
     async fn compile_env_passes_allowlisted_vars_through() {
-        std::env::set_var("CARGO_PROFILE_DEV_DEBUG", "0");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CARGO_PROFILE_DEV_DEBUG", "0") };
 
         let mut cmd = tokio::process::Command::new("env");
         apply_compile_env(&mut cmd);
@@ -1317,7 +1320,8 @@ mod tests {
             "allowlisted CARGO_PROFILE_DEV_DEBUG must pass through:\n{printed}"
         );
 
-        std::env::remove_var("CARGO_PROFILE_DEV_DEBUG");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CARGO_PROFILE_DEV_DEBUG") };
     }
 
     // -----------------------------------------------------------------------
@@ -1420,7 +1424,7 @@ Caused by:\n  attempting to make an HTTP request, but --offline was specified\n"
             "[package]\n\
              name = \"t0575-memhog\"\n\
              version = \"0.0.0\"\n\
-             edition = \"2021\"\n\
+             edition = \"2024\"\n\
              \n\
              [lib]\n\
              crate-type = [\"cdylib\"]\n",

@@ -24,7 +24,8 @@ version = "0.1.0"
 description = "Kafka event-source provider for cloacina — kafka_source native stream-accumulator constructor (rdkafka lives here, not in core)."
 license = "Apache-2.0"
 repository = "https://github.com/colliery-io/cloacina"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 
 # CLOACI-T-0907: tells the provider BUNDLER (compiler `pack_providers` /
 # `bundle_providers`) to build this provider as a NATIVE host cdylib —

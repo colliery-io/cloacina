@@ -394,7 +394,8 @@ mod tests {
     fn default_kind_is_none() {
         // Not asserting on the real env (tests may run anywhere); just that an
         // unset/empty value maps to "none" via the helper's fallback contract.
-        std::env::remove_var("CLOACINA_FLEET_ACTUATOR");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_FLEET_ACTUATOR") };
         assert_eq!(actuator_kind_from_env(), "none");
     }
 }

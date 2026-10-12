@@ -37,13 +37,13 @@
 
 pub mod envelope;
 pub mod sweeper;
-pub use envelope::{ClientMessage, EnvelopeError, ServerMessage, DELIVERY_PROTOCOL_VERSION};
+pub use envelope::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, ServerMessage};
 pub use sweeper::{DeliverySweeper, SweeperConfig};
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::sync::{watch, Notify};
+use tokio::sync::{Notify, watch};
 use tracing::{debug, error, warn};
 
 use crate::dal::DAL;

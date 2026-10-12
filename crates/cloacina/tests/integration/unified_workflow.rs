@@ -18,7 +18,7 @@
 
 use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, trigger, workflow, Context, TaskError};
+use cloacina::{Context, TaskError, task, trigger, workflow};
 use serde_json::json;
 
 #[workflow(

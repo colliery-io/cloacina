@@ -41,14 +41,14 @@ use cloacina::computation_graph::packaging_bridge::input_cache_to_ffi_cache;
 use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
 use cloacina::database::universal_types::UniversalUuid;
 use cloacina::fleet::{
-    host_target_triple, AgentOutcome, ArtifactRef, GraphWorkPacket, AGENT_PROTOCOL_VERSION,
-    AGENT_RECIPIENT_PREFIX, GRAPH_PACKET_KIND,
+    AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentOutcome, ArtifactRef, GRAPH_PACKET_KIND,
+    GraphWorkPacket, host_target_triple,
 };
 use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use tracing::{debug, info, warn};
 
-use crate::agent_registry::{select_fleet_agent, AgentRegistry};
+use crate::agent_registry::{AgentRegistry, select_fleet_agent};
 use crate::fleet_coordinator::FleetCoordinator;
 
 /// Max wall-clock to wait for an agent's graph result before reporting the

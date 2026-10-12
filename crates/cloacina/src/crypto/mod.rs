@@ -26,13 +26,13 @@ mod key_encryption;
 mod signing;
 
 pub use envelope::{
-    generate_ephemeral_keypair, unwrap as envelope_unwrap, wrap as envelope_wrap, EnvelopeError,
-    EphemeralKeypair, EphemeralPrivateKey,
+    EnvelopeError, EphemeralKeypair, EphemeralPrivateKey, generate_ephemeral_keypair,
+    unwrap as envelope_unwrap, wrap as envelope_wrap,
 };
 pub use key_encryption::{
-    decrypt_bytes, decrypt_private_key, encrypt_bytes, encrypt_private_key, KeyEncryptionError,
+    KeyEncryptionError, decrypt_bytes, decrypt_private_key, encrypt_bytes, encrypt_private_key,
 };
 pub use signing::{
-    compute_key_fingerprint, generate_signing_keypair, sign_package, verify_signature,
-    GeneratedKeypair, SigningError,
+    GeneratedKeypair, SigningError, compute_key_fingerprint, generate_signing_keypair,
+    sign_package, verify_signature,
 };

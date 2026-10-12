@@ -26,15 +26,16 @@
 //! [`cloacina::executor::TaskResultHandler`] (T-0630) lands in T-0633 — for
 //! T-0631 the result endpoint accepts + logs.
 
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use cloacina::fleet::{
-    host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentKeyReplenishRequest,
-    AgentKeyReplenishResponse, AgentOutcome, AgentRegisterRequest, AgentRegisterResponse,
-    AgentResultRequest, AgentResultResponse, EphemeralKeyEntry, AGENT_PROTOCOL_VERSION,
+    AGENT_PROTOCOL_VERSION, AgentHeartbeatRequest, AgentHeartbeatResponse,
+    AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentOutcome, AgentRegisterRequest,
+    AgentRegisterResponse, AgentResultRequest, AgentResultResponse, EphemeralKeyEntry,
+    host_target_triple,
 };
 use cloacina::security::ServerKeyPool;
 use tracing::{debug, info};
@@ -42,9 +43,9 @@ use uuid::Uuid;
 
 use cloacina::dal::unified::FleetAgentRegistration;
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::AppState;
 
 /// CLOACI-T-0861 / D-5 — target size of an agent's server-side one-time key pool.
 /// The heartbeat response asks the agent to top up toward this whenever
@@ -494,7 +495,7 @@ pub async fn list_agents(
     let live = match state.agent_registry.live_agents().await {
         Ok(live) => live,
         Err(e) => {
-            return ApiError::internal(format!("agent roster read failed: {e}")).into_response()
+            return ApiError::internal(format!("agent roster read failed: {e}")).into_response();
         }
     };
     let now = chrono::Utc::now();

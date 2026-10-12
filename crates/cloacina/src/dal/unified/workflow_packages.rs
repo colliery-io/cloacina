@@ -20,8 +20,8 @@
 //! both PostgreSQL and SQLite backends, selecting the appropriate implementation
 //! at runtime based on the database connection type.
 
-use super::models::{NewUnifiedWorkflowPackage, UnifiedWorkflowPackage};
 use super::DAL;
+use super::models::{NewUnifiedWorkflowPackage, UnifiedWorkflowPackage};
 use crate::database::schema::unified::{workflow_packages, workflow_registry};
 use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::models::workflow_packages::WorkflowPackage;

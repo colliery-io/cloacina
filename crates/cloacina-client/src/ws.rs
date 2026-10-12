@@ -30,8 +30,8 @@ use futures_util::{Stream, StreamExt};
 pub use cloacina_api_types::delivery::DELIVERY_PROTOCOL_VERSION;
 use cloacina_api_types::delivery::{ClientMessage, ServerMessage};
 
-use crate::error::ClientError;
 use crate::Client;
+use crate::error::ClientError;
 
 /// The slice of WebSocket traffic the delivery protocol cares about, decoded
 /// per target by [`socket::Socket`]. Anything else (pings, binary) is `Other`.
@@ -92,7 +92,7 @@ mod socket {
 mod socket {
     use super::WsEvent;
     use futures_util::{SinkExt, StreamExt};
-    use gloo_net::websocket::{futures::WebSocket, Message, WebSocketError};
+    use gloo_net::websocket::{Message, WebSocketError, futures::WebSocket};
 
     pub struct Socket(WebSocket);
 

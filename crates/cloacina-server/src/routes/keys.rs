@@ -20,10 +20,10 @@
 //! The bootstrap key is created automatically on first server startup.
 
 use axum::{
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Extension, Json,
 };
 use tracing::{info, warn};
 
@@ -32,9 +32,9 @@ use cloacina_api_types::{
     WsTicketResponse,
 };
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::AppState;
 
 /// POST /auth/keys — create a new API key.
 ///
@@ -177,7 +177,7 @@ pub async fn revoke_key(
     let id = match uuid::Uuid::parse_str(&key_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_key_id", "invalid key ID format").into_response()
+            return ApiError::bad_request("invalid_key_id", "invalid key ID format").into_response();
         }
     };
 
@@ -337,7 +337,7 @@ pub async fn revoke_tenant_key(
     let id = match uuid::Uuid::parse_str(&key_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_key_id", "invalid key ID format").into_response()
+            return ApiError::bad_request("invalid_key_id", "invalid key ID format").into_response();
         }
     };
 
@@ -349,7 +349,7 @@ pub async fn revoke_tenant_key(
         Ok(Some(info)) if info.tenant_id.as_deref() == Some(tenant_id.as_str()) => {}
         Ok(_) => {
             return ApiError::not_found("key_not_found", "key not found in this tenant")
-                .into_response()
+                .into_response();
         }
         Err(e) => {
             warn!("Failed to look up key '{}': {}", key_id, e);

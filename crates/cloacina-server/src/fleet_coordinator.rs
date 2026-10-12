@@ -119,7 +119,7 @@ impl FleetCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cloacina::fleet::{AgentOutcome, AGENT_PROTOCOL_VERSION};
+    use cloacina::fleet::{AGENT_PROTOCOL_VERSION, AgentOutcome};
 
     fn synthetic_result(task_id: UniversalUuid) -> AgentResultRequest {
         AgentResultRequest {

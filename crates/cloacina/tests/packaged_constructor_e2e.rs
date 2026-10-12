@@ -33,10 +33,10 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use cloacina::packaging::provider_bundle::{bundle_providers, ProviderRef};
+use cloacina::Context;
+use cloacina::packaging::provider_bundle::{ProviderRef, bundle_providers};
 use cloacina::registry::loader::grants::GrantSpec;
 use cloacina::registry::loader::{load_constructor_node, set_provider_search_path};
-use cloacina::Context;
 
 fn consumer_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

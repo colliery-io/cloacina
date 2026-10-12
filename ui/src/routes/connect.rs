@@ -29,9 +29,9 @@ use aurora_leptos::tokens::token;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_query_map};
 
-use crate::auth::{client_for, decode_memberships, use_auth, Connection, Membership};
+use crate::auth::{Connection, Membership, client_for, decode_memberships, use_auth};
 use crate::brand::Brand;
-use crate::config::{runtime_config, APP_VERSION};
+use crate::config::{APP_VERSION, runtime_config};
 
 const SSO_SERVER_KEY: &str = "cloacina.sso.server";
 

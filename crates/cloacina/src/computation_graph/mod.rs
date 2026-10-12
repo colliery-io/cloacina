@@ -39,10 +39,10 @@ pub mod triggerless;
 pub mod types;
 
 pub use accumulator::{
-    accumulator_runtime, accumulator_runtime_with_source, batch_accumulator_runtime, flush_signal,
-    polling_accumulator_runtime, shutdown_signal, Accumulator, AccumulatorContext,
-    AccumulatorError, AccumulatorRuntimeConfig, BatchAccumulator, BatchAccumulatorConfig,
-    BoundarySender, EventSource, PollingAccumulator,
+    Accumulator, AccumulatorContext, AccumulatorError, AccumulatorRuntimeConfig, BatchAccumulator,
+    BatchAccumulatorConfig, BoundarySender, EventSource, PollingAccumulator, accumulator_runtime,
+    accumulator_runtime_with_source, batch_accumulator_runtime, flush_signal,
+    polling_accumulator_runtime, shutdown_signal,
 };
 pub use global_registry::ComputationGraphRegistration;
 pub use triggerless::{TriggerlessGraph, TriggerlessGraphFn, TriggerlessGraphRegistration};

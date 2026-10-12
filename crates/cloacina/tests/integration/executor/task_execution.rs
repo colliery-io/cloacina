@@ -485,14 +485,13 @@ async fn test_task_executor_timeout_handling() {
         || {
             let dal = dal.clone();
             async move {
-                if let Ok(exec) = dal
+                match dal
                     .workflow_execution()
                     .get_by_id(UniversalUuid(exec_id))
                     .await
                 {
-                    exec.status == "Failed" || exec.status == "Completed"
-                } else {
-                    false
+                    Ok(exec) => exec.status == "Failed" || exec.status == "Completed",
+                    _ => false,
                 }
             }
         },
@@ -1199,14 +1198,13 @@ async fn run_workflow_and_get_status(
         || {
             let dal = dal.clone();
             async move {
-                if let Ok(exec) = dal
+                match dal
                     .workflow_execution()
                     .get_by_id(UniversalUuid(exec_id))
                     .await
                 {
-                    exec.status == "Failed" || exec.status == "Completed"
-                } else {
-                    false
+                    Ok(exec) => exec.status == "Failed" || exec.status == "Completed",
+                    _ => false,
                 }
             }
         },

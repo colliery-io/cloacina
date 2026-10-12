@@ -18,11 +18,11 @@
 //!
 //! Cleans up old execution events from the database based on a retention policy.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{Duration, Utc};
+use cloacina::Database;
 use cloacina::dal::DAL;
 use cloacina::database::universal_types::UniversalTimestamp;
-use cloacina::Database;
 use tracing::info;
 
 /// Parse a duration string like "90d", "30d", "7d", "24h", "1h30m" into a chrono::Duration.

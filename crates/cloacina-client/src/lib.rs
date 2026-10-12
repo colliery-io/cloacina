@@ -50,7 +50,7 @@ mod ws;
 pub use cloacina_api_types as types;
 pub use error::ClientError;
 pub use profile::resolve_api_key_scheme;
-pub use ws::{DeliveryPush, SubscribeOptions, DELIVERY_PROTOCOL_VERSION};
+pub use ws::{DELIVERY_PROTOCOL_VERSION, DeliveryPush, SubscribeOptions};
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -955,7 +955,7 @@ impl Client {
         &self,
         recipient: &str,
         options: SubscribeOptions,
-    ) -> impl futures_util::Stream<Item = Result<DeliveryPush, ClientError>> + '_ {
+    ) -> impl futures_util::Stream<Item = Result<DeliveryPush, ClientError>> + '_ + use<'_> {
         ws::subscribe_delivery(self.clone(), recipient.to_string(), options)
     }
 
@@ -965,7 +965,7 @@ impl Client {
     pub fn follow_execution_events(
         &self,
         execution_id: &str,
-    ) -> impl futures_util::Stream<Item = Result<Value, ClientError>> + '_ {
+    ) -> impl futures_util::Stream<Item = Result<Value, ClientError>> + '_ + use<'_> {
         self.follow_execution_events_with(execution_id, SubscribeOptions::default())
     }
 
@@ -975,7 +975,7 @@ impl Client {
         &self,
         execution_id: &str,
         options: SubscribeOptions,
-    ) -> impl futures_util::Stream<Item = Result<Value, ClientError>> + '_ {
+    ) -> impl futures_util::Stream<Item = Result<Value, ClientError>> + '_ + use<'_> {
         ws::follow_execution_events(self.clone(), execution_id.to_string(), options)
     }
 }

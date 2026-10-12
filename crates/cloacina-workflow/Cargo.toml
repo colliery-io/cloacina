@@ -24,7 +24,8 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 readme.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 
 [features]
 default = ["macros"]

@@ -21,7 +21,7 @@
 use cloacina::executor::WorkflowExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{Context, TaskError, task, workflow};
 use serde_json::json;
 use tracing::info;
 

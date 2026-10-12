@@ -48,7 +48,7 @@ fn normalize_operator(op: &str) -> PyResult<&'static str> {
             return Err(PyValueError::new_err(format!(
                 "trigger rule: unknown operator '{other}'. Use one of: Equals, NotEquals, \
                  GreaterThan, LessThan, Contains, NotContains, Exists, NotExists.",
-            )))
+            )));
         }
     })
 }

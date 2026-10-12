@@ -36,8 +36,8 @@ use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::*;
 use diesel::prelude::*;
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::fixtures::{get_or_init_fixture, poll_until};

@@ -86,16 +86,16 @@ use chrono::Utc;
 use serde::Serialize;
 
 use cloacina_constructor_contract::{
-    AccumulatorInvocation, AccumulatorOutcome, ConstructorManifest, PollOutcome, PrimitiveKind,
-    ProviderManifest, ProviderRuntime, ReactorInvocation, ReactorOutcome, TaskInvocation,
-    TaskOutcome, TriggerInvocation, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, METHOD_EVALUATE,
-    METHOD_EXECUTE, METHOD_INGEST, METHOD_POLL, METHOD_SOURCE,
-    REACTOR_CONSTRUCTOR_INTERFACE_VERSION, STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION,
-    TASK_CONSTRUCTOR_INTERFACE_VERSION, TRIGGER_CONSTRUCTOR_INTERFACE_VERSION,
+    ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, AccumulatorInvocation, AccumulatorOutcome,
+    ConstructorManifest, METHOD_EVALUATE, METHOD_EXECUTE, METHOD_INGEST, METHOD_POLL,
+    METHOD_SOURCE, PollOutcome, PrimitiveKind, ProviderManifest, ProviderRuntime,
+    REACTOR_CONSTRUCTOR_INTERFACE_VERSION, ReactorInvocation, ReactorOutcome,
+    STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION, TASK_CONSTRUCTOR_INTERFACE_VERSION,
+    TRIGGER_CONSTRUCTOR_INTERFACE_VERSION, TaskInvocation, TaskOutcome, TriggerInvocation,
 };
 use fidius_host::PluginHost;
 
-use super::grants::{lint_unmet_intents, translate, GrantSpec, ResolvedGrants};
+use super::grants::{GrantSpec, ResolvedGrants, lint_unmet_intents, translate};
 
 use crate::computation_graph::accumulator::{Accumulator, AccumulatorError, EventSource};
 use crate::computation_graph::reactor::ReactorFireDecider;
@@ -1140,7 +1140,9 @@ pub fn load_accumulator_constructor<C: Serialize>(
         return Err(LoaderError::Validation {
             reason: format!(
                 "constructor '{}' declares accumulator-constructor interface v{}, loader supports v{}",
-                manifest.name, manifest.interface_version, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION
+                manifest.name,
+                manifest.interface_version,
+                ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION
             ),
         });
     }
@@ -1351,11 +1353,11 @@ pub async fn load_stream_accumulator_source_from_config_in(
         resolve_native_provider(&search_path, provider_name)?.ok_or_else(|| {
             LoaderError::Validation {
                 reason: format!(
-                "stream accumulator declares provider '{provider_name}' but no NATIVE provider \
+                    "stream accumulator declares provider '{provider_name}' but no NATIVE provider \
                  by that name exists under '{}' (bundle it with the package, or check the \
                  provider/runtime — wasm stream providers are CLOACI-T-0906/0907 follow-up)",
-                search_path.display()
-            ),
+                    search_path.display()
+                ),
             }
         })?;
     let member = provider
@@ -2225,12 +2227,10 @@ fn bind_config_by_name(
     manifest: &ConstructorManifest,
     mut author: Vec<(String, serde_json::Value)>,
 ) -> Result<OrderedConfig, LoaderError> {
-    let ctx = |reason: String| {
-        LoaderError::Validation {
+    let ctx = |reason: String| LoaderError::Validation {
         reason: format!(
             "constructor node '{node_id}' (from = '{from}', constructor = '{constructor_name}'): {reason}"
         ),
-    }
     };
     let declared: Vec<&str> = manifest
         .config_fields
@@ -2260,7 +2260,7 @@ fn bind_config_by_name(
                 return Err(ctx(format!(
                     "missing required config field '{}' for constructor '{}'",
                     field.name, manifest.name
-                )))
+                )));
             }
         };
         let typed = coerce_config_value(&field.name, &field.ty, &value).map_err(ctx)?;

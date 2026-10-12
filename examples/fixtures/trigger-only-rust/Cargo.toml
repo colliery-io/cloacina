@@ -1,7 +1,8 @@
 [package]
 name = "trigger-only-rust"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 description = "Primitive-only fixture: triggers only, no reactor / CG / workflow"
 publish = false
 

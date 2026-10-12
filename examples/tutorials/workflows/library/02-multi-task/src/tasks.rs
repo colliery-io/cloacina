@@ -21,8 +21,8 @@
 //! - Transform: Multiply numbers by 2
 //! - Load: Store the transformed numbers
 
-use cloacina::{task, workflow, Context, TaskError};
-use serde_json::{json, Value};
+use cloacina::{Context, TaskError, task, workflow};
+use serde_json::{Value, json};
 use tracing::{debug, info};
 
 #[workflow(
@@ -33,11 +33,7 @@ pub mod etl_workflow {
     use super::*;
 
     /// Extract numbers from the input context
-    #[task(
-        retry_attempts = 2,
-        retry_backoff = "fixed",
-        retry_delay_ms = 1000
-    )]
+    #[task(retry_attempts = 2, retry_backoff = "fixed", retry_delay_ms = 1000)]
     pub async fn extract_numbers(context: &mut Context<Value>) -> Result<(), TaskError> {
         info!("Extracting numbers from input");
 

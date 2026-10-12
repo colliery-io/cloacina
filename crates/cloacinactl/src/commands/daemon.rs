@@ -30,7 +30,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use cloacina::registry::{
     FilesystemWorkflowRegistry, ReconcileResult, ReconcilerConfig, RegistryReconciler,

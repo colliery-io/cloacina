@@ -57,11 +57,10 @@ use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{
-    bracketed,
+    Ident, LitStr, Path, Result as SynResult, Token, bracketed,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
-    Ident, LitStr, Path, Result as SynResult, Token,
 };
 
 /// The four primitive kinds a provider may expose.
@@ -202,7 +201,9 @@ impl Parse for ProviderArgs {
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!("unknown constructor_provider! argument `{other}`; valid: name, version, component, contract, fidius_crate, task, trigger, accumulator, reactor, stream_accumulator"),
+                        format!(
+                            "unknown constructor_provider! argument `{other}`; valid: name, version, component, contract, fidius_crate, task, trigger, accumulator, reactor, stream_accumulator"
+                        ),
                     ));
                 }
             }

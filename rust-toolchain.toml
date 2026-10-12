@@ -1,0 +1,6 @@
+# One Rust version for local builds, CI and the Docker images (CLOACINA-T-0954).
+# Every crate declares the same rust-version (MSRV).
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown", "wasm32-wasip2"]

@@ -42,8 +42,8 @@
 //! returned ONLY by [`resolve_secret`], the internal resolve path.
 
 use crate::crypto::{decrypt_bytes, encrypt_bytes};
-use crate::dal::unified::models::{NewSecret, NewTenantDataKey, Secret, TenantDataKey};
 use crate::dal::unified::DAL;
+use crate::dal::unified::models::{NewSecret, NewTenantDataKey, Secret, TenantDataKey};
 use crate::database::schema::unified::{secrets, tenant_data_keys};
 use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;

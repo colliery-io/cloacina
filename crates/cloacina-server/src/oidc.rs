@@ -545,9 +545,11 @@ mod tests {
 
     #[test]
     fn unmapped_identity_denied() {
-        assert!(policy()
-            .resolve(&claims("nobody", Some("x@other.org"), &["randos"]), "iss")
-            .is_none());
+        assert!(
+            policy()
+                .resolve(&claims("nobody", Some("x@other.org"), &["randos"]), "iss")
+                .is_none()
+        );
     }
 
     #[test]
@@ -573,11 +575,12 @@ mod tests {
                 .role,
             "write"
         );
-        assert!(p
-            .resolve(&claims("root", None, &[]), "i")
-            .unwrap()
-            .tenant
-            .is_none());
+        assert!(
+            p.resolve(&claims("root", None, &[]), "i")
+                .unwrap()
+                .tenant
+                .is_none()
+        );
         assert!(p.resolve(&claims("z", None, &[]), "i").is_none());
     }
 
@@ -594,12 +597,14 @@ mod tests {
             .find(|m| m.tenant.as_deref() == Some("acme"))
             .unwrap();
         assert_eq!(acme.role, "admin");
-        assert!(ms
-            .iter()
-            .any(|m| m.tenant.as_deref() == Some("public") && m.role == "read"));
-        assert!(p
-            .resolve_all(&claims("z", Some("z@nope.org"), &[]), "i")
-            .is_empty());
+        assert!(
+            ms.iter()
+                .any(|m| m.tenant.as_deref() == Some("public") && m.role == "read")
+        );
+        assert!(
+            p.resolve_all(&claims("z", Some("z@nope.org"), &[]), "i")
+                .is_empty()
+        );
     }
 
     /// Live discovery against the Dex sidecar. Ignored by default — run with

@@ -34,18 +34,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bollard::Docker;
 use bollard::models::{ContainerCreateBody, HostConfig};
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
     StopContainerOptions,
 };
-use bollard::Docker;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use cloacina::database::Database;
 
-use super::{reconcile_delta, ActuatorError, FleetActuator, ReconcileOutcome};
+use super::{ActuatorError, FleetActuator, ReconcileOutcome, reconcile_delta};
 
 /// The role minted agent keys carry. `POST /v1/agent/register` is authorized at
 /// `Access::any(Level::Read)` (see `routes/authz.rs`), so a tenant-scoped `read`
@@ -363,8 +363,8 @@ impl ContainerOps for BollardOps {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     /// Mock that records spawn/stop calls and reports a fixed running set.
     struct MockOps {
@@ -509,9 +509,12 @@ mod tests {
     #[test]
     fn config_defaults() {
         // Clear so defaults apply regardless of ambient env.
-        std::env::remove_var("CLOACINA_AGENT_IMAGE");
-        std::env::remove_var("CLOACINA_AGENT_NETWORK");
-        std::env::remove_var("CLOACINA_AGENT_SERVER_URL");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_AGENT_IMAGE") };
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_AGENT_NETWORK") };
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLOACINA_AGENT_SERVER_URL") };
         let c = DockerConfig::from_env();
         assert_eq!(c.image, "cloacina-agent:latest");
         assert_eq!(c.network, None);

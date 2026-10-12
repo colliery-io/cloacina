@@ -17,7 +17,7 @@
 //! Basic sign and verify integration tests.
 
 use cloacina::crypto::generate_signing_keypair;
-use cloacina::security::{verify_package_offline, DetachedSignature, SignatureSource};
+use cloacina::security::{DetachedSignature, SignatureSource, verify_package_offline};
 use tempfile::NamedTempFile;
 
 /// Test signing and verifying a package with raw keys (offline mode).

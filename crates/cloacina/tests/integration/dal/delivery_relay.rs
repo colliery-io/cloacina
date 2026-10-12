@@ -26,7 +26,7 @@ use crate::fixtures::get_or_init_postgres_fixture;
 use async_trait::async_trait;
 use cloacina::dal::DAL;
 use cloacina::delivery::{
-    run_pg_listener, DeliveryError, DeliveryOutcome, DeliveryRelay, DeliverySink,
+    DeliveryError, DeliveryOutcome, DeliveryRelay, DeliverySink, run_pg_listener,
 };
 use cloacina::models::delivery_outbox::{DeliveryOutbox, NewDeliveryOutbox};
 use serial_test::serial;

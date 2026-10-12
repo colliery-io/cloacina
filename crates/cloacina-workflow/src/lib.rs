@@ -78,8 +78,8 @@ pub mod trigger;
 // Re-export primary types at crate root for convenience
 pub use context::Context;
 pub use error::{CheckpointError, ContextError, TaskError};
-pub use input_interface::{schema_for, InputSlot};
-pub use namespace::{parse_namespace, TaskNamespace};
+pub use input_interface::{InputSlot, schema_for};
+pub use namespace::{TaskNamespace, parse_namespace};
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use secret::{SecretAccessError, SecretResolver, SecretResolverError};
 pub use task::{Task, TaskState};

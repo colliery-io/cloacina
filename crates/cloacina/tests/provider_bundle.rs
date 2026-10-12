@@ -30,7 +30,7 @@
 
 use std::path::PathBuf;
 
-use cloacina::packaging::provider_bundle::{bundle_providers, resolve_provider_crate, ProviderRef};
+use cloacina::packaging::provider_bundle::{ProviderRef, bundle_providers, resolve_provider_crate};
 
 fn consumer_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

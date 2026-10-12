@@ -19,8 +19,8 @@ use async_trait::async_trait;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// Python wrapper for TaskHandle providing defer_until capability.
@@ -627,7 +627,7 @@ fn build_retry_policy(
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "unknown retry_backoff {other:?}: expected one of \
                      \"fixed\", \"linear\", \"exponential\""
-                )))
+                )));
             }
         };
         builder = builder.backoff_strategy(strategy);
@@ -650,7 +650,7 @@ fn build_retry_policy(
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "unknown retry_condition {other:?}: expected one of \
                      \"never\", \"transient\", \"all\""
-                )))
+                )));
             }
         };
         builder = builder.retry_condition(retry_cond);
@@ -829,10 +829,9 @@ impl TaskDecorator {
         let mut namespace_deps = Vec::new();
 
         for (i, dep) in self.dependencies.iter().enumerate() {
-            let task_name = if let Ok(string_dep) = dep.extract::<String>(py) {
-                string_dep
-            } else {
-                match dep.bind(py).hasattr("__name__") {
+            let task_name = match dep.extract::<String>(py) {
+                Ok(string_dep) => string_dep,
+                _ => match dep.bind(py).hasattr("__name__") {
                     Ok(true) => match dep.getattr(py, "__name__") {
                         Ok(name_obj) => match name_obj.extract::<String>(py) {
                             Ok(func_name) => func_name,
@@ -862,7 +861,7 @@ impl TaskDecorator {
                             i, e
                         )));
                     }
-                }
+                },
             };
 
             let (tenant_id, package_name, workflow_id) = context.as_components();

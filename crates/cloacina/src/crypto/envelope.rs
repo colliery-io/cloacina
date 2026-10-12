@@ -41,8 +41,8 @@
 //! against a different execution even to the same key.
 
 use hpke::{
-    aead::ChaCha20Poly1305, kdf::HkdfSha256, kem::X25519HkdfSha256, Deserializable,
-    Kem as KemTrait, OpModeR, OpModeS, Serializable,
+    Deserializable, Kem as KemTrait, OpModeR, OpModeS, Serializable, aead::ChaCha20Poly1305,
+    kdf::HkdfSha256, kem::X25519HkdfSha256,
 };
 use thiserror::Error;
 

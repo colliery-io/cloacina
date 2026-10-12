@@ -45,7 +45,7 @@
 use cloacina::executor::WorkflowExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{Context, TaskError, task, workflow};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -77,9 +77,7 @@ pub mod parallel_processing {
     use super::*;
 
     /// Generate a large dataset of products
-    #[task(
-        retry_attempts = 2
-    )]
+    #[task(retry_attempts = 2)]
     pub async fn generate_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         info!("Generating product dataset");
 

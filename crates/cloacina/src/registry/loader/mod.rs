@@ -38,14 +38,14 @@ pub use task_registrar::TaskRegistrar;
 
 #[cfg(feature = "constructors-wasm")]
 pub use constructor_loader::{
+    ConstructorBinding, ConstructorNode, DEFAULT_PROVIDER_DIR, PROVIDER_PATH_ENV, ProviderScope,
+    ScopedProviderSearch, TriggerBinding, WasmTaskConstructor, WasmTriggerConstructor,
     clear_provider_search_path, current_provider_scope, load_constructor, load_constructor_node,
     load_constructor_node_in, load_constructor_node_pinned, load_constructor_node_pinned_in,
     load_reactor_constructor_node, load_reactor_constructor_node_pinned,
     load_reactor_constructor_node_pinned_in, load_task_constructor,
     load_task_constructor_from_package, load_trigger_constructor, parse_runtime_pin,
-    provider_search_path, set_provider_search_path, unpack_provider_archive, ConstructorBinding,
-    ConstructorNode, ProviderScope, ScopedProviderSearch, TriggerBinding, WasmTaskConstructor,
-    WasmTriggerConstructor, DEFAULT_PROVIDER_DIR, PROVIDER_PATH_ENV,
+    provider_search_path, set_provider_search_path, unpack_provider_archive,
 };
 
 /// CLOACI-T-0920: the trust tier a consumer can PIN with

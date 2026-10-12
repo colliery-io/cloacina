@@ -39,7 +39,7 @@ cargo build --release
 ```
 */
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 // I-0102 / T-C: unified plugin shell.
 cloacina_workflow_plugin::package!();

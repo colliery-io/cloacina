@@ -18,10 +18,10 @@ use std::path::Path;
 
 use reqwest::multipart;
 
+use crate::GlobalOpts;
 use crate::commands::config::CloacinaConfig;
 use crate::shared::client_ctx::ClientContext;
 use crate::shared::error::CliError;
-use crate::GlobalOpts;
 
 pub async fn run(globals: &GlobalOpts, file: &Path) -> Result<(), CliError> {
     let config = CloacinaConfig::load(&globals.home.join("config.toml"));

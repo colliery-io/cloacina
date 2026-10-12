@@ -1,7 +1,8 @@
 [package]
 name = "cloacina-compiler"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "Build service for Cloacina packages — compiles source into cdylib artifacts and persists them in the DB for runtime instances to load."
 authors.workspace = true
 license.workspace = true

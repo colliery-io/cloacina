@@ -106,10 +106,7 @@ async fn file_watcher() -> Result<TriggerResult, TriggerError> {
     }
 
     let filename = format!("data_file_{}.csv", chrono::Utc::now().timestamp());
-    info!(
-        "file_watcher: found new file '{}' in /data/inbox",
-        filename
-    );
+    info!("file_watcher: found new file '{}' in /data/inbox", filename);
 
     let mut ctx = Context::new();
     ctx.insert("filename", serde_json::json!(filename))

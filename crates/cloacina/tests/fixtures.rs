@@ -28,8 +28,8 @@
 //! Uses PostgreSQL at localhost by default. Docker should be running
 //! for integration tests.
 
-use cloacina::database::connection::Database;
 use cloacina::database::BackendType;
+use cloacina::database::connection::Database;
 use cloacina::logging::mask_db_url;
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
@@ -185,7 +185,7 @@ pub async fn get_all_fixtures() -> Vec<(&'static str, Arc<Mutex<TestFixture>>)> 
 /// ```
 #[macro_export]
 macro_rules! backend_test {
-    ($name:ident, $body:expr) => {
+    ($name:ident, $body:expr_2021) => {
         #[tokio::test]
         async fn $name() {
             use $crate::fixtures::get_all_fixtures;

@@ -50,12 +50,12 @@
 //! separately so this e2e suite can ship.
 
 use crate::fixtures::get_or_init_fixture;
+use cloacina::Runtime;
 use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
 use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
 use cloacina::registry::reconciler::{ReconcilerConfig, RegistryReconciler};
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
-use cloacina::Runtime;
 use serial_test::serial;
 use std::sync::Arc;
 use tokio::sync::watch;

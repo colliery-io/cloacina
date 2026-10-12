@@ -23,8 +23,8 @@
 //! again, or the delivery outbox) covers it. No reader may treat presence or
 //! absence of a row as evidence about ownership.
 
-use super::models::{NewUnifiedReactorOwnerAddress, UnifiedReactorOwnerAddress};
 use super::DAL;
+use super::models::{NewUnifiedReactorOwnerAddress, UnifiedReactorOwnerAddress};
 use crate::database::schema::unified::reactor_owner_addresses;
 use crate::database::universal_types::UniversalTimestamp;
 use crate::error::ValidationError;

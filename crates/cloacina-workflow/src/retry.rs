@@ -486,7 +486,9 @@ mod tests {
         let policy = RetryPolicy::default();
         assert!(policy.is_transient_error(&make_execution_error("Connection refused")));
         assert!(policy.is_transient_error(&make_execution_error("network unreachable")));
-        assert!(policy.is_transient_error(&make_execution_error("service temporarily unavailable")));
+        assert!(
+            policy.is_transient_error(&make_execution_error("service temporarily unavailable"))
+        );
         assert!(policy.is_transient_error(&make_execution_error("server busy")));
         assert!(policy.is_transient_error(&make_execution_error("overloaded")));
         assert!(policy.is_transient_error(&make_execution_error("rate limit exceeded")));

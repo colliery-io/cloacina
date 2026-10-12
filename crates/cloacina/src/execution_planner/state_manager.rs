@@ -25,11 +25,11 @@ use tracing::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::Runtime;
 use crate::dal::DAL;
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
 use crate::models::workflow_execution::WorkflowExecutionRecord;
-use crate::Runtime;
 
 use super::context_manager::ContextManager;
 use super::trigger_rules::{TriggerCondition, TriggerRule};
@@ -76,16 +76,20 @@ impl<'a> StateManager<'a> {
                         .task_execution()
                         .mark_ready(task_execution.id)
                         .await?;
-                    info!("Task ready: {} (workflow execution: {}, dependencies satisfied, trigger rules passed)",
-                          task_execution.task_name, workflow_execution_id);
+                    info!(
+                        "Task ready: {} (workflow execution: {}, dependencies satisfied, trigger rules passed)",
+                        task_execution.task_name, workflow_execution_id
+                    );
                 } else {
                     // Dependencies satisfied + trigger rules fail -> Mark Skipped
                     self.dal
                         .task_execution()
                         .mark_skipped(task_execution.id, "Trigger rules not satisfied")
                         .await?;
-                    info!("Task skipped: {} (workflow execution: {}, dependencies satisfied, trigger rules failed)",
-                          task_execution.task_name, workflow_execution_id);
+                    info!(
+                        "Task skipped: {} (workflow execution: {}, dependencies satisfied, trigger rules failed)",
+                        task_execution.task_name, workflow_execution_id
+                    );
                 }
             }
         }
@@ -257,7 +261,8 @@ impl<'a> StateManager<'a> {
             TriggerCondition::TaskSuccess { task_name } => {
                 tracing::debug!(
                     "[DEBUG] Scheduler evaluating TaskSuccess trigger rule: looking up task_name '{}' in workflow execution {}",
-                    task_name, task_execution.workflow_execution_id
+                    task_name,
+                    task_execution.workflow_execution_id
                 );
                 // CLOACI-T-0745: read from the pre-loaded per-execution status
                 // map; fall back to a query only if a referenced task is absent.
@@ -280,7 +285,8 @@ impl<'a> StateManager<'a> {
             TriggerCondition::TaskFailed { task_name } => {
                 tracing::debug!(
                     "[DEBUG] Scheduler evaluating TaskFailed trigger rule: looking up task_name '{}' in workflow execution {}",
-                    task_name, task_execution.workflow_execution_id
+                    task_name,
+                    task_execution.workflow_execution_id
                 );
                 // CLOACI-T-0745: read from the pre-loaded per-execution status
                 // map; fall back to a query only if a referenced task is absent.
@@ -303,7 +309,8 @@ impl<'a> StateManager<'a> {
             TriggerCondition::TaskSkipped { task_name } => {
                 tracing::debug!(
                     "[DEBUG] Scheduler evaluating TaskSkipped trigger rule: looking up task_name '{}' in workflow execution {}",
-                    task_name, task_execution.workflow_execution_id
+                    task_name,
+                    task_execution.workflow_execution_id
                 );
                 // CLOACI-T-0745: read from the pre-loaded per-execution status
                 // map; fall back to a query only if a referenced task is absent.

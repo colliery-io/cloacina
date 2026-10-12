@@ -11,7 +11,8 @@ documentation = "https://colliery-io.github.io/cloacina/"
 readme = "README.md"
 keywords = []
 categories = []
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 description = "Complex DAG structure example for testing workflow visualization"
 
 [features]

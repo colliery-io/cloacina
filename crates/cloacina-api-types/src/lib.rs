@@ -50,7 +50,7 @@ pub mod workflows;
 
 pub use common::{ListResponse, TenantListResponse};
 pub use compiler::CompilerStatus;
-pub use delivery::{ClientMessage, EnvelopeError, ServerMessage, DELIVERY_PROTOCOL_VERSION};
+pub use delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, ServerMessage};
 pub use error::ErrorBody;
 pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,

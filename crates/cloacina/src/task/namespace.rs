@@ -25,4 +25,4 @@
 //! Namespaces follow the format: `tenant_id::package_name::workflow_id::task_id`
 
 // Re-export everything from cloacina_workflow::namespace
-pub use cloacina_workflow::namespace::{parse_namespace, TaskNamespace};
+pub use cloacina_workflow::namespace::{TaskNamespace, parse_namespace};

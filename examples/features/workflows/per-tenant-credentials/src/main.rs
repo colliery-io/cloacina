@@ -85,7 +85,9 @@ async fn demonstrate_admin_tenant_creation(
         }
         Err(e) => {
             error!("✗ Failed to create tenant A: {}", e);
-            info!("This might be expected if you don't have admin privileges or PostgreSQL isn't running");
+            info!(
+                "This might be expected if you don't have admin privileges or PostgreSQL isn't running"
+            );
             return Ok(()); // Continue with the demo
         }
     }
@@ -116,7 +118,9 @@ async fn demonstrate_admin_tenant_creation(
         }
         Err(e) => {
             error!("✗ Failed to create tenant B: {}", e);
-            info!("This might be expected if you don't have admin privileges or PostgreSQL isn't running");
+            info!(
+                "This might be expected if you don't have admin privileges or PostgreSQL isn't running"
+            );
         }
     }
 

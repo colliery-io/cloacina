@@ -40,10 +40,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime, shutdown_signal, AccumulatorContext, AccumulatorRuntimeConfig,
-    BoundarySender,
+    AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, accumulator_runtime,
+    shutdown_signal,
 };
-use cloacina::computation_graph::types::{deserialize, SourceName};
+use cloacina::computation_graph::types::{SourceName, deserialize};
 use cloacina::registry::loader::constructor_loader::load_accumulator_constructor;
 use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 use serde::Serialize;

@@ -31,6 +31,7 @@
 use crate::fixtures::get_or_init_fixture;
 use async_trait::async_trait;
 use chrono::Timelike;
+use cloacina::Runtime;
 use cloacina::context::Context;
 use cloacina::cron_trigger_scheduler::MAX_CONSECUTIVE_PREDICATE_ERRORS;
 use cloacina::cron_trigger_scheduler::{Scheduler, SchedulerConfig};
@@ -40,7 +41,6 @@ use cloacina::executor::{
     WorkflowExecutor, WorkflowStatus,
 };
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::Runtime;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use serial_test::serial;
 use std::collections::HashMap;

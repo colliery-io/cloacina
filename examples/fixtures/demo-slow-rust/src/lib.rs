@@ -36,7 +36,7 @@
 // context-overridable — `context["step_seconds"]` pins every step to a fixed
 // duration (CI determinism / harness speed control), bypassing the jitter.
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 cloacina_workflow_plugin::package!();
 
@@ -88,7 +88,7 @@ pub mod demo_slow_workflow {
     #[task(retry_attempts = 0)]
     pub async fn ingest(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         pause(context, 3_000, 1_500); // ~1.5–4.5s
-                                      // Gate the enrich branch off → it skips every run (deps met, rule fails).
+        // Gate the enrich branch off → it skips every run (deps met, rule fails).
         context.insert("do_enrich", serde_json::json!(false))?;
         context.insert("ingest_done", serde_json::json!(true))?;
         Ok(())

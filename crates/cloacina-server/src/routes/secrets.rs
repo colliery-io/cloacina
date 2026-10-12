@@ -27,10 +27,10 @@
 //! already confined to `{tenant_id}` and holds admin before a handler runs.
 
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
 use tracing::warn;
 
@@ -40,8 +40,8 @@ use cloacina_api_types::{
     SecretMetadataResponse,
 };
 
-use crate::routes::error::ApiError;
 use crate::AppState;
+use crate::routes::error::ApiError;
 
 /// Project the engine's [`SecretMetadata`] into the wire type — names +
 /// timestamps only, never a value.

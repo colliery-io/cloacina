@@ -10,7 +10,8 @@
 [package]
 name = "packaged-consumer-fixture"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 
 # cloacina-provider-fs is declared so the provider is bundled with the package (A-0010).
 [package.metadata.cargo-machete]

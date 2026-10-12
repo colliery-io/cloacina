@@ -23,8 +23,8 @@
 //! Execution events form an append-only audit trail of all task and workflow
 //! state transitions for debugging, compliance, and replay capability.
 
-use super::models::{NewUnifiedDeliveryOutbox, NewUnifiedExecutionEvent, UnifiedExecutionEvent};
 use super::DAL;
+use super::models::{NewUnifiedDeliveryOutbox, NewUnifiedExecutionEvent, UnifiedExecutionEvent};
 use crate::database::schema::unified::{delivery_outbox, execution_events};
 use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;

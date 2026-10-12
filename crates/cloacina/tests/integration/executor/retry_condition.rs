@@ -32,8 +32,8 @@
 use cloacina::runner::DefaultRunner;
 use cloacina::*;
 use serde_json::Value;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use crate::fixtures::get_or_init_fixture;

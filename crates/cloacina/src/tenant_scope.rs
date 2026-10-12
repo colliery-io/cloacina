@@ -239,7 +239,7 @@ pub fn resolve_tenant_key<V>(
                         .iter()
                         .map(|k| k.tenant_label().to_string())
                         .collect(),
-                ))
+                ));
             }
         }
     }
@@ -252,7 +252,7 @@ pub fn resolve_tenant_key<V>(
 pub fn visible_keys<'m, V>(
     map: &'m HashMap<TenantKey, V>,
     scope: TenantScope<'_>,
-) -> impl Iterator<Item = &'m TenantKey> {
+) -> impl Iterator<Item = &'m TenantKey> + use<'m, V> {
     let tenant = scope.tenant_id.map(|t| t.to_string());
     let is_admin = scope.is_admin;
     map.keys().filter(move |k| {

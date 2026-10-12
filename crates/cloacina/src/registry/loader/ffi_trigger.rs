@@ -34,7 +34,7 @@
 
 use cloacina_workflow::{Context, Trigger, TriggerError, TriggerResult};
 use cloacina_workflow_plugin::{
-    TriggerInvokeRequest, TriggerInvokeResult, METHOD_INVOKE_TRIGGER_POLL,
+    METHOD_INVOKE_TRIGGER_POLL, TriggerInvokeRequest, TriggerInvokeResult,
 };
 use std::sync::Arc;
 use std::time::Duration;

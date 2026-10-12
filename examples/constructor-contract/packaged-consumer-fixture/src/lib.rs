@@ -26,7 +26,7 @@
 //! that runs this fixture stages the secret at exactly this path (mirrors
 //! fs-grant-demo).
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 // I-0102 / T-C: unified plugin shell (projects ConstructorEntry declarations into
 // `get_constructor_metadata()` for the reconciler).

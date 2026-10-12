@@ -39,14 +39,14 @@ cargo run --features sqlite  # or --features postgres
 
 use std::path::PathBuf;
 use tempfile::TempDir;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use chrono::{Duration as ChronoDuration, Utc};
+use cloacina::Context;
 use cloacina::database::Database;
 use cloacina::executor::WorkflowExecutor;
 use cloacina::registry::error::RegistryError;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::Context;
 use std::time::Duration;
 
 #[tokio::main]
