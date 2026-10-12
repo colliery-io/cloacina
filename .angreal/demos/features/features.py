@@ -352,7 +352,11 @@ def _run_gold_path(
             log_path = home / name
             if log_path.exists():
                 lines = log_path.read_text(errors="replace").splitlines()
-                tails.append(f"--- last 80 lines of {name} ---\n" + "\n".join(lines[-80:]))
+                flagged = [l for l in lines if " ERROR " in l or " WARN " in l][:60]
+                tails.append(
+                    f"--- first ERROR/WARN lines of {name} ---\n" + "\n".join(flagged)
+                    + f"\n--- last 40 lines of {name} ---\n" + "\n".join(lines[-40:])
+                )
         raise RuntimeError(f"{exc}\n\n" + "\n\n".join(tails)) from exc
     finally:
         _kill(compiler_proc)
