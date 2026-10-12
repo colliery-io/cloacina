@@ -225,7 +225,7 @@ fn dummy_graph_fn() -> CompiledGraphFn {
     Arc::new(|_cache: InputCache| Box::pin(async move { GraphResult::completed(vec![]) }))
 }
 
-/// Resolve a [`ReactorConstructorRef`](cloacina_computation_graph::ReactorConstructorRef)
+/// Resolve a [`cloacina_computation_graph::ReactorConstructorRef`]
 /// into a live firing decider (CLOACI-T-0830).
 ///
 /// `None` ref → `None` decider (the native dirty-flag reactor). `Some(ref)` loads
