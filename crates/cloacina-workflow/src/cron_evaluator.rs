@@ -529,3 +529,37 @@ mod tests {
         assert_eq!(executions[0].hour(), 14, "9 AM EST = 2 PM UTC");
     }
 }
+
+/// Fire times pinned from croner 2 (CLOACINA-T-0964): DST gaps and overlaps,
+/// seconds fields, `L`, `?`, day-of-month OR day-of-week, Sunday as 0 and 7,
+/// shorthands, and expressions that must stay rejected.
+#[cfg(test)]
+mod pinned_fire_times {
+    use super::*;
+
+    #[test]
+    fn schedules_fire_at_the_pinned_times() {
+        let fixture = include_str!("../tests/fixtures/cron_fire_times.txt");
+        let mut checked = 0;
+        for line in fixture.lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
+            let mut parts = line.splitn(4, '|');
+            let (start, expr, tz, expected) = (
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+            );
+            let start: DateTime<Utc> = start.parse().unwrap();
+            let got = match CronEvaluator::new(expr, tz) {
+                Err(_) => "INVALID".to_string(),
+                Ok(ev) => match ev.next_executions(start, 40) {
+                    Ok(v) => v.iter().map(|d| d.to_rfc3339()).collect::<Vec<_>>().join(","),
+                    Err(_) => "ERR".to_string(),
+                },
+            };
+            assert_eq!(got, expected, "{expr} @ {tz} from {start}");
+            checked += 1;
+        }
+        assert_eq!(checked, 40);
+    }
+}
