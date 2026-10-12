@@ -541,7 +541,10 @@ mod pinned_fire_times {
     fn schedules_fire_at_the_pinned_times() {
         let fixture = include_str!("../tests/fixtures/cron_fire_times.txt");
         let mut checked = 0;
-        for line in fixture.lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
+        for line in fixture
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+        {
             let mut parts = line.splitn(4, '|');
             let (start, expr, tz, expected) = (
                 parts.next().unwrap(),
@@ -553,7 +556,11 @@ mod pinned_fire_times {
             let got = match CronEvaluator::new(expr, tz) {
                 Err(_) => "INVALID".to_string(),
                 Ok(ev) => match ev.next_executions(start, 40) {
-                    Ok(v) => v.iter().map(|d| d.to_rfc3339()).collect::<Vec<_>>().join(","),
+                    Ok(v) => v
+                        .iter()
+                        .map(|d| d.to_rfc3339())
+                        .collect::<Vec<_>>()
+                        .join(","),
                     Err(_) => "ERR".to_string(),
                 },
             };

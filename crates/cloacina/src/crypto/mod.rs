@@ -49,7 +49,7 @@ mod stored_data_compat {
     const PKG_HASH: &str = "c86c0785e5968d24080f79a3ea56498c6ce85911e1c8644f0f9fab490e254beb";
     const SIG: &str = "51aa8f78da361442de6da2721e38ffa550cf9576ffd3fdbb441395b123493efc013e13ad768e5ff5b1318ad2e2f2524dec47bea705d3d9ed41aa31530aeb2207";
     const PK: &str = "fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f618";
-    const FPR: &str = "dbc298251c51321b7266e78d1c151c2b62aff8cb95b293096d3463018544face";
+    const FINGERPRINT: &str = "dbc298251c51321b7266e78d1c151c2b62aff8cb95b293096d3463018544face";
     const APIKEY_HASH: &str = "5ac1490041bec4c73fb4ce713722a72aaebbf21314d01a985335c9e0acbbbe8b";
 
     #[test]
@@ -73,7 +73,7 @@ mod stored_data_compat {
         let sig = hex::decode(SIG).unwrap();
         let pk = hex::decode(PK).unwrap();
         super::verify_signature(hash.as_bytes(), &sig, &pk).expect("signature verifies");
-        assert_eq!(super::compute_key_fingerprint(&pk), FPR);
+        assert_eq!(super::compute_key_fingerprint(&pk), FINGERPRINT);
     }
 
     #[test]

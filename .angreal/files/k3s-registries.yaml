@@ -8,6 +8,7 @@
 # All three spellings below point at the same backing registry so an image
 # reference written as `registry:5000/...` (what the chart/actuator use) or
 # `localhost:5000` / `localhost:5050` all resolve.
+---
 mirrors:
   "registry:5000":
     endpoint:
