@@ -6,6 +6,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 
+# cloacina-macros: required by package validation (cloacina-macros + cloacina-workflow).
+[package.metadata.cargo-machete]
+ignored = ["cloacina-macros"]
+
 [features]
 default = ["packaged"]
 packaged = []
@@ -18,6 +22,7 @@ crate-type = ["cdylib", "rlib"]
 # compiler's `--dev-workspace` injects `[patch.crates-io]` so these resolve
 # against the local unpublished crates until they're published (CLOACI-T-0887).
 [dependencies]
+cloacina-macros = "0.11"
 cloacina-workflow = { version = "0.11", features = ["packaged"] }
 cloacina-workflow-plugin = "0.11"
 serde_json = "1.0"

@@ -344,6 +344,15 @@ def _run_gold_path(
             "pack → upload → compile → reconcile → execute → Completed"
         )
         return 0
+    except BaseException:
+        # CI keeps no artifacts: show the service logs where the failure is.
+        for name in ("server.log", "compiler.log"):
+            log_path = home / name
+            if log_path.exists():
+                lines = log_path.read_text(errors="replace").splitlines()
+                print(f"\n--- last 80 lines of {name} ---")
+                print("\n".join(lines[-80:]))
+        raise
     finally:
         _kill(compiler_proc)
         _kill(server_proc)

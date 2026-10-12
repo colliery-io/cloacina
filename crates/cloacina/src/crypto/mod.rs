@@ -59,6 +59,8 @@ mod stored_data_compat {
         assert_eq!(pt, b"cloacina stored secret v1");
     }
 
+    // Local accounts exist only with the postgres feature.
+    #[cfg(feature = "postgres")]
     #[test]
     fn password_hash_from_earlier_build_verifies() {
         use crate::dal::unified::local_accounts::verify_password;
