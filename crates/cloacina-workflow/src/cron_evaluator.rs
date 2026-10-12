@@ -39,9 +39,20 @@
 //! # }
 //! ```
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, Offset, TimeZone, Utc};
 use chrono_tz::Tz;
 use croner::Cron;
+use croner::parser::{CronParser, Seconds, Year};
+
+/// Optional seconds field, no year field: the syntax croner 2 accepted
+/// (CLOACINA-T-0964).
+fn parse_cron(cron_expr: &str) -> Result<Cron, croner::errors::CronError> {
+    CronParser::builder()
+        .seconds(Seconds::Optional)
+        .year(Year::Disallowed)
+        .build()
+        .parse(cron_expr)
+}
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
@@ -128,10 +139,7 @@ impl CronEvaluator {
     /// # }
     /// ```
     pub fn new(cron_expr: &str, timezone_str: &str) -> Result<Self, CronError> {
-        let cron = Cron::new(cron_expr)
-            .with_seconds_optional() // Enable optional seconds support
-            .parse()
-            .map_err(|e| CronError::CronParsingError(e.to_string()))?;
+        let cron = parse_cron(cron_expr).map_err(|e| CronError::CronParsingError(e.to_string()))?;
 
         // Parse the timezone
         let timezone: Tz = timezone_str
@@ -177,14 +185,47 @@ impl CronEvaluator {
         // Convert UTC time to the target timezone
         let local_time = self.timezone.from_utc_datetime(&after.naive_utc());
 
-        // Find the next execution in the local timezone
-        let next_local = self
-            .cron
-            .find_next_occurrence(&local_time, false)
-            .map_err(|e| CronError::CronParsingError(e.to_string()))?;
+        // Find the next execution in the local timezone, skipping the extra
+        // spring-forward runs croner 3+ adds (see `is_real_fire_time`).
+        let mut from = local_time;
+        for _ in 0..4 {
+            let next_local = self
+                .cron
+                .find_next_occurrence(&from, false)
+                .map_err(|e| CronError::CronParsingError(e.to_string()))?;
+            if self.is_real_fire_time(&next_local)? {
+                // Convert back to UTC for storage and comparison
+                return Ok(next_local.with_timezone(&Utc));
+            }
+            from = next_local;
+        }
+        Err(CronError::NoNextExecution)
+    }
 
-        // Convert back to UTC for storage and comparison
-        Ok(next_local.with_timezone(&Utc))
+    /// croner 3+ can return the first instant after a spring-forward gap even
+    /// when the expression has no wall-clock time inside the gap, so a job at
+    /// 01:30 in New York would run again at 03:00 EDT on the change day
+    /// (CLOACINA-T-0964). A time that is not a wall-clock match is a gap shift:
+    /// keep it only when the expression has a match inside the skipped
+    /// interval, which is how croner 2 shifted such times.
+    fn is_real_fire_time(&self, t: &DateTime<Tz>) -> Result<bool, CronError> {
+        let to_err = |e: croner::errors::CronError| CronError::CronParsingError(e.to_string());
+        let wall = t.naive_local();
+        if self.cron.is_time_matching(&wall).map_err(to_err)? {
+            return Ok(true);
+        }
+        let before = *t - Duration::seconds(1);
+        let jump = t.offset().fix().local_minus_utc() - before.offset().fix().local_minus_utc();
+        if jump <= 0 {
+            // Not the end of a gap: keep croner's answer.
+            return Ok(true);
+        }
+        let gap_start = wall - Duration::seconds(i64::from(jump));
+        let first_in_gap = self
+            .cron
+            .find_next_occurrence(&gap_start, true)
+            .map_err(to_err)?;
+        Ok(first_in_gap < wall)
     }
 
     /// Finds multiple next execution times after the given timestamp.
@@ -313,10 +354,7 @@ impl CronEvaluator {
     /// # Returns
     /// * `Result<(), CronError>` - Success or validation error
     pub fn validate_expression(cron_expr: &str) -> Result<(), CronError> {
-        Cron::new(cron_expr)
-            .with_seconds_optional() // Enable optional seconds support
-            .parse()
-            .map_err(|e| CronError::CronParsingError(e.to_string()))?;
+        parse_cron(cron_expr).map_err(|e| CronError::CronParsingError(e.to_string()))?;
         Ok(())
     }
 
@@ -536,6 +574,36 @@ mod tests {
 #[cfg(test)]
 mod pinned_fire_times {
     use super::*;
+
+    /// Spring-forward day in New York (2026-03-08, 02:00 -> 03:00): a job at
+    /// 01:30 runs once, and a job at 02:30 (inside the gap) runs at 03:00 EDT.
+    #[test]
+    fn spring_forward_runs_each_job_once() {
+        let start: DateTime<Utc> = "2026-03-08T05:00:00Z".parse().unwrap(); // 00:00 EST
+        let early = CronEvaluator::new("30 1 * * *", "America/New_York").unwrap();
+        let runs: Vec<String> = early
+            .next_executions(start, 2)
+            .unwrap()
+            .iter()
+            .map(|d| d.to_rfc3339())
+            .collect();
+        assert_eq!(
+            runs,
+            ["2026-03-08T06:30:00+00:00", "2026-03-09T05:30:00+00:00"]
+        );
+
+        let in_gap = CronEvaluator::new("30 2 * * *", "America/New_York").unwrap();
+        let runs: Vec<String> = in_gap
+            .next_executions(start, 2)
+            .unwrap()
+            .iter()
+            .map(|d| d.to_rfc3339())
+            .collect();
+        assert_eq!(
+            runs,
+            ["2026-03-08T07:00:00+00:00", "2026-03-09T06:30:00+00:00"]
+        );
+    }
 
     #[test]
     fn schedules_fire_at_the_pinned_times() {
