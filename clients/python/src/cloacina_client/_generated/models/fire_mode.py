@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class FireMode(str, Enum):
+class FireMode(StrEnum):
     FIRE_WITH = "fire_with"
     FORCE_FIRE = "force_fire"
 
