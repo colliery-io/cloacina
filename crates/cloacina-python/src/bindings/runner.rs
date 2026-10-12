@@ -1534,11 +1534,12 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
+    /// `:memory:` becomes a tempfile per runner (WAL + busy_timeout), so the
+    /// background scheduler and the test never hit shared-cache table locks
+    /// ("database table is locked") the way a `mode=memory&cache=shared` URI
+    /// does (CLOACINA-T-0955).
     fn unique_sqlite_url() -> String {
-        format!(
-            "file:cloacina_runner_test_{}?mode=memory&cache=shared",
-            uuid::Uuid::new_v4()
-        )
+        "sqlite://:memory:".to_string()
     }
 
     #[test]
