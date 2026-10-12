@@ -17,6 +17,10 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["serde", "serde_json"]
+
 [lib]
 # cdylib → the wasm component; rlib → so `emit_manifest` (host) can link it.
 crate-type = ["cdylib", "rlib"]

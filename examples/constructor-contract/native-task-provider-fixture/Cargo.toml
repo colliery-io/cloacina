@@ -19,6 +19,10 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["fidius-core", "fidius-macro", "serde"]
+
 [lib]
 # cdylib → the host plugin the loader dlopen's; rlib → so `emit_manifest`
 # (host bin) can link `__provider_manifest()`.

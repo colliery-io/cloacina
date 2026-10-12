@@ -30,6 +30,11 @@ edition = "2021"
 # `bundle_providers`) to build this provider as a NATIVE host cdylib —
 # librdkafka is C and cannot target wasm32-wasip2. Native = trusted,
 # unsandboxed (grants advisory); the loader dlopen's it in-process.
+
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["cloacina-constructor-contract", "fidius-core", "fidius-macro", "serde"]
+
 [package.metadata.cloacina]
 runtime = "native"
 

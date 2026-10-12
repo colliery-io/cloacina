@@ -3,6 +3,10 @@ name = "tutorial-06"
 version = "0.1.0"
 edition = "2021"
 
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["cloacina-workflow"]
+
 [workspace]
 
 [dependencies]
@@ -12,8 +16,6 @@ tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-async-trait = "0.1"
-chrono = "0.4"
 
 [build-dependencies]
 cloacina-build = { path = "../../../../../crates/cloacina-build" }

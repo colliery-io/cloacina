@@ -27,6 +27,10 @@ license = "Apache-2.0"
 repository = "https://github.com/colliery-io/cloacina"
 edition = "2021"
 
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["serde", "serde_json"]
+
 [lib]
 # cdylib → the wasm component; rlib → so `emit_manifest` (host) can link it.
 crate-type = ["cdylib", "rlib"]

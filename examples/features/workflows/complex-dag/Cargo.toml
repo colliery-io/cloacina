@@ -28,14 +28,9 @@ crate-type = ["cdylib"]
 # cloacina-workflow). (CLOACI-T-0900 re-author off the pre-T-0887 path deps.)
 [dependencies]
 cloacina-macros = "0.11"
-cloacina-computation-graph = "0.11"
 cloacina-workflow = { version = "0.11", features = ["packaged"] }
 cloacina-workflow-plugin = "0.11"
 serde_json = "1.0"
-futures = "0.3"
-async-trait = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-tracing = "0.1"
 
 [build-dependencies]
 cloacina-build = "0.11"

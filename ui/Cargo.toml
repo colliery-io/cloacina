@@ -11,6 +11,10 @@ edition = "2021"
 license = "Apache-2.0"
 publish = false
 
+# colliery-io-aurora is used under its lib name, aurora_leptos.
+[package.metadata.cargo-machete]
+ignored = ["colliery-io-aurora"]
+
 [workspace]
 
 [dependencies]

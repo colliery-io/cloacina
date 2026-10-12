@@ -5,6 +5,10 @@ edition = "2021"
 description = "Primitive-only fixture: triggers only, no reactor / CG / workflow"
 publish = false
 
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["serde_json"]
+
 [workspace]
 
 [features]
@@ -16,9 +20,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 cloacina-macros = { path = "../../../crates/cloacina-macros" }
-cloacina-computation-graph = { path = "../../../crates/cloacina-computation-graph" }
 cloacina-workflow = { path = "../../../crates/cloacina-workflow", features = ["packaged"] }
 cloacina-workflow-plugin = { path = "../../../crates/cloacina-workflow-plugin" }
-async-trait = "0.1"
-chrono = "0.4"
 serde_json = "1.0"

@@ -38,6 +38,16 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+      # CLOACINA-T-0953: no unused dependencies in any Cargo.toml (workspace,
+      # ui, providers, examples). Needs `cargo install cargo-machete`. A
+      # dependency only macro output uses goes in that crate's
+      # [package.metadata.cargo-machete] ignored list.
+      - id: cargo-machete
+        name: Unused dependencies (cargo-machete)
+        entry: cargo machete
+        language: system
+        files: (\.rs|Cargo\.toml)$
+        pass_filenames: false
       # CLOACI-I-0134: single source of version truth. Fails if any core
       # version touchpoint (Rust workspace, npm, python, scaffold pin) has
       # drifted from [workspace.package] version. CI does NOT run pre-commit;
