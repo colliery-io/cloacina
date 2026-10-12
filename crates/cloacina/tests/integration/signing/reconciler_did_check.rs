@@ -43,7 +43,7 @@ mod postgres_tests {
     fn sha256_hex(bytes: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(bytes);
-        format!("{:x}", hasher.finalize())
+        hex::encode(hasher.finalize())
     }
 
     /// Build a registry impl backed by the test fixture's database.

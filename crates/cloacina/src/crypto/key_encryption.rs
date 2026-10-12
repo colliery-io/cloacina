@@ -28,7 +28,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
     aead::{Aead, KeyInit},
 };
-use rand::RngCore;
+use rand::Rng;
 use thiserror::Error;
 
 /// Errors that can occur during key encryption/decryption.
@@ -78,7 +78,7 @@ pub fn encrypt_private_key(
 
     // Generate a random nonce
     let mut nonce_bytes = [0u8; NONCE_SIZE];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     // Encrypt the private key

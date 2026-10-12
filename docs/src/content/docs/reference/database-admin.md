@@ -149,7 +149,7 @@ When `password` is an empty string, a cryptographically secure password is gener
 - **Length**: 32 characters
 - **Character Set**: 62 characters — uppercase, lowercase, and digits only (symbols are excluded to avoid URL/connection-string escaping issues)
 - **Entropy**: ~190 bits
-- **Generator**: Uses `rand::thread_rng()` for cryptographic randomness
+- **Generator**: Uses `rand::rng()` (a CSPRNG seeded from the OS) for cryptographic randomness
 
 ### Password Handling
 

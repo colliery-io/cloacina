@@ -87,7 +87,7 @@ cloacina-constructor-contract = { workspace = true, optional = true }
 libloading = { version = "0.9" }
 parking_lot = { version = "0.12" }
 petgraph = { version = "0.8" }
-rand = { version = "0.8" }
+rand = { version = "0.10" }
 serde = { version = "1.0", features = ["derive"] }
 base64 = { version = "0.23" }
 serial_test = { version = "3.2.0" }
@@ -103,16 +103,18 @@ url = { version = "2.5" }
 uuid = { version = "1.0", features = ["serde", "v4", "v5"] }
 regex = { version = "1.10" }
 semver = { version = "1.0" }
-sha2 = { version = "0.10" }
-aes-gcm = { version = "0.10" }
+sha2 = { version = "0.11" }
+aes-gcm = { version = "0.11" }
 # CLOACI-T-0861 — HPKE (RFC 9180) hybrid public-key encryption for per-execution
 # fleet secret envelope wrap. Suite: X25519-HKDF-SHA256 / HKDF-SHA256 /
-# ChaCha20Poly1305. `hpke` pulls its own `rand_core` 0.6-compatible RNG surface.
-hpke = { version = "0.12", default-features = false, features = ["alloc", "x25519"] }
-argon2 = { version = "0.5", features = ["std"] }
-ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+# ChaCha20Poly1305.
+hpke = { version = "0.14", default-features = false, features = ["alloc", "x25519", "chacha", "getrandom"] }
+argon2 = { version = "0.6" }
+# Stays on 2: fidius-host 0.5 takes ed25519-dalek 2 VerifyingKeys in its API
+# (CLOACINA-T-0963).
+ed25519-dalek = { version = "2.1" }
 hex = { version = "0.4" }
-pem = { version = "3.0" }
+pem = { version = "4" }
 toml = { version = "1" }
 anyhow = { version = "1.0" }
 bincode = { workspace = true }

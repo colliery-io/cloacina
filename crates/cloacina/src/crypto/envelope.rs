@@ -110,8 +110,7 @@ pub struct EphemeralKeypair {
 /// Keygen is microseconds; call it once per claim so a leaked key exposes at
 /// most one execution's secrets.
 pub fn generate_ephemeral_keypair() -> EphemeralKeypair {
-    let mut rng = rand::thread_rng();
-    let (private, public) = Kem::gen_keypair(&mut rng);
+    let (private, public) = Kem::gen_keypair();
     EphemeralKeypair {
         private: EphemeralPrivateKey(private),
         public_key_bytes: public.to_bytes().to_vec(),
@@ -133,14 +132,12 @@ pub fn wrap(
     let pk_recip = <Kem as KemTrait>::PublicKey::from_bytes(recipient_public_key)
         .map_err(|_| EnvelopeError::InvalidPublicKey)?;
 
-    let mut rng = rand::thread_rng();
-    let (encapped, ciphertext) = hpke::single_shot_seal::<Aead, Kdf, Kem, _>(
+    let (encapped, ciphertext) = hpke::single_shot_seal::<Aead, Kdf, Kem>(
         &OpModeS::Base,
         &pk_recip,
         HPKE_INFO,
         plaintext,
         aad,
-        &mut rng,
     )
     .map_err(|e| EnvelopeError::Wrap(e.to_string()))?;
 

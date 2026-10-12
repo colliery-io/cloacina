@@ -559,6 +559,21 @@ mod tests {
 
     // ── Pure-function unit tests ──────────────────────────────────────
 
+    /// A PEM public key as earlier builds exported it (CRLF line endings,
+    /// pem 3), so a pem upgrade keeps accepting keys already handed out
+    /// (CLOACINA-T-0963).
+    #[test]
+    fn test_pem_from_earlier_build_decodes() {
+        let pem = "-----BEGIN PUBLIC KEY-----\r\n\
+                   MCowBQYDK2VwAyEA/RckOFqgx1tk+3jNYC+h2ZH96/drE8WO1wLqyDXp9hg=\r\n\
+                   -----END PUBLIC KEY-----\r\n";
+        let key = DbKeyManager::decode_public_key_pem(pem).expect("decodes");
+        assert_eq!(
+            hex::encode(key),
+            "fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f618"
+        );
+    }
+
     #[test]
     fn test_pem_roundtrip() {
         let public_key = [0x42u8; 32];
