@@ -50,9 +50,6 @@ graph TB
     CT --> CS
     WF --> WR
 
-    style CS fill:#e6f3ff
-    style CE fill:#ffe6e6
-    style RS fill:#e6ffe6
 ```
 
 ## Scheduling Process
