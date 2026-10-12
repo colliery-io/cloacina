@@ -187,7 +187,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Authoring-surface minimization** (CLOACI-I-0125) — a Rust package is now a 4-dependency shell (`cloacina-workflow` + `cloacina-workflow-plugin` + serde) with `cloacina_workflow_plugin::package!()`; the compiler injects the cdylib crate-type + `packaged` feature. **No more `build.rs`, `[lib] crate-type`, `[features]`, or `cloacina-build` in a package.** `package.toml` is minimized (name + version + `workflow_name`; the rest is defaulted/inferred). **Migration:** re-scaffold with `cloacinactl package new` or delete the retired ceremony.
 - **`ReactionMode` / `ReactionCriteria` collapsed** (CLOACI-T-0740) — the two enums merged; `criteria = when_any` with no accumulator list now means "all declared". Reactor declarations built against the split enums must update.
-- **Standalone Nginx UI container retired** (CLOACI-I-0130) — the web UI is served by the server (embedded). The separate `ui/Dockerfile` + `docker-compose.ui.yml` path is gone; deploy the embedded UI (or the `charts/cloacina-ui` chart for a standalone SPA).
+- **Standalone Nginx UI container retired** (CLOACI-I-0130) — the web UI is served by the server (embedded). The separate `ui/Dockerfile` + `docker-compose.ui.yml` path is gone; deploy the embedded UI.
 
 ### Changed
 

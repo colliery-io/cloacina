@@ -68,7 +68,7 @@ test("walk the UI and screenshot everything @audit", async ({ page }) => {
   await listAndDetail("/workflows", "/workflows/", "03-workflows", "04-workflow-detail");
   // try clicking a graph node + any "view code" affordance on the workflow detail
   try {
-    const node = page.locator(".react-flow__node, svg .node, [data-id]").first();
+    const node = page.locator("svg .node, [data-id]").first();
     if (await node.count()) {
       await node.click({ timeout: 3000 });
       await shot(page, "04b-workflow-node-click");
@@ -92,7 +92,7 @@ test("walk the UI and screenshot everything @audit", async ({ page }) => {
   // 9-10) Graphs + graph detail (accumulators/reactors/nodes).
   await listAndDetail("/graphs", "/graphs/", "09-graphs", "10-graph-detail");
   try {
-    const node = page.locator(".react-flow__node, svg .node, [data-id]").first();
+    const node = page.locator("svg .node, [data-id]").first();
     if (await node.count()) {
       await node.click({ timeout: 3000 });
       await shot(page, "10b-graph-node-click");

@@ -13,7 +13,7 @@ services:
     image: ghcr.io/colliery-io/cloacina-server:latest
     # build:
     #   context: ../..
-    #   dockerfile: deploy/docker/server.Dockerfile
+    #   dockerfile: Dockerfile
     command:
       - "--bind"
       - "0.0.0.0:8080"
