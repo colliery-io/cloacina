@@ -344,15 +344,16 @@ def _run_gold_path(
             "pack → upload → compile → reconcile → execute → Completed"
         )
         return 0
-    except BaseException:
-        # CI keeps no artifacts: show the service logs where the failure is.
+    except Exception as exc:
+        # CI keeps no artifacts and angreal shows only the exception, so put
+        # the end of the service logs into it.
+        tails = []
         for name in ("server.log", "compiler.log"):
             log_path = home / name
             if log_path.exists():
                 lines = log_path.read_text(errors="replace").splitlines()
-                print(f"\n--- last 80 lines of {name} ---")
-                print("\n".join(lines[-80:]))
-        raise
+                tails.append(f"--- last 80 lines of {name} ---\n" + "\n".join(lines[-80:]))
+        raise RuntimeError(f"{exc}\n\n" + "\n\n".join(tails)) from exc
     finally:
         _kill(compiler_proc)
         _kill(server_proc)
