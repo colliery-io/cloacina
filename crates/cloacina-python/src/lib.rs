@@ -238,8 +238,8 @@ mod tests {
 
     #[test]
     fn test_python_workflow_via_with_gil() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             // Install a scoped Runtime so @task registers into it rather
             // than the process-global registry (CLOACI-T-0509 step 2).
             let rt = std::sync::Arc::new(cloacina::Runtime::empty());
@@ -292,8 +292,8 @@ mod tests {
 
     #[test]
     fn test_ensure_cloaca_module_registers_in_sys_modules() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             loader::ensure_cloaca_module(py).unwrap();
 
             let sys = py.import("sys").unwrap();
@@ -375,8 +375,8 @@ mod tests {
 
     #[test]
     fn test_cloaca_var_and_var_or_from_python() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             loader::ensure_cloaca_module(py).unwrap();
             let cloaca = py.import("cloaca").unwrap();
             let locals = pyo3::types::PyDict::new(py);
@@ -438,8 +438,8 @@ mod tests {
 
     #[test]
     fn test_cloaca_cg_decorators_are_callable() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             loader::ensure_cloaca_module(py).unwrap();
 
             // Verify decorators are callable (not just present as attributes)

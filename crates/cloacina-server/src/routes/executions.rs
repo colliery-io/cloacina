@@ -381,8 +381,7 @@ pub async fn get_execution(
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_request", "invalid execution ID")
-                .into_response();
+            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response();
         }
     };
 
@@ -441,8 +440,7 @@ pub async fn get_execution_events(
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_request", "invalid execution ID")
-                .into_response();
+            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response();
         }
     };
 
@@ -523,8 +521,7 @@ pub async fn get_execution_tasks(
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_request", "invalid execution ID")
-                .into_response();
+            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response();
         }
     };
 

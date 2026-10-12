@@ -43,7 +43,7 @@ pub struct PythonTriggerDef {
     pub name: String,
     pub poll_interval: Duration,
     pub allow_concurrent: bool,
-    pub python_function: Py<PyAny>,
+    pub python_function: PyObject,
     /// Workflow this trigger fires, from `@cloaca.trigger(on=…)`. Mirrors the
     /// Rust `#[trigger(on = "…")]` binding (CLOACI-T-0688). Empty for legacy
     /// poll triggers that bind via `#[workflow(triggers=[…])]` subscription.
@@ -81,7 +81,7 @@ pub struct TriggerDecorator {
 
 #[pymethods]
 impl TriggerDecorator {
-    pub fn __call__(&self, py: Python, func: Py<PyAny>) -> PyResult<Py<PyAny>> {
+    pub fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
         let trigger_name = if let Some(name) = &self.name {
             name.clone()
         } else {
@@ -161,7 +161,7 @@ pub struct PythonTriggerWrapper {
     name: String,
     poll_interval: Duration,
     allow_concurrent: bool,
-    python_function: Py<PyAny>,
+    python_function: PyObject,
     workflow_name: String,
     cron_expression: Option<String>,
 }
@@ -174,7 +174,7 @@ unsafe impl Sync for PythonTriggerWrapper {}
 
 impl PythonTriggerWrapper {
     pub fn new(def: &PythonTriggerDef) -> Self {
-        let function = Python::attach(|py| def.python_function.clone_ref(py));
+        let function = Python::with_gil(|py| def.python_function.clone_ref(py));
         Self {
             name: def.name.clone(),
             poll_interval: def.poll_interval,
@@ -218,11 +218,11 @@ impl Trigger for PythonTriggerWrapper {
     }
 
     async fn poll(&self) -> Result<RustTriggerResult, TriggerError> {
-        let function = Python::attach(|py| self.python_function.clone_ref(py));
+        let function = Python::with_gil(|py| self.python_function.clone_ref(py));
         let trigger_name = self.name.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            Python::attach(|py| -> Result<RustTriggerResult, TriggerError> {
+            Python::with_gil(|py| -> Result<RustTriggerResult, TriggerError> {
                 let call_result = function.call0(py).map_err(|e| TriggerError::PollError {
                     message: format!("Python trigger '{}' raised exception: {}", trigger_name, e),
                 })?;
@@ -232,7 +232,7 @@ impl Trigger for PythonTriggerWrapper {
                 // was removed in favor of `TriggerResult.skip()` / `.fire(ctx)`.
                 let bound = call_result.bind(py);
                 if let Ok(py_result_bound) =
-                    bound.cast::<crate::bindings::trigger::PyTriggerResult>()
+                    bound.downcast::<crate::bindings::trigger::PyTriggerResult>()
                 {
                     let py_result = py_result_bound.borrow();
                     Ok(py_result.clone_into_rust())
@@ -272,8 +272,8 @@ mod tests {
 
     #[test]
     fn test_trigger_decorator_registers() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             // Clear any previous state
             drain_python_triggers();
 
@@ -300,8 +300,8 @@ mod tests {
 
     #[test]
     fn test_trigger_decorator_uses_function_name() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             drain_python_triggers();
 
             let decorator =
@@ -325,8 +325,8 @@ mod tests {
     // reconciler routes the trigger to the cron scheduler.
     #[test]
     fn test_cron_trigger_decorator_carries_cron_and_workflow() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             drain_python_triggers();
 
             let decorator = trigger(
@@ -377,9 +377,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_python_trigger_wrapper_skip() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
 
-        let def = Python::attach(|py| {
+        let def = Python::with_gil(|py| {
             let func = py.eval(c_str!("lambda: False"), None, None).unwrap();
             PythonTriggerDef {
                 name: "skip_trigger".to_string(),
@@ -401,9 +401,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_python_trigger_wrapper_fire() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
 
-        let def = Python::attach(|py| {
+        let def = Python::with_gil(|py| {
             let func = py.eval(c_str!("lambda: True"), None, None).unwrap();
             PythonTriggerDef {
                 name: "fire_trigger".to_string(),
@@ -423,9 +423,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_python_trigger_wrapper_exception_handled() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
 
-        let def = Python::attach(|py| {
+        let def = Python::with_gil(|py| {
             py.run(
                 c_str!("def bad_trigger():\n    raise ValueError('boom')"),
                 None,

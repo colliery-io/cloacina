@@ -63,7 +63,7 @@ impl PyWorkflowBuilder {
     }
 
     /// Add a task to the workflow by ID or function reference
-    pub fn add_task(&mut self, py: Python, task: Py<PyAny>) -> PyResult<()> {
+    pub fn add_task(&mut self, py: Python, task: PyObject) -> PyResult<()> {
         match task.extract::<String>(py) {
             Ok(task_id) => {
                 let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
@@ -217,7 +217,7 @@ impl PyWorkflowBuilder {
 }
 
 /// Python wrapper for Workflow
-#[pyclass(name = "Workflow", from_py_object)]
+#[pyclass(name = "Workflow")]
 #[derive(Clone)]
 pub struct PyWorkflow {
     inner: cloacina::Workflow,
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_workflow_builder_new_defaults() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let builder = PyWorkflowBuilder::new("my_workflow", None, None, None);
         let repr = builder.__repr__();
         assert_eq!(repr, "WorkflowBuilder(name='my_workflow')");
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_workflow_builder_new_with_custom_namespace() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let builder = PyWorkflowBuilder::new(
             "wf1",
             Some("custom_tenant"),
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_workflow_builder_description_and_tag() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let mut builder = PyWorkflowBuilder::new("wf1", None, None, None);
         builder.description("A test workflow");
         builder.tag("env", "test");
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_workflow_builder_build_empty_returns_error() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let builder = PyWorkflowBuilder::new("empty_wf", None, None, None);
         let result = builder.build();
         assert!(result.is_err(), "Empty workflow build should fail");
@@ -349,8 +349,8 @@ mod tests {
 
     #[test]
     fn test_workflow_builder_build_with_task() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let rt = std::sync::Arc::new(cloacina::Runtime::empty());
             let _scope =
                 crate::runtime_scope::ScopedRuntime::new(rt).expect("ScopedRuntime install");
@@ -398,8 +398,8 @@ mod tests {
 /// compatibility; the Rust symbol name is `py_register_workflow` so it does
 /// not collide with the (now deleted) `cloacina::register_workflow_constructor`.
 #[pyfunction(name = "register_workflow_constructor")]
-pub fn py_register_workflow(name: String, constructor: Py<PyAny>) -> PyResult<()> {
-    Python::attach(|py| {
+pub fn py_register_workflow(name: String, constructor: PyObject) -> PyResult<()> {
+    Python::with_gil(|py| {
         let workflow_obj = constructor.call0(py).map_err(|e| {
             PyValueError::new_err(format!("Failed to call workflow constructor: {}", e))
         })?;
@@ -431,7 +431,7 @@ pub struct PyWorkflowParamsDecorator;
 
 #[pymethods]
 impl PyWorkflowParamsDecorator {
-    fn __call__(&self, obj: Py<PyAny>) -> Py<PyAny> {
+    fn __call__(&self, obj: PyObject) -> PyObject {
         obj
     }
 }
@@ -462,7 +462,7 @@ pub struct PyWorkflowSecretsDecorator;
 
 #[pymethods]
 impl PyWorkflowSecretsDecorator {
-    fn __call__(&self, obj: Py<PyAny>) -> Py<PyAny> {
+    fn __call__(&self, obj: PyObject) -> PyObject {
         obj
     }
 }
@@ -490,7 +490,7 @@ pub struct PyBoundarySchemaDecorator;
 
 #[pymethods]
 impl PyBoundarySchemaDecorator {
-    fn __call__(&self, obj: Py<PyAny>) -> Py<PyAny> {
+    fn __call__(&self, obj: PyObject) -> PyObject {
         obj
     }
 }

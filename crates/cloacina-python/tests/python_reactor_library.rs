@@ -43,7 +43,7 @@ use cloacina_python::runtime_scope::ScopedRuntime;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_python_reactor_library_dispatches_into_scheduler() {
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
 
     let registry = EndpointRegistry::new();
     let scheduler = ComputationGraphScheduler::new(registry.clone());
@@ -52,7 +52,7 @@ async fn test_python_reactor_library_dispatches_into_scheduler() {
     let _scope = ScopedRuntime::new(rt.clone()).unwrap();
 
     // ---- Drive a "reactor library" Python module: decorator only ----
-    Python::attach(|py| {
+    Python::with_gil(|py| {
         let locals = pyo3::types::PyDict::new(py);
         locals
             .set_item(
@@ -147,7 +147,7 @@ async fn test_python_reactor_library_then_bind_graph() {
     use cloacina::computation_graph::types::InputCache;
     use cloacina_computation_graph::CompiledGraphFn;
 
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
     let registry = EndpointRegistry::new();
     let scheduler = ComputationGraphScheduler::new(registry.clone());
 
@@ -156,7 +156,7 @@ async fn test_python_reactor_library_then_bind_graph() {
 
     // ---- Step 1: a Python "reactor library" module brings up a reactor
     // ----  that has no co-located CG subscriber.
-    Python::attach(|py| {
+    Python::with_gil(|py| {
         let locals = pyo3::types::PyDict::new(py);
         locals
             .set_item(
@@ -244,7 +244,7 @@ fn test_python_reactor_only_workflow_package_loads_and_dispatches() {
     use cloacina_python::loader::import_and_register_python_workflow_named;
     use tempfile::TempDir;
 
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
 
     // Lay out a workflow_dir + vendor_dir on disk like the reconciler does
     // post-extract.
@@ -317,12 +317,12 @@ class OnlyRx:
 /// right accumulator runtime instead of silently degrading to passthrough.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_reactor_registration_carries_authored_accumulator_specs() {
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
 
     let rt = Arc::new(cloacina::Runtime::empty());
     let _scope = ScopedRuntime::new(rt.clone()).unwrap();
 
-    Python::attach(|py| {
+    Python::with_gil(|py| {
         let locals = pyo3::types::PyDict::new(py);
         locals
             .set_item(

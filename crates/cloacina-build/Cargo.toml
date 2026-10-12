@@ -12,4 +12,4 @@ rust-version.workspace = true
 description = "Build-time helper for binaries that depend on cloacina. Sets up Python rpath so the Python shared library can be found at runtime."
 
 [dependencies]
-pyo3-build-config = { version = "0.29", features = ["resolve-config"] }
+pyo3-build-config = { version = "0.25", features = ["resolve-config"] }

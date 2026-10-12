@@ -145,12 +145,12 @@ fn multiple_triggers_register_and_deregister_independently() {
 #[test]
 #[serial]
 fn python_trigger_decorator_registers_and_wraps() {
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
 
     // Drain any leftover triggers from other tests
     cloacina_python::trigger::drain_python_triggers();
 
-    pyo3::Python::attach(|py| {
+    pyo3::Python::with_gil(|py| {
         // Ensure cloaca module is available
         cloacina_python::loader::ensure_cloaca_module(py).unwrap();
 
@@ -199,10 +199,10 @@ fn python_trigger_decorator_registers_and_wraps() {
 #[tokio::test]
 #[serial]
 async fn python_trigger_poll_returns_result() {
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
     cloacina_python::trigger::drain_python_triggers();
 
-    pyo3::Python::attach(|py| {
+    pyo3::Python::with_gil(|py| {
         cloacina_python::loader::ensure_cloaca_module(py).unwrap();
 
         // Define a trigger that fires

@@ -101,7 +101,7 @@ impl AccumulatorFactory for PassthroughTestFactory {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cross_language_fan_out_via_shared_reactor_name() {
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
 
     let registry = EndpointRegistry::new();
     let scheduler = ComputationGraphScheduler::new(registry.clone());
@@ -156,7 +156,7 @@ async fn test_cross_language_fan_out_via_shared_reactor_name() {
     let rt = Arc::new(cloacina::Runtime::empty());
     let _scope = ScopedRuntime::new(rt.clone()).unwrap();
 
-    Python::attach(|py| {
+    Python::with_gil(|py| {
         let locals = pyo3::types::PyDict::new(py);
         locals
             .set_item("node", pyo3::wrap_pyfunction!(py_cg::node, py).unwrap())

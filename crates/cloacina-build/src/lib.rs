@@ -45,19 +45,10 @@
 /// 1. Emits PyO3 cfg flags (e.g., `Py_3_9`)
 /// 2. Sets the rpath linker arg so the Python shared library is found at runtime
 pub fn configure() {
-    // pyo3-build-config 0.29 hands its interpreter config only to crates that
-    // depend on pyo3 directly (CLOACINA-T-0962). Those get pyo3's cfgs and
-    // its lib dir; every other caller asks the interpreter for the lib dir.
-    let has_pyo3_config = std::env::var_os("DEP_PYTHON_PYO3_CONFIG").is_some()
-        || std::env::var_os("DEP_PYO3_PYTHON_PYO3_CONFIG").is_some();
-    let lib_dir = if has_pyo3_config {
-        pyo3_build_config::use_pyo3_cfgs();
-        pyo3_build_config::get().lib_dir().map(str::to_string)
-    } else {
-        interpreter_lib_dir()
-    };
+    pyo3_build_config::use_pyo3_cfgs();
 
-    if let Some(lib_dir) = lib_dir {
+    let config = pyo3_build_config::get();
+    if let Some(lib_dir) = &config.lib_dir {
         // On macOS with framework builds, the dylib is loaded as
         // @rpath/Python3.framework/... so we need the framework search path.
         let rpath = if lib_dir.contains(".framework/") {
@@ -67,28 +58,9 @@ pub fn configure() {
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|| lib_dir.clone())
         } else {
-            lib_dir
+            lib_dir.clone()
         };
 
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", rpath);
     }
-}
-
-/// `sysconfig`'s LIBDIR from the interpreter pyo3 builds against: `PYO3_PYTHON`
-/// when set, else `python3`. `None` when no interpreter answers.
-fn interpreter_lib_dir() -> Option<String> {
-    println!("cargo:rerun-if-env-changed=PYO3_PYTHON");
-    let python = std::env::var_os("PYO3_PYTHON").unwrap_or_else(|| "python3".into());
-    let out = std::process::Command::new(python)
-        .args([
-            "-c",
-            "import sysconfig; print(sysconfig.get_config_var('LIBDIR') or '')",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let dir = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    (!dir.is_empty()).then_some(dir)
 }

@@ -21,7 +21,7 @@ pub use crate::context::PyContext;
 use pyo3::prelude::*;
 
 /// PyDefaultRunnerConfig - Python wrapper for Rust DefaultRunnerConfig
-#[pyclass(name = "DefaultRunnerConfig", from_py_object)]
+#[pyclass(name = "DefaultRunnerConfig")]
 #[derive(Debug, Clone)]
 pub struct PyDefaultRunnerConfig {
     inner: cloacina::runner::DefaultRunnerConfig,
@@ -272,7 +272,7 @@ impl PyDefaultRunnerConfig {
     }
 
     /// Returns a dictionary representation of the configuration
-    pub fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    pub fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
         let dict = pyo3::types::PyDict::new(py);
 
         dict.set_item("max_concurrent_tasks", self.inner.max_concurrent_tasks())?;
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_default_construction() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let config = PyDefaultRunnerConfig::default();
         // Should have reasonable defaults
         assert!(config.max_concurrent_tasks() > 0);
@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_new_with_defaults() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let config = PyDefaultRunnerConfig::new(
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
         )
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn test_new_with_custom_params() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let config = PyDefaultRunnerConfig::new(
             Some(16),
             Some(500),
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_repr() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let config = PyDefaultRunnerConfig::default();
         let repr = config.__repr__();
         assert!(repr.starts_with("DefaultRunnerConfig("));
@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_setters() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let mut config = PyDefaultRunnerConfig::default();
 
         config.set_max_concurrent_tasks(32);
@@ -464,11 +464,11 @@ mod tests {
 
     #[test]
     fn test_to_dict() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let config = PyDefaultRunnerConfig::default();
             let dict_obj = config.to_dict(py).unwrap();
-            let dict = dict_obj.cast_bound::<pyo3::types::PyDict>(py).unwrap();
+            let dict = dict_obj.downcast_bound::<pyo3::types::PyDict>(py).unwrap();
             assert!(dict.contains("max_concurrent_tasks").unwrap());
             assert!(dict.contains("db_pool_size").unwrap());
             assert!(dict.contains("enable_cron_scheduling").unwrap());

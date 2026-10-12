@@ -131,7 +131,7 @@ pub struct PythonTriggerWrapper {
     workflow_name: String,
     poll_interval: Duration,
     allow_concurrent: bool,
-    python_function: Py<PyAny>,
+    python_function: PyObject,
 }
 
 impl std::fmt::Debug for PythonTriggerWrapper {
@@ -141,7 +141,7 @@ impl std::fmt::Debug for PythonTriggerWrapper {
             .field("workflow_name", &self.workflow_name)
             .field("poll_interval", &self.poll_interval)
             .field("allow_concurrent", &self.allow_concurrent)
-            .field("python_function", &"<Py<PyAny>>")
+            .field("python_function", &"<PyObject>")
             .finish()
     }
 }
@@ -164,12 +164,12 @@ impl Trigger for PythonTriggerWrapper {
     }
 
     async fn poll(&self) -> Result<TriggerResult, TriggerError> {
-        let function = Python::attach(|py| self.python_function.clone_ref(py));
+        let function = Python::with_gil(|py| self.python_function.clone_ref(py));
         let trigger_name = self.name.clone();
 
         // Execute Python function in a blocking task
         tokio::task::spawn_blocking(move || {
-            Python::attach(|py| {
+            Python::with_gil(|py| {
                 // Call Python poll function
                 let result = function.call0(py).map_err(|e| TriggerError::PollError {
                     message: format!("Python trigger poll failed: {}", e),
@@ -177,7 +177,7 @@ impl Trigger for PythonTriggerWrapper {
 
                 // Downcast to PyTriggerResult
                 let bound_result = result.bind(py);
-                let py_result_bound = bound_result.cast::<PyTriggerResult>().map_err(|e| {
+                let py_result_bound = bound_result.downcast::<PyTriggerResult>().map_err(|e| {
                     TriggerError::PollError {
                         message: format!(
                             "Trigger '{}' must return TriggerResult, got: {}",
@@ -254,7 +254,7 @@ pub struct TriggerDecorator {
 
 #[pymethods]
 impl TriggerDecorator {
-    pub fn __call__(&self, py: Python, func: Py<PyAny>) -> PyResult<Py<PyAny>> {
+    pub fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
         // Determine trigger name - use provided name or derive from function name
         let trigger_name = if let Some(name) = &self.name {
             name.clone()
@@ -276,7 +276,7 @@ impl TriggerDecorator {
             PyValueError::new_err("@trigger decorator called outside a Runtime scope")
         })?;
         rt.register_trigger(trigger_name.clone(), move || {
-            let function_clone = Python::attach(|py| (*shared_function).clone_ref(py));
+            let function_clone = Python::with_gil(|py| (*shared_function).clone_ref(py));
             Arc::new(PythonTriggerWrapper {
                 name: name_for_constructor.clone(),
                 workflow_name: workflow_name.clone(),

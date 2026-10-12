@@ -177,8 +177,7 @@ pub async fn revoke_key(
     let id = match uuid::Uuid::parse_str(&key_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_key_id", "invalid key ID format")
-                .into_response();
+            return ApiError::bad_request("invalid_key_id", "invalid key ID format").into_response();
         }
     };
 
@@ -338,8 +337,7 @@ pub async fn revoke_tenant_key(
     let id = match uuid::Uuid::parse_str(&key_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_key_id", "invalid key ID format")
-                .into_response();
+            return ApiError::bad_request("invalid_key_id", "invalid key ID format").into_response();
         }
     };
 

@@ -80,8 +80,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_linear_graph_via_builder() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             define_graph_and_get_executor(
                 py,
@@ -121,8 +121,8 @@ with ComputationGraphBuilder("linear_test",
     #[test]
     #[serial]
     fn test_routing_graph_via_builder() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             define_graph_and_get_executor(
                 py,
@@ -171,8 +171,8 @@ with ComputationGraphBuilder("routing_test",
     #[test]
     #[serial]
     fn test_missing_node_errors() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
             let locals = build_test_locals(py);
@@ -209,8 +209,8 @@ with ComputationGraphBuilder("missing_test",
     #[test]
     #[serial]
     fn test_orphan_node_errors() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
             let locals = build_test_locals(py);
@@ -249,9 +249,9 @@ with ComputationGraphBuilder("orphan_test",
     #[tokio::test]
     #[serial]
     async fn test_linear_graph_executes() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
 
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
             let locals = build_test_locals(py);
@@ -306,9 +306,9 @@ with ComputationGraphBuilder("exec_linear",
     #[tokio::test]
     #[serial]
     async fn test_routing_graph_executes_signal_path() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
 
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
             let locals = build_test_locals(py);
@@ -383,8 +383,8 @@ with ComputationGraphBuilder("exec_routing",
     #[test]
     #[serial]
     fn test_trigger_less_graph_builds() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             define_graph_and_get_executor(
                 py,
@@ -433,8 +433,8 @@ assert b.NAME == "name_check", b.NAME
     #[test]
     #[serial]
     fn test_trigger_less_rejects_cache_inputs() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
             let locals = build_test_locals(py);
@@ -469,8 +469,8 @@ with ComputationGraphBuilder("bad_tless",
     #[test]
     #[serial]
     fn test_bundled_react_kwarg_rejected() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
             let locals = build_test_locals(py);
@@ -499,8 +499,8 @@ ComputationGraphBuilder("bundled",
     #[test]
     #[serial]
     fn test_split_form_unknown_accumulator_rejected() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
             let locals = build_test_locals(py);
@@ -537,8 +537,8 @@ with ComputationGraphBuilder("typo_graph",
     #[test]
     #[serial]
     fn test_reactor_kwarg_must_be_decorated_class() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
             let locals = build_test_locals(py);
@@ -606,8 +606,8 @@ ComputationGraphBuilder("g", reactor=NotAReactor, graph={"x": {}})
     #[test]
     #[serial]
     fn test_passthrough_accumulator_decorator() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let globals = py.import("builtins").unwrap().dict();
             let locals = setup_accumulator_env(py);
 
@@ -642,8 +642,8 @@ assert result == {"price": 100.5, "change": 0.0}, f"unexpected result: {result}"
     #[test]
     #[serial]
     fn test_stream_accumulator_decorator() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let globals = py.import("builtins").unwrap().dict();
             let locals = setup_accumulator_env(py);
 
@@ -677,8 +677,8 @@ assert result["bid"] == 100.0
     #[test]
     #[serial]
     fn test_polling_accumulator_decorator() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let globals = py.import("builtins").unwrap().dict();
             let locals = setup_accumulator_env(py);
 
@@ -708,8 +708,8 @@ def config_source():
     #[test]
     #[serial]
     fn test_batch_accumulator_decorator() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let globals = py.import("builtins").unwrap().dict();
             let locals = setup_accumulator_env(py);
 
