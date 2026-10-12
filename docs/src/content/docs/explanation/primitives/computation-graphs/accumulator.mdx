@@ -1,0 +1,61 @@
+---
+title: "Accumulator"
+description: "Turns an external source or stream into the boundary events a reactor reacts to."
+sidebar:
+  order: 24
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+An **Accumulator** sits between an external data source and a
+[Reactor](../reactor/). It receives raw
+events, optionally aggregates or filters them, and emits typed
+[Boundary events](../boundary/) under a named
+source. Its core operation is `process(event) -> Option<output>` — returning
+nothing drops the event (filtering/dedup).
+
+## Variants
+
+| Variant | What it does |
+|---------|--------------|
+| **passthrough** | No buffering; converts each event to an output (or drops it). |
+| **stream** | Consumes from a stream backend (e.g. Kafka `topic`/`group`). |
+| **polling** | Pulls from a source on a timer (`interval`). |
+| **batch** | Buffers events, flushes on `flush_interval` / `max_buffer_size`. |
+| **state** | A bounded, DAL-persisted history buffer (`capacity`). |
+
+## Interfaces
+
+<Tabs>
+<TabItem label="Rust">
+```rust
+#[passthrough_accumulator]
+#[stream_accumulator(type = "...", topic = "...", group = "...")]
+#[polling_accumulator(interval = "...")]
+#[batch_accumulator(flush_interval = "...", max_buffer_size = 100)]
+#[state_accumulator(capacity = 64)]
+```
+</TabItem>
+<TabItem label="Python">
+```python
+@cloaca.passthrough_accumulator
+@cloaca.stream_accumulator(type="...", topic="...", group="...")
+@cloaca.polling_accumulator(interval="5s")
+@cloaca.batch_accumulator(flush_interval="1s", max_buffer_size=100)
+@cloaca.state_accumulator(capacity=64)
+```
+
+All five accumulator types have Python decorator parity.
+</TabItem>
+</Tabs>
+
+## Key facts
+
+- **`process()` returns an `Option`** — `None` silently drops the event.
+- **Named source:** an accumulator emits under a `SourceName` that must match the
+  reactor's `accumulators` list and the graph's entry-node source name.
+- **Choosing one:** see [Choosing Accumulator Types](../../../../how-to/computation-graphs/accumulator-types/).
+
+## See also
+
+- [Reactor](../reactor/) · [Boundary event](../boundary/) · [Computation Graph](../computation-graph/)
