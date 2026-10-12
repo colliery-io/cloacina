@@ -35,8 +35,8 @@ cloacina-workflow = { workspace = true }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
 indexmap = "2.0"
-petgraph = "0.6"
-thiserror = "1.0"
+petgraph = "0.8"
+thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]

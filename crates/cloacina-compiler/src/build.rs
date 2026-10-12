@@ -645,7 +645,7 @@ fn ensure_build_wiring(source_dir: &Path) {
     let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
         return;
     };
-    let Ok(mut doc) = raw.parse::<toml::Value>() else {
+    let Ok(mut doc) = raw.parse::<toml::Table>().map(toml::Value::Table) else {
         return;
     };
     let Some(root) = doc.as_table_mut() else {
@@ -708,7 +708,7 @@ fn inject_dev_patch(source_dir: &Path, workspace: &Path) {
         let Ok(raw) = std::fs::read_to_string(dir.join("Cargo.toml")) else {
             continue;
         };
-        let Ok(doc) = raw.parse::<toml::Value>() else {
+        let Ok(doc) = raw.parse::<toml::Table>().map(toml::Value::Table) else {
             continue;
         };
         if let Some(name) = doc
@@ -731,7 +731,7 @@ fn inject_dev_patch(source_dir: &Path, workspace: &Path) {
     let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
         return;
     };
-    let Ok(mut doc) = raw.parse::<toml::Value>() else {
+    let Ok(mut doc) = raw.parse::<toml::Table>().map(toml::Value::Table) else {
         return;
     };
     let Some(root) = doc.as_table_mut() else {
@@ -1169,6 +1169,31 @@ mod tests {
     use super::*;
     use std::net::SocketAddr;
     use std::time::Instant;
+
+    /// CLOACINA-T-0957: a minimal package gets the cdylib crate-type and the
+    /// `packaged` feature. Parsing the manifest as a document (toml 1.x reads
+    /// `str::parse::<Value>` as a single value) must not make this a no-op.
+    #[test]
+    fn ensure_build_wiring_injects_crate_type_and_packaged_feature() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"minimal\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+             [dependencies]\nserde_json = \"1.0\"\n",
+        )
+        .expect("write Cargo.toml");
+
+        ensure_build_wiring(tmp.path());
+
+        let doc: toml::Table = std::fs::read_to_string(tmp.path().join("Cargo.toml"))
+            .expect("read Cargo.toml")
+            .parse()
+            .expect("valid TOML");
+        let crate_type = doc["lib"]["crate-type"].as_array().expect("crate-type");
+        assert!(crate_type.iter().any(|v| v.as_str() == Some("cdylib")));
+        assert!(doc["features"].get("packaged").is_some());
+        assert_eq!(doc["dependencies"]["serde_json"].as_str(), Some("1.0"));
+    }
 
     /// Build a minimal cargo package whose `build.rs` sleeps for `sleep_secs`
     /// seconds. The library itself is an empty cdylib; the slow component is

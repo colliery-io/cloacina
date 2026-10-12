@@ -38,7 +38,7 @@ cloacina-workflow-plugin = { version = "0.11.1", path = "crates/cloacina-workflo
 cloacina-constructor-contract = { version = "0.11.1", path = "crates/cloacina-constructor-contract" }
 clap = { version = "4.0", features = ["derive", "env"] }
 anyhow = { version = "1.0" }
-toml = { version = "0.8" }
+toml = { version = "1" }
 bincode = { version = "1.3" }
 
 # fidius — the plugin/FFI framework. Collapsed to workspace deps (CLOACI-T-0897):

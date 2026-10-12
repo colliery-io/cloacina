@@ -20,7 +20,7 @@ rust-version.workspace = true
 host = ["fidius/host"]
 
 [dependencies]
-toml = "0.8"
+toml = "1"
 fidius = { workspace = true }
 fidius-core = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
@@ -31,4 +31,4 @@ cloacina-workflow = { workspace = true}
 
 [dev-dependencies]
 tempfile = "3"
-toml = "0.8"
+toml = "1"

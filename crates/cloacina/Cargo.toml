@@ -84,15 +84,15 @@ fidius-core = { workspace = true }
 # the shared constructor contract). Default builds pull neither.
 fidius-macro = { workspace = true, optional = true }
 cloacina-constructor-contract = { workspace = true, optional = true }
-libloading = { version = "0.8" }
+libloading = { version = "0.9" }
 parking_lot = { version = "0.12" }
-petgraph = { version = "0.6" }
+petgraph = { version = "0.8" }
 rand = { version = "0.8" }
 serde = { version = "1.0", features = ["derive"] }
-base64 = { version = "0.22" }
+base64 = { version = "0.23" }
 serial_test = { version = "3.2.0" }
 tempfile = { version = "3.2" }
-thiserror = { version = "1.0" }
+thiserror = { version = "2" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-postgres = { version = "0.7", optional = true }
 futures = { version = "0.3" }
@@ -113,7 +113,7 @@ argon2 = { version = "0.5", features = ["std"] }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = { version = "0.4" }
 pem = { version = "3.0" }
-toml = { version = "0.8" }
+toml = { version = "1" }
 anyhow = { version = "1.0" }
 bincode = { workspace = true }
 cel-interpreter = "0.10"

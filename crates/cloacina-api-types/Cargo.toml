@@ -19,6 +19,6 @@ openapi = ["dep:utoipa"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json.workspace = true
-base64 = { version = "0.22" }
-thiserror = { version = "1.0" }
+base64 = { version = "0.23" }
+thiserror = { version = "2" }
 utoipa = { version = "5", optional = true }

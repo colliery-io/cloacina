@@ -133,7 +133,7 @@ pub fn provider_runtime_for_crate(
     let Ok(raw) = std::fs::read_to_string(crate_dir.join("Cargo.toml")) else {
         return ProviderRuntime::Wasm;
     };
-    let Ok(value) = raw.parse::<toml::Value>() else {
+    let Ok(value) = raw.parse::<toml::Table>().map(toml::Value::Table) else {
         return ProviderRuntime::Wasm;
     };
     match value

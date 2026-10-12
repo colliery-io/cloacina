@@ -34,8 +34,8 @@ fidius-core = { workspace = true }
 fidius-host = { workspace = true }
 tempfile = "3.2"
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
-notify = { version = "7", default-features = false, features = ["macos_kqueue"] }
+toml = "1"
+notify = { version = "8", default-features = false, features = ["macos_kqueue"] }
 uuid = { version = "1.0", features = ["v4"] }
 tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
