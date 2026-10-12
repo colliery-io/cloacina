@@ -32,7 +32,7 @@ pub mod constructor_demo {
 
     constructor!(
         id = "reader",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/etc/hostname" },
         grants = { fs = ["ro:/etc"] },
@@ -62,10 +62,10 @@ dependencies for a Python package):
 
 ```toml
 [metadata.providers]
-cloacina-provider-fs = "0.1.0"
+cloacina-provider-fs = "0.1.1"
 # or detailed specs, same shapes as Cargo dependencies:
 # cloacina-provider-fs = { path = "/workspace/providers/cloacina-provider-fs" }
-# cloacina-provider-fs = { git = "https://github.com/...", tag = "v0.1.0" }
+# cloacina-provider-fs = { git = "https://github.com/...", tag = "v0.1.1" }
 ```
 
 The workflow module wires a member exactly like a task:
@@ -75,7 +75,7 @@ import cloaca
 
 cloaca.constructor(
     id="reader",
-    from_="cloacina-provider-fs@0.1.0",
+    from_="cloacina-provider-fs@0.1.1",
     constructor="read_file",
     config={"path": "/etc/hostname"},
     grants={"fs": ["ro:/etc"]},

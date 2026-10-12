@@ -65,7 +65,7 @@ fn unknown_provider_fails_closed() {
 
 #[test]
 fn version_pin_mismatch_fails_closed() {
-    // The graph has cloacina-provider-fs @ 0.1.0; asking for @9.9.9 must fail.
+    // The graph has cloacina-provider-fs @ 0.1.1; asking for @9.9.9 must fail.
     let err = resolve_provider_crate(
         &consumer_dir(),
         &ProviderRef::parse("cloacina-provider-fs@9.9.9"),
@@ -74,7 +74,7 @@ fn version_pin_mismatch_fails_closed() {
     .expect("an unsatisfiable version pin must fail closed");
     let msg = format!("{err}");
     assert!(
-        msg.contains("9.9.9") && msg.contains("0.1.0"),
+        msg.contains("9.9.9") && msg.contains("0.1.1"),
         "error should name the requested + available versions, got: {msg}"
     );
 }
@@ -94,7 +94,7 @@ fn bundles_the_provider_into_a_providers_tree() {
     let p = &bundled[0];
     assert_eq!(p.from, "cloacina-provider-fs");
     assert_eq!(p.provider_name, "cloacina-provider-fs");
-    assert_eq!(p.version, "0.1.0");
+    assert_eq!(p.version, "0.1.1");
     assert_eq!(
         p.constructors,
         vec!["read_file".to_string(), "write_file".to_string()],
@@ -124,7 +124,7 @@ fn duplicate_refs_bundle_once() {
         &consumer_dir(),
         &[
             ProviderRef::parse("cloacina-provider-fs"),
-            ProviderRef::parse("cloacina-provider-fs@0.1.0"),
+            ProviderRef::parse("cloacina-provider-fs@0.1.1"),
         ],
         dest.path(),
         false,
@@ -158,7 +158,7 @@ fn packs_providers_from_manifest_specs() {
     assert_eq!(packed.len(), 1);
     let p = &packed[0];
     assert_eq!(p.provider_name, "cloacina-provider-fs");
-    assert_eq!(p.version, "0.1.0");
+    assert_eq!(p.version, "0.1.1");
     assert_eq!(
         p.constructors,
         vec!["read_file".to_string(), "write_file".to_string()]

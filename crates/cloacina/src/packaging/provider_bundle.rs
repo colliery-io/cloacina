@@ -547,7 +547,7 @@ mod tests {
             refs,
             vec![ProviderRef {
                 name: "cloacina-provider-fs".into(),
-                version: Some("0.1.0".into())
+                version: Some("0.1.1".into())
             }],
             "the packaged consumer fixture declares exactly one provider ref"
         );
@@ -654,10 +654,10 @@ mod tests {
             }
         );
         assert_eq!(
-            ProviderRef::parse("cloacina-provider-fs@0.1.0"),
+            ProviderRef::parse("cloacina-provider-fs@0.1.1"),
             ProviderRef {
                 name: "cloacina-provider-fs".into(),
-                version: Some("0.1.0".into())
+                version: Some("0.1.1".into())
             }
         );
     }

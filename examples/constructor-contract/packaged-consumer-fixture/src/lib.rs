@@ -42,7 +42,7 @@ pub mod provider_consumer {
 
     constructor!(
         id = "reader",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/tmp/cloacina-packaged-consumer-fixture/secret.txt" },
         grants = { fs = ["ro:/tmp/cloacina-packaged-consumer-fixture"] },

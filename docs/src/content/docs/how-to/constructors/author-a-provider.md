@@ -111,7 +111,7 @@ cloacinactl constructor package ./cloacina-provider-fs --sign-key key.secret
 
 This builds the crate to `wasm32-wasip2`, emits `provider.json` (both members),
 assembles a `runtime = "wasm"` package, optionally Ed25519-signs it, and packs a
-`cloacina-provider-fs-0.1.0.cloacina` archive you can stage on a provider
+`cloacina-provider-fs-0.1.1.cloacina` archive you can stage on a provider
 search path.
 
 ## 4. Consume a member with grants
@@ -128,7 +128,7 @@ pub mod granted {
 
     constructor!(
         id = "reader",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/data/secret.txt" },
         grants = { fs = ["ro:/data"] },   // omit → default-closed, the read is denied
@@ -141,7 +141,7 @@ Selecting the other member is just a different `constructor = "..."`:
 ```rust
 constructor!(
     id = "writer",
-    from = "cloacina-provider-fs@0.1.0",
+    from = "cloacina-provider-fs@0.1.1",
     constructor = "write_file",
     config = { path = "/data/out.txt" },
     grants = { fs = ["rw:/data"] },

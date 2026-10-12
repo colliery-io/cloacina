@@ -71,7 +71,7 @@ pub mod granted {
 
     constructor!(
         id = "reader",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/tmp/cloacina-fs-grant-demo/secret.txt" },
         grants = { fs = ["ro:/tmp/cloacina-fs-grant-demo"] },
@@ -104,7 +104,7 @@ pub mod ungranted {
 
     constructor!(
         id = "reader_denied",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/tmp/cloacina-fs-grant-demo/secret.txt" },
     );
@@ -145,7 +145,7 @@ pub mod write_granted {
 
     constructor!(
         id = "writer",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "write_file",
         config = { path = "/tmp/cloacina-fs-grant-demo/written.txt" },
         grants = { fs = ["rw:/tmp/cloacina-fs-grant-demo"] },
