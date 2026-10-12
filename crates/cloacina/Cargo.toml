@@ -73,8 +73,8 @@ cloacina-workflow-plugin = { workspace = true, features = ["host"] }
 
 # External dependencies
 chrono = { version = "0.4", features = ["serde"] }
-deadpool = { version = "0.12" }
-deadpool-diesel = { version = "0.6" }
+deadpool = { version = "0.13" }
+deadpool-diesel = { version = "0.7" }
 diesel = { version = "2.1.0", features = ["chrono", "serde_json"] }
 diesel_migrations = { version = "2.1.0" }
 libsqlite3-sys = { version = ">= 0.35", optional = true }

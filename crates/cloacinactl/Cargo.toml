@@ -44,7 +44,7 @@ tracing = { version = "0.1" }
 tracing-appender = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 libc = "0.2"
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
 # CLOACI-T-0629: WS client for `cloacinactl execution events --follow` (substrate consumer).
 futures-util = "0.3"
 serde_yaml = "0.9"

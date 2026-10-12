@@ -36,10 +36,14 @@ cloacina = { workspace = true, default-features = false, features = ["sqlite", "
 cloacina-python = { workspace = true, default-features = false }
 
 # HTTP client for REST endpoints (register/heartbeat/result/ws-ticket/artifact).
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
 
 # WebSocket client for the substrate delivery endpoint.
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
+# Both rustls crypto backends are compiled in (reqwest: aws-lc-rs,
+# wasmtime-wasi-http: ring), so main() installs one as the process default
+# for tokio-tungstenite (CLOACINA-T-0960).
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 futures-util = "0.3"
 
 # Base64 to decode `payload_b64` from the substrate envelope.

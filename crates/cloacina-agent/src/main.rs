@@ -100,6 +100,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // rustls has both ring and aws-lc-rs compiled in; without a process
+    // default, a wss:// connect panics choosing one.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

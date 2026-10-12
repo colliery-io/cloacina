@@ -230,6 +230,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
+// The reqwest openidconnect implements its HTTP client for (CLOACINA-T-0960):
+// openidconnect 4 / oauth2 5 are on reqwest 0.12.
+use openidconnect::reqwest;
 use openidconnect::{
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
     PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,

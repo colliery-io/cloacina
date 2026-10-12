@@ -68,7 +68,7 @@ mod socket {
         pub async fn next(&mut self) -> Option<Result<WsEvent, String>> {
             let msg = self.0.next().await?;
             Some(match msg {
-                Ok(Message::Text(text)) => Ok(WsEvent::Text(text)),
+                Ok(Message::Text(text)) => Ok(WsEvent::Text(text.to_string())),
                 Ok(Message::Close(frame)) => Ok(WsEvent::Close(frame.map(|f| f.code.into()))),
                 Ok(_) => Ok(WsEvent::Other),
                 Err(e) => Err(e.to_string()),
@@ -77,7 +77,7 @@ mod socket {
 
         pub async fn send_text(&mut self, text: String) -> Result<(), String> {
             self.0
-                .send(Message::Text(text))
+                .send(Message::Text(text.into()))
                 .await
                 .map_err(|e| e.to_string())
         }
@@ -106,7 +106,7 @@ mod socket {
         pub async fn next(&mut self) -> Option<Result<WsEvent, String>> {
             let msg = self.0.next().await?;
             Some(match msg {
-                Ok(Message::Text(text)) => Ok(WsEvent::Text(text)),
+                Ok(Message::Text(text)) => Ok(WsEvent::Text(text.to_string())),
                 Ok(Message::Bytes(_)) => Ok(WsEvent::Other),
                 // The browser API folds close into the error path; keep the
                 // code so 4426 (protocol-version) stays terminal.
@@ -117,7 +117,7 @@ mod socket {
 
         pub async fn send_text(&mut self, text: String) -> Result<(), String> {
             self.0
-                .send(Message::Text(text))
+                .send(Message::Text(text.into()))
                 .await
                 .map_err(|e| e.to_string())
         }
