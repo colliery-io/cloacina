@@ -7,7 +7,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import angreal  # type: ignore
 
@@ -29,7 +28,7 @@ SKIP_CRATES = {
 }
 
 
-def find_all_cargo_projects() -> List[Path]:
+def find_all_cargo_projects() -> list[Path]:
     """Find all Cargo.toml files tracked by git, excluding templates and
     intentionally-broken demos."""
     try:
@@ -57,7 +56,7 @@ def find_all_cargo_projects() -> List[Path]:
         return []
 
 
-def run_cargo_command(project_path: Path, command: List[str]) -> Tuple[bool, str, str]:
+def run_cargo_command(project_path: Path, command: list[str]) -> tuple[bool, str, str]:
     """Run a cargo command in the given project directory."""
     try:
         result = subprocess.run(
@@ -65,7 +64,8 @@ def run_cargo_command(project_path: Path, command: List[str]) -> Tuple[bool, str
             cwd=project_path,
             capture_output=True,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=300,  # 5 minute timeout
+            check=False,
         )
         return result.returncode == 0, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
@@ -74,7 +74,7 @@ def run_cargo_command(project_path: Path, command: List[str]) -> Tuple[bool, str
         return False, "", f"Error running command: {e}"
 
 
-def extract_warnings(stderr: str) -> List[str]:
+def extract_warnings(stderr: str) -> list[str]:
     """Extract warning messages from cargo stderr output."""
     warnings = []
     lines = stderr.split('\n')
@@ -88,7 +88,7 @@ def extract_warnings(stderr: str) -> List[str]:
                 warnings.append('\n'.join(current_warning))
             current_warning = [line]
             in_warning = True
-        elif in_warning and (line.startswith('   ') or line.startswith('  ') or line.strip() == ''):
+        elif in_warning and (line.startswith(('   ', '  ')) or line.strip() == ''):
             current_warning.append(line)
         elif in_warning and line.strip():
             # End of current warning
@@ -125,12 +125,15 @@ def _is_standalone_workspace(project_path: Path) -> bool:
             # Stop scanning once we hit another section header — workspace
             # declarations always appear before [package] / [dependencies]
             # in the manifests we ship.
-            if line.startswith("[") and line not in ("[workspace]",):
-                # Keep scanning past comments; only stop on actual sections.
-                if not line.startswith("[["):
-                    # Heuristic: workspace is typically declared first.
-                    # We've passed it without seeing it, so it's not here.
-                    return False
+            # Keep scanning past comments; only stop on actual sections.
+            # Heuristic: workspace is typically declared first; once past
+            # another section without seeing it, it's not here.
+            if (
+                line.startswith("[")
+                and line not in ("[workspace]",)
+                and not line.startswith("[[")
+            ):
+                return False
     except OSError:
         return False
     return False
@@ -160,7 +163,7 @@ def check_single_crate(
     project_path: Path,
     show_warnings: bool = True,
     cleanup: bool = True,
-) -> Dict:
+) -> dict:
     """Check a single crate with cargo check and cargo build.
 
     `cleanup=True` deletes the project's local `target/` after the build
@@ -177,7 +180,7 @@ def check_single_crate(
     }
 
     # Run cargo check
-    success, stdout, stderr = run_cargo_command(project_path, ["check", "--all-targets"])
+    success, _stdout, stderr = run_cargo_command(project_path, ["check", "--all-targets"])
     result["check"]["success"] = success
     result["check"]["warnings"] = extract_warnings(stderr)
     if not success and not result["check"]["warnings"]:
@@ -185,7 +188,7 @@ def check_single_crate(
 
     # Run cargo build if check succeeded
     if success:
-        success, stdout, stderr = run_cargo_command(project_path, ["build", "--all-targets"])
+        success, _stdout, stderr = run_cargo_command(project_path, ["build", "--all-targets"])
         result["build"]["success"] = success
         result["build"]["warnings"] = extract_warnings(stderr)
         if not success and not result["build"]["warnings"]:
@@ -201,7 +204,7 @@ def check_single_crate(
     return result
 
 
-def print_crate_result(result: Dict, show_warnings: bool = True):
+def print_crate_result(result: dict, show_warnings: bool = True):
     """Print results for a single crate."""
     path = result["path"]
     check_success = result["check"]["success"]
@@ -282,9 +285,7 @@ def crate(path: str, no_warnings=False):
     print_crate_result(result, show_warnings=not no_warnings)
 
     # Return appropriate exit code
-    if not result["check"]["success"]:
-        return 1
-    elif not result["build"]["success"]:
+    if not result["check"]["success"] or not result["build"]["success"]:
         return 1
     else:
         return 0
@@ -368,8 +369,8 @@ def all_crates(warnings_only=False, no_warnings=False, jobs=None, serial=False, 
 
     print(f"Found {len(projects)} projects (running {worker_count} in parallel)\n")
 
-    results: List[Dict] = []
-    failed_crates: List[str] = []
+    results: list[dict] = []
+    failed_crates: list[str] = []
     completed = 0
     total = len(projects)
 

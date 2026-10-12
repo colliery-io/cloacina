@@ -29,7 +29,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 from .cli import _build_binaries, _start_postgres, _wait_for_health
 
 test = angreal.command_group(
@@ -73,7 +73,7 @@ def _sdk_server():
     }
 
     with tempfile.TemporaryDirectory() as home:
-        stderr_log = open(Path(home) / "server-stderr.log", "wb")
+        stderr_log = open(Path(home) / "server-stderr.log", "wb")  # noqa: SIM115 - stays open for the subprocess
         server = subprocess.Popen(
             [
                 "target/debug/cloacina-server",

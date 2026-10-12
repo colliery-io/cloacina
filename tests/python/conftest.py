@@ -14,12 +14,12 @@ Design principles:
 """
 
 import os
-import pytest
+import signal
 import tempfile
 import threading
-import signal
 from contextlib import contextmanager
 
+import pytest
 
 # Global shared runner instance
 _shared_runner = None
@@ -84,7 +84,7 @@ def shared_runner():
         try:
             _shared_runner.shutdown()
             print("DEBUG: Shared runner shutdown completed")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cleanup is best-effort and only warns
             print(f"WARNING: Error during shared runner shutdown: {e}")
 
         _shared_runner = None
@@ -144,7 +144,7 @@ def isolated_db():
             print("WARNING: Isolated runner shutdown timed out")
             signal.alarm(0)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cleanup is best-effort and only warns
         print(f"WARNING: Error during isolated runner shutdown: {e}")
 
     # Clean up database if SQLite
@@ -154,7 +154,7 @@ def isolated_db():
             try:
                 os.unlink(db_path)
                 print(f"DEBUG: Removed SQLite file: {db_path}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cleanup is best-effort and only warns
                 print(f"WARNING: Failed to remove SQLite file: {e}")
 
 
@@ -197,6 +197,6 @@ def pytest_sessionfinish(session, exitstatus):
         print("DEBUG: Final shared runner cleanup")
         try:
             _shared_runner.shutdown()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cleanup is best-effort and only warns
             print(f"WARNING: Error in final shared runner cleanup: {e}")
         _shared_runner = None

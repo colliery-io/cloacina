@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Tuple
 
 import angreal  # type: ignore
 
@@ -59,11 +59,11 @@ def _fmt(size: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _workspace_targets() -> List[Path]:
+def _workspace_targets() -> list[Path]:
     """Return every `target/` directory under PROJECT_ROOT, ignoring
     anything inside the cargo home (which we treat separately)."""
     cargo_home = (HOME / ".cargo").resolve()
-    out: List[Path] = []
+    out: list[Path] = []
     for target in PROJECT_ROOT.rglob("target"):
         if not target.is_dir():
             continue
@@ -78,20 +78,20 @@ def _workspace_targets() -> List[Path]:
     return out
 
 
-def _python_venvs() -> List[Path]:
+def _python_venvs() -> list[Path]:
     """The `test-env-*` venvs angreal builds for python scenarios."""
     return sorted(PROJECT_ROOT.glob("test-env-*"))
 
 
-def _python_artifacts() -> List[Path]:
+def _python_artifacts() -> list[Path]:
     """`__pycache__`, `.pytest_cache`, `*.egg-info` strewn across the tree."""
-    out: List[Path] = []
+    out: list[Path] = []
     for pattern in ("__pycache__", ".pytest_cache", ".ruff_cache", "*.egg-info"):
         out.extend(p for p in PROJECT_ROOT.rglob(pattern) if p.is_dir())
     return out
 
 
-def _cargo_cache_dirs() -> List[Path]:
+def _cargo_cache_dirs() -> list[Path]:
     """Downloaded crate metadata + sources under `~/.cargo`. Safe to
     delete; cargo re-fetches transparently. Does NOT touch `~/.cargo/bin`
     so installed tools (angreal, cargo-watch, etc.) survive."""
@@ -140,9 +140,9 @@ def _docker_compose_down(cwd: Path) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _report(label: str, paths: Iterable[Path]) -> Tuple[int, List[Tuple[Path, int]]]:
+def _report(label: str, paths: Iterable[Path]) -> tuple[int, list[tuple[Path, int]]]:
     """Print a sized inventory of paths and return (total, [(path, size)])."""
-    rows: List[Tuple[Path, int]] = []
+    rows: list[tuple[Path, int]] = []
     for p in paths:
         rows.append((p, _dir_size(p)))
     total = sum(s for _, s in rows)
@@ -248,7 +248,7 @@ def purge(dry_run: bool = False, cargo_cache: bool = False, keep_docker: bool = 
     pyart_total, _ = _report("Python caches (__pycache__ / .pytest_cache / .ruff_cache / *.egg-info)", pyart)
 
     cargo_total = 0
-    cargo_paths: List[Path] = []
+    cargo_paths: list[Path] = []
     if cargo_cache:
         cargo_paths = _cargo_cache_dirs()
         cargo_total, _ = _report("Cargo download caches (~/.cargo)", cargo_paths)

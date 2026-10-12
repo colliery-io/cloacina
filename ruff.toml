@@ -1,0 +1,7 @@
+# ruff 0.17 defaults, with three ignores for the angreal task scripts
+# (CLOACINA-T-0956):
+# - BLE001: task scripts catch broad exceptions to report and exit cleanly
+# - EXE001: task modules carry shebangs but are imported, not executed
+# - N999: the folder is named .angreal, which is not a valid module name
+[lint.per-file-ignores]
+".angreal/**" = ["BLE001", "EXE001", "N999"]

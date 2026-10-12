@@ -47,12 +47,12 @@ def _example_manifests():
         str(pp.relative_to(PROJECT_ROOT))
         for pp in pathlib.Path(PROJECT_ROOT, "examples").rglob("Cargo.toml")
         if "target" not in pp.parts
-        and re.search(r'^cloacina[\w-]*\s*=\s*(?:"|\{[^}]*version\s*=\s*")', pp.read_text(), re.M)
+        and re.search(r'^cloacina[\w-]*\s*=\s*(?:"|\{[^}]*version\s*=\s*")', pp.read_text(), re.MULTILINE)
     )
 
 # `(?!-provider)`: provider crates release on their own cadence (T-0872) and
 # their pins must NOT track the core version.
-_EXAMPLE_PIN = re.compile(r'^(cloacina(?!-provider)[\w-]*\s*=\s*(?:"|\{[^}]*?version\s*=\s*"))(\d+\.\d+)(")', re.M)
+_EXAMPLE_PIN = re.compile(r'^(cloacina(?!-provider)[\w-]*\s*=\s*(?:"|\{[^}]*?version\s*=\s*"))(\d+\.\d+)(")', re.MULTILINE)
 # Helm chart appVersion = which app image tag `helm install` runs by default.
 # These drifted four minors behind before being added here (found during 0.10.0
 # release prep: server/agent said 0.6.1, ui 0.7.0 — a fresh chart install would

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from ._utils import print_section_header, print_final_success
+from ._utils import print_final_success, print_section_header
 
 
 def build_server():
@@ -51,13 +51,14 @@ def stop_postgres():
     subprocess.run(
         ["docker", "compose", "-f", ".angreal/docker-compose.yaml", "down", "-v"],
         capture_output=True,
+        check=False,
     )
 
 
 def api_request(method, url, token=None, data=None):
     """Make an HTTP request and return (status_code, json_body)."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     headers = {}
     if token:
@@ -141,7 +142,7 @@ def auth_integration_test():
         print_section_header("Setup: Start server")
         test_home.mkdir(parents=True, exist_ok=True)
         stderr_path = test_home / "server_stderr.log"
-        stderr_file = open(stderr_path, "w")
+        stderr_file = open(stderr_path, "w")  # noqa: SIM115 - stays open for the subprocess
 
         server_proc = subprocess.Popen(
             [server_binary, "--home", str(test_home),
@@ -160,7 +161,7 @@ def auth_integration_test():
                 if status == 200:
                     print(f"  Server healthy after {i+1}s")
                     break
-            except Exception:
+            except Exception:  # noqa: S112 - retry until the server answers
                 continue
         else:
             raise RuntimeError("Server failed to become healthy")

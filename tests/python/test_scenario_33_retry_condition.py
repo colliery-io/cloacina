@@ -14,7 +14,6 @@ import threading
 
 import cloaca
 
-
 _FLAKY_ATTEMPTS = {"count": 0, "lock": threading.Lock()}
 _NEVER_ATTEMPTS = {"count": 0, "lock": threading.Lock()}
 

@@ -41,10 +41,10 @@ def _npm(*args):
         print("npm not found: install Node 22 or later", file=sys.stderr)
         return 1
     if not (DOCS_ROOT / "node_modules").exists():
-        result = subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=str(DOCS_ROOT))
+        result = subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=str(DOCS_ROOT), check=False)
         if result.returncode != 0:
             return result.returncode
-    return subprocess.run([npm, *args], cwd=str(DOCS_ROOT)).returncode
+    return subprocess.run([npm, *args], cwd=str(DOCS_ROOT), check=False).returncode
 
 
 @docs()

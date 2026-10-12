@@ -14,8 +14,9 @@ class TestSuccessValidationRunner:
 
     def test_workflow_success_status_reporting(self, shared_runner):
         """Verify expected outcomes and status reporting for successful workflows."""
-        import cloaca
         import time
+
+        import cloaca
 
         # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
         with cloaca.WorkflowBuilder("success_validation_workflow") as builder:

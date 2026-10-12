@@ -2,9 +2,9 @@
 
 import angreal  # type: ignore
 
-from .fmt import fmt
 from .clippy import clippy
 from .credential_logging import credential_logging
+from .fmt import fmt
 
 lint = angreal.command_group(name="lint", about="format, clippy, and credential-logging guards")
 

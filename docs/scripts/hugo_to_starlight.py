@@ -20,7 +20,6 @@ A one-time tool of the move; it can be deleted later.
 """
 
 import json
-import os
 import posixpath
 import re
 import sys
@@ -85,8 +84,7 @@ def load_api(docs):
     api = docs / "reference" / "api"
     for p in api.rglob("*.md"):
         rel = p.relative_to(docs).with_suffix("").as_posix()
-        if rel.endswith("/index"):
-            rel = rel[: -len("/index")]
+        rel = rel.removesuffix("/index")
         API_PAGES.add(rel)
         for a in re.findall(r'id="([^"]+)"', p.read_text()):
             ANCHORS.setdefault(a, []).append(rel)
@@ -169,7 +167,7 @@ def split_front_matter(text):
         return {}, text
     end = text.index("\n---", 4)
     block, body = text[4:end], text[end + 4:]
-    body = body[1:] if body.startswith("\n") else body
+    body = body.removeprefix("\n")
     fm, key = {}, None
     for line in block.splitlines():
         m = re.match(r"^([A-Za-z_]+):\s*(.*)$", line)
@@ -251,7 +249,7 @@ STATIC = set()
 
 def rewrite_site_link(target, page, site):
     """A plain link of a Hugo page -> its new form, or None to keep it."""
-    if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.I) or target.startswith(("#", "//", "{{")):
+    if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.IGNORECASE) or target.startswith(("#", "//", "{{")):
         return None
     path, _, anchor = target.partition("#")
     if not path:
@@ -420,7 +418,7 @@ def convert_text(text, page, site):
     text = re.sub(r'((?:href|src)=")([^"]+)(")', plain, text)
     text = re.sub(r"!\[([^\]]*)\]\(\s*([^)\s]+)\s*\)", image, text)
     text = re.sub(r"(\]\(\s*)([^)\s]+)((?:\s+\"[^\"]*\")?\s*\))", plain, text)
-    text = re.sub(r"^(\[[^\]]+\]:\s*)(\S+)()", plain, text, flags=re.M)
+    text = re.sub(r"^(\[[^\]]+\]:\s*)(\S+)()", plain, text, flags=re.MULTILINE)
 
     def ref(m):
         r = site.resolve_ref(m.group(2), page)
@@ -466,7 +464,7 @@ def convert_text(text, page, site):
         COUNTS["mermaid"] += 1
         return "```mermaid\n" + m.group(1).strip("\n") + "\n```"
 
-    text = re.sub(r"\{\{<\s*mermaid\s*>\}\}\n?(.*?)\{\{<\s*/mermaid\s*>\}\}", mermaid, text, flags=re.S)
+    text = re.sub(r"\{\{<\s*mermaid\s*>\}\}\n?(.*?)\{\{<\s*/mermaid\s*>\}\}", mermaid, text, flags=re.DOTALL)
 
     def button(m):
         named, _ = sc_args(m.group(1))
@@ -480,7 +478,7 @@ def convert_text(text, page, site):
         page.mdx = True
         return f'<LinkButton href={yaml_str(href)}>{m.group(2).strip()}</LinkButton>'
 
-    text = re.sub(r"\{\{<\s*button\s+(.*?)\s*>\}\}(.*?)\{\{<\s*/button\s*>\}\}", button, text, flags=re.S)
+    text = re.sub(r"\{\{<\s*button\s+(.*?)\s*>\}\}(.*?)\{\{<\s*/button\s*>\}\}", button, text, flags=re.DOTALL)
 
     def columns(m):
         COUNTS["columns"] += 1
@@ -488,7 +486,7 @@ def convert_text(text, page, site):
 
     text = re.sub(r"\{\{<\s*columns\s*>\}\}\n?", columns, text)
     text = re.sub(r"\{\{<\s*/columns\s*>\}\}\n?", "", text)
-    text = re.sub(r"^<--->\n", "", text, flags=re.M)
+    text = re.sub(r"^<--->\n", "", text, flags=re.MULTILINE)
 
     text = re.sub(r"\{\{<\s*api-link\s+(.*?)\s*>\}\}", lambda m: api_link(m, page), text)
 

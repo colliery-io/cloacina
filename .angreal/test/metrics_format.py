@@ -4,6 +4,7 @@ cloacina-compiler, validate both exposition outputs with
 `promtool check metrics` (T-0536 + T-0591).
 """
 
+import contextlib
 import subprocess
 from pathlib import Path
 
@@ -31,8 +32,8 @@ def metrics_format():
     import shutil
     import signal
     import time
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     promtool = shutil.which("promtool")
     if not promtool:
@@ -44,6 +45,7 @@ def metrics_format():
     build = subprocess.run(
         ["cargo", "build", "-p", "cloacina-server", "-p", "cloacina-compiler"],
         cwd=PROJECT_ROOT,
+        check=False,
     )
     if build.returncode != 0:
         print("Build failed.")
@@ -63,6 +65,7 @@ def metrics_format():
     up = subprocess.run(
         ["docker", "compose", "-f", str(compose_file), "up", "-d"],
         cwd=PROJECT_ROOT,
+        check=False,
     )
     if up.returncode != 0:
         print("Failed to start Postgres.")
@@ -75,7 +78,7 @@ def metrics_format():
     try:
         wait_for_postgres_stable(compose_file=str(compose_file))
     except RuntimeError:
-        subprocess.run(["docker", "compose", "-f", str(compose_file), "down", "-v"])
+        subprocess.run(["docker", "compose", "-f", str(compose_file), "down", "-v"], check=False)
         print("Postgres never became ready.")
         return 1
 
@@ -91,7 +94,7 @@ def metrics_format():
                 with urllib.request.urlopen(url, timeout=1) as resp:
                     if resp.status == 200:
                         return True
-            except Exception:
+            except Exception:  # noqa: S112 - retry until the server answers
                 continue
         print(f"{label} never became healthy at {url}.")
         return False
@@ -113,6 +116,7 @@ def metrics_format():
             [promtool, "check", "metrics"],
             input=body,
             capture_output=True,
+            check=False,
         )
         if promtool_proc.stdout:
             print(promtool_proc.stdout.decode(errors="replace"))
@@ -143,10 +147,8 @@ def metrics_format():
         if not wait_for_health("http://127.0.0.1:18181/health", "server"):
             return 1
 
-        try:
+        with contextlib.suppress(Exception):
             urllib.request.urlopen("http://127.0.0.1:18181/health", timeout=2).read()
-        except Exception:
-            pass
 
         rc = scrape_and_validate("http://127.0.0.1:18181/metrics", "server")
         if rc != 0:
@@ -190,4 +192,5 @@ def metrics_format():
         subprocess.run(
             ["docker", "compose", "-f", str(compose_file), "down", "-v"],
             capture_output=True,
+            check=False,
         )

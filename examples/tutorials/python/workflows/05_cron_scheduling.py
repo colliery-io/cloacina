@@ -4,9 +4,10 @@ Cloaca Tutorial 05: Cron Scheduling
 Complete example demonstrating time-based workflow execution.
 """
 
-import cloaca
-from datetime import datetime
 import time
+from datetime import datetime
+
+import cloaca
 
 # Create all workflow definitions using workflow-scoped pattern
 # Daily report workflow

@@ -21,11 +21,13 @@ Prerequisites:
     pip install cloaca[sqlite]
 """
 
-import sys
-import cloaca
 import random
+import sys
 import time
 from datetime import datetime
+
+import cloaca
+
 
 # Simulate external service that can fail
 class UnreliableExternalService:
@@ -104,7 +106,7 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
                 errors.append(error_info)
                 print(f"✗ Validation error for {data_id}: {e}")
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - the tutorial handles any task failure
                 # Unexpected errors
                 error_info = {
                     "data_id": data_id,
@@ -177,7 +179,7 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
                     print(f"  ✓ Retry successful for {data_id} on attempt {attempt + 1}")
                     break
 
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - the tutorial handles any task failure
                     print(f"  ✗ Retry {attempt + 1} failed for {data_id}: {e}")
                     if attempt == max_retries - 1:  # Last attempt
                         still_failed.append({
@@ -229,7 +231,7 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
             try:
                 # Validate data structure
                 if not isinstance(item, dict):
-                    raise ValueError(f"Invalid data format: expected dict, got {type(item)}")
+                    raise ValueError(f"Invalid data format: expected dict, got {type(item)}")  # noqa: TRY004 - the loop catches ValueError
 
                 required_fields = ["id", "data", "timestamp"]
                 for field in required_fields:
@@ -272,7 +274,7 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
                 })
                 print(f"  ✗ Processing error for {item.get('id', 'unknown')}: {e}")
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - the tutorial handles any task failure
                 processing_errors.append({
                     "item_id": item.get("id", "unknown"),
                     "error": str(e),

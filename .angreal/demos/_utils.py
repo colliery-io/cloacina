@@ -3,6 +3,7 @@ Shared utilities for demo commands.
 """
 
 from pathlib import Path
+
 import angreal  # type: ignore
 
 # Project root for accessing examples (one level up from .angreal)

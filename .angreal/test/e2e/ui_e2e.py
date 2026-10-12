@@ -38,7 +38,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 from .cli import _start_postgres
 
 test = angreal.command_group(
@@ -157,8 +157,8 @@ def _pack_python(src: Path, archive: Path):
     # [package] name/version are the first two such keys in package.toml; a
     # regex keeps this free of tomllib (Python 3.11+).
     toml = (src / "package.toml").read_text()
-    name = re.search(r'^name\s*=\s*"([^"]+)"', toml, re.M).group(1)
-    version = re.search(r'^version\s*=\s*"([^"]+)"', toml, re.M).group(1)
+    name = re.search(r'^name\s*=\s*"([^"]+)"', toml, re.MULTILINE).group(1)
+    version = re.search(r'^version\s*=\s*"([^"]+)"', toml, re.MULTILINE).group(1)
     prefix = f"{name}-{version}"
     print(f"  packing {src.name} (python)…")
 
@@ -214,7 +214,7 @@ def _build_ui():
 
 @contextlib.contextmanager
 def _process(cmd, log_path, cwd=PROJECT_ROOT, env=None):
-    log = open(log_path, "wb")
+    log = open(log_path, "wb")  # noqa: SIM115 - stays open for the subprocess
     proc = subprocess.Popen(cmd, stdout=log, stderr=log, cwd=str(cwd), env=env)
     try:
         yield proc

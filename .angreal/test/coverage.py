@@ -23,6 +23,7 @@ def run_cmd(cmd, description, env=None, check=True, cwd=None):
         cwd=str(cwd or PROJECT_ROOT),
         env=env,
         capture_output=False,
+        check=False,
     )
     if check and result.returncode != 0:
         print(f"  FAILED (exit {result.returncode})")
@@ -83,6 +84,7 @@ def coverage(html=False, json=False, skip_integration=False, skip_cloacinactl=Fa
         ["cargo", "+nightly", "llvm-cov", "--version"],
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         print("ERROR: cargo-llvm-cov not installed.")

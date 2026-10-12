@@ -1,14 +1,11 @@
-import angreal #type: ignore
-from angreal.integrations.venv import VirtualEnv# type: ignore
-
-
-from dataclasses import dataclass
-from typing import List, Optional
-import shutil
-from pathlib import Path
 import re
+import shutil
 import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 
+import angreal  #type: ignore
+from angreal.integrations.venv import VirtualEnv  # type: ignore
 
 # CLOACI-I-0140: EMPTY by design — keep it that way.
 #
@@ -45,8 +42,8 @@ def run_pytest_scenarios(
     project_root: Path,
     backend_name: str,
     aggregator: "TestAggregator",
-    filter: Optional[str] = None,
-    file: Optional[str] = None,
+    filter: str | None = None,
+    file: str | None = None,
 ) -> bool:
     """Run all (or filtered) tests/python/test_scenario_*.py against an already-built wheel.
 
@@ -61,13 +58,14 @@ def run_pytest_scenarios(
     to `aggregator`.
     """
     import os
+    import time
+
     from utils import (  # local import to avoid making this module depend on top-level utils at import time
-        docker_up,
-        docker_down,
         check_postgres_container_health,
+        docker_down,
+        docker_up,
         smart_postgres_reset,
     )
-    import time
 
     test_dir = project_root / "tests" / "python"
     if file:
@@ -140,6 +138,7 @@ def run_pytest_scenarios(
                     capture_output=True,
                     text=True,
                     timeout=scenario_timeout_secs,
+                    check=False,
                 )
                 last_timeout = None
                 break  # completed (pass OR real failure) — never retry a real result
@@ -278,7 +277,7 @@ def scrub_python_artifacts(deep: bool = False) -> int:
         if deep:
             print("Running cargo clean...")
             result = subprocess.run(
-                ["cargo", "clean"], cwd=str(project_root), capture_output=True, text=True
+                ["cargo", "clean"], cwd=str(project_root), capture_output=True, text=True, check=False
             )
             if result.returncode != 0:
                 print(f"cargo clean warning: {result.stderr}")
@@ -298,7 +297,7 @@ class TestResult:
     passed: bool
     stdout: str = ""
     stderr: str = ""
-    return_code: Optional[int] = None
+    return_code: int | None = None
 
     def get_failure_summary(self) -> str:
         """Extract a concise failure summary from pytest output."""
@@ -309,13 +308,7 @@ class TestResult:
 
         # Look for FAILED lines in stdout
         for line in self.stdout.split('\n'):
-            if 'FAILED' in line or 'ERROR' in line:
-                lines.append(line.strip())
-            # Capture assertion errors
-            elif 'AssertionError' in line or 'assert ' in line:
-                lines.append(line.strip())
-            # Capture exception messages
-            elif 'Error:' in line or 'Exception:' in line:
+            if 'FAILED' in line or 'ERROR' in line or 'AssertionError' in line or 'assert ' in line or 'Error:' in line or 'Exception:' in line:
                 lines.append(line.strip())
 
         # Also check stderr
@@ -351,12 +344,12 @@ class TestAggregator:
     """Aggregates test results across all backends."""
 
     def __init__(self):
-        self.results: List[TestResult] = []
+        self.results: list[TestResult] = []
 
     def add_result(self, result: TestResult):
         self.results.append(result)
 
-    def get_failed_results(self) -> List[TestResult]:
+    def get_failed_results(self) -> list[TestResult]:
         return [r for r in self.results if not r.passed]
 
     def get_summary(self) -> dict:
@@ -445,7 +438,7 @@ def write_file_safe(path: Path, content: str, encoding: str = "utf-8", backup: b
         return backup_path
 
     except Exception as e:
-        raise Exception(f"Failed to write file {path}: {e}")
+        raise RuntimeError(f"Failed to write file {path}: {e}")
 
 def normalize_version_for_python(cargo_version: str) -> str:
     """Convert Cargo SemVer to PEP 440 compliant version.
@@ -572,6 +565,7 @@ def _build_and_install_cloaca_unified(venv_name, cargo_features=None):
         cwd=str(crate_dir),
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         print(f"[DEBUG] Maturin STDERR: {result.stderr}", flush=True)
@@ -622,6 +616,7 @@ def _build_and_install_cloaca_unified(venv_name, cargo_features=None):
         [str(python_exe), "-c", "import cloaca; print(hasattr(cloaca, 'DatabaseAdmin'))"],
         capture_output=True,
         text=True,
+        check=False,
     )
     if probe.returncode != 0:
         raise RuntimeError(

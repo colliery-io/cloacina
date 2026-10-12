@@ -21,8 +21,9 @@ Prerequisites:
 """
 
 import sys
-import cloaca
 from datetime import datetime
+
+import cloaca
 
 # Data transformation pipeline
 # Build the complete data transformation pipeline using workflow-scoped pattern

@@ -2,12 +2,12 @@
 Utility functions for Cloacina development.
 """
 
+import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
-import logging
 
 import angreal  # type: ignore
 
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 class FileOperationError(Exception):
     """Raised when file operations fail."""
-    pass
 
 def write_file_safe(file_path: Path, content: str, backup: bool = True) -> None:
     """Safely write content to a file, optionally backing up existing content.
@@ -245,7 +244,7 @@ def check_postgres_container_health() -> bool:
         result = subprocess.run(
             ["docker", "ps", "--filter", "name=postgres", "--format", "{{.Status}}"],
             capture_output=True,
-            text=True
+            text=True, check=False
         )
         return "healthy" in result.stdout
     except Exception:
@@ -286,6 +285,7 @@ def smart_postgres_reset() -> bool:
             env=env,
             capture_output=True,
             text=True,
+            check=False,
         )
         if direct.returncode == 0:
             return True
@@ -302,7 +302,7 @@ def smart_postgres_reset() -> bool:
                 "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
             ],
             capture_output=True,
-            text=True
+            text=True, check=False
         )
 
         if result.returncode == 0:

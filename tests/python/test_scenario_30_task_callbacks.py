@@ -103,7 +103,7 @@ class TestTaskCallbacks:
         import cloaca
 
         def buggy_callback(task_id, context):
-            raise Exception("Callback error!")
+            raise RuntimeError("Callback error!")
 
         with cloaca.WorkflowBuilder("isolated_callback_workflow") as builder:
             builder.description("Test callback error isolation")

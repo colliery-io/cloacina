@@ -14,7 +14,7 @@ import angreal  # type: ignore
 # version_lockstep.py sits beside this file; angreal puts .angreal on sys.path
 # (same as task_services.py's `from utils import ...`). It is not a `task_*`
 # module, so angreal does not load it as a task.
-import version_lockstep  # noqa: E402
+import version_lockstep
 
 release = angreal.command_group(
     name="release", about="version bump + drift guard (single source of version truth)"

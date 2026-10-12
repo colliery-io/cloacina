@@ -7,7 +7,7 @@ management, and execution monitoring.
 Uses shared_runner fixture for workflow execution testing.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class TestCronScheduling:
@@ -24,7 +24,7 @@ class TestCronScheduling:
             @cloaca.task(id="cron_test_task_1")
             def cron_test_task_1(context):
                 context.set("cron_task_1_executed", True)
-                context.set("execution_time", str(datetime.now(timezone.utc)))
+                context.set("execution_time", str(datetime.now(UTC)))
                 return context
 
             @cloaca.task(id="cron_test_task_2", dependencies=["cron_test_task_1"])
@@ -116,7 +116,7 @@ class TestCronScheduling:
         print("Testing cron execution statistics...")
 
         # Get stats from last hour
-        since_time = datetime.now(timezone.utc).isoformat()
+        since_time = datetime.now(UTC).isoformat()
         stats = shared_runner.get_cron_execution_stats(since_time)
 
         assert "total_executions" in stats

@@ -6,8 +6,8 @@ at the end of test execution for better visibility.
 """
 
 import traceback
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -16,8 +16,8 @@ class FailureRecord:
     test_name: str
     failure_type: str
     error_message: str
-    traceback: Optional[str] = None
-    context: Optional[Dict[str, Any]] = None
+    traceback: str | None = None
+    context: dict[str, Any] | None = None
 
 
 @dataclass
@@ -25,8 +25,8 @@ class SectionRecord:
     """Represents a section of tests within a scenario."""
     section_name: str
     passed: bool = True
-    error_message: Optional[str] = None
-    details: Optional[str] = None
+    error_message: str | None = None
+    details: str | None = None
 
 
 class ResultsAggregator:
@@ -34,14 +34,14 @@ class ResultsAggregator:
 
     def __init__(self, test_name: str):
         self.test_name = test_name
-        self.failures: List[FailureRecord] = []
-        self.sections: List[SectionRecord] = []
+        self.failures: list[FailureRecord] = []
+        self.sections: list[SectionRecord] = []
         self.total_sections = 0
         self.passed_sections = 0
 
     def add_section(self, section_name: str, passed: bool = True,
-                   error_message: Optional[str] = None,
-                   details: Optional[str] = None) -> None:
+                   error_message: str | None = None,
+                   details: str | None = None) -> None:
         """Add a test section result."""
         section = SectionRecord(
             section_name=section_name,
@@ -55,7 +55,7 @@ class ResultsAggregator:
             self.passed_sections += 1
 
     def add_failure(self, test_name: str, failure_type: str,
-                   error_message: str, context: Optional[Dict[str, Any]] = None) -> None:
+                   error_message: str, context: dict[str, Any] | None = None) -> None:
         """Add a test failure."""
         failure = FailureRecord(
             test_name=test_name,
@@ -74,7 +74,7 @@ class ResultsAggregator:
             self.add_section(section_name, passed=True)
             print(f"✓ {section_name} works correctly")
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - the helper reports any error
             error_msg = str(e)
             self.add_section(section_name, passed=False, error_message=error_msg)
             self.add_failure(section_name, type(e).__name__, error_msg)
@@ -82,14 +82,14 @@ class ResultsAggregator:
             return False
 
     def assert_with_context(self, condition: bool, message: str,
-                           context: Optional[Dict[str, Any]] = None) -> None:
+                           context: dict[str, Any] | None = None) -> None:
         """Assert with context information for better failure reporting."""
         if not condition:
             self.add_failure("assertion", "AssertionError", message, context)
             raise AssertionError(message)
 
     def soft_assert(self, condition: bool, message: str,
-                   context: Optional[Dict[str, Any]] = None) -> bool:
+                   context: dict[str, Any] | None = None) -> bool:
         """Soft assertion that doesn't raise but records failure."""
         if not condition:
             self.add_failure("soft_assertion", "SoftAssertionError", message, context)

@@ -17,9 +17,9 @@ There is no `triggers` array in package.toml. The decorator running at import
 time is the whole story.
 """
 
-import cloaca
 from datetime import datetime
 
+import cloaca
 
 # =============================================================================
 # Part 1: Define a workflow with tasks

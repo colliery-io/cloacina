@@ -26,7 +26,7 @@ class TestAdvancedErrorHandling:
                 builder = cloaca.WorkflowBuilder("invalid_ref_workflow")
                 builder.description("Workflow with invalid task reference")
                 builder.add_task("nonexistent_task")  # This task was never defined
-                workflow = builder.build()  # noqa: F841
+                workflow = builder.build()
 
                 cloaca.register_workflow_constructor("invalid_ref_workflow", lambda: workflow)
 
@@ -37,7 +37,7 @@ class TestAdvancedErrorHandling:
                 assert result.status == "Failed" or result.error_message is not None
                 return True
 
-            except Exception:
+            except Exception:  # noqa: BLE001 - the scenario accepts any error from the engine
                 # Validation error during build is also acceptable
                 return True
 
@@ -51,7 +51,7 @@ class TestAdvancedErrorHandling:
                 return False  # Should have failed
             except ValueError:
                 return True
-            except Exception:
+            except Exception:  # noqa: BLE001 - the scenario accepts any error from the engine
                 return True
 
         # Test 3: Circular dependency detection (if supported)
@@ -86,7 +86,7 @@ class TestAdvancedErrorHandling:
                     # Not failing the test if not implemented
                     return True
 
-            except Exception:
+            except Exception:  # noqa: BLE001 - the scenario accepts any error from the engine
                 return True
 
         # Test 4: Invalid workflow names
@@ -101,7 +101,7 @@ class TestAdvancedErrorHandling:
 
             except (ValueError, TypeError):
                 return True
-            except Exception:
+            except Exception:  # noqa: BLE001 - the scenario accepts any error from the engine
                 return True
 
         # Test 5: Task execution errors
@@ -136,7 +136,7 @@ class TestAdvancedErrorHandling:
 
                 return True
 
-            except Exception:
+            except Exception:  # noqa: BLE001 - the scenario accepts any error from the engine
                 return False
 
         # Run all error tests using aggregator

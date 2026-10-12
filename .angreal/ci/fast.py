@@ -1,7 +1,6 @@
 """ci fast — lint + unit tests. No Docker, no backing services."""
 
 import angreal  # type: ignore
-
 from lint.all import all as lint_all
 from test.unit import unit
 

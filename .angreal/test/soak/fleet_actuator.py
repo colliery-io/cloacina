@@ -52,6 +52,7 @@ Tunable via env (defaults in parens):
   CLOACINA_SOAK_FLEET_ACTUATOR_CYCLE_S      provision/deprovision period (15)
 """
 
+import contextlib
 import json
 import os
 import re
@@ -68,7 +69,7 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 
 test = angreal.command_group(
     name="test", about="Cloacina test suites (unit, integration, e2e, soak)"
@@ -140,12 +141,10 @@ def _ready_code():
 def _wait_health(timeout_s=240):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        try:
+        with contextlib.suppress(Exception):
             code, _ = _api("GET", "/health")
             if code == 200:
                 return True
-        except Exception:
-            pass
         time.sleep(2)
     return False
 
@@ -162,7 +161,7 @@ def _metric(text, name):
     for line in text.splitlines():
         if line.startswith("#"):
             continue
-        if line.startswith(name + " ") or line.startswith(name + "{"):
+        if line.startswith((name + " ", name + "{")):
             try:
                 return float(line.rsplit(None, 1)[-1])
             except (ValueError, IndexError):

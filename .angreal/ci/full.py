@@ -1,7 +1,6 @@
 """ci full — lint + test all + coverage. Requires Docker + Postgres."""
 
 import angreal  # type: ignore
-
 from lint.all import all as lint_all
 from test.all import all as test_all
 from test.coverage import coverage

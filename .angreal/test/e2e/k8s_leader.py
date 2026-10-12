@@ -55,6 +55,7 @@ Run with:  angreal test e2e k8s-leader               # build images + full run
            angreal test e2e k8s-leader --claiming     # also attempt assertion 4
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -70,7 +71,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .._utils import print_section_header, print_final_success
+from .._utils import print_final_success, print_section_header
 
 # Reuse the k3s platform bring-up + image/kubectl helpers verbatim — this lane
 # MUST exercise the SAME real-RBAC chart path as the e2e/soak (don't duplicate
@@ -380,7 +381,7 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         results[key] = f"BLOCKED: packing {RX_EXAMPLE} failed: {exc}"
         return
     try:
-        code, body = _upload_package(base, str(fixture_path), tenant=RX_TENANT)
+        code, _body = _upload_package(base, str(fixture_path), tenant=RX_TENANT)
         print(f"  upload {RX_EXAMPLE} (fresh pack, tenant={RX_TENANT}) -> {code}")
     except Exception as exc:
         # 409 = already uploaded by a previous best-effort assertion: fine.
@@ -766,7 +767,7 @@ def _churn(base, stop_evt, n):
     probability. Best-effort; ignores transient errors."""
     high = True
     while not stop_evt.is_set():
-        try:
+        with contextlib.suppress(Exception):
             target = n if high else max(0, n - 1)
             _, fleet = _api("GET", f"/v1/tenants/{TENANT}/fleet", expect=None, base=base)
             desired = fleet.get("desired_count") if isinstance(fleet, dict) else None
@@ -776,8 +777,6 @@ def _churn(base, stop_evt, n):
                 elif desired > target:
                     _api("POST", f"/v1/tenants/{TENANT}/fleet/deprovision", expect=None, base=base)
             high = not high
-        except Exception:
-            pass
         stop_evt.wait(1.0)
 
 
@@ -919,9 +918,7 @@ def _wait_lock_holder(kubeconfig, target, want_pod=None, not_pod=None, timeout_s
         if len(holders) == 1:
             addr, pid = holders[0]
             pod = ip_to_pod.get(addr, addr)
-            if want_pod is not None and pod != want_pod:
-                pass
-            elif not_pod is not None and pod == not_pod:
+            if want_pod is not None and pod != want_pod or not_pod is not None and pod == not_pod:
                 pass
             else:
                 return pod, addr, pid
@@ -1021,7 +1018,7 @@ def _deploy_compiler(kubeconfig, compiler_ref):
     }
     proc = subprocess.run(["kubectl", "apply", "-n", NS, "-f", "-"],
                           input=json.dumps(manifest), env=_kube_env(kubeconfig),
-                          text=True, capture_output=True)
+                          text=True, capture_output=True, check=False)
     print(proc.stdout + proc.stderr)
     if proc.returncode != 0:
         raise AssertionError("failed to apply compiler Deployment")
@@ -1162,7 +1159,7 @@ def k8s_leader(no_cleanup=False, skip_build=False, claiming=False, agents="3", t
         bring_up_cluster(project, hostdir, compose_env, kubeconfig)
 
         print("\n--- 2. build/push images ---\n")
-        server_ref, agent_ref = _prepare_images(tag, skip_build)
+        _server_ref, agent_ref = _prepare_images(tag, skip_build)
 
         print(f"\n--- 3. helm install cloacina-server (replicaCount={REPLICAS}, "
               f"fleet.actuator=kubernetes) ---\n")

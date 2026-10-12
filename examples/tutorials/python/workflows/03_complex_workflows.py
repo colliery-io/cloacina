@@ -21,11 +21,12 @@ Prerequisites:
     pip install cloaca[sqlite]
 """
 
-import sys
-import cloaca
 import random
+import sys
 import time
 from datetime import datetime
+
+import cloaca
 
 # Build the complex workflow with multiple patterns using workflow-scoped pattern
 with cloaca.WorkflowBuilder("complex_workflow") as builder:
@@ -208,7 +209,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
 
         execution_results = []
 
-        for campaign_key, campaign in email_campaigns.items():
+        for campaign in email_campaigns.values():
             # Simulate campaign execution
             execution_time = random.uniform(1, 3)  # 1-3 seconds
             time.sleep(execution_time)
@@ -244,7 +245,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
 
         execution_results = []
 
-        for campaign_key, campaign in outreach_campaigns.items():
+        for campaign in outreach_campaigns.values():
             # Simulate personal outreach (slower but higher conversion)
             execution_time = random.uniform(2, 5)  # 2-5 seconds
             time.sleep(execution_time)
@@ -574,7 +575,7 @@ if __name__ == "__main__":
             for rec in recommendations['tactical_recommendations']:
                 print(f"  • {rec}")
 
-        performance_analysis = final_context.get("performance_analysis")  # noqa: F841
+        performance_analysis = final_context.get("performance_analysis")
 
     else:
         print(f"Workflow failed with status: {result.status}")

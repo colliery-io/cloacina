@@ -89,14 +89,14 @@ def _scrape(url: str) -> str:
         return ""
 
 
-def _metric(text: str, name: str, contains: str = None) -> float:
+def _metric(text: str, name: str, contains: str | None = None) -> float:
     """Sum every series for `name` (handles unlabeled `name v` and labeled
     `name{...} v`), optionally only lines containing `contains`."""
     total = 0.0
     for line in text.splitlines():
         if line.startswith("#"):
             continue
-        if not (line.startswith(name + " ") or line.startswith(name + "{")):
+        if not (line.startswith((name + " ", name + "{"))):
             continue
         if contains is not None and contains not in line:
             continue
@@ -109,7 +109,7 @@ def _metric(text: str, name: str, contains: str = None) -> float:
     return total
 
 
-def _run_once(home: Path, context: str = None) -> str | None:
+def _run_once(home: Path, context: str | None = None) -> str | None:
     """Submit one workflow run (optionally with a `--context` file); return the
     execution id (bare `println!` line) or None on a non-zero exit."""
     extra = ("--context", context) if context else ()
@@ -165,7 +165,7 @@ def fleet():
 
     def _dump(label, path):
         try:
-            print(f"--- {label} (tail) ---\n{open(path).read()[-4000:]}\n--- end ---")
+            print(f"--- {label} (tail) ---\n{Path(path).read_text()[-4000:]}\n--- end ---")
         except Exception as exc:
             print(f"(failed to read {path}: {exc})")
 
@@ -179,7 +179,7 @@ def fleet():
             ["target/debug/cloacina-server", "--home", str(home),
              "--database-url", db_url, "--bind", server_bind,
              "--bootstrap-key", bootstrap_key],
-            cwd=REPO_ROOT, stdout=open(home / "server.log", "w"),
+            cwd=REPO_ROOT, stdout=open(home / "server.log", "w"),  # noqa: SIM115 - stays open for the subprocess
             stderr=subprocess.STDOUT, env=server_env,
         )
         _wait_http(f"{server_url}/health", "server", proc=server_proc)
@@ -192,7 +192,7 @@ def fleet():
              "--database-url", db_url, "--bind", compiler_bind,
              "--poll-interval-ms", "500", "--cargo-target-dir", str(shared_target),
              "--cargo-flags-replace=build", "--cargo-flags-replace=--lib"],
-            cwd=REPO_ROOT, stdout=open(home / "compiler.log", "w"),
+            cwd=REPO_ROOT, stdout=open(home / "compiler.log", "w"),  # noqa: SIM115 - stays open for the subprocess
             stderr=subprocess.STDOUT,
         )
         _wait_http(f"{compiler_url}/health", "compiler", timeout_s=60.0, proc=compiler_proc)
@@ -213,7 +213,7 @@ def fleet():
             p = subprocess.Popen(
                 ["target/debug/cloacina-agent", "--server", server_url,
                  "--api-key", bootstrap_key, "--max-concurrency", str(CONCURRENCY)],
-                cwd=REPO_ROOT, stdout=open(home / f"agent-{i}.log", "w"),
+                cwd=REPO_ROOT, stdout=open(home / f"agent-{i}.log", "w"),  # noqa: SIM115 - stays open for the subprocess
                 stderr=subprocess.STDOUT,
             )
             agent_procs.append(p)
@@ -230,7 +230,7 @@ def fleet():
                                   timeout_s=60.0) != "Completed":
             _dump("server.log", home / "server.log")
             raise AssertionError("warm-up execution did not Complete")
-        if "agent reported result" not in open(home / "server.log").read():
+        if "agent reported result" not in Path(home / "server.log").read_text():
             raise AssertionError("warm-up did not run on the fleet (no agent report)")
         print("  ok: warm-up executed on the fleet")
 
