@@ -36,7 +36,7 @@ impl PyTaskHandle {
     pub fn defer_until(
         &mut self,
         py: Python,
-        condition: Py<PyAny>,
+        condition: PyObject,
         poll_interval_ms: u64,
     ) -> PyResult<()> {
         let handle = self
@@ -52,7 +52,7 @@ impl PyTaskHandle {
             handle
                 .defer_until(
                     move || {
-                        let result = Python::attach(|py| match condition.call0(py) {
+                        let result = Python::with_gil(|py| match condition.call0(py) {
                             Ok(r) => r.extract::<bool>(py).unwrap_or(false),
                             Err(e) => {
                                 eprintln!("[cloaca] defer_until condition error: {}", e);
@@ -208,7 +208,7 @@ pub fn current_workflow_context() -> PyResult<PyWorkflowContext> {
 /// Rust's `#[task(invokes = computation_graph(...))]` (T-0540 M3+M5).
 pub struct CGInvocation {
     pub graph_name: String,
-    pub post_invocation: Option<Py<PyAny>>,
+    pub post_invocation: Option<PyObject>,
 }
 
 /// Python task wrapper implementing Rust Task trait
@@ -216,9 +216,9 @@ pub struct PythonTaskWrapper {
     id: String,
     dependencies: Vec<cloacina::TaskNamespace>,
     retry_policy: cloacina::retry::RetryPolicy,
-    python_function: Py<PyAny>,
-    on_success_callback: Option<Py<PyAny>>,
-    on_failure_callback: Option<Py<PyAny>>,
+    python_function: PyObject,
+    on_success_callback: Option<PyObject>,
+    on_failure_callback: Option<PyObject>,
     requires_handle: bool,
     cg_invocation: Option<CGInvocation>,
     /// Authored trigger rule as canonical TriggerRule JSON (CLOACI-T-0763).
@@ -240,12 +240,12 @@ impl PythonTaskWrapper {
         task_id: &str,
         message: &str,
         context: &cloacina::Context<serde_json::Value>,
-        on_failure: Option<&Py<PyAny>>,
+        on_failure: Option<&PyObject>,
     ) {
         let Some(callback) = on_failure else {
             return;
         };
-        let callback = Python::attach(|py| callback.clone_ref(py));
+        let callback = Python::with_gil(|py| callback.clone_ref(py));
         let task_id = task_id.to_string();
         let message = message.to_string();
         let data: Vec<(String, serde_json::Value)> = context
@@ -254,7 +254,7 @@ impl PythonTaskWrapper {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         let _ = tokio::task::spawn_blocking(move || {
-            Python::attach(|py| {
+            Python::with_gil(|py| {
                 let mut ctx = cloacina::Context::new();
                 for (k, v) in data {
                     ctx.insert(k, v).ok();
@@ -289,11 +289,11 @@ impl cloacina::Task for PythonTaskWrapper {
     ) -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
         use super::context::PyContext;
 
-        let function = Python::attach(|py| self.python_function.clone_ref(py));
+        let function = Python::with_gil(|py| self.python_function.clone_ref(py));
         let on_success =
-            Python::attach(|py| self.on_success_callback.as_ref().map(|f| f.clone_ref(py)));
+            Python::with_gil(|py| self.on_success_callback.as_ref().map(|f| f.clone_ref(py)));
         let on_failure =
-            Python::attach(|py| self.on_failure_callback.as_ref().map(|f| f.clone_ref(py)));
+            Python::with_gil(|py| self.on_failure_callback.as_ref().map(|f| f.clone_ref(py)));
         let task_id = self.id.clone();
         let task_id_for_error = self.id.clone();
         let needs_handle = self.requires_handle;
@@ -308,9 +308,10 @@ impl cloacina::Task for PythonTaskWrapper {
         //    GIL). on_success / post_invocation / CG invocation all happen
         //    later in the async caller so the graph can be `.await`ed.
         let task_id_for_body = task_id.clone();
-        let on_failure_for_body = Python::attach(|py| on_failure.as_ref().map(|f| f.clone_ref(py)));
+        let on_failure_for_body =
+            Python::with_gil(|py| on_failure.as_ref().map(|f| f.clone_ref(py)));
         let (mut final_context, returned_handle) = tokio::task::spawn_blocking(move || {
-            Python::attach(|py| {
+            Python::with_gil(|py| {
                 let original_data = context.data().clone();
                 let py_context = PyContext::from_rust_context(context);
 
@@ -415,7 +416,7 @@ impl cloacina::Task for PythonTaskWrapper {
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             let py_ctx_obj = tokio::task::spawn_blocking(move || {
-                Python::attach(|py| {
+                Python::with_gil(|py| {
                     let mut ctx = cloacina::Context::new();
                     for (k, v) in cg_data {
                         ctx.insert(k, v).ok();
@@ -468,14 +469,14 @@ impl cloacina::Task for PythonTaskWrapper {
             //    `Python::with_gil` on the async worker. Returns the (optionally)
             //    updated context so the mutation survives the spawn_blocking hop.
             if let Some(post) = invocation.post_invocation.as_ref() {
-                let post = Python::attach(|py| post.clone_ref(py));
+                let post = Python::with_gil(|py| post.clone_ref(py));
                 let post_data: Vec<(String, serde_json::Value)> = final_context
                     .data()
                     .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
                 let post_result = tokio::task::spawn_blocking(move || {
-                    Python::attach(
+                    Python::with_gil(
                         |py| -> PyResult<Option<cloacina::Context<serde_json::Value>>> {
                             let mut ctx = cloacina::Context::new();
                             for (k, v) in post_data {
@@ -530,7 +531,7 @@ impl cloacina::Task for PythonTaskWrapper {
                 .collect();
             let tid = task_id.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                Python::attach(|py| {
+                Python::with_gil(|py| {
                     let mut callback_ctx = cloacina::Context::new();
                     for (k, v) in data {
                         callback_ctx.insert(k, v).ok();
@@ -666,22 +667,22 @@ fn build_retry_policy(
 #[pyclass]
 pub struct TaskDecorator {
     id: Option<String>,
-    dependencies: Vec<Py<PyAny>>,
+    dependencies: Vec<PyObject>,
     retry_policy: cloacina::retry::RetryPolicy,
-    on_success: Option<Py<PyAny>>,
-    on_failure: Option<Py<PyAny>>,
+    on_success: Option<PyObject>,
+    on_failure: Option<PyObject>,
     /// `invokes=GraphHandle` — an instance of `ComputationGraphBuilder`
     /// (or any object exposing `NAME`) that names a trigger-less graph.
-    invokes: Option<Py<PyAny>>,
+    invokes: Option<PyObject>,
     /// `post_invocation=fn` — only meaningful when `invokes` is set.
-    post_invocation: Option<Py<PyAny>>,
+    post_invocation: Option<PyObject>,
     /// `trigger_rules=...` — canonical TriggerRule JSON (CLOACI-T-0763).
     trigger_rules: serde_json::Value,
 }
 
 #[pymethods]
 impl TaskDecorator {
-    pub fn __call__(&self, py: Python, func: Py<PyAny>) -> PyResult<Py<PyAny>> {
+    pub fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
         let context = current_workflow_context()?;
 
         let task_id = if let Some(id) = &self.id {
@@ -777,7 +778,7 @@ impl TaskDecorator {
                  before importing Python workflow modules",
             )
         })?;
-        py.detach(|| {
+        py.allow_threads(|| {
             rt.register_task(namespace.clone(), {
                 let task_id_clone = task_id.clone();
                 let deps_clone = deps.clone();
@@ -788,13 +789,13 @@ impl TaskDecorator {
                 let cg_invocation_arc_inner = cg_invocation_arc.clone();
                 let trigger_rules_clone = trigger_rules.clone();
                 move || {
-                    let function_clone = Python::attach(|py| function_arc.clone_ref(py));
+                    let function_clone = Python::with_gil(|py| function_arc.clone_ref(py));
                     let on_success_clone =
-                        Python::attach(|py| on_success_arc.as_ref().map(|f| f.clone_ref(py)));
+                        Python::with_gil(|py| on_success_arc.as_ref().map(|f| f.clone_ref(py)));
                     let on_failure_clone =
-                        Python::attach(|py| on_failure_arc.as_ref().map(|f| f.clone_ref(py)));
+                        Python::with_gil(|py| on_failure_arc.as_ref().map(|f| f.clone_ref(py)));
                     let cg_invocation_clone = cg_invocation_arc_inner.as_ref().map(|cg| {
-                        Python::attach(|py| CGInvocation {
+                        Python::with_gil(|py| CGInvocation {
                             graph_name: cg.graph_name.clone(),
                             post_invocation: cg.post_invocation.as_ref().map(|f| f.clone_ref(py)),
                         })
@@ -899,7 +900,7 @@ impl TaskDecorator {
 pub fn task(
     py: Python,
     id: Option<String>,
-    dependencies: Option<Vec<Py<PyAny>>>,
+    dependencies: Option<Vec<PyObject>>,
     retry: Option<crate::bindings::PyRetryPolicy>,
     retry_attempts: Option<usize>,
     retry_backoff: Option<String>,
@@ -907,11 +908,11 @@ pub fn task(
     retry_max_delay_ms: Option<u64>,
     retry_condition: Option<String>,
     retry_jitter: Option<bool>,
-    on_success: Option<Py<PyAny>>,
-    on_failure: Option<Py<PyAny>>,
-    invokes: Option<Py<PyAny>>,
-    post_invocation: Option<Py<PyAny>>,
-    trigger_rules: Option<Py<PyAny>>,
+    on_success: Option<PyObject>,
+    on_failure: Option<PyObject>,
+    invokes: Option<PyObject>,
+    post_invocation: Option<PyObject>,
+    trigger_rules: Option<PyObject>,
 ) -> PyResult<TaskDecorator> {
     // CLOACI-T-0882: two retry-authoring surfaces exist — the `retry_*` kwargs
     // and a `RetryPolicy` value object. Accept either, never both: silently
@@ -1008,13 +1009,13 @@ mod m3_tests {
     #[tokio::test]
     #[serial]
     async fn test_task_invokes_trigger_less_routes_terminal_into_context() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
 
         let rt = Arc::new(cloacina::Runtime::empty());
         let _scope = ScopedRuntime::new(rt.clone()).unwrap();
 
         // Build a trigger-less graph and a task that invokes it.
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             super::push_workflow_context(super::PyWorkflowContext::new(
                 "public",
                 "embedded",
@@ -1082,12 +1083,12 @@ with score_graph:
     #[tokio::test]
     #[serial]
     async fn test_task_post_invocation_runs_after_graph() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
 
         let rt = Arc::new(cloacina::Runtime::empty());
         let _scope = ScopedRuntime::new(rt.clone()).unwrap();
 
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             super::push_workflow_context(super::PyWorkflowContext::new(
                 "public",
                 "embedded",
@@ -1161,11 +1162,11 @@ def post(ctx):
     #[test]
     #[serial]
     fn test_task_post_invocation_without_invokes_errors() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let rt = Arc::new(cloacina::Runtime::empty());
         let _scope = ScopedRuntime::new(rt).unwrap();
 
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             super::push_workflow_context(super::PyWorkflowContext::new(
                 "public",
                 "embedded",
@@ -1201,11 +1202,11 @@ def post(ctx):
     #[test]
     #[serial]
     fn test_task_invokes_reactor_triggered_graph_rejected() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let rt = Arc::new(cloacina::Runtime::empty());
         let _scope = ScopedRuntime::new(rt).unwrap();
 
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             super::push_workflow_context(super::PyWorkflowContext::new(
                 "public",
                 "embedded",

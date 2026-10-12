@@ -69,7 +69,7 @@ fn provider_data_dir() -> &'static PathBuf {
 #[tokio::test]
 #[serial]
 async fn python_constructor_node_resolves_registers_and_runs() {
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
     let data = provider_data_dir();
     let secret = data.join("secret.txt");
 
@@ -96,12 +96,12 @@ with cloaca.WorkflowBuilder("pyflow") as _:
         data = data.display(),
     );
 
-    pyo3::Python::attach(|py| {
+    pyo3::Python::with_gil(|py| {
         cloacina_python::loader::ensure_cloaca_module(py).unwrap();
         let c_code = std::ffi::CString::new(code).unwrap();
         py.run(&c_code, None, None)
             .map_err(|e| {
-                pyo3::Python::attach(|py| e.print(py));
+                pyo3::Python::with_gil(|py| e.print(py));
                 "python workflow failed"
             })
             .unwrap();
@@ -136,7 +136,7 @@ with cloaca.WorkflowBuilder("pyflow") as _:
 #[tokio::test]
 #[serial]
 async fn python_constructor_without_grant_fails_closed_at_execute() {
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
     let data = provider_data_dir();
     let secret = data.join("secret.txt");
 
@@ -159,7 +159,7 @@ with cloaca.WorkflowBuilder("pyflow_denied") as _:
         secret = secret.display(),
     );
 
-    pyo3::Python::attach(|py| {
+    pyo3::Python::with_gil(|py| {
         cloacina_python::loader::ensure_cloaca_module(py).unwrap();
         let c_code = std::ffi::CString::new(code).unwrap();
         py.run(&c_code, None, None).unwrap();
@@ -185,7 +185,7 @@ with cloaca.WorkflowBuilder("pyflow_denied") as _:
 #[tokio::test]
 #[serial]
 async fn python_constructor_unknown_member_raises() {
-    pyo3::Python::initialize();
+    pyo3::prepare_freethreaded_python();
     let _ = provider_data_dir();
 
     let runtime = Arc::new(cloacina::Runtime::empty());
@@ -217,12 +217,12 @@ assert err is not None, "unknown member must raise"
 assert "delete_file" in err and "read_file" in err, f"error should name the suite: {err}"
 "#;
 
-    pyo3::Python::attach(|py| {
+    pyo3::Python::with_gil(|py| {
         cloacina_python::loader::ensure_cloaca_module(py).unwrap();
         let c_code = std::ffi::CString::new(code).unwrap();
         py.run(&c_code, None, None)
             .map_err(|e| {
-                pyo3::Python::attach(|py| e.print(py));
+                pyo3::Python::with_gil(|py| e.print(py));
                 "python assertion failed"
             })
             .unwrap();

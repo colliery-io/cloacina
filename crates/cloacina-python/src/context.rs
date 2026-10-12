@@ -20,7 +20,7 @@ use pythonize::{depythonize, pythonize};
 use serde_json;
 
 /// PyContext - Python wrapper for Rust Context<serde_json::Value>
-#[pyclass(name = "Context", from_py_object)]
+#[pyclass(name = "Context")]
 #[derive(Debug)]
 pub struct PyContext {
     pub inner: cloacina::Context<serde_json::Value>,
@@ -52,12 +52,12 @@ impl PyContext {
 
     /// Gets a value from the context
     #[pyo3(signature = (key, default = None))]
-    pub fn get(&self, key: &str, default: Option<&Bound<'_, PyAny>>) -> PyResult<Py<PyAny>> {
+    pub fn get(&self, key: &str, default: Option<&Bound<'_, PyAny>>) -> PyResult<PyObject> {
         match self.inner.get(key) {
-            Some(value) => Python::attach(|py| Ok(pythonize(py, value)?.into())),
+            Some(value) => Python::with_gil(|py| Ok(pythonize(py, value)?.into())),
             None => match default {
                 Some(default_value) => Ok(default_value.clone().into()),
-                None => Python::attach(|py| Ok(py.None())),
+                None => Python::with_gil(|py| Ok(py.None())),
             },
         }
     }
@@ -96,15 +96,15 @@ impl PyContext {
     }
 
     /// Removes and returns a value from the context
-    pub fn remove(&mut self, key: &str) -> PyResult<Option<Py<PyAny>>> {
+    pub fn remove(&mut self, key: &str) -> PyResult<Option<PyObject>> {
         match self.inner.remove(key) {
-            Some(value) => Python::attach(|py| Ok(Some(pythonize(py, &value)?.into()))),
+            Some(value) => Python::with_gil(|py| Ok(Some(pythonize(py, &value)?.into()))),
             None => Ok(None),
         }
     }
 
     /// Returns the context as a Python dictionary
-    pub fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    pub fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
         Ok(pythonize(py, self.inner.data())?.into())
     }
 
@@ -170,9 +170,9 @@ impl PyContext {
     }
 
     /// Dictionary-style item access
-    pub fn __getitem__(&self, key: &str) -> PyResult<Py<PyAny>> {
+    pub fn __getitem__(&self, key: &str) -> PyResult<PyObject> {
         let result = self.get(key, None)?;
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             if result.is_none(py) {
                 Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!(
                     "Key not found: '{}'",
@@ -216,7 +216,7 @@ impl PyContext {
     /// Raises `RuntimeError` when no resolver is configured on this execution
     /// scope (`CLOACINA_SECRET_KEK` unset) or the backend fails, `KeyError` when
     /// the secret is not found, `PermissionError` when the name is not granted.
-    pub fn secret(&self, py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
+    pub fn secret(&self, py: Python<'_>, name: &str) -> PyResult<PyObject> {
         let fields = crate::gil::py_block_on(py, self.inner.secret(name))
             .map_err(secret_access_error_to_pyerr)?;
         let dict = PyDict::new(py);
@@ -299,15 +299,15 @@ mod tests {
 
     #[test]
     fn test_new_empty() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let ctx = PyContext::new(None).unwrap();
         assert_eq!(ctx.__len__(), 0);
     }
 
     #[test]
     fn test_new_from_dict() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let dict = PyDict::new(py);
             dict.set_item("key", "value").unwrap();
             let ctx = PyContext::new(Some(&dict.as_borrowed())).unwrap();
@@ -318,8 +318,8 @@ mod tests {
 
     #[test]
     fn test_set_and_get() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = 42i64.into_pyobject(py).unwrap();
             ctx.set("answer", &val.as_borrowed()).unwrap();
@@ -332,8 +332,8 @@ mod tests {
 
     #[test]
     fn test_insert_new_key() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = "hello".into_pyobject(py).unwrap();
             ctx.insert("greeting", &val.as_borrowed()).unwrap();
@@ -343,8 +343,8 @@ mod tests {
 
     #[test]
     fn test_insert_duplicate_errors() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = "hello".into_pyobject(py).unwrap();
             ctx.insert("key", &val.as_borrowed()).unwrap();
@@ -355,8 +355,8 @@ mod tests {
 
     #[test]
     fn test_update_existing_key() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = "hello".into_pyobject(py).unwrap();
             ctx.insert("key", &val.as_borrowed()).unwrap();
@@ -371,8 +371,8 @@ mod tests {
 
     #[test]
     fn test_update_missing_key_errors() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = "hello".into_pyobject(py).unwrap();
             assert!(ctx.update("missing", &val.as_borrowed()).is_err());
@@ -381,8 +381,8 @@ mod tests {
 
     #[test]
     fn test_remove_existing() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = 99i64.into_pyobject(py).unwrap();
             ctx.insert("num", &val.as_borrowed()).unwrap();
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_remove_missing_returns_none() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let mut ctx = PyContext::new(None).unwrap();
         let removed = ctx.remove("nope").unwrap();
         assert!(removed.is_none());
@@ -403,8 +403,8 @@ mod tests {
 
     #[test]
     fn test_len_and_contains() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             assert_eq!(ctx.__len__(), 0);
             assert!(!ctx.__contains__("a"));
@@ -418,8 +418,8 @@ mod tests {
 
     #[test]
     fn test_to_json_and_from_json() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = "bar".into_pyobject(py).unwrap();
             ctx.insert("foo", &val.as_borrowed()).unwrap();
@@ -437,14 +437,14 @@ mod tests {
 
     #[test]
     fn test_to_dict() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = 42i64.into_pyobject(py).unwrap();
             ctx.insert("x", &val.as_borrowed()).unwrap();
 
             let dict_obj = ctx.to_dict(py).unwrap();
-            let dict = dict_obj.cast_bound::<PyDict>(py).unwrap();
+            let dict = dict_obj.downcast_bound::<PyDict>(py).unwrap();
             let x_val: i64 = dict.get_item("x").unwrap().unwrap().extract().unwrap();
             assert_eq!(x_val, 42);
         });
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_repr() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let ctx = PyContext::new(None).unwrap();
         let repr = ctx.__repr__();
         assert!(repr.starts_with("Context("));
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_from_rust_context_and_clone_inner() {
-        Python::initialize();
+        pyo3::prepare_freethreaded_python();
         let mut rust_ctx = cloacina::Context::new();
         rust_ctx
             .insert("k".to_string(), serde_json::json!("v"))
@@ -474,8 +474,8 @@ mod tests {
 
     #[test]
     fn test_clone_preserves_data() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let mut ctx = PyContext::new(None).unwrap();
             let val = "hello".into_pyobject(py).unwrap();
             ctx.insert("key", &val.as_borrowed()).unwrap();
@@ -530,15 +530,15 @@ mod tests {
 
     #[test]
     fn test_secret_returns_resolved_fields() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let ctx = ctx_with_secret(
                 "db_prod",
                 &[("password", "hunter2"), ("host", "db.internal")],
             );
 
             let result = ctx.secret(py, "db_prod").unwrap();
-            let dict = result.cast_bound::<PyDict>(py).unwrap();
+            let dict = result.downcast_bound::<PyDict>(py).unwrap();
             let pw: String = dict
                 .get_item("password")
                 .unwrap()
@@ -553,8 +553,8 @@ mod tests {
 
     #[test]
     fn test_secret_field_returns_single_value() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let ctx = ctx_with_secret("db_prod", &[("password", "hunter2")]);
             let pw = ctx.secret_field(py, "db_prod", "password").unwrap();
             assert_eq!(pw, "hunter2");
@@ -563,8 +563,8 @@ mod tests {
 
     #[test]
     fn test_secret_is_alias_aware_through_secret_refs_map() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             // Build a context whose data carries the T-0859 `{"$secret"}` alias
             // map (name→name, no values) mapping local binding `creds` → `db_prod`.
             let mut field_map = BTreeMap::new();
@@ -592,8 +592,8 @@ mod tests {
 
     #[test]
     fn test_secret_value_not_leaked_into_serialized_data() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let ctx = ctx_with_secret(
                 "db_prod",
                 &[("password", "hunter2"), ("host", "db.internal")],
@@ -616,8 +616,8 @@ mod tests {
 
     #[test]
     fn test_secret_not_configured_raises_runtime_error() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             // A context with NO resolver attached.
             let ctx = PyContext::new(None).unwrap();
             let err = ctx.secret(py, "db_prod").unwrap_err();
@@ -627,8 +627,8 @@ mod tests {
 
     #[test]
     fn test_secret_not_found_raises_key_error() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let ctx = ctx_with_secret("db_prod", &[("password", "hunter2")]);
             let err = ctx.secret(py, "does_not_exist").unwrap_err();
             assert!(err.is_instance_of::<pyo3::exceptions::PyKeyError>(py));
@@ -637,8 +637,8 @@ mod tests {
 
     #[test]
     fn test_secret_field_missing_field_raises_key_error() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let ctx = ctx_with_secret("db_prod", &[("password", "hunter2")]);
             let err = ctx
                 .secret_field(py, "db_prod", "no_such_field")
@@ -654,8 +654,8 @@ mod tests {
     /// exactly that path.
     #[test]
     fn test_clone_preserves_secret_resolver() {
-        Python::initialize();
-        Python::attach(|py| {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
             let ctx = ctx_with_secret("db_prod", &[("password", "hunter2")]);
             let cloned = ctx.clone();
             assert!(

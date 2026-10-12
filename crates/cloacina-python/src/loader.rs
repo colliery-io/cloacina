@@ -257,7 +257,7 @@ pub fn import_and_register_python_workflow_named(
         );
         // CLOACI-T-0925: whose providers this import resolves against.
         let _provider_scope = enter_provider_scope(provider_scope);
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             // 0. Publish this thread's Python ident BEFORE any user code runs,
             //    so a module-scope hang is interruptible (CLOACI-T-0919).
             thread_ident.record(py);
@@ -501,7 +501,7 @@ pub fn import_python_computation_graph(
             ScopedRuntime::new(runtime.clone()).map_err(PythonLoaderError::RuntimeError)?;
         let _registration = crate::registration_scope::ScopedRegistration::new(registration_scope);
         let _provider_scope = enter_provider_scope(provider_scope);
-        Python::attach(|py| {
+        Python::with_gil(|py| {
             thread_ident.record(py);
             ensure_cloaca_module(py)?;
 
