@@ -41,8 +41,8 @@ serde_json.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
 fidius-core = { workspace = true }
 once_cell.workspace = true
-pyo3 = { version = "0.25", features = ["abi3-py39"] }
-pythonize = { version = "0.25" }
+pyo3 = { version = "0.29", features = ["abi3-py39"] }
+pythonize = { version = "0.29" }
 tempfile = { version = "3.2" }
 tokio = { version = "1.0", features = ["full"] }
 thiserror = { version = "2" }

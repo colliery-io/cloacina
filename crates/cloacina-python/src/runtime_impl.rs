@@ -47,7 +47,7 @@ impl PythonRuntime for CloacinaPythonRuntime {
         let extracted = crate::package_loader::extract_python_package(archive_data, staging_dir)
             .map_err(|e| format!("Failed to extract Python package: {}", e))?;
 
-        pyo3::prepare_freethreaded_python();
+        pyo3::Python::initialize();
         let task_namespaces: Vec<TaskNamespace> =
             crate::loader::import_and_register_python_workflow_named(
                 &extracted.workflow_dir,
@@ -107,7 +107,7 @@ impl PythonRuntime for CloacinaPythonRuntime {
         let extracted = crate::package_loader::extract_python_package(archive_data, staging_dir)
             .map_err(|e| format!("Failed to extract Python CG package: {}", e))?;
 
-        pyo3::prepare_freethreaded_python();
+        pyo3::Python::initialize();
         // CLOACI-T-0921: the packaged loader knows tenant + package at import
         // time; the Python package identity is the entry module's top-level name.
         let package_name = entry_module.split('.').next().unwrap_or(entry_module);

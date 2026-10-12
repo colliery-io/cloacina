@@ -59,7 +59,7 @@ pub fn reactor(
     name: String,
     accumulators: Vec<String>,
     mode: String,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     if name.is_empty() {
         return Err(PyValueError::new_err(
             "@cloaca.reactor: 'name' cannot be empty",
@@ -100,12 +100,12 @@ pub fn reactor(
         None,
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, pyo3::types::PyDict>>|
-              -> PyResult<PyObject> {
+              -> PyResult<Py<PyAny>> {
             let py = args.py();
             let cls_obj = args.get_item(0)?;
 
             // Require a class (type). Reject instances / functions to give a clear error.
-            let cls = cls_obj.downcast::<PyType>().map_err(|_| {
+            let cls = cls_obj.cast::<PyType>().map_err(|_| {
                 PyTypeError::new_err(
                     "@cloaca.reactor must be applied to a class (e.g. `class Rx: pass`)",
                 )
@@ -189,8 +189,8 @@ mod tests {
 
     #[test]
     fn reactor_decorator_sets_class_attrs_and_registers() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let rt = Arc::new(cloacina::Runtime::empty());
             let _scope = ScopedRuntime::new(rt.clone()).unwrap();
 
@@ -233,8 +233,8 @@ mod tests {
 
     #[test]
     fn reactor_decorator_rejects_empty_name() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let rt = Arc::new(cloacina::Runtime::empty());
             let _scope = ScopedRuntime::new(rt).unwrap();
             let cloaca_reactor = wrap_pyfunction!(reactor, py).unwrap();
@@ -248,8 +248,8 @@ mod tests {
 
     #[test]
     fn reactor_decorator_rejects_empty_accumulators() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let rt = Arc::new(cloacina::Runtime::empty());
             let _scope = ScopedRuntime::new(rt).unwrap();
             let cloaca_reactor = wrap_pyfunction!(reactor, py).unwrap();
@@ -265,8 +265,8 @@ mod tests {
 
     #[test]
     fn reactor_decorator_rejects_duplicate_accumulators() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let rt = Arc::new(cloacina::Runtime::empty());
             let _scope = ScopedRuntime::new(rt).unwrap();
             let cloaca_reactor = wrap_pyfunction!(reactor, py).unwrap();
@@ -280,8 +280,8 @@ mod tests {
 
     #[test]
     fn reactor_decorator_rejects_unknown_mode() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let rt = Arc::new(cloacina::Runtime::empty());
             let _scope = ScopedRuntime::new(rt).unwrap();
             let cloaca_reactor = wrap_pyfunction!(reactor, py).unwrap();
@@ -296,8 +296,8 @@ mod tests {
 
     #[test]
     fn reactor_decorator_rejects_non_class_target() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let rt = Arc::new(cloacina::Runtime::empty());
             let _scope = ScopedRuntime::new(rt).unwrap();
             let cloaca_reactor = wrap_pyfunction!(reactor, py).unwrap();

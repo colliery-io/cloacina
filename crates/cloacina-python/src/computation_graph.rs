@@ -86,7 +86,7 @@ use crate::registration_scope::{RegistrationScope, current_registration_scope};
 // Global node registry (scoped by active builder context)
 // ---------------------------------------------------------------------------
 
-static NODE_REGISTRY: Lazy<Mutex<HashMap<String, PyObject>>> =
+static NODE_REGISTRY: Lazy<Mutex<HashMap<String, Py<PyAny>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static ACTIVE_GRAPH_CONTEXT: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
@@ -104,11 +104,11 @@ fn current_graph_context() -> Option<String> {
     ACTIVE_GRAPH_CONTEXT.lock().unwrap().clone()
 }
 
-fn register_node(name: String, func: PyObject) {
+fn register_node(name: String, func: Py<PyAny>) {
     NODE_REGISTRY.lock().unwrap().insert(name, func);
 }
 
-fn drain_nodes() -> HashMap<String, PyObject> {
+fn drain_nodes() -> HashMap<String, Py<PyAny>> {
     let mut registry = NODE_REGISTRY.lock().unwrap();
     std::mem::take(&mut *registry)
 }
@@ -232,10 +232,11 @@ fn resolve_graph_key<V>(map: &HashMap<GraphKey, V>, name: &str) -> Option<GraphK
     }
 }
 
-static ACCUMULATOR_REGISTRY: Lazy<Mutex<HashMap<GraphKey, (PyObject, PyAccumulatorRegistration)>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static ACCUMULATOR_REGISTRY: Lazy<
+    Mutex<HashMap<GraphKey, (Py<PyAny>, PyAccumulatorRegistration)>>,
+> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-fn register_accumulator(name: String, func: PyObject, reg: PyAccumulatorRegistration) {
+fn register_accumulator(name: String, func: Py<PyAny>, reg: PyAccumulatorRegistration) {
     ACCUMULATOR_REGISTRY
         .lock()
         .unwrap()
@@ -273,7 +274,7 @@ pub fn get_all_registered_accumulators() -> Vec<(GraphKey, PyAccumulatorRegistra
 }
 
 /// Drain all registered accumulators (used by builder on __exit__ / test reset).
-pub fn drain_accumulators() -> HashMap<GraphKey, (PyObject, PyAccumulatorRegistration)> {
+pub fn drain_accumulators() -> HashMap<GraphKey, (Py<PyAny>, PyAccumulatorRegistration)> {
     let mut registry = ACCUMULATOR_REGISTRY.lock().unwrap();
     std::mem::take(&mut *registry)
 }
@@ -296,11 +297,11 @@ fn resolve_poll_closure(
         if reg.accumulator_type != "polling" {
             return None;
         }
-        Python::with_gil(|py| func.clone_ref(py))
+        Python::attach(|py| func.clone_ref(py))
     };
     let name = name.to_string();
     Some(std::sync::Arc::new(move || -> Option<Vec<u8>> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let result = match function.call0(py) {
                 Ok(r) => r,
                 Err(e) => {
@@ -345,7 +346,7 @@ pub(crate) fn install_polling_accumulator_builder() {
 /// Registers a function as a passthrough accumulator (Event → Output, no buffering).
 #[pyfunction]
 #[pyo3(name = "passthrough_accumulator")]
-pub fn passthrough_accumulator_decorator(py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
+pub fn passthrough_accumulator_decorator(py: Python<'_>, func: Py<PyAny>) -> PyResult<Py<PyAny>> {
     let func_name: String = func.getattr(py, "__name__")?.extract(py)?;
     let reg = PyAccumulatorRegistration {
         name: func_name.clone(),
@@ -370,7 +371,7 @@ pub fn stream_accumulator_decorator(
     r#type: String,
     topic: String,
     group: Option<String>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let config_type = r#type;
     let config_topic = topic;
     let config_group = group;
@@ -382,7 +383,7 @@ pub fn stream_accumulator_decorator(
         None,
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
-              -> PyResult<PyObject> {
+              -> PyResult<Py<PyAny>> {
             let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
@@ -415,7 +416,7 @@ pub fn stream_accumulator_decorator(
 /// Factory for `@cloaca.polling_accumulator(interval=...)`.
 #[pyfunction]
 #[pyo3(name = "polling_accumulator", signature = (*, interval))]
-pub fn polling_accumulator_decorator(py: Python<'_>, interval: String) -> PyResult<PyObject> {
+pub fn polling_accumulator_decorator(py: Python<'_>, interval: String) -> PyResult<Py<PyAny>> {
     let config_interval = interval;
 
     let decorator = PyCFunction::new_closure(
@@ -424,7 +425,7 @@ pub fn polling_accumulator_decorator(py: Python<'_>, interval: String) -> PyResu
         None,
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
-              -> PyResult<PyObject> {
+              -> PyResult<Py<PyAny>> {
             let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
@@ -457,7 +458,7 @@ pub fn batch_accumulator_decorator(
     py: Python<'_>,
     flush_interval: String,
     max_buffer_size: Option<usize>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let config_interval = flush_interval;
     let config_max = max_buffer_size;
 
@@ -467,7 +468,7 @@ pub fn batch_accumulator_decorator(
         None,
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
-              -> PyResult<PyObject> {
+              -> PyResult<Py<PyAny>> {
             let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
@@ -509,7 +510,7 @@ pub fn batch_accumulator_decorator(
 /// - `0`:  write-only sink — no history emitted back
 #[pyfunction]
 #[pyo3(name = "state_accumulator", signature = (*, capacity))]
-pub fn state_accumulator_decorator(py: Python<'_>, capacity: i32) -> PyResult<PyObject> {
+pub fn state_accumulator_decorator(py: Python<'_>, capacity: i32) -> PyResult<Py<PyAny>> {
     let config_capacity = capacity;
 
     let decorator = PyCFunction::new_closure(
@@ -518,7 +519,7 @@ pub fn state_accumulator_decorator(py: Python<'_>, capacity: i32) -> PyResult<Py
         None,
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
-              -> PyResult<PyObject> {
+              -> PyResult<Py<PyAny>> {
             let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
@@ -567,7 +568,7 @@ enum PyEdgeDecl {
 /// The `@cloaca.node` decorator. Registers a function as a node in the
 /// current ComputationGraphBuilder context.
 #[pyfunction]
-pub fn node(py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
+pub fn node(py: Python<'_>, func: Py<PyAny>) -> PyResult<Py<PyAny>> {
     let _ctx = current_graph_context().ok_or_else(|| {
         PyValueError::new_err(
             "@cloaca.node must be used inside a ComputationGraphBuilder context manager",
@@ -759,7 +760,7 @@ impl PyComputationGraphBuilder {
     ///
     /// `inputs` is a dict mapping source names to their data dicts.
     /// Returns the terminal node's output dict.
-    pub fn execute(&self, py: Python<'_>, inputs: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+    pub fn execute(&self, py: Python<'_>, inputs: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
         let executor = get_graph_executor(&self.name).ok_or_else(|| {
             PyValueError::new_err(format!(
                 "graph '{}' not built yet — call execute after the 'with' block exits",
@@ -768,7 +769,7 @@ impl PyComputationGraphBuilder {
         })?;
 
         // Convert Python dict inputs → HashMap<String, PyObject>
-        let mut cache: HashMap<String, PyObject> = HashMap::new();
+        let mut cache: HashMap<String, Py<PyAny>> = HashMap::new();
         for (key, value) in inputs.iter() {
             let key_str: String = key.extract()?;
             cache.insert(key_str, value.unbind());
@@ -843,10 +844,10 @@ pub fn get_graph_executors_for_reactor(reactor: &str) -> Vec<PythonGraphExecutor
         .collect()
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 pub struct PythonGraphExecutor {
     pub name: String,
-    node_functions: HashMap<String, PyObject>,
+    node_functions: HashMap<String, Py<PyAny>>,
     node_map: HashMap<String, PyNodeDecl>,
     execution_order: Vec<String>,
     react_mode: String,
@@ -867,7 +868,7 @@ unsafe impl Sync for PythonGraphExecutor {}
 
 impl Clone for PythonGraphExecutor {
     fn clone(&self) -> Self {
-        Python::with_gil(|py| Self {
+        Python::attach(|py| Self {
             name: self.name.clone(),
             node_functions: self
                 .node_functions
@@ -891,8 +892,8 @@ impl PythonGraphExecutor {
     pub fn execute_sync(
         &self,
         py: Python<'_>,
-        inputs: &HashMap<String, PyObject>,
-    ) -> PyResult<PyObject> {
+        inputs: &HashMap<String, Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         // Convert PyObject inputs to serde_json::Value for the executor
         let mut cache_values: HashMap<String, serde_json::Value> = HashMap::new();
         for (name, obj) in inputs {
@@ -954,7 +955,7 @@ impl PythonGraphExecutor {
         }
 
         let result = tokio::task::spawn_blocking(move || {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 execute_graph_sync(
                     py,
                     &executor.node_functions,
@@ -1003,11 +1004,11 @@ impl PythonGraphExecutor {
     /// node name.
     pub async fn execute_trigger_less(
         &self,
-        ctx: PyObject,
+        ctx: Py<PyAny>,
     ) -> Result<Vec<(String, serde_json::Value)>, GraphError> {
         let executor = self.clone();
         match tokio::task::spawn_blocking(move || {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 execute_graph_sync_named_terminals(
                     py,
                     &executor.node_functions,
@@ -1182,7 +1183,7 @@ fn python_graph_topology_json(executor: &PythonGraphExecutor) -> String {
 /// reactor-triggered path leaves this `None`.
 fn execute_graph_sync(
     py: Python<'_>,
-    node_functions: &HashMap<String, PyObject>,
+    node_functions: &HashMap<String, Py<PyAny>>,
     execution_order: &[String],
     node_map: &HashMap<String, PyNodeDecl>,
     cache_values: &HashMap<String, serde_json::Value>,
@@ -1203,16 +1204,16 @@ fn execute_graph_sync(
 /// to context keys without misalignment.
 fn execute_graph_sync_named_terminals(
     py: Python<'_>,
-    node_functions: &HashMap<String, PyObject>,
+    node_functions: &HashMap<String, Py<PyAny>>,
     execution_order: &[String],
     node_map: &HashMap<String, PyNodeDecl>,
-    ctx: &PyObject,
+    ctx: &Py<PyAny>,
 ) -> Result<Vec<(String, serde_json::Value)>, GraphError> {
     let cache_values: HashMap<String, serde_json::Value> = HashMap::new();
     let trigger_less_ctx = Some(ctx);
 
     let mut pairs: Vec<(String, serde_json::Value)> = Vec::new();
-    let mut node_results: HashMap<String, PyObject> = HashMap::new();
+    let mut node_results: HashMap<String, Py<PyAny>> = HashMap::new();
 
     let mut incoming: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
     for node in node_map.values() {
@@ -1298,7 +1299,7 @@ fn execute_graph_sync_named_terminals(
                 node_results.insert(node_name.clone(), result);
             }
             PyEdgeDecl::Routing { .. } => {
-                let tuple = result.downcast_bound::<PyTuple>(py).map_err(|_| {
+                let tuple = result.cast_bound::<PyTuple>(py).map_err(|_| {
                     GraphError::NodeExecution(format!(
                         "routing node '{}' must return a (variant_name, value) tuple",
                         node_name
@@ -1316,7 +1317,7 @@ fn execute_graph_sync_named_terminals(
                 let variant_name = tuple
                     .get_item(0)
                     .map_err(|e| GraphError::NodeExecution(format!("tuple index error: {}", e)))?
-                    .downcast::<PyString>()
+                    .cast::<PyString>()
                     .map_err(|_| {
                         GraphError::NodeExecution(format!(
                             "routing node '{}': first element must be a string",
@@ -1346,14 +1347,14 @@ fn execute_graph_sync_named_terminals(
 
 fn execute_graph_sync_inner(
     py: Python<'_>,
-    node_functions: &HashMap<String, PyObject>,
+    node_functions: &HashMap<String, Py<PyAny>>,
     execution_order: &[String],
     node_map: &HashMap<String, PyNodeDecl>,
     cache_values: &HashMap<String, serde_json::Value>,
-    trigger_less_ctx: Option<&PyObject>,
+    trigger_less_ctx: Option<&Py<PyAny>>,
 ) -> Result<Vec<Box<dyn std::any::Any + Send>>, GraphError> {
     let mut terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
-    let mut node_results: HashMap<String, PyObject> = HashMap::new();
+    let mut node_results: HashMap<String, Py<PyAny>> = HashMap::new();
 
     // Build incoming edge map
     let mut incoming: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
@@ -1445,7 +1446,7 @@ fn execute_graph_sync_inner(
                 node_results.insert(node_name.clone(), result);
             }
             PyEdgeDecl::Routing { .. } => {
-                let tuple = result.downcast_bound::<PyTuple>(py).map_err(|_| {
+                let tuple = result.cast_bound::<PyTuple>(py).map_err(|_| {
                     GraphError::NodeExecution(format!(
                         "routing node '{}' must return a (variant_name, value) tuple",
                         node_name
@@ -1463,7 +1464,7 @@ fn execute_graph_sync_inner(
                 let variant_name = tuple
                     .get_item(0)
                     .map_err(|e| GraphError::NodeExecution(format!("tuple index error: {}", e)))?
-                    .downcast::<PyString>()
+                    .cast::<PyString>()
                     .map_err(|_| {
                         GraphError::NodeExecution(format!(
                             "routing node '{}': first element must be a string",
@@ -1496,11 +1497,11 @@ fn build_node_args<'py>(
     node_name: &str,
     node_decl: &PyNodeDecl,
     cache_values: &HashMap<String, serde_json::Value>,
-    node_results: &HashMap<String, PyObject>,
+    node_results: &HashMap<String, Py<PyAny>>,
     incoming: &HashMap<String, Vec<(String, Option<String>)>>,
-    trigger_less_ctx: Option<&PyObject>,
+    trigger_less_ctx: Option<&Py<PyAny>>,
 ) -> Result<Bound<'py, PyTuple>, GraphError> {
-    let mut args: Vec<PyObject> = Vec::new();
+    let mut args: Vec<Py<PyAny>> = Vec::new();
 
     // Trigger-less root: a node with no incoming edges and no cache inputs
     // gets the task Context as its sole arg.
@@ -1583,12 +1584,12 @@ fn parse_graph_dict(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>> {
     for (key, value) in graph.iter() {
         let name: String = key.extract()?;
         let node_dict = value
-            .downcast::<PyDict>()
+            .cast::<PyDict>()
             .map_err(|_| PyTypeError::new_err(format!("graph['{}'] must be a dict", name)))?;
 
         let cache_inputs: Vec<String> = match node_dict.get_item("inputs")? {
             Some(inputs) => inputs
-                .downcast::<PyList>()
+                .cast::<PyList>()
                 .map_err(|_| {
                     PyTypeError::new_err(format!("graph['{}']['inputs'] must be a list", name))
                 })?
@@ -1600,7 +1601,7 @@ fn parse_graph_dict(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>> {
 
         let edge = match node_dict.get_item("routes")? {
             Some(routes) => {
-                let routes_dict = routes.downcast::<PyDict>().map_err(|_| {
+                let routes_dict = routes.cast::<PyDict>().map_err(|_| {
                     PyTypeError::new_err(format!("graph['{}']['routes'] must be a dict", name))
                 })?;
                 let mut variants = Vec::new();
@@ -1696,8 +1697,8 @@ mod tests {
     /// struct field and mirrored into config).
     #[test]
     fn test_state_accumulator_decorator_registers_state_with_capacity() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             // Clear any registry state leaked from other tests in this process.
             let _ = drain_accumulators();
 
@@ -1754,8 +1755,8 @@ mod tests {
     /// replaced the first for both tenants.
     #[test]
     fn test_cloaci_t_0921_same_name_graphs_resolve_per_scope() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let name = "t0921_pipeline";
 
             // Tenant A / package alpha registers `pipeline`.
@@ -1819,8 +1820,8 @@ mod tests {
     /// unscoped registrations stay globally addressable.
     #[test]
     fn test_cloaci_t_0921_same_tenant_and_unscoped_fallbacks() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let scoped_name = "t0921_same_tenant_graph";
             let bare_name = "t0921_unscoped_graph";
 
@@ -1853,8 +1854,8 @@ mod tests {
     /// `get_registered_accumulators()` must not include another tenant's.
     #[test]
     fn test_cloaci_t_0921_accumulator_registry_scoped_by_tenant() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let _ = drain_accumulators();
 
             let reg = |name: &str| PyAccumulatorRegistration {

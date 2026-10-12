@@ -18,28 +18,28 @@ use pyo3::prelude::*;
 use std::time::Duration;
 
 /// Python wrapper for RetryPolicy
-#[pyclass(name = "RetryPolicy")]
+#[pyclass(name = "RetryPolicy", from_py_object)]
 #[derive(Clone)]
 pub struct PyRetryPolicy {
     inner: cloacina::retry::RetryPolicy,
 }
 
 /// Python wrapper for BackoffStrategy
-#[pyclass(name = "BackoffStrategy")]
+#[pyclass(name = "BackoffStrategy", from_py_object)]
 #[derive(Clone)]
 pub struct PyBackoffStrategy {
     inner: cloacina::retry::BackoffStrategy,
 }
 
 /// Python wrapper for RetryCondition
-#[pyclass(name = "RetryCondition")]
+#[pyclass(name = "RetryCondition", from_py_object)]
 #[derive(Clone)]
 pub struct PyRetryCondition {
     inner: cloacina::retry::RetryCondition,
 }
 
 /// Python wrapper for RetryPolicy::Builder
-#[pyclass(name = "RetryPolicyBuilder")]
+#[pyclass(name = "RetryPolicyBuilder", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyRetryPolicyBuilder {
     max_attempts: Option<i32>,
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_default_policy() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let policy = PyRetryPolicy::default();
         // Default should have reasonable values
         assert!(policy.max_attempts() > 0);
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn test_builder_defaults() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let policy = PyRetryPolicy::builder().build();
         assert!(policy.max_attempts() > 0);
         assert!(policy.initial_delay() > 0.0);
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_builder_chain() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let policy = PyRetryPolicy::builder()
             .max_attempts(5)
             .initial_delay(2.0)
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_should_retry() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let policy = PyRetryPolicy::builder().max_attempts(3).build();
         assert!(policy.should_retry(0, "some_error"));
         assert!(policy.should_retry(1, "some_error"));
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_calculate_delay() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let policy = PyRetryPolicy::builder()
             .initial_delay(1.0)
             .with_jitter(false)
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_retry_policy_repr() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let policy = PyRetryPolicy::default();
         let repr = policy.__repr__();
         assert!(repr.starts_with("RetryPolicy("));
@@ -386,14 +386,14 @@ mod tests {
 
     #[test]
     fn test_backoff_strategy_fixed() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let s = PyBackoffStrategy::fixed();
         assert_eq!(s.__repr__(), "BackoffStrategy.Fixed");
     }
 
     #[test]
     fn test_backoff_strategy_linear() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let s = PyBackoffStrategy::linear(2.0);
         let repr = s.__repr__();
         assert!(repr.contains("Linear"));
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_backoff_strategy_exponential() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let s = PyBackoffStrategy::exponential(2.0, Some(1.5));
         let repr = s.__repr__();
         assert!(repr.contains("Exponential"));
@@ -411,28 +411,28 @@ mod tests {
 
     #[test]
     fn test_retry_condition_never() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let c = PyRetryCondition::never();
         assert_eq!(c.__repr__(), "RetryCondition.Never");
     }
 
     #[test]
     fn test_retry_condition_transient_only() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let c = PyRetryCondition::transient_only();
         assert_eq!(c.__repr__(), "RetryCondition.TransientOnly");
     }
 
     #[test]
     fn test_retry_condition_all_errors() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let c = PyRetryCondition::all_errors();
         assert_eq!(c.__repr__(), "RetryCondition.AllErrors");
     }
 
     #[test]
     fn test_retry_condition_error_pattern() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let c = PyRetryCondition::error_pattern(vec!["timeout".to_string(), "conn".to_string()]);
         let repr = c.__repr__();
         assert!(repr.contains("ErrorPattern"));
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn test_from_rust_to_rust_roundtrip() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let rust_policy = cloacina::retry::RetryPolicy::default();
         let py_policy = PyRetryPolicy::from_rust(rust_policy.clone());
         let roundtripped = py_policy.to_rust();

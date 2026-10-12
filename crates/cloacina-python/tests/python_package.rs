@@ -243,7 +243,7 @@ fn python_e2e_pack_extract_load_register() {
     );
 
     // 3. Load and register the Python workflow
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
 
     let runtime = std::sync::Arc::new(cloacina::Runtime::empty());
     let task_namespaces = cloacina_python::import_and_register_python_workflow(
@@ -291,10 +291,10 @@ mod postgres_bindings {
     #[test]
     #[serial]
     fn test_runner_postgres_construction_and_shutdown() {
-        pyo3::prepare_freethreaded_python();
-        let runner = Python::with_gil(|py| PyDefaultRunner::new(py, TEST_PG_URL))
+        pyo3::Python::initialize();
+        let runner = Python::attach(|py| PyDefaultRunner::new(py, TEST_PG_URL))
             .expect("Failed to create runner");
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             runner.shutdown(py).expect("Shutdown should succeed");
         });
     }
@@ -302,14 +302,14 @@ mod postgres_bindings {
     #[test]
     #[serial]
     fn test_with_schema_postgres_creates_and_shuts_down() {
-        pyo3::prepare_freethreaded_python();
+        pyo3::Python::initialize();
         let schema = format!(
             "test_{}",
             uuid::Uuid::new_v4().to_string().replace('-', "_")
         );
-        let runner = Python::with_gil(|py| PyDefaultRunner::with_schema(py, TEST_PG_URL, &schema))
+        let runner = Python::attach(|py| PyDefaultRunner::with_schema(py, TEST_PG_URL, &schema))
             .expect("with_schema should succeed");
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let schedules = runner
                 .list_cron_schedules(None, None, None, py)
                 .expect("list should work");
@@ -321,14 +321,14 @@ mod postgres_bindings {
     #[test]
     #[serial]
     fn test_with_schema_register_and_list_cron() {
-        pyo3::prepare_freethreaded_python();
+        pyo3::Python::initialize();
         let schema = format!(
             "test_{}",
             uuid::Uuid::new_v4().to_string().replace('-', "_")
         );
-        let runner = Python::with_gil(|py| PyDefaultRunner::with_schema(py, TEST_PG_URL, &schema))
+        let runner = Python::attach(|py| PyDefaultRunner::with_schema(py, TEST_PG_URL, &schema))
             .expect("with_schema should succeed");
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let id = runner
                 .register_cron_workflow(
                     "schema-cron-test".to_string(),
@@ -363,7 +363,7 @@ mod postgres_bindings {
 #[test]
 #[serial_test::serial(python_import)]
 fn python_reimport_after_upgrade_registers_new_tasks() {
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
 
     let make_version = |task_id: &str| -> TempDir {
         let staging = TempDir::new().unwrap();
