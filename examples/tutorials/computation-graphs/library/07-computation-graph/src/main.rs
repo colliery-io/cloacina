@@ -27,7 +27,7 @@
 //! - `InputCache`, `serialize()`, `SourceName`
 //! - Calling `{module}_compiled(&cache)` and inspecting `GraphResult`
 
-use cloacina::computation_graph::types::{serialize, GraphResult, InputCache, SourceName};
+use cloacina::computation_graph::types::{GraphResult, InputCache, SourceName, serialize};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------

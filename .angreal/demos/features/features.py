@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -344,6 +345,21 @@ def _run_gold_path(
             "pack → upload → compile → reconcile → execute → Completed"
         )
         return 0
+    except Exception as exc:
+        # CI keeps no artifacts and angreal shows only the exception, so put
+        # the end of the service logs into it.
+        tails = []
+        for name in ("server.log", "compiler.log"):
+            log_path = home / name
+            if log_path.exists():
+                text = re.sub(r"\x1b\[[0-9;]*m", "", log_path.read_text(errors="replace"))
+                lines = text.splitlines()
+                flagged = [l for l in lines if " ERROR " in l or " WARN " in l][:60]
+                tails.append(
+                    f"--- first ERROR/WARN lines of {name} ---\n" + "\n".join(flagged)
+                    + f"\n--- last 40 lines of {name} ---\n" + "\n".join(lines[-40:])
+                )
+        raise RuntimeError(f"{exc}\n\n" + "\n\n".join(tails)) from exc
     finally:
         _kill(compiler_proc)
         _kill(server_proc)

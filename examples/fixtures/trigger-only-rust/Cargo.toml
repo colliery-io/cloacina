@@ -1,9 +1,14 @@
 [package]
 name = "trigger-only-rust"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 description = "Primitive-only fixture: triggers only, no reactor / CG / workflow"
 publish = false
+
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["serde_json"]
 
 [workspace]
 
@@ -16,9 +21,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 cloacina-macros = { path = "../../../crates/cloacina-macros" }
-cloacina-computation-graph = { path = "../../../crates/cloacina-computation-graph" }
 cloacina-workflow = { path = "../../../crates/cloacina-workflow", features = ["packaged"] }
 cloacina-workflow-plugin = { path = "../../../crates/cloacina-workflow-plugin" }
-async-trait = "0.1"
-chrono = "0.4"
 serde_json = "1.0"

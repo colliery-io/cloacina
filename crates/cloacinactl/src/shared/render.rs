@@ -20,8 +20,8 @@
 
 use serde_json::Value;
 
-use crate::shared::error::CliError;
 use crate::OutputFormat;
+use crate::shared::error::CliError;
 
 pub fn list(body: &Value, format: OutputFormat) -> Result<(), CliError> {
     // CLOACI-T-0594 / API-03: every server list endpoint emits the

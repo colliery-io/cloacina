@@ -42,8 +42,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use cloacina::registry::loader::constructor_loader::load_task_constructor;
 use cloacina::Context;
+use cloacina::registry::loader::constructor_loader::load_task_constructor;
 use cloacina_constructor_contract::{PrimitiveKind, ProviderManifest};
 use serde::Serialize;
 

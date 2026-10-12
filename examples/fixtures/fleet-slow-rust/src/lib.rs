@@ -19,7 +19,7 @@
 // claims it, so the e2e can kill that agent mid-execution and assert the server
 // reclaims the orphaned work onto a survivor (CLOACI-T-0638 / T-0634).
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 // I-0102 / T-C: unified plugin shell.
 cloacina_workflow_plugin::package!();
@@ -35,9 +35,7 @@ pub mod fleet_slow_workflow {
     // `retry_attempts = 0`: reclaim re-targets delivery of the SAME attempt to a
     // live agent (it is not a task-level retry), so leaving retries off keeps the
     // reclaim semantics clean to assert on.
-    #[task(
-        retry_attempts = 0
-    )]
+    #[task(retry_attempts = 0)]
     pub async fn slow(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         // Default small so the fixture is cheap to run standalone; the reclaim
         // e2e passes a long value (e.g. 90) via `workflow run --context`.

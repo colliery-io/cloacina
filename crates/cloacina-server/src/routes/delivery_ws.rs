@@ -36,13 +36,13 @@ use axum::extract::{Path, Query, State, WebSocketUpgrade};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use cloacina::dal::DAL;
-use cloacina::delivery::{ClientMessage, ServerMessage, WakeHandle, DELIVERY_PROTOCOL_VERSION};
+use cloacina::delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, ServerMessage, WakeHandle};
 use tracing::{debug, info, warn};
 
-use crate::routes::auth::{validate_token, AuthenticatedKey};
+use crate::AppState;
+use crate::routes::auth::{AuthenticatedKey, validate_token};
 use crate::routes::error::ApiError;
 use crate::routes::ws::WsAuthQuery;
-use crate::AppState;
 
 /// `GET /v1/ws/delivery/{recipient}` — substrate delivery subscription.
 pub async fn delivery_ws(

@@ -38,25 +38,25 @@
 use std::net::SocketAddr;
 
 use axum::{
-    extract::{ConnectInfo, Path, State},
-    http::{header, Extensions, HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
     Json,
+    extract::{ConnectInfo, Path, State},
+    http::{Extensions, HeaderMap, HeaderValue, StatusCode, header},
+    response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
 use cloacina::dal::unified::login_throttle::{
-    ip_key, username_key, ThrottlePolicy, SCOPE_IP, SCOPE_USERNAME,
+    SCOPE_IP, SCOPE_USERNAME, ThrottlePolicy, ip_key, username_key,
 };
 use cloacina::dal::unified::{LocalAccount, LoginOutcome};
 use cloacina::security::audit;
 use cloacina_api_types::common::ListResponse;
 
-use crate::identity::{mint_for_principal, ResolvedPrincipal, DEFAULT_MINTED_KEY_TTL};
-use crate::routes::error::ApiError;
 use crate::AppState;
+use crate::identity::{DEFAULT_MINTED_KEY_TTL, ResolvedPrincipal, mint_for_principal};
+use crate::routes::error::ApiError;
 
 /// Operator-tunable brute-force throttle settings, resolved once at startup and
 /// carried on [`AppState`] (CLOACI-T-0923).
@@ -504,7 +504,7 @@ pub async fn disable_account(
         Ok(i) => i,
         Err(_) => {
             return ApiError::bad_request("invalid_account_id", "invalid account ID format")
-                .into_response()
+                .into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(state.database.clone());
@@ -554,7 +554,7 @@ pub async fn reset_password(
         Ok(i) => i,
         Err(_) => {
             return ApiError::bad_request("invalid_account_id", "invalid account ID format")
-                .into_response()
+                .into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(state.database.clone());

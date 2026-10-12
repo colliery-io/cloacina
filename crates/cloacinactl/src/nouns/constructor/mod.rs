@@ -36,11 +36,11 @@ use std::path::PathBuf;
 use clap::{Args, Subcommand};
 
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions, ProviderRuntime,
+    ProviderPackageOptions, ProviderRuntime, package_constructor_provider,
 };
 
-use crate::shared::error::CliError;
 use crate::GlobalOpts;
+use crate::shared::error::CliError;
 
 #[derive(Args)]
 pub struct ConstructorCmd {

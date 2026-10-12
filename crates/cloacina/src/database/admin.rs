@@ -25,12 +25,12 @@ pub use postgres_impl::*;
 
 mod postgres_impl {
     use crate::database::connection::{
-        escape_password, validate_schema_name, validate_username, Database, SchemaError,
-        UsernameError,
+        Database, SchemaError, UsernameError, escape_password, validate_schema_name,
+        validate_username,
     };
     use diesel::connection::Connection;
     use diesel::prelude::*;
-    use rand::Rng;
+    use rand::RngExt;
 
     /// Database administrator for tenant provisioning
     #[allow(dead_code)]
@@ -391,10 +391,10 @@ mod postgres_impl {
         let charset: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                               abcdefghijklmnopqrstuvwxyz\
                               0123456789";
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         (0..length)
             .map(|_| {
-                let idx = rng.gen_range(0..charset.len());
+                let idx = rng.random_range(0..charset.len());
                 charset[idx] as char
             })
             .collect()

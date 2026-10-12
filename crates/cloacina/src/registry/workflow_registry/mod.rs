@@ -24,7 +24,7 @@ mod database;
 pub mod filesystem;
 mod package;
 
-pub use database::{build_queue_stats, reconciler_stats, BuildQueueStats, ReconcilerStats};
+pub use database::{BuildQueueStats, ReconcilerStats, build_queue_stats, reconciler_stats};
 
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -118,7 +118,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         for (provider_name, provider_version, runtime, archive) in providers {
             let mut hasher = Sha256::new();
             hasher.update(&archive);
-            let content_hash = format!("{:x}", hasher.finalize());
+            let content_hash = hex::encode(hasher.finalize());
             dal.workflow_packages()
                 .upsert_provider(
                     package_name,
@@ -514,7 +514,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(&package_data);
-            format!("{:x}", hasher.finalize())
+            hex::encode(hasher.finalize())
         };
 
         // 4. Look up the currently-active row for this package name.

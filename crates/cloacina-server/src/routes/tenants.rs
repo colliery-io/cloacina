@@ -20,10 +20,10 @@
 //! Tenants are isolated Postgres schemas.
 
 use axum::{
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Extension, Json,
 };
 use tracing::{info, warn};
 
@@ -34,9 +34,9 @@ use cloacina_api_types::{
 };
 use std::time::Instant;
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::AppState;
 
 /// CLOACI-T-0812: compute the initial `desired_count` to auto-provision for a
 /// freshly created tenant. The operator-configured `initial_agents`
@@ -96,24 +96,27 @@ pub async fn create_tenant(
             let initial = initial_desired_count(state.initial_agents, state.default_max_agents);
             if initial > 0 {
                 let dal = cloacina::dal::DAL::new(state.database.clone());
-                if let Err(e) = dal
+                match dal
                     .agent_desired()
                     .set_desired(&credentials.schema_name, initial)
                     .await
                 {
-                    warn!(
-                        tenant = %credentials.schema_name,
-                        initial = initial,
-                        error = %e,
-                        "auto-provision: failed to set initial desired_count (best-effort; \
-                         tenant creation still succeeds — control loop will reconcile later)"
-                    );
-                } else {
-                    info!(
-                        tenant = %credentials.schema_name,
-                        initial = initial,
-                        "auto-provisioned initial agent desired_count"
-                    );
+                    Err(e) => {
+                        warn!(
+                            tenant = %credentials.schema_name,
+                            initial = initial,
+                            error = %e,
+                            "auto-provision: failed to set initial desired_count (best-effort; \
+                             tenant creation still succeeds — control loop will reconcile later)"
+                        );
+                    }
+                    _ => {
+                        info!(
+                            tenant = %credentials.schema_name,
+                            initial = initial,
+                            "auto-provisioned initial agent desired_count"
+                        );
+                    }
                 }
             }
 

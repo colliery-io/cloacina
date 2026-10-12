@@ -16,9 +16,9 @@
 
 //! API key generation and hashing utilities.
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use rand::Rng;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use rand::RngExt;
 use sha2::{Digest, Sha256};
 
 /// Generates a new API key, returning `(plaintext, hash)`.
@@ -27,9 +27,8 @@ use sha2::{Digest, Sha256};
 /// base64url (no padding). The hash is the lowercase hex SHA-256 digest of the
 /// full plaintext string.
 pub fn generate_api_key() -> (String, String) {
-    let mut rng = rand::thread_rng();
     let mut bytes = [0u8; 32];
-    rng.fill(&mut bytes);
+    rand::rng().fill(&mut bytes);
 
     let plaintext = format!("clk_{}", URL_SAFE_NO_PAD.encode(bytes));
     let hash = hash_api_key(&plaintext);
@@ -40,7 +39,7 @@ pub fn generate_api_key() -> (String, String) {
 pub fn hash_api_key(key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(test)]

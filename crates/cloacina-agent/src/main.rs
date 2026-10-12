@@ -33,25 +33,26 @@
 //! `cloacina` inventory, build a `Context` from `WorkPacket.context`,
 //! execute, classify the outcome, return `Success`/`Failure`.
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context as _, Result};
-use base64::engine::general_purpose::STANDARD as BASE64;
+use anyhow::{Context as _, Result, anyhow, bail};
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::Parser;
 use cloacina::fleet::{
-    host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentKeyReplenishRequest,
-    AgentKeyReplenishResponse, AgentRegisterRequest, AgentRegisterResponse, AgentResultRequest,
-    AgentResultResponse, EphemeralKeyEntry, GraphWorkPacket, RefusalReason, WorkPacket,
-    AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, GRAPH_PACKET_KIND, WORK_PACKET_KIND,
+    AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentHeartbeatRequest, AgentHeartbeatResponse,
+    AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentRegisterRequest,
+    AgentRegisterResponse, AgentResultRequest, AgentResultResponse, EphemeralKeyEntry,
+    GRAPH_PACKET_KIND, GraphWorkPacket, RefusalReason, WORK_PACKET_KIND, WorkPacket,
+    host_target_triple,
 };
 use cloacina::security::{AgentKeyPool, InMemorySecretResolver};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
@@ -99,6 +100,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // rustls has both ring and aws-lc-rs compiled in; without a process
+    // default, a wss:// connect panics choosing one.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -1140,8 +1144,8 @@ static LOADED_RUNTIMES: std::sync::OnceLock<
     tokio::sync::Mutex<std::collections::HashMap<String, Arc<cloacina::Runtime>>>,
 > = std::sync::OnceLock::new();
 
-fn loaded_runtimes(
-) -> &'static tokio::sync::Mutex<std::collections::HashMap<String, Arc<cloacina::Runtime>>> {
+fn loaded_runtimes()
+-> &'static tokio::sync::Mutex<std::collections::HashMap<String, Arc<cloacina::Runtime>>> {
     LOADED_RUNTIMES.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -1350,9 +1354,9 @@ async fn resolve_agent_constructor_nodes(
     package_name: &str,
     runtime: &Arc<cloacina::Runtime>,
 ) -> std::result::Result<(), String> {
+    use cloacina::TaskNamespace;
     use cloacina::registry::loader::grants::GrantSpec;
     use cloacina::registry::loader::load_constructor_node;
-    use cloacina::TaskNamespace;
 
     for decl in decls {
         let namespace = TaskNamespace::new(tenant, package_name, &decl.workflow, &decl.id);
@@ -1812,11 +1816,7 @@ fn ws_url_for(server: &str, agent_id: &str, ticket: &str) -> Result<String> {
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..max]
-    }
+    if s.len() <= max { s } else { &s[..max] }
 }
 
 // Silence the unused `Serialize` import if `serde_json` no-ops above ever change.

@@ -54,7 +54,7 @@ mod schema_validation;
 // Re-export all public types
 pub use backend::{AnyConnection, AnyPool, BackendType};
 pub use schema_validation::{
-    escape_password, validate_schema_name, validate_username, SchemaError, UsernameError,
+    SchemaError, UsernameError, escape_password, validate_schema_name, validate_username,
 };
 
 // Legacy type aliases - conditional on features

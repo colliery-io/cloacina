@@ -263,7 +263,7 @@ pub type DbPool = SqlitePool;
 /// When only one feature is enabled, this compiles only the relevant branch.
 #[macro_export]
 macro_rules! dispatch_backend {
-    ($backend:expr, $pg_branch:expr, $sqlite_branch:expr) => {{
+    ($backend:expr_2021, $pg_branch:expr_2021, $sqlite_branch:expr_2021) => {{
         // Both backends enabled: use match
         #[cfg(all(feature = "postgres", feature = "sqlite"))]
         {
@@ -343,7 +343,7 @@ macro_rules! dispatch_backend {
 /// ```
 #[macro_export]
 macro_rules! interact_on_backend {
-    ($dal:expr, |$conn:ident| $body:expr) => {{
+    ($dal:expr_2021, |$conn:ident| $body:expr_2021) => {{
         $crate::dispatch_backend!(
             $dal.backend(),
             {

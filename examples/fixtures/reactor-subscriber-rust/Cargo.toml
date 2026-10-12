@@ -1,9 +1,14 @@
 [package]
 name = "reactor-subscriber-rust"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 description = "Subscriber CG referencing the reactor declared in reactor-only-rust by string name"
 publish = false
+
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["cloacina-computation-graph", "cloacina-workflow", "serde_json"]
 
 [workspace]
 
@@ -21,4 +26,3 @@ cloacina-workflow = { path = "../../../crates/cloacina-workflow", features = ["p
 cloacina-workflow-plugin = { path = "../../../crates/cloacina-workflow-plugin" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-async-trait = "0.1"

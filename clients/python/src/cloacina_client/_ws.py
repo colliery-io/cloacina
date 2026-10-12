@@ -24,8 +24,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import websockets
@@ -65,7 +66,7 @@ def _ws_base(server: str) -> str:
 
 
 async def subscribe_delivery(
-    client: "AsyncClient",
+    client: AsyncClient,
     recipient: str,
     *,
     reconnect: bool = True,
@@ -145,7 +146,7 @@ async def subscribe_delivery(
 
 
 async def follow_execution_events(
-    client: "AsyncClient",
+    client: AsyncClient,
     execution_id: str,
     **options: Any,
 ) -> AsyncIterator[Any]:

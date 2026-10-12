@@ -34,8 +34,8 @@ use std::time::Duration;
 
 use cloacina::dal::unified::api_keys::ApiKeyInfo;
 
-use crate::routes::error::ApiError;
 use crate::AppState;
+use crate::routes::error::ApiError;
 
 /// Default lifetime of a minted key (OQ-3). Short by design — revocation/expiry
 /// latency is bounded, and `/auth/refresh` (T-0794) silently re-mints before

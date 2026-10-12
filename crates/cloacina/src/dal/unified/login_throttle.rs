@@ -59,8 +59,8 @@
 //! valid account of their own could zero the spray counter at will — and is
 //! left to decay instead.
 
-use super::models::{NewUnifiedLoginThrottle, UnifiedLoginThrottle};
 use super::DAL;
+use super::models::{NewUnifiedLoginThrottle, UnifiedLoginThrottle};
 use crate::database::schema::unified::login_throttle;
 use crate::database::universal_types::UniversalTimestamp;
 use crate::error::ValidationError;
@@ -459,21 +459,25 @@ mod tests {
         assert!(s.newly_locked);
 
         // ...and the lock decided on B is enforced on A.
-        assert!(dal_a
-            .login_throttle()
-            .locked_until(&key)
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            dal_a
+                .login_throttle()
+                .locked_until(&key)
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         // Clearing on A releases B too.
         dal_a.login_throttle().clear(&key).await.unwrap();
-        assert!(dal_b
-            .login_throttle()
-            .locked_until(&key)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            dal_b
+                .login_throttle()
+                .locked_until(&key)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[cfg(feature = "sqlite")]

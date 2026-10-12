@@ -78,12 +78,12 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ErrorBody | TriggerDetailResponse]:
-    r"""GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+    """GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
 
      CLOACI-T-0579: routed through the tenant-scoped `Database`. A request
     for tenant B with a trigger id that belongs to tenant A naturally
     404s — the row simply doesn't exist in tenant B's schema. No
-    info-disclosure via \"not in your tenant\" error code. Closes SEC-02.
+    info-disclosure via "not in your tenant" error code. Closes SEC-02.
 
     Args:
         tenant_id (str):
@@ -115,12 +115,12 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ErrorBody | TriggerDetailResponse | None:
-    r"""GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+    """GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
 
      CLOACI-T-0579: routed through the tenant-scoped `Database`. A request
     for tenant B with a trigger id that belongs to tenant A naturally
     404s — the row simply doesn't exist in tenant B's schema. No
-    info-disclosure via \"not in your tenant\" error code. Closes SEC-02.
+    info-disclosure via "not in your tenant" error code. Closes SEC-02.
 
     Args:
         tenant_id (str):
@@ -147,12 +147,12 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ErrorBody | TriggerDetailResponse]:
-    r"""GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+    """GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
 
      CLOACI-T-0579: routed through the tenant-scoped `Database`. A request
     for tenant B with a trigger id that belongs to tenant A naturally
     404s — the row simply doesn't exist in tenant B's schema. No
-    info-disclosure via \"not in your tenant\" error code. Closes SEC-02.
+    info-disclosure via "not in your tenant" error code. Closes SEC-02.
 
     Args:
         tenant_id (str):
@@ -182,12 +182,12 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ErrorBody | TriggerDetailResponse | None:
-    r"""GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+    """GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
 
      CLOACI-T-0579: routed through the tenant-scoped `Database`. A request
     for tenant B with a trigger id that belongs to tenant A naturally
     404s — the row simply doesn't exist in tenant B's schema. No
-    info-disclosure via \"not in your tenant\" error code. Closes SEC-02.
+    info-disclosure via "not in your tenant" error code. Closes SEC-02.
 
     Args:
         tenant_id (str):

@@ -31,8 +31,8 @@
 //! delivery-outbox substrate and are delivered by whichever replica holds the
 //! agent's delivery WebSocket (connection-ownership routing, A-0006).
 
-use super::models::{NewUnifiedFleetAgent, UnifiedFleetAgent};
 use super::DAL;
+use super::models::{NewUnifiedFleetAgent, UnifiedFleetAgent};
 use crate::database::schema::unified::fleet_agents;
 use crate::database::universal_types::UniversalTimestamp;
 use crate::error::ValidationError;
@@ -301,11 +301,13 @@ mod tests {
         );
 
         // A heartbeat landing on replica B does NOT flap ("not registered").
-        assert!(dal_b
-            .fleet_agents()
-            .record_heartbeat("a1", 3, 1)
-            .await
-            .unwrap());
+        assert!(
+            dal_b
+                .fleet_agents()
+                .record_heartbeat("a1", 3, 1)
+                .await
+                .unwrap()
+        );
         let live = dal_a
             .fleet_agents()
             .list_live(Duration::from_secs(60))
@@ -319,11 +321,12 @@ mod tests {
     #[tokio::test]
     async fn heartbeat_on_unknown_agent_reports_not_registered() {
         let dal = dal_for(&shared_url()).await;
-        assert!(!dal
-            .fleet_agents()
-            .record_heartbeat("ghost", 0, 0)
-            .await
-            .unwrap());
+        assert!(
+            !dal.fleet_agents()
+                .record_heartbeat("ghost", 0, 0)
+                .await
+                .unwrap()
+        );
         assert_eq!(
             dal.fleet_agents().agent_tenant("ghost").await.unwrap(),
             None
@@ -368,12 +371,14 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         // Fresh-enough timeout: nothing evicted, agent still live.
-        assert!(dal_b
-            .fleet_agents()
-            .sweep_dead(Duration::from_secs(60))
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            dal_b
+                .fleet_agents()
+                .sweep_dead(Duration::from_secs(60))
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         // Zero timeout: the sweep on replica B evicts the agent registered on A.
         let dead = dal_b
@@ -386,18 +391,22 @@ mod tests {
         assert_eq!(dead[0].tenant_id.as_deref(), Some("t1"));
 
         // Second sweep (any replica) owns nothing — reclaim can't double-fire.
-        assert!(dal_a
-            .fleet_agents()
-            .sweep_dead(Duration::ZERO)
-            .await
-            .unwrap()
-            .is_empty());
-        assert!(dal_a
-            .fleet_agents()
-            .list_live(Duration::from_secs(60))
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            dal_a
+                .fleet_agents()
+                .sweep_dead(Duration::ZERO)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            dal_a
+                .fleet_agents()
+                .list_live(Duration::from_secs(60))
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[cfg(feature = "sqlite")]
@@ -410,11 +419,12 @@ mod tests {
             .unwrap();
         dal.fleet_agents().delete("a1").await.unwrap();
         dal.fleet_agents().delete("a1").await.unwrap();
-        assert!(dal
-            .fleet_agents()
-            .list_live(Duration::from_secs(60))
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            dal.fleet_agents()
+                .list_live(Duration::from_secs(60))
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

@@ -39,13 +39,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use cloacina::database::universal_types::UniversalUuid;
-use cloacina::database::Database;
-use cloacina::security::{SecretStore, SecretStoreResolver};
 use cloacina::SecretResolver;
+use cloacina::database::Database;
+use cloacina::database::universal_types::UniversalUuid;
+use cloacina::security::{SecretStore, SecretStoreResolver};
 
-use crate::fleet_executor::FleetSecretResolverFactory;
 use crate::TenantDatabaseCache;
+use crate::fleet_executor::FleetSecretResolverFactory;
 
 /// Fixed namespace for the tenant-schema → `org_id` UUIDv5 derivation. Chosen
 /// once and frozen: changing it re-keys every existing secret, so it is a

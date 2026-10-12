@@ -61,7 +61,7 @@ use base64::Engine;
 use cloacina_workflow::secret::{SecretResolver, SecretResolverError};
 
 use crate::crypto::envelope::{
-    self, generate_ephemeral_keypair, EnvelopeError, EphemeralPrivateKey,
+    self, EnvelopeError, EphemeralPrivateKey, generate_ephemeral_keypair,
 };
 use crate::fleet::protocol::{EphemeralKeyEntry, WrappedSecret};
 
@@ -588,7 +588,7 @@ mod tests {
     /// key_id cross the wire — no plaintext in the serialized packet.
     #[tokio::test]
     async fn pool_end_to_end_only_ciphertext_and_key_id_on_wire() {
-        use crate::fleet::{ArtifactRef, WorkPacket, AGENT_PROTOCOL_VERSION};
+        use crate::fleet::{AGENT_PROTOCOL_VERSION, ArtifactRef, WorkPacket};
 
         let mut agent = AgentKeyPool::new();
         let mut server = ServerKeyPool::from_entries(agent.mint(1));
@@ -700,8 +700,8 @@ mod tests {
     #[tokio::test]
     async fn resolve_and_wrap_through_store_and_grant_gate() {
         use crate::dal::unified::DAL;
-        use crate::database::universal_types::UniversalUuid;
         use crate::database::Database;
+        use crate::database::universal_types::UniversalUuid;
         use crate::security::{SecretAllow, SecretStore, SecretStoreResolver};
         use std::collections::HashSet;
 

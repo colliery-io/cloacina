@@ -39,7 +39,7 @@ jobs:
       published: ${{ steps.verdict.outputs.published }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           targets: wasm32-wasip2
       - name: Install libpq
@@ -91,7 +91,7 @@ jobs:
       published: ${{ steps.verdict.outputs.published }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
       - name: Install libpq + sasl
         run: sudo apt-get update && sudo apt-get install -y libpq-dev libsasl2-dev
 

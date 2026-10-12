@@ -41,8 +41,8 @@
 
 use cloacina::executor::WorkflowExecutor;
 
-use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::Context;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use serde_json::json;
 use tracing::info;
 

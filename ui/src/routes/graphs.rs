@@ -31,7 +31,7 @@ use cloacina_api_types::{FireReactorRequest, GraphStatus};
 use crate::auth::{client_for, use_auth};
 use crate::components::GraphInjectModal;
 use crate::data::poll_resource;
-use crate::util::{health_color, node_kind_color, Throughput};
+use crate::util::{Throughput, health_color, node_kind_color};
 
 pub(crate) fn health_state(v: &serde_json::Value) -> String {
     if let Some(s) = v.as_str() {

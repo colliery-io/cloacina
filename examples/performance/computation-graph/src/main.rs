@@ -22,19 +22,19 @@
 //! bounded memory growth, no persistent channel backup.
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime, shutdown_signal, AccumulatorContext, AccumulatorRuntimeConfig,
-    BoundarySender,
+    AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, accumulator_runtime,
+    shutdown_signal,
 };
 use cloacina::computation_graph::reactor::{
     CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
 };
-use cloacina::computation_graph::types::{serialize, InputCache, SourceName};
+use cloacina::computation_graph::types::{InputCache, SourceName, serialize};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 

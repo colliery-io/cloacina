@@ -18,7 +18,8 @@ objects you author against — see **[Engine & Primitives](../engine/)**.
 inside their own Rust or Python code.
 
 **Prerequisites:** an existing Rust or Python project to add the dependency to,
-and a database you already operate (SQLite is fine to start).
+and a database you already operate (SQLite is fine to start). The Rust crates
+need Rust 1.99 or later.
 
 - [Quick Start](../tutorials/embed/quick-start/)
 - [Tutorials](../tutorials/embed/)

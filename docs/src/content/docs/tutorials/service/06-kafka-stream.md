@@ -156,7 +156,7 @@ You can mix `passthrough` and `stream` accumulators in the same graph. For examp
 [package]
 name = "kafka-price-signal"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 cloacina-workflow = { version = "0.11", features = ["packaged", "macros"] }

@@ -6,6 +6,7 @@ extends: default
 # `helm lint` in CI covers it instead.
 ignore: |
   charts/*/templates/
+  charts/*/charts/*/templates/
 rules:
   line-length:
     max: 500

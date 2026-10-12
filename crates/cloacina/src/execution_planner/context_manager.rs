@@ -23,11 +23,11 @@ use tracing::debug;
 
 use std::sync::Arc;
 
+use crate::Context;
+use crate::Runtime;
 use crate::dal::DAL;
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
-use crate::Context;
-use crate::Runtime;
 
 use super::trigger_rules::ValueOperator;
 

@@ -42,12 +42,12 @@
 //! returned ONLY by [`resolve_secret`], the internal resolve path.
 
 use crate::crypto::{decrypt_bytes, encrypt_bytes};
-use crate::dal::unified::models::{NewSecret, NewTenantDataKey, Secret, TenantDataKey};
 use crate::dal::unified::DAL;
+use crate::dal::unified::models::{NewSecret, NewTenantDataKey, Secret, TenantDataKey};
 use crate::database::schema::unified::{secrets, tenant_data_keys};
 use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
-use rand::RngCore;
+use rand::Rng;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -160,7 +160,7 @@ impl SecretStore {
 
         // Generate a fresh DEK and wrap it under the KEK.
         let mut dek = vec![0u8; DEK_SIZE];
-        rand::thread_rng().fill_bytes(&mut dek);
+        rand::rng().fill_bytes(&mut dek);
         let wrapped =
             encrypt_bytes(&dek, kek).map_err(|e| SecretError::Encryption(e.to_string()))?;
 

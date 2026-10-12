@@ -30,7 +30,7 @@
 //! with cloaca.WorkflowBuilder("granted") as _:
 //!     cloaca.constructor(
 //!         id="reader",
-//!         from_="cloacina-provider-fs@0.1.0",
+//!         from_="cloacina-provider-fs@0.1.1",
 //!         constructor="read_file",
 //!         config={"path": "/data/secret.txt"},
 //!         grants={"fs": ["ro:/data"]},
@@ -126,25 +126,27 @@ pub fn constructor(
             return Err(PyValueError::new_err(format!(
                 "cloaca.constructor: unknown runtime '{other}'; valid values are \
                  \"wasm\" and \"native\""
-            )))
+            )));
         }
     };
 
     // dependencies: strings or function objects (same convention as @task deps).
     let mut dep_namespaces: Vec<cloacina::TaskNamespace> = Vec::new();
     for (i, dep) in dependencies.unwrap_or_default().iter().enumerate() {
-        let dep_id = if let Ok(s) = dep.extract::<String>(py) {
-            s
-        } else if let Ok(name) = dep.getattr(py, "__name__") {
-            name.extract::<String>(py).map_err(|e| {
-                PyValueError::new_err(format!(
-                    "cloaca.constructor: dependency {i} __name__ is not a string: {e}"
-                ))
-            })?
-        } else {
-            return Err(PyValueError::new_err(format!(
-                "cloaca.constructor: dependency {i} must be a string or a task function"
-            )));
+        let dep_id = match dep.extract::<String>(py) {
+            Ok(s) => s,
+            _ => match dep.getattr(py, "__name__") {
+                Ok(name) => name.extract::<String>(py).map_err(|e| {
+                    PyValueError::new_err(format!(
+                        "cloaca.constructor: dependency {i} __name__ is not a string: {e}"
+                    ))
+                })?,
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "cloaca.constructor: dependency {i} must be a string or a task function"
+                    )));
+                }
+            },
         };
         dep_namespaces.push(cloacina::TaskNamespace::new(
             tenant_id,

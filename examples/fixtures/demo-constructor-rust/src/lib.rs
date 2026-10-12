@@ -28,7 +28,7 @@
 //! `/usr/lib/os-release` in debian-slim: the WASI sandbox refuses symlinks that
 //! escape the granted tree (proven live — the read fails closed with EPERM).
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 cloacina_workflow_plugin::package!();
 
@@ -42,7 +42,7 @@ pub mod constructor_demo {
 
     constructor!(
         id = "reader",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/etc/hostname" },
         grants = { fs = ["ro:/etc"] },

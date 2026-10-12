@@ -27,7 +27,7 @@
 //!   CLOACINA_SERVER_URL  e.g. http://localhost:8080
 //!   CLOACINA_API_KEY     a god-mode (bootstrap) key
 
-use cloacina_client::{types, Client, ClientBuilder, ClientError};
+use cloacina_client::{Client, ClientBuilder, ClientError, types};
 
 const RANDOM_UUID: &str = "00000000-0000-4000-8000-000000000000";
 

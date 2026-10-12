@@ -34,9 +34,9 @@
 //! leaking existence through a distinct error code.
 
 use axum::{
+    Extension, Json,
     extract::{Path, Query, State},
     response::IntoResponse,
-    Extension, Json,
 };
 use tracing::warn;
 
@@ -45,16 +45,16 @@ use cloacina_api_types::{
     WorkflowInstanceSummary,
 };
 
+use cloacina::CronEvaluator;
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::database::universal_types::UniversalTimestamp;
 use cloacina::models::schedule::{NewSchedule, Schedule};
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
-use cloacina::CronEvaluator;
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::routes::executions::validate_declared_params;
-use crate::AppState;
 
 const DEFAULT_INSTANCES_LIMIT: i64 = 100;
 const MAX_INSTANCES_LIMIT: i64 = 1000;
@@ -197,7 +197,7 @@ pub async fn create_instance(
                     body.instance_name, name
                 ),
             )
-            .into_response()
+            .into_response();
         }
         Ok(None) => {}
         Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
@@ -249,7 +249,7 @@ pub async fn create_instance(
                         "invalid_cron",
                         format!("invalid cron expression or timezone: {}", e),
                     )
-                    .into_response()
+                    .into_response();
                 }
             };
             let next_run = match evaluator.next_execution(chrono::Utc::now()) {
@@ -259,7 +259,7 @@ pub async fn create_instance(
                         "invalid_cron",
                         format!("could not compute next execution: {}", e),
                     )
-                    .into_response()
+                    .into_response();
                 }
             };
             let mut s = NewSchedule::cron(&name, cron, UniversalTimestamp(next_run));
@@ -286,7 +286,7 @@ pub async fn create_instance(
                     "instance_params_invalid",
                     format!("params are not serializable: {}", e),
                 )
-                .into_response()
+                .into_response();
             }
         },
         None => None,
@@ -385,7 +385,7 @@ pub async fn list_instances(
         Ok(db) => db,
         Err(e) => {
             return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response()
+                .into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -443,7 +443,7 @@ pub async fn get_instance(
         Ok(db) => db,
         Err(e) => {
             return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response()
+                .into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -495,7 +495,7 @@ pub async fn delete_instance(
         Ok(db) => db,
         Err(e) => {
             return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response()
+                .into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db.clone());
@@ -507,7 +507,7 @@ pub async fn delete_instance(
                 "instance_not_found",
                 format!("instance '{}' of workflow '{}' not found", instance, name),
             )
-            .into_response()
+            .into_response();
         }
         Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };

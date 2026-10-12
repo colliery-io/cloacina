@@ -27,17 +27,17 @@
 //!   only its own tenant's limit (cross-tenant is denied server-side).
 
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use utoipa::ToSchema;
 
-use crate::routes::error::ApiError;
 use crate::AppState;
+use crate::routes::error::ApiError;
 
 /// Set (or replace) a tenant's agent-capacity exception. God-only.
 #[derive(Debug, Deserialize, ToSchema)]

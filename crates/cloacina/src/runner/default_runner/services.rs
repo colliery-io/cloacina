@@ -24,19 +24,19 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 
+use crate::dal::DAL;
 use crate::dal::FilesystemRegistryStorage;
 use crate::dal::UnifiedRegistryStorage;
-use crate::dal::DAL;
 use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::{Scheduler, SchedulerConfig};
 
+use super::DefaultRunner;
 use super::service_manager::{
     CronRecoveryServiceWrapper, RegistryReconcilerService, ServiceManager,
     StaleClaimSweeperService, TaskSchedulerService, UnifiedSchedulerService,
 };
-use super::DefaultRunner;
 
 impl DefaultRunner {
     /// Creates a tracing span for this runner instance with proper context

@@ -20,7 +20,7 @@
 // TaskError — giving the seed/demo harness a guaranteed failed execution to
 // drive the UI's failed-state / debug view.
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 cloacina_workflow_plugin::package!();
 

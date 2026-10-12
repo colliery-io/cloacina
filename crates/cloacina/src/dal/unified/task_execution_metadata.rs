@@ -20,8 +20,8 @@
 //! both PostgreSQL and SQLite backends, selecting the appropriate implementation
 //! at runtime based on the database connection type.
 
-use super::models::{NewUnifiedTaskExecutionMetadata, UnifiedTaskExecutionMetadata};
 use super::DAL;
+use super::models::{NewUnifiedTaskExecutionMetadata, UnifiedTaskExecutionMetadata};
 use crate::database::schema::unified::{contexts, task_execution_metadata};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;

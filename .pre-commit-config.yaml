@@ -3,7 +3,7 @@
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
   - repo: https://github.com/Lucas-C/pre-commit-hooks
-    rev: v1.5.5
+    rev: v1.5.6
     hooks:
       - id: insert-license
         files: \.rs$
@@ -16,10 +16,13 @@ repos:
           - --detect-license-in-X-top-lines=16
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v6.0.0
     hooks:
+      # The API reference is plissken output; regenerate it, don't hand-fix it.
       - id: trailing-whitespace
+        exclude: ^docs/src/content/docs/reference/api/
       - id: end-of-file-fixer
+        exclude: ^docs/src/content/docs/reference/api/
       - id: check-yaml
         # Helm templates use Go templating ({{ ... }}) so they are not
         # valid YAML standalone. helm lint covers them in CI.
@@ -38,6 +41,16 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+      # CLOACINA-T-0953: no unused dependencies in any Cargo.toml (workspace,
+      # ui, providers, examples). Needs `cargo install cargo-machete`. A
+      # dependency only macro output uses goes in that crate's
+      # [package.metadata.cargo-machete] ignored list.
+      - id: cargo-machete
+        name: Unused dependencies (cargo-machete)
+        entry: cargo machete
+        language: system
+        files: (\.rs|Cargo\.toml)$
+        pass_filenames: false
       # CLOACI-I-0134: single source of version truth. Fails if any core
       # version touchpoint (Rust workspace, npm, python, scaffold pin) has
       # drifted from [workspace.package] version. CI does NOT run pre-commit;
@@ -55,23 +68,23 @@ repos:
         always_run: true
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     # Ruff version.
-    rev: v0.4.4
+    rev: v0.17.0
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
   - repo: https://github.com/adrienverge/yamllint
-    rev: v1.29.0
+    rev: v1.38.0
     hooks:
       - id: yamllint
         name: Check YAML files with yamllint
         entry: yamllint -c .yamllint-config.yml --strict
         types: [yaml]
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.2
+    rev: v2.4.3
     hooks:
       - id: codespell
         name: Run codespell to check for common misspellings in files
         language: python
         types: [text]
-        exclude: ^docs/themes/.*$|\.js$|\.css|\.json$|^\.metis/|^ui/design/
+        exclude: ^docs/themes/.*$|\.js$|\.css|\.json$|^\.metis/|^ui/design/|(^|/)Cargo\.lock$
         args: [--ignore-words=.spelling_wordlist.txt]

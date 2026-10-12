@@ -46,7 +46,7 @@ pub struct OrderBookUpdate {
 }
 ```
 
-Add `schemars = "0.8"` to the package's dependencies. Schema derivation is the
+Add `schemars = "1"` to the package's dependencies. Schema derivation is the
 only thing the derive affects — boundary serialization on the wire is unchanged.
 
 ### Python parity

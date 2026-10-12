@@ -42,7 +42,7 @@
 //! ```
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{Context, TaskError, task, workflow};
 use std::time::Duration;
 use tracing::info;
 

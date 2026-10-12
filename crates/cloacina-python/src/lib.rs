@@ -44,8 +44,8 @@ pub mod workflow_context;
 // Re-exports: PyO3 bindings
 pub use context::PyContext;
 pub use namespace::PyTaskNamespace;
-pub use task::{task as task_decorator, PyTaskHandle, PythonTaskWrapper, TaskDecorator};
-pub use workflow::{py_register_workflow, PyWorkflow, PyWorkflowBuilder};
+pub use task::{PyTaskHandle, PythonTaskWrapper, TaskDecorator, task as task_decorator};
+pub use workflow::{PyWorkflow, PyWorkflowBuilder, py_register_workflow};
 pub use workflow_context::PyWorkflowContext;
 
 // Re-exports: trigger bindings.
@@ -54,14 +54,14 @@ pub use workflow_context::PyWorkflowContext;
 // removed in T-0557 Bug 5 / T-0555 T1 consolidation.
 pub use bindings::trigger::PyTriggerResult;
 pub use trigger::{
-    drain_python_triggers, trigger as trigger_decorator, PythonTriggerDef, PythonTriggerWrapper,
-    TriggerDecorator,
+    PythonTriggerDef, PythonTriggerWrapper, TriggerDecorator, drain_python_triggers,
+    trigger as trigger_decorator,
 };
 
 // Re-exports: loader
 pub use loader::{
-    ensure_cloaca_module, import_and_register_python_workflow, import_python_computation_graph,
-    PythonLoaderError,
+    PythonLoaderError, ensure_cloaca_module, import_and_register_python_workflow,
+    import_python_computation_graph,
 };
 
 // Python API wrapper types (PyDefaultRunner, PyDatabaseAdmin, etc.)
@@ -76,13 +76,13 @@ pub mod package_loader;
 // calls `install()` at startup to register this crate's impl into the
 // cloacina-core dispatch slot.
 mod runtime_impl;
-pub use runtime_impl::{install, CloacinaPythonRuntime};
+pub use runtime_impl::{CloacinaPythonRuntime, install};
 
 // Thread-local "current Runtime" slot used by decorator/loader paths to
 // register into a scoped Runtime rather than cloacina's process-globals.
 pub mod registration_scope;
 pub mod runtime_scope;
-pub use runtime_scope::{current_runtime, ScopedRuntime};
+pub use runtime_scope::{ScopedRuntime, current_runtime};
 
 // PyO3 module entry point for the `cloaca` Python wheel. Maturin points
 // at this crate to build the standalone pip-installable wheel. Moved
@@ -403,7 +403,8 @@ mod tests {
             assert!(err.is_err(), "var() should raise KeyError for missing var");
 
             // Set env var and verify var() returns it
-            std::env::set_var("CLOACINA_VAR_UNIT_TEST_PY_VAR", "hello_from_rust");
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::set_var("CLOACINA_VAR_UNIT_TEST_PY_VAR", "hello_from_rust") };
             let result: String = py
                 .eval(
                     pyo3::ffi::c_str!("cloaca.var('UNIT_TEST_PY_VAR')"),
@@ -414,10 +415,12 @@ mod tests {
                 .extract()
                 .unwrap();
             assert_eq!(result, "hello_from_rust");
-            std::env::remove_var("CLOACINA_VAR_UNIT_TEST_PY_VAR");
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::remove_var("CLOACINA_VAR_UNIT_TEST_PY_VAR") };
 
             // var_or returns value when env var IS set
-            std::env::set_var("CLOACINA_VAR_UNIT_TEST_PY_OR", "real_value");
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::set_var("CLOACINA_VAR_UNIT_TEST_PY_OR", "real_value") };
             let result: String = py
                 .eval(
                     pyo3::ffi::c_str!("cloaca.var_or('UNIT_TEST_PY_OR', 'ignored')"),
@@ -428,7 +431,8 @@ mod tests {
                 .extract()
                 .unwrap();
             assert_eq!(result, "real_value");
-            std::env::remove_var("CLOACINA_VAR_UNIT_TEST_PY_OR");
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::remove_var("CLOACINA_VAR_UNIT_TEST_PY_OR") };
         });
     }
 

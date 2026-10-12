@@ -35,7 +35,7 @@ CONFIG = CLIENT / "generator-config.yaml"
 
 # THE pin. Keep this in lockstep with clients/python/README.md's regeneration
 # recipe — the README is documentation, this is the enforcement.
-GENERATOR = "openapi-python-client@0.29.0"
+GENERATOR = "openapi-python-client@0.29.1"
 
 # Artifacts the generator's own tooling drops next to the output (it shells out
 # to ruff to format). They are never committed and are not part of the

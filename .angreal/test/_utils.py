@@ -2,11 +2,25 @@
 Shared utilities for Cloacina core engine test commands.
 """
 
+import os
+import re
 from pathlib import Path
 import angreal  # type: ignore
 
 # Project root for accessing examples, cloacina, etc. (one level up from .angreal)
 PROJECT_ROOT = Path(angreal.get_root()).parent
+
+# The compiler builds packages in staging dirs outside the repo, where
+# rust-toolchain.toml does not apply, so cargo there would use the host's
+# default toolchain. Pin the repo's channel for every lane (the compiler
+# passes RUSTUP_TOOLCHAIN through) unless the caller set one (CLOACINA-T-0954).
+_toolchain = re.search(
+    r'^channel\s*=\s*"([^"]+)"',
+    (PROJECT_ROOT / "rust-toolchain.toml").read_text(),
+    re.M,
+)
+if _toolchain:
+    os.environ.setdefault("RUSTUP_TOOLCHAIN", _toolchain.group(1))
 
 
 def print_section_header(title):

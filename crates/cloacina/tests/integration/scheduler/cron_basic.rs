@@ -363,15 +363,19 @@ async fn test_workflow_instance_register_roundtrip() {
         .expect("second named instance");
 
     // Unregister by name; lookup then misses.
-    assert!(runner
-        .unregister_workflow_instance("sync-file", "sync_prod")
-        .await
-        .unwrap());
-    assert!(runner
-        .get_workflow_instance("sync-file", "sync_prod")
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        runner
+            .unregister_workflow_instance("sync-file", "sync_prod")
+            .await
+            .unwrap()
+    );
+    assert!(
+        runner
+            .get_workflow_instance("sync-file", "sync_prod")
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     runner.shutdown().await.unwrap();
 }

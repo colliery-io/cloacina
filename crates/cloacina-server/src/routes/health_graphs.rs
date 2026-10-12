@@ -25,16 +25,16 @@
 //! registered-but-not-running graphs.
 
 use axum::{
+    Extension, Json,
     extract::{Path, Query, State},
     response::IntoResponse,
-    Extension, Json,
 };
 
 use tracing::warn;
 
 use cloacina::computation_graph::reactor::ManualCommand;
 use cloacina::computation_graph::registry::{EndpointScope, KeyContext, ReactorOp};
-use cloacina::computation_graph::types::{serialize as serialize_boundary, InputCache, SourceName};
+use cloacina::computation_graph::types::{InputCache, SourceName, serialize as serialize_boundary};
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
@@ -44,10 +44,10 @@ use cloacina_api_types::{
     ReactorFireTimeseries, ReactorStatus,
 };
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::routes::executions::{validate_declared_params, validate_value_against_schema};
-use crate::AppState;
 
 /// Build a `KeyContext` from the `AuthenticatedKey` for policy
 /// authorization checks. CLOACI-T-0579.
@@ -741,7 +741,7 @@ pub async fn inject_accumulator(
                                 "invalid_input",
                                 format!("encode event: {}", e),
                             )
-                            .into_response()
+                            .into_response();
                         }
                     };
                     match cloacina::computation_graph::reactor_routing::inject_event(
@@ -758,7 +758,7 @@ pub async fn inject_accumulator(
                                 accumulator: name,
                                 delivered: 0,
                             })
-                            .into_response()
+                            .into_response();
                         }
                         Err(_) => { /* fall through to the local path */ }
                     }
@@ -824,7 +824,7 @@ pub async fn inject_accumulator(
         Ok(b) => b,
         Err(e) => {
             return ApiError::bad_request("invalid_input", format!("encode event: {}", e))
-                .into_response()
+                .into_response();
         }
     };
 

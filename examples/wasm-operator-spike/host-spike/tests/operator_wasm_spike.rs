@@ -1,3 +1,19 @@
+/*
+ *  Copyright 2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
 // CLOACI-T-0821 WASM-operator spike — host load + invoke.
 //
 // Proves a fidius-macro-authored SYNCHRONOUS operator, compiled to a
@@ -42,10 +58,8 @@ fn component() -> &'static [u8] {
             .status()
             .expect("cargo build --target wasm32-wasip2");
         assert!(status.success(), "operator-fixture wasm build failed");
-        std::fs::read(
-            fixture.join("target/wasm32-wasip2/release/wasm_operator_fixture.wasm"),
-        )
-        .unwrap()
+        std::fs::read(fixture.join("target/wasm32-wasip2/release/wasm_operator_fixture.wasm"))
+            .unwrap()
     })
 }
 
@@ -77,7 +91,9 @@ fn configured_operator_loads_and_invokes() {
         .load_wasm_configured(
             "wasm-operator-pkg",
             &__fidius_MinimalOperator::MinimalOperator_WASM_DESCRIPTOR,
-            &Config { op: "prefix".into() },
+            &Config {
+                op: "prefix".into(),
+            },
         )
         .expect("load_wasm_configured");
 
@@ -103,14 +119,18 @@ fn n_differently_configured_instances_coexist() {
         .load_wasm_configured(
             "wasm-operator-pkg",
             &__fidius_MinimalOperator::MinimalOperator_WASM_DESCRIPTOR,
-            &Config { op: "prefix".into() },
+            &Config {
+                op: "prefix".into(),
+            },
         )
         .unwrap();
     let b = host
         .load_wasm_configured(
             "wasm-operator-pkg",
             &__fidius_MinimalOperator::MinimalOperator_WASM_DESCRIPTOR,
-            &Config { op: "suffix".into() },
+            &Config {
+                op: "suffix".into(),
+            },
         )
         .unwrap();
 

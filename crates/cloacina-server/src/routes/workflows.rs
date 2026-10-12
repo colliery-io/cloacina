@@ -17,10 +17,10 @@
 //! Workflow package API — upload/list/get/delete .cloacina packages per tenant.
 
 use axum::{
+    Extension, Json,
     extract::{Multipart, Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Extension, Json,
 };
 use tracing::{info, warn};
 
@@ -34,9 +34,9 @@ use cloacina_api_types::{
     WorkflowUploadedResponse,
 };
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::AppState;
 
 /// POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
 #[utoipa::path(
@@ -168,7 +168,7 @@ pub async fn upload_workflow(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
@@ -231,7 +231,7 @@ pub async fn list_workflows(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
@@ -295,7 +295,7 @@ pub async fn get_workflow(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
@@ -442,7 +442,7 @@ pub async fn get_workflow_source(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
@@ -554,7 +554,7 @@ pub async fn delete_workflow(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
@@ -661,7 +661,7 @@ async fn set_workflow_paused(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());

@@ -17,9 +17,9 @@
 use anyhow::Result;
 use std::time::Duration;
 
+use crate::GlobalOpts;
 use crate::commands::config::CloacinaConfig;
 use crate::nouns::compiler::status::compiler_base_url;
-use crate::GlobalOpts;
 
 pub async fn run(globals: &GlobalOpts) -> Result<()> {
     let config = CloacinaConfig::load(&globals.home.join("config.toml"));

@@ -93,7 +93,7 @@ The scaffold's `Cargo.toml` carries only dependencies. Add the two graph crates 
 [package]
 name = "my-price-signal"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 cloacina-workflow = { version = "0.11", features = ["packaged", "macros"] }

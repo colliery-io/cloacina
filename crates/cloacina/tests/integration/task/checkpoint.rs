@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, CheckpointError, Context, Task, TaskError, TaskNamespace};
+use cloacina::{CheckpointError, Context, Task, TaskError, TaskNamespace, task};
 use std::sync::{Arc, Mutex};
 
 // Test task that implements custom checkpointing

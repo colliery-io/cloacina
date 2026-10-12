@@ -13,7 +13,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Build
 # ---------------------------------------------------------------------------
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.99.0-bookworm AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq-dev \
@@ -27,7 +27,7 @@ RUN cargo build --release -p cloacina-compiler
 # ---------------------------------------------------------------------------
 # Stage 2: Runtime — full rust image so `cargo build` works on uploaded packages
 # ---------------------------------------------------------------------------
-FROM rust:1.85-bookworm
+FROM rust:1.99.0-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 ca-certificates \

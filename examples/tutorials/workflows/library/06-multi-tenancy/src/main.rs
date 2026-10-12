@@ -22,7 +22,7 @@
 use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
 use cloacina::executor::{WorkflowExecutor, WorkflowStatus};
 use cloacina::runner::DefaultRunner;
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{Context, TaskError, task, workflow};
 use serde_json::json;
 use std::collections::HashMap;
 use std::env;

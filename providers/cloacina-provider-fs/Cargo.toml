@@ -21,11 +21,16 @@
 # never part of the published crate.
 exclude = ["certify"]
 name = "cloacina-provider-fs"
-version = "0.1.0"
+version = "0.1.1"
 description = "Sandboxed file I/O constructor suite for cloacina — read_file/write_file task constructors, capability-gated by tenant fs grants (default-closed)."
 license = "Apache-2.0"
 repository = "https://github.com/colliery-io/cloacina"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
+
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["serde", "serde_json"]
 
 [lib]
 # cdylib → the wasm component; rlib → so `emit_manifest` (host) can link it.

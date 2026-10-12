@@ -48,12 +48,12 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime_with_source, shutdown_signal, Accumulator, AccumulatorContext,
-    AccumulatorError, AccumulatorRuntimeConfig, BoundarySender,
+    Accumulator, AccumulatorContext, AccumulatorError, AccumulatorRuntimeConfig, BoundarySender,
+    accumulator_runtime_with_source, shutdown_signal,
 };
-use cloacina::computation_graph::types::{deserialize, SourceName};
+use cloacina::computation_graph::types::{SourceName, deserialize};
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::constructor_loader::{
     load_stream_accumulator_source, unpack_provider_archive,
@@ -293,7 +293,8 @@ async fn provider_stream_factory_drives_kafka_from_declaration_config() {
 
     // The declaration config exactly as `[[metadata.accumulators]]` carries it:
     // routing keys + member #[config], broker via a `{{ VAR }}` template.
-    std::env::set_var("CLOACINA_VAR_T0907_BROKER", &broker);
+    // FIXME: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("CLOACINA_VAR_T0907_BROKER", &broker) };
     let run_id = uuid::Uuid::new_v4().simple().to_string();
     let topic = format!("t0907-{run_id}");
     let group = format!("t0907-group-{run_id}");

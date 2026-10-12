@@ -410,7 +410,7 @@ mod tests {
     #[cfg(feature = "constructors-wasm")]
     #[tokio::test]
     async fn test_from_grants_builds_gate_from_resolved_grants() {
-        use crate::registry::loader::grants::{translate, GrantSpec};
+        use crate::registry::loader::grants::{GrantSpec, translate};
 
         let dal = unique_dal().await;
         let store = SecretStore::new(dal);

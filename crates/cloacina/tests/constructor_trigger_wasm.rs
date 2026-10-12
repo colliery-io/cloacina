@@ -33,10 +33,10 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::constructor_loader::{
-    load_constructor, load_trigger_constructor, ConstructorBinding, TriggerBinding,
+    ConstructorBinding, TriggerBinding, load_constructor, load_trigger_constructor,
 };
 use cloacina::registry::loader::{grants::ResolvedGrants, unpack_provider_archive};
 use cloacina::{Context, Runtime, TaskNamespace};

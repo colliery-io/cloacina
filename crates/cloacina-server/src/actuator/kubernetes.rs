@@ -42,7 +42,7 @@ use tracing::{info, warn};
 use cloacina::database::Database;
 
 use super::docker::{DalKeyMinter, KeyMinter};
-use super::{reconcile_delta, ActuatorError, FleetActuator, ReconcileOutcome};
+use super::{ActuatorError, FleetActuator, ReconcileOutcome, reconcile_delta};
 
 /// Label marking a workload as actuator-managed.
 const LABEL_MANAGED: &str = "cloacina.managed";
@@ -312,7 +312,7 @@ pub trait KubeOps: Send + Sync {
     ) -> Result<(), ActuatorError>;
     /// Current ready replica count for the agent `Deployment` (0 if absent).
     async fn count_ready_replicas(&self, namespace: &str, name: &str)
-        -> Result<u32, ActuatorError>;
+    -> Result<u32, ActuatorError>;
 }
 
 /// Kubernetes fleet actuator. Generic over its API substrate ([`KubeOps`]) and
@@ -769,8 +769,8 @@ impl KubeOps for KubeApiOps {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     /// Mock that records ensure/scale calls and reports a fixed ready count.
     struct MockOps {
@@ -1191,7 +1191,8 @@ mod tests {
             "CLOACINA_SERVER_POD_SELECTOR",
             "CLOACINA_SERVER_PORT",
         ] {
-            std::env::remove_var(k);
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::remove_var(k) };
         }
         let c = KubernetesConfig::from_env();
         assert_eq!(c.image, "cloacina-agent:latest");
@@ -1205,12 +1206,17 @@ mod tests {
 
         // Second phase (kept in ONE test to avoid an env-var race with the
         // defaults phase above): plumbing the server endpoint env builds it.
-        std::env::set_var("CLOACINA_SERVER_NAMESPACE", "cloacina-system");
-        std::env::set_var(
-            "CLOACINA_SERVER_POD_SELECTOR",
-            "app.kubernetes.io/name=cloacina-server,app.kubernetes.io/instance=rel",
-        );
-        std::env::set_var("CLOACINA_SERVER_PORT", "8080");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACINA_SERVER_NAMESPACE", "cloacina-system") };
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe {
+            std::env::set_var(
+                "CLOACINA_SERVER_POD_SELECTOR",
+                "app.kubernetes.io/name=cloacina-server,app.kubernetes.io/instance=rel",
+            )
+        };
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLOACINA_SERVER_PORT", "8080") };
         let c = KubernetesConfig::from_env();
         let ep = c.server_endpoint.expect("endpoint built from env");
         assert_eq!(ep.namespace, "cloacina-system");
@@ -1224,7 +1230,8 @@ mod tests {
             "CLOACINA_SERVER_POD_SELECTOR",
             "CLOACINA_SERVER_PORT",
         ] {
-            std::env::remove_var(k);
+            // FIXME: Audit that the environment access only happens in single-threaded code.
+            unsafe { std::env::remove_var(k) };
         }
     }
 }

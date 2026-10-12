@@ -86,7 +86,8 @@ fn hostile_module_scope_loop_is_interrupted_and_subsystem_survives() {
     pyo3::prepare_freethreaded_python();
 
     // Shorten the deadline — the 60s default is not a test-shaped number.
-    std::env::set_var(cloacina_python::import_guard::IMPORT_TIMEOUT_ENV, "2");
+    // FIXME: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var(cloacina_python::import_guard::IMPORT_TIMEOUT_ENV, "2") };
 
     let dir = TempDir::new().unwrap();
     let (hostile_src, hostile_vendor) = stage_package(&dir, "hostile_pkg", HOSTILE_MODULE);
@@ -146,7 +147,8 @@ fn hostile_module_scope_loop_is_interrupted_and_subsystem_survives() {
         namespaces.iter().map(|n| n.to_string()).collect::<Vec<_>>()
     );
 
-    std::env::remove_var(cloacina_python::import_guard::IMPORT_TIMEOUT_ENV);
+    // FIXME: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var(cloacina_python::import_guard::IMPORT_TIMEOUT_ENV) };
 }
 
 /// CLOACI-T-0919 item 2: the `@task` namespace source is thread-local, so two
@@ -218,16 +220,18 @@ fn concurrent_loads_from_two_threads_namespace_their_own_tasks() {
     assert_eq!(ns_b.len(), 1, "B registered exactly its own task");
 
     // And the runtimes only ever saw their own tasks.
-    assert!(rt_a
-        .get_task(&cloacina::TaskNamespace::new(
+    assert!(
+        rt_a.get_task(&cloacina::TaskNamespace::new(
             "tenant_a", "pkg-a", "wf_a", "ok_task"
         ))
-        .is_some());
-    assert!(rt_b
-        .get_task(&cloacina::TaskNamespace::new(
+        .is_some()
+    );
+    assert!(
+        rt_b.get_task(&cloacina::TaskNamespace::new(
             "tenant_b", "pkg-b", "wf_b", "ok_task"
         ))
-        .is_some());
+        .is_some()
+    );
 }
 
 /// The other half of item 2's acceptance: evaluating a decorator on a thread

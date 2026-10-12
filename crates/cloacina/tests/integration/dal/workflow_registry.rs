@@ -380,10 +380,12 @@ async fn test_unregister_workflow_package_by_id_with_db_storage() {
     drive_to_success(&registry_dal, package_id).await;
 
     // Verify it exists
-    assert!(registry_dal
-        .exists_by_id(package_id)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        registry_dal
+            .exists_by_id(package_id)
+            .await
+            .expect("Failed to check existence")
+    );
 
     // Unregister the package
     registry_dal
@@ -392,10 +394,12 @@ async fn test_unregister_workflow_package_by_id_with_db_storage() {
         .expect("Failed to unregister workflow package");
 
     // Verify it's gone
-    assert!(!registry_dal
-        .exists_by_id(package_id)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        !registry_dal
+            .exists_by_id(package_id)
+            .await
+            .expect("Failed to check existence")
+    );
 }
 
 async fn test_unregister_workflow_package_by_id_with_fs_storage() {
@@ -421,10 +425,12 @@ async fn test_unregister_workflow_package_by_id_with_fs_storage() {
     drive_to_success(&registry_dal, package_id).await;
 
     // Verify it exists
-    assert!(registry_dal
-        .exists_by_id(package_id)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        registry_dal
+            .exists_by_id(package_id)
+            .await
+            .expect("Failed to check existence")
+    );
 
     // Unregister the package
     registry_dal
@@ -433,10 +439,12 @@ async fn test_unregister_workflow_package_by_id_with_fs_storage() {
         .expect("Failed to unregister workflow package");
 
     // Verify it's gone
-    assert!(!registry_dal
-        .exists_by_id(package_id)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        !registry_dal
+            .exists_by_id(package_id)
+            .await
+            .expect("Failed to check existence")
+    );
 }
 
 #[tokio::test]
@@ -480,10 +488,12 @@ async fn test_unregister_workflow_package_by_name_with_db_storage() {
     let package_version = &registered.0.version;
 
     // Verify it exists
-    assert!(registry_dal
-        .exists_by_name(package_name, package_version)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        registry_dal
+            .exists_by_name(package_name, package_version)
+            .await
+            .expect("Failed to check existence")
+    );
 
     // Unregister the package by name
     registry_dal
@@ -492,10 +502,12 @@ async fn test_unregister_workflow_package_by_name_with_db_storage() {
         .expect("Failed to unregister workflow package");
 
     // Verify it's gone
-    assert!(!registry_dal
-        .exists_by_name(package_name, package_version)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        !registry_dal
+            .exists_by_name(package_name, package_version)
+            .await
+            .expect("Failed to check existence")
+    );
 }
 
 async fn test_unregister_workflow_package_by_name_with_fs_storage() {
@@ -530,10 +542,12 @@ async fn test_unregister_workflow_package_by_name_with_fs_storage() {
     let package_version = &registered.0.version;
 
     // Verify it exists
-    assert!(registry_dal
-        .exists_by_name(package_name, package_version)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        registry_dal
+            .exists_by_name(package_name, package_version)
+            .await
+            .expect("Failed to check existence")
+    );
 
     // Unregister the package by name
     registry_dal
@@ -542,10 +556,12 @@ async fn test_unregister_workflow_package_by_name_with_fs_storage() {
         .expect("Failed to unregister workflow package");
 
     // Verify it's gone
-    assert!(!registry_dal
-        .exists_by_name(package_name, package_version)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        !registry_dal
+            .exists_by_name(package_name, package_version)
+            .await
+            .expect("Failed to check existence")
+    );
 }
 
 #[tokio::test]
@@ -736,14 +752,18 @@ async fn test_exists_operations_with_db_storage() {
 
     // Check non-existent package
     let fake_id = Uuid::new_v4();
-    assert!(!registry_dal
-        .exists_by_id(fake_id)
-        .await
-        .expect("Failed to check existence"));
-    assert!(!registry_dal
-        .exists_by_name("nonexistent", "1.0.0")
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        !registry_dal
+            .exists_by_id(fake_id)
+            .await
+            .expect("Failed to check existence")
+    );
+    assert!(
+        !registry_dal
+            .exists_by_name("nonexistent", "1.0.0")
+            .await
+            .expect("Failed to check existence")
+    );
 
     // Register a package
     let package_id = registry_dal
@@ -753,10 +773,12 @@ async fn test_exists_operations_with_db_storage() {
     drive_to_success(&registry_dal, package_id).await;
 
     // Check existing package
-    assert!(registry_dal
-        .exists_by_id(package_id)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        registry_dal
+            .exists_by_id(package_id)
+            .await
+            .expect("Failed to check existence")
+    );
     // Get actual package metadata to check existence
     let registered = registry_dal
         .get_workflow_package_by_id(package_id)
@@ -764,10 +786,12 @@ async fn test_exists_operations_with_db_storage() {
         .expect("Failed to get registered package")
         .expect("Package should exist");
 
-    assert!(registry_dal
-        .exists_by_name(&registered.0.package_name, &registered.0.version)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        registry_dal
+            .exists_by_name(&registered.0.package_name, &registered.0.version)
+            .await
+            .expect("Failed to check existence")
+    );
 }
 
 async fn test_exists_operations_with_fs_storage() {
@@ -787,14 +811,18 @@ async fn test_exists_operations_with_fs_storage() {
 
     // Check non-existent package
     let fake_id = Uuid::new_v4();
-    assert!(!registry_dal
-        .exists_by_id(fake_id)
-        .await
-        .expect("Failed to check existence"));
-    assert!(!registry_dal
-        .exists_by_name("nonexistent", "1.0.0")
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        !registry_dal
+            .exists_by_id(fake_id)
+            .await
+            .expect("Failed to check existence")
+    );
+    assert!(
+        !registry_dal
+            .exists_by_name("nonexistent", "1.0.0")
+            .await
+            .expect("Failed to check existence")
+    );
 
     // Register a package
     let package_id = registry_dal
@@ -804,10 +832,12 @@ async fn test_exists_operations_with_fs_storage() {
     drive_to_success(&registry_dal, package_id).await;
 
     // Check existing package
-    assert!(registry_dal
-        .exists_by_id(package_id)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        registry_dal
+            .exists_by_id(package_id)
+            .await
+            .expect("Failed to check existence")
+    );
     // Get actual package metadata to check existence
     let registered = registry_dal
         .get_workflow_package_by_id(package_id)
@@ -815,10 +845,12 @@ async fn test_exists_operations_with_fs_storage() {
         .expect("Failed to get registered package")
         .expect("Package should exist");
 
-    assert!(registry_dal
-        .exists_by_name(&registered.0.package_name, &registered.0.version)
-        .await
-        .expect("Failed to check existence"));
+    assert!(
+        registry_dal
+            .exists_by_name(&registered.0.package_name, &registered.0.version)
+            .await
+            .expect("Failed to check existence")
+    );
 }
 
 #[tokio::test]

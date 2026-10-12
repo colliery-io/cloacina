@@ -458,8 +458,8 @@ impl<'a> ScheduleExecutionDAL<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::universal_types::UniversalTimestamp;
     use crate::database::Database;
+    use crate::database::universal_types::UniversalTimestamp;
     use crate::models::schedule::{NewSchedule, NewScheduleExecution};
 
     #[cfg(feature = "sqlite")]

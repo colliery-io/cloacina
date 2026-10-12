@@ -32,8 +32,8 @@ use cloacina::runtime::Runtime;
 use cloacina::task::TaskNamespace;
 use std::sync::Arc;
 
-use crate::import_guard::{import_timeout, supervise_import, ImportThreadIdent};
-use crate::runtime_scope::{current_runtime, ScopedRuntime};
+use crate::import_guard::{ImportThreadIdent, import_timeout, supervise_import};
+use crate::runtime_scope::{ScopedRuntime, current_runtime};
 
 /// The provider scope installed on the CALLING thread (CLOACI-T-0925).
 ///

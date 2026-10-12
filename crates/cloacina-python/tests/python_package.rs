@@ -22,7 +22,7 @@
 
 use tempfile::TempDir;
 
-use cloacina_python::package_loader::{detect_package_kind, extract_python_package, PackageKind};
+use cloacina_python::package_loader::{PackageKind, detect_package_kind, extract_python_package};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -235,10 +235,12 @@ fn python_e2e_pack_extract_load_register() {
     assert_eq!(extracted.workflow_name, "e2e_python_pkg");
     assert_eq!(extracted.entry_module, "e2e_python_pkg.tasks");
     assert!(extracted.workflow_dir.exists());
-    assert!(extracted
-        .workflow_dir
-        .join("e2e_python_pkg/tasks.py")
-        .exists());
+    assert!(
+        extracted
+            .workflow_dir
+            .join("e2e_python_pkg/tasks.py")
+            .exists()
+    );
 
     // 3. Load and register the Python workflow
     pyo3::prepare_freethreaded_python();

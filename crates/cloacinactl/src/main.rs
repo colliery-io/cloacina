@@ -324,7 +324,7 @@ async fn run() -> std::result::Result<(), CliError> {
         }
 
         Commands::Admin { command } => {
-            use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+            use tracing_subscriber::{EnvFilter, fmt, prelude::*};
             let filter = if cli.globals.verbose {
                 EnvFilter::new("debug")
             } else {

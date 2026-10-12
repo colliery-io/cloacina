@@ -69,7 +69,7 @@ use crate::computation_graph::stream_backend::{
 };
 use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
 use crate::task::{Task, TaskNamespace};
-use crate::tenant_scope::{resolve_tenant_key, visible_keys, TenantKey, TenantOwner, TenantScope};
+use crate::tenant_scope::{TenantKey, TenantOwner, TenantScope, resolve_tenant_key, visible_keys};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
 use cloacina_computation_graph::{

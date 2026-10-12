@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 use serde::{Deserialize, Serialize};
 
@@ -392,7 +392,7 @@ fn resolve_key<V>(
                         .iter()
                         .map(|k| k.tenant_label().to_string())
                         .collect(),
-                ))
+                ));
             }
         }
     }
@@ -773,14 +773,14 @@ impl EndpointRegistry {
         let key = match resolve_key(&inner.accumulators, scope, name) {
             Ok(k) => k,
             Err(ResolveMiss::NotFound) => {
-                return Err(RegistryError::AccumulatorNotFound(name.to_string()))
+                return Err(RegistryError::AccumulatorNotFound(name.to_string()));
             }
             Err(ResolveMiss::Ambiguous(tenants)) => {
                 return Err(RegistryError::AmbiguousEndpoint {
                     kind: "accumulator",
                     name: name.to_string(),
                     tenants,
-                })
+                });
             }
         };
         let senders = &mut inner
@@ -835,14 +835,14 @@ impl EndpointRegistry {
         let key = match resolve_key(&inner.reactors, scope, name) {
             Ok(k) => k,
             Err(ResolveMiss::NotFound) => {
-                return Err(RegistryError::ReactorNotFound(name.to_string()))
+                return Err(RegistryError::ReactorNotFound(name.to_string()));
             }
             Err(ResolveMiss::Ambiguous(tenants)) => {
                 return Err(RegistryError::AmbiguousEndpoint {
                     kind: "reactor",
                     name: name.to_string(),
                     tenants,
-                })
+                });
             }
         };
         let sender = &inner
@@ -1051,10 +1051,12 @@ mod tests {
         let registry = EndpointRegistry::new();
         let acme = tenant_owner("acme", "mm-pkg", "market_maker");
         let acme_scope = EndpointScope::tenant("acme");
-        assert!(registry
-            .accumulator_descriptor("alpha", acme_scope)
-            .await
-            .is_none());
+        assert!(
+            registry
+                .accumulator_descriptor("alpha", acme_scope)
+                .await
+                .is_none()
+        );
 
         // The accumulator itself must exist for deregistration to own-match.
         let (tx, _rx) = mpsc::channel(10);
@@ -1345,10 +1347,12 @@ mod tests {
             tenant_id: Some("other"),
             is_admin: false,
         };
-        assert!(registry
-            .check_accumulator_auth("alpha", &other_ctx)
-            .await
-            .is_err());
+        assert!(
+            registry
+                .check_accumulator_auth("alpha", &other_ctx)
+                .await
+                .is_err()
+        );
 
         // Admin → always allowed
         let admin_ctx = KeyContext {
@@ -1367,10 +1371,12 @@ mod tests {
             tenant_id: None,
             is_admin: false,
         };
-        assert!(registry
-            .check_accumulator_auth("alpha", &global_ctx)
-            .await
-            .is_err());
+        assert!(
+            registry
+                .check_accumulator_auth("alpha", &global_ctx)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

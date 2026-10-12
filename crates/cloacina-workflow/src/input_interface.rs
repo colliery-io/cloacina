@@ -34,7 +34,7 @@ pub use cloacina_api_types::InputSlot;
 /// it per boundary type. Returns `Value::Null` only if the generated schema
 /// fails to serialize (not expected for a well-formed `JsonSchema` impl).
 pub fn schema_for<T: schemars::JsonSchema>() -> serde_json::Value {
-    let root = schemars::gen::SchemaGenerator::default().into_root_schema_for::<T>();
+    let root = schemars::SchemaGenerator::default().into_root_schema_for::<T>();
     serde_json::to_value(root).unwrap_or(serde_json::Value::Null)
 }
 

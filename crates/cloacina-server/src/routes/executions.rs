@@ -17,26 +17,26 @@
 //! Execution API — trigger workflows and query execution status.
 
 use axum::{
+    Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Extension, Json,
 };
 use tracing::{info, warn};
 
+use cloacina::Context;
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::executor::WorkflowExecutor;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
-use cloacina::Context;
 use cloacina_api_types::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
     ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
     TenantListResponse,
 };
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::AppState;
 
 /// POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
 ///
@@ -315,7 +315,7 @@ pub async fn list_executions(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -381,7 +381,8 @@ pub async fn get_execution(
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response()
+            return ApiError::bad_request("invalid_request", "invalid execution ID")
+                .into_response();
         }
     };
 
@@ -392,7 +393,7 @@ pub async fn get_execution(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -440,7 +441,8 @@ pub async fn get_execution_events(
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response()
+            return ApiError::bad_request("invalid_request", "invalid execution ID")
+                .into_response();
         }
     };
 
@@ -451,7 +453,7 @@ pub async fn get_execution_events(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -521,7 +523,8 @@ pub async fn get_execution_tasks(
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response()
+            return ApiError::bad_request("invalid_request", "invalid execution ID")
+                .into_response();
         }
     };
 
@@ -532,7 +535,7 @@ pub async fn get_execution_tasks(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);

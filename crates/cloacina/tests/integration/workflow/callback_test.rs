@@ -15,7 +15,7 @@
  */
 
 use cloacina::cloacina_workflow::Task;
-use cloacina::{task, Context, TaskError};
+use cloacina::{Context, TaskError, task};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 // Completely separate counters for each test scenario

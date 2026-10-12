@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, Context, Task, TaskError};
+use cloacina::{Context, Task, TaskError, task};
 
 #[task(id = "test-task", dependencies = [])]
 async fn test_task(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {

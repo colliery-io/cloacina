@@ -25,9 +25,9 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use super::models::{NewUnifiedWorkflowRegistryEntry, UnifiedWorkflowRegistryEntry};
+use crate::database::Database;
 use crate::database::schema::unified::workflow_registry;
 use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
-use crate::database::Database;
 use crate::models::workflow_packages::StorageType;
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;

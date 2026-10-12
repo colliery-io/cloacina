@@ -23,7 +23,7 @@
 //! - Malformed signature files
 
 use cloacina::crypto::generate_signing_keypair;
-use cloacina::security::{verify_package_offline, DetachedSignature, VerificationError};
+use cloacina::security::{DetachedSignature, VerificationError, verify_package_offline};
 use tempfile::NamedTempFile;
 
 /// Test that a tampered package is rejected.

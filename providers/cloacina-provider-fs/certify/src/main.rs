@@ -43,11 +43,11 @@
 use std::path::PathBuf;
 
 use cloacina::packaging::constructor_provider::{
-    package_constructor_provider, ProviderPackageOptions,
+    ProviderPackageOptions, package_constructor_provider,
 };
 use cloacina::registry::loader::{set_provider_search_path, unpack_provider_archive};
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError, WorkflowExecutor, WorkflowStatus};
+use cloacina::{Context, TaskError, WorkflowExecutor, WorkflowStatus, task, workflow};
 use serde_json::json;
 
 // Fixed on-disk locations. The `constructor!` macro needs STRING LITERALS for its
@@ -71,7 +71,7 @@ pub mod granted {
 
     constructor!(
         id = "reader",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/tmp/cloacina-fs-grant-demo/secret.txt" },
         grants = { fs = ["ro:/tmp/cloacina-fs-grant-demo"] },
@@ -104,7 +104,7 @@ pub mod ungranted {
 
     constructor!(
         id = "reader_denied",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "read_file",
         config = { path = "/tmp/cloacina-fs-grant-demo/secret.txt" },
     );
@@ -145,7 +145,7 @@ pub mod write_granted {
 
     constructor!(
         id = "writer",
-        from = "cloacina-provider-fs@0.1.0",
+        from = "cloacina-provider-fs@0.1.1",
         constructor = "write_file",
         config = { path = "/tmp/cloacina-fs-grant-demo/written.txt" },
         grants = { fs = ["rw:/tmp/cloacina-fs-grant-demo"] },

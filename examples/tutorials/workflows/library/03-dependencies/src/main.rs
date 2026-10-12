@@ -45,8 +45,7 @@
 use cloacina::executor::WorkflowExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
-use rand::Rng;
+use cloacina::{Context, TaskError, task, workflow};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -77,9 +76,7 @@ pub mod parallel_processing {
     use super::*;
 
     /// Generate a large dataset of products
-    #[task(
-        retry_attempts = 2
-    )]
+    #[task(retry_attempts = 2)]
     pub async fn generate_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         info!("Generating product dataset");
 
@@ -147,7 +144,7 @@ pub mod parallel_processing {
         info!("Processing partition 1: {} products", products.len());
 
         // Simulate CPU-intensive processing
-        let processing_time = rand::thread_rng().gen_range(1000..3000);
+        let processing_time = rand::random_range(1000..3000);
         tokio::time::sleep(Duration::from_millis(processing_time)).await;
 
         let mut stats = HashMap::new();
@@ -204,7 +201,7 @@ pub mod parallel_processing {
         info!("Processing partition 2: {} products", products.len());
 
         // Simulate CPU-intensive processing
-        let processing_time = rand::thread_rng().gen_range(1500..4000);
+        let processing_time = rand::random_range(1500..4000);
         tokio::time::sleep(Duration::from_millis(processing_time)).await;
 
         let mut stats = HashMap::new();
@@ -261,7 +258,7 @@ pub mod parallel_processing {
         info!("Processing partition 3: {} products", products.len());
 
         // Simulate CPU-intensive processing
-        let processing_time = rand::thread_rng().gen_range(800..2500);
+        let processing_time = rand::random_range(800..2500);
         tokio::time::sleep(Duration::from_millis(processing_time)).await;
 
         let mut stats = HashMap::new();

@@ -18,8 +18,8 @@
 
 use tokio::fs;
 
-use super::types::{OwnedTaskMetadata, OwnedTaskMetadataCollection};
 use super::TaskRegistrar;
+use super::types::{OwnedTaskMetadata, OwnedTaskMetadataCollection};
 use crate::registry::error::LoaderError;
 use crate::registry::loader::package_loader::get_library_extension;
 

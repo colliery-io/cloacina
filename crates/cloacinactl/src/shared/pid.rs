@@ -16,7 +16,7 @@
 
 //! PID-file read/write/signal helpers used by `daemon stop` and `server stop`.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};

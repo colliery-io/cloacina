@@ -25,12 +25,12 @@
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
+use crate::GlobalOpts;
 use crate::commands::config::CloacinaConfig;
 use crate::shared::client::CliClient;
 use crate::shared::client_ctx::ClientContext;
 use crate::shared::error::CliError;
 use crate::shared::render;
-use crate::GlobalOpts;
 
 #[derive(Args)]
 pub struct InstanceCmd {
@@ -179,7 +179,7 @@ fn merge_params(
                 _ => {
                     return Err(CliError::UserError(
                         "--params file must contain a JSON object".to_string(),
-                    ))
+                    ));
                 }
             }
         }

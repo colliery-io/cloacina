@@ -17,9 +17,9 @@
 //! Trigger schedule API — read-only listing of cron and trigger schedules.
 
 use axum::{
+    Extension, Json,
     extract::{Path, State},
     response::IntoResponse,
-    Extension, Json,
 };
 use tracing::warn;
 
@@ -35,10 +35,10 @@ use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::executor::WorkflowExecutor;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::routes::executions::validate_declared_params;
-use crate::AppState;
 
 const DEFAULT_TRIGGERS_LIMIT: i64 = 100;
 const MAX_TRIGGERS_LIMIT: i64 = 1000;
@@ -333,7 +333,7 @@ async fn set_trigger_paused(
                 "trigger_not_found",
                 format!("trigger '{}' not found", name),
             )
-            .into_response()
+            .into_response();
         }
     };
 
@@ -400,7 +400,7 @@ pub async fn fire_trigger(
         Ok(db) => db,
         Err(e) => {
             return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response()
+                .into_response();
         }
     };
 
@@ -484,7 +484,7 @@ pub async fn fire_trigger(
             Ok(r) => r,
             Err(e) => {
                 return ApiError::internal(format!("tenant runner unavailable: {}", e))
-                    .into_response()
+                    .into_response();
             }
         }
     };
@@ -596,7 +596,7 @@ pub async fn get_trigger_interface(
         Ok(db) => db,
         Err(e) => {
             return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response()
+                .into_response();
         }
     };
 

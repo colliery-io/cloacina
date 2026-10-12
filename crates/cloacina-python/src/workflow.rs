@@ -64,85 +64,82 @@ impl PyWorkflowBuilder {
 
     /// Add a task to the workflow by ID or function reference
     pub fn add_task(&mut self, py: Python, task: PyObject) -> PyResult<()> {
-        if let Ok(task_id) = task.extract::<String>(py) {
-            let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
-                PyValueError::new_err("WorkflowBuilder.add_task called outside a Runtime scope")
-            })?;
+        match task.extract::<String>(py) {
+            Ok(task_id) => {
+                let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+                    PyValueError::new_err("WorkflowBuilder.add_task called outside a Runtime scope")
+                })?;
 
-            let (tenant_id, package_name, workflow_id) = self.context.as_components();
-            let task_namespace =
-                cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
+                let (tenant_id, package_name, workflow_id) = self.context.as_components();
+                let task_namespace =
+                    cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
 
-            let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
-                PyValueError::new_err(format!(
-                    "Task '{}' not found in registry. Make sure it was decorated with @task.",
-                    task_id
-                ))
-            })?;
+                let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
+                    PyValueError::new_err(format!(
+                        "Task '{}' not found in registry. Make sure it was decorated with @task.",
+                        task_id
+                    ))
+                })?;
 
-            self.inner = self
-                .inner
-                .clone()
-                .add_task(task_instance)
-                .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
+                self.inner = self
+                    .inner
+                    .clone()
+                    .add_task(task_instance)
+                    .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
 
-            Ok(())
-        } else {
-            match task.bind(py).hasattr("__name__") {
-                Ok(true) => {
-                    match task.getattr(py, "__name__") {
-                        Ok(name_obj) => {
-                            match name_obj.extract::<String>(py) {
-                                Ok(func_name) => {
-                                    let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
-                                        PyValueError::new_err(
-                                            "WorkflowBuilder.add_task called outside a Runtime scope",
-                                        )
-                                    })?;
+                Ok(())
+            }
+            _ => match task.bind(py).hasattr("__name__") {
+                Ok(true) => match task.getattr(py, "__name__") {
+                    Ok(name_obj) => match name_obj.extract::<String>(py) {
+                        Ok(func_name) => {
+                            let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+                                PyValueError::new_err(
+                                    "WorkflowBuilder.add_task called outside a Runtime scope",
+                                )
+                            })?;
 
-                                    let (tenant_id, package_name, workflow_id) = self.context.as_components();
-                                    let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
+                            let (tenant_id, package_name, workflow_id) =
+                                self.context.as_components();
+                            let task_namespace = cloacina::TaskNamespace::new(
+                                tenant_id,
+                                package_name,
+                                workflow_id,
+                                &func_name,
+                            );
 
-                                    let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
+                            let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
                                         PyValueError::new_err(format!(
                                             "Task '{}' not found in registry. Make sure it was decorated with @task.",
                                             func_name
                                         ))
                                     })?;
 
-                                    self.inner = self.inner.clone().add_task(task_instance)
-                                        .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
+                            self.inner =
+                                self.inner.clone().add_task(task_instance).map_err(|e| {
+                                    PyValueError::new_err(format!("Failed to add task: {}", e))
+                                })?;
 
-                                    Ok(())
-                                },
-                                Err(e) => {
-                                    Err(PyValueError::new_err(format!(
-                                        "Function has __name__ but it's not a string: {}",
-                                        e
-                                    )))
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            Err(PyValueError::new_err(format!(
-                                "Failed to get __name__ from function: {}",
-                                e
-                            )))
+                            Ok(())
                         }
-                    }
-                },
-                Ok(false) => {
-                    Err(PyValueError::new_err(
-                        "Task must be either a string task ID or a function object with __name__ attribute"
-                    ))
-                },
-                Err(e) => {
-                    Err(PyValueError::new_err(format!(
-                        "Failed to check if object has __name__ attribute: {}",
+                        Err(e) => Err(PyValueError::new_err(format!(
+                            "Function has __name__ but it's not a string: {}",
+                            e
+                        ))),
+                    },
+                    Err(e) => Err(PyValueError::new_err(format!(
+                        "Failed to get __name__ from function: {}",
                         e
-                    )))
-                }
-            }
+                    ))),
+                },
+                Ok(false) => Err(PyValueError::new_err(
+                    "Task must be either a string task ID or a function object with __name__ attribute",
+                )),
+                Err(e) => Err(PyValueError::new_err(format!(
+                    "Failed to check if object has __name__ attribute: {}",
+                    e
+                ))),
+            },
         }
     }
 

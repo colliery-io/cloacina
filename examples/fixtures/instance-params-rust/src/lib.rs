@@ -25,7 +25,7 @@
 // fire-time merge, but echoing them proves the TASK actually saw the bound
 // values rather than the harness merely reading back what it wrote.
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 cloacina_workflow_plugin::package!();
 

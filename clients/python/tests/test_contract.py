@@ -32,8 +32,12 @@ import time
 import urllib.request
 
 import pytest
-
-from cloacina_client import AsyncClient, Client, CloacinaApiError, DELIVERY_PROTOCOL_VERSION
+from cloacina_client import (
+    DELIVERY_PROTOCOL_VERSION,
+    AsyncClient,
+    Client,
+    CloacinaApiError,
+)
 
 SERVER = os.environ.get("CLOACINA_SERVER_URL")
 API_KEY = os.environ.get("CLOACINA_API_KEY")
@@ -271,7 +275,7 @@ async def test_ws_subscription_lifecycle() -> None:
     )
     try:
         await asyncio.wait_for(stream.__anext__(), timeout=2.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass  # connected and idle — expected
     finally:
         await stream.aclose()

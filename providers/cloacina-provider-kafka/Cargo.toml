@@ -20,16 +20,22 @@
 # never part of the published crate.
 exclude = ["certify"]
 name = "cloacina-provider-kafka"
-version = "0.1.0"
+version = "0.1.1"
 description = "Kafka event-source provider for cloacina — kafka_source native stream-accumulator constructor (rdkafka lives here, not in core)."
 license = "Apache-2.0"
 repository = "https://github.com/colliery-io/cloacina"
-edition = "2021"
+edition = "2024"
+rust-version = "1.99"
 
 # CLOACI-T-0907: tells the provider BUNDLER (compiler `pack_providers` /
 # `bundle_providers`) to build this provider as a NATIVE host cdylib —
 # librdkafka is C and cannot target wasm32-wasip2. Native = trusted,
 # unsandboxed (grants advisory); the loader dlopen's it in-process.
+
+# Used by macro output, which cargo-machete cannot see.
+[package.metadata.cargo-machete]
+ignored = ["cloacina-constructor-contract", "fidius-core", "fidius-macro", "serde"]
+
 [package.metadata.cloacina]
 runtime = "native"
 

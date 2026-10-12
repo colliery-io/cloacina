@@ -27,9 +27,9 @@ use axum::{Extension, Json};
 
 use cloacina_api_types::CompilerStatus;
 
+use crate::AppState;
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::AppState;
 
 /// `GET /v1/compiler/status` — build-pipeline status (admin only).
 #[utoipa::path(

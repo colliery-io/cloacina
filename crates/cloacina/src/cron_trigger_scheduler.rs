@@ -46,9 +46,9 @@
 
 use crate::context::Context;
 use crate::cron_evaluator::CronEvaluator;
-use crate::dal::unified::truncate_predicate_text;
-use crate::dal::UnifiedRegistryStorage;
 use crate::dal::DAL;
+use crate::dal::UnifiedRegistryStorage;
+use crate::dal::unified::truncate_predicate_text;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::executor::{WorkflowExecutionError, WorkflowExecutor};
@@ -60,7 +60,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{watch, Notify};
+use tokio::sync::{Notify, watch};
 use tracing::{debug, error, info, warn};
 
 /// CLOACI-T-0922 — how many consecutive CEL evaluation errors on the SAME
@@ -1616,7 +1616,7 @@ fn eval_cel_predicate_program(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::universal_types::{current_timestamp, UniversalBool};
+    use crate::database::universal_types::{UniversalBool, current_timestamp};
 
     fn create_test_cron_schedule(cron_expr: &str, timezone: &str) -> Schedule {
         let now = current_timestamp();

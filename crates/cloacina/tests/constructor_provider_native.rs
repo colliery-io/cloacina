@@ -50,17 +50,17 @@ use std::time::Duration;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
+use cloacina::Context;
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime, accumulator_runtime_with_source, shutdown_signal, Accumulator,
-    AccumulatorContext, AccumulatorError, AccumulatorRuntimeConfig, BoundarySender,
+    Accumulator, AccumulatorContext, AccumulatorError, AccumulatorRuntimeConfig, BoundarySender,
+    accumulator_runtime, accumulator_runtime_with_source, shutdown_signal,
 };
-use cloacina::computation_graph::types::{deserialize, SourceName};
+use cloacina::computation_graph::types::{SourceName, deserialize};
 use cloacina::registry::loader::constructor_loader::{
     load_accumulator_constructor, load_stream_accumulator_source,
 };
 use cloacina::registry::loader::grants::ResolvedGrants;
 use cloacina::registry::loader::load_task_constructor;
-use cloacina::Context;
 
 /// The stream accumulator member's `#[config]` (base + count), bound once at load.
 #[derive(Serialize)]

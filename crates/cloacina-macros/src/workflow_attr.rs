@@ -26,11 +26,11 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use syn::{
-    parse::{Parse, ParseStream},
     Expr, Ident, ItemMod, LitStr, Result as SynResult, Token,
+    parse::{Parse, ParseStream},
 };
 
 use crate::packaged_workflow::{

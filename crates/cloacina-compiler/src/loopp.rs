@@ -297,7 +297,7 @@ pub(crate) async fn run_per_target(
                             } else {
                                 let mut hasher = Sha256::new();
                                 hasher.update(&artifact);
-                                let digest = format!("{:x}", hasher.finalize());
+                                let digest = hex::encode(hasher.finalize());
                                 match dal
                                     .workflow_packages()
                                     .upsert_artifact(&name, &version, None, &target, &digest, artifact)

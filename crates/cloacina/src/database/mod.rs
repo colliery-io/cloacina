@@ -101,7 +101,7 @@ pub mod connection;
 pub mod schema;
 pub mod universal_types;
 
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 // Re-export connection types from the connection module
 pub use connection::{AnyConnection, AnyPool, BackendType, Database};

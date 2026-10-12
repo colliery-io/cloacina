@@ -20,8 +20,8 @@
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
-use crate::shared::error::CliError;
 use crate::GlobalOpts;
+use crate::shared::error::CliError;
 
 pub mod build;
 pub mod delete;

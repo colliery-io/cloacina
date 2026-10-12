@@ -19,7 +19,7 @@
 // build_status → failed, build_error populated, reconciler never sees it
 // (success-only filter in list_workflows).
 
-use cloacina_workflow::{task, workflow, Context, TaskError};
+use cloacina_workflow::{Context, TaskError, task, workflow};
 
 // I-0102 / T-C: unified plugin shell.
 cloacina_workflow_plugin::package!();
@@ -32,9 +32,7 @@ cloacina_workflow_plugin::package!();
 pub mod compiler_broken_workflow {
     use super::*;
 
-    #[task(
-        retry_attempts = 0
-    )]
+    #[task(retry_attempts = 0)]
     pub async fn broken(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         // Deliberate: this identifier doesn't exist anywhere. cargo will bail
         // with a clean unresolved-path error that the compiler service

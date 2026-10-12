@@ -26,7 +26,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use cloacina::computation_graph::scheduler::ComputationGraphDeclaration;
-use cloacina::python_runtime::{register_python_runtime, LoadedPythonWorkflow, PythonRuntime};
+use cloacina::python_runtime::{LoadedPythonWorkflow, PythonRuntime, register_python_runtime};
 use cloacina::runtime::Runtime;
 use cloacina::task::TaskNamespace;
 

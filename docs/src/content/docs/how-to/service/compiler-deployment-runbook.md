@@ -91,7 +91,7 @@ Dockerfiles used by those images:
   Rust toolchain, the web UI embedded. Includes the `rdkafka` build deps
   (T-0609) so Kafka stream accumulators work in containerized server
   deployments.
-- `deploy/docker/compiler.Dockerfile` — `rust:1.85-bookworm` (toolchain
+- `deploy/docker/compiler.Dockerfile` — `rust:1.99.0-bookworm` (toolchain
   included).
 
 ## Kubernetes

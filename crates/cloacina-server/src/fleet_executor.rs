@@ -44,8 +44,8 @@ use cloacina::error::{ExecutorError, TaskError};
 use cloacina::executor::types::ClaimedTask;
 use cloacina::executor::{TaskContextBuilder, TaskResultHandler};
 use cloacina::fleet::{
-    host_target_triple, AgentOutcome, AgentResultRequest, ArtifactRef, WorkPacket, WrappedSecret,
-    AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, WORK_PACKET_KIND,
+    AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentOutcome, AgentResultRequest, ArtifactRef,
+    WORK_PACKET_KIND, WorkPacket, WrappedSecret, host_target_triple,
 };
 use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::retry::RetryPolicy;
@@ -54,7 +54,7 @@ use cloacina::task::TaskNamespace;
 use cloacina::{Context, SecretResolver};
 use tracing::{debug, info, warn};
 
-use crate::agent_registry::{select_fleet_agent, AgentRegistry};
+use crate::agent_registry::{AgentRegistry, select_fleet_agent};
 use crate::fleet_coordinator::FleetCoordinator;
 
 /// Default ceiling on how long the executor will wait for an agent to report
@@ -920,7 +920,7 @@ mod tests {
     /// fails cleanly).
     #[tokio::test]
     async fn fleet_pool_wrap_unwrap_end_to_end_and_exhaustion() {
-        use cloacina::security::{resolve_and_wrap_secrets, AgentKeyPool, InMemorySecretResolver};
+        use cloacina::security::{AgentKeyPool, InMemorySecretResolver, resolve_and_wrap_secrets};
         use std::collections::BTreeMap;
 
         // Agent mints a 1-key pool; this replica's registry stores the public

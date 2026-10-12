@@ -14,14 +14,14 @@
  *  limitations under the License.
  */
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::net::SocketAddr;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
+use crate::GlobalOpts;
 use crate::commands::config::{self, CloacinaConfig};
 use crate::shared::pid;
-use crate::GlobalOpts;
 
 pub async fn run(
     globals: &GlobalOpts,

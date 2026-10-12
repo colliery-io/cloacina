@@ -48,7 +48,6 @@
 
 use crate::error::TaskError;
 use chrono::NaiveDateTime;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -255,8 +254,7 @@ impl RetryPolicy {
     ///
     /// Uses +/-25% jitter by default.
     fn add_jitter(&self, delay: Duration) -> Duration {
-        let mut rng = rand::thread_rng();
-        let jitter_factor = rng.gen_range(0.75..=1.25); // +/-25% jitter
+        let jitter_factor = rand::random_range(0.75..=1.25); // +/-25% jitter
         let jittered_millis = (delay.as_millis() as f64 * jitter_factor) as u64;
         Duration::from_millis(jittered_millis)
     }
@@ -486,7 +484,9 @@ mod tests {
         let policy = RetryPolicy::default();
         assert!(policy.is_transient_error(&make_execution_error("Connection refused")));
         assert!(policy.is_transient_error(&make_execution_error("network unreachable")));
-        assert!(policy.is_transient_error(&make_execution_error("service temporarily unavailable")));
+        assert!(
+            policy.is_transient_error(&make_execution_error("service temporarily unavailable"))
+        );
         assert!(policy.is_transient_error(&make_execution_error("server busy")));
         assert!(policy.is_transient_error(&make_execution_error("overloaded")));
         assert!(policy.is_transient_error(&make_execution_error("rate limit exceeded")));

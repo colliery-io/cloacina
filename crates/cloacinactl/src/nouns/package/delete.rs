@@ -16,11 +16,11 @@
 
 use std::io::{self, BufRead, IsTerminal, Write};
 
+use crate::GlobalOpts;
 use crate::commands::config::CloacinaConfig;
 use crate::shared::client::CliClient;
 use crate::shared::client_ctx::ClientContext;
 use crate::shared::error::CliError;
-use crate::GlobalOpts;
 
 pub async fn run(globals: &GlobalOpts, id: &str, force: bool) -> Result<(), CliError> {
     if !force && io::stdin().is_terminal() {

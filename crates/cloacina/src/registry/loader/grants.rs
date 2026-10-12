@@ -553,17 +553,23 @@ mod tests {
         let policy = translate(&spec).unwrap().egress.unwrap();
 
         // In-scope path on the granted host.
-        assert!(policy
-            .authorize(&mut parts("https://api.example.com/v1/charge"))
-            .is_ok());
+        assert!(
+            policy
+                .authorize(&mut parts("https://api.example.com/v1/charge"))
+                .is_ok()
+        );
         // Out-of-scope path is denied.
-        assert!(policy
-            .authorize(&mut parts("https://api.example.com/v2/admin"))
-            .is_err());
+        assert!(
+            policy
+                .authorize(&mut parts("https://api.example.com/v2/admin"))
+                .is_err()
+        );
         // Different host is denied.
-        assert!(policy
-            .authorize(&mut parts("https://evil.example.com/v1/charge"))
-            .is_err());
+        assert!(
+            policy
+                .authorize(&mut parts("https://evil.example.com/v1/charge"))
+                .is_err()
+        );
     }
 
     #[test]
@@ -576,21 +582,27 @@ mod tests {
             vec![],
         );
         let policy = translate(&spec).unwrap().egress.unwrap();
-        assert!(policy
-            .authorize(&mut parts("https://api.example.com/anything"))
-            .is_ok());
-        assert!(policy
-            .authorize(&mut parts("https://other.example.com/anything"))
-            .is_err());
+        assert!(
+            policy
+                .authorize(&mut parts("https://api.example.com/anything"))
+                .is_ok()
+        );
+        assert!(
+            policy
+                .authorize(&mut parts("https://other.example.com/anything"))
+                .is_err()
+        );
     }
 
     #[test]
     fn http_star_allows_all() {
         let spec = GrantSpec::from_lists(vec!["*".into()], vec![], vec![], vec![], vec![]);
         let policy = translate(&spec).unwrap().egress.unwrap();
-        assert!(policy
-            .authorize(&mut parts("https://anywhere.test/x"))
-            .is_ok());
+        assert!(
+            policy
+                .authorize(&mut parts("https://anywhere.test/x"))
+                .is_ok()
+        );
     }
 
     #[test]

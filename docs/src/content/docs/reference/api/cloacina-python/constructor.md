@@ -23,7 +23,7 @@ then picks it up exactly like a `@cloaca.task`.
 with cloaca.WorkflowBuilder("granted") as _:
 cloaca.constructor(
 id="reader",
-from_="cloacina-provider-fs@0.1.0",
+from_="cloacina-provider-fs@0.1.1",
 constructor="read_file",
 config={"path": "/data/secret.txt"},
 grants={"fs": ["ro:/data"]},

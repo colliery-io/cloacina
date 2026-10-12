@@ -30,14 +30,14 @@
 //! to packages without introducing a special "reactor package" shape — the
 //! reactor declaration in any package "just works."
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use pyo3::ffi::c_str;
 use pyo3::prelude::*;
 
 use cloacina::computation_graph::accumulator::{
-    accumulator_runtime, Accumulator, AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender,
+    Accumulator, AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, accumulator_runtime,
 };
 use cloacina::computation_graph::registry::{EndpointRegistry, EndpointScope};
 use cloacina::computation_graph::scheduler::{
@@ -48,7 +48,7 @@ use cloacina::tenant_scope::TenantScope;
 use cloacina_workflow_plugin::{AccumulatorDeclarationEntry, GraphPackageMetadata};
 
 use cloacina_python::computation_graph::{
-    self as py_cg, build_python_graph_declaration, PyComputationGraphBuilder,
+    self as py_cg, PyComputationGraphBuilder, build_python_graph_declaration,
 };
 use cloacina_python::reactor as py_reactor;
 use cloacina_python::runtime_scope::ScopedRuntime;

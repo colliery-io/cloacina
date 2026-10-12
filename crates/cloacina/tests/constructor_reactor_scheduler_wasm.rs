@@ -46,6 +46,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use cloacina::cloacina_computation_graph::ReactorConstructorRef;
+use cloacina::computation_graph::Accumulator;
 use cloacina::computation_graph::reactor::{CompiledGraphFn, InputStrategy, ReactionCriteria};
 use cloacina::computation_graph::registry::EndpointRegistry;
 use cloacina::computation_graph::scheduler::{
@@ -53,7 +54,6 @@ use cloacina::computation_graph::scheduler::{
     ComputationGraphDeclaration, ComputationGraphScheduler, ReactorDeclaration,
 };
 use cloacina::computation_graph::types::{GraphResult, InputCache, SourceName};
-use cloacina::computation_graph::Accumulator;
 
 // ---------------------------------------------------------------------------
 // Fixture build + staging (mirrors constructor_reactor_wasm.rs)
@@ -135,7 +135,7 @@ impl AccumulatorFactory for PassthroughFactory {
         config: AccumulatorSpawnConfig,
     ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
         use cloacina::computation_graph::accumulator::{
-            accumulator_runtime, AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender,
+            AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, accumulator_runtime,
         };
 
         let (socket_tx, socket_rx) = mpsc::channel(64);

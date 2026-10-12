@@ -31,7 +31,6 @@ from ._generated.api.auth import (
     reset_password,
     whoami,
 )
-from ._generated.api.fleet import list_agents
 from ._generated.api.compiler import compiler_status
 from ._generated.api.executions import (
     execute_workflow,
@@ -40,6 +39,7 @@ from ._generated.api.executions import (
     get_execution_tasks,
     list_executions,
 )
+from ._generated.api.fleet import list_agents
 from ._generated.api.graph_health import (
     fire_reactor,
     get_accumulator_interface,
@@ -52,6 +52,12 @@ from ._generated.api.graph_health import (
     list_reactors,
     reactor_fire_timeseries,
 )
+from ._generated.api.instances import (
+    create_instance,
+    delete_instance,
+    get_instance,
+    list_instances,
+)
 from ._generated.api.keys import (
     create_key,
     create_tenant_key,
@@ -60,12 +66,6 @@ from ._generated.api.keys import (
     list_tenant_keys,
     revoke_key,
     revoke_tenant_key,
-)
-from ._generated.api.instances import (
-    create_instance,
-    delete_instance,
-    get_instance,
-    list_instances,
 )
 from ._generated.api.operational import health, ready
 from ._generated.api.secrets import (
