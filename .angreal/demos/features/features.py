@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 
 import angreal  # type: ignore
@@ -359,6 +360,24 @@ def _run_gold_path(
                     f"--- first ERROR/WARN lines of {name} ---\n" + "\n".join(flagged)
                     + f"\n--- last 40 lines of {name} ---\n" + "\n".join(lines[-40:])
                 )
+        # A hung server (e.g. a stuck Python import) is still running here:
+        # on Linux CI, attach gdb and include every thread's stack (T-0966).
+        if (
+            server_proc is not None
+            and server_proc.poll() is None
+            and sys.platform.startswith("linux")
+            and shutil.which("gdb")
+        ):
+            dump = subprocess.run(
+                ["sudo", "-n", "gdb", "-p", str(server_proc.pid), "-batch",
+                 "-ex", "set pagination off", "-ex", "thread apply all bt"],
+                capture_output=True, text=True, timeout=180, check=False,
+            )
+            frames = [
+                line[:220] for line in dump.stdout.splitlines()
+                if line.startswith(("Thread ", "#"))
+            ]
+            tails.append("--- server threads (gdb) ---\n" + "\n".join(frames[:900]))
         raise RuntimeError(f"{exc}\n\n" + "\n\n".join(tails)) from exc
     finally:
         _kill(compiler_proc)
