@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The web UI uses Aurora (`colliery-io-aurora`) 0.6.1. Dialogs open at the
+  end of `<body>`; focused inputs have a ring.
 - **Dependency pass** (CLOACI-T-0942): pruned 21 unused dependencies across
   seven core crates and vendored the two trivially-replaceable ones — the
   `dirs` crate (a home-directory lookup) leaves the dependency tree entirely,
