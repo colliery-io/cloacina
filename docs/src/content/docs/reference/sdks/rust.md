@@ -12,7 +12,7 @@ The same client `cloacinactl` is built on, published as a crate. DTOs come from 
 
 ```toml
 [dependencies]
-cloacina-client = "0.11"
+cloacina-client = "0.12"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"
 serde_json = "1"

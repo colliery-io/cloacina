@@ -11,7 +11,7 @@ After completing this guide you will have a working PostgreSQL multi-tenant setu
 
 ## Prerequisites
 
-- Cloacina added to your project (`cloacina = "0.11"` in `Cargo.toml`)
+- Cloacina added to your project (`cloacina = "0.12"` in `Cargo.toml`)
 - A running PostgreSQL server
 - For per-tenant credentials: an admin user with `CREATEDB` and `CREATEROLE` privileges
 

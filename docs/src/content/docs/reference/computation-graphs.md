@@ -839,8 +839,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cloacina-workflow = { version = "0.11", features = ["packaged", "macros"] }
-cloacina-workflow-plugin = "0.11"
+cloacina-workflow = { version = "0.12", features = ["packaged", "macros"] }
+cloacina-workflow-plugin = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ```

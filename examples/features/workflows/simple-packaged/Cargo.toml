@@ -22,9 +22,9 @@ crate-type = ["cdylib", "rlib"]
 # compiler's `--dev-workspace` injects `[patch.crates-io]` so these resolve
 # against the local unpublished crates until they're published (CLOACI-T-0887).
 [dependencies]
-cloacina-macros = "0.11"
-cloacina-workflow = { version = "0.11", features = ["packaged"] }
-cloacina-workflow-plugin = "0.11"
+cloacina-macros = "0.12"
+cloacina-workflow = { version = "0.12", features = ["packaged"] }
+cloacina-workflow-plugin = "0.12"
 serde_json = "1.0"
 # User workflow dependencies (optional - only needed because this example uses them):
 tokio = { version = "1.0", features = ["time"] }  # For tokio::time::sleep in workflow
@@ -34,4 +34,4 @@ chrono = { version = "0.4", features = ["serde"] }  # For timestamps in workflow
 tokio = { version = "1.0", features = ["macros", "rt"] }  # For #[tokio::test]
 
 [build-dependencies]
-cloacina-build = "0.11"
+cloacina-build = "0.12"
