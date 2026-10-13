@@ -48,7 +48,7 @@ Add Cloacina to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = "0.11"
+cloacina = "0.12"
 ```
 
 Both backends are included by default. No feature flags needed.
@@ -62,13 +62,13 @@ While Cloacina includes both backends by default for runtime flexibility, you ca
 **PostgreSQL only:**
 ```toml
 [dependencies]
-cloacina = { version = "0.11", default-features = false, features = ["postgres", "macros"] }
+cloacina = { version = "0.12", default-features = false, features = ["postgres", "macros"] }
 ```
 
 **SQLite only:**
 ```toml
 [dependencies]
-cloacina = { version = "0.11", default-features = false, features = ["sqlite", "macros"] }
+cloacina = { version = "0.12", default-features = false, features = ["sqlite", "macros"] }
 ```
 
 ### When to Use Single-Backend Builds

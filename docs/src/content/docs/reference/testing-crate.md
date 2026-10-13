@@ -18,7 +18,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dev-dependencies]
-cloacina-testing = "0.11"
+cloacina-testing = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 

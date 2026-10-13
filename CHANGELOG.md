@@ -5,19 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.11.1] - UNRELEASED
+## [0.12.0] - UNRELEASED
 
 ### Changed
 
-- The web UI uses Aurora (`colliery-io-aurora`) 0.6.1. Dialogs open at the
-  end of `<body>`; focused inputs have a ring.
-- The API reference is written by plissken 0.2.0: no private items, one
-  `cloaca` page for the Python API, an overview at `reference/api/`. The old
-  addresses of removed pages redirect to the nearest page.
-- The API reference pages are no longer in git: the docs workflow renders
-  them with plissken 0.2.1 before each build, and `angreal docs build`,
-  `serve` and `api` do the same locally (CLOACINA-T-0969).
-- The docs use the starlight-aurora theme v0.3.0.
+- **Rust 1.99 and edition 2024** (COLLIERY-I-0618): every crate has
+  `rust-version = "1.99"` and edition 2024. A crate that depends on
+  Cloacina needs Rust 1.99 or later.
+- **Dependency upgrades** (COLLIERY-I-0618): unused dependencies removed,
+  `cargo-machete` in pre-commit, lockfiles refreshed, and the major bumps
+  (utoipa 6, schemars 1, opentelemetry 0.33, reqwest, tokio-tungstenite,
+  deadpool, kube 4, k8s-openapi 0.28, the crypto crates). The providers fs
+  and kafka are at 0.1.1.
+- **pyo3 0.29** (CLOACINA-T-0966): pyo3 and pythonize 0.25 to 0.29.
+- **croner 4** (CLOACINA-T-0964): croner 2 to 4. Fire times do not change:
+  at the spring-forward DST gap a schedule still fires once, as with croner
+  2, not twice as croner 4 alone would.
+- bincode stays on 1.3: it is the plugin wire format and is in stored rows
+  (CLOACINA-T-0965).
+- The web UI uses Aurora (`colliery-io-aurora`) 0.6.1, with light and dark
+  themes and a theme toggle (light / dark / system). Dialogs open at the end
+  of `<body>`; focused inputs have a ring.
+- The docs site moves from Hugo to Astro Starlight with the starlight-aurora
+  theme v0.3.0 (CLOACINA-T-0951). Old addresses redirect to the new pages.
+- The API reference is written by plissken: no private items, one `cloaca`
+  page for the Python API, an overview at `reference/api/`. The pages are no
+  longer in git: the docs workflow renders them with plissken 0.2.1 before
+  each build, and `angreal docs build`, `serve` and `api` do the same locally
+  (CLOACINA-T-0969).
+
+### Removed
+
+- The leftovers of the separate Nginx UI service: the Nginx config and
+  entrypoint, the `window.__CLOACINA_CONFIG__` hook, and
+  `deploy/docker/server.Dockerfile` (a server image without the UI, unused by
+  CI) (CLOACINA-T-0950).
+
+### Fixed
+
+- Python workflow import no longer hangs on Linux under pyo3 0.29: the
+  loader reads `sys.modules` and `sys.path` directly instead of looping on an
+  iterator error while it holds the GIL (CLOACINA-T-0966).
+- The HTTP API docs: `POST .../triggers/{name}/fire` fans out to the
+  trigger's `on =` workflow and its subscribers; the stale caveat is gone and
+  the 400 for an event that fails the declared schema is listed
+  (CLOACINA-T-0947).
+- The ui-e2e test lane drops the tenant roles on reset, fails on a failed
+  tenant create, and packs a computation graph so the graph specs run
+  (CLOACINA-T-0937, CLOACINA-T-0939).
+- ruff 0.17 findings across the Python code (CLOACINA-T-0956).
+
+## [0.11.1] - 2026-09-05
+
+### Changed
+
 - **Dependency pass** (CLOACI-T-0942): pruned 21 unused dependencies across
   seven core crates and vendored the two trivially-replaceable ones — the
   `dirs` crate (a home-directory lookup) leaves the dependency tree entirely,
@@ -46,8 +87,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Deploy the server chart; the UI is at the server origin.
 - The `angreal ui up` banner and docs no longer point at the retired
   standalone UI port (:8082); the embedded UI serves at the server origin.
-
-## [Unreleased]
 
 ## [0.11.0] - 2026-08-30
 

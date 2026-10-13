@@ -745,7 +745,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "cloacina"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-agent"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -823,7 +823,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-api-types"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "base64 0.23.1",
  "serde",
@@ -834,14 +834,14 @@ dependencies = [
 
 [[package]]
 name = "cloacina-build"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "pyo3-build-config 0.29.3",
 ]
 
 [[package]]
 name = "cloacina-client"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "async-stream",
  "cloacina-api-types",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-compiler"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-computation-graph"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "bincode",
  "serde",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-constructor-contract"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "cloacina-api-types",
  "serde",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-macros"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "once_cell",
  "proc-macro2",
@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-python"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-server"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -992,7 +992,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-testing"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-workflow"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-workflow-plugin"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "cloacina-computation-graph",
  "cloacina-workflow",
@@ -1040,7 +1040,7 @@ dependencies = [
 
 [[package]]
 name = "cloacinactl"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
