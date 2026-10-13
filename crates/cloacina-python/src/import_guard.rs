@@ -180,7 +180,7 @@ enum InterruptOutcome {
 /// thread so a GIL that never becomes available cannot hang the supervisor.
 fn inject_async_exception(ident: i64) -> InterruptOutcome {
     let worker = std::thread::spawn(move || -> i32 {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             // SAFETY: the GIL is held for the duration of this call (required
             // by PyThreadState_SetAsyncExc, which walks the interpreter's
             // thread-state list). `exc` is a borrowed reference to a type

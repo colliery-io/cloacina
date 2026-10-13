@@ -49,7 +49,7 @@ where
     F: Future<Output = T> + Send,
     T: Send,
 {
-    py.allow_threads(|| match tokio::runtime::Handle::try_current() {
+    py.detach(|| match tokio::runtime::Handle::try_current() {
         Ok(handle) => handle.block_on(fut),
         Err(_) => tokio::runtime::Builder::new_current_thread()
             .enable_all()

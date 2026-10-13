@@ -23,7 +23,7 @@
 //! cloacina task execution engine.
 
 use pyo3::prelude::*;
-use pyo3::types::PyModule;
+use pyo3::types::{PyDict, PyList, PyModule};
 use std::path::Path;
 
 use super::task::{pop_workflow_context, push_workflow_context};
@@ -257,7 +257,7 @@ pub fn import_and_register_python_workflow_named(
         );
         // CLOACI-T-0925: whose providers this import resolves against.
         let _provider_scope = enter_provider_scope(provider_scope);
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             // 0. Publish this thread's Python ident BEFORE any user code runs,
             //    so a module-scope hang is interruptible (CLOACI-T-0919).
             thread_ident.record(py);
@@ -284,11 +284,18 @@ pub fn import_and_register_python_workflow_named(
                 .unwrap_or(entry_module.as_str())
                 .to_string();
             {
-                let modules = sys.getattr("modules")?;
+                // Read the keys as a list, not through the Python iterator
+                // protocol: with pyo3 0.29 on Linux that iteration errors, and
+                // an iterator that keeps erroring never ends while holding the
+                // GIL (CLOACINA-T-0966).
+                let modules = sys
+                    .getattr("modules")?
+                    .cast_into::<PyDict>()
+                    .map_err(PyErr::from)?;
                 let keys: Vec<String> = modules
-                    .call_method0("keys")?
-                    .try_iter()?
-                    .filter_map(|k| k.ok().and_then(|k| k.extract::<String>().ok()))
+                    .keys()
+                    .iter()
+                    .filter_map(|k| k.extract::<String>().ok())
                     .collect();
                 let prefix = format!("{top_level}.");
                 for key in keys {
@@ -306,8 +313,10 @@ pub fn import_and_register_python_workflow_named(
                 // dir earlier in sys.path would win the fresh import and load
                 // the previous version's source.
                 let entries: Vec<String> = path
-                    .try_iter()?
-                    .filter_map(|e| e.ok().and_then(|e| e.extract::<String>().ok()))
+                    .cast::<PyList>()
+                    .map_err(PyErr::from)?
+                    .iter()
+                    .filter_map(|e| e.extract::<String>().ok())
                     .collect();
                 for entry in entries {
                     let entry_path = std::path::Path::new(&entry);
@@ -501,7 +510,7 @@ pub fn import_python_computation_graph(
             ScopedRuntime::new(runtime.clone()).map_err(PythonLoaderError::RuntimeError)?;
         let _registration = crate::registration_scope::ScopedRegistration::new(registration_scope);
         let _provider_scope = enter_provider_scope(provider_scope);
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             thread_ident.record(py);
             ensure_cloaca_module(py)?;
 

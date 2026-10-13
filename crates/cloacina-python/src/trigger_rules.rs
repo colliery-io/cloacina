@@ -53,7 +53,7 @@ fn normalize_operator(op: &str) -> PyResult<&'static str> {
     })
 }
 
-fn to_py(py: Python, value: serde_json::Value) -> PyResult<PyObject> {
+fn to_py(py: Python, value: serde_json::Value) -> PyResult<Py<PyAny>> {
     Ok(pythonize(py, &value)
         .map_err(|e| PyValueError::new_err(e.to_string()))?
         .into())
@@ -62,7 +62,7 @@ fn to_py(py: Python, value: serde_json::Value) -> PyResult<PyObject> {
 /// Parse + validate a `trigger_rules=` argument into the canonical TriggerRule
 /// JSON. A bare condition (e.g. a `context_value(...)`) is wrapped as `All`.
 /// Errors clearly if the value isn't a valid trigger rule.
-pub fn parse_trigger_rules(py: Python, obj: &PyObject) -> PyResult<serde_json::Value> {
+pub fn parse_trigger_rules(py: Python, obj: &Py<PyAny>) -> PyResult<serde_json::Value> {
     let mut value: serde_json::Value = depythonize(obj.bind(py)).map_err(|e| {
         PyValueError::new_err(format!(
             "@cloaca.task(trigger_rules=...): not JSON-serializable: {e}"
@@ -97,8 +97,8 @@ pub fn context_value(
     py: Python,
     key: String,
     operator: String,
-    value: PyObject,
-) -> PyResult<PyObject> {
+    value: Py<PyAny>,
+) -> PyResult<Py<PyAny>> {
     let v: serde_json::Value = depythonize(value.bind(py)).map_err(|e| {
         PyValueError::new_err(format!("context_value: value not JSON-serializable: {e}"))
     })?;
@@ -110,7 +110,7 @@ pub fn context_value(
 }
 
 #[pyfunction]
-pub fn task_success(py: Python, task_name: String) -> PyResult<PyObject> {
+pub fn task_success(py: Python, task_name: String) -> PyResult<Py<PyAny>> {
     to_py(
         py,
         serde_json::json!({ "type": "TaskSuccess", "task_name": task_name }),
@@ -118,7 +118,7 @@ pub fn task_success(py: Python, task_name: String) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-pub fn task_failed(py: Python, task_name: String) -> PyResult<PyObject> {
+pub fn task_failed(py: Python, task_name: String) -> PyResult<Py<PyAny>> {
     to_py(
         py,
         serde_json::json!({ "type": "TaskFailed", "task_name": task_name }),
@@ -126,7 +126,7 @@ pub fn task_failed(py: Python, task_name: String) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-pub fn task_skipped(py: Python, task_name: String) -> PyResult<PyObject> {
+pub fn task_skipped(py: Python, task_name: String) -> PyResult<Py<PyAny>> {
     to_py(
         py,
         serde_json::json!({ "type": "TaskSkipped", "task_name": task_name }),
@@ -135,7 +135,7 @@ pub fn task_skipped(py: Python, task_name: String) -> PyResult<PyObject> {
 
 // ---- rule combinators ----
 
-fn combine(py: Python, kind: &str, conditions: Vec<PyObject>) -> PyResult<PyObject> {
+fn combine(py: Python, kind: &str, conditions: Vec<Py<PyAny>>) -> PyResult<Py<PyAny>> {
     let conds: Vec<serde_json::Value> = conditions
         .iter()
         .map(|c| {
@@ -149,26 +149,26 @@ fn combine(py: Python, kind: &str, conditions: Vec<PyObject>) -> PyResult<PyObje
 /// Run only if ALL conditions are met.
 #[pyfunction]
 #[pyo3(signature = (*conditions))]
-pub fn all_of(py: Python, conditions: Vec<PyObject>) -> PyResult<PyObject> {
+pub fn all_of(py: Python, conditions: Vec<Py<PyAny>>) -> PyResult<Py<PyAny>> {
     combine(py, "All", conditions)
 }
 
 /// Run if ANY condition is met.
 #[pyfunction]
 #[pyo3(signature = (*conditions))]
-pub fn any_of(py: Python, conditions: Vec<PyObject>) -> PyResult<PyObject> {
+pub fn any_of(py: Python, conditions: Vec<Py<PyAny>>) -> PyResult<Py<PyAny>> {
     combine(py, "Any", conditions)
 }
 
 /// Run only if NONE of the conditions are met.
 #[pyfunction]
 #[pyo3(signature = (*conditions))]
-pub fn none_of(py: Python, conditions: Vec<PyObject>) -> PyResult<PyObject> {
+pub fn none_of(py: Python, conditions: Vec<Py<PyAny>>) -> PyResult<Py<PyAny>> {
     combine(py, "None", conditions)
 }
 
 /// The default rule — always run.
 #[pyfunction]
-pub fn always(py: Python) -> PyResult<PyObject> {
+pub fn always(py: Python) -> PyResult<Py<PyAny>> {
     to_py(py, serde_json::json!({ "type": "Always" }))
 }

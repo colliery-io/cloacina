@@ -73,7 +73,7 @@ pub fn constructor(
     constructor: String,
     config: Option<Bound<'_, PyDict>>,
     grants: Option<Bound<'_, PyDict>>,
-    dependencies: Option<Vec<PyObject>>,
+    dependencies: Option<Vec<Py<PyAny>>>,
     runtime: Option<String>,
 ) -> PyResult<()> {
     let context = current_workflow_context()?;
@@ -160,7 +160,7 @@ pub fn constructor(
     // work — release the GIL for it). Fails closed on a missing provider/member,
     // a bad config kwarg, or a malformed grant.
     let node = py
-        .allow_threads(|| {
+        .detach(|| {
             cloacina::registry::loader::load_constructor_node_pinned(
                 &id,
                 &from_,
@@ -185,7 +185,7 @@ pub fn constructor(
              before importing Python workflow modules",
         )
     })?;
-    py.allow_threads(|| {
+    py.detach(|| {
         rt.register_task(namespace, move || node.clone());
     });
 
