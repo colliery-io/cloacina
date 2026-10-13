@@ -31,7 +31,6 @@ export default defineConfig({
 			description: 'One workflow orchestration engine, two ways to run it — embed it as a library or operate it as a service. For Rust and Python.',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/colliery-io/cloacina' }],
 			plugins: [starlightAurora({ hyper: true })],
-			expressiveCode: { frames: { extractFileNameFromCode: false } },
 			sidebar: [
 				{
 					label: 'Start Here',
