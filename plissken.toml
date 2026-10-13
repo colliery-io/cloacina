@@ -21,9 +21,10 @@ crates = [
 # Python (cloaca) API pages are generated from the PyO3 binding source.
 # The bindings moved out of crates/cloacina into the dedicated
 # crates/cloacina-python crate (T-0529); keep this path pointed there.
-# Regenerate the whole reference/api tree with `plissken render` (0.2.0) from
-# the project root and commit the output. plissken deletes the pages of
-# modules that went away; add a redirect for each (docs/src/redirects.json).
+# The reference/api tree is not in git: CI renders it with plissken 0.2.1, and
+# so does `angreal docs api` (and `angreal docs build`). plissken deletes the
+# pages of modules that went away; add a redirect for each
+# (docs/src/redirects.json).
 [python]
 package = "cloaca"
 source = "crates/cloacina-python/src"

@@ -16,10 +16,14 @@
 Documentation tasks for Cloacina.
 
 The docs are an Astro Starlight site in docs/, with the Colliery theme
-starlight-aurora. They need Node 22 or later.
+starlight-aurora. They need Node 22 or later, and plissken 0.2.1 for the API
+reference: `plissken render` writes it into docs/src/content/docs/reference/api/
+(see plissken.toml). Those pages are not in git; CI renders them the same way.
 """
 
 import difflib
+import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -31,8 +35,51 @@ import angreal  # type: ignore
 PROJECT_ROOT = Path(angreal.get_root()).parent
 DOCS_ROOT = PROJECT_ROOT / "docs"
 
+# The plissken version CI uses (.github/workflows/docs.yml).
+PLISSKEN_VERSION = "0.2.1"
+# plissken has no --version flag. The binaries of the v0.2.1 release have these
+# sha256 sums; a `cargo install` build is checked with `cargo install --list`.
+PLISSKEN_SHA256 = {
+    "ee88d4725c1b93e564fbf568d513401184e400b1ed243bee4cee2f15c7b37426",  # aarch64-apple-darwin
+    "698903ec9017eeffa0b608153089099df1e22188a8edd281cd3cde81b60e1a83",  # x86_64-apple-darwin
+    "414beb801ba0856c6423b894135e56e360d1ba0a932169cd379a99a288a6ce46",  # x86_64-unknown-linux-gnu
+    "8f9c2853dc147940fe383aeff0012534b8e7b592414eaa25f61da34d4ab0edd0",  # x86_64-unknown-linux-musl
+    "b97c6f68e436250e1dbaec54135fea614d0152ed9a47fddc9b777d18b1aa9087",  # aarch64-unknown-linux-gnu
+}
+PLISSKEN_INSTALL = (
+    f"install plissken {PLISSKEN_VERSION} from "
+    f"https://github.com/colliery-io/plissken/releases/tag/v{PLISSKEN_VERSION} "
+    f"or with `cargo install plissken --version {PLISSKEN_VERSION} --locked`"
+)
+
 # Define command group
 docs = angreal.command_group(name="docs", about="commands for documentation tasks")
+
+
+def _is_cargo_install(plissken):
+    cargo = shutil.which("cargo")
+    if not cargo:
+        return False
+    cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
+    if Path(plissken).resolve() != (cargo_home / "bin" / "plissken").resolve():
+        return False
+    listed = subprocess.run(
+        [cargo, "install", "--list"], capture_output=True, text=True, check=False
+    ).stdout
+    return f"plissken v{PLISSKEN_VERSION}:" in listed
+
+
+def _plissken():
+    """Render the API reference with plissken 0.2.1."""
+    plissken = shutil.which("plissken")
+    if not plissken:
+        print(f"plissken not found: {PLISSKEN_INSTALL}", file=sys.stderr)
+        return 1
+    digest = hashlib.sha256(Path(plissken).read_bytes()).hexdigest()
+    if digest not in PLISSKEN_SHA256 and not _is_cargo_install(plissken):
+        print(f"{plissken} is not plissken {PLISSKEN_VERSION}: {PLISSKEN_INSTALL}", file=sys.stderr)
+        return 1
+    return subprocess.run([plissken, "render"], cwd=str(PROJECT_ROOT), check=False).returncode
 
 
 def _npm(*args):
@@ -65,13 +112,28 @@ def clean():
 @docs()
 @angreal.command(
     name="serve",
-    about="serve the docs site with live reload",
+    about="render the API reference and serve the docs site with live reload",
     when_to_use=["local development", "previewing docs", "testing documentation changes"],
     when_not_to_use=["production builds", "automated CI/CD"],
 )
 def serve():
-    """Serve the Starlight site with live reload."""
-    return _npm("run", "dev")
+    """Render the API reference (plissken 0.2.1), then serve the site with live reload."""
+    return _plissken() or _npm("run", "dev")
+
+
+@docs()
+@angreal.command(
+    name="api",
+    about="render the API reference only (plissken render, plissken 0.2.1)",
+    when_to_use=["after changing doc comments", "checking the API pages"],
+    when_not_to_use=["building the whole site (use build)"],
+)
+def api():
+    """Write the API pages and _sidebar.mjs into docs/src/content/docs/reference/api/.
+
+    Fails when plissken is missing or is not 0.2.1. The pages are git-ignored.
+    """
+    return _plissken()
 
 
 @docs()
@@ -136,10 +198,10 @@ def spec_check():
 @docs()
 @angreal.command(
     name="build",
-    about="build the docs site into docs/dist",
+    about="render the API reference and build the docs site into docs/dist",
     when_to_use=["CI/CD pipelines", "checking that each page builds"],
     when_not_to_use=["active development (use serve)"],
 )
 def build():
-    """Build the Starlight site into docs/dist."""
-    return _npm("run", "build")
+    """Render the API reference (plissken 0.2.1), then build the site into docs/dist."""
+    return _plissken() or _npm("run", "build")

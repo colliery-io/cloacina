@@ -359,7 +359,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
-      # The docs are a Starlight site (docs/); the build needs Node only.
+      # The docs are a Starlight site (docs/). `angreal docs build` renders the
+      # API reference with plissken 0.2.1 first (as docs.yml does).
+      - name: Install plissken
+        run: |
+          tarball="plissken-0.2.1-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSLO "https://github.com/colliery-io/plissken/releases/download/v0.2.1/${tarball}"
+          echo "bf41f2fbc6f375552e29cf56a78b675cf857a1fa689c9905a5caba109ad292bf  ${tarball}" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/plissken"
+          tar -xzf "${tarball}" -C "$RUNNER_TEMP/plissken"
+          rm "${tarball}"
+          echo "$RUNNER_TEMP/plissken" >> "$GITHUB_PATH"
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

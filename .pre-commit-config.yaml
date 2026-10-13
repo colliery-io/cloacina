@@ -18,11 +18,8 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-      # The API reference is plissken output; regenerate it, don't hand-fix it.
       - id: trailing-whitespace
-        exclude: ^docs/src/content/docs/reference/api/
       - id: end-of-file-fixer
-        exclude: ^docs/src/content/docs/reference/api/
       - id: check-yaml
         # Helm templates use Go templating ({{ ... }}) so they are not
         # valid YAML standalone. helm lint covers them in CI.
