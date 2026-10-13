@@ -12,13 +12,9 @@ import { entries, group } from './src/sidebar.mjs';
 const site = process.env.DOCS_SITE || undefined;
 const base = process.env.DOCS_BASE || '/';
 
-// The plissken API pages, with reference/api.md as their overview.
-const api = {
-	...apiSidebar,
-	label: 'API Reference',
-	collapsed: true,
-	items: [{ slug: 'reference/api', label: 'Overview' }, ...apiSidebar.items],
-};
+// The plissken API pages; plissken writes their overview, reference/api/index.md.
+// The group sits in the Reference list at the place of the old api.md page.
+const api = { ...apiSidebar, label: 'API Reference', collapsed: true, order: 35 };
 
 export default defineConfig({
 	site,
@@ -35,7 +31,6 @@ export default defineConfig({
 			description: 'One workflow orchestration engine, two ways to run it — embed it as a library or operate it as a service. For Rust and Python.',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/colliery-io/cloacina' }],
 			plugins: [starlightAurora({ hyper: true })],
-			expressiveCode: { frames: { extractFileNameFromCode: false } },
 			sidebar: [
 				{
 					label: 'Start Here',

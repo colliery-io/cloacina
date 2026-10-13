@@ -1,13 +1,13 @@
 ---
 title: "cloacina::executor::types"
 description: "Core types and structures for the Cloacina task execution system."
+editUrl: false
 sidebar:
-  order: 142
+  order: 125
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Core types and structures for the Cloacina task execution system.
 
@@ -18,10 +18,9 @@ and configure the behavior of the execution engine.
 
 ## Structs
 
-### <span id="struct.ExecutionScope"></span>`struct ExecutionScope`
+### <span id="struct.ExecutionScope"></span><code style="font-size: 0.85em">struct ExecutionScope</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -36,15 +35,12 @@ correlate execution contexts throughout the system.
 | Name | Type | Description |
 |------|------|-------------|
 | `workflow_execution_id` | `UniversalUuid` | Unique identifier for the workflow execution |
-| `task_execution_id` | `Option < UniversalUuid >` | Optional unique identifier for the specific task execution |
-| `task_name` | `Option < String >` | Optional name of the task being executed |
+| `task_execution_id` | `Option<UniversalUuid>` | Optional unique identifier for the specific task execution |
+| `task_name` | `Option<String>` | Optional name of the task being executed |
 
-
-
-### <span id="struct.DependencyLoader"></span>`struct DependencyLoader`
+### <span id="struct.DependencyLoader"></span><code style="font-size: 0.85em">struct DependencyLoader</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`
 
@@ -54,24 +50,18 @@ This structure manages the loading and caching of task dependencies,
 implementing a "latest wins" strategy for context merging. It provides
 thread-safe access to dependency contexts through a read-write lock.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `database` | `Database` | Database connection for loading dependency data |
-| `workflow_execution_id` | `UniversalUuid` | ID of the workflow execution being processed |
-| `dependency_tasks` | `Vec < crate :: task :: TaskNamespace >` | List of task namespaces that this loader depends on |
-| `loaded_contexts` | `RwLock < HashMap < String , HashMap < String , serde_json :: Value > > >` | Thread-safe cache of loaded dependency contexts |
-
 #### Methods
 
-##### <span id="DependencyLoader.new"></span>`new`
+##### <span id="DependencyLoader.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (database : Database , workflow_execution_id : UniversalUuid , dependency_tasks : Vec < crate :: task :: TaskNamespace > ,) -> Self
+fn new(
+    database: Database,
+    workflow_execution_id: UniversalUuid,
+    dependency_tasks: Vec<crate::task::TaskNamespace>,
+) -> Self
 ```
 
 Creates a new dependency loader instance
@@ -80,10 +70,9 @@ Creates a new dependency loader instance
 
 | Name | Type | Description |
 |------|------|-------------|
-| `database` | `-` | Database connection for loading dependencies |
-| `workflow_execution_id` | `-` | ID of the workflow execution |
-| `dependency_tasks` | `-` | List of task namespaces that this loader depends on |
-
+| `database` | `Database` | Database connection for loading dependencies |
+| `workflow_execution_id` | `UniversalUuid` | ID of the workflow execution |
+| `dependency_tasks` | `Vec<crate::task::TaskNamespace>` | List of task namespaces that this loader depends on |
 
 <details>
 <summary>Source</summary>
@@ -105,16 +94,16 @@ Creates a new dependency loader instance
 
 </details>
 
-
-
-##### <span id="DependencyLoader.load_from_dependencies"></span>`load_from_dependencies`
+##### <span id="DependencyLoader.load_from_dependencies"></span><code>load_​from_​dependencies</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn load_from_dependencies (& self , key : & str ,) -> Result < Option < serde_json :: Value > , ExecutorError >
+async fn load_from_dependencies(
+    &self,
+    key: &str,
+) -> Result<Option<serde_json::Value>, ExecutorError>
 ```
 
 Loads a value from dependency contexts using a "latest wins" strategy
@@ -126,8 +115,7 @@ returning the first matching value found. If no value is found, returns None.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `key` | `-` | The key to look up in the dependency contexts |
-
+| `key` | `&str` | The key to look up in the dependency contexts |
 
 **Returns:**
 
@@ -179,65 +167,9 @@ returning the first matching value found. If no value is found, returns None.
 
 </details>
 
-
-
-##### <span id="DependencyLoader.load_dependency_context_data"></span>`load_dependency_context_data`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn load_dependency_context_data (& self , task_namespace : & crate :: task :: TaskNamespace ,) -> Result < HashMap < String , serde_json :: Value > , ExecutorError >
-```
-
-Loads the context data for a specific dependency task
-
-**Parameters:**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `task_namespace` | `-` | Namespace of the task to load context data for |
-
-
-**Returns:**
-
-* `Result<HashMap<String, serde_json::Value>, ExecutorError>` - The loaded context data
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn load_dependency_context_data(
-        &self,
-        task_namespace: &crate::task::TaskNamespace,
-    ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
-        let dal = DAL::new(self.database.clone());
-        let task_metadata = dal
-            .task_execution_metadata()
-            .get_by_workflow_and_task(self.workflow_execution_id, task_namespace)
-            .await?;
-
-        if let Some(context_id) = task_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).await?;
-            Ok(context.data().clone())
-        } else {
-            // Task has no output context
-            Ok(HashMap::new())
-        }
-    }
-```
-
-</details>
-
-
-
-
-
-### <span id="struct.ExecutorConfig"></span>`struct ExecutorConfig`
+### <span id="struct.ExecutorConfig"></span><code style="font-size: 0.85em">struct ExecutorConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -251,17 +183,13 @@ task execution system, including concurrency limits and timing parameters.
 | Name | Type | Description |
 |------|------|-------------|
 | `max_concurrent_tasks` | `usize` | Maximum number of tasks that can run concurrently |
-| `task_timeout` | `std :: time :: Duration` | Maximum time a task is allowed to run before timing out |
-| `enable_claiming` | `bool` | Enable runner-level task claiming for horizontal scaling.
-When enabled, the executor claims tasks before executing and heartbeats during. |
-| `heartbeat_interval` | `std :: time :: Duration` | Heartbeat interval for claimed tasks (only used when claiming is enabled). |
+| `task_timeout` | `std::time::Duration` | Maximum time a task is allowed to run before timing out |
+| `enable_claiming` | `bool` | Enable runner-level task claiming for horizontal scaling. When enabled, the executor claims tasks before executing and heartbeats during. |
+| `heartbeat_interval` | `std::time::Duration` | Heartbeat interval for claimed tasks (only used when claiming is enabled). |
 
-
-
-### <span id="struct.ClaimedTask"></span>`struct ClaimedTask`
+### <span id="struct.ClaimedTask"></span><code style="font-size: 0.85em">struct ClaimedTask</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`
 
@@ -278,6 +206,3 @@ by an executor instance and is ready to be processed.
 | `workflow_execution_id` | `UniversalUuid` | ID of the workflow execution this task belongs to |
 | `task_name` | `String` | Name of the task being executed |
 | `attempt` | `i32` | Current attempt number for this task execution |
-
-
-

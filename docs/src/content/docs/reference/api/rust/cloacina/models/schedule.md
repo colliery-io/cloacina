@@ -1,13 +1,13 @@
 ---
 title: "cloacina::models::schedule"
 description: "Unified schedule management module for both cron and trigger-based workflow execution."
+editUrl: false
 sidebar:
-  order: 157
+  order: 140
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Unified schedule management module for both cron and trigger-based workflow execution.
 
@@ -16,10 +16,9 @@ This module provides domain structures for the unified `schedules` and
 
 ## Structs
 
-### <span id="struct.Schedule"></span>`struct Schedule`
+### <span id="struct.Schedule"></span><code style="font-size: 0.85em">struct Schedule</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -36,34 +35,32 @@ to the `schedule_type` will be `None`.
 | `schedule_type` | `String` |  |
 | `workflow_name` | `String` |  |
 | `enabled` | `UniversalBool` |  |
-| `cron_expression` | `Option < String >` |  |
-| `timezone` | `Option < String >` |  |
-| `catchup_policy` | `Option < String >` |  |
-| `start_date` | `Option < UniversalTimestamp >` |  |
-| `end_date` | `Option < UniversalTimestamp >` |  |
-| `trigger_name` | `Option < String >` |  |
-| `poll_interval_ms` | `Option < i32 >` |  |
-| `allow_concurrent` | `Option < UniversalBool >` |  |
-| `next_run_at` | `Option < UniversalTimestamp >` |  |
-| `last_run_at` | `Option < UniversalTimestamp >` |  |
-| `last_poll_at` | `Option < UniversalTimestamp >` |  |
+| `cron_expression` | `Option<String>` |  |
+| `timezone` | `Option<String>` |  |
+| `catchup_policy` | `Option<String>` |  |
+| `start_date` | `Option<UniversalTimestamp>` |  |
+| `end_date` | `Option<UniversalTimestamp>` |  |
+| `trigger_name` | `Option<String>` |  |
+| `poll_interval_ms` | `Option<i32>` |  |
+| `allow_concurrent` | `Option<UniversalBool>` |  |
+| `next_run_at` | `Option<UniversalTimestamp>` |  |
+| `last_run_at` | `Option<UniversalTimestamp>` |  |
+| `last_poll_at` | `Option<UniversalTimestamp>` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
-| `paused` | `UniversalBool` | Transient operator pause (CLOACI-T-0749). When set, the scheduler does
-not fire this schedule. Distinct from `enabled` (deliberate on/off). |
-| `paused_at` | `Option < UniversalTimestamp >` |  |
-| `params` | `Option < String >` |  |
-| `instance_name` | `Option < String >` |  |
+| `paused` | `UniversalBool` | Transient operator pause (CLOACI-T-0749). When set, the scheduler does not fire this schedule. Distinct from `enabled` (deliberate on/off). |
+| `paused_at` | `Option<UniversalTimestamp>` |  |
+| `params` | `Option<String>` |  |
+| `instance_name` | `Option<String>` |  |
 
 #### Methods
 
-##### <span id="Schedule.get_type"></span>`get_type`
+##### <span id="Schedule.get_type"></span><code>get_​type</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_type (& self) -> ScheduleType
+fn get_type(&self) -> ScheduleType
 ```
 
 Returns the schedule type as an enum.
@@ -79,15 +76,12 @@ Returns the schedule type as an enum.
 
 </details>
 
-
-
-##### <span id="Schedule.is_cron"></span>`is_cron`
+##### <span id="Schedule.is_cron"></span><code>is_​cron</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_cron (& self) -> bool
+fn is_cron(&self) -> bool
 ```
 
 Returns true if this is a cron schedule.
@@ -103,15 +97,12 @@ Returns true if this is a cron schedule.
 
 </details>
 
-
-
-##### <span id="Schedule.is_trigger"></span>`is_trigger`
+##### <span id="Schedule.is_trigger"></span><code>is_​trigger</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_trigger (& self) -> bool
+fn is_trigger(&self) -> bool
 ```
 
 Returns true if this is a trigger schedule.
@@ -127,15 +118,12 @@ Returns true if this is a trigger schedule.
 
 </details>
 
-
-
-##### <span id="Schedule.is_enabled"></span>`is_enabled`
+##### <span id="Schedule.is_enabled"></span><code>is_​enabled</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_enabled (& self) -> bool
+fn is_enabled(&self) -> bool
 ```
 
 Returns true if the schedule is enabled.
@@ -151,15 +139,12 @@ Returns true if the schedule is enabled.
 
 </details>
 
-
-
-##### <span id="Schedule.is_paused"></span>`is_paused`
+##### <span id="Schedule.is_paused"></span><code>is_​paused</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_paused (& self) -> bool
+fn is_paused(&self) -> bool
 ```
 
 Returns true if the schedule is paused (CLOACI-T-0749). A paused schedule is skipped by the scheduler even when `enabled`.
@@ -175,15 +160,12 @@ Returns true if the schedule is paused (CLOACI-T-0749). A paused schedule is ski
 
 </details>
 
-
-
-##### <span id="Schedule.is_active"></span>`is_active`
+##### <span id="Schedule.is_active"></span><code>is_​active</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_active (& self) -> bool
+fn is_active(&self) -> bool
 ```
 
 Returns true if the schedule should currently fire: enabled and not paused. Callers in the scheduler use this as the single gate.
@@ -199,15 +181,12 @@ Returns true if the schedule should currently fire: enabled and not paused. Call
 
 </details>
 
-
-
-##### <span id="Schedule.poll_interval"></span>`poll_interval`
+##### <span id="Schedule.poll_interval"></span><code>poll_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn poll_interval (& self) -> Option < Duration >
+fn poll_interval(&self) -> Option<Duration>
 ```
 
 Returns the poll interval as a Duration (trigger schedules only).
@@ -224,15 +203,12 @@ Returns the poll interval as a Duration (trigger schedules only).
 
 </details>
 
-
-
-##### <span id="Schedule.allows_concurrent"></span>`allows_concurrent`
+##### <span id="Schedule.allows_concurrent"></span><code>allows_​concurrent</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn allows_concurrent (& self) -> bool
+fn allows_concurrent(&self) -> bool
 ```
 
 Returns true if concurrent executions are allowed (trigger schedules only).
@@ -251,14 +227,9 @@ Returns true if concurrent executions are allowed (trigger schedules only).
 
 </details>
 
-
-
-
-
-### <span id="struct.NewSchedule"></span>`struct NewSchedule`
+### <span id="struct.NewSchedule"></span><code style="font-size: 0.85em">struct NewSchedule</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -270,28 +241,31 @@ Structure for creating new schedule records.
 |------|------|-------------|
 | `schedule_type` | `String` |  |
 | `workflow_name` | `String` |  |
-| `enabled` | `Option < UniversalBool >` |  |
-| `cron_expression` | `Option < String >` |  |
-| `timezone` | `Option < String >` |  |
-| `catchup_policy` | `Option < String >` |  |
-| `start_date` | `Option < UniversalTimestamp >` |  |
-| `end_date` | `Option < UniversalTimestamp >` |  |
-| `trigger_name` | `Option < String >` |  |
-| `poll_interval_ms` | `Option < i32 >` |  |
-| `allow_concurrent` | `Option < UniversalBool >` |  |
-| `next_run_at` | `Option < UniversalTimestamp >` |  |
-| `params` | `Option < String >` |  |
-| `instance_name` | `Option < String >` |  |
+| `enabled` | `Option<UniversalBool>` |  |
+| `cron_expression` | `Option<String>` |  |
+| `timezone` | `Option<String>` |  |
+| `catchup_policy` | `Option<String>` |  |
+| `start_date` | `Option<UniversalTimestamp>` |  |
+| `end_date` | `Option<UniversalTimestamp>` |  |
+| `trigger_name` | `Option<String>` |  |
+| `poll_interval_ms` | `Option<i32>` |  |
+| `allow_concurrent` | `Option<UniversalBool>` |  |
+| `next_run_at` | `Option<UniversalTimestamp>` |  |
+| `params` | `Option<String>` |  |
+| `instance_name` | `Option<String>` |  |
 
 #### Methods
 
-##### <span id="NewSchedule.cron"></span>`cron`
+##### <span id="NewSchedule.cron"></span><code>cron</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron (workflow_name : & str , cron_expression : & str , next_run_at : UniversalTimestamp ,) -> Self
+fn cron(
+    workflow_name: &str,
+    cron_expression: &str,
+    next_run_at: UniversalTimestamp,
+) -> Self
 ```
 
 Create a new cron schedule.
@@ -326,15 +300,16 @@ Create a new cron schedule.
 
 </details>
 
-
-
-##### <span id="NewSchedule.trigger"></span>`trigger`
+##### <span id="NewSchedule.trigger"></span><code>trigger</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn trigger (trigger_name : & str , workflow_name : & str , poll_interval : Duration) -> Self
+fn trigger(
+    trigger_name: &str,
+    workflow_name: &str,
+    poll_interval: Duration,
+) -> Self
 ```
 
 Create a new trigger schedule.
@@ -365,14 +340,9 @@ Create a new trigger schedule.
 
 </details>
 
-
-
-
-
-### <span id="struct.ScheduleExecution"></span>`struct ScheduleExecution`
+### <span id="struct.ScheduleExecution"></span><code style="font-size: 0.85em">struct ScheduleExecution</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -384,24 +354,21 @@ Represents a schedule execution record (domain type).
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
 | `schedule_id` | `UniversalUuid` |  |
-| `workflow_execution_id` | `Option < UniversalUuid >` |  |
-| `scheduled_time` | `Option < UniversalTimestamp >` |  |
-| `claimed_at` | `Option < UniversalTimestamp >` |  |
-| `context_hash` | `Option < String >` |  |
+| `workflow_execution_id` | `Option<UniversalUuid>` |  |
+| `scheduled_time` | `Option<UniversalTimestamp>` |  |
+| `claimed_at` | `Option<UniversalTimestamp>` |  |
+| `context_hash` | `Option<String>` |  |
 | `started_at` | `UniversalTimestamp` |  |
-| `completed_at` | `Option < UniversalTimestamp >` |  |
+| `completed_at` | `Option<UniversalTimestamp>` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
 | `recovery_attempts` | `i32` | Number of recovery re-fire attempts already spent on this handoff. |
-| `recovery_claimed_by` | `Option < UniversalUuid >` | Recovery service instance that currently owns the re-fire, if any. |
-| `recovery_heartbeat_at` | `Option < UniversalTimestamp >` | Last liveness beat from the claim owner; a stale beat frees the claim. |
+| `recovery_claimed_by` | `Option<UniversalUuid>` | Recovery service instance that currently owns the re-fire, if any. |
+| `recovery_heartbeat_at` | `Option<UniversalTimestamp>` | Last liveness beat from the claim owner; a stale beat frees the claim. |
 
-
-
-### <span id="struct.NewScheduleExecution"></span>`struct NewScheduleExecution`
+### <span id="struct.NewScheduleExecution"></span><code style="font-size: 0.85em">struct NewScheduleExecution</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -412,19 +379,16 @@ Structure for creating new schedule execution records.
 | Name | Type | Description |
 |------|------|-------------|
 | `schedule_id` | `UniversalUuid` |  |
-| `workflow_execution_id` | `Option < UniversalUuid >` |  |
-| `scheduled_time` | `Option < UniversalTimestamp >` |  |
-| `claimed_at` | `Option < UniversalTimestamp >` |  |
-| `context_hash` | `Option < String >` |  |
-
-
+| `workflow_execution_id` | `Option<UniversalUuid>` |  |
+| `scheduled_time` | `Option<UniversalTimestamp>` |  |
+| `claimed_at` | `Option<UniversalTimestamp>` |  |
+| `context_hash` | `Option<String>` |  |
 
 ## Enums
 
-### <span id="enum.CatchupPolicy"></span>`enum CatchupPolicy`
+### <span id="enum.CatchupPolicy"></span><code style="font-size: 0.85em">enum CatchupPolicy</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Enum representing the different catchup policies for missed cron executions.
 
@@ -433,12 +397,9 @@ Enum representing the different catchup policies for missed cron executions.
 - **`Skip`**
 - **`RunAll`**
 
-
-
-### <span id="enum.ScheduleType"></span>`enum ScheduleType`
+### <span id="enum.ScheduleType"></span><code style="font-size: 0.85em">enum ScheduleType</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 The type of schedule — determines which fields are relevant.
 
@@ -446,6 +407,3 @@ The type of schedule — determines which fields are relevant.
 
 - **`Cron`**
 - **`Trigger`**
-
-
-

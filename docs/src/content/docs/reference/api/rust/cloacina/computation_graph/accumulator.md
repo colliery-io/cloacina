@@ -1,13 +1,13 @@
 ---
 title: "cloacina::computation_graph::accumulator"
 description: "Accumulator trait, runtime, and supporting types."
+editUrl: false
 sidebar:
-  order: 56
+  order: 40
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Accumulator trait, runtime, and supporting types.
 
@@ -17,10 +17,9 @@ See CLOACI-S-0004 for the full specification.
 
 ## Structs
 
-### <span id="struct.CheckpointHandle"></span>`struct CheckpointHandle`
+### <span id="struct.CheckpointHandle"></span><code style="font-size: 0.85em">struct CheckpointHandle</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
@@ -29,23 +28,18 @@ Handle for persisting accumulator state via the DAL.
 Wraps simple key-value checkpoint storage keyed by (graph_name, accumulator_name).
 Serialization uses bincode wire format.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `dal` | `crate :: dal :: unified :: DAL` |  |
-| `graph_name` | `String` |  |
-| `accumulator_name` | `String` |  |
-
 #### Methods
 
-##### <span id="CheckpointHandle.new"></span>`new`
+##### <span id="CheckpointHandle.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (dal : crate :: dal :: unified :: DAL , graph_name : String , accumulator_name : String ,) -> Self
+fn new(
+    dal: crate::dal::unified::DAL,
+    graph_name: String,
+    accumulator_name: String,
+) -> Self
 ```
 
 Create a new checkpoint handle for the given graph and accumulator.
@@ -69,16 +63,16 @@ Create a new checkpoint handle for the given graph and accumulator.
 
 </details>
 
-
-
-##### <span id="CheckpointHandle.save"></span>`save`
+##### <span id="CheckpointHandle.save"></span><code>save</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn save < T : Serialize > (& self , state : & T) -> Result < () , AccumulatorError >
+async fn save<T: Serialize>(
+    &self) -> Result<(,
+    state: &T) -> Result<(,
+) -> Result<(), AccumulatorError>
 ```
 
 Persist accumulator state.
@@ -113,16 +107,15 @@ Persist accumulator state.
 
 </details>
 
-
-
-##### <span id="CheckpointHandle.load"></span>`load`
+##### <span id="CheckpointHandle.load"></span><code>load</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn load < T : DeserializeOwned > (& self) -> Result < Option < T > , AccumulatorError >
+async fn load<T: DeserializeOwned>(
+    &self,
+) -> Result<Option<T>, AccumulatorError>
 ```
 
 Load previously persisted accumulator state.
@@ -152,15 +145,12 @@ Load previously persisted accumulator state.
 
 </details>
 
-
-
-##### <span id="CheckpointHandle.dal"></span>`dal`
+##### <span id="CheckpointHandle.dal"></span><code>dal</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn dal (& self) -> & crate :: dal :: unified :: DAL
+fn dal(&self) -> &crate::dal::unified::DAL
 ```
 
 Access the underlying DAL for direct checkpoint operations.
@@ -176,15 +166,12 @@ Access the underlying DAL for direct checkpoint operations.
 
 </details>
 
-
-
-##### <span id="CheckpointHandle.graph_name"></span>`graph_name`
+##### <span id="CheckpointHandle.graph_name"></span><code>graph_​name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn graph_name (& self) -> & str
+fn graph_name(&self) -> &str
 ```
 
 Get the graph name this handle is scoped to.
@@ -200,15 +187,12 @@ Get the graph name this handle is scoped to.
 
 </details>
 
-
-
-##### <span id="CheckpointHandle.accumulator_name"></span>`accumulator_name`
+##### <span id="CheckpointHandle.accumulator_name"></span><code>accumulator_​name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn accumulator_name (& self) -> & str
+fn accumulator_name(&self) -> &str
 ```
 
 Get the accumulator name this handle is scoped to.
@@ -224,14 +208,9 @@ Get the accumulator name this handle is scoped to.
 
 </details>
 
-
-
-
-
-### <span id="struct.AccumulatorContext"></span>`struct AccumulatorContext`
+### <span id="struct.AccumulatorContext"></span><code style="font-size: 0.85em">struct AccumulatorContext</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Context provided to the accumulator by the runtime.
 
@@ -241,18 +220,13 @@ Context provided to the accumulator by the runtime.
 |------|------|-------------|
 | `output` | `BoundarySender` | Send a boundary to the reactor. |
 | `name` | `String` | Accumulator's name (used for registration and logging). |
-| `shutdown` | `watch :: Receiver < bool >` | Shutdown signal — accumulator should exit run() when this fires. |
-| `checkpoint` | `Option < CheckpointHandle >` | Handle to persist accumulator state. None when DAL is not available
-(e.g., embedded mode without database). |
-| `health` | `Option < watch :: Sender < AccumulatorHealth > >` | Health state reporter. None when health tracking is not needed
-(e.g., tests, embedded mode). |
+| `shutdown` | `watch::Receiver<bool>` | Shutdown signal — accumulator should exit run() when this fires. |
+| `checkpoint` | `Option<CheckpointHandle>` | Handle to persist accumulator state. None when DAL is not available (e.g., embedded mode without database). |
+| `health` | `Option<watch::Sender<AccumulatorHealth>>` | Health state reporter. None when health tracking is not needed (e.g., tests, embedded mode). |
 
-
-
-### <span id="struct.BoundarySender"></span>`struct BoundarySender`
+### <span id="struct.BoundarySender"></span><code style="font-size: 0.85em">struct BoundarySender</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
@@ -262,31 +236,17 @@ Wire format: bincode.
 Tracks a monotonically increasing sequence number per accumulator
 for deduplication and ordering guarantees.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `inner` | `mpsc :: Sender < (SourceName , Vec < u8 >) >` |  |
-| `source_name` | `SourceName` |  |
-| `sequence` | `Arc < AtomicU64 >` | Monotonically increasing sequence counter (shared across clones). This is
-also the accumulator's `events_total` (one boundary emitted per send). |
-| `last_event_ms` | `Arc < std :: sync :: atomic :: AtomicI64 >` | Wall-clock (unix millis) of the last successful emit; `0` = never
-(CLOACI-T-0765 freshness). Shared across clones. |
-| `buffer_depth` | `Arc < std :: sync :: atomic :: AtomicI64 >` | Current buffered-event count for buffering kinds (batch/state); `-1` =
-this accumulator kind doesn't buffer / untracked (CLOACI-T-0744).
-Shared across clones and into the `FreshnessHandle` the health API samples. |
-| `buffer_capacity` | `Arc < std :: sync :: atomic :: AtomicI64 >` | Declared buffer capacity for bounded kinds (state `capacity = N`, batch
-`max_buffer_size`); `<= 0` = unbounded / not applicable (CLOACI-T-0744). |
-
 #### Methods
 
-##### <span id="BoundarySender.new"></span>`new`
+##### <span id="BoundarySender.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (sender : mpsc :: Sender < (SourceName , Vec < u8 >) > , source_name : SourceName) -> Self
+fn new(
+    sender: mpsc::Sender<(SourceName, Vec<u8>)>,
+    source_name: SourceName,
+) -> Self
 ```
 
 <details>
@@ -307,15 +267,16 @@ fn new (sender : mpsc :: Sender < (SourceName , Vec < u8 >) > , source_name : So
 
 </details>
 
-
-
-##### <span id="BoundarySender.with_freshness"></span>`with_freshness`
+##### <span id="BoundarySender.with_freshness"></span><code>with_​freshness</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_freshness (sender : mpsc :: Sender < (SourceName , Vec < u8 >) > , source_name : SourceName , freshness : FreshnessHandle ,) -> Self
+fn with_freshness(
+    sender: mpsc::Sender<(SourceName, Vec<u8>)>,
+    source_name: SourceName,
+    freshness: FreshnessHandle,
+) -> Self
 ```
 
 Create a sender that shares its events_total + last-event with a pre-made `FreshnessHandle` (CLOACI-T-0765), so the registry can sample freshness for the live accumulator.
@@ -342,15 +303,16 @@ Create a sender that shares its events_total + last-event with a pre-made `Fresh
 
 </details>
 
-
-
-##### <span id="BoundarySender.with_sequence"></span>`with_sequence`
+##### <span id="BoundarySender.with_sequence"></span><code>with_​sequence</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_sequence (sender : mpsc :: Sender < (SourceName , Vec < u8 >) > , source_name : SourceName , start_sequence : u64 ,) -> Self
+fn with_sequence(
+    sender: mpsc::Sender<(SourceName, Vec<u8>)>,
+    source_name: SourceName,
+    start_sequence: u64,
+) -> Self
 ```
 
 Create a sender with a specific starting sequence number (for restart recovery).
@@ -377,16 +339,16 @@ Create a sender with a specific starting sequence number (for restart recovery).
 
 </details>
 
-
-
-##### <span id="BoundarySender.send"></span>`send`
+##### <span id="BoundarySender.send"></span><code>send</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn send < T : Serialize > (& self , boundary : & T) -> Result < () , AccumulatorError >
+async fn send<T: Serialize>(
+    &self) -> Result<(,
+    boundary: &T) -> Result<(,
+) -> Result<(), AccumulatorError>
 ```
 
 Serialize and send a boundary to the reactor. Increments the sequence counter atomically after successful send.
@@ -411,15 +373,12 @@ Serialize and send a boundary to the reactor. Increments the sequence counter at
 
 </details>
 
-
-
-##### <span id="BoundarySender.source_name"></span>`source_name`
+##### <span id="BoundarySender.source_name"></span><code>source_​name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn source_name (& self) -> & SourceName
+fn source_name(&self) -> &SourceName
 ```
 
 Get the source name this sender is associated with.
@@ -435,15 +394,12 @@ Get the source name this sender is associated with.
 
 </details>
 
-
-
-##### <span id="BoundarySender.sequence_number"></span>`sequence_number`
+##### <span id="BoundarySender.sequence_number"></span><code>sequence_​number</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn sequence_number (& self) -> u64
+fn sequence_number(&self) -> u64
 ```
 
 Get the current sequence number (last emitted).
@@ -459,15 +415,12 @@ Get the current sequence number (last emitted).
 
 </details>
 
-
-
-##### <span id="BoundarySender.set_buffer_depth"></span>`set_buffer_depth`
+##### <span id="BoundarySender.set_buffer_depth"></span><code>set_​buffer_​depth</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_buffer_depth (& self , depth : u64)
+fn set_buffer_depth(&self, depth: u64)
 ```
 
 Record the current buffered-event count so the health API can report it (CLOACI-T-0744). Called by the buffering runtimes (batch/state) alongside the Prometheus gauge.
@@ -484,15 +437,12 @@ Record the current buffered-event count so the health API can report it (CLOACI-
 
 </details>
 
-
-
-##### <span id="BoundarySender.set_buffer_capacity"></span>`set_buffer_capacity`
+##### <span id="BoundarySender.set_buffer_capacity"></span><code>set_​buffer_​capacity</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_buffer_capacity (& self , capacity : u64)
+fn set_buffer_capacity(&self, capacity: u64)
 ```
 
 Record the declared buffer capacity for bounded kinds (CLOACI-T-0744). Pass a positive value; unbounded/none kinds just never call this.
@@ -509,15 +459,12 @@ Record the declared buffer capacity for bounded kinds (CLOACI-T-0744). Pass a po
 
 </details>
 
-
-
-##### <span id="BoundarySender.freshness"></span>`freshness`
+##### <span id="BoundarySender.freshness"></span><code>freshness</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn freshness (& self) -> FreshnessHandle
+fn freshness(&self) -> FreshnessHandle
 ```
 
 A shared freshness probe (events_total + last_event), for registration with the graph registry so the health endpoint can report freshness.
@@ -538,37 +485,22 @@ A shared freshness probe (events_total + last_event), for registration with the 
 
 </details>
 
-
-
-
-
-### <span id="struct.FreshnessHandle"></span>`struct FreshnessHandle`
+### <span id="struct.FreshnessHandle"></span><code style="font-size: 0.85em">struct FreshnessHandle</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
 Read-only freshness probe for an accumulator (CLOACI-T-0765): the monotonic emit count + the wall-clock of the last emit, shared (Arc) with the live `BoundarySender` so the registry/server can sample it without locking.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `events_total` | `Arc < AtomicU64 >` |  |
-| `last_event_ms` | `Arc < std :: sync :: atomic :: AtomicI64 >` |  |
-| `buffer_depth` | `Arc < std :: sync :: atomic :: AtomicI64 >` |  |
-| `buffer_capacity` | `Arc < std :: sync :: atomic :: AtomicI64 >` |  |
-
 #### Methods
 
-##### <span id="FreshnessHandle.new"></span>`new`
+##### <span id="FreshnessHandle.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 A fresh probe (zeroed counters). Share it into a `BoundarySender` via `BoundarySender::with_freshness` and register it with the graph registry.
@@ -589,15 +521,12 @@ A fresh probe (zeroed counters). Share it into a `BoundarySender` via `BoundaryS
 
 </details>
 
-
-
-##### <span id="FreshnessHandle.events_total"></span>`events_total`
+##### <span id="FreshnessHandle.events_total"></span><code>events_​total</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn events_total (& self) -> u64
+fn events_total(&self) -> u64
 ```
 
 Total boundaries emitted since load (monotonic).
@@ -613,15 +542,12 @@ Total boundaries emitted since load (monotonic).
 
 </details>
 
-
-
-##### <span id="FreshnessHandle.last_event_ms"></span>`last_event_ms`
+##### <span id="FreshnessHandle.last_event_ms"></span><code>last_​event_​ms</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn last_event_ms (& self) -> Option < i64 >
+fn last_event_ms(&self) -> Option<i64>
 ```
 
 Unix-millis of the last emit, or `None` if nothing has been emitted yet.
@@ -632,25 +558,18 @@ Unix-millis of the last emit, or `None` if nothing has been emitted yet.
 ```rust
     pub fn last_event_ms(&self) -> Option<i64> {
         let v = self.last_event_ms.load(Ordering::Relaxed);
-        if v > 0 {
-            Some(v)
-        } else {
-            None
-        }
+        if v > 0 { Some(v) } else { None }
     }
 ```
 
 </details>
 
-
-
-##### <span id="FreshnessHandle.buffer_depth"></span>`buffer_depth`
+##### <span id="FreshnessHandle.buffer_depth"></span><code>buffer_​depth</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn buffer_depth (& self) -> Option < u64 >
+fn buffer_depth(&self) -> Option<u64>
 ```
 
 Buffered-event count for buffering kinds (batch/state), or `None` for kinds that don't buffer / runtimes predating the gauge (CLOACI-T-0744).
@@ -661,25 +580,18 @@ Buffered-event count for buffering kinds (batch/state), or `None` for kinds that
 ```rust
     pub fn buffer_depth(&self) -> Option<u64> {
         let v = self.buffer_depth.load(Ordering::Relaxed);
-        if v >= 0 {
-            Some(v as u64)
-        } else {
-            None
-        }
+        if v >= 0 { Some(v as u64) } else { None }
     }
 ```
 
 </details>
 
-
-
-##### <span id="FreshnessHandle.buffer_capacity"></span>`buffer_capacity`
+##### <span id="FreshnessHandle.buffer_capacity"></span><code>buffer_​capacity</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn buffer_capacity (& self) -> Option < u64 >
+fn buffer_capacity(&self) -> Option<u64>
 ```
 
 Declared buffer capacity for bounded kinds, or `None` when unbounded / not applicable (CLOACI-T-0744). The UI renders `depth/capacity`.
@@ -690,24 +602,15 @@ Declared buffer capacity for bounded kinds, or `None` when unbounded / not appli
 ```rust
     pub fn buffer_capacity(&self) -> Option<u64> {
         let v = self.buffer_capacity.load(Ordering::Relaxed);
-        if v > 0 {
-            Some(v as u64)
-        } else {
-            None
-        }
+        if v > 0 { Some(v as u64) } else { None }
     }
 ```
 
 </details>
 
-
-
-
-
-### <span id="struct.AccumulatorRuntimeConfig"></span>`struct AccumulatorRuntimeConfig`
+### <span id="struct.AccumulatorRuntimeConfig"></span><code style="font-size: 0.85em">struct AccumulatorRuntimeConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Configuration for the accumulator runtime.
 
@@ -717,21 +620,9 @@ Configuration for the accumulator runtime.
 |------|------|-------------|
 | `merge_channel_capacity` | `usize` | Merge channel capacity (backpressure). |
 
-
-
-### <span id="struct.NoEventSource"></span>`struct NoEventSource`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-Placeholder type for when no event source is provided.
-
-
-
-### <span id="struct.BatchAccumulatorConfig"></span>`struct BatchAccumulatorConfig`
+### <span id="struct.BatchAccumulatorConfig"></span><code style="font-size: 0.85em">struct BatchAccumulatorConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Default`
 
@@ -741,15 +632,12 @@ Configuration for the batch accumulator runtime.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `flush_interval` | `Option < std :: time :: Duration >` | Optional timer-based flush interval. If None, only flushes on signal or size threshold. |
-| `max_buffer_size` | `Option < usize >` | Optional: flush when buffer reaches this size. |
+| `flush_interval` | `Option<std::time::Duration>` | Optional timer-based flush interval. If None, only flushes on signal or size threshold. |
+| `max_buffer_size` | `Option<usize>` | Optional: flush when buffer reaches this size. |
 
-
-
-### <span id="struct.StateAccumulator"></span>`struct StateAccumulator<T: Serialize + DeserializeOwned + Send + Clone + 'static>`
+### <span id="struct.StateAccumulator"></span><code style="font-size: 0.85em">struct StateAccumulator&lt;T: Serialize + DeserializeOwned + Send + Clone + &#39;static&gt;</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A state accumulator holds a bounded VecDeque<T> that receives values from the computation graph (collector or mid-graph writes), persists to DAL on every write, and loads from DAL on startup. Enables cyclic state patterns where the graph's output feeds back as input on the next execution.
 
@@ -758,21 +646,35 @@ Capacity modes:
 - `capacity < 0` (e.g., -1): unbounded — grows without limit
 - `capacity == 0`: write-only sink — no history emitted back
 
-#### Fields
+#### Methods
 
-| Name | Type | Description |
-|------|------|-------------|
-| `buffer` | `std :: collections :: VecDeque < T >` |  |
-| `capacity` | `i32` |  |
-
-
-
-## Enums
-
-### <span id="enum.AccumulatorHealth"></span>`enum AccumulatorHealth`
+##### <span id="StateAccumulator.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+```rust
+fn new(capacity: i32) -> Self
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn new(capacity: i32) -> Self {
+        Self {
+            buffer: std::collections::VecDeque::new(),
+            capacity,
+        }
+    }
+```
+
+</details>
+
+## Enums
+
+### <span id="enum.AccumulatorHealth"></span><code style="font-size: 0.85em">enum AccumulatorHealth</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
 Health state of an accumulator, reported via watch channel.
 
@@ -787,12 +689,36 @@ and detect degradation (Live → Degraded).
 - **`Disconnected`** - Was live, lost source connection. Socket still active. Retrying.
 - **`SocketOnly`** - Passthrough — no source to connect to. Healthy by definition.
 
+#### Methods
 
-
-### <span id="enum.AccumulatorError"></span>`enum AccumulatorError`
+##### <span id="AccumulatorHealth.as_state_label"></span><code>as_​state_​label</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+```rust
+fn as_state_label(&self) -> &'static str
+```
+
+Project the AccumulatorHealth state machine onto the bounded `cloacina_component_health` gauge label values (`starting | healthy | degraded`). See I-0099 / T-0585 for the rationale: operators want a small, cross-component vocabulary; per-component nuance lives in /v1/health endpoints.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn as_state_label(&self) -> &'static str {
+        match self {
+            Self::Starting | Self::Connecting => "starting",
+            Self::Live | Self::SocketOnly => "healthy",
+            Self::Disconnected => "degraded",
+        }
+    }
+```
+
+</details>
+
+### <span id="enum.AccumulatorError"></span><code style="font-size: 0.85em">enum AccumulatorError</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
 Errors from accumulator operations.
 
@@ -803,17 +729,222 @@ Errors from accumulator operations.
 - **`Send`**
 - **`Checkpoint`**
 
+## Traits
 
-
-## Functions
-
-### <span id="fn.health_channel"></span>`fn health_channel`
+### <span id="trait.Accumulator"></span><code style="font-size: 0.85em">trait Accumulator</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+**Supertraits:** `Send + 'static`
+
+An accumulator consumes events from a source and pushes boundaries to a reactor.
+
+Two input paths:
+- Event source (optional): an [`EventSource`](../../../../rust/cloacina/computation_graph/accumulator/#trait.EventSource) actively pulls from a source
+- Socket receiver: events pushed in from outside (always active)
+
+Both paths feed through `process()` which is called sequentially.
+
+To add an active event loop, implement [`EventSource`](../../../../rust/cloacina/computation_graph/accumulator/#trait.EventSource) and pass it to
+[`accumulator_runtime_with_source`](../../../../rust/cloacina/computation_graph/accumulator/#fn.accumulator_runtime_with_source). The processor owns `&mut self` for
+`process()` while the event source runs independently on its own task.
+
+#### Associated types
+
+- `type Output: Serialize + Send + 'static` - The typed boundary produced for the reactor.
+
+#### Methods
+
+##### <span id="Accumulator.process"></span><code>process</code>
 
 ```rust
-fn health_channel () -> (watch :: Sender < AccumulatorHealth > , watch :: Receiver < AccumulatorHealth > ,)
+fn process(&mut self, event: Vec<u8>) -> Option<Self::Output>
+```
+
+Process raw event bytes and optionally produce a boundary. The implementor owns deserialization — the runtime is format-agnostic. Called sequentially by the processor task — no concurrent `&mut self`.
+
+CLOACI-T-0739: a trait-level default body was investigated and rejected.
+A `where Self::Output: DeserializeOwned` default cannot be called from
+the generic runtime (`accumulator_runtime<A: Accumulator>`), which calls
+`process` for *any* `A` whose `Output` is only bound by `Serialize`;
+tightening that bound would break the format-agnostic contract. The
+boilerplate-free passthrough path is instead the
+`#[passthrough_accumulator]` macro, which generates this method.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn process(&mut self, event: Vec<u8>) -> Option<Self::Output>;
+```
+
+</details>
+
+##### <span id="Accumulator.init"></span><code>init</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn init(
+    &mut self) -> Result<(,
+    _ctx: &AccumulatorContext) -> Result<(,
+) -> Result<(), AccumulatorError>
+```
+
+Called on startup before first receive. Use to restore state from last checkpoint.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn init(&mut self, _ctx: &AccumulatorContext) -> Result<(), AccumulatorError> {
+        Ok(())
+    }
+```
+
+</details>
+
+### <span id="trait.EventSource"></span><code style="font-size: 0.85em">trait EventSource</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+**Supertraits:** `Send + 'static`
+
+An event source actively pulls events from an external source and pushes them into the accumulator's merge channel. Runs on its own tokio task, independently of the processor that calls [`Accumulator::process()`](../../../../rust/cloacina/computation_graph/accumulator/#Accumulator.process).
+
+This is the correct way to add an active event loop to an accumulator.
+The event source takes ownership (`self`, not `&mut self`) so it can
+run concurrently with the processor without borrowing conflicts.
+
+For stream-backed sources, see also [`StreamBackend`](../../../../rust/cloacina/computation_graph/stream_backend/#trait.StreamBackend).
+
+#### Methods
+
+##### <span id="EventSource.run"></span><code>run</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn run(
+    self,
+    events: mpsc::Sender<Vec<u8>>,
+    shutdown: watch::Receiver<bool>,
+) -> Result<(), AccumulatorError>
+```
+
+Run the event loop. Push raw event bytes into `events` until shutdown fires or the source is exhausted. The runtime shuts down if this returns.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn run(
+```
+
+</details>
+
+### <span id="trait.PollingAccumulator"></span><code style="font-size: 0.85em">trait PollingAccumulator</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+**Supertraits:** `Send + 'static`
+
+A polling accumulator periodically calls an async poll function to query pull-based data sources (databases, APIs, config files).
+
+Returns `Option<Output>` — `Some` emits a boundary, `None` means "no change".
+
+#### Associated types
+
+- `type Output: Serialize + DeserializeOwned + Send + 'static` - The typed boundary produced for the reactor.
+
+#### Methods
+
+##### <span id="PollingAccumulator.poll"></span><code>poll</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn poll(&mut self) -> Option<Self::Output>
+```
+
+Poll the data source. Called on each timer tick. Return `Some(output)` to emit a boundary, `None` to skip.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn poll(&mut self) -> Option<Self::Output>;
+```
+
+</details>
+
+##### <span id="PollingAccumulator.interval"></span><code>interval</code>
+
+```rust
+fn interval(&self) -> std::time::Duration
+```
+
+Polling interval.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn interval(&self) -> std::time::Duration;
+```
+
+</details>
+
+### <span id="trait.BatchAccumulator"></span><code style="font-size: 0.85em">trait BatchAccumulator</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+**Supertraits:** `Send + 'static`
+
+A batch accumulator buffers incoming events and processes them all at once on a flush signal. Emits a single boundary containing the batch result.
+
+Flush triggers:
+- Timer-based flush interval
+- Buffer size threshold (optional)
+- Shutdown (drains remaining buffer)
+
+#### Associated types
+
+- `type Output: Serialize + Send + 'static` - The typed boundary produced from the batch.
+
+#### Methods
+
+##### <span id="BatchAccumulator.process_batch"></span><code>process_​batch</code>
+
+```rust
+fn process_batch(
+    &mut self,
+    events: Vec<Vec<u8>>,
+) -> Option<Self::Output>
+```
+
+Process a batch of raw event bytes and optionally produce a boundary. The implementor owns deserialization — the runtime is format-agnostic. Called when the buffer is flushed. Empty batches are never passed.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn process_batch(&mut self, events: Vec<Vec<u8>>) -> Option<Self::Output>;
+```
+
+</details>
+
+## Functions
+
+### <span id="fn.health_channel"></span><code style="font-size: 0.85em">fn health_​channel</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn health_channel() -> (
+    watch::Sender<AccumulatorHealth>,
+    watch::Receiver<AccumulatorHealth>,
+)
 ```
 
 Create a health reporting channel for an accumulator.
@@ -832,40 +963,17 @@ pub fn health_channel() -> (
 
 </details>
 
-
-
-### <span id="fn.now_unix_ms"></span>`fn now_unix_ms`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn now_unix_ms () -> i64
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn now_unix_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-```
-
-</details>
-
-
-
-### <span id="fn.accumulator_runtime"></span>`fn accumulator_runtime`
+### <span id="fn.accumulator_runtime"></span><code style="font-size: 0.85em">fn accumulator_​runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn accumulator_runtime < A : Accumulator > (acc : A , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , config : AccumulatorRuntimeConfig ,)
+async fn accumulator_runtime<A: Accumulator>(
+    acc: A,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+    config: AccumulatorRuntimeConfig,
+)
 ```
 
 Run an accumulator as 2-3 tokio tasks connected by a merge channel.
@@ -877,7 +985,8 @@ Socket-only mode (no event source):
 │  (always active) │     │  (calls process) │
 └─────────────────┘     └─────────────────┘
 ```
-With event source (use [`accumulator_runtime_with_source`]):
+
+With event source (use [`accumulator_runtime_with_source`](../../../../rust/cloacina/computation_graph/accumulator/#fn.accumulator_runtime_with_source)):
 ```text
 ┌─────────────────┐
 │  Event source    │──→ mpsc<Event> ──┐
@@ -905,15 +1014,21 @@ pub async fn accumulator_runtime<A: Accumulator>(
 
 </details>
 
-
-
-### <span id="fn.accumulator_runtime_with_source"></span>`fn accumulator_runtime_with_source`
+### <span id="fn.accumulator_runtime_with_source"></span><code style="font-size: 0.85em">fn accumulator_​runtime_​with_​source</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn accumulator_runtime_with_source < A , S > (acc : A , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , config : AccumulatorRuntimeConfig , source : S ,) where A : Accumulator , S : EventSource ,
+async fn accumulator_runtime_with_source<A, S>(
+    acc: A,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+    config: AccumulatorRuntimeConfig,
+    source: S,
+)
+where
+    A: Accumulator,
+    S: EventSource,
 ```
 
 Run an accumulator with an active event source that pulls events from an external system. The event source runs on its own task and pushes raw bytes into the merge channel concurrently with the socket receiver.
@@ -938,146 +1053,12 @@ pub async fn accumulator_runtime_with_source<A, S>(
 
 </details>
 
-
-
-### <span id="fn.accumulator_runtime_inner"></span>`fn accumulator_runtime_inner`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-async fn accumulator_runtime_inner < A : Accumulator , S : EventSource > (mut acc : A , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , config : AccumulatorRuntimeConfig , event_source : Option < S > ,)
-```
-
-Inner runtime shared by both `accumulator_runtime` and `accumulator_runtime_with_source`.
-
-<details>
-<summary>Source</summary>
-
-```rust
-async fn accumulator_runtime_inner<A: Accumulator, S: EventSource>(
-    mut acc: A,
-    ctx: AccumulatorContext,
-    socket_rx: mpsc::Receiver<Vec<u8>>,
-    config: AccumulatorRuntimeConfig,
-    event_source: Option<S>,
-) {
-    // Report starting health
-    set_health(&ctx, AccumulatorHealth::Starting);
-
-    // Passthrough/stream accumulators don't buffer — seed the gauge at 0 so
-    // dashboards have a stable series per (graph, accumulator).
-    set_accumulator_buffer_depth(&ctx, 0.0);
-
-    // Kind label is fixed at runtime startup: with an event source we are
-    // stream-backed, otherwise passthrough. Hardcoded into the bounded enum
-    // documented on `cloacina_accumulator_events_total`.
-    let kind: &'static str = if event_source.is_some() {
-        "stream"
-    } else {
-        "passthrough"
-    };
-
-    // Initialize — may restore state from checkpoint
-    if let Err(e) = acc.init(&ctx).await {
-        tracing::error!(name = %ctx.name, "accumulator init failed: {}", e);
-        return;
-    }
-
-    // Create merge channel — carries raw bytes from all sources
-    let (event_tx, mut event_rx) = mpsc::channel::<Vec<u8>>(config.merge_channel_capacity);
-
-    // Spawn event source task (or no-op wait if none provided)
-    let name_loop = ctx.name.clone();
-    let loop_handle = if let Some(source) = event_source {
-        set_health(&ctx, AccumulatorHealth::Connecting);
-        let shutdown_source = ctx.shutdown.clone();
-        let event_tx_source = event_tx.clone();
-        let name_source = name_loop.clone();
-        let handle = tokio::spawn(async move {
-            match source.run(event_tx_source, shutdown_source).await {
-                Ok(()) => tracing::debug!(name = %name_source, "event source completed"),
-                Err(e) => tracing::error!(name = %name_source, "event source failed: {}", e),
-            }
-        });
-        // Advance past Connecting to Live now that the source task is running.
-        // The reactor's startup gate only proceeds once every accumulator
-        // reports Live/SocketOnly; a stream accumulator that stayed Connecting
-        // gated the reactor forever, so it never consumed the boundaries the
-        // source delivered (CLOACI-T-0715). Optimistic + symmetric with the
-        // socket path below, which reports SocketOnly before any data arrives;
-        // the degraded-mode monitor downgrades health if the source later fails.
-        set_health(&ctx, AccumulatorHealth::Live);
-        handle
-    } else {
-        set_health(&ctx, AccumulatorHealth::SocketOnly);
-        let mut shutdown_loop = ctx.shutdown.clone();
-        tokio::spawn(async move {
-            let _ = shutdown_loop.changed().await;
-            tracing::debug!(name = %name_loop, "event loop task shutting down");
-        })
-    };
-
-    // Spawn socket receiver task — forwards raw bytes without deserialization
-    let event_tx_socket = event_tx.clone();
-    let mut shutdown_socket = ctx.shutdown.clone();
-    let name_socket = ctx.name.clone();
-    let socket_handle = tokio::spawn(async move {
-        let mut socket_rx = socket_rx;
-        loop {
-            tokio::select! {
-                Some(bytes) = socket_rx.recv() => {
-                    if event_tx_socket.send(bytes).await.is_err() {
-                        break; // merge channel closed
-                    }
-                }
-                _ = shutdown_socket.changed() => {
-                    tracing::debug!(name = %name_socket, "socket task shutting down");
-                    break;
-                }
-            }
-        }
-    });
-
-    // Processor task (runs on current task — owns &mut acc)
-    let mut shutdown_proc = ctx.shutdown.clone();
-    loop {
-        tokio::select! {
-            Some(event) = event_rx.recv() => {
-                let emit_started = std::time::Instant::now();
-                if let Some(boundary) = acc.process(event) {
-                    if let Err(e) = ctx.output.send(&boundary).await {
-                        tracing::error!(name = %ctx.name, "boundary send failed: {}", e);
-                    } else {
-                        persist_boundary(&ctx, &boundary).await;
-                    }
-                }
-                record_accumulator_event(&ctx, kind, emit_started);
-            }
-            _ = shutdown_proc.changed() => {
-                tracing::debug!(name = %ctx.name, "processor task shutting down");
-                break;
-            }
-        }
-    }
-
-    // Wait for spawned tasks to finish
-    let _ = loop_handle.await;
-    let _ = socket_handle.await;
-}
-```
-
-</details>
-
-
-
-### <span id="fn.shutdown_signal"></span>`fn shutdown_signal`
+### <span id="fn.shutdown_signal"></span><code style="font-size: 0.85em">fn shutdown_​signal</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn shutdown_signal () -> (watch :: Sender < bool > , watch :: Receiver < bool >)
+fn shutdown_signal() -> (watch::Sender<bool>, watch::Receiver<bool>)
 ```
 
 Create a shutdown signal pair.
@@ -1093,15 +1074,16 @@ pub fn shutdown_signal() -> (watch::Sender<bool>, watch::Receiver<bool>) {
 
 </details>
 
-
-
-### <span id="fn.polling_accumulator_runtime"></span>`fn polling_accumulator_runtime`
+### <span id="fn.polling_accumulator_runtime"></span><code style="font-size: 0.85em">fn polling_​accumulator_​runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn polling_accumulator_runtime < P : PollingAccumulator > (mut poller : P , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > ,)
+async fn polling_accumulator_runtime<P: PollingAccumulator>(
+    mut poller: P,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+)
 ```
 
 Run a polling accumulator as a timer-based loop.
@@ -1197,15 +1179,12 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
 
 </details>
 
-
-
-### <span id="fn.flush_signal"></span>`fn flush_signal`
+### <span id="fn.flush_signal"></span><code style="font-size: 0.85em">fn flush_​signal</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn flush_signal () -> (mpsc :: Sender < () > , mpsc :: Receiver < () >)
+fn flush_signal() -> (mpsc::Sender<()>, mpsc::Receiver<()>)
 ```
 
 Create a flush signal pair for batch accumulators.
@@ -1224,15 +1203,18 @@ pub fn flush_signal() -> (mpsc::Sender<()>, mpsc::Receiver<()>) {
 
 </details>
 
-
-
-### <span id="fn.batch_accumulator_runtime"></span>`fn batch_accumulator_runtime`
+### <span id="fn.batch_accumulator_runtime"></span><code style="font-size: 0.85em">fn batch_​accumulator_​runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn batch_accumulator_runtime < B : BatchAccumulator > (mut acc : B , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , mut flush_rx : mpsc :: Receiver < () > , config : BatchAccumulatorConfig ,)
+async fn batch_accumulator_runtime<B: BatchAccumulator>(
+    mut acc: B,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+    mut flush_rx: mpsc::Receiver<()>,
+    config: BatchAccumulatorConfig,
+)
 ```
 
 Run a batch accumulator that buffers events and flushes on signal, timer, or size threshold.
@@ -1335,333 +1317,18 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
 
 </details>
 
-
-
-### <span id="fn.persist_batch_buffer"></span>`fn persist_batch_buffer`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-async fn persist_batch_buffer (ctx : & AccumulatorContext , buffer : & [Vec < u8 >])
-```
-
-Persist batch buffer snapshot to DAL for crash resilience (best-effort).
-
-<details>
-<summary>Source</summary>
-
-```rust
-async fn persist_batch_buffer(ctx: &AccumulatorContext, buffer: &[Vec<u8>]) {
-    if let Some(ref handle) = ctx.checkpoint {
-        if let Err(e) = handle.save(&buffer.to_vec()).await {
-            tracing::warn!(name = %ctx.name, "batch buffer checkpoint failed: {}", e);
-            record_accumulator_persist_failure(ctx, "batch_buffer");
-        }
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.flush_batch"></span>`fn flush_batch`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-async fn flush_batch < B : BatchAccumulator > (acc : & mut B , buffer : & mut Vec < Vec < u8 > > , ctx : & AccumulatorContext ,)
-```
-
-Flush the buffer through the batch accumulator and send boundary if produced.
-
-<details>
-<summary>Source</summary>
-
-```rust
-async fn flush_batch<B: BatchAccumulator>(
-    acc: &mut B,
-    buffer: &mut Vec<Vec<u8>>,
-    ctx: &AccumulatorContext,
-) {
-    if buffer.is_empty() {
-        return;
-    }
-    let emit_started = std::time::Instant::now();
-    let batch = std::mem::take(buffer);
-    let count = batch.len();
-    if let Some(output) = acc.process_batch(batch) {
-        if let Err(e) = ctx.output.send(&output).await {
-            tracing::error!(name = %ctx.name, "batch boundary send failed: {}", e);
-        } else {
-            tracing::debug!(name = %ctx.name, events = count, "batch flushed");
-            persist_boundary(ctx, &output).await;
-        }
-    }
-    // One emit_total + emit_duration per flush — operators see flush rate
-    // and per-flush latency, while `cloacina_accumulator_buffer_depth` shows
-    // the size that drove the flush.
-    record_accumulator_event(ctx, "batch", emit_started);
-}
-```
-
-</details>
-
-
-
-### <span id="fn.set_health"></span>`fn set_health`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn set_health (ctx : & AccumulatorContext , health : AccumulatorHealth)
-```
-
-Set health state (best-effort, no-op if health channel not configured).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn set_health(ctx: &AccumulatorContext, health: AccumulatorHealth) {
-    if let Some(ref sender) = ctx.health {
-        let _ = sender.send(health);
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.record_accumulator_persist_failure"></span>`fn record_accumulator_persist_failure`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn record_accumulator_persist_failure (ctx : & AccumulatorContext , kind : & 'static str)
-```
-
-Increment `cloacina_accumulator_persist_failures_total{graph,accumulator,kind}` with a bounded `kind ∈ {checkpoint, boundary, batch_buffer}` label. Replaces the silent `let _ = persist_*` failure paths flagged as OPS-15 (CLOACI-I-0108 / T-0590).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn record_accumulator_persist_failure(ctx: &AccumulatorContext, kind: &'static str) {
-    metrics::counter!(
-        "cloacina_accumulator_persist_failures_total",
-        "graph" => graph_label(ctx),
-        "accumulator" => ctx.name.clone(),
-        "kind" => kind,
-    )
-    .increment(1);
-}
-```
-
-</details>
-
-
-
-### <span id="fn.graph_label"></span>`fn graph_label`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn graph_label (ctx : & AccumulatorContext) -> String
-```
-
-Derive the bounded `graph` metric label for an accumulator. When the checkpoint handle is present (production / DAL-backed deployments) we use the deployed graph name; embedded / test runtimes without a DAL fall back to the `embedded` sentinel so the label space stays closed.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn graph_label(ctx: &AccumulatorContext) -> String {
-    ctx.checkpoint
-        .as_ref()
-        .map(|c| c.graph_name().to_string())
-        .unwrap_or_else(|| "embedded".to_string())
-}
-```
-
-</details>
-
-
-
-### <span id="fn.record_accumulator_event"></span>`fn record_accumulator_event`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn record_accumulator_event (ctx : & AccumulatorContext , kind : & 'static str , emit_started : std :: time :: Instant ,)
-```
-
-Record one accumulator event and its emit duration. Called by each runtime once per event processed; `kind` is set by the runtime (`passthrough` / `stream` / `polling` / `batch`).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn record_accumulator_event(
-    ctx: &AccumulatorContext,
-    kind: &'static str,
-    emit_started: std::time::Instant,
-) {
-    let graph = graph_label(ctx);
-    metrics::counter!(
-        "cloacina_accumulator_events_total",
-        "graph" => graph.clone(),
-        "accumulator" => ctx.name.clone(),
-        "kind" => kind,
-    )
-    .increment(1);
-    metrics::histogram!(
-        "cloacina_accumulator_emit_duration_seconds",
-        "graph" => graph,
-        "accumulator" => ctx.name.clone(),
-    )
-    .record(emit_started.elapsed().as_secs_f64());
-}
-```
-
-</details>
-
-
-
-### <span id="fn.set_accumulator_buffer_depth"></span>`fn set_accumulator_buffer_depth`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn set_accumulator_buffer_depth (ctx : & AccumulatorContext , depth : f64)
-```
-
-Update the `cloacina_accumulator_buffer_depth` gauge. Only batch and stateful stream accumulators have meaningful buffers; the other kinds emit `0` from runtime startup so dashboards see a consistent series per `(graph, accumulator)` tuple.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn set_accumulator_buffer_depth(ctx: &AccumulatorContext, depth: f64) {
-    metrics::gauge!(
-        "cloacina_accumulator_buffer_depth",
-        "graph" => graph_label(ctx),
-        "accumulator" => ctx.name.clone(),
-    )
-    .set(depth);
-    // CLOACI-T-0744: mirror into the freshness probe so the polled health API
-    // reports the same gauge the Prometheus series carries.
-    ctx.output.set_buffer_depth(depth as u64);
-}
-```
-
-</details>
-
-
-
-### <span id="fn.persist_boundary"></span>`fn persist_boundary`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-async fn persist_boundary < T : Serialize > (ctx : & AccumulatorContext , boundary : & T)
-```
-
-Persist last-emitted boundary with sequence number to DAL (best-effort, logs on failure).
-
-<details>
-<summary>Source</summary>
-
-```rust
-async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) {
-    if let Some(ref handle) = ctx.checkpoint {
-        let bytes = match types::serialize(boundary) {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!(name = %ctx.name, "boundary persistence serialization failed: {}", e);
-                record_accumulator_persist_failure(ctx, "boundary");
-                return;
-            }
-        };
-        let seq = ctx.output.sequence_number() as i64;
-        match handle
-            .dal()
-            .checkpoint()
-            .save_boundary(handle.graph_name(), handle.accumulator_name(), bytes, seq)
-            .await
-        {
-            Ok(_) => {
-                metrics::counter!(
-                    "cloacina_accumulator_checkpoint_writes_total",
-                    "graph" => handle.graph_name().to_string(),
-                    "accumulator" => handle.accumulator_name().to_string(),
-                )
-                .increment(1);
-            }
-            Err(e) => {
-                tracing::warn!(name = %ctx.name, "boundary persistence failed: {}", e);
-                record_accumulator_persist_failure(ctx, "boundary");
-            }
-        }
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.state_window_frame"></span>`fn state_window_frame`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn state_window_frame < T : Serialize > (list : & [T]) -> Result < Vec < u8 > , String >
-```
-
-Run a state accumulator. Receives values via socket, appends to VecDeque, evicts if over capacity, persists to DAL, and emits the full list as boundary.
-
-On startup: loads from DAL and emits current list to reactor.
-Encode a state window for the boundary wire (CLOACI-T-0842).
-The window ships in the SAME shape passthrough events use —
-`bincode(Vec<u8>)` of JSON bytes (here, a JSON array) — because the
-previous `bincode(Vec<T>)` encoding was WRITE-ONLY for the
-`serde_json::Value` instantiation the factory uses: `Value` can't
-deserialize from bincode (non-self-describing, `deserialize_any`), so the
-fires log rendered `null`, the FFI cache conversion errored, and no
-consumer could read the window. One wire shape for every boundary means
-every existing decoder just works.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn state_window_frame<T: Serialize>(list: &[T]) -> Result<Vec<u8>, String> {
-    serde_json::to_vec(list).map_err(|e| e.to_string())
-}
-```
-
-</details>
-
-
-
-### <span id="fn.state_accumulator_runtime"></span>`fn state_accumulator_runtime`
+### <span id="fn.state_accumulator_runtime"></span><code style="font-size: 0.85em">fn state_​accumulator_​runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn state_accumulator_runtime < T : Serialize + DeserializeOwned + Send + Clone + 'static > (mut acc : StateAccumulator < T > , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > ,)
+async fn state_accumulator_runtime<
+    T: Serialize + DeserializeOwned + Send + Clone + 'static,
+>(
+    mut acc: StateAccumulator<T>,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+)
 ```
 
 <details>
@@ -1830,6 +1497,3 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
 ```
 
 </details>
-
-
-

@@ -1,13 +1,13 @@
 ---
 title: "cloacina::packaging"
 description: "Workflow packaging functionality for creating distributable workflow packages."
+editUrl: false
 sidebar:
-  order: 165
+  order: 148
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Workflow packaging functionality for creating distributable workflow packages.
 
@@ -15,15 +15,24 @@ This module provides the core library functions for packaging workflow projects
 into distributable fidius source archives. These functions can be used by CLI
 tools, tests, or other applications that need to package workflows.
 
+## Re-exports
+
+- [`SUPPORTED_TARGETS`](../../../rust/cloacina/packaging/platform/#const.SUPPORTED_TARGETS)
+- [`detect_current_platform`](../../../rust/cloacina/packaging/platform/#fn.detect_current_platform)
+- [`CargoToml`](../../../rust/cloacina/packaging/types/#struct.CargoToml)
+- [`CompileOptions`](../../../rust/cloacina/packaging/types/#struct.CompileOptions)
+
 ## Functions
 
-### <span id="fn.package_workflow"></span>`fn package_workflow`
+### <span id="fn.package_workflow"></span><code style="font-size: 0.85em">fn package_​workflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn package_workflow (project_path : PathBuf , output_path : PathBuf) -> Result < () >
+fn package_workflow(
+    project_path: PathBuf) -> Result<(,
+    output_path: PathBuf) -> Result<(,
+) -> Result<()>
 ```
 
 High-level function to package a workflow project using fidius source packaging.
@@ -65,18 +74,15 @@ pub fn package_workflow(project_path: PathBuf, output_path: PathBuf) -> Result<(
 
 </details>
 
-
-
-### <span id="fn.parse_duration_str"></span>`fn parse_duration_str`
+### <span id="fn.parse_duration_str"></span><code style="font-size: 0.85em">fn parse_​duration_​str</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn parse_duration_str (s : & str) -> Result < std :: time :: Duration , String >
+fn parse_duration_str(s: &str) -> Result<std::time::Duration, String>
 ```
 
-Parse a duration string like "30s", "5m", "2h", "100ms" into a [`std::time::Duration`].
+Parse a duration string like "30s", "5m", "2h", "100ms" into a `std::time::Duration`.
 
 (Moved here from the removed test-only `manifest_schema` module —
 CLOACI-T-0918. Shipped packages carry `package.toml`, not the
@@ -120,6 +126,3 @@ pub fn parse_duration_str(s: &str) -> Result<std::time::Duration, String> {
 ```
 
 </details>
-
-
-

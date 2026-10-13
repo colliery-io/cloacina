@@ -1,28 +1,27 @@
 ---
 title: "cloacina::security::verification"
 description: "Package verification for secure loading."
+editUrl: false
 sidebar:
-  order: 214
+  order: 196
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Package verification for secure loading.
 
 This module provides:
-- [`SecurityConfig`] for configuring signature requirements
-- [`VerificationError`] for specific failure types
-- [`SignatureSource`] for specifying where to find signatures
-- [`verify_and_load_package`] for verified package loading
+- [`SecurityConfig`](../../../../rust/cloacina/security/verification/#struct.SecurityConfig) for configuring signature requirements
+- [`VerificationError`](../../../../rust/cloacina/security/verification/#enum.VerificationError) for specific failure types
+- [`SignatureSource`](../../../../rust/cloacina/security/verification/#enum.SignatureSource) for specifying where to find signatures
+- `verify_and_load_package` for verified package loading
 
 ## Structs
 
-### <span id="struct.SecurityConfig"></span>`struct SecurityConfig`
+### <span id="struct.SecurityConfig"></span><code style="font-size: 0.85em">struct SecurityConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Default`
 
@@ -32,33 +31,18 @@ Security configuration for package verification.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `require_signatures` | `bool` | Whether package signatures are required (default: false).
-
-When `true`, packages without valid signatures from trusted keys
-will fail to load with a hard error.
-
-When `false`, packages load without verification (for local development). |
-| `key_encryption_key` | `Option < [u8 ; 32] >` | Master encryption key for decrypting signing keys (optional).
-
-Only needed if using database-stored signing keys for signing operations.
-For verification-only scenarios (loading packages), this is not required. |
-| `verification_org_id` | `Option < UniversalUuid >` | Organization ID against which uploaded-package signatures are
-verified. The verification flow looks up trusted keys scoped to
-this org (`KeyManager::find_trusted_key(org_id, fingerprint)`).
-`None` means "no org binding configured" — verification cannot
-run, and `require_signatures = true` becomes fail-safe (reject
-all uploads). Set this to the server's default-org UUID when
-signature verification is enabled. (T-0557 Bug 2) |
+| `require_signatures` | `bool` | Whether package signatures are required (default: false).<br>When `true`, packages without valid signatures from trusted keys will fail to load with a hard error.<br>When `false`, packages load without verification (for local development). |
+| `key_encryption_key` | `Option<[u8; 32]>` | Master encryption key for decrypting signing keys (optional).<br>Only needed if using database-stored signing keys for signing operations. For verification-only scenarios (loading packages), this is not required. |
+| `verification_org_id` | `Option<UniversalUuid>` | Organization ID against which uploaded-package signatures are verified. The verification flow looks up trusted keys scoped to this org (`KeyManager::find_trusted_key(org_id, fingerprint)`). `None` means "no org binding configured" — verification cannot run, and `require_signatures = true` becomes fail-safe (reject all uploads). Set this to the server's default-org UUID when signature verification is enabled. (T-0557 Bug 2) |
 
 #### Methods
 
-##### <span id="SecurityConfig.require_signatures"></span>`require_signatures`
+##### <span id="SecurityConfig.require_signatures"></span><code>require_​signatures</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn require_signatures () -> Self
+fn require_signatures() -> Self
 ```
 
 Create a security config that requires signatures.
@@ -78,15 +62,12 @@ Create a security config that requires signatures.
 
 </details>
 
-
-
-##### <span id="SecurityConfig.development"></span>`development`
+##### <span id="SecurityConfig.development"></span><code>development</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn development () -> Self
+fn development() -> Self
 ```
 
 Create a security config with no signature requirements (for development).
@@ -102,15 +83,12 @@ Create a security config with no signature requirements (for development).
 
 </details>
 
-
-
-##### <span id="SecurityConfig.with_encryption_key"></span>`with_encryption_key`
+##### <span id="SecurityConfig.with_encryption_key"></span><code>with_​encryption_​key</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_encryption_key (mut self , key : [u8 ; 32]) -> Self
+fn with_encryption_key(mut self, key: [u8; 32]) -> Self
 ```
 
 Set the key encryption key for signing operations.
@@ -127,14 +105,9 @@ Set the key encryption key for signing operations.
 
 </details>
 
-
-
-
-
-### <span id="struct.VerificationResult"></span>`struct VerificationResult`
+### <span id="struct.VerificationResult"></span><code style="font-size: 0.85em">struct VerificationResult</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -146,16 +119,13 @@ Result of successful verification.
 |------|------|-------------|
 | `package_hash` | `String` | Hash of the verified package |
 | `signer_fingerprint` | `String` | Fingerprint of the key that signed it |
-| `signer_name` | `Option < String >` | Name of the trusted key (if available) |
-
-
+| `signer_name` | `Option<String>` | Name of the trusted key (if available) |
 
 ## Enums
 
-### <span id="enum.VerificationError"></span>`enum VerificationError`
+### <span id="enum.VerificationError"></span><code style="font-size: 0.85em">enum VerificationError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that occur during package verification.
 
@@ -173,12 +143,9 @@ These are hard failures - there are no "warnings" for security.
 - **`DatabaseError`**
 - **`KeyManagerError`**
 
-
-
-### <span id="enum.SignatureSource"></span>`enum SignatureSource`
+### <span id="enum.SignatureSource"></span><code style="font-size: 0.85em">enum SignatureSource</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Where to find the signature for a package.
 
@@ -188,17 +155,20 @@ Where to find the signature for a package.
 - **`DetachedFile`** - Load signature from a detached `.sig` file.
 - **`Auto`** - Try detached file first (package_path + ".sig"), then database.
 
-
-
 ## Functions
 
-### <span id="fn.verify_package"></span>`fn verify_package`
+### <span id="fn.verify_package"></span><code style="font-size: 0.85em">fn verify_​package</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn verify_package < P : AsRef < Path > > (package_path : P , org_id : UniversalUuid , signature_source : SignatureSource , package_signer : & DbPackageSigner , key_manager : & DbKeyManager ,) -> Result < VerificationResult , VerificationError >
+async fn verify_package<P: AsRef<Path>>(
+    package_path: P,
+    org_id: UniversalUuid,
+    signature_source: SignatureSource,
+    package_signer: &DbPackageSigner,
+    key_manager: &DbKeyManager,
+) -> Result<VerificationResult, VerificationError>
 ```
 
 Verify a package signature.
@@ -213,12 +183,11 @@ This function performs full cryptographic verification:
 
 | Name | Type | Description |
 |------|------|-------------|
-| `package_path` | `-` | Path to the package file to verify |
-| `org_id` | `-` | Organization ID to check trusted keys for |
-| `signature_source` | `-` | Where to find the signature |
-| `package_signer` | `-` | Package signer for database operations |
-| `key_manager` | `-` | Key manager for trusted key lookup |
-
+| `package_path` | `P` | Path to the package file to verify |
+| `org_id` | `UniversalUuid` | Organization ID to check trusted keys for |
+| `signature_source` | `SignatureSource` | Where to find the signature |
+| `package_signer` | `&DbPackageSigner` | Package signer for database operations |
+| `key_manager` | `&DbKeyManager` | Key manager for trusted key lookup |
 
 **Returns:**
 
@@ -345,15 +314,16 @@ pub async fn verify_package<P: AsRef<Path>>(
 
 </details>
 
-
-
-### <span id="fn.verify_package_offline"></span>`fn verify_package_offline`
+### <span id="fn.verify_package_offline"></span><code style="font-size: 0.85em">fn verify_​package_​offline</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn verify_package_offline < P : AsRef < Path > , S : AsRef < Path > > (package_path : P , signature_path : S , public_key : & [u8] ,) -> Result < VerificationResult , VerificationError >
+fn verify_package_offline<P: AsRef<Path>, S: AsRef<Path>>(
+    package_path: P,
+    signature_path: S,
+    public_key: &[u8],
+) -> Result<VerificationResult, VerificationError>
 ```
 
 Verify a package using only a detached signature and public key (offline mode).
@@ -364,10 +334,9 @@ This is useful when the database is not available or for offline verification.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `package_path` | `-` | Path to the package file to verify |
-| `signature_path` | `-` | Path to the detached signature file |
-| `public_key` | `-` | The 32-byte Ed25519 public key to verify against |
-
+| `package_path` | `P` | Path to the package file to verify |
+| `signature_path` | `S` | Path to the detached signature file |
+| `public_key` | `&[u8]` | The 32-byte Ed25519 public key to verify against |
 
 **Returns:**
 
@@ -441,15 +410,18 @@ pub fn verify_package_offline<P: AsRef<Path>, S: AsRef<Path>>(
 
 </details>
 
-
-
-### <span id="fn.verify_package_bytes"></span>`fn verify_package_bytes`
+### <span id="fn.verify_package_bytes"></span><code style="font-size: 0.85em">fn verify_​package_​bytes</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn verify_package_bytes (package_data : & [u8] , org_id : UniversalUuid , signature_source : SignatureSource , package_signer : & DbPackageSigner , key_manager : & DbKeyManager ,) -> Result < VerificationResult , VerificationError >
+async fn verify_package_bytes(
+    package_data: &[u8],
+    org_id: UniversalUuid,
+    signature_source: SignatureSource,
+    package_signer: &DbPackageSigner,
+    key_manager: &DbKeyManager,
+) -> Result<VerificationResult, VerificationError>
 ```
 
 Verify a package signature against in-memory bytes. Same flow as `verify_package` but takes a `&[u8]` instead of a path; useful for upload handlers that already have the package buffered (T-0557 Bug 2).
@@ -549,97 +521,3 @@ pub async fn verify_package_bytes(
 ```
 
 </details>
-
-
-
-### <span id="fn.compute_package_hash"></span>`fn compute_package_hash`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn compute_package_hash (data : & [u8]) -> Result < String , VerificationError >
-```
-
-Compute SHA256 hash of package data.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn compute_package_hash(data: &[u8]) -> Result<String, VerificationError> {
-    use sha2::{Digest, Sha256};
-
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    Ok(hex::encode(hasher.finalize()))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.load_signature_from_db"></span>`fn load_signature_from_db`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-async fn load_signature_from_db (package_hash : & str , package_signer : & DbPackageSigner ,) -> Result < DetachedSignature , VerificationError >
-```
-
-Load signature from database.
-
-<details>
-<summary>Source</summary>
-
-```rust
-async fn load_signature_from_db(
-    package_hash: &str,
-    package_signer: &DbPackageSigner,
-) -> Result<DetachedSignature, VerificationError> {
-    let signature = package_signer
-        .find_signature(package_hash)
-        .await
-        .map_err(|e| VerificationError::DatabaseError {
-            error: e.to_string(),
-        })?
-        .ok_or_else(|| VerificationError::SignatureNotFound {
-            hash: package_hash.to_string(),
-        })?;
-
-    Ok(DetachedSignature::from_signature_info(&signature))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.load_signature_from_file"></span>`fn load_signature_from_file`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn load_signature_from_file (path : & Path) -> Result < DetachedSignature , VerificationError >
-```
-
-Load signature from file.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn load_signature_from_file(path: &Path) -> Result<DetachedSignature, VerificationError> {
-    DetachedSignature::read_from_file(path).map_err(|e| VerificationError::MalformedSignature {
-        reason: e.to_string(),
-    })
-}
-```
-
-</details>
-
-
-

@@ -1,13 +1,13 @@
 ---
 title: "cloacina::registry::error"
 description: "Error types for the workflow registry system."
+editUrl: false
 sidebar:
-  order: 174
+  order: 156
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Error types for the workflow registry system.
 
@@ -17,10 +17,9 @@ and user feedback.
 
 ## Enums
 
-### <span id="enum.RegistryError"></span>`enum RegistryError`
+### <span id="enum.RegistryError"></span><code style="font-size: 0.85em">enum RegistryError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Main error type for registry operations.
 
@@ -44,12 +43,9 @@ with the workflow registry, from validation failures to storage errors.
 - **`Loader`** - Package loading failed.
 - **`Internal`** - Generic internal error.
 
-
-
-### <span id="enum.StorageError"></span>`enum StorageError`
+### <span id="enum.StorageError"></span><code style="font-size: 0.85em">enum StorageError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Error type for storage backend operations.
 
@@ -66,12 +62,9 @@ whether using PostgreSQL, object storage, or filesystem backends.
 - **`Backend`** - Generic storage backend error.
 - **`Database`** - Database error from Diesel operations.
 
-
-
-### <span id="enum.LoaderError"></span>`enum LoaderError`
+### <span id="enum.LoaderError"></span><code style="font-size: 0.85em">enum LoaderError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Error type for package loading and metadata extraction operations.
 
@@ -92,6 +85,3 @@ and validating package integrity.
 - **`MissingManifest`** - Missing manifest.json in archive.
 - **`ManifestParse`** - Manifest parse error.
 - **`MissingSourceDir`** - Missing source directory in extracted package.
-
-
-

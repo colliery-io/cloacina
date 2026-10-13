@@ -1,13 +1,13 @@
 ---
 title: "cloacina::dal::unified::workflow_registry_storage"
 description: "Unified workflow registry storage with runtime backend selection"
+editUrl: false
 sidebar:
-  order: 111
+  order: 95
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Unified workflow registry storage with runtime backend selection
 
@@ -17,30 +17,22 @@ at runtime based on the database connection type.
 
 ## Structs
 
-### <span id="struct.UnifiedRegistryStorage"></span>`struct UnifiedRegistryStorage`
+### <span id="struct.UnifiedRegistryStorage"></span><code style="font-size: 0.85em">struct UnifiedRegistryStorage</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
 Unified registry storage that works with both PostgreSQL and SQLite.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `database` | `Database` |  |
-
 #### Methods
 
-##### <span id="UnifiedRegistryStorage.new"></span>`new`
+##### <span id="UnifiedRegistryStorage.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (database : Database) -> Self
+fn new(database: Database) -> Self
 ```
 
 Creates a new UnifiedRegistryStorage instance.
@@ -56,15 +48,12 @@ Creates a new UnifiedRegistryStorage instance.
 
 </details>
 
-
-
-##### <span id="UnifiedRegistryStorage.database"></span>`database`
+##### <span id="UnifiedRegistryStorage.database"></span><code>database</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn database (& self) -> & Database
+fn database(&self) -> &Database
 ```
 
 Returns a reference to the underlying database.
@@ -79,8 +68,3 @@ Returns a reference to the underlying database.
 ```
 
 </details>
-
-
-
-
-

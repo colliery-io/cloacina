@@ -1,27 +1,27 @@
 ---
 title: "cloacina-python::loader"
 description: "Python workflow package loader."
+editUrl: false
 sidebar:
-  order: 33
+  order: 17
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Python workflow package loader.
 
 Imports a Python workflow module via PyO3, triggering `@task` decorator
 registration, then collects the registered tasks and builds the workflow.
+
 This is the bridge between extracted `.cloacina` packages and the
 cloacina task execution engine.
 
 ## Enums
 
-### <span id="enum.PythonLoaderError"></span>`enum PythonLoaderError`
+### <span id="enum.PythonLoaderError"></span><code style="font-size: 0.85em">enum PythonLoaderError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Error type for Python package loading operations.
 
@@ -32,73 +32,14 @@ Error type for Python package loading operations.
 - **`RegistrationError`**
 - **`RuntimeError`**
 
-
-
 ## Functions
 
-### <span id="fn.provider_scope_of_caller"></span>`fn provider_scope_of_caller`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn provider_scope_of_caller () -> Option < cloacina :: registry :: loader :: ProviderScope >
-```
-
-The provider scope installed on the CALLING thread (CLOACI-T-0925).
-
-The reconciler installs it around a package load — it says which staged
-`providers/` tree this package's `cloaca.constructor(from = ..)` calls resolve
-against. Imports run on a thread we spawn, and a thread-local does not follow
-a thread hop, so we capture it here and re-install it there — the same
-treatment `ScopedRuntime` and `ScopedRegistration` already get.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn provider_scope_of_caller() -> Option<cloacina::registry::loader::ProviderScope> {
-    cloacina::registry::loader::current_provider_scope()
-}
-```
-
-</details>
-
-
-
-### <span id="fn.enter_provider_scope"></span>`fn enter_provider_scope`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn enter_provider_scope (scope : Option < cloacina :: registry :: loader :: ProviderScope > ,) -> cloacina :: registry :: loader :: ScopedProviderSearch
-```
-
-Re-install a captured provider scope on this thread for the import's duration. `None` (embedded / direct import / tests) leaves resolution on the process-wide path, exactly as before CLOACI-T-0925.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn enter_provider_scope(
-    scope: Option<cloacina::registry::loader::ProviderScope>,
-) -> cloacina::registry::loader::ScopedProviderSearch {
-    cloacina::registry::loader::ScopedProviderSearch::enter_opt(scope)
-}
-```
-
-</details>
-
-
-
-### <span id="fn.ensure_cloaca_module"></span>`fn ensure_cloaca_module`
+### <span id="fn.ensure_cloaca_module"></span><code style="font-size: 0.85em">fn ensure_​cloaca_​module</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn ensure_cloaca_module (py : Python) -> PyResult < () >
+fn ensure_cloaca_module(py: Python) -> PyResult<()>
 ```
 
 Ensure the `cloaca` Python module is available in the embedded interpreter.
@@ -137,21 +78,22 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
 
 </details>
 
-
-
-### <span id="fn.validate_no_stdlib_shadowing"></span>`fn validate_no_stdlib_shadowing`
+### <span id="fn.validate_no_stdlib_shadowing"></span><code style="font-size: 0.85em">fn validate_​no_​stdlib_​shadowing</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_no_stdlib_shadowing (workflow_dir : & Path , vendor_dir : & Path ,) -> Result < () , PythonLoaderError >
+fn validate_no_stdlib_shadowing(
+    workflow_dir: &Path,
+    vendor_dir: &Path,
+) -> Result<(), PythonLoaderError>
 ```
 
 Import a Python workflow module and register its tasks.
 
 This is the core function that bridges extracted Python packages to
 the cloacina execution engine:
+
 1. Ensures the `cloaca` module is available in the interpreter
 2. Adds workflow and vendor directories to `sys.path`
 3. Pushes a workflow context (so `@task` decorators know the namespace)
@@ -163,12 +105,11 @@ the cloacina execution engine:
 
 | Name | Type | Description |
 |------|------|-------------|
-| `workflow_dir` | `-` | — Path to the extracted `workflow/` directory |
-| `vendor_dir` | `-` | — Path to the extracted `vendor/` directory |
+| `workflow_dir` | `&Path` | — Path to the extracted `workflow/` directory |
+| `vendor_dir` | `&Path` | — Path to the extracted `vendor/` directory |
 | `entry_module` | `-` | — Dotted module path (e.g., `"workflow.tasks"`) |
 | `package_name` | `-` | — Package name from manifest |
 | `tenant_id` | `-` | — Tenant for namespace isolation (default: `"public"`) |
-
 
 <details>
 <summary>Source</summary>
@@ -203,15 +144,19 @@ pub fn validate_no_stdlib_shadowing(
 
 </details>
 
-
-
-### <span id="fn.import_and_register_python_workflow"></span>`fn import_and_register_python_workflow`
+### <span id="fn.import_and_register_python_workflow"></span><code style="font-size: 0.85em">fn import_​and_​register_​python_​workflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn import_and_register_python_workflow (workflow_dir : & Path , vendor_dir : & Path , entry_module : & str , package_name : & str , tenant_id : & str , runtime : Arc < Runtime > ,) -> Result < Vec < TaskNamespace > , PythonLoaderError >
+fn import_and_register_python_workflow(
+    workflow_dir: &Path,
+    vendor_dir: &Path,
+    entry_module: &str,
+    package_name: &str,
+    tenant_id: &str,
+    runtime: Arc<Runtime>,
+) -> Result<Vec<TaskNamespace>, PythonLoaderError>
 ```
 
 <details>
@@ -241,15 +186,20 @@ pub fn import_and_register_python_workflow(
 
 </details>
 
-
-
-### <span id="fn.import_and_register_python_workflow_named"></span>`fn import_and_register_python_workflow_named`
+### <span id="fn.import_and_register_python_workflow_named"></span><code style="font-size: 0.85em">fn import_​and_​register_​python_​workflow_​named</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn import_and_register_python_workflow_named (workflow_dir : & Path , vendor_dir : & Path , entry_module : & str , package_name : & str , workflow_name : & str , tenant_id : & str , runtime : Arc < Runtime > ,) -> Result < Vec < TaskNamespace > , PythonLoaderError >
+fn import_and_register_python_workflow_named(
+    workflow_dir: &Path,
+    vendor_dir: &Path,
+    entry_module: &str,
+    package_name: &str,
+    workflow_name: &str,
+    tenant_id: &str,
+    runtime: Arc<Runtime>,
+) -> Result<Vec<TaskNamespace>, PythonLoaderError>
 ```
 
 <details>
@@ -512,15 +462,20 @@ pub fn import_and_register_python_workflow_named(
 
 </details>
 
-
-
-### <span id="fn.import_python_computation_graph"></span>`fn import_python_computation_graph`
+### <span id="fn.import_python_computation_graph"></span><code style="font-size: 0.85em">fn import_​python_​computation_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn import_python_computation_graph (workflow_dir : & Path , vendor_dir : & Path , entry_module : & str , graph_name : & str , tenant_id : Option < & str > , package_name : Option < & str > , runtime : Arc < Runtime > ,) -> Result < String , PythonLoaderError >
+fn import_python_computation_graph(
+    workflow_dir: &Path,
+    vendor_dir: &Path,
+    entry_module: &str,
+    graph_name: &str,
+    tenant_id: Option<&str>,
+    package_name: Option<&str>,
+    runtime: Arc<Runtime>,
+) -> Result<String, PythonLoaderError>
 ```
 
 Import a Python computation graph module and return the graph name.
@@ -624,17 +579,14 @@ pub fn import_python_computation_graph(
 
 </details>
 
-
-
-### <span id="fn.py_var"></span>`fn py_var`
+### <span id="fn.py_var"></span><code style="font-size: 0.85em">fn py_​var</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.loader.py_var](../../../cloacina-python/loader/#fn.py_var)
+> **Python API**: [`cloaca.py_var`](../../../cloaca/#fn.py_var)
 
 ```rust
-fn py_var (name : & str) -> PyResult < String >
+fn py_var(name: &str) -> PyResult<String>
 ```
 
 Python binding: `cloaca.var(name)` — resolve a `CLOACINA_VAR_{NAME}` env var.
@@ -650,17 +602,14 @@ pub(crate) fn py_var(name: &str) -> PyResult<String> {
 
 </details>
 
-
-
-### <span id="fn.py_var_or"></span>`fn py_var_or`
+### <span id="fn.py_var_or"></span><code style="font-size: 0.85em">fn py_​var_​or</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.loader.py_var_or](../../../cloacina-python/loader/#fn.py_var_or)
+> **Python API**: [`cloaca.py_var_or`](../../../cloaca/#fn.py_var_or)
 
 ```rust
-fn py_var_or (name : & str , default : & str) -> String
+fn py_var_or(name: &str, default: &str) -> String
 ```
 
 Python binding: `cloaca.var_or(name, default)` — resolve with a fallback.
@@ -675,6 +624,3 @@ pub(crate) fn py_var_or(name: &str, default: &str) -> String {
 ```
 
 </details>
-
-
-

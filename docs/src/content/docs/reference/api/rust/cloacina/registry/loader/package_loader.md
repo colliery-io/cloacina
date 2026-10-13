@@ -1,13 +1,13 @@
 ---
 title: "cloacina::registry::loader::package_loader"
 description: "Package loader for extracting metadata from workflow library files."
+editUrl: false
 sidebar:
-  order: 180
+  order: 162
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Package loader for extracting metadata from workflow library files.
 
@@ -16,10 +16,9 @@ via the fidius-host plugin API and extract package metadata.
 
 ## Structs
 
-### <span id="struct.PackageMetadata"></span>`struct PackageMetadata`
+### <span id="struct.PackageMetadata"></span><code style="font-size: 0.85em">struct PackageMetadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -30,46 +29,22 @@ Metadata extracted from a workflow package.
 | Name | Type | Description |
 |------|------|-------------|
 | `package_name` | `String` | Package name |
-| `workflow_name` | `String` | Workflow name the package registers (the `#[workflow(name = "...")]`
-value) — the identifier the runner/cron scheduler executes by. Distinct
-from `package_name` (e.g. package `demo-slow-rust` → workflow
-`demo_slow_workflow`). Persisted so the API can expose it and callers
-can execute by it (CLOACI-T-0671 / T-0663). `#[serde(default)]` keeps
-older stored metadata (without this field) deserializable. |
+| `workflow_name` | `String` | Workflow name the package registers (the `#[workflow(name = "...")]` value) — the identifier the runner/cron scheduler executes by. Distinct from `package_name` (e.g. package `demo-slow-rust` → workflow `demo_slow_workflow`). Persisted so the API can expose it and callers can execute by it (CLOACI-T-0671 / T-0663). `#[serde(default)]` keeps older stored metadata (without this field) deserializable. |
 | `version` | `String` | Package version (extracted from library or defaults to "1.0.0") |
-| `description` | `Option < String >` | Package description |
-| `author` | `Option < String >` | Package author |
-| `tasks` | `Vec < TaskMetadata >` | List of tasks provided by this package |
-| `graph_data` | `Option < serde_json :: Value >` | Workflow graph data (if available) |
+| `description` | `Option<String>` | Package description |
+| `author` | `Option<String>` | Package author |
+| `tasks` | `Vec<TaskMetadata>` | List of tasks provided by this package |
+| `graph_data` | `Option<serde_json::Value>` | Workflow graph data (if available) |
 | `architecture` | `String` | Library architecture info |
-| `symbols` | `Vec < String >` | Required symbols present in the library |
-| `workflow_triggers` | `Vec < String >` | I-0102 / T-A: Trigger names this package's workflow subscribes to,
-sourced from `#[workflow(triggers = […])]`. The reconciler binds
-each named trigger to the workflow at load time. |
-| `declared_params` | `Vec < cloacina_api_types :: InputSlot >` | CLOACI-I-0128 / T-0756: declared workflow params (named, JSON-Schema-typed
-input slots) from `#[workflow(params(...))]`, read via the input-interface
-FFI entrypoint at extraction time. Empty for packages that declare none or
-predate the entrypoint. |
-| `declared_surfaces` | `Vec < cloacina_api_types :: DeclaredSurface >` | CLOACI-I-0128 / T-0758: declared input interfaces of the package's
-non-workflow injectable surfaces (computation graphs, reactors,
-accumulators), read from the same `get_input_interface` entrypoint. Lets
-the server validate operator injections (reactor fire / accumulator
-inject) against the surface's boundary types. Empty when none are declared
-or the package predates the entrypoint. |
-| `task_docs` | `std :: collections :: HashMap < String , TaskDocs >` | CLOACI-T-0754: the compiler's raw build-time doc parse (`what`/`why` per
-local task id), preserved verbatim so load paths that rebuild the task
-list AFTER build — the Python path has no cdylib, so its `tasks` are
-written by the reconciler at load — can re-merge docs instead of losing
-them. Rust packages get their docs overlaid onto `tasks` at build; this
-map is the durable source either way. Empty for undocumented packages
-and metadata predating the field. |
+| `symbols` | `Vec<String>` | Required symbols present in the library |
+| `workflow_triggers` | `Vec<String>` | I-0102 / T-A: Trigger names this package's workflow subscribes to, sourced from `#[workflow(triggers = […])]`. The reconciler binds each named trigger to the workflow at load time. |
+| `declared_params` | `Vec<cloacina_api_types::InputSlot>` | CLOACI-I-0128 / T-0756: declared workflow params (named, JSON-Schema-typed input slots) from `#[workflow(params(...))]`, read via the input-interface FFI entrypoint at extraction time. Empty for packages that declare none or predate the entrypoint. |
+| `declared_surfaces` | `Vec<cloacina_api_types::DeclaredSurface>` | CLOACI-I-0128 / T-0758: declared input interfaces of the package's non-workflow injectable surfaces (computation graphs, reactors, accumulators), read from the same `get_input_interface` entrypoint. Lets the server validate operator injections (reactor fire / accumulator inject) against the surface's boundary types. Empty when none are declared or the package predates the entrypoint. |
+| `task_docs` | `std::collections::HashMap<String, TaskDocs>` | CLOACI-T-0754: the compiler's raw build-time doc parse (`what`/`why` per local task id), preserved verbatim so load paths that rebuild the task list AFTER build — the Python path has no cdylib, so its `tasks` are written by the reconciler at load — can re-merge docs instead of losing them. Rust packages get their docs overlaid onto `tasks` at build; this map is the durable source either way. Empty for undocumented packages and metadata predating the field. |
 
-
-
-### <span id="struct.TaskMetadata"></span>`struct TaskMetadata`
+### <span id="struct.TaskMetadata"></span><code style="font-size: 0.85em">struct TaskMetadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -82,57 +57,39 @@ Individual task metadata.
 | `index` | `u32` | Task index in the package |
 | `local_id` | `String` | Local task identifier |
 | `namespaced_id_template` | `String` | Namespaced ID template |
-| `dependencies` | `Vec < String >` | Task dependencies as a list of local task IDs |
+| `dependencies` | `Vec<String>` | Task dependencies as a list of local task IDs |
 | `description` | `String` | Human-readable description |
 | `source_location` | `String` | Source location information |
-| `doc_what` | `Option < String >` | CLOACI-T-0752 "what" — a short summary of what the task does, parsed
-from the author's doc-comment / docstring at build time. `None` when the
-task is undocumented. `#[serde(default)]` keeps older stored metadata
-deserializable. |
-| `doc_why` | `Option < String >` | CLOACI-T-0752 "why" — the rationale for the task (why it exists / when it
-matters), parsed from the doc-comment / docstring. `None` when absent. |
+| `doc_what` | `Option<String>` | CLOACI-T-0752 "what" — a short summary of what the task does, parsed from the author's doc-comment / docstring at build time. `None` when the task is undocumented. `#[serde(default)]` keeps older stored metadata deserializable. |
+| `doc_why` | `Option<String>` | CLOACI-T-0752 "why" — the rationale for the task (why it exists / when it matters), parsed from the doc-comment / docstring. `None` when absent. |
 
-
-
-### <span id="struct.TaskDocs"></span>`struct TaskDocs`
+### <span id="struct.TaskDocs"></span><code style="font-size: 0.85em">struct TaskDocs</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Default`, `Serialize`, `Deserialize`
 
-Structured "what & why" documentation for a single task (CLOACI-T-0752), parsed compiler-side from the author's source (Rust doc-comments / Python docstrings) and overlaid onto the persisted [`TaskMetadata`]. Keyed by the task's local id.
+Structured "what & why" documentation for a single task (CLOACI-T-0752), parsed compiler-side from the author's source (Rust doc-comments / Python docstrings) and overlaid onto the persisted [`TaskMetadata`](../../../../../rust/cloacina/registry/loader/package_loader/#struct.TaskMetadata). Keyed by the task's local id.
 
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
-| `what` | `Option < String >` | Short summary of what the task does. |
-| `why` | `Option < String >` | Rationale — why the task exists / when it matters. |
+| `what` | `Option<String>` | Short summary of what the task does. |
+| `why` | `Option<String>` | Rationale — why the task exists / when it matters. |
 
-
-
-### <span id="struct.PackageLoader"></span>`struct PackageLoader`
+### <span id="struct.PackageLoader"></span><code style="font-size: 0.85em">struct PackageLoader</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `temp_dir` | `TempDir` |  |
-| `handle_cache` | `PluginHandleCache` | Shared cache — prevents dlclose of loaded libraries. |
 
 #### Methods
 
-##### <span id="PackageLoader.new"></span>`new`
+##### <span id="PackageLoader.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Result < Self , LoaderError >
+fn new() -> Result<Self, LoaderError>
 ```
 
 Create a new package loader with a temporary directory for safe operations.
@@ -155,15 +112,14 @@ Create a new package loader with a temporary directory for safe operations.
 
 </details>
 
-
-
-##### <span id="PackageLoader.with_handle_cache"></span>`with_handle_cache`
+##### <span id="PackageLoader.with_handle_cache"></span><code>with_​handle_​cache</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_handle_cache (cache : PluginHandleCache) -> Result < Self , LoaderError >
+fn with_handle_cache(
+    cache: PluginHandleCache,
+) -> Result<Self, LoaderError>
 ```
 
 Create a package loader with a shared handle cache.
@@ -186,15 +142,12 @@ Create a package loader with a shared handle cache.
 
 </details>
 
-
-
-##### <span id="PackageLoader.handle_cache"></span>`handle_cache`
+##### <span id="PackageLoader.handle_cache"></span><code>handle_​cache</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn handle_cache (& self) -> PluginHandleCache
+fn handle_cache(&self) -> PluginHandleCache
 ```
 
 Get the shared handle cache (for passing to TaskRegistrar).
@@ -210,72 +163,16 @@ Get the shared handle cache (for passing to TaskRegistrar).
 
 </details>
 
-
-
-##### <span id="PackageLoader.generate_graph_data_from_tasks"></span>`generate_graph_data_from_tasks`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn generate_graph_data_from_tasks (& self , tasks : & [TaskMetadata] ,) -> Result < serde_json :: Value , LoaderError >
-```
-
-Generate graph data from task dependencies.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn generate_graph_data_from_tasks(
-        &self,
-        tasks: &[TaskMetadata],
-    ) -> Result<serde_json::Value, LoaderError> {
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-
-        for task in tasks {
-            nodes.push(serde_json::json!({
-                "id": task.local_id,
-                "label": task.local_id,
-                "description": task.description,
-                "node_type": "task"
-            }));
-        }
-
-        for task in tasks {
-            for dependency in &task.dependencies {
-                edges.push(serde_json::json!({
-                    "source": dependency,
-                    "target": task.local_id,
-                    "edge_type": "dependency"
-                }));
-            }
-        }
-
-        Ok(serde_json::json!({
-            "nodes": nodes,
-            "edges": edges,
-            "metadata": {
-                "task_count": tasks.len(),
-                "generated_from": "task_dependencies"
-            }
-        }))
-    }
-```
-
-</details>
-
-
-
-##### <span id="PackageLoader.extract_metadata"></span>`extract_metadata`
+##### <span id="PackageLoader.extract_metadata"></span><code>extract_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn extract_metadata (& self , package_data : & [u8] ,) -> Result < PackageMetadata , LoaderError >
+async fn extract_metadata(
+    &self,
+    package_data: &[u8],
+) -> Result<PackageMetadata, LoaderError>
 ```
 
 Extract metadata from compiled library bytes.
@@ -284,12 +181,12 @@ Extract metadata from compiled library bytes.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `package_data` | `-` | Raw bytes of the compiled cdylib (.so / .dylib). The reconciler is responsible for unpacking and compiling any source archives before calling this method. |
-
+| `package_data` | `&[u8]` | Raw bytes of the compiled cdylib (.so / .dylib). The reconciler is responsible for unpacking and compiling any source archives before calling this method. |
 
 **Returns:**
 
-* `Ok(PackageMetadata)` - Successfully extracted metadata * `Err(LoaderError)` - If extraction fails
+* `Ok(PackageMetadata)` - Successfully extracted metadata
+* `Err(LoaderError)` - If extraction fails
 
 <details>
 <summary>Source</summary>
@@ -318,222 +215,16 @@ Extract metadata from compiled library bytes.
 
 </details>
 
-
-
-##### <span id="PackageLoader.extract_metadata_from_so"></span>`extract_metadata_from_so`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn extract_metadata_from_so (& self , library_path : & Path ,) -> Result < PackageMetadata , LoaderError >
-```
-
-Extract metadata from a library file using the fidius-host plugin API.
-
-The loaded library is cached to prevent dlclose — see struct-level docs.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn extract_metadata_from_so(
-        &self,
-        library_path: &Path,
-    ) -> Result<PackageMetadata, LoaderError> {
-        // Load via fidius-host — validates magic, ABI version, wire format, etc.
-        let loaded = fidius_host::loader::load_library(library_path).map_err(
-            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
-                path: library_path.to_string_lossy().to_string(),
-                error: e.to_string(),
-            },
-        )?;
-
-        // CLOACI-T-0897: install the host-callback table BEFORE any plugin
-        // method runs, so a task that calls `defer_until` can reach back for
-        // its slot. Must happen here — `loaded` is consumed just below, and
-        // binding is per loaded library.
-        bind_engine_host(&loaded, library_path);
-
-        let plugin =
-            loaded
-                .plugins
-                .into_iter()
-                .next()
-                .ok_or_else(|| LoaderError::MetadataExtraction {
-                    reason: "Plugin library contains no plugins".to_string(),
-                })?;
-
-        let handle = fidius_host::PluginHandle::from_loaded(plugin);
-
-        let ffi_metadata: cloacina_workflow_plugin::PackageTasksMetadata = handle
-            .call_method(cloacina_workflow_plugin::METHOD_GET_TASK_METADATA, &())
-            .map_err(|e| LoaderError::MetadataExtraction {
-                reason: format!("Failed to call get_task_metadata: {}", e),
-            })?;
-
-        // CLOACI-I-0128 / T-0756: pull the declared input interface (method index
-        // 9, optional since v3). Older packages return NotImplemented → no
-        // declared params. The workflow-surface entry's `slots_json` is a JSON
-        // array of InputSlot.
-        let iface_result: Result<
-            cloacina_workflow_plugin::InputInterfaceDescriptor,
-            fidius_host::CallError,
-        > = handle.call_method(cloacina_workflow_plugin::METHOD_GET_INPUT_INTERFACE, &());
-        let (declared_params, declared_surfaces): (
-            Vec<cloacina_api_types::InputSlot>,
-            Vec<cloacina_api_types::DeclaredSurface>,
-        ) = match iface_result {
-            Ok(desc) => {
-                let mut params: Vec<cloacina_api_types::InputSlot> = Vec::new();
-                let mut surfaces: Vec<cloacina_api_types::DeclaredSurface> = Vec::new();
-                for e in desc.entries {
-                    let slots =
-                        serde_json::from_str::<Vec<cloacina_api_types::InputSlot>>(&e.slots_json)
-                            .unwrap_or_default();
-                    if e.surface_kind == "workflow" {
-                        // Workflow params land in declared_params (T-0756).
-                        params.extend(slots);
-                    } else {
-                        // graph / reactor / accumulator surfaces (T-0758).
-                        surfaces.push(cloacina_api_types::DeclaredSurface {
-                            kind: e.surface_kind,
-                            name: e.surface_name,
-                            slots,
-                        });
-                    }
-                }
-                (params, surfaces)
-            }
-            Err(fidius_host::CallError::NotImplemented { .. }) => (Vec::new(), Vec::new()),
-            Err(e) => {
-                tracing::warn!(
-                    "get_input_interface failed: {:?}; treating as no declared interface",
-                    e
-                );
-                (Vec::new(), Vec::new())
-            }
-        };
-
-        // Keep the handle alive — dropping it triggers dlclose which corrupts
-        // the inventory linked list (see struct-level docs).
-        // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
-        if let Ok(mut cache) = self.handle_cache.lock() {
-            cache.push(handle);
-        }
-
-        let mut pkg = self.convert_plugin_metadata_to_rust(ffi_metadata)?;
-        pkg.declared_params = declared_params;
-        pkg.declared_surfaces = declared_surfaces;
-        Ok(pkg)
-    }
-```
-
-</details>
-
-
-
-##### <span id="PackageLoader.convert_plugin_metadata_to_rust"></span>`convert_plugin_metadata_to_rust`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn convert_plugin_metadata_to_rust (& self , meta : cloacina_workflow_plugin :: PackageTasksMetadata ,) -> Result < PackageMetadata , LoaderError >
-```
-
-Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata` struct used by the rest of the registry.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn convert_plugin_metadata_to_rust(
-        &self,
-        meta: cloacina_workflow_plugin::PackageTasksMetadata,
-    ) -> Result<PackageMetadata, LoaderError> {
-        let tasks: Vec<TaskMetadata> = meta
-            .tasks
-            .into_iter()
-            .map(|t| TaskMetadata {
-                index: t.index,
-                local_id: t.id,
-                namespaced_id_template: t.namespaced_id_template,
-                dependencies: t.dependencies,
-                description: t.description,
-                source_location: t.source_location,
-                // FFI metadata carries no docs; the compiler overlays parsed
-                // doc-comments at build success (CLOACI-T-0752).
-                doc_what: None,
-                doc_why: None,
-            })
-            .collect();
-
-        // Build graph data from tasks if no serialized graph is present
-        let graph_data = match meta.graph_data_json.as_deref() {
-            Some(json) if !json.trim().is_empty() => {
-                match serde_json::from_str::<serde_json::Value>(json) {
-                    Ok(v) => Some(v),
-                    Err(_) => {
-                        tracing::debug!(
-                            "graph_data_json is not valid JSON, generating from {} tasks",
-                            tasks.len()
-                        );
-                        self.generate_graph_data_from_tasks(&tasks).ok()
-                    }
-                }
-            }
-            _ => {
-                if !tasks.is_empty() {
-                    self.generate_graph_data_from_tasks(&tasks).ok()
-                } else {
-                    None
-                }
-            }
-        };
-
-        let architecture = if cfg!(target_arch = "x86_64") {
-            "x86_64".to_string()
-        } else if cfg!(target_arch = "aarch64") {
-            "aarch64".to_string()
-        } else {
-            std::env::consts::ARCH.to_string()
-        };
-
-        Ok(PackageMetadata {
-            package_name: meta.package_name,
-            workflow_name: meta.workflow_name,
-            version: "1.0.0".to_string(),
-            description: meta.package_description,
-            author: meta.package_author,
-            tasks,
-            graph_data,
-            architecture,
-            symbols: vec!["fidius_get_registry".to_string()],
-            workflow_triggers: meta.triggers,
-            // Populated by the caller via the input-interface entrypoint
-            // (extract_metadata_from_so); empty here.
-            declared_params: Vec::new(),
-            declared_surfaces: Vec::new(),
-            // Docs come from the compiler parse at build success (T-0754).
-            task_docs: Default::default(),
-        })
-    }
-```
-
-</details>
-
-
-
-##### <span id="PackageLoader.extract_graph_metadata"></span>`extract_graph_metadata`
+##### <span id="PackageLoader.extract_graph_metadata"></span><code>extract_​graph_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn extract_graph_metadata (& self , package_data : & [u8] ,) -> Result < Option < cloacina_workflow_plugin :: GraphPackageMetadata > , LoaderError >
+async fn extract_graph_metadata(
+    &self,
+    package_data: &[u8],
+) -> Result<Option<cloacina_workflow_plugin::GraphPackageMetadata>, LoaderError>
 ```
 
 Extract computation graph metadata from compiled library bytes.
@@ -603,16 +294,16 @@ Returns `None` if the plugin doesn't support graph metadata (workflow-only packa
 
 </details>
 
-
-
-##### <span id="PackageLoader.extract_reactor_metadata"></span>`extract_reactor_metadata`
+##### <span id="PackageLoader.extract_reactor_metadata"></span><code>extract_​reactor_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn extract_reactor_metadata (& self , package_data : & [u8] ,) -> Result < Vec < cloacina_workflow_plugin :: ReactorPackageMetadata > , LoaderError >
+async fn extract_reactor_metadata(
+    &self,
+    package_data: &[u8],
+) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, LoaderError>
 ```
 
 Extract reactor metadata from compiled library bytes (T-B / I-0102).
@@ -675,23 +366,23 @@ shell.
 
 </details>
 
-
-
-##### <span id="PackageLoader.extract_constructor_metadata"></span>`extract_constructor_metadata`
+##### <span id="PackageLoader.extract_constructor_metadata"></span><code>extract_​constructor_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn extract_constructor_metadata (& self , package_data : & [u8] ,) -> Result < Vec < cloacina_workflow_plugin :: ConstructorPackageMetadata > , LoaderError >
+async fn extract_constructor_metadata(
+    &self,
+    package_data: &[u8],
+) -> Result<Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>, LoaderError>
 ```
 
 Extract packaged `constructor!(...)` node declarations from compiled library bytes (CLOACI-T-0832).
 
 Calls `get_constructor_metadata()` (method index 10) on the fidius plugin.
 Plugins that predate trait v4 return `Ok(vec![])` here. Each returned
-[`cloacina_workflow_plugin::ConstructorPackageMetadata`] is resolved by the
+`cloacina_workflow_plugin::ConstructorPackageMetadata` is resolved by the
 host (which links the WASM constructor loader) via `load_constructor_node`
 — applying the tenant capability grants — and injected into the rebuilt
 workflow DAG.
@@ -749,16 +440,16 @@ workflow DAG.
 
 </details>
 
-
-
-##### <span id="PackageLoader.extract_trigger_metadata"></span>`extract_trigger_metadata`
+##### <span id="PackageLoader.extract_trigger_metadata"></span><code>extract_​trigger_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn extract_trigger_metadata (& self , package_data : & [u8] ,) -> Result < Vec < cloacina_workflow_plugin :: TriggerPackageMetadata > , LoaderError >
+async fn extract_trigger_metadata(
+    &self,
+    package_data: &[u8],
+) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, LoaderError>
 ```
 
 Extract trigger metadata from compiled library bytes (T-B / I-0102).
@@ -819,16 +510,16 @@ returned `cron_expression` field.
 
 </details>
 
-
-
-##### <span id="PackageLoader.extract_triggerless_graph_metadata"></span>`extract_triggerless_graph_metadata`
+##### <span id="PackageLoader.extract_triggerless_graph_metadata"></span><code>extract_​triggerless_​graph_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn extract_triggerless_graph_metadata (& self , package_data : & [u8] ,) -> Result < Vec < cloacina_workflow_plugin :: TriggerlessGraphMetadataEntry > , LoaderError >
+async fn extract_triggerless_graph_metadata(
+    &self,
+    package_data: &[u8],
+) -> Result<Vec<cloacina_workflow_plugin::TriggerlessGraphMetadataEntry>, LoaderError>
 ```
 
 Extract trigger-less computation graph metadata from compiled library bytes (T-0553 follow-up — Trigger-less CG FFI bridge).
@@ -909,15 +600,12 @@ method index 8).
 
 </details>
 
-
-
-##### <span id="PackageLoader.temp_dir"></span>`temp_dir`
+##### <span id="PackageLoader.temp_dir"></span><code>temp_​dir</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn temp_dir (& self) -> & Path
+fn temp_dir(&self) -> &Path
 ```
 
 Get the temporary directory path. Test-only: production code does not inspect the loader's temp dir directly.
@@ -933,16 +621,16 @@ Get the temporary directory path. Test-only: production code does not inspect th
 
 </details>
 
-
-
-##### <span id="PackageLoader.validate_package_symbols"></span>`validate_package_symbols`
+##### <span id="PackageLoader.validate_package_symbols"></span><code>validate_​package_​symbols</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn validate_package_symbols (& self , package_data : & [u8] ,) -> Result < Vec < String > , LoaderError >
+async fn validate_package_symbols(
+    &self,
+    package_data: &[u8],
+) -> Result<Vec<String>, LoaderError>
 ```
 
 Validate that a package has the required symbols by loading it via fidius-host.
@@ -988,19 +676,14 @@ or the known symbol names if the library loads without error.
 
 </details>
 
-
-
-
-
 ## Functions
 
-### <span id="fn.get_library_extension"></span>`fn get_library_extension`
+### <span id="fn.get_library_extension"></span><code style="font-size: 0.85em">fn get_​library_​extension</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_library_extension () -> & 'static str
+fn get_library_extension() -> &'static str
 ```
 
 Get the platform-specific dynamic library extension.
@@ -1022,67 +705,8 @@ pub fn get_library_extension() -> &'static str {
 
 </details>
 
+## Type aliases
 
-
-### <span id="fn.bind_engine_host"></span>`fn bind_engine_host`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">pub(crate)</span>
-
-
-```rust
-fn bind_engine_host (loaded : & fidius_host :: loader :: LoadedLibrary , library_path : & Path)
-```
-
-Install the engine's `CloacinaHost` callback table on a freshly loaded library (CLOACI-T-0897), so a packaged task that calls `defer_until` can reach back for its concurrency slot.
-
-Best-effort by design, in three ways that all matter:
-* A package that declares no host interface — every package built before
-this existed — imports nothing, `bind` reports `false`, and the package
-loads and runs exactly as before. This is why the change does not force a
-rebuild of the world.
-* A version or hash mismatch is a LOAD-time error from fidius, logged here
-rather than propagated: the package's tasks are still perfectly runnable
-as long as none of them defers, and one that does gets a clear
-`NotBound` at its first `defer_until` instead of the whole package
-failing to load.
-* Binding is once-only per library; a second attempt is refused and simply
-logged.
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub(crate) fn bind_engine_host(loaded: &fidius_host::loader::LoadedLibrary, library_path: &Path) {
-    use cloacina_workflow_plugin::{CloacinaHost, CloacinaHostBinding};
-
-    let host: std::sync::Arc<dyn CloacinaHost> = std::sync::Arc::new(crate::executor::EngineHost);
-    match CloacinaHostBinding::bind(loaded, host) {
-        Ok(true) => {
-            tracing::debug!(
-                library = %library_path.display(),
-                "CloacinaHost bound — package can use defer_until"
-            );
-        }
-        Ok(false) => {
-            // The common case: the package never imports the interface.
-            tracing::trace!(
-                library = %library_path.display(),
-                "package imports no host interface; nothing bound"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(
-                library = %library_path.display(),
-                error = %e,
-                "could not bind CloacinaHost — tasks in this package that call \
-                 defer_until will fail with a not-bound error; the rest run normally"
-            );
-        }
-    }
-}
-```
-
-</details>
-
-
-
+| Name | Type | Description |
+|------|------|-------------|
+| <span id="type.PluginHandleCache"></span>`PluginHandleCache` | `std::sync::Arc<std::sync::Mutex<Vec<fidius_host::PluginHandle>>>` | Package loader for extracting metadata from workflow library files.<br>Loaded libraries are cached to prevent dlclose. The `inventory` crate (used by fidius) builds a global linked list via `__attribute__((constructor))`. If a cdylib is dlclosed, the linked-list nodes are unmapped but the head pointer still references them. Loading a second cdylib then crashes when its constructors traverse the corrupted list (macOS sends SIGKILL). Keeping libraries alive avoids this entirely. Shared cache of plugin handles kept alive to prevent dlclose.<br>The `inventory` crate (used by fidius) builds a global intrusive linked list via `__attribute__((constructor))`. If a cdylib is dlclosed, the list nodes are unmapped but the head pointer still references them. Loading a second cdylib then crashes when its constructors traverse the corrupted list (macOS sends SIGKILL). Keeping handles alive avoids dlclose entirely. |

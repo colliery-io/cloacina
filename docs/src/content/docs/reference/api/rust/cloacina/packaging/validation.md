@@ -1,23 +1,22 @@
 ---
 title: "cloacina::packaging::validation"
 description: "API reference of the Rust module cloacina::packaging::validation."
+editUrl: false
 sidebar:
-  order: 171
+  order: 153
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 ## Functions
 
-### <span id="fn.validate_rust_crate_structure"></span>`fn validate_rust_crate_structure`
+### <span id="fn.validate_rust_crate_structure"></span><code style="font-size: 0.85em">fn validate_​rust_​crate_​structure</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_rust_crate_structure (project_path : & PathBuf) -> Result < () >
+fn validate_rust_crate_structure(project_path: &PathBuf) -> Result<()>
 ```
 
 Validate that the project has a valid Rust crate structure
@@ -50,15 +49,12 @@ pub fn validate_rust_crate_structure(project_path: &PathBuf) -> Result<()> {
 
 </details>
 
-
-
-### <span id="fn.validate_cargo_toml"></span>`fn validate_cargo_toml`
+### <span id="fn.validate_cargo_toml"></span><code style="font-size: 0.85em">fn validate_​cargo_​toml</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_cargo_toml (project_path : & Path) -> Result < CargoToml >
+fn validate_cargo_toml(project_path: &Path) -> Result<CargoToml>
 ```
 
 Parse and validate Cargo.toml
@@ -96,15 +92,12 @@ pub fn validate_cargo_toml(project_path: &Path) -> Result<CargoToml> {
 
 </details>
 
-
-
-### <span id="fn.validate_cloacina_compatibility"></span>`fn validate_cloacina_compatibility`
+### <span id="fn.validate_cloacina_compatibility"></span><code style="font-size: 0.85em">fn validate_​cloacina_​compatibility</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_cloacina_compatibility (cargo_toml : & CargoToml) -> Result < () >
+fn validate_cloacina_compatibility(cargo_toml: &CargoToml) -> Result<()>
 ```
 
 Validate cloacina dependency compatibility.
@@ -138,15 +131,14 @@ pub fn validate_cloacina_compatibility(cargo_toml: &CargoToml) -> Result<()> {
 
 </details>
 
-
-
-### <span id="fn.validate_packaged_workflow_presence"></span>`fn validate_packaged_workflow_presence`
+### <span id="fn.validate_packaged_workflow_presence"></span><code style="font-size: 0.85em">fn validate_​packaged_​workflow_​presence</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_packaged_workflow_presence (project_path : & Path) -> Result < () >
+fn validate_packaged_workflow_presence(
+    project_path: &Path) -> Result<(,
+) -> Result<()>
 ```
 
 Check for workflow macros in the source code.
@@ -191,15 +183,14 @@ pub fn validate_packaged_workflow_presence(project_path: &Path) -> Result<()> {
 
 </details>
 
-
-
-### <span id="fn.validate_rust_version_compatibility"></span>`fn validate_rust_version_compatibility`
+### <span id="fn.validate_rust_version_compatibility"></span><code style="font-size: 0.85em">fn validate_​rust_​version_​compatibility</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_rust_version_compatibility (cargo_toml : & CargoToml) -> Result < () >
+fn validate_rust_version_compatibility(
+    cargo_toml: &CargoToml) -> Result<(,
+) -> Result<()>
 ```
 
 Validate Rust version compatibility
@@ -234,6 +225,3 @@ pub fn validate_rust_version_compatibility(cargo_toml: &CargoToml) -> Result<()>
 ```
 
 </details>
-
-
-

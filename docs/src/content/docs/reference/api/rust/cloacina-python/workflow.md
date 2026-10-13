@@ -1,22 +1,21 @@
 ---
 title: "cloacina-python::workflow"
 description: "API reference of the Rust module cloacina-python::workflow."
+editUrl: false
 sidebar:
-  order: 43
+  order: 27
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 ## Structs
 
-### <span id="struct.PyWorkflowBuilder"></span>`class WorkflowBuilder`
+### <span id="struct.PyWorkflowBuilder"></span><code style="font-size: 0.85em">class WorkflowBuilder</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder](../../../cloacina-python/workflow/#class.WorkflowBuilder)
+> **Python API**: [`cloaca.WorkflowBuilder`](../../../cloaca/#class.WorkflowBuilder)
 
 Python wrapper for WorkflowBuilder
 
@@ -24,18 +23,23 @@ Python wrapper for WorkflowBuilder
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `cloacina :: WorkflowBuilder` |  |
+| `inner` | `cloacina::WorkflowBuilder` |  |
 | `context` | `PyWorkflowContext` |  |
 
 #### Methods
 
-##### <span id="PyWorkflowBuilder.new"></span>`new`
+##### <span id="PyWorkflowBuilder.new"></span><code>new</code>
 
 ```rust
-fn new (name : & str , tenant : Option < & str > , package : Option < & str > , workflow : Option < & str > ,) -> Self
+fn new(
+    name: &str,
+    tenant: Option<&str>,
+    package: Option<&str>,
+    workflow: Option<&str>,
+) -> Self
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder.new](../../../cloacina-python/workflow/#WorkflowBuilder.new)
+> **Python API**: [`cloaca.WorkflowBuilder.new`](../../../cloaca/#WorkflowBuilder.new)
 
 Create a new WorkflowBuilder with namespace context
 
@@ -67,15 +71,13 @@ Create a new WorkflowBuilder with namespace context
 
 </details>
 
-
-
-##### <span id="PyWorkflowBuilder.description"></span>`description`
+##### <span id="PyWorkflowBuilder.description"></span><code>description</code>
 
 ```rust
-fn description (& mut self , description : & str)
+fn description(&mut self, description: &str)
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder.description](../../../cloacina-python/workflow/#WorkflowBuilder.description)
+> **Python API**: [`cloaca.WorkflowBuilder.description`](../../../cloaca/#WorkflowBuilder.description)
 
 Set the workflow description
 
@@ -90,15 +92,13 @@ Set the workflow description
 
 </details>
 
-
-
-##### <span id="PyWorkflowBuilder.tag"></span>`tag`
+##### <span id="PyWorkflowBuilder.tag"></span><code>tag</code>
 
 ```rust
-fn tag (& mut self , key : & str , value : & str)
+fn tag(&mut self, key: &str, value: &str)
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder.tag](../../../cloacina-python/workflow/#WorkflowBuilder.tag)
+> **Python API**: [`cloaca.WorkflowBuilder.tag`](../../../cloaca/#WorkflowBuilder.tag)
 
 Add a tag to the workflow
 
@@ -113,15 +113,13 @@ Add a tag to the workflow
 
 </details>
 
-
-
-##### <span id="PyWorkflowBuilder.add_task"></span>`add_task`
+##### <span id="PyWorkflowBuilder.add_task"></span><code>add_​task</code>
 
 ```rust
-fn add_task (& mut self , py : Python , task : PyObject) -> PyResult < () >
+fn add_task(&mut self, py: Python, task: PyObject) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder.add_task](../../../cloacina-python/workflow/#WorkflowBuilder.add_task)
+> **Python API**: [`cloaca.WorkflowBuilder.add_task`](../../../cloaca/#WorkflowBuilder.add_task)
 
 Add a task to the workflow by ID or function reference
 
@@ -130,100 +128,95 @@ Add a task to the workflow by ID or function reference
 
 ```rust
     pub fn add_task(&mut self, py: Python, task: PyObject) -> PyResult<()> {
-        if let Ok(task_id) = task.extract::<String>(py) {
-            let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
-                PyValueError::new_err("WorkflowBuilder.add_task called outside a Runtime scope")
-            })?;
+        match task.extract::<String>(py) {
+            Ok(task_id) => {
+                let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+                    PyValueError::new_err("WorkflowBuilder.add_task called outside a Runtime scope")
+                })?;
 
-            let (tenant_id, package_name, workflow_id) = self.context.as_components();
-            let task_namespace =
-                cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
+                let (tenant_id, package_name, workflow_id) = self.context.as_components();
+                let task_namespace =
+                    cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
 
-            let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
-                PyValueError::new_err(format!(
-                    "Task '{}' not found in registry. Make sure it was decorated with @task.",
-                    task_id
-                ))
-            })?;
+                let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
+                    PyValueError::new_err(format!(
+                        "Task '{}' not found in registry. Make sure it was decorated with @task.",
+                        task_id
+                    ))
+                })?;
 
-            self.inner = self
-                .inner
-                .clone()
-                .add_task(task_instance)
-                .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
+                self.inner = self
+                    .inner
+                    .clone()
+                    .add_task(task_instance)
+                    .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
 
-            Ok(())
-        } else {
-            match task.bind(py).hasattr("__name__") {
-                Ok(true) => {
-                    match task.getattr(py, "__name__") {
-                        Ok(name_obj) => {
-                            match name_obj.extract::<String>(py) {
-                                Ok(func_name) => {
-                                    let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
-                                        PyValueError::new_err(
-                                            "WorkflowBuilder.add_task called outside a Runtime scope",
-                                        )
-                                    })?;
+                Ok(())
+            }
+            _ => match task.bind(py).hasattr("__name__") {
+                Ok(true) => match task.getattr(py, "__name__") {
+                    Ok(name_obj) => match name_obj.extract::<String>(py) {
+                        Ok(func_name) => {
+                            let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+                                PyValueError::new_err(
+                                    "WorkflowBuilder.add_task called outside a Runtime scope",
+                                )
+                            })?;
 
-                                    let (tenant_id, package_name, workflow_id) = self.context.as_components();
-                                    let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
+                            let (tenant_id, package_name, workflow_id) =
+                                self.context.as_components();
+                            let task_namespace = cloacina::TaskNamespace::new(
+                                tenant_id,
+                                package_name,
+                                workflow_id,
+                                &func_name,
+                            );
 
-                                    let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
+                            let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
                                         PyValueError::new_err(format!(
                                             "Task '{}' not found in registry. Make sure it was decorated with @task.",
                                             func_name
                                         ))
                                     })?;
 
-                                    self.inner = self.inner.clone().add_task(task_instance)
-                                        .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
+                            self.inner =
+                                self.inner.clone().add_task(task_instance).map_err(|e| {
+                                    PyValueError::new_err(format!("Failed to add task: {}", e))
+                                })?;
 
-                                    Ok(())
-                                },
-                                Err(e) => {
-                                    Err(PyValueError::new_err(format!(
-                                        "Function has __name__ but it's not a string: {}",
-                                        e
-                                    )))
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            Err(PyValueError::new_err(format!(
-                                "Failed to get __name__ from function: {}",
-                                e
-                            )))
+                            Ok(())
                         }
-                    }
-                },
-                Ok(false) => {
-                    Err(PyValueError::new_err(
-                        "Task must be either a string task ID or a function object with __name__ attribute"
-                    ))
-                },
-                Err(e) => {
-                    Err(PyValueError::new_err(format!(
-                        "Failed to check if object has __name__ attribute: {}",
+                        Err(e) => Err(PyValueError::new_err(format!(
+                            "Function has __name__ but it's not a string: {}",
+                            e
+                        ))),
+                    },
+                    Err(e) => Err(PyValueError::new_err(format!(
+                        "Failed to get __name__ from function: {}",
                         e
-                    )))
-                }
-            }
+                    ))),
+                },
+                Ok(false) => Err(PyValueError::new_err(
+                    "Task must be either a string task ID or a function object with __name__ attribute",
+                )),
+                Err(e) => Err(PyValueError::new_err(format!(
+                    "Failed to check if object has __name__ attribute: {}",
+                    e
+                ))),
+            },
         }
     }
 ```
 
 </details>
 
-
-
-##### <span id="PyWorkflowBuilder.build"></span>`build`
+##### <span id="PyWorkflowBuilder.build"></span><code>build</code>
 
 ```rust
-fn build (& self) -> PyResult < PyWorkflow >
+fn build(&self) -> PyResult<PyWorkflow>
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder.build](../../../cloacina-python/workflow/#WorkflowBuilder.build)
+> **Python API**: [`cloaca.WorkflowBuilder.build`](../../../cloaca/#WorkflowBuilder.build)
 
 Build the workflow
 
@@ -243,15 +236,13 @@ Build the workflow
 
 </details>
 
-
-
-##### <span id="PyWorkflowBuilder.__enter__"></span>`__enter__`
+##### <span id="PyWorkflowBuilder.__enter__"></span><code>_​_​enter_​_​</code>
 
 ```rust
-fn __enter__ (slf : PyRef < Self >) -> PyRef < Self >
+fn __enter__(slf: PyRef<Self>) -> PyRef<Self>
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder.__enter__](../../../cloacina-python/workflow/#WorkflowBuilder.__enter__)
+> **Python API**: [`cloaca.WorkflowBuilder.__enter__`](../../../cloaca/#WorkflowBuilder.__enter__)
 
 Context manager entry - establish workflow context for task decorators
 
@@ -267,15 +258,19 @@ Context manager entry - establish workflow context for task decorators
 
 </details>
 
-
-
-##### <span id="PyWorkflowBuilder.__exit__"></span>`__exit__`
+##### <span id="PyWorkflowBuilder.__exit__"></span><code>_​_​exit_​_​</code>
 
 ```rust
-fn __exit__ (& mut self , _py : Python , _exc_type : Option < & Bound < PyAny > > , _exc_value : Option < & Bound < PyAny > > , _traceback : Option < & Bound < PyAny > > ,) -> PyResult < bool >
+fn __exit__(
+    &mut self,
+    _py: Python,
+    _exc_type: Option<&Bound<PyAny>>,
+    _exc_value: Option<&Bound<PyAny>>,
+    _traceback: Option<&Bound<PyAny>>,
+) -> PyResult<bool>
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder.__exit__](../../../cloacina-python/workflow/#WorkflowBuilder.__exit__)
+> **Python API**: [`cloaca.WorkflowBuilder.__exit__`](../../../cloaca/#WorkflowBuilder.__exit__)
 
 Context manager exit - clean up context and build workflow
 
@@ -336,15 +331,13 @@ Context manager exit - clean up context and build workflow
 
 </details>
 
-
-
-##### <span id="PyWorkflowBuilder.__repr__"></span>`__repr__`
+##### <span id="PyWorkflowBuilder.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowBuilder.__repr__](../../../cloacina-python/workflow/#WorkflowBuilder.__repr__)
+> **Python API**: [`cloaca.WorkflowBuilder.__repr__`](../../../cloaca/#WorkflowBuilder.__repr__)
 
 String representation
 
@@ -359,16 +352,11 @@ String representation
 
 </details>
 
-
-
-
-
-### <span id="struct.PyWorkflow"></span>`class Workflow`
+### <span id="struct.PyWorkflow"></span><code style="font-size: 0.85em">class Workflow</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.workflow.Workflow](../../../cloacina-python/workflow/#class.Workflow)
+> **Python API**: [`cloaca.Workflow`](../../../cloaca/#class.Workflow)
 
 Python wrapper for Workflow
 
@@ -376,17 +364,17 @@ Python wrapper for Workflow
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `cloacina :: Workflow` |  |
+| `inner` | `cloacina::Workflow` |  |
 
 #### Methods
 
-##### <span id="PyWorkflow.name"></span>`name`
+##### <span id="PyWorkflow.name"></span><code>name</code>
 
 ```rust
-fn name (& self) -> & str
+fn name(&self) -> &str
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.name](../../../cloacina-python/workflow/#Workflow.name)
+> **Python API**: [`cloaca.Workflow.name`](../../../cloaca/#Workflow.name)
 
 Get workflow name
 
@@ -401,15 +389,13 @@ Get workflow name
 
 </details>
 
-
-
-##### <span id="PyWorkflow.description"></span>`description`
+##### <span id="PyWorkflow.description"></span><code>description</code>
 
 ```rust
-fn description (& self) -> String
+fn description(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.description](../../../cloacina-python/workflow/#Workflow.description)
+> **Python API**: [`cloaca.Workflow.description`](../../../cloaca/#Workflow.description)
 
 Get workflow description
 
@@ -428,15 +414,13 @@ Get workflow description
 
 </details>
 
-
-
-##### <span id="PyWorkflow.version"></span>`version`
+##### <span id="PyWorkflow.version"></span><code>version</code>
 
 ```rust
-fn version (& self) -> & str
+fn version(&self) -> &str
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.version](../../../cloacina-python/workflow/#Workflow.version)
+> **Python API**: [`cloaca.Workflow.version`](../../../cloaca/#Workflow.version)
 
 Get workflow version
 
@@ -451,15 +435,13 @@ Get workflow version
 
 </details>
 
-
-
-##### <span id="PyWorkflow.topological_sort"></span>`topological_sort`
+##### <span id="PyWorkflow.topological_sort"></span><code>topological_​sort</code>
 
 ```rust
-fn topological_sort (& self) -> PyResult < Vec < String > >
+fn topological_sort(&self) -> PyResult<Vec<String>>
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.topological_sort](../../../cloacina-python/workflow/#Workflow.topological_sort)
+> **Python API**: [`cloaca.Workflow.topological_sort`](../../../cloaca/#Workflow.topological_sort)
 
 Get topological sort of tasks
 
@@ -477,15 +459,13 @@ Get topological sort of tasks
 
 </details>
 
-
-
-##### <span id="PyWorkflow.get_execution_levels"></span>`get_execution_levels`
+##### <span id="PyWorkflow.get_execution_levels"></span><code>get_​execution_​levels</code>
 
 ```rust
-fn get_execution_levels (& self) -> PyResult < Vec < Vec < String > > >
+fn get_execution_levels(&self) -> PyResult<Vec<Vec<String>>>
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.get_execution_levels](../../../cloacina-python/workflow/#Workflow.get_execution_levels)
+> **Python API**: [`cloaca.Workflow.get_execution_levels`](../../../cloaca/#Workflow.get_execution_levels)
 
 Get execution levels (tasks that can run in parallel)
 
@@ -508,15 +488,13 @@ Get execution levels (tasks that can run in parallel)
 
 </details>
 
-
-
-##### <span id="PyWorkflow.get_roots"></span>`get_roots`
+##### <span id="PyWorkflow.get_roots"></span><code>get_​roots</code>
 
 ```rust
-fn get_roots (& self) -> Vec < String >
+fn get_roots(&self) -> Vec<String>
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.get_roots](../../../cloacina-python/workflow/#Workflow.get_roots)
+> **Python API**: [`cloaca.Workflow.get_roots`](../../../cloaca/#Workflow.get_roots)
 
 Get root tasks (no dependencies)
 
@@ -535,15 +513,13 @@ Get root tasks (no dependencies)
 
 </details>
 
-
-
-##### <span id="PyWorkflow.get_leaves"></span>`get_leaves`
+##### <span id="PyWorkflow.get_leaves"></span><code>get_​leaves</code>
 
 ```rust
-fn get_leaves (& self) -> Vec < String >
+fn get_leaves(&self) -> Vec<String>
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.get_leaves](../../../cloacina-python/workflow/#Workflow.get_leaves)
+> **Python API**: [`cloaca.Workflow.get_leaves`](../../../cloaca/#Workflow.get_leaves)
 
 Get leaf tasks (no dependents)
 
@@ -562,15 +538,13 @@ Get leaf tasks (no dependents)
 
 </details>
 
-
-
-##### <span id="PyWorkflow.validate"></span>`validate`
+##### <span id="PyWorkflow.validate"></span><code>validate</code>
 
 ```rust
-fn validate (& self) -> PyResult < () >
+fn validate(&self) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.validate](../../../cloacina-python/workflow/#Workflow.validate)
+> **Python API**: [`cloaca.Workflow.validate`](../../../cloaca/#Workflow.validate)
 
 Validate the workflow
 
@@ -587,15 +561,13 @@ Validate the workflow
 
 </details>
 
-
-
-##### <span id="PyWorkflow.__repr__"></span>`__repr__`
+##### <span id="PyWorkflow.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.workflow.Workflow.__repr__](../../../cloacina-python/workflow/#Workflow.__repr__)
+> **Python API**: [`cloaca.Workflow.__repr__`](../../../cloaca/#Workflow.__repr__)
 
 String representation
 
@@ -614,28 +586,23 @@ String representation
 
 </details>
 
-
-
-
-
-### <span id="struct.PyWorkflowParamsDecorator"></span>`class WorkflowParamsDecorator`
+### <span id="struct.PyWorkflowParamsDecorator"></span><code style="font-size: 0.85em">class WorkflowParamsDecorator</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
+> **Python API**: [`cloaca.WorkflowParamsDecorator`](../../../cloaca/#class.WorkflowParamsDecorator)
 
-> **Python API**: [cloacina-python.workflow.WorkflowParamsDecorator](../../../cloacina-python/workflow/#class.WorkflowParamsDecorator)
-
-Pass-through decorator returned by [`workflow_params`]. CLOACI-T-0760: the declaration is parsed from source by the compiler at build time, so at runtime this just returns the decorated object unchanged. It exists only so that importing a package which uses `@cloaca.workflow_params(...)` doesn't fail (the reconciler imports the module via PyO3).
+Pass-through decorator returned by [`workflow_params`](../../../rust/cloacina-python/workflow/#fn.workflow_params). CLOACI-T-0760: the declaration is parsed from source by the compiler at build time, so at runtime this just returns the decorated object unchanged. It exists only so that importing a package which uses `@cloaca.workflow_params(...)` doesn't fail (the reconciler imports the module via PyO3).
 
 #### Methods
 
-##### <span id="PyWorkflowParamsDecorator.__call__"></span>`__call__`
+##### <span id="PyWorkflowParamsDecorator.__call__"></span><code>_​_​call_​_​</code>
 
 ```rust
-fn __call__ (& self , obj : PyObject) -> PyObject
+fn __call__(&self, obj: PyObject) -> PyObject
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowParamsDecorator.__call__](../../../cloacina-python/workflow/#WorkflowParamsDecorator.__call__)
+> **Python API**: [`cloaca.WorkflowParamsDecorator.__call__`](../../../cloaca/#WorkflowParamsDecorator.__call__)
 
 <details>
 <summary>Source</summary>
@@ -648,28 +615,23 @@ fn __call__ (& self , obj : PyObject) -> PyObject
 
 </details>
 
-
-
-
-
-### <span id="struct.PyWorkflowSecretsDecorator"></span>`class WorkflowSecretsDecorator`
+### <span id="struct.PyWorkflowSecretsDecorator"></span><code style="font-size: 0.85em">class WorkflowSecretsDecorator</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
+> **Python API**: [`cloaca.WorkflowSecretsDecorator`](../../../cloaca/#class.WorkflowSecretsDecorator)
 
-> **Python API**: [cloacina-python.workflow.WorkflowSecretsDecorator](../../../cloacina-python/workflow/#class.WorkflowSecretsDecorator)
-
-Pass-through decorator returned by [`workflow_secrets`]. CLOACI-T-0859: like [`PyWorkflowParamsDecorator`], the declaration is parsed from source by the compiler at build time into encrypted `InputSlot`s; at runtime it is a no-op pass-through so importing a package that uses `@cloaca.workflow_secrets(...)` doesn't fail.
+Pass-through decorator returned by [`workflow_secrets`](../../../rust/cloacina-python/workflow/#fn.workflow_secrets). CLOACI-T-0859: like [`PyWorkflowParamsDecorator`](../../../rust/cloacina-python/workflow/#struct.PyWorkflowParamsDecorator), the declaration is parsed from source by the compiler at build time into encrypted `InputSlot`s; at runtime it is a no-op pass-through so importing a package that uses `@cloaca.workflow_secrets(...)` doesn't fail.
 
 #### Methods
 
-##### <span id="PyWorkflowSecretsDecorator.__call__"></span>`__call__`
+##### <span id="PyWorkflowSecretsDecorator.__call__"></span><code>_​_​call_​_​</code>
 
 ```rust
-fn __call__ (& self , obj : PyObject) -> PyObject
+fn __call__(&self, obj: PyObject) -> PyObject
 ```
 
-> **Python API**: [cloacina-python.workflow.WorkflowSecretsDecorator.__call__](../../../cloacina-python/workflow/#WorkflowSecretsDecorator.__call__)
+> **Python API**: [`cloaca.WorkflowSecretsDecorator.__call__`](../../../cloaca/#WorkflowSecretsDecorator.__call__)
 
 <details>
 <summary>Source</summary>
@@ -682,28 +644,19 @@ fn __call__ (& self , obj : PyObject) -> PyObject
 
 </details>
 
-
-
-
-
-### <span id="struct.PyBoundarySchemaDecorator"></span>`class BoundarySchemaDecorator`
+### <span id="struct.PyBoundarySchemaDecorator"></span><code style="font-size: 0.85em">class BoundarySchemaDecorator</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.workflow.BoundarySchemaDecorator](../../../cloacina-python/workflow/#class.BoundarySchemaDecorator)
-
-Pass-through decorator returned by [`boundary_schema`]. CLOACI-T-0770: like [`PyWorkflowParamsDecorator`], the declaration is parsed from source by the compiler at build time; at runtime this just returns the decorated object.
+Pass-through decorator returned by [`boundary_schema`](../../../rust/cloacina-python/workflow/#fn.boundary_schema). CLOACI-T-0770: like [`PyWorkflowParamsDecorator`](../../../rust/cloacina-python/workflow/#struct.PyWorkflowParamsDecorator), the declaration is parsed from source by the compiler at build time; at runtime this just returns the decorated object.
 
 #### Methods
 
-##### <span id="PyBoundarySchemaDecorator.__call__"></span>`__call__`
+##### <span id="PyBoundarySchemaDecorator.__call__"></span><code>_​_​call_​_​</code>
 
 ```rust
-fn __call__ (& self , obj : PyObject) -> PyObject
+fn __call__(&self, obj: PyObject) -> PyObject
 ```
-
-> **Python API**: [cloacina-python.workflow.BoundarySchemaDecorator.__call__](../../../cloacina-python/workflow/#BoundarySchemaDecorator.__call__)
 
 <details>
 <summary>Source</summary>
@@ -715,22 +668,20 @@ fn __call__ (& self , obj : PyObject) -> PyObject
 ```
 
 </details>
-
-
-
-
 
 ## Functions
 
-### <span id="fn.py_register_workflow"></span>`fn py_register_workflow`
+### <span id="fn.py_register_workflow"></span><code style="font-size: 0.85em">fn py_​register_​workflow</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.workflow.register_workflow_constructor](../../../cloacina-python/workflow/#fn.register_workflow_constructor)
+> **Python API**: [`cloaca.register_workflow_constructor`](../../../cloaca/#fn.register_workflow_constructor)
 
 ```rust
-fn py_register_workflow (name : String , constructor : PyObject) -> PyResult < () >
+fn py_register_workflow(
+    name: String) -> PyResult<(,
+    constructor: PyObject) -> PyResult<(,
+) -> PyResult<()>
 ```
 
 Register a workflow constructor function on the thread-local Runtime scope. Exported to Python as `register_workflow_constructor` for backwards compatibility; the Rust symbol name is `py_register_workflow` so it does not collide with the (now deleted) `cloacina::register_workflow_constructor`.
@@ -765,17 +716,16 @@ pub fn py_register_workflow(name: String, constructor: PyObject) -> PyResult<()>
 
 </details>
 
-
-
-### <span id="fn.workflow_params"></span>`fn workflow_params`
+### <span id="fn.workflow_params"></span><code style="font-size: 0.85em">fn workflow_​params</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.workflow.workflow_params](../../../cloacina-python/workflow/#fn.workflow_params)
+> **Python API**: [`cloaca.workflow_params`](../../../cloaca/#fn.workflow_params)
 
 ```rust
-fn workflow_params (_kwargs : Option < Bound < '_ , pyo3 :: types :: PyDict > > ,) -> PyWorkflowParamsDecorator
+fn workflow_params(
+    _kwargs: Option<Bound<'_, pyo3::types::PyDict>>,
+) -> PyWorkflowParamsDecorator
 ```
 
 `@cloaca.workflow_params(name=type, name=(type, default), ...)` — declares a packaged Python workflow's typed input params (CLOACI-I-0128 / T-0760).
@@ -799,17 +749,16 @@ pub fn workflow_params(
 
 </details>
 
-
-
-### <span id="fn.workflow_secrets"></span>`fn workflow_secrets`
+### <span id="fn.workflow_secrets"></span><code style="font-size: 0.85em">fn workflow_​secrets</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.workflow.workflow_secrets](../../../cloacina-python/workflow/#fn.workflow_secrets)
+> **Python API**: [`cloaca.workflow_secrets`](../../../cloaca/#fn.workflow_secrets)
 
 ```rust
-fn workflow_secrets (_args : Bound < '_ , pyo3 :: types :: PyTuple >) -> PyWorkflowSecretsDecorator
+fn workflow_secrets(
+    _args: Bound<'_, pyo3::types::PyTuple>,
+) -> PyWorkflowSecretsDecorator
 ```
 
 `@cloaca.workflow_secrets("db_prod", "api_token", ...)` — declares the SECRETS a packaged Python workflow requires (CLOACI-I-0133 / T-0859), the parity of Rust's `#[workflow(secrets(...))]`. Each name becomes a required encrypted `InputSlot` (`encrypted: true`) carried in the package manifest alongside the declared params; a secret is bound per-instance via a `{"$secret": "name"}` reference and resolved encrypted at fire time (its value never enters the durable `Context`). The authoritative extraction happens at build time (the compiler parses this decorator from source); at runtime it is a no-op pass-through.
@@ -825,17 +774,16 @@ pub fn workflow_secrets(_args: Bound<'_, pyo3::types::PyTuple>) -> PyWorkflowSec
 
 </details>
 
-
-
-### <span id="fn.boundary_schema"></span>`fn boundary_schema`
+### <span id="fn.boundary_schema"></span><code style="font-size: 0.85em">fn boundary_​schema</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.workflow.boundary_schema](../../../cloacina-python/workflow/#fn.boundary_schema)
+> **Python API**: [`cloaca.boundary_schema`](../../../cloaca/#fn.boundary_schema)
 
 ```rust
-fn boundary_schema (_kwargs : Option < Bound < '_ , pyo3 :: types :: PyDict > > ,) -> PyBoundarySchemaDecorator
+fn boundary_schema(
+    _kwargs: Option<Bound<'_, pyo3::types::PyDict>>,
+) -> PyBoundarySchemaDecorator
 ```
 
 `@cloaca.boundary_schema(field=type, ...)` — declares the typed shape of a Python accumulator's boundary (CLOACI-T-0770), the parity of deriving `schemars::JsonSchema` on a Rust boundary type. The compiler parses this from source at build time into the accumulator's declared input-interface slot (so inject/fire-with render typed forms); at runtime it's a no-op pass-through. Applied to the accumulator function:
@@ -845,6 +793,7 @@ fn boundary_schema (_kwargs : Option < Bound < '_ , pyo3 :: types :: PyDict > > 
 @cloaca.passthrough_accumulator
 def py_alpha(event): ...
 ```
+
 Supported scalar types: `str`, `int`, `float`, `bool`, `list`, `dict`.
 
 <details>
@@ -859,6 +808,3 @@ pub fn boundary_schema(
 ```
 
 </details>
-
-
-

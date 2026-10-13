@@ -1,13 +1,13 @@
 ---
 title: "cloacina::delivery::envelope"
 description: "Substrate WS envelope — re-exported from `cloacina-api-types`."
+editUrl: false
 sidebar:
-  order: 121
+  order: 104
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Substrate WS envelope — re-exported from `cloacina-api-types`.
 
@@ -16,15 +16,21 @@ so SDK clients can consume them without linking the engine. This module
 keeps the original `cloacina::delivery::envelope` paths working and holds
 the one helper that needs the diesel-backed outbox model.
 
+## Re-exports
+
+- `ClientMessage` (`cloacina_api_types::delivery::ClientMessage`)
+- `DELIVERY_PROTOCOL_VERSION` (`cloacina_api_types::delivery::DELIVERY_PROTOCOL_VERSION`)
+- [`EnvelopeError`](../../../../rust/cloacina/crypto/envelope/#enum.EnvelopeError)
+- `ServerMessage` (`cloacina_api_types::delivery::ServerMessage`)
+
 ## Functions
 
-### <span id="fn.push_from_row"></span>`fn push_from_row`
+### <span id="fn.push_from_row"></span><code style="font-size: 0.85em">fn push_​from_​row</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn push_from_row (row : & DeliveryOutbox) -> ServerMessage
+fn push_from_row(row: &DeliveryOutbox) -> ServerMessage
 ```
 
 Build a `push` frame from an outbox row, base64-encoding the payload.
@@ -48,6 +54,3 @@ pub fn push_from_row(row: &DeliveryOutbox) -> ServerMessage {
 ```
 
 </details>
-
-
-

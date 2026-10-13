@@ -1,13 +1,13 @@
 ---
 title: "cloacina::dispatcher::types"
 description: "Core types for the dispatcher system."
+editUrl: false
 sidebar:
-  order: 126
+  order: 109
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Core types for the dispatcher system.
 
@@ -16,10 +16,9 @@ tasks from the scheduler to executors.
 
 ## Structs
 
-### <span id="struct.TaskReadyEvent"></span>`struct TaskReadyEvent`
+### <span id="struct.TaskReadyEvent"></span><code style="font-size: 0.85em">struct TaskReadyEvent</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -39,13 +38,17 @@ The actual context loading is deferred to execution time.
 
 #### Methods
 
-##### <span id="TaskReadyEvent.new"></span>`new`
+##### <span id="TaskReadyEvent.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (task_execution_id : UniversalUuid , workflow_execution_id : UniversalUuid , task_name : String , attempt : i32 ,) -> Self
+fn new(
+    task_execution_id: UniversalUuid,
+    workflow_execution_id: UniversalUuid,
+    task_name: String,
+    attempt: i32,
+) -> Self
 ```
 
 Creates a new TaskReadyEvent.
@@ -71,14 +74,9 @@ Creates a new TaskReadyEvent.
 
 </details>
 
-
-
-
-
-### <span id="struct.ExecutionResult"></span>`struct ExecutionResult`
+### <span id="struct.ExecutionResult"></span><code style="font-size: 0.85em">struct ExecutionResult</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`
 
@@ -93,18 +91,17 @@ the final status, any error message, and execution metrics.
 |------|------|-------------|
 | `task_execution_id` | `UniversalUuid` | The task execution ID |
 | `status` | `ExecutionStatus` | Final execution status |
-| `error` | `Option < String >` | Error message (if failed) |
+| `error` | `Option<String>` | Error message (if failed) |
 | `duration` | `Duration` | Time taken to execute the task |
 
 #### Methods
 
-##### <span id="ExecutionResult.success"></span>`success`
+##### <span id="ExecutionResult.success"></span><code>success</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn success (task_execution_id : UniversalUuid , duration : Duration) -> Self
+fn success(task_execution_id: UniversalUuid, duration: Duration) -> Self
 ```
 
 Creates a successful execution result.
@@ -125,15 +122,16 @@ Creates a successful execution result.
 
 </details>
 
-
-
-##### <span id="ExecutionResult.failure"></span>`failure`
+##### <span id="ExecutionResult.failure"></span><code>failure</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn failure (task_execution_id : UniversalUuid , error : impl Into < String > , duration : Duration ,) -> Self
+fn failure(
+    task_execution_id: UniversalUuid,
+    error: impl Into<String>,
+    duration: Duration,
+) -> Self
 ```
 
 Creates a failed execution result.
@@ -158,15 +156,12 @@ Creates a failed execution result.
 
 </details>
 
-
-
-##### <span id="ExecutionResult.skipped"></span>`skipped`
+##### <span id="ExecutionResult.skipped"></span><code>skipped</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn skipped (task_execution_id : UniversalUuid) -> Self
+fn skipped(task_execution_id: UniversalUuid) -> Self
 ```
 
 Creates a skipped execution result (task claimed by another runner).
@@ -187,15 +182,16 @@ Creates a skipped execution result (task claimed by another runner).
 
 </details>
 
-
-
-##### <span id="ExecutionResult.retry"></span>`retry`
+##### <span id="ExecutionResult.retry"></span><code>retry</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn retry (task_execution_id : UniversalUuid , error : impl Into < String > , duration : Duration ,) -> Self
+fn retry(
+    task_execution_id: UniversalUuid,
+    error: impl Into<String>,
+    duration: Duration,
+) -> Self
 ```
 
 Creates a retry execution result.
@@ -220,14 +216,9 @@ Creates a retry execution result.
 
 </details>
 
-
-
-
-
-### <span id="struct.ExecutorMetrics"></span>`struct ExecutorMetrics`
+### <span id="struct.ExecutorMetrics"></span><code style="font-size: 0.85em">struct ExecutorMetrics</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Default`
 
@@ -245,13 +236,12 @@ Metrics for monitoring executor performance.
 
 #### Methods
 
-##### <span id="ExecutorMetrics.available_capacity"></span>`available_capacity`
+##### <span id="ExecutorMetrics.available_capacity"></span><code>available_​capacity</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn available_capacity (& self) -> usize
+fn available_capacity(&self) -> usize
 ```
 
 Returns the current capacity (available slots).
@@ -267,16 +257,11 @@ Returns the current capacity (available slots).
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.ExecutionStatus"></span>`enum ExecutionStatus`
+### <span id="enum.ExecutionStatus"></span><code style="font-size: 0.85em">enum ExecutionStatus</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Simplified status for execution results.
 
@@ -287,12 +272,9 @@ Simplified status for execution results.
 - **`Retry`** - Task should be retried
 - **`Skipped`** - Task was skipped (e.g., claimed by another runner)
 
-
-
-### <span id="enum.DispatchError"></span>`enum DispatchError`
+### <span id="enum.DispatchError"></span><code style="font-size: 0.85em">enum DispatchError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during dispatch operations.
 
@@ -305,6 +287,3 @@ Errors that can occur during dispatch operations.
 - **`ValidationError`** - Validation error
 - **`NoCapacity`** - The executor has no capacity
 - **`TaskNotFound`** - Task not found for dispatch
-
-
-

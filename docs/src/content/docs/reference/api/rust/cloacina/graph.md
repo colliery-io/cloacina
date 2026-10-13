@@ -1,22 +1,32 @@
 ---
 title: "cloacina::graph"
 description: "API reference of the Rust module cloacina::graph."
+editUrl: false
 sidebar:
-  order: 146
+  order: 129
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
+**Workflow Graph Data Structures**
 
+This module provides comprehensive graph representations for workflow DAGs,
+including serialization support for embedding in package metadata.
 
+**Key Components**
+
+- `WorkflowGraph`: Main graph structure using petgraph
+- `TaskNode`: Node data containing task information
+- `DependencyEdge`: Edge data for dependencies
+- `WorkflowGraphData`: Serializable representation for metadata
+- Graph algorithms for analysis and optimization
 
 ## Structs
 
-### <span id="struct.TaskNode"></span>`struct TaskNode`
+### <span id="struct.TaskNode"></span><code style="font-size: 0.85em">struct TaskNode</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`
 
@@ -28,16 +38,13 @@ Node data for tasks in the workflow graph
 |------|------|-------------|
 | `id` | `String` | Unique task identifier |
 | `name` | `String` | Human-readable task name |
-| `description` | `Option < String >` | Task description |
-| `source_location` | `Option < String >` | Source location (file:line) |
-| `metadata` | `HashMap < String , serde_json :: Value >` | Additional metadata |
+| `description` | `Option<String>` | Task description |
+| `source_location` | `Option<String>` | Source location (file:line) |
+| `metadata` | `HashMap<String, serde_json::Value>` | Additional metadata |
 
-
-
-### <span id="struct.DependencyEdge"></span>`struct DependencyEdge`
+### <span id="struct.DependencyEdge"></span><code style="font-size: 0.85em">struct DependencyEdge</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`
 
@@ -48,36 +55,25 @@ Edge data representing dependencies between tasks
 | Name | Type | Description |
 |------|------|-------------|
 | `dependency_type` | `String` | Type of dependency (default: "data") |
-| `weight` | `Option < f64 >` | Optional weight for scheduling priorities |
-| `metadata` | `HashMap < String , serde_json :: Value >` | Additional metadata |
+| `weight` | `Option<f64>` | Optional weight for scheduling priorities |
+| `metadata` | `HashMap<String, serde_json::Value>` | Additional metadata |
 
-
-
-### <span id="struct.WorkflowGraph"></span>`struct WorkflowGraph`
+### <span id="struct.WorkflowGraph"></span><code style="font-size: 0.85em">struct WorkflowGraph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
 Main workflow graph structure using petgraph
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `graph` | `DiGraph < TaskNode , DependencyEdge >` | The underlying directed graph |
-| `task_index` | `HashMap < String , NodeIndex >` | Map from task ID to node index for quick lookup |
-
 #### Methods
 
-##### <span id="WorkflowGraph.new"></span>`new`
+##### <span id="WorkflowGraph.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 Create a new empty workflow graph
@@ -96,15 +92,12 @@ Create a new empty workflow graph
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.add_task"></span>`add_task`
+##### <span id="WorkflowGraph.add_task"></span><code>add_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn add_task (& mut self , node : TaskNode) -> NodeIndex
+fn add_task(&mut self, node: TaskNode) -> NodeIndex
 ```
 
 Add a task node to the graph
@@ -123,15 +116,17 @@ Add a task node to the graph
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.add_dependency"></span>`add_dependency`
+##### <span id="WorkflowGraph.add_dependency"></span><code>add_​dependency</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn add_dependency (& mut self , from_task_id : & str , to_task_id : & str , edge : DependencyEdge ,) -> Result < () , String >
+fn add_dependency(
+    &mut self,
+    from_task_id: &str,
+    to_task_id: &str,
+    edge: DependencyEdge,
+) -> Result<(), String>
 ```
 
 Add a dependency edge between tasks
@@ -162,15 +157,12 @@ Add a dependency edge between tasks
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.get_task"></span>`get_task`
+##### <span id="WorkflowGraph.get_task"></span><code>get_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_task (& self , task_id : & str) -> Option < & TaskNode >
+fn get_task(&self, task_id: &str) -> Option<&TaskNode>
 ```
 
 Get a task node by ID
@@ -188,15 +180,12 @@ Get a task node by ID
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.task_ids"></span>`task_ids`
+##### <span id="WorkflowGraph.task_ids"></span><code>task_​ids</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn task_ids (& self) -> impl Iterator < Item = & str >
+fn task_ids(&self) -> impl Iterator<Item = &str>
 ```
 
 Get an iterator over task IDs without allocation
@@ -212,15 +201,12 @@ Get an iterator over task IDs without allocation
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.task_count"></span>`task_count`
+##### <span id="WorkflowGraph.task_count"></span><code>task_​count</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn task_count (& self) -> usize
+fn task_count(&self) -> usize
 ```
 
 Get the number of tasks in the graph (O(1))
@@ -236,15 +222,12 @@ Get the number of tasks in the graph (O(1))
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.has_cycles"></span>`has_cycles`
+##### <span id="WorkflowGraph.has_cycles"></span><code>has_​cycles</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn has_cycles (& self) -> bool
+fn has_cycles(&self) -> bool
 ```
 
 Check if the graph has cycles
@@ -260,15 +243,12 @@ Check if the graph has cycles
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.topological_sort"></span>`topological_sort`
+##### <span id="WorkflowGraph.topological_sort"></span><code>topological_​sort</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn topological_sort (& self) -> Result < Vec < String > , String >
+fn topological_sort(&self) -> Result<Vec<String>, String>
 ```
 
 Get topological ordering of tasks
@@ -290,15 +270,15 @@ Get topological ordering of tasks
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.get_dependencies"></span>`get_dependencies`
+##### <span id="WorkflowGraph.get_dependencies"></span><code>get_​dependencies</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_dependencies (& self , task_id : & str) -> impl Iterator < Item = & str >
+fn get_dependencies(
+    &self,
+    task_id: &str,
+) -> impl Iterator<Item = &str> + use<'_>
 ```
 
 Get an iterator over direct dependencies of a task
@@ -307,7 +287,7 @@ Get an iterator over direct dependencies of a task
 <summary>Source</summary>
 
 ```rust
-    pub fn get_dependencies(&self, task_id: &str) -> impl Iterator<Item = &str> {
+    pub fn get_dependencies(&self, task_id: &str) -> impl Iterator<Item = &str> + use<'_> {
         self.task_index
             .get(task_id)
             .into_iter()
@@ -321,15 +301,15 @@ Get an iterator over direct dependencies of a task
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.get_dependents"></span>`get_dependents`
+##### <span id="WorkflowGraph.get_dependents"></span><code>get_​dependents</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_dependents (& self , task_id : & str) -> impl Iterator < Item = & str >
+fn get_dependents(
+    &self,
+    task_id: &str,
+) -> impl Iterator<Item = &str> + use<'_>
 ```
 
 Get an iterator over tasks that depend on the given task
@@ -338,7 +318,7 @@ Get an iterator over tasks that depend on the given task
 <summary>Source</summary>
 
 ```rust
-    pub fn get_dependents(&self, task_id: &str) -> impl Iterator<Item = &str> {
+    pub fn get_dependents(&self, task_id: &str) -> impl Iterator<Item = &str> + use<'_> {
         self.task_index
             .get(task_id)
             .into_iter()
@@ -352,15 +332,12 @@ Get an iterator over tasks that depend on the given task
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.find_roots"></span>`find_roots`
+##### <span id="WorkflowGraph.find_roots"></span><code>find_​roots</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn find_roots (& self) -> impl Iterator < Item = & str >
+fn find_roots(&self) -> impl Iterator<Item = &str>
 ```
 
 Get an iterator over root tasks (tasks with no dependencies)
@@ -387,15 +364,12 @@ Get an iterator over root tasks (tasks with no dependencies)
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.find_leaves"></span>`find_leaves`
+##### <span id="WorkflowGraph.find_leaves"></span><code>find_​leaves</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn find_leaves (& self) -> impl Iterator < Item = & str >
+fn find_leaves(&self) -> impl Iterator<Item = &str>
 ```
 
 Get an iterator over leaf tasks (tasks with no dependents)
@@ -422,15 +396,12 @@ Get an iterator over leaf tasks (tasks with no dependents)
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.calculate_depths"></span>`calculate_depths`
+##### <span id="WorkflowGraph.calculate_depths"></span><code>calculate_​depths</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn calculate_depths (& self) -> HashMap < String , usize >
+fn calculate_depths(&self) -> HashMap<String, usize>
 ```
 
 Calculate the depth of each task (longest path from root)
@@ -484,15 +455,12 @@ Calculate the depth of each task (longest path from root)
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.find_parallel_groups"></span>`find_parallel_groups`
+##### <span id="WorkflowGraph.find_parallel_groups"></span><code>find_​parallel_​groups</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn find_parallel_groups (& self) -> Vec < Vec < String > >
+fn find_parallel_groups(&self) -> Vec<Vec<String>>
 ```
 
 Find parallel execution groups (tasks that can run simultaneously)
@@ -517,15 +485,12 @@ Find parallel execution groups (tasks that can run simultaneously)
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.to_serializable"></span>`to_serializable`
+##### <span id="WorkflowGraph.to_serializable"></span><code>to_​serializable</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn to_serializable (& self) -> WorkflowGraphData
+fn to_serializable(&self) -> WorkflowGraphData
 ```
 
 Convert to serializable format
@@ -582,15 +547,12 @@ Convert to serializable format
 
 </details>
 
-
-
-##### <span id="WorkflowGraph.from_serializable"></span>`from_serializable`
+##### <span id="WorkflowGraph.from_serializable"></span><code>from_​serializable</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_serializable (data : & WorkflowGraphData) -> Result < Self , String >
+fn from_serializable(data: &WorkflowGraphData) -> Result<Self, String>
 ```
 
 Create from serializable format
@@ -618,14 +580,9 @@ Create from serializable format
 
 </details>
 
-
-
-
-
-### <span id="struct.WorkflowGraphData"></span>`struct WorkflowGraphData`
+### <span id="struct.WorkflowGraphData"></span><code style="font-size: 0.85em">struct WorkflowGraphData</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -635,16 +592,13 @@ Serializable representation of the workflow graph
 
 | Name | Type | Description |
 |------|------|-------------|
-| `nodes` | `Vec < GraphNode >` | All nodes in the graph |
-| `edges` | `Vec < GraphEdge >` | All edges in the graph |
+| `nodes` | `Vec<GraphNode>` | All nodes in the graph |
+| `edges` | `Vec<GraphEdge>` | All edges in the graph |
 | `metadata` | `GraphMetadata` | Graph metadata and statistics |
 
-
-
-### <span id="struct.GraphNode"></span>`struct GraphNode`
+### <span id="struct.GraphNode"></span><code style="font-size: 0.85em">struct GraphNode</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -657,12 +611,9 @@ Serializable node representation
 | `id` | `String` | Task ID (matches TaskNode.id) |
 | `data` | `TaskNode` | Task node data |
 
-
-
-### <span id="struct.GraphEdge"></span>`struct GraphEdge`
+### <span id="struct.GraphEdge"></span><code style="font-size: 0.85em">struct GraphEdge</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -676,12 +627,9 @@ Serializable edge representation
 | `to` | `String` | Target task ID |
 | `data` | `DependencyEdge` | Edge data |
 
-
-
-### <span id="struct.GraphMetadata"></span>`struct GraphMetadata`
+### <span id="struct.GraphMetadata"></span><code style="font-size: 0.85em">struct GraphMetadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -695,8 +643,5 @@ Graph metadata and statistics
 | `edge_count` | `usize` | Total number of dependencies |
 | `has_cycles` | `bool` | Whether the graph contains cycles |
 | `depth_levels` | `usize` | Number of depth levels in the graph |
-| `root_tasks` | `Vec < String >` | Root tasks (no dependencies) |
-| `leaf_tasks` | `Vec < String >` | Leaf tasks (no dependents) |
-
-
-
+| `root_tasks` | `Vec<String>` | Root tasks (no dependencies) |
+| `leaf_tasks` | `Vec<String>` | Leaf tasks (no dependents) |

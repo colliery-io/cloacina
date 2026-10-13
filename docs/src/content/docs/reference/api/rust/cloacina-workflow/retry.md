@@ -1,22 +1,51 @@
 ---
 title: "cloacina-workflow::retry"
 description: "API reference of the Rust module cloacina-workflow::retry."
+editUrl: false
 sidebar:
-  order: 51
+  order: 35
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
+**Retry Policy System**
 
+This module provides a comprehensive retry policy system for Cloacina tasks,
+including configurable backoff strategies, jitter, and conditional retry logic.
 
+**Overview**
+
+The retry system allows tasks to define sophisticated retry behavior:
+- **Configurable retry limits** with per-task policies
+- **Multiple backoff strategies** including exponential, linear, and custom
+- **Jitter support** to prevent thundering herd problems
+- **Conditional retries** based on error types and conditions
+
+**Usage**
+
+```rust
+use cloacina_workflow::retry::{RetryPolicy, BackoffStrategy, RetryCondition};
+use std::time::Duration;
+
+let policy = RetryPolicy::builder()
+    .max_attempts(5)
+    .backoff_strategy(BackoffStrategy::Exponential {
+        base: 2.0,
+        multiplier: 1.0
+    })
+    .initial_delay(Duration::from_millis(100))
+    .max_delay(Duration::from_secs(30))
+    .with_jitter(true)
+    .retry_condition(RetryCondition::AllErrors)
+    .build();
+```
 
 ## Structs
 
-### <span id="struct.RetryPolicy"></span>`struct RetryPolicy`
+### <span id="struct.RetryPolicy"></span><code style="font-size: 0.85em">struct RetryPolicy</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`
 
@@ -35,17 +64,16 @@ under which retries should be attempted.
 | `initial_delay` | `Duration` | Initial delay before the first retry attempt |
 | `max_delay` | `Duration` | Maximum delay between retry attempts (caps exponential growth) |
 | `jitter` | `bool` | Whether to add random jitter to delays to prevent thundering herd |
-| `retry_conditions` | `Vec < RetryCondition >` | Conditions that determine whether a retry should be attempted |
+| `retry_conditions` | `Vec<RetryCondition>` | Conditions that determine whether a retry should be attempted |
 
 #### Methods
 
-##### <span id="RetryPolicy.builder"></span>`builder`
+##### <span id="RetryPolicy.builder"></span><code>builder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn builder () -> RetryPolicyBuilder
+fn builder() -> RetryPolicyBuilder
 ```
 
 Creates a new RetryPolicyBuilder for fluent configuration.
@@ -61,15 +89,12 @@ Creates a new RetryPolicyBuilder for fluent configuration.
 
 </details>
 
-
-
-##### <span id="RetryPolicy.calculate_delay"></span>`calculate_delay`
+##### <span id="RetryPolicy.calculate_delay"></span><code>calculate_​delay</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn calculate_delay (& self , attempt : i32) -> Duration
+fn calculate_delay(&self, attempt: i32) -> Duration
 ```
 
 Calculates the delay before the next retry attempt.
@@ -78,8 +103,7 @@ Calculates the delay before the next retry attempt.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `attempt` | `-` | The current attempt number (1-based) |
-
+| `attempt` | `i32` | The current attempt number (1-based) |
 
 **Returns:**
 
@@ -125,15 +149,12 @@ The duration to wait before the next retry attempt.
 
 </details>
 
-
-
-##### <span id="RetryPolicy.should_retry"></span>`should_retry`
+##### <span id="RetryPolicy.should_retry"></span><code>should_​retry</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn should_retry (& self , error : & TaskError , attempt : i32) -> bool
+fn should_retry(&self, error: &TaskError, attempt: i32) -> bool
 ```
 
 Determines whether a retry should be attempted based on the error and retry conditions.
@@ -142,9 +163,8 @@ Determines whether a retry should be attempted based on the error and retry cond
 
 | Name | Type | Description |
 |------|------|-------------|
-| `error` | `-` | The error that caused the task to fail |
-| `attempt` | `-` | The current attempt number |
-
+| `error` | `&TaskError` | The error that caused the task to fail |
+| `attempt` | `i32` | The current attempt number |
 
 **Returns:**
 
@@ -179,15 +199,16 @@ Determines whether a retry should be attempted based on the error and retry cond
 
 </details>
 
-
-
-##### <span id="RetryPolicy.calculate_retry_at"></span>`calculate_retry_at`
+##### <span id="RetryPolicy.calculate_retry_at"></span><code>calculate_​retry_​at</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn calculate_retry_at (& self , attempt : i32 , now : NaiveDateTime) -> NaiveDateTime
+fn calculate_retry_at(
+    &self,
+    attempt: i32,
+    now: NaiveDateTime,
+) -> NaiveDateTime
 ```
 
 Calculates the absolute timestamp when the next retry should occur.
@@ -196,9 +217,8 @@ Calculates the absolute timestamp when the next retry should occur.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `attempt` | `-` | The current attempt number |
-| `now` | `-` | The current timestamp |
-
+| `attempt` | `i32` | The current attempt number |
+| `now` | `NaiveDateTime` | The current timestamp |
 
 **Returns:**
 
@@ -216,130 +236,22 @@ A NaiveDateTime representing when the retry should be attempted.
 
 </details>
 
-
-
-##### <span id="RetryPolicy.add_jitter"></span>`add_jitter`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn add_jitter (& self , delay : Duration) -> Duration
-```
-
-Adds random jitter to a delay to prevent thundering herd problems.
-
-Uses +/-25% jitter by default.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn add_jitter(&self, delay: Duration) -> Duration {
-        let mut rng = rand::thread_rng();
-        let jitter_factor = rng.gen_range(0.75..=1.25); // +/-25% jitter
-        let jittered_millis = (delay.as_millis() as f64 * jitter_factor) as u64;
-        Duration::from_millis(jittered_millis)
-    }
-```
-
-</details>
-
-
-
-##### <span id="RetryPolicy.is_transient_error"></span>`is_transient_error`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn is_transient_error (& self , error : & TaskError) -> bool
-```
-
-Determines if an error is transient (network, timeout, temporary failures).
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn is_transient_error(&self, error: &TaskError) -> bool {
-        match error {
-            TaskError::Timeout { .. } => true,
-            TaskError::ExecutionFailed { message, .. } | TaskError::Unknown { message, .. } => {
-                Self::message_matches_transient_patterns(message)
-            }
-            _ => false,
-        }
-    }
-```
-
-</details>
-
-
-
-##### <span id="RetryPolicy.message_matches_transient_patterns"></span>`message_matches_transient_patterns`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn message_matches_transient_patterns (message : & str) -> bool
-```
-
-Checks whether an error message contains any known transient error patterns.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn message_matches_transient_patterns(message: &str) -> bool {
-        const TRANSIENT_PATTERNS: &[&str] = &[
-            "connection",
-            "network",
-            "timeout",
-            "temporary",
-            "unavailable",
-            "busy",
-            "overloaded",
-            "rate limit",
-        ];
-        let error_msg = message.to_lowercase();
-        TRANSIENT_PATTERNS
-            .iter()
-            .any(|pattern| error_msg.contains(pattern))
-    }
-```
-
-</details>
-
-
-
-
-
-### <span id="struct.RetryPolicyBuilder"></span>`struct RetryPolicyBuilder`
+### <span id="struct.RetryPolicyBuilder"></span><code style="font-size: 0.85em">struct RetryPolicyBuilder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`
 
 Builder for creating RetryPolicy instances with a fluent API.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `policy` | `RetryPolicy` |  |
-
 #### Methods
 
-##### <span id="RetryPolicyBuilder.new"></span>`new`
+##### <span id="RetryPolicyBuilder.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 Creates a new RetryPolicyBuilder with default values.
@@ -357,15 +269,12 @@ Creates a new RetryPolicyBuilder with default values.
 
 </details>
 
-
-
-##### <span id="RetryPolicyBuilder.max_attempts"></span>`max_attempts`
+##### <span id="RetryPolicyBuilder.max_attempts"></span><code>max_​attempts</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn max_attempts (mut self , max_attempts : i32) -> Self
+fn max_attempts(mut self, max_attempts: i32) -> Self
 ```
 
 Sets the maximum number of retry attempts.
@@ -382,15 +291,12 @@ Sets the maximum number of retry attempts.
 
 </details>
 
-
-
-##### <span id="RetryPolicyBuilder.backoff_strategy"></span>`backoff_strategy`
+##### <span id="RetryPolicyBuilder.backoff_strategy"></span><code>backoff_​strategy</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn backoff_strategy (mut self , strategy : BackoffStrategy) -> Self
+fn backoff_strategy(mut self, strategy: BackoffStrategy) -> Self
 ```
 
 Sets the backoff strategy.
@@ -407,15 +313,12 @@ Sets the backoff strategy.
 
 </details>
 
-
-
-##### <span id="RetryPolicyBuilder.initial_delay"></span>`initial_delay`
+##### <span id="RetryPolicyBuilder.initial_delay"></span><code>initial_​delay</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn initial_delay (mut self , delay : Duration) -> Self
+fn initial_delay(mut self, delay: Duration) -> Self
 ```
 
 Sets the initial delay before the first retry.
@@ -432,15 +335,12 @@ Sets the initial delay before the first retry.
 
 </details>
 
-
-
-##### <span id="RetryPolicyBuilder.max_delay"></span>`max_delay`
+##### <span id="RetryPolicyBuilder.max_delay"></span><code>max_​delay</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn max_delay (mut self , delay : Duration) -> Self
+fn max_delay(mut self, delay: Duration) -> Self
 ```
 
 Sets the maximum delay between retries.
@@ -457,15 +357,12 @@ Sets the maximum delay between retries.
 
 </details>
 
-
-
-##### <span id="RetryPolicyBuilder.with_jitter"></span>`with_jitter`
+##### <span id="RetryPolicyBuilder.with_jitter"></span><code>with_​jitter</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_jitter (mut self , jitter : bool) -> Self
+fn with_jitter(mut self, jitter: bool) -> Self
 ```
 
 Enables or disables jitter.
@@ -482,15 +379,12 @@ Enables or disables jitter.
 
 </details>
 
-
-
-##### <span id="RetryPolicyBuilder.retry_condition"></span>`retry_condition`
+##### <span id="RetryPolicyBuilder.retry_condition"></span><code>retry_​condition</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn retry_condition (mut self , condition : RetryCondition) -> Self
+fn retry_condition(mut self, condition: RetryCondition) -> Self
 ```
 
 Adds a retry condition.
@@ -507,15 +401,12 @@ Adds a retry condition.
 
 </details>
 
-
-
-##### <span id="RetryPolicyBuilder.retry_conditions"></span>`retry_conditions`
+##### <span id="RetryPolicyBuilder.retry_conditions"></span><code>retry_​conditions</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn retry_conditions (mut self , conditions : Vec < RetryCondition >) -> Self
+fn retry_conditions(mut self, conditions: Vec<RetryCondition>) -> Self
 ```
 
 Adds multiple retry conditions.
@@ -532,15 +423,12 @@ Adds multiple retry conditions.
 
 </details>
 
-
-
-##### <span id="RetryPolicyBuilder.build"></span>`build`
+##### <span id="RetryPolicyBuilder.build"></span><code>build</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn build (self) -> RetryPolicy
+fn build(self) -> RetryPolicy
 ```
 
 Builds the RetryPolicy.
@@ -556,16 +444,11 @@ Builds the RetryPolicy.
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.BackoffStrategy"></span>`enum BackoffStrategy`
+### <span id="enum.BackoffStrategy"></span><code style="font-size: 0.85em">enum BackoffStrategy</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Different backoff strategies for calculating retry delays.
 
@@ -576,17 +459,14 @@ The actual delay is calculated based on the attempt number and the strategy's pa
 
 - **`Fixed`** - Fixed delay - same delay for every retry attempt
 - **`Linear`** - Linear backoff - delay increases linearly with each attempt
-delay = initial_delay * attempt * multiplier
+  delay = initial_delay * attempt * multiplier
 - **`Exponential`** - Exponential backoff - delay increases exponentially with each attempt
-delay = initial_delay * multiplier * (base ^ attempt)
+  delay = initial_delay * multiplier * (base ^ attempt)
 - **`Custom`** - Custom backoff function (reserved for future extensibility)
 
-
-
-### <span id="enum.RetryCondition"></span>`enum RetryCondition`
+### <span id="enum.RetryCondition"></span><code style="font-size: 0.85em">enum RetryCondition</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Conditions that determine whether a failed task should be retried.
 
@@ -599,6 +479,3 @@ based on the type of error or specific error patterns.
 - **`Never`** - Never retry (equivalent to max_attempts = 0)
 - **`TransientOnly`** - Retry only for transient errors (network, timeout, etc.)
 - **`ErrorPattern`** - Retry only if error message contains any of the specified patterns
-
-
-

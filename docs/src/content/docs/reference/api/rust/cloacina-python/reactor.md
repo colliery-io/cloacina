@@ -1,42 +1,52 @@
 ---
 title: "cloacina-python::reactor"
 description: "`@cloaca.reactor` class decorator — Python parity for Rust's `#[reactor]`."
+editUrl: false
 sidebar:
-  order: 36
+  order: 20
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 `@cloaca.reactor` class decorator — Python parity for Rust's `#[reactor]`.
 
 Mirrors the Rust attribute macro: the decorated class becomes a handle that
 carries `NAME`, `ACCUMULATORS`, and `REACTION_MODE` class attributes, and a
 `ReactorRegistration` is registered into the active scoped Runtime.
+
 ```python
 @cloaca.reactor(
-name="risk_signals",
-accumulators=["alpha", "beta"],
-mode="when_any",
+    name="risk_signals",
+    accumulators=["alpha", "beta"],
+    mode="when_any",
 )
 class RiskSignals:
-pass
+    pass
 ```
+
 The class is then referenced by the (forthcoming) `reactor=ReactorClass`
 kwarg on `ComputationGraphBuilder` and by `@cloaca.task(invokes=...)`.
 
+## Re-exports
+
+- [`dispatch_runtime_reactors_into_scheduler`](../../../rust/cloacina/computation_graph/packaging_bridge/#fn.dispatch_runtime_reactors_into_scheduler)
+
 ## Functions
 
-### <span id="fn.reactor"></span>`fn reactor`
+### <span id="fn.reactor"></span><code style="font-size: 0.85em">fn reactor</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.reactor.reactor](../../../cloacina-python/reactor/#fn.reactor)
+> **Python API**: [`cloaca.reactor`](../../../cloaca/#fn.reactor)
 
 ```rust
-fn reactor (py : Python < '_ > , name : String , accumulators : Vec < String > , mode : String ,) -> PyResult < PyObject >
+fn reactor(
+    py: Python<'_>,
+    name: String,
+    accumulators: Vec<String>,
+    mode: String,
+) -> PyResult<PyObject>
 ```
 
 `@cloaca.reactor(name=..., accumulators=[...], mode="when_any"|"when_all")`.
@@ -177,6 +187,3 @@ pub fn reactor(
 ```
 
 </details>
-
-
-

@@ -1,13 +1,13 @@
 ---
 title: "cloacina::registry::loader::task_registrar"
 description: "Task registrar for integrating packaged workflow tasks with the global registry."
+editUrl: false
 sidebar:
-  order: 181
+  order: 163
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Task registrar for integrating packaged workflow tasks with the global registry.
 
@@ -15,12 +15,16 @@ This module provides functionality to register tasks from dynamically loaded
 library packages with cloacina's global task registry, ensuring proper namespace
 isolation and task lifecycle management.
 
+## Re-exports
+
+- [`OwnedTaskMetadata`](../../../../../rust/cloacina/registry/loader/task_registrar/types/#struct.OwnedTaskMetadata)
+- [`OwnedTaskMetadataCollection`](../../../../../rust/cloacina/registry/loader/task_registrar/types/#struct.OwnedTaskMetadataCollection)
+
 ## Structs
 
-### <span id="struct.TaskRegistrar"></span>`struct TaskRegistrar`
+### <span id="struct.TaskRegistrar"></span><code style="font-size: 0.85em">struct TaskRegistrar</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Task registrar for managing dynamically loaded package tasks.
 
@@ -28,25 +32,14 @@ This registrar integrates packaged workflow tasks with cloacina's global
 task registry while maintaining proper namespace isolation and lifecycle
 management for dynamic libraries.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `temp_dir` | `TempDir` | Temporary directory for library file operations |
-| `registered_tasks` | `Arc < RwLock < HashMap < String , Vec < TaskNamespace > > > >` | Map of package IDs to registered task namespaces for cleanup tracking |
-| `loaded_packages` | `Arc < RwLock < HashMap < String , () > > >` | Tracks which package IDs have been registered (for cleanup bookkeeping) |
-| `handle_cache` | `crate :: registry :: loader :: package_loader :: PluginHandleCache` | Shared cache — prevents dlclose of loaded libraries.
-See `PackageLoader` docs for full explanation. |
-
 #### Methods
 
-##### <span id="TaskRegistrar.new"></span>`new`
+##### <span id="TaskRegistrar.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Result < Self , LoaderError >
+fn new() -> Result<Self, LoaderError>
 ```
 
 Create a new task registrar with a temporary directory for operations.
@@ -71,15 +64,14 @@ Create a new task registrar with a temporary directory for operations.
 
 </details>
 
-
-
-##### <span id="TaskRegistrar.with_handle_cache"></span>`with_handle_cache`
+##### <span id="TaskRegistrar.with_handle_cache"></span><code>with_​handle_​cache</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_handle_cache (cache : crate :: registry :: loader :: package_loader :: PluginHandleCache ,) -> Result < Self , LoaderError >
+fn with_handle_cache(
+    cache: crate::registry::loader::package_loader::PluginHandleCache,
+) -> Result<Self, LoaderError>
 ```
 
 Create a task registrar with a shared handle cache.
@@ -106,16 +98,20 @@ Create a task registrar with a shared handle cache.
 
 </details>
 
-
-
-##### <span id="TaskRegistrar.register_package_tasks"></span>`register_package_tasks`
+##### <span id="TaskRegistrar.register_package_tasks"></span><code>register_​package_​tasks</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn register_package_tasks (& self , package_id : & str , package_data : & [u8] , _metadata : & PackageMetadata , tenant_id : Option < & str > , runtime : & Arc < Runtime > ,) -> Result < Vec < TaskNamespace > , LoaderError >
+async fn register_package_tasks(
+    &self,
+    package_id: &str,
+    package_data: &[u8],
+    _metadata: &PackageMetadata,
+    tenant_id: Option<&str>,
+    runtime: &Arc<Runtime>,
+) -> Result<Vec<TaskNamespace>, LoaderError>
 ```
 
 Register package tasks with the global task registry using new host-managed approach.
@@ -124,15 +120,15 @@ Register package tasks with the global task registry using new host-managed appr
 
 | Name | Type | Description |
 |------|------|-------------|
-| `package_id` | `-` | Unique identifier for the package (for cleanup tracking) |
-| `package_data` | `-` | Binary data of the library package |
+| `package_id` | `&str` | Unique identifier for the package (for cleanup tracking) |
+| `package_data` | `&[u8]` | Binary data of the library package |
 | `metadata` | `-` | Package metadata containing task information (legacy, for compatibility) |
-| `tenant_id` | `-` | Tenant ID for namespace isolation (default: "public") |
-
+| `tenant_id` | `Option<&str>` | Tenant ID for namespace isolation (default: "public") |
 
 **Returns:**
 
-* `Ok(Vec<TaskNamespace>)` - List of registered task namespaces * `Err(LoaderError)` - If registration fails
+* `Ok(Vec<TaskNamespace>)` - List of registered task namespaces
+* `Err(LoaderError)` - If registration fails
 
 <details>
 <summary>Source</summary>
@@ -261,15 +257,15 @@ Register package tasks with the global task registry using new host-managed appr
 
 </details>
 
-
-
-##### <span id="TaskRegistrar.unregister_package_tasks"></span>`unregister_package_tasks`
+##### <span id="TaskRegistrar.unregister_package_tasks"></span><code>unregister_​package_​tasks</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unregister_package_tasks (& self , package_id : & str) -> Result < () , LoaderError >
+fn unregister_package_tasks(
+    &self) -> Result<(,
+    package_id: &str) -> Result<(,
+) -> Result<(), LoaderError>
 ```
 
 Unregister package tasks from the global registry.
@@ -278,12 +274,12 @@ Unregister package tasks from the global registry.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `package_id` | `-` | Package identifier used during registration |
-
+| `package_id` | `&str` | Package identifier used during registration |
 
 **Returns:**
 
-* `Ok(())` - Tasks successfully unregistered * `Err(LoaderError)` - If unregistration fails
+* `Ok(())` - Tasks successfully unregistered
+* `Err(LoaderError)` - If unregistration fails
 
 <details>
 <summary>Source</summary>
@@ -319,15 +315,15 @@ Unregister package tasks from the global registry.
 
 </details>
 
-
-
-##### <span id="TaskRegistrar.get_registered_namespaces"></span>`get_registered_namespaces`
+##### <span id="TaskRegistrar.get_registered_namespaces"></span><code>get_​registered_​namespaces</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_registered_namespaces (& self , package_id : & str) -> Vec < TaskNamespace >
+fn get_registered_namespaces(
+    &self,
+    package_id: &str,
+) -> Vec<TaskNamespace>
 ```
 
 Get the list of task namespaces registered for a package.
@@ -344,15 +340,12 @@ Get the list of task namespaces registered for a package.
 
 </details>
 
-
-
-##### <span id="TaskRegistrar.loaded_package_count"></span>`loaded_package_count`
+##### <span id="TaskRegistrar.loaded_package_count"></span><code>loaded_​package_​count</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn loaded_package_count (& self) -> usize
+fn loaded_package_count(&self) -> usize
 ```
 
 Get the number of currently loaded packages.
@@ -369,15 +362,12 @@ Get the number of currently loaded packages.
 
 </details>
 
-
-
-##### <span id="TaskRegistrar.total_registered_tasks"></span>`total_registered_tasks`
+##### <span id="TaskRegistrar.total_registered_tasks"></span><code>total_​registered_​tasks</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn total_registered_tasks (& self) -> usize
+fn total_registered_tasks(&self) -> usize
 ```
 
 Get the total number of registered tasks across all packages.
@@ -394,15 +384,12 @@ Get the total number of registered tasks across all packages.
 
 </details>
 
-
-
-##### <span id="TaskRegistrar.temp_dir"></span>`temp_dir`
+##### <span id="TaskRegistrar.temp_dir"></span><code>temp_​dir</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn temp_dir (& self) -> & Path
+fn temp_dir(&self) -> &Path
 ```
 
 Get the temporary directory path for manual operations.
@@ -417,8 +404,3 @@ Get the temporary directory path for manual operations.
 ```
 
 </details>
-
-
-
-
-

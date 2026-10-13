@@ -1,13 +1,13 @@
 ---
 title: "cloacina::executor::context_builder"
 description: "Shared dependency-context builder (CLOACI-I-0114 / task T-0633)."
+editUrl: false
 sidebar:
-  order: 135
+  order: 118
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Shared dependency-context builder (CLOACI-I-0114 / task T-0633).
 
@@ -17,6 +17,7 @@ dependency context the **exact** same way the thread executor does. Without
 this seam the two executors would inevitably drift on what context a task
 sees — mirroring the same drift risk `TaskResultHandler` (T-0630) closed
 for the post-execution path.
+
 The builder is intentionally backend-agnostic and holds only a `DAL`; the
 caller supplies the task's dependency namespaces (the thread executor gets
 them from the locally-loaded `Task::dependencies()`; the fleet executor
@@ -24,35 +25,22 @@ from the same server-side `Runtime`).
 
 ## Structs
 
-### <span id="struct.TaskContextBuilder"></span>`struct TaskContextBuilder`
+### <span id="struct.TaskContextBuilder"></span><code style="font-size: 0.85em">struct TaskContextBuilder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
 Builds a task's input context by loading + merging its dependency contexts (or the workflow's initial context when the task has no dependencies).
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `dal` | `DAL` |  |
-| `secret_resolver` | `Option < Arc < dyn SecretResolver > >` | Optional secret resolution side channel (CLOACI-T-0858). When set, every
-context this builder produces carries the resolver so a task body can
-call `context.secret(...)`. It is attached to the runtime-only,
-never-serialized handle on `Context`, so it cannot leak into the durable
-context. `None` on paths that don't configure secrets. |
-
 #### Methods
 
-##### <span id="TaskContextBuilder.new"></span>`new`
+##### <span id="TaskContextBuilder.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (dal : DAL) -> Self
+fn new(dal: DAL) -> Self
 ```
 
 <details>
@@ -69,15 +57,15 @@ fn new (dal : DAL) -> Self
 
 </details>
 
-
-
-##### <span id="TaskContextBuilder.with_secret_resolver"></span>`with_secret_resolver`
+##### <span id="TaskContextBuilder.with_secret_resolver"></span><code>with_​secret_​resolver</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_secret_resolver (mut self , resolver : Option < Arc < dyn SecretResolver > >) -> Self
+fn with_secret_resolver(
+    mut self,
+    resolver: Option<Arc<dyn SecretResolver>>,
+) -> Self
 ```
 
 Attach the secret resolver every built context should carry (T-0858).
@@ -94,25 +82,26 @@ Attach the secret resolver every built context should carry (T-0858).
 
 </details>
 
-
-
-##### <span id="TaskContextBuilder.build"></span>`build`
+##### <span id="TaskContextBuilder.build"></span><code>build</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn build (& self , claimed_task : & ClaimedTask , dependencies : & [TaskNamespace] ,) -> Result < Context < serde_json :: Value > , ExecutorError >
+async fn build(
+    &self,
+    claimed_task: &ClaimedTask,
+    dependencies: &[TaskNamespace],
+) -> Result<Context<serde_json::Value>, ExecutorError>
 ```
 
 Build the execution context for `claimed_task` given its `dependencies`.
 
 - **No dependencies**: load the workflow's initial context (if any).
 - **With dependencies**: batch-load each dependency's persisted context
-and smart-merge (latest-wins for primitives, recursive for objects,
-dedup-concat for arrays). A dependency context that fails to parse is
-a hard `ContextLoadFailed` (COR-11) — never a silent partial context.
+  and smart-merge (latest-wins for primitives, recursive for objects,
+  dedup-concat for arrays). A dependency context that fails to parse is
+  a hard `ContextLoadFailed` (COR-11) — never a silent partial context.
 
 <details>
 <summary>Source</summary>
@@ -250,15 +239,15 @@ a hard `ContextLoadFailed` (COR-11) — never a silent partial context.
 
 </details>
 
-
-
-##### <span id="TaskContextBuilder.merge_context_values"></span>`merge_context_values`
+##### <span id="TaskContextBuilder.merge_context_values"></span><code>merge_​context_​values</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn merge_context_values (existing : & serde_json :: Value , new : & serde_json :: Value ,) -> serde_json :: Value
+fn merge_context_values(
+    existing: &serde_json::Value,
+    new: &serde_json::Value,
+) -> serde_json::Value
 ```
 
 Smart-merge two context values: arrays concat+dedup, objects merge recursively, everything else latest-wins.
@@ -303,8 +292,3 @@ Smart-merge two context values: arrays concat+dedup, objects merge recursively, 
 ```
 
 </details>
-
-
-
-
-

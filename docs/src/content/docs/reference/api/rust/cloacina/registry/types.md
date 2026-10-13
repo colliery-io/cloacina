@@ -1,13 +1,13 @@
 ---
 title: "cloacina::registry::types"
 description: "Data types for the workflow registry system."
+editUrl: false
 sidebar:
-  order: 189
+  order: 171
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Data types for the workflow registry system.
 
@@ -16,10 +16,9 @@ including workflow metadata, package information, and identifiers.
 
 ## Structs
 
-### <span id="struct.WorkflowMetadata"></span>`struct WorkflowMetadata`
+### <span id="struct.WorkflowMetadata"></span><code style="font-size: 0.85em">struct WorkflowMetadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`
 
@@ -59,43 +58,23 @@ let metadata = WorkflowMetadata {
 | `id` | `WorkflowPackageId` | Unique identifier for this workflow package |
 | `registry_id` | `Uuid` | Foreign key to the workflow_registry table |
 | `package_name` | `String` | Name of the workflow package (e.g., "analytics_pipeline") |
-| `workflow_name` | `String` | Name of the executable workflow inside the package (e.g.,
-"analytics_workflow"). This is the identifier the runner registry is
-keyed by and is what callers must use to execute the workflow. It often
-differs from `package_name` (package `demo-slow-rust` →
-workflow `demo_slow_workflow`). (CLOACI-T-0671) |
+| `workflow_name` | `String` | Name of the executable workflow inside the package (e.g., "analytics_workflow"). This is the identifier the runner registry is keyed by and is what callers must use to execute the workflow. It often differs from `package_name` (package `demo-slow-rust` → workflow `demo_slow_workflow`). (CLOACI-T-0671) |
 | `version` | `String` | Semantic version of the package (e.g., "1.0.0") |
-| `description` | `Option < String >` | Optional human-readable description |
-| `author` | `Option < String >` | Optional author information |
-| `tasks` | `Vec < String >` | List of task IDs included in this package |
-| `task_graph` | `Vec < WorkflowTaskNode >` | The task dependency graph: one node per task with its upstream
-dependencies, so consumers (the UI) can render the full DAG. Derived
-from the persisted package metadata's task list. Empty for packages
-predating task-graph persistence. (CLOACI-T-0663) |
-| `schedules` | `Vec < String >` | List of schedule names defined in this package |
-| `created_at` | `DateTime < Utc >` | When this package was registered |
-| `updated_at` | `DateTime < Utc >` | When this package metadata was last updated |
-| `paused` | `bool` | Whether this workflow is paused (CLOACI-T-0749). When true, new
-executions are refused at the execute chokepoint. Defaults to false for
-older serialized data and non-DB registry backends. |
-| `declared_params` | `Vec < cloacina_api_types :: InputSlot >` | CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the
-workflow accepts at execute time. Empty when the workflow declares none
-or predates the input-interface entrypoint. |
-| `declared_surfaces` | `Vec < cloacina_api_types :: DeclaredSurface >` | CLOACI-I-0128 (T-0758): declared input interfaces of the package's
-non-workflow injectable surfaces (graphs/reactors/accumulators), used to
-validate operator injections. Empty when none are declared. |
-| `workflow_triggers` | `Vec < String >` | CLOACI-T-0777: trigger names this workflow subscribes to, from
-`#[workflow(triggers = […])]`. A manual trigger fire fans out to every
-workflow whose list includes the fired trigger — this is the runtime
-source of truth for that fan-out (schedules carry only the trigger's
-primary `on` workflow). Empty when the workflow subscribes to none. |
+| `description` | `Option<String>` | Optional human-readable description |
+| `author` | `Option<String>` | Optional author information |
+| `tasks` | `Vec<String>` | List of task IDs included in this package |
+| `task_graph` | `Vec<WorkflowTaskNode>` | The task dependency graph: one node per task with its upstream dependencies, so consumers (the UI) can render the full DAG. Derived from the persisted package metadata's task list. Empty for packages predating task-graph persistence. (CLOACI-T-0663) |
+| `schedules` | `Vec<String>` | List of schedule names defined in this package |
+| `created_at` | `DateTime<Utc>` | When this package was registered |
+| `updated_at` | `DateTime<Utc>` | When this package metadata was last updated |
+| `paused` | `bool` | Whether this workflow is paused (CLOACI-T-0749). When true, new executions are refused at the execute chokepoint. Defaults to false for older serialized data and non-DB registry backends. |
+| `declared_params` | `Vec<cloacina_api_types::InputSlot>` | CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time. Empty when the workflow declares none or predates the input-interface entrypoint. |
+| `declared_surfaces` | `Vec<cloacina_api_types::DeclaredSurface>` | CLOACI-I-0128 (T-0758): declared input interfaces of the package's non-workflow injectable surfaces (graphs/reactors/accumulators), used to validate operator injections. Empty when none are declared. |
+| `workflow_triggers` | `Vec<String>` | CLOACI-T-0777: trigger names this workflow subscribes to, from `#[workflow(triggers = […])]`. A manual trigger fire fans out to every workflow whose list includes the fired trigger — this is the runtime source of truth for that fan-out (schedules carry only the trigger's primary `on` workflow). Empty when the workflow subscribes to none. |
 
-
-
-### <span id="struct.WorkflowSourceFile"></span>`struct WorkflowSourceFile`
+### <span id="struct.WorkflowSourceFile"></span><code style="font-size: 0.85em">struct WorkflowSourceFile</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`
 
@@ -112,12 +91,9 @@ are represented; binary and oversized files are omitted by the extractor.
 | `path` | `String` | Path relative to the package source root, using forward slashes. |
 | `contents` | `String` | UTF-8 file contents. |
 
-
-
-### <span id="struct.WorkflowTaskNode"></span>`struct WorkflowTaskNode`
+### <span id="struct.WorkflowTaskNode"></span><code style="font-size: 0.85em">struct WorkflowTaskNode</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`
 
@@ -128,19 +104,14 @@ One node in a workflow's task dependency graph (CLOACI-T-0663).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `String` | Local task id (the node id), e.g. `"validate"`. |
-| `dependencies` | `Vec < String >` | Local ids of the tasks this task depends on (its incoming edges). |
-| `description` | `Option < String >` | Optional human-readable task description. |
-| `doc_what` | `Option < String >` | CLOACI-T-0752 "what" — short summary parsed from the task's
-doc-comment/docstring. `None` when undocumented. |
-| `doc_why` | `Option < String >` | CLOACI-T-0752 "why" — rationale parsed from the doc-comment/docstring.
-`None` when undocumented. |
+| `dependencies` | `Vec<String>` | Local ids of the tasks this task depends on (its incoming edges). |
+| `description` | `Option<String>` | Optional human-readable task description. |
+| `doc_what` | `Option<String>` | CLOACI-T-0752 "what" — short summary parsed from the task's doc-comment/docstring. `None` when undocumented. |
+| `doc_why` | `Option<String>` | CLOACI-T-0752 "why" — rationale parsed from the doc-comment/docstring. `None` when undocumented. |
 
-
-
-### <span id="struct.PackageMetadata"></span>`struct PackageMetadata`
+### <span id="struct.PackageMetadata"></span><code style="font-size: 0.85em">struct PackageMetadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -155,18 +126,15 @@ file itself, typically extracted during the packaging process by cloacina-ctl.
 |------|------|-------------|
 | `package` | `String` | Package name from the workflow macro |
 | `version` | `String` | Version from Cargo.toml |
-| `description` | `Option < String >` | Optional description |
-| `author` | `Option < String >` | Optional author from Cargo.toml |
+| `description` | `Option<String>` | Optional description |
+| `author` | `Option<String>` | Optional author from Cargo.toml |
 | `build_info` | `BuildInfo` | Build metadata |
-| `tasks` | `Vec < TaskInfo >` | Task information |
-| `schedules` | `Vec < ScheduleInfo >` | Schedule information |
+| `tasks` | `Vec<TaskInfo>` | Task information |
+| `schedules` | `Vec<ScheduleInfo>` | Schedule information |
 
-
-
-### <span id="struct.BuildInfo"></span>`struct BuildInfo`
+### <span id="struct.BuildInfo"></span><code style="font-size: 0.85em">struct BuildInfo</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -178,15 +146,12 @@ Build information embedded in the package.
 |------|------|-------------|
 | `rustc_version` | `String` | Rust compiler version used |
 | `cloacina_version` | `String` | Cloacina version used |
-| `build_timestamp` | `DateTime < Utc >` | Build timestamp |
+| `build_timestamp` | `DateTime<Utc>` | Build timestamp |
 | `target` | `String` | Target architecture |
 
-
-
-### <span id="struct.TaskInfo"></span>`struct TaskInfo`
+### <span id="struct.TaskInfo"></span><code style="font-size: 0.85em">struct TaskInfo</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -197,15 +162,12 @@ Basic task information from package metadata.
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `String` | Task identifier |
-| `dependencies` | `Vec < String >` | Task dependencies |
-| `description` | `Option < String >` | Optional task description |
+| `dependencies` | `Vec<String>` | Task dependencies |
+| `description` | `Option<String>` | Optional task description |
 
-
-
-### <span id="struct.ScheduleInfo"></span>`struct ScheduleInfo`
+### <span id="struct.ScheduleInfo"></span><code style="font-size: 0.85em">struct ScheduleInfo</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -219,12 +181,9 @@ Schedule information from package metadata.
 | `cron` | `String` | Cron expression |
 | `workflow` | `String` | Workflow to execute |
 
-
-
-### <span id="struct.WorkflowPackage"></span>`struct WorkflowPackage`
+### <span id="struct.WorkflowPackage"></span><code style="font-size: 0.85em">struct WorkflowPackage</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`
 
@@ -238,17 +197,16 @@ data of the compiled workflow .so file.
 | Name | Type | Description |
 |------|------|-------------|
 | `metadata` | `PackageMetadata` | Metadata extracted from the package |
-| `package_data` | `Vec < u8 >` | Raw binary data of the .so file |
+| `package_data` | `Vec<u8>` | Raw binary data of the .so file |
 
 #### Methods
 
-##### <span id="WorkflowPackage.new"></span>`new`
+##### <span id="WorkflowPackage.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (metadata : PackageMetadata , package_data : Vec < u8 >) -> Self
+fn new(metadata: PackageMetadata, package_data: Vec<u8>) -> Self
 ```
 
 Create a new workflow package from metadata and binary data.
@@ -267,15 +225,14 @@ Create a new workflow package from metadata and binary data.
 
 </details>
 
-
-
-##### <span id="WorkflowPackage.from_file"></span>`from_file`
+##### <span id="WorkflowPackage.from_file"></span><code>from_​file</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_file (_path : impl AsRef < std :: path :: Path >) -> Result < Self , std :: io :: Error >
+fn from_file(
+    _path: impl AsRef<std::path::Path>,
+) -> Result<Self, std::io::Error>
 ```
 
 Load a workflow package from a .cloacina file.
@@ -286,24 +243,21 @@ Load a workflow package from a .cloacina file.
 |------|------|-------------|
 | `path` | `-` | Path to the .cloacina package file |
 
-
 **Returns:**
 
-* `Ok(WorkflowPackage)` - Successfully loaded package * `Err(std::io::Error)` - If file operations fail
+* `Ok(WorkflowPackage)` - Successfully loaded package
+* `Err(std::io::Error)` - If file operations fail
 
 **Examples:**
 
 ```rust
 use cloacina::registry::WorkflowPackage;
 
-# fn example() -> Result<(), Box<dyn std::error::Error>> {
 let package = WorkflowPackage::from_file("analytics.cloacina")?;
 println!("Loaded package: {} v{}",
     package.metadata.package,
     package.metadata.version
 );
-# Ok(())
-# }
 ```
 
 <details>
@@ -318,14 +272,9 @@ println!("Loaded package: {} v{}",
 
 </details>
 
-
-
-
-
-### <span id="struct.LoadedWorkflow"></span>`struct LoadedWorkflow`
+### <span id="struct.LoadedWorkflow"></span><code style="font-size: 0.85em">struct LoadedWorkflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`
 
@@ -339,19 +288,21 @@ containing all the information needed to execute the workflow.
 | Name | Type | Description |
 |------|------|-------------|
 | `metadata` | `WorkflowMetadata` | Full metadata from the database |
-| `package_data` | `Vec < u8 >` | Source archive (.cloacina bzip2 tar) from registry storage |
-| `compiled_data` | `Option < Vec < u8 > >` | Compiled cdylib bytes produced by the compiler service.
-`None` for pure-Python packages; `Some` for Rust/mixed packages. |
+| `package_data` | `Vec<u8>` | Source archive (.cloacina bzip2 tar) from registry storage |
+| `compiled_data` | `Option<Vec<u8>>` | Compiled cdylib bytes produced by the compiler service. `None` for pure-Python packages; `Some` for Rust/mixed packages. |
 
 #### Methods
 
-##### <span id="LoadedWorkflow.new"></span>`new`
+##### <span id="LoadedWorkflow.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (metadata : WorkflowMetadata , package_data : Vec < u8 > , compiled_data : Option < Vec < u8 > > ,) -> Self
+fn new(
+    metadata: WorkflowMetadata,
+    package_data: Vec<u8>,
+    compiled_data: Option<Vec<u8>>,
+) -> Self
 ```
 
 Create a new loaded workflow.
@@ -375,7 +326,8 @@ Create a new loaded workflow.
 
 </details>
 
+## Type aliases
 
-
-
-
+| Name | Type | Description |
+|------|------|-------------|
+| <span id="type.WorkflowPackageId"></span>`WorkflowPackageId` | `Uuid` | Unique identifier for a workflow package.<br>This ID is used to reference a specific registered workflow package in both the metadata and binary storage systems. |

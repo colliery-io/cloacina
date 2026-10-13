@@ -1,13 +1,13 @@
 ---
 title: "cloacina-python::package_loader"
 description: "Server-side Python package loader."
+editUrl: false
 sidebar:
-  order: 35
+  order: 19
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Server-side Python package loader.
 
@@ -17,10 +17,9 @@ for task execution via PyO3.
 
 ## Structs
 
-### <span id="struct.ExtractedPythonPackage"></span>`struct ExtractedPythonPackage`
+### <span id="struct.ExtractedPythonPackage"></span><code style="font-size: 0.85em">struct ExtractedPythonPackage</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -38,14 +37,11 @@ An extracted Python package ready for task execution.
 | `version` | `String` | Package version from `package.toml`. |
 | `workflow_name` | `String` | Workflow name from metadata. |
 
-
-
 ## Enums
 
-### <span id="enum.PackageKind"></span>`enum PackageKind`
+### <span id="enum.PackageKind"></span><code style="font-size: 0.85em">enum PackageKind</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Result of detecting the package language from a source archive.
 
@@ -54,17 +50,16 @@ Result of detecting the package language from a source archive.
 - **`Python`** - Python workflow package.
 - **`Rust`** - Rust dynamic-library package.
 
-
-
 ## Functions
 
-### <span id="fn.detect_package_kind"></span>`fn detect_package_kind`
+### <span id="fn.detect_package_kind"></span><code style="font-size: 0.85em">fn detect_​package_​kind</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn detect_package_kind (archive_data : & [u8]) -> Result < PackageKind , LoaderError >
+fn detect_package_kind(
+    archive_data: &[u8],
+) -> Result<PackageKind, LoaderError>
 ```
 
 Detect the package kind (Python or Rust) from a `.cloacina` source archive.
@@ -134,21 +129,21 @@ pub fn detect_package_kind(archive_data: &[u8]) -> Result<PackageKind, LoaderErr
 
 </details>
 
-
-
-### <span id="fn.extract_python_package"></span>`fn extract_python_package`
+### <span id="fn.extract_python_package"></span><code style="font-size: 0.85em">fn extract_​python_​package</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn extract_python_package (archive_data : & [u8] , staging_dir : & Path ,) -> Result < ExtractedPythonPackage , LoaderError >
+fn extract_python_package(
+    archive_data: &[u8],
+    staging_dir: &Path,
+) -> Result<ExtractedPythonPackage, LoaderError>
 ```
 
 Extract a Python workflow package from a `.cloacina` source archive.
 
 The archive is unpacked via fidius into a sub-directory of *staging_dir*.
-The returned [`ExtractedPythonPackage`] contains paths to the
+The returned [`ExtractedPythonPackage`](../../../rust/cloacina-python/package_loader/#struct.ExtractedPythonPackage) contains paths to the
 workflow source and vendored dependencies.
 
 <details>
@@ -233,6 +228,3 @@ pub fn extract_python_package(
 ```
 
 </details>
-
-
-

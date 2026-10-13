@@ -1,22 +1,36 @@
 ---
 title: "cloacina::registry::reconciler"
 description: "API reference of the Rust module cloacina::registry::reconciler."
+editUrl: false
 sidebar:
-  order: 185
+  order: 167
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
+**Registry Reconciler**
 
+The Registry Reconciler is responsible for synchronizing the persistent workflow registry
+state with the in-memory task and workflow registries. It ensures that:
 
+- Packages registered in the database are loaded into the global registries
+- Packages removed from the database are unloaded from the global registries
+- System restarts properly restore all registered packages
+- Dynamic package loading/unloading works seamlessly
+
+**Key Components**
+
+- `RegistryReconciler`: Main reconciliation service
+- `ReconcilerConfig`: Configuration for reconciliation behavior
+- `ReconcileResult`: Result of a reconciliation operation
+- `PackageState`: Tracking loaded package state
 
 ## Structs
 
-### <span id="struct.ReconcilerConfig"></span>`struct ReconcilerConfig`
+### <span id="struct.ReconcilerConfig"></span><code style="font-size: 0.85em">struct ReconcilerConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -31,21 +45,12 @@ Configuration for the Registry Reconciler
 | `package_operation_timeout` | `Duration` | Maximum time to wait for a single package load/unload operation |
 | `continue_on_package_error` | `bool` | Whether to continue reconciliation if individual package operations fail |
 | `default_tenant_id` | `String` | Default tenant ID to use for package loading |
-| `require_signatures` | `bool` | Defense-in-depth: when true, the reconciler refuses to load any
-`workflow_packages` row that has no companion `package_signatures`
-row (CLOACI-T-0571). The upload route is the strong gate
-(CLOACI-I-0103); this catches direct DB inserts that bypass it. |
-| `verification_org_id` | `Option < crate :: UniversalUuid >` | Trusted org UUID used as the `org_id` field on the audit-log
-entry when a signature-existence check fails. None when
-`require_signatures` is false. Mirrors
-`cloacina-server`'s `--verification-org-id` CLI flag. |
+| `require_signatures` | `bool` | Defense-in-depth: when true, the reconciler refuses to load any `workflow_packages` row that has no companion `package_signatures` row (CLOACI-T-0571). The upload route is the strong gate (CLOACI-I-0103); this catches direct DB inserts that bypass it. |
+| `verification_org_id` | `Option<crate::UniversalUuid>` | Trusted org UUID used as the `org_id` field on the audit-log entry when a signature-existence check fails. None when `require_signatures` is false. Mirrors `cloacina-server`'s `--verification-org-id` CLI flag. |
 
-
-
-### <span id="struct.ReconcileResult"></span>`struct ReconcileResult`
+### <span id="struct.ReconcileResult"></span><code style="font-size: 0.85em">struct ReconcileResult</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -55,21 +60,20 @@ Result of a reconciliation operation
 
 | Name | Type | Description |
 |------|------|-------------|
-| `packages_loaded` | `Vec < WorkflowPackageId >` | Packages that were loaded during this reconciliation |
-| `packages_unloaded` | `Vec < WorkflowPackageId >` | Packages that were unloaded during this reconciliation |
-| `packages_failed` | `Vec < (WorkflowPackageId , String) >` | Packages that failed to load/unload |
+| `packages_loaded` | `Vec<WorkflowPackageId>` | Packages that were loaded during this reconciliation |
+| `packages_unloaded` | `Vec<WorkflowPackageId>` | Packages that were unloaded during this reconciliation |
+| `packages_failed` | `Vec<(WorkflowPackageId, String)>` | Packages that failed to load/unload |
 | `total_packages_tracked` | `usize` | Total packages currently tracked |
 | `reconciliation_duration` | `Duration` | Duration of the reconciliation operation |
 
 #### Methods
 
-##### <span id="ReconcileResult.has_changes"></span>`has_changes`
+##### <span id="ReconcileResult.has_changes"></span><code>has_​changes</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn has_changes (& self) -> bool
+fn has_changes(&self) -> bool
 ```
 
 Check if the reconciliation had any changes
@@ -85,15 +89,12 @@ Check if the reconciliation had any changes
 
 </details>
 
-
-
-##### <span id="ReconcileResult.has_failures"></span>`has_failures`
+##### <span id="ReconcileResult.has_failures"></span><code>has_​failures</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn has_failures (& self) -> bool
+fn has_failures(&self) -> bool
 ```
 
 Check if the reconciliation had any failures
@@ -109,53 +110,9 @@ Check if the reconciliation had any failures
 
 </details>
 
-
-
-
-
-### <span id="struct.PackageState"></span>`struct PackageState`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">pub(super)</span>
-
-
-**Derives:** `Debug`, `Clone`
-
-Tracks the state of loaded packages
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `metadata` | `WorkflowMetadata` | Package metadata |
-| `task_namespaces` | `Vec < TaskNamespace >` | Task namespaces registered for this package |
-| `workflow_name` | `Option < String >` | Workflow name registered for this package |
-| `trigger_names` | `Vec < String >` | Trigger names registered for this package |
-| `graph_name` | `Option < String >` | Computation graph name loaded for this package (if any) |
-| `reactor_names` | `Vec < String >` | Reactor names this package owns (declared via `#[reactor]` or
-`#[computation_graph]`'s bundled reactor). Used by the reverse-order
-unload pipeline (T-0554 Phase 2): the package's own reactors are
-torn down via `scheduler.unload_reactor` after subscribers have
-been unbound. Cross-package subscribers (graphs that bind to a
-reactor owned by another package) do NOT appear here. |
-| `cron_schedule_ids` | `Vec < String >` | Schedule IDs created when the reconciler registered this package's
-trigger declarations through an attached `CronWorkflowRegistrar` —
-both `#[trigger(cron = ...)]` (cron rows) and `#[trigger(poll_interval
-= ...)]` (poll rows, CLOACI-I-0124 / WS-6). Empty when no registrar is
-attached (e.g. the standalone daemon path registers out-of-band). Used
-by `unload_package` to drop the schedules when the package is removed
-(both kinds are deleted by id). |
-| `triggerless_graph_names` | `Vec < String >` | Trigger-less graph names registered through the FFI bridge for
-this package (T-0553 follow-up — Trigger-less CG FFI bridge).
-Populated by `step_load_triggerless_cgs` for cdylib packages;
-empty for in-process / Python loads. `unload_package` drops
-each name from the runtime. |
-
-
-
-### <span id="struct.ReconcilerStatus"></span>`struct ReconcilerStatus`
+### <span id="struct.ReconcilerStatus"></span><code style="font-size: 0.85em">struct ReconcilerStatus</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -166,14 +123,11 @@ Status information about the reconciler
 | Name | Type | Description |
 |------|------|-------------|
 | `packages_loaded` | `usize` | Number of packages currently loaded |
-| `package_details` | `Vec < PackageStatusDetail >` | Details about each loaded package |
+| `package_details` | `Vec<PackageStatusDetail>` | Details about each loaded package |
 
-
-
-### <span id="struct.PackageStatusDetail"></span>`struct PackageStatusDetail`
+### <span id="struct.PackageStatusDetail"></span><code style="font-size: 0.85em">struct PackageStatusDetail</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -188,53 +142,24 @@ Detailed status information about a loaded package
 | `task_count` | `usize` | Number of tasks registered |
 | `has_workflow` | `bool` | Whether a workflow was registered |
 
-
-
-### <span id="struct.RegistryReconciler"></span>`struct RegistryReconciler`
+### <span id="struct.RegistryReconciler"></span><code style="font-size: 0.85em">struct RegistryReconciler</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Registry Reconciler for synchronizing database state with in-memory registries
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `registry` | `Arc < dyn WorkflowRegistry >` | Reference to the workflow registry for database operations |
-| `config` | `ReconcilerConfig` | Configuration for reconciliation behavior |
-| `runtime` | `Option < Arc < crate :: Runtime > >` | Optional runtime handle. When set, the reconciler pushes
-newly-loaded/unloaded registrations through the runtime so executors
-looking up tasks/workflows/triggers/CGs/stream backends stay in sync
-with dynamic package loads. |
-| `loaded_packages` | `Arc < tokio :: sync :: RwLock < HashMap < WorkflowPackageId , PackageState > > >` | Tracking of currently loaded packages |
-| `package_loader` | `PackageLoader` | Package loader for extracting metadata from .so files |
-| `task_registrar` | `TaskRegistrar` | Task registrar for managing dynamic task registration |
-| `shutdown_rx` | `watch :: Receiver < bool >` | Shutdown signal receiver |
-| `interval` | `Interval` | Reconciliation interval timer |
-| `graph_scheduler` | `Arc < tokio :: sync :: RwLock < Option < Arc < ComputationGraphScheduler > > > >` | Optional graph scheduler for computation graph packages.
-Shared reference so it can be set after construction. |
-| `cron_registrar` | `Option < Arc < dyn CronWorkflowRegistrar > >` | Optional cron registrar. When attached, the reconciler registers
-each `#[trigger(cron = ...)]` declaration in the package at load
-time and deregisters at unload. Without it, cron triggers are a
-no-op (the standalone daemon historically did this out-of-band;
-server mode had no cron registration at all). Closes the gap
-where packaged cron triggers never fired under cloacina-server. |
-| `recompile_requested` | `std :: sync :: Mutex < std :: collections :: HashSet < WorkflowPackageId > >` | CLOACI-T-0835: packages this process already asked the compiler to
-rebuild after a stale-artifact load failure. One request per package
-per process — if the rebuilt artifact STILL fails (e.g. the compiler
-itself is the stale side), we do not ping-pong the row back to
-`pending` forever. |
-
 #### Methods
 
-##### <span id="RegistryReconciler.new"></span>`new`
+##### <span id="RegistryReconciler.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (registry : Arc < dyn WorkflowRegistry > , config : ReconcilerConfig , shutdown_rx : watch :: Receiver < bool > ,) -> Result < Self , RegistryError >
+fn new(
+    registry: Arc<dyn WorkflowRegistry>,
+    config: ReconcilerConfig,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Result<Self, RegistryError>
 ```
 
 Create a new Registry Reconciler
@@ -274,46 +199,12 @@ Create a new Registry Reconciler
 
 </details>
 
-
-
-##### <span id="RegistryReconciler.tenant_scope"></span>`tenant_scope`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">pub(super)</span>
-
-
-```rust
-fn tenant_scope (& self) -> crate :: tenant_scope :: TenantScope < '_ >
-```
-
-The tenant scope this reconciler loads and unloads under (CLOACI-T-0924).
-
-The `ComputationGraphScheduler` is a single `Arc` shared by every
-tenant's runner, so unlike the `Runtime` (whose handle carries a scope)
-its name-taking methods need the tenant passed explicitly. Package loads
-already stamp `decl.tenant_id = config.default_tenant_id`, so this is
-exactly the scope the entries were claimed under. Embedded runners leave
-`default_tenant_id` at `"public"` and are self-consistent.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(super) fn tenant_scope(&self) -> crate::tenant_scope::TenantScope<'_> {
-        crate::tenant_scope::TenantScope::tenant(&self.config.default_tenant_id)
-    }
-```
-
-</details>
-
-
-
-##### <span id="RegistryReconciler.with_runtime"></span>`with_runtime`
+##### <span id="RegistryReconciler.with_runtime"></span><code>with_​runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_runtime (mut self , runtime : Arc < crate :: Runtime >) -> Self
+fn with_runtime(mut self, runtime: Arc<crate::Runtime>) -> Self
 ```
 
 Attach a Runtime to this reconciler. Package load/unload operations will push registrations through the runtime so executors see the same view as the reconciler.
@@ -330,15 +221,15 @@ Attach a Runtime to this reconciler. Package load/unload operations will push re
 
 </details>
 
-
-
-##### <span id="RegistryReconciler.with_graph_scheduler"></span>`with_graph_scheduler`
+##### <span id="RegistryReconciler.with_graph_scheduler"></span><code>with_​graph_​scheduler</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_graph_scheduler (self , scheduler : Arc < ComputationGraphScheduler >) -> Self
+fn with_graph_scheduler(
+    self,
+    scheduler: Arc<ComputationGraphScheduler>,
+) -> Self
 ```
 
 Set the graph scheduler for computation graph package routing.
@@ -358,15 +249,15 @@ Set the graph scheduler for computation graph package routing.
 
 </details>
 
-
-
-##### <span id="RegistryReconciler.set_graph_scheduler_slot"></span>`set_graph_scheduler_slot`
+##### <span id="RegistryReconciler.set_graph_scheduler_slot"></span><code>set_​graph_​scheduler_​slot</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_graph_scheduler_slot (& mut self , slot : Arc < tokio :: sync :: RwLock < Option < Arc < ComputationGraphScheduler > > > > ,)
+fn set_graph_scheduler_slot(
+    &mut self,
+    slot: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
+)
 ```
 
 Replace the graph scheduler slot with a shared reference from the runner. This allows the runner to inject the scheduler after construction.
@@ -385,15 +276,15 @@ Replace the graph scheduler slot with a shared reference from the runner. This a
 
 </details>
 
-
-
-##### <span id="RegistryReconciler.with_cron_registrar"></span>`with_cron_registrar`
+##### <span id="RegistryReconciler.with_cron_registrar"></span><code>with_​cron_​registrar</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_cron_registrar (mut self , registrar : Arc < dyn CronWorkflowRegistrar >) -> Self
+fn with_cron_registrar(
+    mut self,
+    registrar: Arc<dyn CronWorkflowRegistrar>,
+) -> Self
 ```
 
 Attach a cron registrar that the reconciler will use to install cron schedules for each `#[trigger(cron = ...)]` declaration in loaded packages, and to drop them on unload. Builder-style counterpart for callers that wire the reconciler in one chained expression.
@@ -410,15 +301,15 @@ Attach a cron registrar that the reconciler will use to install cron schedules f
 
 </details>
 
-
-
-##### <span id="RegistryReconciler.set_cron_registrar"></span>`set_cron_registrar`
+##### <span id="RegistryReconciler.set_cron_registrar"></span><code>set_​cron_​registrar</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_cron_registrar (& mut self , registrar : Arc < dyn CronWorkflowRegistrar >)
+fn set_cron_registrar(
+    &mut self,
+    registrar: Arc<dyn CronWorkflowRegistrar>,
+)
 ```
 
 Inject a cron registrar after construction (mirrors `set_graph_scheduler_slot`). Used by `DefaultRunner` setup because the runner needs to construct the reconciler before it can build the cron registrar (the registrar holds runner-owned resources).
@@ -434,16 +325,15 @@ Inject a cron registrar after construction (mirrors `set_graph_scheduler_slot`).
 
 </details>
 
-
-
-##### <span id="RegistryReconciler.start_reconciliation_loop"></span>`start_reconciliation_loop`
+##### <span id="RegistryReconciler.start_reconciliation_loop"></span><code>start_​reconciliation_​loop</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn start_reconciliation_loop (mut self) -> Result < () , RegistryError >
+async fn start_reconciliation_loop(
+    mut self) -> Result<(,
+) -> Result<(), RegistryError>
 ```
 
 Start the background reconciliation loop
@@ -530,16 +420,13 @@ Start the background reconciliation loop
 
 </details>
 
-
-
-##### <span id="RegistryReconciler.reconcile"></span>`reconcile`
+##### <span id="RegistryReconciler.reconcile"></span><code>reconcile</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn reconcile (& self) -> Result < ReconcileResult , RegistryError >
+async fn reconcile(&self) -> Result<ReconcileResult, RegistryError>
 ```
 
 Perform a single reconciliation operation
@@ -725,59 +612,13 @@ Perform a single reconciliation operation
 
 </details>
 
-
-
-##### <span id="RegistryReconciler.shutdown_cleanup"></span>`shutdown_cleanup`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn shutdown_cleanup (& self) -> Result < () , RegistryError >
-```
-
-Perform cleanup operations during shutdown
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn shutdown_cleanup(&self) -> Result<(), RegistryError> {
-        info!("Performing Registry Reconciler shutdown cleanup");
-
-        // Optionally unload all packages during shutdown
-        // For now, we'll just log the current state
-        let loaded_packages = self.loaded_packages.read().await;
-        if !loaded_packages.is_empty() {
-            info!(
-                "Shutdown with {} packages still loaded",
-                loaded_packages.len()
-            );
-            for (package_id, state) in loaded_packages.iter() {
-                debug!(
-                    "Loaded package on shutdown: {} - {} v{}",
-                    package_id, state.metadata.package_name, state.metadata.version
-                );
-            }
-        }
-
-        Ok(())
-    }
-```
-
-</details>
-
-
-
-##### <span id="RegistryReconciler.get_status"></span>`get_status`
+##### <span id="RegistryReconciler.get_status"></span><code>get_​status</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn get_status (& self) -> ReconcilerStatus
+async fn get_status(&self) -> ReconcilerStatus
 ```
 
 Get the current reconciliation status
@@ -806,33 +647,99 @@ Get the current reconciliation status
 
 </details>
 
+## Traits
 
+### <span id="trait.CronWorkflowRegistrar"></span><code style="font-size: 0.85em">trait CronWorkflowRegistrar</code>
 
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+**Supertraits:** `Send + Sync`
 
-## Functions
+Trait the reconciler uses to register and unregister cron workflow schedules at package load/unload time. Implementations live on the runner side (the standalone daemon and the embedded `cloacina-server` runner both implement this against their cron scheduler / DAL). Decoupling this from the reconciler lets cron registration ride the same `reconcile()` lifecycle as every other primitive, instead of relying on the daemon's bespoke post-reconcile hook (which never fired in server mode).
 
-### <span id="fn.is_stale_artifact_error"></span>`fn is_stale_artifact_error`
+#### Methods
 
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
+##### <span id="CronWorkflowRegistrar.register_cron_workflow"></span><code>register_​cron_​workflow</code>
 
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
 ```rust
-fn is_stale_artifact_error (message : & str) -> bool
+async fn register_cron_workflow(
+    &self,
+    workflow_name: &str,
+    cron_expression: &str,
+    timezone: &str,
+) -> Result<String, String>
 ```
 
-CLOACI-T-0835: does this load failure mean the compiled artifact is STALE (built against an older plugin ABI / interface version than this host expects) — i.e. a rebuild from source would fix it? Matches the two gates a version bump trips: fidius's ABI check ("incompatible ABI version") and its per-interface hash check ("interface hash mismatch"). Message-based because the typed fidius error is stringly-flattened by the loader layers; both strings are fidius-host error display texts, stable within a pinned fidius.
+Create a cron schedule for a workflow. Returns an opaque schedule ID the reconciler hands back to [`unregister_cron_workflow`](../../../../rust/cloacina/registry/reconciler/#CronWorkflowRegistrar.unregister_cron_workflow) on unload.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-fn is_stale_artifact_error(message: &str) -> bool {
-    message.contains("incompatible ABI version") || message.contains("interface hash mismatch")
-}
+    async fn register_cron_workflow(
 ```
 
 </details>
 
+##### <span id="CronWorkflowRegistrar.unregister_cron_workflow"></span><code>unregister_​cron_​workflow</code>
 
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
+```rust
+async fn unregister_cron_workflow(
+    &self) -> Result<(,
+    schedule_id: &str) -> Result<(,
+) -> Result<(), String>
+```
+
+Drop a cron schedule by the ID returned from [`register_cron_workflow`](../../../../rust/cloacina/registry/reconciler/#CronWorkflowRegistrar.register_cron_workflow).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String>;
+```
+
+</details>
+
+##### <span id="CronWorkflowRegistrar.register_poll_trigger"></span><code>register_​poll_​trigger</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn register_poll_trigger(
+    &self,
+    trigger_name: &str,
+    workflow_name: &str,
+    poll_interval_ms: i32,
+    allow_concurrent: bool,
+) -> Result<String, String>
+```
+
+Create a `trigger`-type schedule row for a custom-poll (non-cron) trigger. The in-memory `Trigger` impl is registered separately by the reconciler's runtime step; this persists the row the trigger scheduler polls (`get_enabled_triggers`) and the read API surfaces in the Triggers view (CLOACI-I-0124 / WS-6). Returns an opaque schedule ID dropped via [`unregister_cron_workflow`](../../../../rust/cloacina/registry/reconciler/#CronWorkflowRegistrar.unregister_cron_workflow) on unload (both schedule kinds are deleted by id). The default impl degrades loudly so a registrar without trigger support fails visibly rather than silently dropping poll triggers.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn register_poll_trigger(
+        &self,
+        trigger_name: &str,
+        workflow_name: &str,
+        poll_interval_ms: i32,
+        allow_concurrent: bool,
+    ) -> Result<String, String> {
+        let _ = (
+            trigger_name,
+            workflow_name,
+            poll_interval_ms,
+            allow_concurrent,
+        );
+        Err("poll-trigger scheduling not supported by this registrar".to_string())
+    }
+```
+
+</details>

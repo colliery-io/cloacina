@@ -1,13 +1,13 @@
 ---
 title: "cloacina::runner::default_runner::config"
 description: "Configuration types for the DefaultRunner."
+editUrl: false
 sidebar:
-  order: 197
+  order: 179
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Configuration types for the DefaultRunner.
 
@@ -16,10 +16,9 @@ configuring the DefaultRunner's behavior.
 
 ## Structs
 
-### <span id="struct.DefaultRunnerConfig"></span>`struct DefaultRunnerConfig`
+### <span id="struct.DefaultRunnerConfig"></span><code style="font-size: 0.85em">struct DefaultRunnerConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -29,62 +28,31 @@ This struct defines the configuration parameters that control the behavior
 of the DefaultRunner. It includes settings for concurrency, timeouts,
 polling intervals, and database connection management.
 
-#### Fields
+**Construction**
 
-| Name | Type | Description |
-|------|------|-------------|
-| `max_concurrent_tasks` | `usize` |  |
-| `scheduler_poll_interval` | `Duration` |  |
-| `task_timeout` | `Duration` |  |
-| `workflow_timeout` | `Option < Duration >` |  |
-| `db_pool_size` | `u32` |  |
-| `enable_recovery` | `bool` |  |
-| `enable_cron_scheduling` | `bool` |  |
-| `cron_poll_interval` | `Duration` |  |
-| `cron_max_catchup_executions` | `usize` |  |
-| `cron_enable_recovery` | `bool` |  |
-| `cron_recovery_interval` | `Duration` |  |
-| `cron_lost_threshold_minutes` | `i32` |  |
-| `cron_max_recovery_age` | `Duration` |  |
-| `cron_max_recovery_attempts` | `usize` |  |
-| `enable_trigger_scheduling` | `bool` |  |
-| `trigger_base_poll_interval` | `Duration` |  |
-| `trigger_poll_timeout` | `Duration` |  |
-| `enable_registry_reconciler` | `bool` |  |
-| `registry_reconcile_interval` | `Duration` |  |
-| `registry_enable_startup_reconciliation` | `bool` |  |
-| `registry_storage_path` | `Option < std :: path :: PathBuf >` |  |
-| `registry_storage_backend` | `String` |  |
-| `require_signatures` | `bool` | CLOACI-T-0571: defense-in-depth signature existence check.
-When true, the reconciler refuses to load packages with no
-matching `package_signatures` row. |
-| `verification_org_id` | `Option < crate :: UniversalUuid >` | Trusted org UUID forwarded to the reconciler for audit logging
-when the existence check fails. Mirrors `cloacina-server`'s
-`--verification-org-id`. |
-| `enable_claiming` | `bool` |  |
-| `heartbeat_interval` | `Duration` |  |
-| `stale_claim_sweep_interval` | `Duration` |  |
-| `stale_claim_threshold` | `Duration` |  |
-| `runner_id` | `Option < String >` |  |
-| `runner_name` | `Option < String >` |  |
-| `default_executor` | `String` | Executor key every task is dispatched to (CLOACI-T-0640). `"default"`
-(thread) unless the server opts into another registered executor (e.g.
-`"fleet"`). |
-| `tenant_id` | `String` | Tenant this runner serves (CLOACI-T-0781). Flows into the reconciler's
-`default_tenant_id`, so every task this runner registers is namespaced
-`tenant::package::workflow::task` — which is what the fleet executor
-routes on. `"public"` for the admin/global runner; a per-tenant runner
-sets it to its tenant so the tenant's tasks reach the tenant's agents. |
+Use [`DefaultRunnerConfig::builder()`](../../../../../rust/cloacina/runner/default_runner/config/#DefaultRunnerConfig.builder) to create a configuration:
+
+```rust
+let config = DefaultRunnerConfig::builder()
+    .max_concurrent_tasks(8)
+    .task_timeout(Duration::from_secs(600))
+    .build();
+```
+
+Or use the default configuration:
+
+```rust
+let config = DefaultRunnerConfig::default();
+```
 
 #### Methods
 
-##### <span id="DefaultRunnerConfig.builder"></span>`builder`
+##### <span id="DefaultRunnerConfig.builder"></span><code>builder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn builder () -> DefaultRunnerConfigBuilder
+fn builder() -> DefaultRunnerConfigBuilder
 ```
 
 Creates a new configuration builder with default values.
@@ -100,15 +68,12 @@ Creates a new configuration builder with default values.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.max_concurrent_tasks"></span>`max_concurrent_tasks`
+##### <span id="DefaultRunnerConfig.max_concurrent_tasks"></span><code>max_​concurrent_​tasks</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn max_concurrent_tasks (& self) -> usize
+fn max_concurrent_tasks(&self) -> usize
 ```
 
 Maximum number of concurrent task executions allowed.
@@ -124,15 +89,12 @@ Maximum number of concurrent task executions allowed.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.scheduler_poll_interval"></span>`scheduler_poll_interval`
+##### <span id="DefaultRunnerConfig.scheduler_poll_interval"></span><code>scheduler_​poll_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn scheduler_poll_interval (& self) -> Duration
+fn scheduler_poll_interval(&self) -> Duration
 ```
 
 How often the scheduler checks for ready tasks.
@@ -148,15 +110,12 @@ How often the scheduler checks for ready tasks.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.task_timeout"></span>`task_timeout`
+##### <span id="DefaultRunnerConfig.task_timeout"></span><code>task_​timeout</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn task_timeout (& self) -> Duration
+fn task_timeout(&self) -> Duration
 ```
 
 Maximum time allowed for a single task to execute.
@@ -172,15 +131,12 @@ Maximum time allowed for a single task to execute.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.workflow_timeout"></span>`workflow_timeout`
+##### <span id="DefaultRunnerConfig.workflow_timeout"></span><code>workflow_​timeout</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn workflow_timeout (& self) -> Option < Duration >
+fn workflow_timeout(&self) -> Option<Duration>
 ```
 
 Optional maximum time for an entire workflow execution.
@@ -196,15 +152,12 @@ Optional maximum time for an entire workflow execution.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.db_pool_size"></span>`db_pool_size`
+##### <span id="DefaultRunnerConfig.db_pool_size"></span><code>db_​pool_​size</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn db_pool_size (& self) -> u32
+fn db_pool_size(&self) -> u32
 ```
 
 Number of database connections in the pool.
@@ -220,15 +173,12 @@ Number of database connections in the pool.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.enable_recovery"></span>`enable_recovery`
+##### <span id="DefaultRunnerConfig.enable_recovery"></span><code>enable_​recovery</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_recovery (& self) -> bool
+fn enable_recovery(&self) -> bool
 ```
 
 Whether automatic recovery is enabled.
@@ -244,15 +194,12 @@ Whether automatic recovery is enabled.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.enable_cron_scheduling"></span>`enable_cron_scheduling`
+##### <span id="DefaultRunnerConfig.enable_cron_scheduling"></span><code>enable_​cron_​scheduling</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_cron_scheduling (& self) -> bool
+fn enable_cron_scheduling(&self) -> bool
 ```
 
 Whether cron scheduling is enabled.
@@ -268,15 +215,12 @@ Whether cron scheduling is enabled.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.cron_poll_interval"></span>`cron_poll_interval`
+##### <span id="DefaultRunnerConfig.cron_poll_interval"></span><code>cron_​poll_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_poll_interval (& self) -> Duration
+fn cron_poll_interval(&self) -> Duration
 ```
 
 Poll interval for cron schedules.
@@ -292,15 +236,12 @@ Poll interval for cron schedules.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.cron_max_catchup_executions"></span>`cron_max_catchup_executions`
+##### <span id="DefaultRunnerConfig.cron_max_catchup_executions"></span><code>cron_​max_​catchup_​executions</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_max_catchup_executions (& self) -> usize
+fn cron_max_catchup_executions(&self) -> usize
 ```
 
 Maximum catchup executions for missed cron runs.
@@ -316,15 +257,12 @@ Maximum catchup executions for missed cron runs.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.cron_enable_recovery"></span>`cron_enable_recovery`
+##### <span id="DefaultRunnerConfig.cron_enable_recovery"></span><code>cron_​enable_​recovery</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_enable_recovery (& self) -> bool
+fn cron_enable_recovery(&self) -> bool
 ```
 
 Whether cron recovery is enabled.
@@ -340,15 +278,12 @@ Whether cron recovery is enabled.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.cron_recovery_interval"></span>`cron_recovery_interval`
+##### <span id="DefaultRunnerConfig.cron_recovery_interval"></span><code>cron_​recovery_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_recovery_interval (& self) -> Duration
+fn cron_recovery_interval(&self) -> Duration
 ```
 
 How often to check for lost cron executions.
@@ -364,15 +299,12 @@ How often to check for lost cron executions.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.cron_lost_threshold_minutes"></span>`cron_lost_threshold_minutes`
+##### <span id="DefaultRunnerConfig.cron_lost_threshold_minutes"></span><code>cron_​lost_​threshold_​minutes</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_lost_threshold_minutes (& self) -> i32
+fn cron_lost_threshold_minutes(&self) -> i32
 ```
 
 Minutes before an execution is considered lost.
@@ -388,15 +320,12 @@ Minutes before an execution is considered lost.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.cron_max_recovery_age"></span>`cron_max_recovery_age`
+##### <span id="DefaultRunnerConfig.cron_max_recovery_age"></span><code>cron_​max_​recovery_​age</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_max_recovery_age (& self) -> Duration
+fn cron_max_recovery_age(&self) -> Duration
 ```
 
 Maximum age of executions to recover.
@@ -412,15 +341,12 @@ Maximum age of executions to recover.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.cron_max_recovery_attempts"></span>`cron_max_recovery_attempts`
+##### <span id="DefaultRunnerConfig.cron_max_recovery_attempts"></span><code>cron_​max_​recovery_​attempts</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_max_recovery_attempts (& self) -> usize
+fn cron_max_recovery_attempts(&self) -> usize
 ```
 
 Maximum recovery attempts per execution.
@@ -436,15 +362,12 @@ Maximum recovery attempts per execution.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.enable_trigger_scheduling"></span>`enable_trigger_scheduling`
+##### <span id="DefaultRunnerConfig.enable_trigger_scheduling"></span><code>enable_​trigger_​scheduling</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_trigger_scheduling (& self) -> bool
+fn enable_trigger_scheduling(&self) -> bool
 ```
 
 Whether trigger scheduling is enabled.
@@ -460,15 +383,12 @@ Whether trigger scheduling is enabled.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.trigger_base_poll_interval"></span>`trigger_base_poll_interval`
+##### <span id="DefaultRunnerConfig.trigger_base_poll_interval"></span><code>trigger_​base_​poll_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn trigger_base_poll_interval (& self) -> Duration
+fn trigger_base_poll_interval(&self) -> Duration
 ```
 
 Base poll interval for trigger readiness checks.
@@ -484,15 +404,12 @@ Base poll interval for trigger readiness checks.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.trigger_poll_timeout"></span>`trigger_poll_timeout`
+##### <span id="DefaultRunnerConfig.trigger_poll_timeout"></span><code>trigger_​poll_​timeout</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn trigger_poll_timeout (& self) -> Duration
+fn trigger_poll_timeout(&self) -> Duration
 ```
 
 Timeout for trigger poll operations.
@@ -508,15 +425,12 @@ Timeout for trigger poll operations.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.enable_registry_reconciler"></span>`enable_registry_reconciler`
+##### <span id="DefaultRunnerConfig.enable_registry_reconciler"></span><code>enable_​registry_​reconciler</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_registry_reconciler (& self) -> bool
+fn enable_registry_reconciler(&self) -> bool
 ```
 
 Whether the registry reconciler is enabled.
@@ -532,15 +446,12 @@ Whether the registry reconciler is enabled.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.registry_reconcile_interval"></span>`registry_reconcile_interval`
+##### <span id="DefaultRunnerConfig.registry_reconcile_interval"></span><code>registry_​reconcile_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry_reconcile_interval (& self) -> Duration
+fn registry_reconcile_interval(&self) -> Duration
 ```
 
 How often to run registry reconciliation.
@@ -556,15 +467,12 @@ How often to run registry reconciliation.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.registry_enable_startup_reconciliation"></span>`registry_enable_startup_reconciliation`
+##### <span id="DefaultRunnerConfig.registry_enable_startup_reconciliation"></span><code>registry_​enable_​startup_​reconciliation</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry_enable_startup_reconciliation (& self) -> bool
+fn registry_enable_startup_reconciliation(&self) -> bool
 ```
 
 Whether startup reconciliation is enabled.
@@ -580,15 +488,12 @@ Whether startup reconciliation is enabled.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.registry_storage_path"></span>`registry_storage_path`
+##### <span id="DefaultRunnerConfig.registry_storage_path"></span><code>registry_​storage_​path</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry_storage_path (& self) -> Option < & std :: path :: Path >
+fn registry_storage_path(&self) -> Option<&std::path::Path>
 ```
 
 Path for registry storage (filesystem backend).
@@ -604,15 +509,12 @@ Path for registry storage (filesystem backend).
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.require_signatures"></span>`require_signatures`
+##### <span id="DefaultRunnerConfig.require_signatures"></span><code>require_​signatures</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn require_signatures (& self) -> bool
+fn require_signatures(&self) -> bool
 ```
 
 CLOACI-T-0571: when true, the reconciler refuses to load packages with no matching `package_signatures` row.
@@ -628,15 +530,12 @@ CLOACI-T-0571: when true, the reconciler refuses to load packages with no matchi
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.tenant_id"></span>`tenant_id`
+##### <span id="DefaultRunnerConfig.tenant_id"></span><code>tenant_​id</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn tenant_id (& self) -> & str
+fn tenant_id(&self) -> &str
 ```
 
 The tenant this runner serves (CLOACI-T-0781). Namespaces its tasks.
@@ -652,15 +551,12 @@ The tenant this runner serves (CLOACI-T-0781). Namespaces its tasks.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.set_tenant_id"></span>`set_tenant_id`
+##### <span id="DefaultRunnerConfig.set_tenant_id"></span><code>set_​tenant_​id</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_tenant_id (& mut self , tenant_id : impl Into < String >)
+fn set_tenant_id(&mut self, tenant_id: impl Into<String>)
 ```
 
 Override the tenant — used by the per-tenant runner cache when cloning the base config for a tenant-scoped runner so its tasks namespace correctly.
@@ -676,15 +572,12 @@ Override the tenant — used by the per-tenant runner cache when cloning the bas
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.verification_org_id"></span>`verification_org_id`
+##### <span id="DefaultRunnerConfig.verification_org_id"></span><code>verification_​org_​id</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn verification_org_id (& self) -> Option < crate :: UniversalUuid >
+fn verification_org_id(&self) -> Option<crate::UniversalUuid>
 ```
 
 Trusted org UUID forwarded to the reconciler for audit logging when the signature-existence check fails.
@@ -700,15 +593,12 @@ Trusted org UUID forwarded to the reconciler for audit logging when the signatur
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.registry_storage_backend"></span>`registry_storage_backend`
+##### <span id="DefaultRunnerConfig.registry_storage_backend"></span><code>registry_​storage_​backend</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry_storage_backend (& self) -> & str
+fn registry_storage_backend(&self) -> &str
 ```
 
 Registry storage backend type.
@@ -724,15 +614,12 @@ Registry storage backend type.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.enable_claiming"></span>`enable_claiming`
+##### <span id="DefaultRunnerConfig.enable_claiming"></span><code>enable_​claiming</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_claiming (& self) -> bool
+fn enable_claiming(&self) -> bool
 ```
 
 Whether task claiming is enabled for horizontal scaling.
@@ -748,15 +635,12 @@ Whether task claiming is enabled for horizontal scaling.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.heartbeat_interval"></span>`heartbeat_interval`
+##### <span id="DefaultRunnerConfig.heartbeat_interval"></span><code>heartbeat_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn heartbeat_interval (& self) -> Duration
+fn heartbeat_interval(&self) -> Duration
 ```
 
 Heartbeat interval for claimed tasks.
@@ -772,15 +656,12 @@ Heartbeat interval for claimed tasks.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.stale_claim_sweep_interval"></span>`stale_claim_sweep_interval`
+##### <span id="DefaultRunnerConfig.stale_claim_sweep_interval"></span><code>stale_​claim_​sweep_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn stale_claim_sweep_interval (& self) -> Duration
+fn stale_claim_sweep_interval(&self) -> Duration
 ```
 
 Interval for stale claim sweep (only when claiming is enabled).
@@ -796,15 +677,12 @@ Interval for stale claim sweep (only when claiming is enabled).
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.stale_claim_threshold"></span>`stale_claim_threshold`
+##### <span id="DefaultRunnerConfig.stale_claim_threshold"></span><code>stale_​claim_​threshold</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn stale_claim_threshold (& self) -> Duration
+fn stale_claim_threshold(&self) -> Duration
 ```
 
 How old a heartbeat must be to consider a claim stale.
@@ -820,15 +698,12 @@ How old a heartbeat must be to consider a claim stale.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.runner_id"></span>`runner_id`
+##### <span id="DefaultRunnerConfig.runner_id"></span><code>runner_​id</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn runner_id (& self) -> Option < & str >
+fn runner_id(&self) -> Option<&str>
 ```
 
 Optional runner identifier for logging.
@@ -844,15 +719,12 @@ Optional runner identifier for logging.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.runner_name"></span>`runner_name`
+##### <span id="DefaultRunnerConfig.runner_name"></span><code>runner_​name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn runner_name (& self) -> Option < & str >
+fn runner_name(&self) -> Option<&str>
 ```
 
 Optional runner name for logging.
@@ -868,15 +740,12 @@ Optional runner name for logging.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfig.default_executor"></span>`default_executor`
+##### <span id="DefaultRunnerConfig.default_executor"></span><code>default_​executor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn default_executor (& self) -> & str
+fn default_executor(&self) -> &str
 ```
 
 Executor key every task is dispatched to.
@@ -892,42 +761,31 @@ Executor key every task is dispatched to.
 
 </details>
 
-
-
-
-
-### <span id="struct.DefaultRunnerConfigBuilder"></span>`struct DefaultRunnerConfigBuilder`
+### <span id="struct.DefaultRunnerConfigBuilder"></span><code style="font-size: 0.85em">struct DefaultRunnerConfigBuilder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
-Builder for [`DefaultRunnerConfig`].
+Builder for [`DefaultRunnerConfig`](../../../../../rust/cloacina/runner/default_runner/config/#struct.DefaultRunnerConfig).
 
 Use this builder to create a customized configuration:
+
 ```rust
 let config = DefaultRunnerConfig::builder()
-.max_concurrent_tasks(8)
-.enable_cron_scheduling(false)
-.build();
+    .max_concurrent_tasks(8)
+    .enable_cron_scheduling(false)
+    .build();
 ```
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `config` | `DefaultRunnerConfig` |  |
 
 #### Methods
 
-##### <span id="DefaultRunnerConfigBuilder.max_concurrent_tasks"></span>`max_concurrent_tasks`
+##### <span id="DefaultRunnerConfigBuilder.max_concurrent_tasks"></span><code>max_​concurrent_​tasks</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn max_concurrent_tasks (mut self , value : usize) -> Self
+fn max_concurrent_tasks(mut self, value: usize) -> Self
 ```
 
 Sets the maximum number of concurrent task executions.
@@ -944,15 +802,12 @@ Sets the maximum number of concurrent task executions.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.scheduler_poll_interval"></span>`scheduler_poll_interval`
+##### <span id="DefaultRunnerConfigBuilder.scheduler_poll_interval"></span><code>scheduler_​poll_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn scheduler_poll_interval (mut self , value : Duration) -> Self
+fn scheduler_poll_interval(mut self, value: Duration) -> Self
 ```
 
 Sets the scheduler poll interval.
@@ -969,15 +824,12 @@ Sets the scheduler poll interval.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.task_timeout"></span>`task_timeout`
+##### <span id="DefaultRunnerConfigBuilder.task_timeout"></span><code>task_​timeout</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn task_timeout (mut self , value : Duration) -> Self
+fn task_timeout(mut self, value: Duration) -> Self
 ```
 
 Sets the task timeout.
@@ -994,15 +846,12 @@ Sets the task timeout.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.workflow_timeout"></span>`workflow_timeout`
+##### <span id="DefaultRunnerConfigBuilder.workflow_timeout"></span><code>workflow_​timeout</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn workflow_timeout (mut self , value : Option < Duration >) -> Self
+fn workflow_timeout(mut self, value: Option<Duration>) -> Self
 ```
 
 Sets the workflow timeout.
@@ -1019,15 +868,12 @@ Sets the workflow timeout.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.db_pool_size"></span>`db_pool_size`
+##### <span id="DefaultRunnerConfigBuilder.db_pool_size"></span><code>db_​pool_​size</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn db_pool_size (mut self , value : u32) -> Self
+fn db_pool_size(mut self, value: u32) -> Self
 ```
 
 Sets the database pool size.
@@ -1044,15 +890,12 @@ Sets the database pool size.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.enable_recovery"></span>`enable_recovery`
+##### <span id="DefaultRunnerConfigBuilder.enable_recovery"></span><code>enable_​recovery</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_recovery (mut self , value : bool) -> Self
+fn enable_recovery(mut self, value: bool) -> Self
 ```
 
 Enables or disables automatic recovery.
@@ -1069,15 +912,12 @@ Enables or disables automatic recovery.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.enable_cron_scheduling"></span>`enable_cron_scheduling`
+##### <span id="DefaultRunnerConfigBuilder.enable_cron_scheduling"></span><code>enable_​cron_​scheduling</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_cron_scheduling (mut self , value : bool) -> Self
+fn enable_cron_scheduling(mut self, value: bool) -> Self
 ```
 
 Enables or disables cron scheduling.
@@ -1094,15 +934,12 @@ Enables or disables cron scheduling.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.cron_poll_interval"></span>`cron_poll_interval`
+##### <span id="DefaultRunnerConfigBuilder.cron_poll_interval"></span><code>cron_​poll_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_poll_interval (mut self , value : Duration) -> Self
+fn cron_poll_interval(mut self, value: Duration) -> Self
 ```
 
 Sets the cron poll interval.
@@ -1119,15 +956,12 @@ Sets the cron poll interval.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.cron_max_catchup_executions"></span>`cron_max_catchup_executions`
+##### <span id="DefaultRunnerConfigBuilder.cron_max_catchup_executions"></span><code>cron_​max_​catchup_​executions</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_max_catchup_executions (mut self , value : usize) -> Self
+fn cron_max_catchup_executions(mut self, value: usize) -> Self
 ```
 
 Sets the maximum catchup executions for cron.
@@ -1144,15 +978,12 @@ Sets the maximum catchup executions for cron.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.cron_enable_recovery"></span>`cron_enable_recovery`
+##### <span id="DefaultRunnerConfigBuilder.cron_enable_recovery"></span><code>cron_​enable_​recovery</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_enable_recovery (mut self , value : bool) -> Self
+fn cron_enable_recovery(mut self, value: bool) -> Self
 ```
 
 Enables or disables cron recovery.
@@ -1169,15 +1000,12 @@ Enables or disables cron recovery.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.cron_recovery_interval"></span>`cron_recovery_interval`
+##### <span id="DefaultRunnerConfigBuilder.cron_recovery_interval"></span><code>cron_​recovery_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_recovery_interval (mut self , value : Duration) -> Self
+fn cron_recovery_interval(mut self, value: Duration) -> Self
 ```
 
 Sets the cron recovery interval.
@@ -1194,15 +1022,12 @@ Sets the cron recovery interval.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.cron_lost_threshold_minutes"></span>`cron_lost_threshold_minutes`
+##### <span id="DefaultRunnerConfigBuilder.cron_lost_threshold_minutes"></span><code>cron_​lost_​threshold_​minutes</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_lost_threshold_minutes (mut self , value : i32) -> Self
+fn cron_lost_threshold_minutes(mut self, value: i32) -> Self
 ```
 
 Sets the cron lost threshold in minutes.
@@ -1219,15 +1044,12 @@ Sets the cron lost threshold in minutes.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.cron_max_recovery_age"></span>`cron_max_recovery_age`
+##### <span id="DefaultRunnerConfigBuilder.cron_max_recovery_age"></span><code>cron_​max_​recovery_​age</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_max_recovery_age (mut self , value : Duration) -> Self
+fn cron_max_recovery_age(mut self, value: Duration) -> Self
 ```
 
 Sets the maximum cron recovery age.
@@ -1244,15 +1066,12 @@ Sets the maximum cron recovery age.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.cron_max_recovery_attempts"></span>`cron_max_recovery_attempts`
+##### <span id="DefaultRunnerConfigBuilder.cron_max_recovery_attempts"></span><code>cron_​max_​recovery_​attempts</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn cron_max_recovery_attempts (mut self , value : usize) -> Self
+fn cron_max_recovery_attempts(mut self, value: usize) -> Self
 ```
 
 Sets the maximum cron recovery attempts.
@@ -1269,15 +1088,12 @@ Sets the maximum cron recovery attempts.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.enable_trigger_scheduling"></span>`enable_trigger_scheduling`
+##### <span id="DefaultRunnerConfigBuilder.enable_trigger_scheduling"></span><code>enable_​trigger_​scheduling</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_trigger_scheduling (mut self , value : bool) -> Self
+fn enable_trigger_scheduling(mut self, value: bool) -> Self
 ```
 
 Enables or disables trigger scheduling.
@@ -1294,15 +1110,12 @@ Enables or disables trigger scheduling.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.trigger_base_poll_interval"></span>`trigger_base_poll_interval`
+##### <span id="DefaultRunnerConfigBuilder.trigger_base_poll_interval"></span><code>trigger_​base_​poll_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn trigger_base_poll_interval (mut self , value : Duration) -> Self
+fn trigger_base_poll_interval(mut self, value: Duration) -> Self
 ```
 
 Sets the trigger base poll interval.
@@ -1319,15 +1132,12 @@ Sets the trigger base poll interval.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.trigger_poll_timeout"></span>`trigger_poll_timeout`
+##### <span id="DefaultRunnerConfigBuilder.trigger_poll_timeout"></span><code>trigger_​poll_​timeout</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn trigger_poll_timeout (mut self , value : Duration) -> Self
+fn trigger_poll_timeout(mut self, value: Duration) -> Self
 ```
 
 Sets the trigger poll timeout.
@@ -1344,15 +1154,12 @@ Sets the trigger poll timeout.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.enable_registry_reconciler"></span>`enable_registry_reconciler`
+##### <span id="DefaultRunnerConfigBuilder.enable_registry_reconciler"></span><code>enable_​registry_​reconciler</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_registry_reconciler (mut self , value : bool) -> Self
+fn enable_registry_reconciler(mut self, value: bool) -> Self
 ```
 
 Enables or disables the registry reconciler.
@@ -1369,15 +1176,12 @@ Enables or disables the registry reconciler.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.registry_reconcile_interval"></span>`registry_reconcile_interval`
+##### <span id="DefaultRunnerConfigBuilder.registry_reconcile_interval"></span><code>registry_​reconcile_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry_reconcile_interval (mut self , value : Duration) -> Self
+fn registry_reconcile_interval(mut self, value: Duration) -> Self
 ```
 
 Sets the registry reconcile interval.
@@ -1394,15 +1198,12 @@ Sets the registry reconcile interval.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.registry_enable_startup_reconciliation"></span>`registry_enable_startup_reconciliation`
+##### <span id="DefaultRunnerConfigBuilder.registry_enable_startup_reconciliation"></span><code>registry_​enable_​startup_​reconciliation</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry_enable_startup_reconciliation (mut self , value : bool) -> Self
+fn registry_enable_startup_reconciliation(mut self, value: bool) -> Self
 ```
 
 Enables or disables startup reconciliation.
@@ -1419,15 +1220,15 @@ Enables or disables startup reconciliation.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.registry_storage_path"></span>`registry_storage_path`
+##### <span id="DefaultRunnerConfigBuilder.registry_storage_path"></span><code>registry_​storage_​path</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry_storage_path (mut self , value : Option < std :: path :: PathBuf >) -> Self
+fn registry_storage_path(
+    mut self,
+    value: Option<std::path::PathBuf>,
+) -> Self
 ```
 
 Sets the registry storage path.
@@ -1444,15 +1245,12 @@ Sets the registry storage path.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.registry_storage_backend"></span>`registry_storage_backend`
+##### <span id="DefaultRunnerConfigBuilder.registry_storage_backend"></span><code>registry_​storage_​backend</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry_storage_backend (mut self , value : impl Into < String >) -> Self
+fn registry_storage_backend(mut self, value: impl Into<String>) -> Self
 ```
 
 Sets the registry storage backend.
@@ -1469,15 +1267,12 @@ Sets the registry storage backend.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.require_signatures"></span>`require_signatures`
+##### <span id="DefaultRunnerConfigBuilder.require_signatures"></span><code>require_​signatures</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn require_signatures (mut self , value : bool) -> Self
+fn require_signatures(mut self, value: bool) -> Self
 ```
 
 CLOACI-T-0571: enable the reconciler's defense-in-depth signature-existence check. Mirrors `cloacina-server`'s `--require-signatures` CLI flag.
@@ -1494,15 +1289,15 @@ CLOACI-T-0571: enable the reconciler's defense-in-depth signature-existence chec
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.verification_org_id"></span>`verification_org_id`
+##### <span id="DefaultRunnerConfigBuilder.verification_org_id"></span><code>verification_​org_​id</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn verification_org_id (mut self , value : Option < crate :: UniversalUuid >) -> Self
+fn verification_org_id(
+    mut self,
+    value: Option<crate::UniversalUuid>,
+) -> Self
 ```
 
 CLOACI-T-0571: trusted org UUID forwarded to the reconciler so signature-existence-check failures are audit-logged with the correct org_id. Mirrors `cloacina-server`'s `--verification-org-id` CLI flag.
@@ -1519,15 +1314,12 @@ CLOACI-T-0571: trusted org UUID forwarded to the reconciler so signature-existen
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.runner_id"></span>`runner_id`
+##### <span id="DefaultRunnerConfigBuilder.runner_id"></span><code>runner_​id</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn runner_id (mut self , value : Option < String >) -> Self
+fn runner_id(mut self, value: Option<String>) -> Self
 ```
 
 Sets the runner identifier.
@@ -1544,15 +1336,12 @@ Sets the runner identifier.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.runner_name"></span>`runner_name`
+##### <span id="DefaultRunnerConfigBuilder.runner_name"></span><code>runner_​name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn runner_name (mut self , value : Option < String >) -> Self
+fn runner_name(mut self, value: Option<String>) -> Self
 ```
 
 Sets the runner name.
@@ -1569,15 +1358,12 @@ Sets the runner name.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.default_executor"></span>`default_executor`
+##### <span id="DefaultRunnerConfigBuilder.default_executor"></span><code>default_​executor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn default_executor (mut self , value : impl Into < String >) -> Self
+fn default_executor(mut self, value: impl Into<String>) -> Self
 ```
 
 Sets the executor key every task is dispatched to (CLOACI-T-0640). Defaults to `"default"` (the thread executor).
@@ -1594,15 +1380,12 @@ Sets the executor key every task is dispatched to (CLOACI-T-0640). Defaults to `
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.enable_claiming"></span>`enable_claiming`
+##### <span id="DefaultRunnerConfigBuilder.enable_claiming"></span><code>enable_​claiming</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enable_claiming (mut self , value : bool) -> Self
+fn enable_claiming(mut self, value: bool) -> Self
 ```
 
 Enables or disables task claiming for horizontal scaling.
@@ -1619,15 +1402,12 @@ Enables or disables task claiming for horizontal scaling.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.heartbeat_interval"></span>`heartbeat_interval`
+##### <span id="DefaultRunnerConfigBuilder.heartbeat_interval"></span><code>heartbeat_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn heartbeat_interval (mut self , value : Duration) -> Self
+fn heartbeat_interval(mut self, value: Duration) -> Self
 ```
 
 Sets the heartbeat interval for claimed tasks.
@@ -1644,15 +1424,12 @@ Sets the heartbeat interval for claimed tasks.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.stale_claim_threshold"></span>`stale_claim_threshold`
+##### <span id="DefaultRunnerConfigBuilder.stale_claim_threshold"></span><code>stale_​claim_​threshold</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn stale_claim_threshold (mut self , value : Duration) -> Self
+fn stale_claim_threshold(mut self, value: Duration) -> Self
 ```
 
 Sets how old a claimed task's heartbeat must be before its claim is considered stale and reclaimed by the sweeper. Must be greater than `heartbeat_interval` (enforced in `build()`). Lower values shorten the crash-recovery window (default 60s). (CLOACI-T-0667)
@@ -1669,15 +1446,12 @@ Sets how old a claimed task's heartbeat must be before its claim is considered s
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.stale_claim_sweep_interval"></span>`stale_claim_sweep_interval`
+##### <span id="DefaultRunnerConfigBuilder.stale_claim_sweep_interval"></span><code>stale_​claim_​sweep_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn stale_claim_sweep_interval (mut self , value : Duration) -> Self
+fn stale_claim_sweep_interval(mut self, value: Duration) -> Self
 ```
 
 Sets how often the stale-claim sweeper runs (default 30s). Only has effect when claiming + recovery are enabled. (CLOACI-T-0667)
@@ -1694,15 +1468,12 @@ Sets how often the stale-claim sweeper runs (default 30s). Only has effect when 
 
 </details>
 
-
-
-##### <span id="DefaultRunnerConfigBuilder.build"></span>`build`
+##### <span id="DefaultRunnerConfigBuilder.build"></span><code>build</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn build (self) -> Result < DefaultRunnerConfig , ConfigError >
+fn build(self) -> Result<DefaultRunnerConfig, ConfigError>
 ```
 
 Builds and validates the configuration.
@@ -1745,14 +1516,9 @@ Returns an error if any configuration value is out of bounds.
 
 </details>
 
-
-
-
-
-### <span id="struct.DefaultRunnerBuilder"></span>`struct DefaultRunnerBuilder`
+### <span id="struct.DefaultRunnerBuilder"></span><code style="font-size: 0.85em">struct DefaultRunnerBuilder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
 
@@ -1782,29 +1548,14 @@ let tenant_b = DefaultRunnerBuilder::new()
     .await?;
 ```
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `database_url` | `Option < String >` |  |
-| `schema` | `Option < String >` |  |
-| `config` | `DefaultRunnerConfig` |  |
-| `runtime` | `Option < Runtime >` |  |
-| `runtime_arc` | `Option < Arc < Runtime > >` |  |
-| `secret_resolver` | `Option < Arc < dyn cloacina_workflow :: secret :: SecretResolver > >` | Optional secret resolution side channel (CLOACI-T-0858). Kept on the
-builder (not the `Clone`/`Debug` config) so the server KEK it carries is
-never printed. When set, the thread executor attaches it to every task
-context so `context.secret(...)` resolves. |
-
 #### Methods
 
-##### <span id="DefaultRunnerBuilder.new"></span>`new`
+##### <span id="DefaultRunnerBuilder.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 Creates a new builder with default configuration
@@ -1827,22 +1578,22 @@ Creates a new builder with default configuration
 
 </details>
 
-
-
-##### <span id="DefaultRunnerBuilder.secret_resolver"></span>`secret_resolver`
+##### <span id="DefaultRunnerBuilder.secret_resolver"></span><code>secret_​resolver</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn secret_resolver (mut self , resolver : Arc < dyn cloacina_workflow :: secret :: SecretResolver > ,) -> Self
+fn secret_resolver(
+    mut self,
+    resolver: Arc<dyn cloacina_workflow::secret::SecretResolver>,
+) -> Self
 ```
 
 Wire a secret resolution side channel (CLOACI-T-0858 / I-0133 D-1).
 
 On the embedded / in-process path the host configures this so packaged
 tasks can resolve tenant secrets via `context.secret("name")`. Construct
-one from [`crate::security::SecretStoreResolver`] — e.g.
+one from [`crate::security::SecretStoreResolver`](../../../../../rust/cloacina/security/secret_resolver/#struct.SecretStoreResolver) — e.g.
 `SecretStoreResolver::from_env(store, org_id)` to source the server KEK
 from `CLOACINA_SECRET_KEK`. When unset, `context.secret(...)` returns a
 clear "secrets backend not configured" error.
@@ -1862,15 +1613,12 @@ clear "secrets backend not configured" error.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerBuilder.database_url"></span>`database_url`
+##### <span id="DefaultRunnerBuilder.database_url"></span><code>database_​url</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn database_url (mut self , url : & str) -> Self
+fn database_url(mut self, url: &str) -> Self
 ```
 
 Sets the database URL
@@ -1887,15 +1635,12 @@ Sets the database URL
 
 </details>
 
-
-
-##### <span id="DefaultRunnerBuilder.schema"></span>`schema`
+##### <span id="DefaultRunnerBuilder.schema"></span><code>schema</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn schema (mut self , schema : & str) -> Self
+fn schema(mut self, schema: &str) -> Self
 ```
 
 Sets the PostgreSQL schema for multi-tenant isolation
@@ -1904,8 +1649,7 @@ Sets the PostgreSQL schema for multi-tenant isolation
 
 | Name | Type | Description |
 |------|------|-------------|
-| `schema` | `-` | The schema name (must be alphanumeric with underscores only) |
-
+| `schema` | `&str` | The schema name (must be alphanumeric with underscores only) |
 
 <details>
 <summary>Source</summary>
@@ -1919,15 +1663,12 @@ Sets the PostgreSQL schema for multi-tenant isolation
 
 </details>
 
-
-
-##### <span id="DefaultRunnerBuilder.with_config"></span>`with_config`
+##### <span id="DefaultRunnerBuilder.with_config"></span><code>with_​config</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_config (mut self , config : DefaultRunnerConfig) -> Self
+fn with_config(mut self, config: DefaultRunnerConfig) -> Self
 ```
 
 Sets the full configuration
@@ -1944,23 +1685,20 @@ Sets the full configuration
 
 </details>
 
-
-
-##### <span id="DefaultRunnerBuilder.runtime"></span>`runtime`
+##### <span id="DefaultRunnerBuilder.runtime"></span><code>runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn runtime (mut self , runtime : Runtime) -> Self
+fn runtime(mut self, runtime: Runtime) -> Self
 ```
 
-Sets a scoped [`Runtime`] for this runner.
+Sets a scoped [`Runtime`](../../../../../rust/cloacina/runtime/#struct.Runtime) for this runner.
 
 When set, the runner (and all components it creates) will use this
 runtime's registries instead of the process-global registries.
-If not set, a fresh inventory-seeded [`Runtime`] (i.e.
-[`Runtime::default`], equivalent to [`Runtime::new`]) is used.
+If not set, a fresh inventory-seeded [`Runtime`](../../../../../rust/cloacina/runtime/#struct.Runtime) (i.e.
+`Runtime::default`, equivalent to [`Runtime::new`](../../../../../rust/cloacina/runtime/#Runtime.new)) is used.
 
 <details>
 <summary>Source</summary>
@@ -1974,20 +1712,17 @@ If not set, a fresh inventory-seeded [`Runtime`] (i.e.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerBuilder.runtime_arc"></span>`runtime_arc`
+##### <span id="DefaultRunnerBuilder.runtime_arc"></span><code>runtime_​arc</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn runtime_arc (mut self , runtime : Arc < Runtime >) -> Self
+fn runtime_arc(mut self, runtime: Arc<Runtime>) -> Self
 ```
 
 Use an existing shared [`Arc<Runtime>`] for this runner.
 
-Unlike [`runtime`](Self::runtime), this preserves the caller's `Arc`
+Unlike `runtime`, this preserves the caller's `Arc`
 identity so other components (e.g. Python decorators installed via
 `ScopedRuntime`) that already hold a clone of the same `Arc<Runtime>`
 share state with the runner. If both are set, `runtime_arc` wins.
@@ -2004,46 +1739,13 @@ share state with the runner. If both are set, `runtime_arc` wins.
 
 </details>
 
-
-
-##### <span id="DefaultRunnerBuilder.validate_schema_name"></span>`validate_schema_name`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">pub(super)</span>
-
-
-```rust
-fn validate_schema_name (schema : & str) -> Result < () , WorkflowExecutionError >
-```
-
-Validates the schema name contains only alphanumeric characters and underscores
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(super) fn validate_schema_name(schema: &str) -> Result<(), WorkflowExecutionError> {
-        if !schema.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Err(WorkflowExecutionError::Configuration {
-                message: "Schema name must contain only alphanumeric characters and underscores"
-                    .to_string(),
-            });
-        }
-        Ok(())
-    }
-```
-
-</details>
-
-
-
-##### <span id="DefaultRunnerBuilder.build"></span>`build`
+##### <span id="DefaultRunnerBuilder.build"></span><code>build</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn build (self) -> Result < DefaultRunner , WorkflowExecutionError >
+async fn build(self) -> Result<DefaultRunner, WorkflowExecutionError>
 ```
 
 Builds the DefaultRunner
@@ -2178,15 +1880,12 @@ Builds the DefaultRunner
 
 </details>
 
-
-
-##### <span id="DefaultRunnerBuilder.default_executor"></span>`default_executor`
+##### <span id="DefaultRunnerBuilder.default_executor"></span><code>default_​executor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn default_executor (mut self , executor : impl Into < String >) -> Self
+fn default_executor(mut self, executor: impl Into<String>) -> Self
 ```
 
 Sets the executor key every task is dispatched to (CLOACI-T-0640).
@@ -2216,22 +1915,14 @@ let runner = DefaultRunner::builder()
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.ConfigError"></span>`enum ConfigError`
+### <span id="enum.ConfigError"></span><code style="font-size: 0.85em">enum ConfigError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during configuration validation.
 
 #### Variants
 
 - **`Invalid`**
-
-
-

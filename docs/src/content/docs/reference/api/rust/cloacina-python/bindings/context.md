@@ -1,22 +1,25 @@
 ---
 title: "cloacina-python::bindings::context"
 description: "API reference of the Rust module cloacina-python::bindings::context."
+editUrl: false
 sidebar:
-  order: 22
+  order: 7
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
+## Re-exports
+
+- [`PyContext`](../../../../rust/cloacina-python/context/#struct.PyContext)
 
 ## Structs
 
-### <span id="struct.PyDefaultRunnerConfig"></span>`class DefaultRunnerConfig`
+### <span id="struct.PyDefaultRunnerConfig"></span><code style="font-size: 0.85em">class DefaultRunnerConfig</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig](../../../../cloacina-python/bindings/context/#class.DefaultRunnerConfig)
+> **Python API**: [`cloaca.DefaultRunnerConfig`](../../../../cloaca/#class.DefaultRunnerConfig)
 
 PyDefaultRunnerConfig - Python wrapper for Rust DefaultRunnerConfig
 
@@ -24,17 +27,32 @@ PyDefaultRunnerConfig - Python wrapper for Rust DefaultRunnerConfig
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `cloacina :: runner :: DefaultRunnerConfig` |  |
+| `inner` | `cloacina::runner::DefaultRunnerConfig` |  |
 
 #### Methods
 
-##### <span id="PyDefaultRunnerConfig.new"></span>`new`
+##### <span id="PyDefaultRunnerConfig.new"></span><code>new</code>
 
 ```rust
-fn new (max_concurrent_tasks : Option < usize > , scheduler_poll_interval_ms : Option < u64 > , task_timeout_seconds : Option < u64 > , workflow_timeout_seconds : Option < u64 > , db_pool_size : Option < u32 > , enable_recovery : Option < bool > , enable_cron_scheduling : Option < bool > , cron_poll_interval_seconds : Option < u64 > , cron_max_catchup_executions : Option < usize > , cron_enable_recovery : Option < bool > , cron_recovery_interval_seconds : Option < u64 > , cron_lost_threshold_minutes : Option < i32 > , cron_max_recovery_age_seconds : Option < u64 > , cron_max_recovery_attempts : Option < usize > ,) -> pyo3 :: PyResult < Self >
+fn new(
+    max_concurrent_tasks: Option<usize>,
+    scheduler_poll_interval_ms: Option<u64>,
+    task_timeout_seconds: Option<u64>,
+    workflow_timeout_seconds: Option<u64>,
+    db_pool_size: Option<u32>,
+    enable_recovery: Option<bool>,
+    enable_cron_scheduling: Option<bool>,
+    cron_poll_interval_seconds: Option<u64>,
+    cron_max_catchup_executions: Option<usize>,
+    cron_enable_recovery: Option<bool>,
+    cron_recovery_interval_seconds: Option<u64>,
+    cron_lost_threshold_minutes: Option<i32>,
+    cron_max_recovery_age_seconds: Option<u64>,
+    cron_max_recovery_attempts: Option<usize>,
+) -> pyo3::PyResult<Self>
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.new](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.new)
+> **Python API**: [`cloaca.DefaultRunnerConfig.new`](../../../../cloaca/#DefaultRunnerConfig.new)
 
 Creates a new DefaultRunnerConfig with customizable parameters
 
@@ -115,15 +133,13 @@ Creates a new DefaultRunnerConfig with customizable parameters
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.default"></span>`default`
+##### <span id="PyDefaultRunnerConfig.default"></span><code>default</code>
 
 ```rust
-fn default () -> Self
+fn default() -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.default](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.default)
+> **Python API**: [`cloaca.DefaultRunnerConfig.default`](../../../../cloaca/#DefaultRunnerConfig.default)
 
 Creates a DefaultRunnerConfig with all default values
 
@@ -140,15 +156,13 @@ Creates a DefaultRunnerConfig with all default values
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.max_concurrent_tasks"></span>`max_concurrent_tasks`
+##### <span id="PyDefaultRunnerConfig.max_concurrent_tasks"></span><code>max_​concurrent_​tasks</code>
 
 ```rust
-fn max_concurrent_tasks (& self) -> usize
+fn max_concurrent_tasks(&self) -> usize
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.max_concurrent_tasks](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.max_concurrent_tasks)
+> **Python API**: [`cloaca.DefaultRunnerConfig.max_concurrent_tasks`](../../../../cloaca/#DefaultRunnerConfig.max_concurrent_tasks)
 
 <details>
 <summary>Source</summary>
@@ -161,15 +175,13 @@ fn max_concurrent_tasks (& self) -> usize
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.scheduler_poll_interval_ms"></span>`scheduler_poll_interval_ms`
+##### <span id="PyDefaultRunnerConfig.scheduler_poll_interval_ms"></span><code>scheduler_​poll_​interval_​ms</code>
 
 ```rust
-fn scheduler_poll_interval_ms (& self) -> u64
+fn scheduler_poll_interval_ms(&self) -> u64
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.scheduler_poll_interval_ms](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.scheduler_poll_interval_ms)
+> **Python API**: [`cloaca.DefaultRunnerConfig.scheduler_poll_interval_ms`](../../../../cloaca/#DefaultRunnerConfig.scheduler_poll_interval_ms)
 
 <details>
 <summary>Source</summary>
@@ -182,15 +194,13 @@ fn scheduler_poll_interval_ms (& self) -> u64
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.task_timeout_seconds"></span>`task_timeout_seconds`
+##### <span id="PyDefaultRunnerConfig.task_timeout_seconds"></span><code>task_​timeout_​seconds</code>
 
 ```rust
-fn task_timeout_seconds (& self) -> u64
+fn task_timeout_seconds(&self) -> u64
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.task_timeout_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.task_timeout_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.task_timeout_seconds`](../../../../cloaca/#DefaultRunnerConfig.task_timeout_seconds)
 
 <details>
 <summary>Source</summary>
@@ -203,15 +213,13 @@ fn task_timeout_seconds (& self) -> u64
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.workflow_timeout_seconds"></span>`workflow_timeout_seconds`
+##### <span id="PyDefaultRunnerConfig.workflow_timeout_seconds"></span><code>workflow_​timeout_​seconds</code>
 
 ```rust
-fn workflow_timeout_seconds (& self) -> Option < u64 >
+fn workflow_timeout_seconds(&self) -> Option<u64>
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.workflow_timeout_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.workflow_timeout_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.workflow_timeout_seconds`](../../../../cloaca/#DefaultRunnerConfig.workflow_timeout_seconds)
 
 <details>
 <summary>Source</summary>
@@ -224,15 +232,13 @@ fn workflow_timeout_seconds (& self) -> Option < u64 >
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.db_pool_size"></span>`db_pool_size`
+##### <span id="PyDefaultRunnerConfig.db_pool_size"></span><code>db_​pool_​size</code>
 
 ```rust
-fn db_pool_size (& self) -> u32
+fn db_pool_size(&self) -> u32
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.db_pool_size](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.db_pool_size)
+> **Python API**: [`cloaca.DefaultRunnerConfig.db_pool_size`](../../../../cloaca/#DefaultRunnerConfig.db_pool_size)
 
 <details>
 <summary>Source</summary>
@@ -245,15 +251,13 @@ fn db_pool_size (& self) -> u32
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.enable_recovery"></span>`enable_recovery`
+##### <span id="PyDefaultRunnerConfig.enable_recovery"></span><code>enable_​recovery</code>
 
 ```rust
-fn enable_recovery (& self) -> bool
+fn enable_recovery(&self) -> bool
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.enable_recovery](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.enable_recovery)
+> **Python API**: [`cloaca.DefaultRunnerConfig.enable_recovery`](../../../../cloaca/#DefaultRunnerConfig.enable_recovery)
 
 <details>
 <summary>Source</summary>
@@ -266,15 +270,13 @@ fn enable_recovery (& self) -> bool
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.enable_cron_scheduling"></span>`enable_cron_scheduling`
+##### <span id="PyDefaultRunnerConfig.enable_cron_scheduling"></span><code>enable_​cron_​scheduling</code>
 
 ```rust
-fn enable_cron_scheduling (& self) -> bool
+fn enable_cron_scheduling(&self) -> bool
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.enable_cron_scheduling](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.enable_cron_scheduling)
+> **Python API**: [`cloaca.DefaultRunnerConfig.enable_cron_scheduling`](../../../../cloaca/#DefaultRunnerConfig.enable_cron_scheduling)
 
 <details>
 <summary>Source</summary>
@@ -287,15 +289,13 @@ fn enable_cron_scheduling (& self) -> bool
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.cron_poll_interval_seconds"></span>`cron_poll_interval_seconds`
+##### <span id="PyDefaultRunnerConfig.cron_poll_interval_seconds"></span><code>cron_​poll_​interval_​seconds</code>
 
 ```rust
-fn cron_poll_interval_seconds (& self) -> u64
+fn cron_poll_interval_seconds(&self) -> u64
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.cron_poll_interval_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.cron_poll_interval_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.cron_poll_interval_seconds`](../../../../cloaca/#DefaultRunnerConfig.cron_poll_interval_seconds)
 
 <details>
 <summary>Source</summary>
@@ -308,15 +308,13 @@ fn cron_poll_interval_seconds (& self) -> u64
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.cron_max_catchup_executions"></span>`cron_max_catchup_executions`
+##### <span id="PyDefaultRunnerConfig.cron_max_catchup_executions"></span><code>cron_​max_​catchup_​executions</code>
 
 ```rust
-fn cron_max_catchup_executions (& self) -> usize
+fn cron_max_catchup_executions(&self) -> usize
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.cron_max_catchup_executions](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.cron_max_catchup_executions)
+> **Python API**: [`cloaca.DefaultRunnerConfig.cron_max_catchup_executions`](../../../../cloaca/#DefaultRunnerConfig.cron_max_catchup_executions)
 
 <details>
 <summary>Source</summary>
@@ -329,15 +327,13 @@ fn cron_max_catchup_executions (& self) -> usize
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.cron_enable_recovery"></span>`cron_enable_recovery`
+##### <span id="PyDefaultRunnerConfig.cron_enable_recovery"></span><code>cron_​enable_​recovery</code>
 
 ```rust
-fn cron_enable_recovery (& self) -> bool
+fn cron_enable_recovery(&self) -> bool
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.cron_enable_recovery](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.cron_enable_recovery)
+> **Python API**: [`cloaca.DefaultRunnerConfig.cron_enable_recovery`](../../../../cloaca/#DefaultRunnerConfig.cron_enable_recovery)
 
 <details>
 <summary>Source</summary>
@@ -350,15 +346,13 @@ fn cron_enable_recovery (& self) -> bool
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.cron_recovery_interval_seconds"></span>`cron_recovery_interval_seconds`
+##### <span id="PyDefaultRunnerConfig.cron_recovery_interval_seconds"></span><code>cron_​recovery_​interval_​seconds</code>
 
 ```rust
-fn cron_recovery_interval_seconds (& self) -> u64
+fn cron_recovery_interval_seconds(&self) -> u64
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.cron_recovery_interval_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.cron_recovery_interval_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.cron_recovery_interval_seconds`](../../../../cloaca/#DefaultRunnerConfig.cron_recovery_interval_seconds)
 
 <details>
 <summary>Source</summary>
@@ -371,15 +365,13 @@ fn cron_recovery_interval_seconds (& self) -> u64
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.cron_lost_threshold_minutes"></span>`cron_lost_threshold_minutes`
+##### <span id="PyDefaultRunnerConfig.cron_lost_threshold_minutes"></span><code>cron_​lost_​threshold_​minutes</code>
 
 ```rust
-fn cron_lost_threshold_minutes (& self) -> i32
+fn cron_lost_threshold_minutes(&self) -> i32
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.cron_lost_threshold_minutes](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.cron_lost_threshold_minutes)
+> **Python API**: [`cloaca.DefaultRunnerConfig.cron_lost_threshold_minutes`](../../../../cloaca/#DefaultRunnerConfig.cron_lost_threshold_minutes)
 
 <details>
 <summary>Source</summary>
@@ -392,15 +384,13 @@ fn cron_lost_threshold_minutes (& self) -> i32
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.cron_max_recovery_age_seconds"></span>`cron_max_recovery_age_seconds`
+##### <span id="PyDefaultRunnerConfig.cron_max_recovery_age_seconds"></span><code>cron_​max_​recovery_​age_​seconds</code>
 
 ```rust
-fn cron_max_recovery_age_seconds (& self) -> u64
+fn cron_max_recovery_age_seconds(&self) -> u64
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.cron_max_recovery_age_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.cron_max_recovery_age_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.cron_max_recovery_age_seconds`](../../../../cloaca/#DefaultRunnerConfig.cron_max_recovery_age_seconds)
 
 <details>
 <summary>Source</summary>
@@ -413,15 +403,13 @@ fn cron_max_recovery_age_seconds (& self) -> u64
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.cron_max_recovery_attempts"></span>`cron_max_recovery_attempts`
+##### <span id="PyDefaultRunnerConfig.cron_max_recovery_attempts"></span><code>cron_​max_​recovery_​attempts</code>
 
 ```rust
-fn cron_max_recovery_attempts (& self) -> usize
+fn cron_max_recovery_attempts(&self) -> usize
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.cron_max_recovery_attempts](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.cron_max_recovery_attempts)
+> **Python API**: [`cloaca.DefaultRunnerConfig.cron_max_recovery_attempts`](../../../../cloaca/#DefaultRunnerConfig.cron_max_recovery_attempts)
 
 <details>
 <summary>Source</summary>
@@ -434,15 +422,13 @@ fn cron_max_recovery_attempts (& self) -> usize
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_max_concurrent_tasks"></span>`set_max_concurrent_tasks`
+##### <span id="PyDefaultRunnerConfig.set_max_concurrent_tasks"></span><code>set_​max_​concurrent_​tasks</code>
 
 ```rust
-fn set_max_concurrent_tasks (& mut self , value : usize)
+fn set_max_concurrent_tasks(&mut self, value: usize)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_max_concurrent_tasks](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_max_concurrent_tasks)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_max_concurrent_tasks`](../../../../cloaca/#DefaultRunnerConfig.set_max_concurrent_tasks)
 
 <details>
 <summary>Source</summary>
@@ -455,15 +441,13 @@ fn set_max_concurrent_tasks (& mut self , value : usize)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_scheduler_poll_interval_ms"></span>`set_scheduler_poll_interval_ms`
+##### <span id="PyDefaultRunnerConfig.set_scheduler_poll_interval_ms"></span><code>set_​scheduler_​poll_​interval_​ms</code>
 
 ```rust
-fn set_scheduler_poll_interval_ms (& mut self , value : u64)
+fn set_scheduler_poll_interval_ms(&mut self, value: u64)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_scheduler_poll_interval_ms](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_scheduler_poll_interval_ms)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_scheduler_poll_interval_ms`](../../../../cloaca/#DefaultRunnerConfig.set_scheduler_poll_interval_ms)
 
 <details>
 <summary>Source</summary>
@@ -477,15 +461,13 @@ fn set_scheduler_poll_interval_ms (& mut self , value : u64)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_task_timeout_seconds"></span>`set_task_timeout_seconds`
+##### <span id="PyDefaultRunnerConfig.set_task_timeout_seconds"></span><code>set_​task_​timeout_​seconds</code>
 
 ```rust
-fn set_task_timeout_seconds (& mut self , value : u64)
+fn set_task_timeout_seconds(&mut self, value: u64)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_task_timeout_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_task_timeout_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_task_timeout_seconds`](../../../../cloaca/#DefaultRunnerConfig.set_task_timeout_seconds)
 
 <details>
 <summary>Source</summary>
@@ -498,15 +480,13 @@ fn set_task_timeout_seconds (& mut self , value : u64)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_workflow_timeout_seconds"></span>`set_workflow_timeout_seconds`
+##### <span id="PyDefaultRunnerConfig.set_workflow_timeout_seconds"></span><code>set_​workflow_​timeout_​seconds</code>
 
 ```rust
-fn set_workflow_timeout_seconds (& mut self , value : Option < u64 >)
+fn set_workflow_timeout_seconds(&mut self, value: Option<u64>)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_workflow_timeout_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_workflow_timeout_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_workflow_timeout_seconds`](../../../../cloaca/#DefaultRunnerConfig.set_workflow_timeout_seconds)
 
 <details>
 <summary>Source</summary>
@@ -520,15 +500,13 @@ fn set_workflow_timeout_seconds (& mut self , value : Option < u64 >)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_db_pool_size"></span>`set_db_pool_size`
+##### <span id="PyDefaultRunnerConfig.set_db_pool_size"></span><code>set_​db_​pool_​size</code>
 
 ```rust
-fn set_db_pool_size (& mut self , value : u32)
+fn set_db_pool_size(&mut self, value: u32)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_db_pool_size](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_db_pool_size)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_db_pool_size`](../../../../cloaca/#DefaultRunnerConfig.set_db_pool_size)
 
 <details>
 <summary>Source</summary>
@@ -541,15 +519,13 @@ fn set_db_pool_size (& mut self , value : u32)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_enable_recovery"></span>`set_enable_recovery`
+##### <span id="PyDefaultRunnerConfig.set_enable_recovery"></span><code>set_​enable_​recovery</code>
 
 ```rust
-fn set_enable_recovery (& mut self , value : bool)
+fn set_enable_recovery(&mut self, value: bool)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_enable_recovery](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_enable_recovery)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_enable_recovery`](../../../../cloaca/#DefaultRunnerConfig.set_enable_recovery)
 
 <details>
 <summary>Source</summary>
@@ -562,15 +538,13 @@ fn set_enable_recovery (& mut self , value : bool)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_enable_cron_scheduling"></span>`set_enable_cron_scheduling`
+##### <span id="PyDefaultRunnerConfig.set_enable_cron_scheduling"></span><code>set_​enable_​cron_​scheduling</code>
 
 ```rust
-fn set_enable_cron_scheduling (& mut self , value : bool)
+fn set_enable_cron_scheduling(&mut self, value: bool)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_enable_cron_scheduling](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_enable_cron_scheduling)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_enable_cron_scheduling`](../../../../cloaca/#DefaultRunnerConfig.set_enable_cron_scheduling)
 
 <details>
 <summary>Source</summary>
@@ -583,15 +557,13 @@ fn set_enable_cron_scheduling (& mut self , value : bool)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_cron_poll_interval_seconds"></span>`set_cron_poll_interval_seconds`
+##### <span id="PyDefaultRunnerConfig.set_cron_poll_interval_seconds"></span><code>set_​cron_​poll_​interval_​seconds</code>
 
 ```rust
-fn set_cron_poll_interval_seconds (& mut self , value : u64)
+fn set_cron_poll_interval_seconds(&mut self, value: u64)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_cron_poll_interval_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_cron_poll_interval_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_cron_poll_interval_seconds`](../../../../cloaca/#DefaultRunnerConfig.set_cron_poll_interval_seconds)
 
 <details>
 <summary>Source</summary>
@@ -604,15 +576,13 @@ fn set_cron_poll_interval_seconds (& mut self , value : u64)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_cron_max_catchup_executions"></span>`set_cron_max_catchup_executions`
+##### <span id="PyDefaultRunnerConfig.set_cron_max_catchup_executions"></span><code>set_​cron_​max_​catchup_​executions</code>
 
 ```rust
-fn set_cron_max_catchup_executions (& mut self , value : usize)
+fn set_cron_max_catchup_executions(&mut self, value: usize)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_cron_max_catchup_executions](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_cron_max_catchup_executions)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_cron_max_catchup_executions`](../../../../cloaca/#DefaultRunnerConfig.set_cron_max_catchup_executions)
 
 <details>
 <summary>Source</summary>
@@ -625,15 +595,13 @@ fn set_cron_max_catchup_executions (& mut self , value : usize)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_cron_enable_recovery"></span>`set_cron_enable_recovery`
+##### <span id="PyDefaultRunnerConfig.set_cron_enable_recovery"></span><code>set_​cron_​enable_​recovery</code>
 
 ```rust
-fn set_cron_enable_recovery (& mut self , value : bool)
+fn set_cron_enable_recovery(&mut self, value: bool)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_cron_enable_recovery](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_cron_enable_recovery)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_cron_enable_recovery`](../../../../cloaca/#DefaultRunnerConfig.set_cron_enable_recovery)
 
 <details>
 <summary>Source</summary>
@@ -646,15 +614,13 @@ fn set_cron_enable_recovery (& mut self , value : bool)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_cron_recovery_interval_seconds"></span>`set_cron_recovery_interval_seconds`
+##### <span id="PyDefaultRunnerConfig.set_cron_recovery_interval_seconds"></span><code>set_​cron_​recovery_​interval_​seconds</code>
 
 ```rust
-fn set_cron_recovery_interval_seconds (& mut self , value : u64)
+fn set_cron_recovery_interval_seconds(&mut self, value: u64)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_cron_recovery_interval_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_cron_recovery_interval_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_cron_recovery_interval_seconds`](../../../../cloaca/#DefaultRunnerConfig.set_cron_recovery_interval_seconds)
 
 <details>
 <summary>Source</summary>
@@ -668,15 +634,13 @@ fn set_cron_recovery_interval_seconds (& mut self , value : u64)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_cron_lost_threshold_minutes"></span>`set_cron_lost_threshold_minutes`
+##### <span id="PyDefaultRunnerConfig.set_cron_lost_threshold_minutes"></span><code>set_​cron_​lost_​threshold_​minutes</code>
 
 ```rust
-fn set_cron_lost_threshold_minutes (& mut self , value : i32)
+fn set_cron_lost_threshold_minutes(&mut self, value: i32)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_cron_lost_threshold_minutes](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_cron_lost_threshold_minutes)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_cron_lost_threshold_minutes`](../../../../cloaca/#DefaultRunnerConfig.set_cron_lost_threshold_minutes)
 
 <details>
 <summary>Source</summary>
@@ -689,15 +653,13 @@ fn set_cron_lost_threshold_minutes (& mut self , value : i32)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_cron_max_recovery_age_seconds"></span>`set_cron_max_recovery_age_seconds`
+##### <span id="PyDefaultRunnerConfig.set_cron_max_recovery_age_seconds"></span><code>set_​cron_​max_​recovery_​age_​seconds</code>
 
 ```rust
-fn set_cron_max_recovery_age_seconds (& mut self , value : u64)
+fn set_cron_max_recovery_age_seconds(&mut self, value: u64)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_cron_max_recovery_age_seconds](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_cron_max_recovery_age_seconds)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_cron_max_recovery_age_seconds`](../../../../cloaca/#DefaultRunnerConfig.set_cron_max_recovery_age_seconds)
 
 <details>
 <summary>Source</summary>
@@ -711,15 +673,13 @@ fn set_cron_max_recovery_age_seconds (& mut self , value : u64)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.set_cron_max_recovery_attempts"></span>`set_cron_max_recovery_attempts`
+##### <span id="PyDefaultRunnerConfig.set_cron_max_recovery_attempts"></span><code>set_​cron_​max_​recovery_​attempts</code>
 
 ```rust
-fn set_cron_max_recovery_attempts (& mut self , value : usize)
+fn set_cron_max_recovery_attempts(&mut self, value: usize)
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.set_cron_max_recovery_attempts](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.set_cron_max_recovery_attempts)
+> **Python API**: [`cloaca.DefaultRunnerConfig.set_cron_max_recovery_attempts`](../../../../cloaca/#DefaultRunnerConfig.set_cron_max_recovery_attempts)
 
 <details>
 <summary>Source</summary>
@@ -732,15 +692,13 @@ fn set_cron_max_recovery_attempts (& mut self , value : usize)
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.to_dict"></span>`to_dict`
+##### <span id="PyDefaultRunnerConfig.to_dict"></span><code>to_​dict</code>
 
 ```rust
-fn to_dict (& self , py : Python < '_ >) -> PyResult < PyObject >
+fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject>
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.to_dict](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.to_dict)
+> **Python API**: [`cloaca.DefaultRunnerConfig.to_dict`](../../../../cloaca/#DefaultRunnerConfig.to_dict)
 
 Returns a dictionary representation of the configuration
 
@@ -799,15 +757,13 @@ Returns a dictionary representation of the configuration
 
 </details>
 
-
-
-##### <span id="PyDefaultRunnerConfig.__repr__"></span>`__repr__`
+##### <span id="PyDefaultRunnerConfig.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.context.DefaultRunnerConfig.__repr__](../../../../cloacina-python/bindings/context/#DefaultRunnerConfig.__repr__)
+> **Python API**: [`cloaca.DefaultRunnerConfig.__repr__`](../../../../cloaca/#DefaultRunnerConfig.__repr__)
 
 String representation of the configuration
 
@@ -826,77 +782,3 @@ String representation of the configuration
 ```
 
 </details>
-
-
-
-##### <span id="PyDefaultRunnerConfig.to_rust_config"></span>`to_rust_config`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">pub(crate)</span>
-
-
-```rust
-fn to_rust_config (& self) -> cloacina :: runner :: DefaultRunnerConfig
-```
-
-Get the inner Rust config (for internal use)
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(crate) fn to_rust_config(&self) -> cloacina::runner::DefaultRunnerConfig {
-        self.inner.clone()
-    }
-```
-
-</details>
-
-
-
-##### <span id="PyDefaultRunnerConfig.rebuild"></span>`rebuild`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn rebuild (& self , apply : impl FnOnce (cloacina :: runner :: DefaultRunnerConfigBuilder ,) -> cloacina :: runner :: DefaultRunnerConfigBuilder ,) -> cloacina :: runner :: DefaultRunnerConfig
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn rebuild(
-        &self,
-        apply: impl FnOnce(
-            cloacina::runner::DefaultRunnerConfigBuilder,
-        ) -> cloacina::runner::DefaultRunnerConfigBuilder,
-    ) -> cloacina::runner::DefaultRunnerConfig {
-        let c = &self.inner;
-        let builder = cloacina::runner::DefaultRunnerConfig::builder()
-            .max_concurrent_tasks(c.max_concurrent_tasks())
-            .scheduler_poll_interval(c.scheduler_poll_interval())
-            .task_timeout(c.task_timeout())
-            .workflow_timeout(c.workflow_timeout())
-            .db_pool_size(c.db_pool_size())
-            .enable_recovery(c.enable_recovery())
-            .enable_cron_scheduling(c.enable_cron_scheduling())
-            .cron_poll_interval(c.cron_poll_interval())
-            .cron_max_catchup_executions(c.cron_max_catchup_executions())
-            .cron_enable_recovery(c.cron_enable_recovery())
-            .cron_recovery_interval(c.cron_recovery_interval())
-            .cron_lost_threshold_minutes(c.cron_lost_threshold_minutes())
-            .cron_max_recovery_age(c.cron_max_recovery_age())
-            .cron_max_recovery_attempts(c.cron_max_recovery_attempts());
-        apply(builder)
-            .build()
-            .expect("rebuild from valid config must succeed")
-    }
-```
-
-</details>
-
-
-
-
-

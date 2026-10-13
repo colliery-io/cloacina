@@ -1,131 +1,31 @@
 ---
 title: "cloacina::dal::unified::api_keys::crud"
 description: "Postgres CRUD operations for api_keys table."
+editUrl: false
 sidebar:
-  order: 85
+  order: 69
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Postgres CRUD operations for api_keys table.
-
-## Structs
-
-### <span id="struct.ApiKeyRow"></span>`struct ApiKeyRow`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-**Derives:** `Queryable`, `Debug`
-
-Diesel model for reading api_keys rows.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Uuid` |  |
-| `key_hash` | `String` |  |
-| `name` | `String` |  |
-| `permissions` | `String` |  |
-| `created_at` | `chrono :: NaiveDateTime` |  |
-| `revoked_at` | `Option < chrono :: NaiveDateTime >` |  |
-| `tenant_id` | `Option < String >` |  |
-| `is_admin` | `bool` |  |
-| `expires_at` | `Option < chrono :: NaiveDateTime >` |  |
-| `issued_via` | `Option < String >` |  |
-
-
-
-### <span id="struct.NewApiKey"></span>`struct NewApiKey`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-**Derives:** `Insertable`
-
-Diesel model for inserting api_keys rows.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Uuid` |  |
-| `key_hash` | `String` |  |
-| `name` | `String` |  |
-| `permissions` | `String` |  |
-| `tenant_id` | `Option < String >` |  |
-| `is_admin` | `bool` |  |
-
-
-
-### <span id="struct.MintApiKey"></span>`struct MintApiKey`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-**Derives:** `Insertable`
-
-Insertable for a minted (short-TTL, provenance-tagged) key (CLOACI-T-0792).
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Uuid` |  |
-| `key_hash` | `String` |  |
-| `name` | `String` |  |
-| `permissions` | `String` |  |
-| `tenant_id` | `Option < String >` |  |
-| `is_admin` | `bool` |  |
-| `expires_at` | `Option < chrono :: NaiveDateTime >` |  |
-| `issued_via` | `Option < String >` |  |
-
-
 
 ## Functions
 
-### <span id="fn.to_info"></span>`fn to_info`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn to_info (row : ApiKeyRow) -> ApiKeyInfo
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn to_info(row: ApiKeyRow) -> ApiKeyInfo {
-    ApiKeyInfo {
-        id: row.id,
-        name: row.name,
-        permissions: row.permissions,
-        created_at: row.created_at.and_utc(),
-        revoked: row.revoked_at.is_some(),
-        tenant_id: row.tenant_id,
-        is_admin: row.is_admin,
-        expires_at: row.expires_at.map(|t| t.and_utc()),
-        issued_via: row.issued_via,
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.create_key"></span>`fn create_key`
+### <span id="fn.create_key"></span><code style="font-size: 0.85em">fn create_​key</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn create_key (dal : & DAL , key_hash : & str , name : & str , tenant_id : Option < & str > , is_admin : bool , role : & str ,) -> Result < ApiKeyInfo , ValidationError >
+async fn create_key(
+    dal: &DAL,
+    key_hash: &str,
+    name: &str,
+    tenant_id: Option<&str>,
+    is_admin: bool,
+    role: &str,
+) -> Result<ApiKeyInfo, ValidationError>
 ```
 
 <details>
@@ -171,15 +71,20 @@ pub async fn create_key(
 
 </details>
 
-
-
-### <span id="fn.mint_key"></span>`fn mint_key`
+### <span id="fn.mint_key"></span><code style="font-size: 0.85em">fn mint_​key</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn mint_key (dal : & DAL , key_hash : & str , name : & str , tenant_id : Option < & str > , role : & str , expires_at : chrono :: DateTime < Utc > , issued_via : & str ,) -> Result < ApiKeyInfo , ValidationError >
+async fn mint_key(
+    dal: &DAL,
+    key_hash: &str,
+    name: &str,
+    tenant_id: Option<&str>,
+    role: &str,
+    expires_at: chrono::DateTime<Utc>,
+    issued_via: &str,
+) -> Result<ApiKeyInfo, ValidationError>
 ```
 
 CLOACI-T-0792: mint a short-TTL, provenance-tagged key (OIDC / local login). Like `create_key` but sets `expires_at` + `issued_via`; `is_admin` is always false — minted keys are never god-mode. The minted row is an ordinary `api_keys` row that flows through `validate_hash` + the bearer path unchanged (and is rejected once `expires_at` passes).
@@ -229,15 +134,15 @@ pub async fn mint_key(
 
 </details>
 
-
-
-### <span id="fn.validate_hash"></span>`fn validate_hash`
+### <span id="fn.validate_hash"></span><code style="font-size: 0.85em">fn validate_​hash</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn validate_hash (dal : & DAL , key_hash : & str ,) -> Result < Option < ApiKeyInfo > , ValidationError >
+async fn validate_hash(
+    dal: &DAL,
+    key_hash: &str,
+) -> Result<Option<ApiKeyInfo>, ValidationError>
 ```
 
 <details>
@@ -279,15 +184,12 @@ pub async fn validate_hash(
 
 </details>
 
-
-
-### <span id="fn.has_any_keys"></span>`fn has_any_keys`
+### <span id="fn.has_any_keys"></span><code style="font-size: 0.85em">fn has_​any_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn has_any_keys (dal : & DAL) -> Result < bool , ValidationError >
+async fn has_any_keys(dal: &DAL) -> Result<bool, ValidationError>
 ```
 
 <details>
@@ -317,15 +219,14 @@ pub async fn has_any_keys(dal: &DAL) -> Result<bool, ValidationError> {
 
 </details>
 
-
-
-### <span id="fn.list_keys"></span>`fn list_keys`
+### <span id="fn.list_keys"></span><code style="font-size: 0.85em">fn list_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn list_keys (dal : & DAL) -> Result < Vec < ApiKeyInfo > , ValidationError >
+async fn list_keys(
+    dal: &DAL,
+) -> Result<Vec<ApiKeyInfo>, ValidationError>
 ```
 
 <details>
@@ -354,15 +255,15 @@ pub async fn list_keys(dal: &DAL) -> Result<Vec<ApiKeyInfo>, ValidationError> {
 
 </details>
 
-
-
-### <span id="fn.list_keys_for_tenant"></span>`fn list_keys_for_tenant`
+### <span id="fn.list_keys_for_tenant"></span><code style="font-size: 0.85em">fn list_​keys_​for_​tenant</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn list_keys_for_tenant (dal : & DAL , tenant_id : & str ,) -> Result < Vec < ApiKeyInfo > , ValidationError >
+async fn list_keys_for_tenant(
+    dal: &DAL,
+    tenant_id: &str,
+) -> Result<Vec<ApiKeyInfo>, ValidationError>
 ```
 
 CLOACI-T-0784: list keys scoped to a single tenant (tenant-admin view). Includes revoked rows (like `list_keys`); the caller renders the `revoked` flag.
@@ -398,15 +299,15 @@ pub async fn list_keys_for_tenant(
 
 </details>
 
-
-
-### <span id="fn.get_key"></span>`fn get_key`
+### <span id="fn.get_key"></span><code style="font-size: 0.85em">fn get_​key</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn get_key (dal : & DAL , id : Uuid) -> Result < Option < ApiKeyInfo > , ValidationError >
+async fn get_key(
+    dal: &DAL,
+    id: Uuid,
+) -> Result<Option<ApiKeyInfo>, ValidationError>
 ```
 
 CLOACI-T-0784: fetch a single key's info by id (used by the tenant-scoped revoke path to verify the target key belongs to the caller's tenant before revoking). Returns `None` if no such key exists.
@@ -433,15 +334,15 @@ pub async fn get_key(dal: &DAL, id: Uuid) -> Result<Option<ApiKeyInfo>, Validati
 
 </details>
 
-
-
-### <span id="fn.revoke_keys_for_tenant"></span>`fn revoke_keys_for_tenant`
+### <span id="fn.revoke_keys_for_tenant"></span><code style="font-size: 0.85em">fn revoke_​keys_​for_​tenant</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn revoke_keys_for_tenant (dal : & DAL , tenant_id : & str) -> Result < usize , ValidationError >
+async fn revoke_keys_for_tenant(
+    dal: &DAL,
+    tenant_id: &str,
+) -> Result<usize, ValidationError>
 ```
 
 CLOACI-T-0581: bulk-revoke every still-active key bound to `tenant_id`. Returns the number of rows updated. Used by tenant teardown to close out the auth surface before the schema is dropped.
@@ -478,15 +379,15 @@ pub async fn revoke_keys_for_tenant(dal: &DAL, tenant_id: &str) -> Result<usize,
 
 </details>
 
-
-
-### <span id="fn.revoke_key"></span>`fn revoke_key`
+### <span id="fn.revoke_key"></span><code style="font-size: 0.85em">fn revoke_​key</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn revoke_key (dal : & DAL , id : Uuid) -> Result < bool , ValidationError >
+async fn revoke_key(
+    dal: &DAL,
+    id: Uuid,
+) -> Result<bool, ValidationError>
 ```
 
 <details>
@@ -519,6 +420,3 @@ pub async fn revoke_key(dal: &DAL, id: Uuid) -> Result<bool, ValidationError> {
 ```
 
 </details>
-
-
-

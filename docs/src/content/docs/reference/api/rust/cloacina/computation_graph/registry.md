@@ -1,13 +1,13 @@
 ---
 title: "cloacina::computation_graph::registry"
 description: "Endpoint registry — maps accumulator/reactor names to their channel senders."
+editUrl: false
 sidebar:
-  order: 65
+  order: 49
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Endpoint registry — maps accumulator/reactor names to their channel senders.
 
@@ -17,10 +17,9 @@ under the same name all receive the message.
 
 ## Structs
 
-### <span id="struct.KeyContext"></span>`struct KeyContext<'a>`
+### <span id="struct.KeyContext"></span><code style="font-size: 0.85em">struct KeyContext&lt;&#39;a&gt;</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Caller identity for authorization checks.
 
@@ -28,16 +27,13 @@ Caller identity for authorization checks.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `key_id` | `& 'a uuid :: Uuid` |  |
-| `tenant_id` | `Option < & 'a str >` |  |
+| `key_id` | `&'a uuid::Uuid` |  |
+| `tenant_id` | `Option<&'a str>` |  |
 | `is_admin` | `bool` |  |
 
-
-
-### <span id="struct.AccumulatorAuthPolicy"></span>`struct AccumulatorAuthPolicy`
+### <span id="struct.AccumulatorAuthPolicy"></span><code style="font-size: 0.85em">struct AccumulatorAuthPolicy</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Default`
 
@@ -48,18 +44,17 @@ Authorization policy for an accumulator endpoint.
 | Name | Type | Description |
 |------|------|-------------|
 | `allow_all_authenticated` | `bool` | If true, any authenticated key is authorized (single-tenant default). |
-| `allowed_tenants` | `Vec < String >` | Tenant IDs whose keys are authorized. Checked when allow_all is false. |
-| `allowed_producers` | `Vec < uuid :: Uuid >` | PAK key IDs authorized to push to this accumulator (explicit override). |
+| `allowed_tenants` | `Vec<String>` | Tenant IDs whose keys are authorized. Checked when allow_all is false. |
+| `allowed_producers` | `Vec<uuid::Uuid>` | PAK key IDs authorized to push to this accumulator (explicit override). |
 
 #### Methods
 
-##### <span id="AccumulatorAuthPolicy.allow_all"></span>`allow_all`
+##### <span id="AccumulatorAuthPolicy.allow_all"></span><code>allow_​all</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn allow_all () -> Self
+fn allow_all() -> Self
 ```
 
 Create a policy that allows any authenticated key (global/single-tenant).
@@ -79,15 +74,12 @@ Create a policy that allows any authenticated key (global/single-tenant).
 
 </details>
 
-
-
-##### <span id="AccumulatorAuthPolicy.for_tenant"></span>`for_tenant`
+##### <span id="AccumulatorAuthPolicy.for_tenant"></span><code>for_​tenant</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn for_tenant (tenant_id : & str) -> Self
+fn for_tenant(tenant_id: &str) -> Self
 ```
 
 Create a policy scoped to a specific tenant.
@@ -107,15 +99,12 @@ Create a policy scoped to a specific tenant.
 
 </details>
 
-
-
-##### <span id="AccumulatorAuthPolicy.is_authorized"></span>`is_authorized`
+##### <span id="AccumulatorAuthPolicy.is_authorized"></span><code>is_​authorized</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_authorized (& self , ctx : & KeyContext) -> bool
+fn is_authorized(&self, ctx: &KeyContext) -> bool
 ```
 
 Check if a key is authorized.
@@ -140,14 +129,9 @@ Check if a key is authorized.
 
 </details>
 
-
-
-
-
-### <span id="struct.ReactorAuthPolicy"></span>`struct ReactorAuthPolicy`
+### <span id="struct.ReactorAuthPolicy"></span><code style="font-size: 0.85em">struct ReactorAuthPolicy</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Default`
 
@@ -158,20 +142,18 @@ Authorization policy for a reactor endpoint.
 | Name | Type | Description |
 |------|------|-------------|
 | `allow_all_authenticated` | `bool` | If true, any authenticated key is authorized (single-tenant default). |
-| `allowed_tenants` | `Vec < String >` | Tenant IDs whose keys are authorized. Checked when allow_all is false. |
-| `allowed_operators` | `Vec < uuid :: Uuid >` | PAK key IDs authorized to connect (explicit override). |
-| `operation_permissions` | `HashMap < uuid :: Uuid , Vec < ReactorOp > >` | Per-key operation restrictions. If a key is in allowed_operators
-but not in this map, all operations are permitted. |
+| `allowed_tenants` | `Vec<String>` | Tenant IDs whose keys are authorized. Checked when allow_all is false. |
+| `allowed_operators` | `Vec<uuid::Uuid>` | PAK key IDs authorized to connect (explicit override). |
+| `operation_permissions` | `HashMap<uuid::Uuid, Vec<ReactorOp>>` | Per-key operation restrictions. If a key is in allowed_operators but not in this map, all operations are permitted. |
 
 #### Methods
 
-##### <span id="ReactorAuthPolicy.allow_all"></span>`allow_all`
+##### <span id="ReactorAuthPolicy.allow_all"></span><code>allow_​all</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn allow_all () -> Self
+fn allow_all() -> Self
 ```
 
 Create a policy that allows any authenticated key (global/single-tenant).
@@ -192,15 +174,12 @@ Create a policy that allows any authenticated key (global/single-tenant).
 
 </details>
 
-
-
-##### <span id="ReactorAuthPolicy.for_tenant"></span>`for_tenant`
+##### <span id="ReactorAuthPolicy.for_tenant"></span><code>for_​tenant</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn for_tenant (tenant_id : & str) -> Self
+fn for_tenant(tenant_id: &str) -> Self
 ```
 
 Create a policy scoped to a specific tenant.
@@ -221,15 +200,12 @@ Create a policy scoped to a specific tenant.
 
 </details>
 
-
-
-##### <span id="ReactorAuthPolicy.is_authorized"></span>`is_authorized`
+##### <span id="ReactorAuthPolicy.is_authorized"></span><code>is_​authorized</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_authorized (& self , ctx : & KeyContext) -> bool
+fn is_authorized(&self, ctx: &KeyContext) -> bool
 ```
 
 Check if a key is authorized to connect.
@@ -254,15 +230,16 @@ Check if a key is authorized to connect.
 
 </details>
 
-
-
-##### <span id="ReactorAuthPolicy.is_operation_permitted"></span>`is_operation_permitted`
+##### <span id="ReactorAuthPolicy.is_operation_permitted"></span><code>is_​operation_​permitted</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_operation_permitted (& self , ctx : & KeyContext , op : & ReactorOp) -> bool
+fn is_operation_permitted(
+    &self,
+    ctx: &KeyContext,
+    op: &ReactorOp,
+) -> bool
 ```
 
 Check if a key is authorized for a specific operation.
@@ -288,32 +265,24 @@ Check if a key is authorized for a specific operation.
 
 </details>
 
-
-
-
-
-### <span id="struct.AccumulatorDescriptor"></span>`struct AccumulatorDescriptor`
+### <span id="struct.AccumulatorDescriptor"></span><code style="font-size: 0.85em">struct AccumulatorDescriptor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 **Derives:** `Debug`, `Clone`
 
-Discoverability metadata an accumulator self-registers at graph load (CLOACI-I-0128 follow-up). The runtime channel registration ([`EndpointRegistry::register_accumulator`]) only carries the socket sender; this descriptor adds the structural context the discovery API needs — chiefly the reactor/graph the accumulator feeds — so an operator can tell what connecting to `/v1/ws/accumulator/{name}` actually drives.
+Discoverability metadata an accumulator self-registers at graph load (CLOACI-I-0128 follow-up). The runtime channel registration ([`EndpointRegistry::register_accumulator`](../../../../rust/cloacina/computation_graph/registry/#EndpointRegistry.register_accumulator)) only carries the socket sender; this descriptor adds the structural context the discovery API needs — chiefly the reactor/graph the accumulator feeds — so an operator can tell what connecting to `/v1/ws/accumulator/{name}` actually drives.
 
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
 | `reactor` | `String` | The reactor (graph) this accumulator feeds. |
-| `tenant_id` | `Option < String >` | Owning tenant, or `None` for untagged single-tenant graphs. |
+| `tenant_id` | `Option<String>` | Owning tenant, or `None` for untagged single-tenant graphs. |
 
-
-
-### <span id="struct.EndpointKey"></span>`struct EndpointKey`
+### <span id="struct.EndpointKey"></span><code style="font-size: 0.85em">struct EndpointKey</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `PartialEq`, `Eq`, `Hash`, `PartialOrd`, `Ord`
 
@@ -327,18 +296,17 @@ single-tenant case (and keeps the pre-multi-tenancy allow-all behaviour).
 
 | Name | Type | Description |
 |------|------|-------------|
-| `tenant_id` | `Option < String >` |  |
+| `tenant_id` | `Option<String>` |  |
 | `name` | `String` |  |
 
 #### Methods
 
-##### <span id="EndpointKey.new"></span>`new`
+##### <span id="EndpointKey.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (tenant_id : Option < & str > , name : & str) -> Self
+fn new(tenant_id: Option<&str>, name: &str) -> Self
 ```
 
 <details>
@@ -355,36 +323,9 @@ fn new (tenant_id : Option < & str > , name : & str) -> Self
 
 </details>
 
-
-
-##### <span id="EndpointKey.tenant_label"></span>`tenant_label`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn tenant_label (& self) -> & str
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn tenant_label(&self) -> &str {
-        self.tenant_id.as_deref().unwrap_or("<untenanted>")
-    }
-```
-
-</details>
-
-
-
-
-
-### <span id="struct.EndpointOwner"></span>`struct EndpointOwner`
+### <span id="struct.EndpointOwner"></span><code style="font-size: 0.85em">struct EndpointOwner</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `PartialEq`, `Eq`
 
@@ -399,20 +340,22 @@ is rejected loudly at load time instead of silently cross-wiring, and
 
 | Name | Type | Description |
 |------|------|-------------|
-| `tenant_id` | `Option < String >` | Owning tenant, or `None` for untenanted/embedded graphs. |
-| `package` | `Option < String >` | Owning package, when the loader knows it. `None` for hand-wired and
-embedded graphs. |
+| `tenant_id` | `Option<String>` | Owning tenant, or `None` for untenanted/embedded graphs. |
+| `package` | `Option<String>` | Owning package, when the loader knows it. `None` for hand-wired and embedded graphs. |
 | `reactor` | `String` | Owning reactor (the graph this endpoint belongs to). |
 
 #### Methods
 
-##### <span id="EndpointOwner.new"></span>`new`
+##### <span id="EndpointOwner.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (tenant_id : Option < String > , package : Option < String > , reactor : impl Into < String > ,) -> Self
+fn new(
+    tenant_id: Option<String>,
+    package: Option<String>,
+    reactor: impl Into<String>,
+) -> Self
 ```
 
 <details>
@@ -434,15 +377,12 @@ fn new (tenant_id : Option < String > , package : Option < String > , reactor : 
 
 </details>
 
-
-
-##### <span id="EndpointOwner.embedded"></span>`embedded`
+##### <span id="EndpointOwner.embedded"></span><code>embedded</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn embedded (reactor : impl Into < String >) -> Self
+fn embedded(reactor: impl Into<String>) -> Self
 ```
 
 An owner with no tenant and no package — embedded/hand-wired graphs.
@@ -458,15 +398,12 @@ An owner with no tenant and no package — embedded/hand-wired graphs.
 
 </details>
 
-
-
-##### <span id="EndpointOwner.key"></span>`key`
+##### <span id="EndpointOwner.key"></span><code>key</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn key (& self , name : & str) -> EndpointKey
+fn key(&self, name: &str) -> EndpointKey
 ```
 
 The map key this owner registers `name` under.
@@ -485,41 +422,9 @@ The map key this owner registers `name` under.
 
 </details>
 
-
-
-##### <span id="EndpointOwner.describe"></span>`describe`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn describe (& self) -> String
-```
-
-Operator-facing provenance string for conflict errors.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn describe(&self) -> String {
-        match &self.package {
-            Some(pkg) => format!("package '{}' (reactor '{}')", pkg, self.reactor),
-            None => format!("reactor '{}'", self.reactor),
-        }
-    }
-```
-
-</details>
-
-
-
-
-
-### <span id="struct.EndpointScope"></span>`struct EndpointScope<'a>`
+### <span id="struct.EndpointScope"></span><code style="font-size: 0.85em">struct EndpointScope&lt;&#39;a&gt;</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Copy`, `Default`
 
@@ -532,48 +437,128 @@ bare `{name}` path segment resolves inside the caller's own tenant.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `tenant_id` | `Option < & 'a str >` |  |
+| `tenant_id` | `Option<&'a str>` |  |
 | `is_admin` | `bool` |  |
 
+#### Methods
 
-
-### <span id="struct.AccumulatorEntry"></span>`struct AccumulatorEntry`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-An accumulator registration: its owner plus the socket senders fanned out under this `(tenant, name)` key.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `owner` | `EndpointOwner` |  |
-| `senders` | `Vec < mpsc :: Sender < Vec < u8 > > >` |  |
-
-
-
-### <span id="struct.ReactorEntry"></span>`struct ReactorEntry`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-A reactor registration: its owner, manual command channel, and shared handle.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `owner` | `EndpointOwner` |  |
-| `sender` | `mpsc :: Sender < ManualCommand >` |  |
-| `handle` | `ReactorHandle` |  |
-
-
-
-### <span id="struct.EndpointRegistry"></span>`struct EndpointRegistry`
+##### <span id="EndpointScope.of"></span><code>of</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+```rust
+fn of(tenant_id: Option<&'a str>) -> Self
+```
+
+A non-admin caller in `tenant_id` (`None` = untenanted deployment).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn of(tenant_id: Option<&'a str>) -> Self {
+        Self {
+            tenant_id,
+            is_admin: false,
+        }
+    }
+```
+
+</details>
+
+##### <span id="EndpointScope.tenant"></span><code>tenant</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn tenant(tenant_id: &'a str) -> Self
+```
+
+A non-admin caller in a specific tenant.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn tenant(tenant_id: &'a str) -> Self {
+        Self::of(Some(tenant_id))
+    }
+```
+
+</details>
+
+##### <span id="EndpointScope.untenanted"></span><code>untenanted</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn untenanted() -> Self
+```
+
+The untenanted (embedded / single-tenant) caller.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn untenanted() -> Self {
+        Self::of(None)
+    }
+```
+
+</details>
+
+##### <span id="EndpointScope.admin"></span><code>admin</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn admin() -> Self
+```
+
+An admin caller: may reach any tenant's endpoint, but only when the name is unambiguous across tenants.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn admin() -> Self {
+        Self {
+            tenant_id: None,
+            is_admin: true,
+        }
+    }
+```
+
+</details>
+
+##### <span id="EndpointScope.from_key_context"></span><code>from_​key_​context</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn from_key_context(ctx: &KeyContext<'a>) -> Self
+```
+
+Derive the lookup scope from an authenticated key's context.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn from_key_context(ctx: &KeyContext<'a>) -> Self {
+        Self {
+            tenant_id: ctx.tenant_id,
+            is_admin: ctx.is_admin,
+        }
+    }
+```
+
+</details>
+
+### <span id="struct.EndpointRegistry"></span><code style="font-size: 0.85em">struct EndpointRegistry</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
 **Derives:** `Clone`
 
@@ -581,25 +566,18 @@ Registry mapping `(tenant, endpoint name)` to channel senders.
 
 Shared between the computation graph scheduler (registers on spawn) and
 WebSocket handlers (look up on message receipt). One instance serves the
-whole server process, so every map is keyed by [`EndpointKey`] —
+whole server process, so every map is keyed by [`EndpointKey`](../../../../rust/cloacina/computation_graph/registry/#struct.EndpointKey) —
 CLOACI-T-0921: keying by bare name let same-named accumulators from two
 tenants broadcast into each other's boundary channels.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `inner` | `Arc < RwLock < RegistryInner > >` |  |
-
 #### Methods
 
-##### <span id="EndpointRegistry.new"></span>`new`
+##### <span id="EndpointRegistry.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 <details>
@@ -624,16 +602,17 @@ fn new () -> Self
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.note_accumulator_operator_inject"></span>`note_accumulator_operator_inject`
+##### <span id="EndpointRegistry.note_accumulator_operator_inject"></span><code>note_​accumulator_​operator_​inject</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn note_accumulator_operator_inject (& self , name : & str , scope : EndpointScope < '_ >)
+async fn note_accumulator_operator_inject(
+    &self,
+    name: &str,
+    scope: EndpointScope<'_>,
+)
 ```
 
 Record an operator inject into an accumulator (CLOACI-T-0776). Called only from the REST inject endpoint — the true human-operator path. (The WS accumulator-push path also goes through `send_to_accumulator` but is the data-source feed, e.g. the demo producer, so it must NOT count here.)
@@ -656,16 +635,17 @@ Record an operator inject into an accumulator (CLOACI-T-0776). Called only from 
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.accumulator_inject_stat"></span>`accumulator_inject_stat`
+##### <span id="EndpointRegistry.accumulator_inject_stat"></span><code>accumulator_​inject_​stat</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn accumulator_inject_stat (& self , name : & str , scope : EndpointScope < '_ > ,) -> Option < (u64 , i64) >
+async fn accumulator_inject_stat(
+    &self,
+    name: &str,
+    scope: EndpointScope<'_>,
+) -> Option<(u64, i64)>
 ```
 
 `(operator-inject count, last-inject epoch ms)` for an accumulator, or `None` if it has never been operator-injected (CLOACI-T-0776).
@@ -687,16 +667,18 @@ async fn accumulator_inject_stat (& self , name : & str , scope : EndpointScope 
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.register_accumulator"></span>`register_accumulator`
+##### <span id="EndpointRegistry.register_accumulator"></span><code>register_​accumulator</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn register_accumulator (& self , owner : & EndpointOwner , name : String , sender : mpsc :: Sender < Vec < u8 > > ,) -> Result < () , RegistryError >
+async fn register_accumulator(
+    &self,
+    owner: &EndpointOwner,
+    name: String,
+    sender: mpsc::Sender<Vec<u8>>,
+) -> Result<(), RegistryError>
 ```
 
 Register an accumulator's socket sender under `(owner.tenant, name)`.
@@ -705,7 +687,7 @@ Several accumulator *instances* belonging to the same owner may share a
 name — messages are broadcast to all of them, and the restart path
 re-registers this way. A *different* owner claiming an already-taken
 `(tenant, name)` is rejected with
-[`RegistryError::EndpointOwnershipConflict`] (CLOACI-T-0921): silently
+[`RegistryError::EndpointOwnershipConflict`](../../../../rust/cloacina/computation_graph/registry/#enum.RegistryError) (CLOACI-T-0921): silently
 appending is what let two packages cross-wire each other's boundary
 channels.
 
@@ -750,19 +732,22 @@ channels.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.register_reactor"></span>`register_reactor`
+##### <span id="EndpointRegistry.register_reactor"></span><code>register_​reactor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn register_reactor (& self , owner : & EndpointOwner , name : String , sender : mpsc :: Sender < ManualCommand > , handle : ReactorHandle ,) -> Result < () , RegistryError >
+async fn register_reactor(
+    &self,
+    owner: &EndpointOwner,
+    name: String,
+    sender: mpsc::Sender<ManualCommand>,
+    handle: ReactorHandle,
+) -> Result<(), RegistryError>
 ```
 
-Register a reactor's manual command sender and shared handle under `(owner.tenant, name)`. Same ownership rule as [`register_accumulator`](Self::register_accumulator): a different owner claiming a live `(tenant, name)` is a load-time error.
+Register a reactor's manual command sender and shared handle under `(owner.tenant, name)`. Same ownership rule as `register_accumulator`: a different owner claiming a live `(tenant, name)` is a load-time error.
 
 <details>
 <summary>Source</summary>
@@ -802,19 +787,25 @@ Register a reactor's manual command sender and shared handle under `(owner.tenan
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.register_accumulator_meta"></span>`register_accumulator_meta`
+##### <span id="EndpointRegistry.register_accumulator_meta"></span><code>register_​accumulator_​meta</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn register_accumulator_meta (& self , owner : & EndpointOwner , name : String , descriptor : AccumulatorDescriptor ,)
+async fn register_accumulator_meta(
+    &self,
+    owner: &EndpointOwner,
+    name: String,
+    descriptor: AccumulatorDescriptor,
+)
 ```
 
-Register an accumulator's discoverability descriptor (its parent reactor + tenant), self-supplied by the graph at load. Keyed by `(tenant, name)`; a re-load by the same owner overwrites. (CLOACI-I-0128 follow-up.)
+Register an accumulator's discoverability descriptor (its parent reactor
+
++ tenant), self-supplied by the graph at load. Keyed by
+`(tenant, name)`; a re-load by the same owner overwrites.
+(CLOACI-I-0128 follow-up.)
 
 <details>
 <summary>Source</summary>
@@ -833,16 +824,17 @@ Register an accumulator's discoverability descriptor (its parent reactor + tenan
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.accumulator_descriptor"></span>`accumulator_descriptor`
+##### <span id="EndpointRegistry.accumulator_descriptor"></span><code>accumulator_​descriptor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn accumulator_descriptor (& self , name : & str , scope : EndpointScope < '_ > ,) -> Option < AccumulatorDescriptor >
+async fn accumulator_descriptor(
+    &self,
+    name: &str,
+    scope: EndpointScope<'_>,
+) -> Option<AccumulatorDescriptor>
 ```
 
 The discoverability descriptor for an accumulator visible to `scope`.
@@ -864,16 +856,17 @@ The discoverability descriptor for an accumulator visible to `scope`.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.deregister_accumulator"></span>`deregister_accumulator`
+##### <span id="EndpointRegistry.deregister_accumulator"></span><code>deregister_​accumulator</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn deregister_accumulator (& self , owner : & EndpointOwner , name : & str)
+async fn deregister_accumulator(
+    &self,
+    owner: &EndpointOwner,
+    name: &str,
+)
 ```
 
 Deregister the accumulator `owner` registered under `name`, with all of its side tables. A no-op when the live entry belongs to somebody else — CLOACI-T-0921: unloading tenant A's package must not tear down tenant B's same-named accumulator.
@@ -910,16 +903,13 @@ Deregister the accumulator `owner` registered under `name`, with all of its side
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.deregister_reactor"></span>`deregister_reactor`
+##### <span id="EndpointRegistry.deregister_reactor"></span><code>deregister_​reactor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn deregister_reactor (& self , owner : & EndpointOwner , name : & str)
+async fn deregister_reactor(&self, owner: &EndpointOwner, name: &str)
 ```
 
 Deregister the reactor `owner` registered under `name`. A no-op when the live entry belongs to somebody else (CLOACI-T-0921).
@@ -952,16 +942,17 @@ Deregister the reactor `owner` registered under `name`. A no-op when the live en
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.get_reactor_handle"></span>`get_reactor_handle`
+##### <span id="EndpointRegistry.get_reactor_handle"></span><code>get_​reactor_​handle</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn get_reactor_handle (& self , name : & str , scope : EndpointScope < '_ > ,) -> Option < ReactorHandle >
+async fn get_reactor_handle(
+    &self,
+    name: &str,
+    scope: EndpointScope<'_>,
+) -> Option<ReactorHandle>
 ```
 
 Get a reactor's shared handle (for GetState/Pause/Resume), resolved within the caller's tenant scope.
@@ -983,16 +974,18 @@ Get a reactor's shared handle (for GetState/Pause/Resume), resolved within the c
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.set_accumulator_policy"></span>`set_accumulator_policy`
+##### <span id="EndpointRegistry.set_accumulator_policy"></span><code>set_​accumulator_​policy</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn set_accumulator_policy (& self , owner : & EndpointOwner , name : String , policy : AccumulatorAuthPolicy ,)
+async fn set_accumulator_policy(
+    &self,
+    owner: &EndpointOwner,
+    name: String,
+    policy: AccumulatorAuthPolicy,
+)
 ```
 
 Set the auth policy for an accumulator endpoint.
@@ -1014,16 +1007,18 @@ Set the auth policy for an accumulator endpoint.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.set_reactor_policy"></span>`set_reactor_policy`
+##### <span id="EndpointRegistry.set_reactor_policy"></span><code>set_​reactor_​policy</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn set_reactor_policy (& self , owner : & EndpointOwner , name : String , policy : ReactorAuthPolicy ,)
+async fn set_reactor_policy(
+    &self,
+    owner: &EndpointOwner,
+    name: String,
+    policy: ReactorAuthPolicy,
+)
 ```
 
 Set the auth policy for a reactor endpoint.
@@ -1045,16 +1040,17 @@ Set the auth policy for a reactor endpoint.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.check_accumulator_auth"></span>`check_accumulator_auth`
+##### <span id="EndpointRegistry.check_accumulator_auth"></span><code>check_​accumulator_​auth</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn check_accumulator_auth (& self , name : & str , ctx : & KeyContext < '_ > ,) -> Result < () , RegistryError >
+async fn check_accumulator_auth(
+    &self,
+    name: &str,
+    ctx: &KeyContext<'_>,
+) -> Result<(), RegistryError>
 ```
 
 Check if a key is authorized for an accumulator endpoint.
@@ -1094,16 +1090,17 @@ Deny by default: no policy = no access.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.check_reactor_auth"></span>`check_reactor_auth`
+##### <span id="EndpointRegistry.check_reactor_auth"></span><code>check_​reactor_​auth</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn check_reactor_auth (& self , name : & str , ctx : & KeyContext < '_ > ,) -> Result < () , RegistryError >
+async fn check_reactor_auth(
+    &self,
+    name: &str,
+    ctx: &KeyContext<'_>,
+) -> Result<(), RegistryError>
 ```
 
 Check if a key is authorized for a reactor endpoint.
@@ -1137,16 +1134,18 @@ Check if a key is authorized for a reactor endpoint.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.check_reactor_op_auth"></span>`check_reactor_op_auth`
+##### <span id="EndpointRegistry.check_reactor_op_auth"></span><code>check_​reactor_​op_​auth</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn check_reactor_op_auth (& self , name : & str , ctx : & KeyContext < '_ > , op : & ReactorOp ,) -> Result < () , RegistryError >
+async fn check_reactor_op_auth(
+    &self,
+    name: &str,
+    ctx: &KeyContext<'_>,
+    op: &ReactorOp,
+) -> Result<(), RegistryError>
 ```
 
 Check if a key is authorized for a specific reactor operation.
@@ -1184,16 +1183,18 @@ Check if a key is authorized for a specific reactor operation.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.send_to_accumulator"></span>`send_to_accumulator`
+##### <span id="EndpointRegistry.send_to_accumulator"></span><code>send_​to_​accumulator</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn send_to_accumulator (& self , name : & str , scope : EndpointScope < '_ > , bytes : Vec < u8 > ,) -> Result < usize , RegistryError >
+async fn send_to_accumulator(
+    &self,
+    name: &str,
+    scope: EndpointScope<'_>,
+    bytes: Vec<u8>,
+) -> Result<usize, RegistryError>
 ```
 
 Send bytes to all accumulators registered under `name`.
@@ -1215,14 +1216,14 @@ are closed. Channels that are closed are pruned on send.
         let key = match resolve_key(&inner.accumulators, scope, name) {
             Ok(k) => k,
             Err(ResolveMiss::NotFound) => {
-                return Err(RegistryError::AccumulatorNotFound(name.to_string()))
+                return Err(RegistryError::AccumulatorNotFound(name.to_string()));
             }
             Err(ResolveMiss::Ambiguous(tenants)) => {
                 return Err(RegistryError::AmbiguousEndpoint {
                     kind: "accumulator",
                     name: name.to_string(),
                     tenants,
-                })
+                });
             }
         };
         let senders = &mut inner
@@ -1269,16 +1270,18 @@ are closed. Channels that are closed are pruned on send.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.send_to_reactor"></span>`send_to_reactor`
+##### <span id="EndpointRegistry.send_to_reactor"></span><code>send_​to_​reactor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn send_to_reactor (& self , name : & str , scope : EndpointScope < '_ > , command : ManualCommand ,) -> Result < () , RegistryError >
+async fn send_to_reactor(
+    &self,
+    name: &str,
+    scope: EndpointScope<'_>,
+    command: ManualCommand,
+) -> Result<(), RegistryError>
 ```
 
 Send a manual command to a reactor.
@@ -1297,14 +1300,14 @@ Send a manual command to a reactor.
         let key = match resolve_key(&inner.reactors, scope, name) {
             Ok(k) => k,
             Err(ResolveMiss::NotFound) => {
-                return Err(RegistryError::ReactorNotFound(name.to_string()))
+                return Err(RegistryError::ReactorNotFound(name.to_string()));
             }
             Err(ResolveMiss::Ambiguous(tenants)) => {
                 return Err(RegistryError::AmbiguousEndpoint {
                     kind: "reactor",
                     name: name.to_string(),
                     tenants,
-                })
+                });
             }
         };
         let sender = &inner
@@ -1324,19 +1327,16 @@ Send a manual command to a reactor.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.list_accumulators"></span>`list_accumulators`
+##### <span id="EndpointRegistry.list_accumulators"></span><code>list_​accumulators</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn list_accumulators (& self) -> Vec < String >
+async fn list_accumulators(&self) -> Vec<String>
 ```
 
-List all registered accumulator names, across every tenant. Operator/ diagnostic surface only — the tenant-filtered listing is [`list_accumulators_with_health_for_key`](Self::list_accumulators_with_health_for_key).
+List all registered accumulator names, across every tenant. Operator/ diagnostic surface only — the tenant-filtered listing is `list_accumulators_with_health_for_key`.
 
 <details>
 <summary>Source</summary>
@@ -1350,16 +1350,13 @@ List all registered accumulator names, across every tenant. Operator/ diagnostic
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.list_reactors"></span>`list_reactors`
+##### <span id="EndpointRegistry.list_reactors"></span><code>list_​reactors</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn list_reactors (& self) -> Vec < String >
+async fn list_reactors(&self) -> Vec<String>
 ```
 
 List all registered reactor names, across every tenant.
@@ -1376,16 +1373,13 @@ List all registered reactor names, across every tenant.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.list_accumulator_keys"></span>`list_accumulator_keys`
+##### <span id="EndpointRegistry.list_accumulator_keys"></span><code>list_​accumulator_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn list_accumulator_keys (& self) -> Vec < EndpointKey >
+async fn list_accumulator_keys(&self) -> Vec<EndpointKey>
 ```
 
 List every registered accumulator as its full `(tenant, name)` key.
@@ -1402,16 +1396,13 @@ List every registered accumulator as its full `(tenant, name)` key.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.list_reactor_keys"></span>`list_reactor_keys`
+##### <span id="EndpointRegistry.list_reactor_keys"></span><code>list_​reactor_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn list_reactor_keys (& self) -> Vec < EndpointKey >
+async fn list_reactor_keys(&self) -> Vec<EndpointKey>
 ```
 
 List every registered reactor as its full `(tenant, name)` key.
@@ -1428,16 +1419,17 @@ List every registered reactor as its full `(tenant, name)` key.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.accumulator_count"></span>`accumulator_count`
+##### <span id="EndpointRegistry.accumulator_count"></span><code>accumulator_​count</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn accumulator_count (& self , name : & str , scope : EndpointScope < '_ >) -> usize
+async fn accumulator_count(
+    &self,
+    name: &str,
+    scope: EndpointScope<'_>,
+) -> usize
 ```
 
 Get the number of accumulator senders registered under a name, as visible to `scope`.
@@ -1461,16 +1453,18 @@ Get the number of accumulator senders registered under a name, as visible to `sc
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.register_accumulator_health"></span>`register_accumulator_health`
+##### <span id="EndpointRegistry.register_accumulator_health"></span><code>register_​accumulator_​health</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn register_accumulator_health (& self , owner : & EndpointOwner , name : String , health_rx : watch :: Receiver < AccumulatorHealth > ,)
+async fn register_accumulator_health(
+    &self,
+    owner: &EndpointOwner,
+    name: String,
+    health_rx: watch::Receiver<AccumulatorHealth>,
+)
 ```
 
 Register a health watch receiver for an accumulator.
@@ -1492,16 +1486,18 @@ Register a health watch receiver for an accumulator.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.register_accumulator_freshness"></span>`register_accumulator_freshness`
+##### <span id="EndpointRegistry.register_accumulator_freshness"></span><code>register_​accumulator_​freshness</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn register_accumulator_freshness (& self , owner : & EndpointOwner , name : String , handle : FreshnessHandle ,)
+async fn register_accumulator_freshness(
+    &self,
+    owner: &EndpointOwner,
+    name: String,
+    handle: FreshnessHandle,
+)
 ```
 
 Register a freshness probe for an accumulator (CLOACI-T-0765): the shared events_total + last-event handle off its `BoundarySender`.
@@ -1523,16 +1519,17 @@ Register a freshness probe for an accumulator (CLOACI-T-0765): the shared events
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.get_accumulator_health"></span>`get_accumulator_health`
+##### <span id="EndpointRegistry.get_accumulator_health"></span><code>get_​accumulator_​health</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn get_accumulator_health (& self , name : & str , scope : EndpointScope < '_ > ,) -> Option < AccumulatorHealth >
+async fn get_accumulator_health(
+    &self,
+    name: &str,
+    scope: EndpointScope<'_>,
+) -> Option<AccumulatorHealth>
 ```
 
 Get the current health of an accumulator visible to `scope`.
@@ -1557,16 +1554,15 @@ Get the current health of an accumulator visible to `scope`.
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.list_accumulators_with_health"></span>`list_accumulators_with_health`
+##### <span id="EndpointRegistry.list_accumulators_with_health"></span><code>list_​accumulators_​with_​health</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn list_accumulators_with_health (& self ,) -> Vec < (String , AccumulatorHealth , Option < FreshnessHandle >) >
+async fn list_accumulators_with_health(
+    &self,
+) -> Vec<(String, AccumulatorHealth, Option<FreshnessHandle>)>
 ```
 
 List all accumulators with their current health + freshness (CLOACI-T-0765).
@@ -1597,16 +1593,16 @@ List all accumulators with their current health + freshness (CLOACI-T-0765).
 
 </details>
 
-
-
-##### <span id="EndpointRegistry.list_accumulators_with_health_for_key"></span>`list_accumulators_with_health_for_key`
+##### <span id="EndpointRegistry.list_accumulators_with_health_for_key"></span><code>list_​accumulators_​with_​health_​for_​key</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn list_accumulators_with_health_for_key (& self , ctx : & KeyContext < '_ > ,) -> Vec < (String , AccumulatorHealth , Option < FreshnessHandle >) >
+async fn list_accumulators_with_health_for_key(
+    &self,
+    ctx: &KeyContext<'_>,
+) -> Vec<(String, AccumulatorHealth, Option<FreshnessHandle>)>
 ```
 
 CLOACI-T-0579: list accumulators authorized for the given caller. Filters by each accumulator's `AccumulatorAuthPolicy::is_authorized` against the caller's `KeyContext`. Admin keys see everything; tenant-scoped keys see only their own accumulators; producer-pin keys see whichever they're explicitly allowed on.
@@ -1666,39 +1662,11 @@ A's accumulator names.
 
 </details>
 
-
-
-
-
-### <span id="struct.RegistryInner"></span>`struct RegistryInner`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `accumulators` | `HashMap < EndpointKey , AccumulatorEntry >` | `(tenant, accumulator name)` → owner + socket senders (Vec for broadcast). |
-| `reactors` | `HashMap < EndpointKey , ReactorEntry >` | `(tenant, reactor name)` → owner + manual command sender + shared handle. |
-| `accumulator_policies` | `HashMap < EndpointKey , AccumulatorAuthPolicy >` | `(tenant, accumulator name)` → auth policy. |
-| `reactor_policies` | `HashMap < EndpointKey , ReactorAuthPolicy >` | `(tenant, reactor name)` → auth policy. |
-| `accumulator_health` | `HashMap < EndpointKey , watch :: Receiver < AccumulatorHealth > >` | `(tenant, accumulator name)` → health watch receiver. |
-| `accumulator_freshness` | `HashMap < EndpointKey , FreshnessHandle >` | `(tenant, accumulator name)` → freshness probe (events_total + last-event), CLOACI-T-0765. |
-| `accumulator_meta` | `HashMap < EndpointKey , AccumulatorDescriptor >` | `(tenant, accumulator name)` → discoverability descriptor (CLOACI-I-0128 follow-up). |
-| `accumulator_injects` | `HashMap < EndpointKey , (u64 , i64) >` | `(tenant, accumulator name)` → `(operator-inject count, last-inject epoch ms)`
-(CLOACI-T-0776). Every `send_to_accumulator` is an operator inject — real
-source events arrive on the accumulator's own socket, not here — so this
-counts manual interventions for the UI to mark. |
-
-
-
 ## Enums
 
-### <span id="enum.RegistryError"></span>`enum RegistryError`
+### <span id="enum.RegistryError"></span><code style="font-size: 0.85em">enum RegistryError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors from registry operations.
 
@@ -1712,17 +1680,14 @@ Errors from registry operations.
 - **`ReactorUnauthorized`**
 - **`OperationNotPermitted`**
 - **`EndpointOwnershipConflict`** - CLOACI-T-0921: two different owners (packages/reactors) inside the SAME
-tenant tried to claim the same endpoint name. This is a load-time
-rejection, not a silent cross-wire — the second package must rename.
+  tenant tried to claim the same endpoint name. This is a load-time
+  rejection, not a silent cross-wire — the second package must rename.
 - **`AmbiguousEndpoint`** - CLOACI-T-0921: an admin (tenant-less) caller named an endpoint that
-exists in more than one tenant. Refuse rather than guess.
+  exists in more than one tenant. Refuse rather than guess.
 
-
-
-### <span id="enum.ReactorOp"></span>`enum ReactorOp`
+### <span id="enum.ReactorOp"></span><code style="font-size: 0.85em">enum ReactorOp</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Operations that can be performed on a reactor via WebSocket.
 
@@ -1734,87 +1699,3 @@ Operations that can be performed on a reactor via WebSocket.
 - **`Pause`**
 - **`Resume`**
 - **`GetHealth`**
-
-
-
-### <span id="enum.ResolveMiss"></span>`enum ResolveMiss`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-Why a scoped lookup failed to land on exactly one key.
-
-#### Variants
-
-- **`NotFound`**
-- **`Ambiguous`**
-
-
-
-## Functions
-
-### <span id="fn.resolve_key"></span>`fn resolve_key`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn resolve_key < V > (map : & HashMap < EndpointKey , V > , scope : EndpointScope < '_ > , name : & str ,) -> Result < EndpointKey , ResolveMiss >
-```
-
-Resolve a bare `name` to a concrete [`EndpointKey`] within `scope`.
-
-Order:
-1. the caller's own tenant — the normal multi-tenant path;
-2. the untenanted entry (`tenant_id: None`) — embedded/pre-tenancy graphs,
-which carry an allow-all policy and were always globally addressable;
-3. admins only: a unique cross-tenant match. Two tenants owning the same
-name is [`ResolveMiss::Ambiguous`], never a guess.
-A non-admin caller can therefore never resolve another tenant's endpoint,
-which is the whole point of CLOACI-T-0921.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn resolve_key<V>(
-    map: &HashMap<EndpointKey, V>,
-    scope: EndpointScope<'_>,
-    name: &str,
-) -> Result<EndpointKey, ResolveMiss> {
-    if let Some(tenant) = scope.tenant_id {
-        let key = EndpointKey::new(Some(tenant), name);
-        if map.contains_key(&key) {
-            return Ok(key);
-        }
-    }
-
-    let untenanted = EndpointKey::new(None, name);
-    if map.contains_key(&untenanted) {
-        return Ok(untenanted);
-    }
-
-    if scope.is_admin {
-        let matches: Vec<&EndpointKey> = map.keys().filter(|k| k.name == name).collect();
-        match matches.len() {
-            0 => return Err(ResolveMiss::NotFound),
-            1 => return Ok(matches[0].clone()),
-            _ => {
-                return Err(ResolveMiss::Ambiguous(
-                    matches
-                        .iter()
-                        .map(|k| k.tenant_label().to_string())
-                        .collect(),
-                ))
-            }
-        }
-    }
-
-    Err(ResolveMiss::NotFound)
-}
-```
-
-</details>
-
-
-

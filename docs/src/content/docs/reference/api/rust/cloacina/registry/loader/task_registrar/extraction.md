@@ -1,13 +1,12 @@
 ---
 title: "cloacina::registry::loader::task_registrar::extraction"
 description: "Task metadata extraction from dynamic libraries via fidius-host."
+editUrl: false
 sidebar:
-  order: 183
+  order: 165
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Task metadata extraction from dynamic libraries via fidius-host.
-

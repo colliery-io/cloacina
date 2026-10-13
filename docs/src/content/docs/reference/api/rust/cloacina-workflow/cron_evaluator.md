@@ -1,13 +1,13 @@
 ---
 title: "cloacina-workflow::cron_evaluator"
 description: "Timezone-aware cron expression evaluator"
+editUrl: false
 sidebar:
-  order: 47
+  order: 31
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Timezone-aware cron expression evaluator
 
@@ -21,7 +21,6 @@ with proper timezone support. It uses the `croner` crate for cron parsing and
 use cloacina::cron_evaluator::CronEvaluator;
 use chrono::{DateTime, Utc};
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Create evaluator for daily 9 AM EST/EDT
 let evaluator = CronEvaluator::new("0 9 * * *", "America/New_York")?;
 
@@ -30,16 +29,13 @@ let now = Utc::now();
 let next = evaluator.next_execution(now)?;
 
 println!("Next execution: {}", next);
-# Ok(())
-# }
 ```
 
 ## Structs
 
-### <span id="struct.CronEvaluator"></span>`struct CronEvaluator`
+### <span id="struct.CronEvaluator"></span><code style="font-size: 0.85em">struct CronEvaluator</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -54,7 +50,6 @@ handling daylight saving time transitions automatically.
 use cloacina::cron_evaluator::CronEvaluator;
 use chrono::Utc;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Daily at 2 AM Eastern Time (handles EST/EDT automatically)
 let evaluator = CronEvaluator::new("0 2 * * *", "America/New_York")?;
 let next = evaluator.next_execution(Utc::now())?;
@@ -62,28 +57,16 @@ let next = evaluator.next_execution(Utc::now())?;
 // Hourly during business hours in London
 let evaluator = CronEvaluator::new("0 9-17 * * 1-5", "Europe/London")?;
 let next = evaluator.next_execution(Utc::now())?;
-# Ok(())
-# }
 ```
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `cron` | `Cron` | Parsed cron expression |
-| `timezone` | `Tz` | Timezone for interpreting the cron expression |
-| `expression` | `String` | Original cron expression string for debugging |
-| `timezone_str` | `String` | Original timezone string for debugging |
 
 #### Methods
 
-##### <span id="CronEvaluator.new"></span>`new`
+##### <span id="CronEvaluator.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (cron_expr : & str , timezone_str : & str) -> Result < Self , CronError >
+fn new(cron_expr: &str, timezone_str: &str) -> Result<Self, CronError>
 ```
 
 Creates a new cron evaluator with the specified expression and timezone.
@@ -92,9 +75,8 @@ Creates a new cron evaluator with the specified expression and timezone.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `cron_expr` | `-` | Standard cron expression (5 fields: minute hour day month weekday) |
-| `timezone_str` | `-` | IANA timezone name (e.g., "America/New_York", "Europe/London", "UTC") |
-
+| `cron_expr` | `&str` | Standard cron expression (5 fields: minute hour day month weekday) |
+| `timezone_str` | `&str` | IANA timezone name (e.g., "America/New_York", "Europe/London", "UTC") |
 
 **Returns:**
 
@@ -105,7 +87,6 @@ Creates a new cron evaluator with the specified expression and timezone.
 ```rust
 use cloacina::cron_evaluator::CronEvaluator;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Daily at 9 AM Eastern Time
 let evaluator = CronEvaluator::new("0 9 * * *", "America/New_York")?;
 
@@ -114,8 +95,6 @@ let evaluator = CronEvaluator::new("*/15 9-17 * * 1-5", "UTC")?;
 
 // Monthly on the 1st at midnight Pacific Time
 let evaluator = CronEvaluator::new("0 0 1 * *", "America/Los_Angeles")?;
-# Ok(())
-# }
 ```
 
 <details>
@@ -123,10 +102,7 @@ let evaluator = CronEvaluator::new("0 0 1 * *", "America/Los_Angeles")?;
 
 ```rust
     pub fn new(cron_expr: &str, timezone_str: &str) -> Result<Self, CronError> {
-        let cron = Cron::new(cron_expr)
-            .with_seconds_optional() // Enable optional seconds support
-            .parse()
-            .map_err(|e| CronError::CronParsingError(e.to_string()))?;
+        let cron = parse_cron(cron_expr).map_err(|e| CronError::CronParsingError(e.to_string()))?;
 
         // Parse the timezone
         let timezone: Tz = timezone_str
@@ -144,15 +120,15 @@ let evaluator = CronEvaluator::new("0 0 1 * *", "America/Los_Angeles")?;
 
 </details>
 
-
-
-##### <span id="CronEvaluator.next_execution"></span>`next_execution`
+##### <span id="CronEvaluator.next_execution"></span><code>next_​execution</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn next_execution (& self , after : DateTime < Utc >) -> Result < DateTime < Utc > , CronError >
+fn next_execution(
+    &self,
+    after: DateTime<Utc>,
+) -> Result<DateTime<Utc>, CronError>
 ```
 
 Finds the next execution time after the given timestamp.
@@ -164,8 +140,7 @@ finds the next cron match in that timezone, then converts back to UTC.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `after` | `-` | UTC timestamp to find the next execution after |
-
+| `after` | `DateTime<Utc>` | UTC timestamp to find the next execution after |
 
 **Returns:**
 
@@ -177,15 +152,12 @@ finds the next cron match in that timezone, then converts back to UTC.
 use cloacina::cron_evaluator::CronEvaluator;
 use chrono::Utc;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let evaluator = CronEvaluator::new("0 14 * * *", "America/New_York")?;
 let now = Utc::now();
 let next = evaluator.next_execution(now)?;
 
 // Next execution will be at 2 PM Eastern Time, converted to UTC
 // During EST: 7 PM UTC, During EDT: 6 PM UTC
-# Ok(())
-# }
 ```
 
 <details>
@@ -196,28 +168,36 @@ let next = evaluator.next_execution(now)?;
         // Convert UTC time to the target timezone
         let local_time = self.timezone.from_utc_datetime(&after.naive_utc());
 
-        // Find the next execution in the local timezone
-        let next_local = self
-            .cron
-            .find_next_occurrence(&local_time, false)
-            .map_err(|e| CronError::CronParsingError(e.to_string()))?;
-
-        // Convert back to UTC for storage and comparison
-        Ok(next_local.with_timezone(&Utc))
+        // Find the next execution in the local timezone, skipping the extra
+        // spring-forward runs croner 3+ adds (see `is_real_fire_time`).
+        let mut from = local_time;
+        for _ in 0..4 {
+            let next_local = self
+                .cron
+                .find_next_occurrence(&from, false)
+                .map_err(|e| CronError::CronParsingError(e.to_string()))?;
+            if self.is_real_fire_time(&next_local)? {
+                // Convert back to UTC for storage and comparison
+                return Ok(next_local.with_timezone(&Utc));
+            }
+            from = next_local;
+        }
+        Err(CronError::NoNextExecution)
     }
 ```
 
 </details>
 
-
-
-##### <span id="CronEvaluator.next_executions"></span>`next_executions`
+##### <span id="CronEvaluator.next_executions"></span><code>next_​executions</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn next_executions (& self , after : DateTime < Utc > , limit : usize ,) -> Result < Vec < DateTime < Utc > > , CronError >
+fn next_executions(
+    &self,
+    after: DateTime<Utc>,
+    limit: usize,
+) -> Result<Vec<DateTime<Utc>>, CronError>
 ```
 
 Finds multiple next execution times after the given timestamp.
@@ -228,9 +208,8 @@ This is useful for catchup policies that need to run multiple missed executions.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `after` | `-` | UTC timestamp to find executions after |
-| `limit` | `-` | Maximum number of executions to return |
-
+| `after` | `DateTime<Utc>` | UTC timestamp to find executions after |
+| `limit` | `usize` | Maximum number of executions to return |
 
 **Returns:**
 
@@ -242,14 +221,11 @@ This is useful for catchup policies that need to run multiple missed executions.
 use cloacina::cron_evaluator::CronEvaluator;
 use chrono::Utc;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let evaluator = CronEvaluator::new("0 */6 * * *", "UTC").unwrap();
 let now = Utc::now();
 let next_executions = evaluator.next_executions(now, 5)?;
 
 // Returns next 5 executions every 6 hours
-# Ok(())
-# }
 ```
 
 <details>
@@ -281,15 +257,17 @@ let next_executions = evaluator.next_executions(now, 5)?;
 
 </details>
 
-
-
-##### <span id="CronEvaluator.executions_between"></span>`executions_between`
+##### <span id="CronEvaluator.executions_between"></span><code>executions_​between</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn executions_between (& self , start : DateTime < Utc > , end : DateTime < Utc > , max_executions : usize ,) -> Result < Vec < DateTime < Utc > > , CronError >
+fn executions_between(
+    &self,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    max_executions: usize,
+) -> Result<Vec<DateTime<Utc>>, CronError>
 ```
 
 Finds all execution times between two timestamps.
@@ -301,10 +279,9 @@ all missed schedules within a time range.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `start` | `-` | Start of the time range (inclusive) |
-| `end` | `-` | End of the time range (exclusive) |
-| `max_executions` | `-` | Maximum number of executions to prevent runaway |
-
+| `start` | `DateTime<Utc>` | Start of the time range (inclusive) |
+| `end` | `DateTime<Utc>` | End of the time range (exclusive) |
+| `max_executions` | `usize` | Maximum number of executions to prevent runaway |
 
 **Returns:**
 
@@ -316,15 +293,12 @@ all missed schedules within a time range.
 use cloacina::cron_evaluator::CronEvaluator;
 use chrono::{Duration, Utc};
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let evaluator = CronEvaluator::new("0 * * * *", "UTC")?; // Hourly
 let start = Utc::now() - Duration::hours(6);
 let end = Utc::now();
 let missed = evaluator.executions_between(start, end, 10)?;
 
 // Returns up to 6 hourly executions from the past 6 hours
-# Ok(())
-# }
 ```
 
 <details>
@@ -360,15 +334,12 @@ let missed = evaluator.executions_between(start, end, 10)?;
 
 </details>
 
-
-
-##### <span id="CronEvaluator.expression"></span>`expression`
+##### <span id="CronEvaluator.expression"></span><code>expression</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn expression (& self) -> & str
+fn expression(&self) -> &str
 ```
 
 Returns the original cron expression string.
@@ -384,15 +355,12 @@ Returns the original cron expression string.
 
 </details>
 
-
-
-##### <span id="CronEvaluator.timezone_str"></span>`timezone_str`
+##### <span id="CronEvaluator.timezone_str"></span><code>timezone_​str</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn timezone_str (& self) -> & str
+fn timezone_str(&self) -> &str
 ```
 
 Returns the timezone string.
@@ -408,15 +376,12 @@ Returns the timezone string.
 
 </details>
 
-
-
-##### <span id="CronEvaluator.timezone"></span>`timezone`
+##### <span id="CronEvaluator.timezone"></span><code>timezone</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn timezone (& self) -> Tz
+fn timezone(&self) -> Tz
 ```
 
 Returns the timezone object.
@@ -432,15 +397,12 @@ Returns the timezone object.
 
 </details>
 
-
-
-##### <span id="CronEvaluator.validate_expression"></span>`validate_expression`
+##### <span id="CronEvaluator.validate_expression"></span><code>validate_​expression</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_expression (cron_expr : & str) -> Result < () , CronError >
+fn validate_expression(cron_expr: &str) -> Result<(), CronError>
 ```
 
 Validates a cron expression without creating an evaluator.
@@ -449,8 +411,7 @@ Validates a cron expression without creating an evaluator.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `cron_expr` | `-` | Cron expression to validate |
-
+| `cron_expr` | `&str` | Cron expression to validate |
 
 **Returns:**
 
@@ -461,25 +422,19 @@ Validates a cron expression without creating an evaluator.
 
 ```rust
     pub fn validate_expression(cron_expr: &str) -> Result<(), CronError> {
-        Cron::new(cron_expr)
-            .with_seconds_optional() // Enable optional seconds support
-            .parse()
-            .map_err(|e| CronError::CronParsingError(e.to_string()))?;
+        parse_cron(cron_expr).map_err(|e| CronError::CronParsingError(e.to_string()))?;
         Ok(())
     }
 ```
 
 </details>
 
-
-
-##### <span id="CronEvaluator.validate_timezone"></span>`validate_timezone`
+##### <span id="CronEvaluator.validate_timezone"></span><code>validate_​timezone</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_timezone (timezone_str : & str) -> Result < () , CronError >
+fn validate_timezone(timezone_str: &str) -> Result<(), CronError>
 ```
 
 Validates a timezone string.
@@ -488,8 +443,7 @@ Validates a timezone string.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `timezone_str` | `-` | Timezone string to validate |
-
+| `timezone_str` | `&str` | Timezone string to validate |
 
 **Returns:**
 
@@ -509,15 +463,15 @@ Validates a timezone string.
 
 </details>
 
-
-
-##### <span id="CronEvaluator.validate"></span>`validate`
+##### <span id="CronEvaluator.validate"></span><code>validate</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate (cron_expr : & str , timezone_str : & str) -> Result < () , CronError >
+fn validate(
+    cron_expr: &str) -> Result<(,
+    timezone_str: &str) -> Result<(,
+) -> Result<(), CronError>
 ```
 
 Validates both cron expression and timezone.
@@ -526,9 +480,8 @@ Validates both cron expression and timezone.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `cron_expr` | `-` | Cron expression to validate |
-| `timezone_str` | `-` | Timezone string to validate |
-
+| `cron_expr` | `&str` | Cron expression to validate |
+| `timezone_str` | `&str` | Timezone string to validate |
 
 **Returns:**
 
@@ -547,16 +500,11 @@ Validates both cron expression and timezone.
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.CronError"></span>`enum CronError`
+### <span id="enum.CronError"></span><code style="font-size: 0.85em">enum CronError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during cron evaluation.
 
@@ -566,6 +514,3 @@ Errors that can occur during cron evaluation.
 - **`InvalidTimezone`** - Invalid timezone string.
 - **`NoNextExecution`** - No next execution time found (e.g., end of time range).
 - **`CronParsingError`** - Error from the croner crate.
-
-
-

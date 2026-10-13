@@ -1,22 +1,21 @@
 ---
 title: "cloacina::computation_graph::stream_backend"
 description: "StreamBackend trait and registry for pluggable broker backends."
+editUrl: false
 sidebar:
-  order: 67
+  order: 51
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 StreamBackend trait and registry for pluggable broker backends.
 
 ## Structs
 
-### <span id="struct.StreamConfig"></span>`struct StreamConfig`
+### <span id="struct.StreamConfig"></span><code style="font-size: 0.85em">struct StreamConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -29,14 +28,11 @@ Configuration for connecting to a stream broker.
 | `broker_url` | `String` |  |
 | `topic` | `String` |  |
 | `group` | `String` |  |
-| `extra` | `HashMap < String , String >` |  |
+| `extra` | `HashMap<String, String>` |  |
 
-
-
-### <span id="struct.RawMessage"></span>`struct RawMessage`
+### <span id="struct.RawMessage"></span><code style="font-size: 0.85em">struct RawMessage</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -46,34 +42,24 @@ A raw message from a stream broker.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `payload` | `Vec < u8 >` |  |
+| `payload` | `Vec<u8>` |  |
 | `offset` | `u64` |  |
-| `timestamp` | `Option < i64 >` |  |
+| `timestamp` | `Option<i64>` |  |
 
-
-
-### <span id="struct.StreamBackendRegistry"></span>`struct StreamBackendRegistry`
+### <span id="struct.StreamBackendRegistry"></span><code style="font-size: 0.85em">struct StreamBackendRegistry</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Registry of stream backend factories.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `backends` | `HashMap < String , StreamBackendFactory >` |  |
-
 #### Methods
 
-##### <span id="StreamBackendRegistry.new"></span>`new`
+##### <span id="StreamBackendRegistry.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 <details>
@@ -89,15 +75,12 @@ fn new () -> Self
 
 </details>
 
-
-
-##### <span id="StreamBackendRegistry.register"></span>`register`
+##### <span id="StreamBackendRegistry.register"></span><code>register</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register (& mut self , type_name : & str , factory : StreamBackendFactory)
+fn register(&mut self, type_name: &str, factory: StreamBackendFactory)
 ```
 
 Register a backend factory by type name.
@@ -113,16 +96,17 @@ Register a backend factory by type name.
 
 </details>
 
-
-
-##### <span id="StreamBackendRegistry.create"></span>`create`
+##### <span id="StreamBackendRegistry.create"></span><code>create</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn create (& self , type_name : & str , config : StreamConfig ,) -> Result < Box < dyn StreamBackend > , StreamError >
+async fn create(
+    &self,
+    type_name: &str,
+    config: StreamConfig,
+) -> Result<Box<dyn StreamBackend>, StreamError>
 ```
 
 Create a backend instance by type name.
@@ -145,15 +129,12 @@ Create a backend instance by type name.
 
 </details>
 
-
-
-##### <span id="StreamBackendRegistry.has"></span>`has`
+##### <span id="StreamBackendRegistry.has"></span><code>has</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn has (& self , type_name : & str) -> bool
+fn has(&self, type_name: &str) -> bool
 ```
 
 Check if a backend type is registered.
@@ -169,15 +150,16 @@ Check if a backend type is registered.
 
 </details>
 
-
-
-##### <span id="StreamBackendRegistry.create_future"></span>`create_future`
+##### <span id="StreamBackendRegistry.create_future"></span><code>create_​future</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn create_future (& self , type_name : & str , config : StreamConfig ,) -> Option < StreamBackendFuture >
+fn create_future(
+    &self,
+    type_name: &str,
+    config: StreamConfig,
+) -> Option<StreamBackendFuture>
 ```
 
 Get the creation future for a backend type without holding the lock across await. Returns the future that will create the backend, or None if the type isn't registered.
@@ -198,52 +180,29 @@ Get the creation future for a backend type without holding the lock across await
 
 </details>
 
-
-
-
-
-### <span id="struct.MockBackend"></span>`struct MockBackend`
+### <span id="struct.MockBackend"></span><code style="font-size: 0.85em">struct MockBackend</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 In-memory mock stream backend for testing without a real broker.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `receiver` | `tokio :: sync :: mpsc :: Receiver < Vec < u8 > >` |  |
-| `offset` | `u64` |  |
-| `committed_offset` | `u64` |  |
-
-
-
-### <span id="struct.MockBackendProducer"></span>`struct MockBackendProducer`
+### <span id="struct.MockBackendProducer"></span><code style="font-size: 0.85em">struct MockBackendProducer</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
 Handle for pushing messages into a MockBackend.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `sender` | `tokio :: sync :: mpsc :: Sender < Vec < u8 > >` |  |
-
 #### Methods
 
-##### <span id="MockBackendProducer.send"></span>`send`
+##### <span id="MockBackendProducer.send"></span><code>send</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn send (& self , payload : Vec < u8 >) -> Result < () , StreamError >
+async fn send(&self, payload: Vec<u8>) -> Result<(), StreamError>
 ```
 
 Push a message into the mock backend.
@@ -262,16 +221,11 @@ Push a message into the mock backend.
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.StreamError"></span>`enum StreamError`
+### <span id="enum.StreamError"></span><code style="font-size: 0.85em">enum StreamError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors from stream backend operations.
 
@@ -282,17 +236,102 @@ Errors from stream backend operations.
 - **`Commit`**
 - **`NotFound`**
 
+## Traits
 
-
-## Functions
-
-### <span id="fn.mock_backend"></span>`fn mock_backend`
+### <span id="trait.StreamBackend"></span><code style="font-size: 0.85em">trait StreamBackend</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+**Supertraits:** `Send + 'static`
+
+Trait for pluggable stream broker backends (Kafka, Redpanda, Iggy, etc.).
+
+#### Methods
+
+##### <span id="StreamBackend.connect"></span><code>connect</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
 ```rust
-fn mock_backend (capacity : usize) -> (MockBackend , MockBackendProducer)
+async fn connect(config: &StreamConfig) -> Result<Self, StreamError>
+where
+    Self: Sized,
+```
+
+Connect to the broker and subscribe to the topic.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn connect(config: &StreamConfig) -> Result<Self, StreamError>
+```
+
+</details>
+
+##### <span id="StreamBackend.recv"></span><code>recv</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn recv(&mut self) -> Result<RawMessage, StreamError>
+```
+
+Receive the next message. Blocks until available.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn recv(&mut self) -> Result<RawMessage, StreamError>;
+```
+
+</details>
+
+##### <span id="StreamBackend.commit"></span><code>commit</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn commit(&mut self) -> Result<(), StreamError>
+```
+
+Commit the current offset.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn commit(&mut self) -> Result<(), StreamError>;
+```
+
+</details>
+
+##### <span id="StreamBackend.current_offset"></span><code>current_​offset</code>
+
+```rust
+fn current_offset(&self) -> Option<u64>
+```
+
+Get the current uncommitted offset.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn current_offset(&self) -> Option<u64>;
+```
+
+</details>
+
+## Functions
+
+### <span id="fn.mock_backend"></span><code style="font-size: 0.85em">fn mock_​backend</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn mock_backend(capacity: usize) -> (MockBackend, MockBackendProducer)
 ```
 
 Create a mock backend + producer pair.
@@ -316,5 +355,9 @@ pub fn mock_backend(capacity: usize) -> (MockBackend, MockBackendProducer) {
 
 </details>
 
+## Type aliases
 
-
+| Name | Type | Description |
+|------|------|-------------|
+| <span id="type.StreamBackendFuture"></span>`StreamBackendFuture` | `Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>` | Future returned by a `StreamBackendFactory`. Boxed so the factory signature can be expressed as a plain `Fn(...) -> StreamBackendFuture`. |
+| <span id="type.StreamBackendFactory"></span>`StreamBackendFactory` | `Box<dyn Fn(StreamConfig) -> StreamBackendFuture + Send + Sync>` | Factory function type for creating stream backends. |

@@ -1,22 +1,21 @@
 ---
 title: "cloacina-python::bindings::value_objects::retry"
 description: "API reference of the Rust module cloacina-python::bindings::value_objects::retry."
+editUrl: false
 sidebar:
-  order: 26
+  order: 11
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 ## Structs
 
-### <span id="struct.PyRetryPolicy"></span>`class RetryPolicy`
+### <span id="struct.PyRetryPolicy"></span><code style="font-size: 0.85em">class RetryPolicy</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy](../../../../../cloacina-python/bindings/value_objects/retry/#class.RetryPolicy)
+> **Python API**: [`cloaca.RetryPolicy`](../../../../../cloaca/#class.RetryPolicy)
 
 Python wrapper for RetryPolicy
 
@@ -24,17 +23,17 @@ Python wrapper for RetryPolicy
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `cloacina :: retry :: RetryPolicy` |  |
+| `inner` | `cloacina::retry::RetryPolicy` |  |
 
 #### Methods
 
-##### <span id="PyRetryPolicy.builder"></span>`builder`
+##### <span id="PyRetryPolicy.builder"></span><code>builder</code>
 
 ```rust
-fn builder () -> PyRetryPolicyBuilder
+fn builder() -> PyRetryPolicyBuilder
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.builder](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.builder)
+> **Python API**: [`cloaca.RetryPolicy.builder`](../../../../../cloaca/#RetryPolicy.builder)
 
 Create a builder for constructing RetryPolicy
 
@@ -56,15 +55,13 @@ Create a builder for constructing RetryPolicy
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.default"></span>`default`
+##### <span id="PyRetryPolicy.default"></span><code>default</code>
 
 ```rust
-fn default () -> Self
+fn default() -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.default](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.default)
+> **Python API**: [`cloaca.RetryPolicy.default`](../../../../../cloaca/#RetryPolicy.default)
 
 Create a default RetryPolicy
 
@@ -81,15 +78,13 @@ Create a default RetryPolicy
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.should_retry"></span>`should_retry`
+##### <span id="PyRetryPolicy.should_retry"></span><code>should_​retry</code>
 
 ```rust
-fn should_retry (& self , attempt : i32 , _error_type : & str) -> bool
+fn should_retry(&self, attempt: i32, _error_type: &str) -> bool
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.should_retry](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.should_retry)
+> **Python API**: [`cloaca.RetryPolicy.should_retry`](../../../../../cloaca/#RetryPolicy.should_retry)
 
 Check if a retry should be attempted
 
@@ -106,15 +101,13 @@ Check if a retry should be attempted
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.calculate_delay"></span>`calculate_delay`
+##### <span id="PyRetryPolicy.calculate_delay"></span><code>calculate_​delay</code>
 
 ```rust
-fn calculate_delay (& self , attempt : i32) -> f64
+fn calculate_delay(&self, attempt: i32) -> f64
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.calculate_delay](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.calculate_delay)
+> **Python API**: [`cloaca.RetryPolicy.calculate_delay`](../../../../../cloaca/#RetryPolicy.calculate_delay)
 
 Calculate delay for a given attempt
 
@@ -130,15 +123,13 @@ Calculate delay for a given attempt
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.max_attempts"></span>`max_attempts`
+##### <span id="PyRetryPolicy.max_attempts"></span><code>max_​attempts</code>
 
 ```rust
-fn max_attempts (& self) -> i32
+fn max_attempts(&self) -> i32
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.max_attempts](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.max_attempts)
+> **Python API**: [`cloaca.RetryPolicy.max_attempts`](../../../../../cloaca/#RetryPolicy.max_attempts)
 
 Get maximum number of attempts
 
@@ -153,15 +144,13 @@ Get maximum number of attempts
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.initial_delay"></span>`initial_delay`
+##### <span id="PyRetryPolicy.initial_delay"></span><code>initial_​delay</code>
 
 ```rust
-fn initial_delay (& self) -> f64
+fn initial_delay(&self) -> f64
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.initial_delay](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.initial_delay)
+> **Python API**: [`cloaca.RetryPolicy.initial_delay`](../../../../../cloaca/#RetryPolicy.initial_delay)
 
 Get initial delay in seconds
 
@@ -176,15 +165,13 @@ Get initial delay in seconds
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.max_delay"></span>`max_delay`
+##### <span id="PyRetryPolicy.max_delay"></span><code>max_​delay</code>
 
 ```rust
-fn max_delay (& self) -> f64
+fn max_delay(&self) -> f64
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.max_delay](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.max_delay)
+> **Python API**: [`cloaca.RetryPolicy.max_delay`](../../../../../cloaca/#RetryPolicy.max_delay)
 
 Get maximum delay in seconds
 
@@ -199,15 +186,13 @@ Get maximum delay in seconds
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.with_jitter"></span>`with_jitter`
+##### <span id="PyRetryPolicy.with_jitter"></span><code>with_​jitter</code>
 
 ```rust
-fn with_jitter (& self) -> bool
+fn with_jitter(&self) -> bool
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.with_jitter](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.with_jitter)
+> **Python API**: [`cloaca.RetryPolicy.with_jitter`](../../../../../cloaca/#RetryPolicy.with_jitter)
 
 Check if jitter is enabled
 
@@ -222,15 +207,13 @@ Check if jitter is enabled
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.__repr__"></span>`__repr__`
+##### <span id="PyRetryPolicy.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicy.__repr__](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicy.__repr__)
+> **Python API**: [`cloaca.RetryPolicy.__repr__`](../../../../../cloaca/#RetryPolicy.__repr__)
 
 String representation
 
@@ -251,15 +234,12 @@ String representation
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.from_rust"></span>`from_rust`
+##### <span id="PyRetryPolicy.from_rust"></span><code>from_​rust</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_rust (policy : cloacina :: retry :: RetryPolicy) -> Self
+fn from_rust(policy: cloacina::retry::RetryPolicy) -> Self
 ```
 
 Convert from Rust RetryPolicy (for internal use)
@@ -275,15 +255,12 @@ Convert from Rust RetryPolicy (for internal use)
 
 </details>
 
-
-
-##### <span id="PyRetryPolicy.to_rust"></span>`to_rust`
+##### <span id="PyRetryPolicy.to_rust"></span><code>to_​rust</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn to_rust (& self) -> cloacina :: retry :: RetryPolicy
+fn to_rust(&self) -> cloacina::retry::RetryPolicy
 ```
 
 Convert to Rust RetryPolicy (for internal use)
@@ -299,16 +276,11 @@ Convert to Rust RetryPolicy (for internal use)
 
 </details>
 
-
-
-
-
-### <span id="struct.PyBackoffStrategy"></span>`class BackoffStrategy`
+### <span id="struct.PyBackoffStrategy"></span><code style="font-size: 0.85em">class BackoffStrategy</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.value_objects.retry.BackoffStrategy](../../../../../cloacina-python/bindings/value_objects/retry/#class.BackoffStrategy)
+> **Python API**: [`cloaca.BackoffStrategy`](../../../../../cloaca/#class.BackoffStrategy)
 
 Python wrapper for BackoffStrategy
 
@@ -316,17 +288,17 @@ Python wrapper for BackoffStrategy
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `cloacina :: retry :: BackoffStrategy` |  |
+| `inner` | `cloacina::retry::BackoffStrategy` |  |
 
 #### Methods
 
-##### <span id="PyBackoffStrategy.fixed"></span>`fixed`
+##### <span id="PyBackoffStrategy.fixed"></span><code>fixed</code>
 
 ```rust
-fn fixed () -> Self
+fn fixed() -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.BackoffStrategy.fixed](../../../../../cloacina-python/bindings/value_objects/retry/#BackoffStrategy.fixed)
+> **Python API**: [`cloaca.BackoffStrategy.fixed`](../../../../../cloaca/#BackoffStrategy.fixed)
 
 Fixed delay strategy
 
@@ -343,15 +315,13 @@ Fixed delay strategy
 
 </details>
 
-
-
-##### <span id="PyBackoffStrategy.linear"></span>`linear`
+##### <span id="PyBackoffStrategy.linear"></span><code>linear</code>
 
 ```rust
-fn linear (multiplier : f64) -> Self
+fn linear(multiplier: f64) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.BackoffStrategy.linear](../../../../../cloacina-python/bindings/value_objects/retry/#BackoffStrategy.linear)
+> **Python API**: [`cloaca.BackoffStrategy.linear`](../../../../../cloaca/#BackoffStrategy.linear)
 
 Linear backoff strategy
 
@@ -368,15 +338,13 @@ Linear backoff strategy
 
 </details>
 
-
-
-##### <span id="PyBackoffStrategy.exponential"></span>`exponential`
+##### <span id="PyBackoffStrategy.exponential"></span><code>exponential</code>
 
 ```rust
-fn exponential (base : f64 , multiplier : Option < f64 >) -> Self
+fn exponential(base: f64, multiplier: Option<f64>) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.BackoffStrategy.exponential](../../../../../cloacina-python/bindings/value_objects/retry/#BackoffStrategy.exponential)
+> **Python API**: [`cloaca.BackoffStrategy.exponential`](../../../../../cloaca/#BackoffStrategy.exponential)
 
 Exponential backoff strategy
 
@@ -404,15 +372,13 @@ between the declared default and the callable signature went unseen.
 
 </details>
 
-
-
-##### <span id="PyBackoffStrategy.__repr__"></span>`__repr__`
+##### <span id="PyBackoffStrategy.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.BackoffStrategy.__repr__](../../../../../cloacina-python/bindings/value_objects/retry/#BackoffStrategy.__repr__)
+> **Python API**: [`cloaca.BackoffStrategy.__repr__`](../../../../../cloaca/#BackoffStrategy.__repr__)
 
 String representation
 
@@ -441,16 +407,11 @@ String representation
 
 </details>
 
-
-
-
-
-### <span id="struct.PyRetryCondition"></span>`class RetryCondition`
+### <span id="struct.PyRetryCondition"></span><code style="font-size: 0.85em">class RetryCondition</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryCondition](../../../../../cloacina-python/bindings/value_objects/retry/#class.RetryCondition)
+> **Python API**: [`cloaca.RetryCondition`](../../../../../cloaca/#class.RetryCondition)
 
 Python wrapper for RetryCondition
 
@@ -458,17 +419,17 @@ Python wrapper for RetryCondition
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `cloacina :: retry :: RetryCondition` |  |
+| `inner` | `cloacina::retry::RetryCondition` |  |
 
 #### Methods
 
-##### <span id="PyRetryCondition.never"></span>`never`
+##### <span id="PyRetryCondition.never"></span><code>never</code>
 
 ```rust
-fn never () -> Self
+fn never() -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryCondition.never](../../../../../cloacina-python/bindings/value_objects/retry/#RetryCondition.never)
+> **Python API**: [`cloaca.RetryCondition.never`](../../../../../cloaca/#RetryCondition.never)
 
 Never retry
 
@@ -485,15 +446,13 @@ Never retry
 
 </details>
 
-
-
-##### <span id="PyRetryCondition.transient_only"></span>`transient_only`
+##### <span id="PyRetryCondition.transient_only"></span><code>transient_​only</code>
 
 ```rust
-fn transient_only () -> Self
+fn transient_only() -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryCondition.transient_only](../../../../../cloacina-python/bindings/value_objects/retry/#RetryCondition.transient_only)
+> **Python API**: [`cloaca.RetryCondition.transient_only`](../../../../../cloaca/#RetryCondition.transient_only)
 
 Retry only on transient errors
 
@@ -510,15 +469,13 @@ Retry only on transient errors
 
 </details>
 
-
-
-##### <span id="PyRetryCondition.all_errors"></span>`all_errors`
+##### <span id="PyRetryCondition.all_errors"></span><code>all_​errors</code>
 
 ```rust
-fn all_errors () -> Self
+fn all_errors() -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryCondition.all_errors](../../../../../cloacina-python/bindings/value_objects/retry/#RetryCondition.all_errors)
+> **Python API**: [`cloaca.RetryCondition.all_errors`](../../../../../cloaca/#RetryCondition.all_errors)
 
 Retry on all errors
 
@@ -535,15 +492,13 @@ Retry on all errors
 
 </details>
 
-
-
-##### <span id="PyRetryCondition.error_pattern"></span>`error_pattern`
+##### <span id="PyRetryCondition.error_pattern"></span><code>error_​pattern</code>
 
 ```rust
-fn error_pattern (patterns : Vec < String >) -> Self
+fn error_pattern(patterns: Vec<String>) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryCondition.error_pattern](../../../../../cloacina-python/bindings/value_objects/retry/#RetryCondition.error_pattern)
+> **Python API**: [`cloaca.RetryCondition.error_pattern`](../../../../../cloaca/#RetryCondition.error_pattern)
 
 Retry on specific error patterns
 
@@ -560,15 +515,13 @@ Retry on specific error patterns
 
 </details>
 
-
-
-##### <span id="PyRetryCondition.__repr__"></span>`__repr__`
+##### <span id="PyRetryCondition.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryCondition.__repr__](../../../../../cloacina-python/bindings/value_objects/retry/#RetryCondition.__repr__)
+> **Python API**: [`cloaca.RetryCondition.__repr__`](../../../../../cloaca/#RetryCondition.__repr__)
 
 String representation
 
@@ -592,16 +545,11 @@ String representation
 
 </details>
 
-
-
-
-
-### <span id="struct.PyRetryPolicyBuilder"></span>`class RetryPolicyBuilder`
+### <span id="struct.PyRetryPolicyBuilder"></span><code style="font-size: 0.85em">class RetryPolicyBuilder</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicyBuilder](../../../../../cloacina-python/bindings/value_objects/retry/#class.RetryPolicyBuilder)
+> **Python API**: [`cloaca.RetryPolicyBuilder`](../../../../../cloaca/#class.RetryPolicyBuilder)
 
 Python wrapper for RetryPolicy::Builder
 
@@ -609,22 +557,22 @@ Python wrapper for RetryPolicy::Builder
 
 | Name | Type | Description |
 |------|------|-------------|
-| `max_attempts` | `Option < i32 >` |  |
-| `backoff_strategy` | `Option < cloacina :: retry :: BackoffStrategy >` |  |
-| `initial_delay` | `Option < Duration >` |  |
-| `max_delay` | `Option < Duration >` |  |
-| `retry_condition` | `Option < cloacina :: retry :: RetryCondition >` |  |
-| `with_jitter` | `Option < bool >` |  |
+| `max_attempts` | `Option<i32>` |  |
+| `backoff_strategy` | `Option<cloacina::retry::BackoffStrategy>` |  |
+| `initial_delay` | `Option<Duration>` |  |
+| `max_delay` | `Option<Duration>` |  |
+| `retry_condition` | `Option<cloacina::retry::RetryCondition>` |  |
+| `with_jitter` | `Option<bool>` |  |
 
 #### Methods
 
-##### <span id="PyRetryPolicyBuilder.max_attempts"></span>`max_attempts`
+##### <span id="PyRetryPolicyBuilder.max_attempts"></span><code>max_​attempts</code>
 
 ```rust
-fn max_attempts (& self , attempts : i32) -> Self
+fn max_attempts(&self, attempts: i32) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicyBuilder.max_attempts](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicyBuilder.max_attempts)
+> **Python API**: [`cloaca.RetryPolicyBuilder.max_attempts`](../../../../../cloaca/#RetryPolicyBuilder.max_attempts)
 
 Set maximum number of retry attempts
 
@@ -641,15 +589,13 @@ Set maximum number of retry attempts
 
 </details>
 
-
-
-##### <span id="PyRetryPolicyBuilder.initial_delay"></span>`initial_delay`
+##### <span id="PyRetryPolicyBuilder.initial_delay"></span><code>initial_​delay</code>
 
 ```rust
-fn initial_delay (& self , delay_seconds : f64) -> Self
+fn initial_delay(&self, delay_seconds: f64) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicyBuilder.initial_delay](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicyBuilder.initial_delay)
+> **Python API**: [`cloaca.RetryPolicyBuilder.initial_delay`](../../../../../cloaca/#RetryPolicyBuilder.initial_delay)
 
 Set initial delay
 
@@ -666,15 +612,13 @@ Set initial delay
 
 </details>
 
-
-
-##### <span id="PyRetryPolicyBuilder.max_delay"></span>`max_delay`
+##### <span id="PyRetryPolicyBuilder.max_delay"></span><code>max_​delay</code>
 
 ```rust
-fn max_delay (& self , delay_seconds : f64) -> Self
+fn max_delay(&self, delay_seconds: f64) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicyBuilder.max_delay](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicyBuilder.max_delay)
+> **Python API**: [`cloaca.RetryPolicyBuilder.max_delay`](../../../../../cloaca/#RetryPolicyBuilder.max_delay)
 
 Set maximum delay
 
@@ -691,15 +635,13 @@ Set maximum delay
 
 </details>
 
-
-
-##### <span id="PyRetryPolicyBuilder.backoff_strategy"></span>`backoff_strategy`
+##### <span id="PyRetryPolicyBuilder.backoff_strategy"></span><code>backoff_​strategy</code>
 
 ```rust
-fn backoff_strategy (& self , strategy : PyBackoffStrategy) -> Self
+fn backoff_strategy(&self, strategy: PyBackoffStrategy) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicyBuilder.backoff_strategy](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicyBuilder.backoff_strategy)
+> **Python API**: [`cloaca.RetryPolicyBuilder.backoff_strategy`](../../../../../cloaca/#RetryPolicyBuilder.backoff_strategy)
 
 Set backoff strategy
 
@@ -716,15 +658,13 @@ Set backoff strategy
 
 </details>
 
-
-
-##### <span id="PyRetryPolicyBuilder.retry_condition"></span>`retry_condition`
+##### <span id="PyRetryPolicyBuilder.retry_condition"></span><code>retry_​condition</code>
 
 ```rust
-fn retry_condition (& self , condition : PyRetryCondition) -> Self
+fn retry_condition(&self, condition: PyRetryCondition) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicyBuilder.retry_condition](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicyBuilder.retry_condition)
+> **Python API**: [`cloaca.RetryPolicyBuilder.retry_condition`](../../../../../cloaca/#RetryPolicyBuilder.retry_condition)
 
 Set retry condition
 
@@ -741,15 +681,13 @@ Set retry condition
 
 </details>
 
-
-
-##### <span id="PyRetryPolicyBuilder.with_jitter"></span>`with_jitter`
+##### <span id="PyRetryPolicyBuilder.with_jitter"></span><code>with_​jitter</code>
 
 ```rust
-fn with_jitter (& self , jitter : bool) -> Self
+fn with_jitter(&self, jitter: bool) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicyBuilder.with_jitter](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicyBuilder.with_jitter)
+> **Python API**: [`cloaca.RetryPolicyBuilder.with_jitter`](../../../../../cloaca/#RetryPolicyBuilder.with_jitter)
 
 Enable/disable jitter
 
@@ -766,15 +704,13 @@ Enable/disable jitter
 
 </details>
 
-
-
-##### <span id="PyRetryPolicyBuilder.build"></span>`build`
+##### <span id="PyRetryPolicyBuilder.build"></span><code>build</code>
 
 ```rust
-fn build (& self) -> PyRetryPolicy
+fn build(&self) -> PyRetryPolicy
 ```
 
-> **Python API**: [cloacina-python.bindings.value_objects.retry.RetryPolicyBuilder.build](../../../../../cloacina-python/bindings/value_objects/retry/#RetryPolicyBuilder.build)
+> **Python API**: [`cloaca.RetryPolicyBuilder.build`](../../../../../cloaca/#RetryPolicyBuilder.build)
 
 Build the RetryPolicy
 
@@ -811,8 +747,3 @@ Build the RetryPolicy
 ```
 
 </details>
-
-
-
-
-

@@ -1,13 +1,13 @@
 ---
 title: "cloacina::dal::filesystem_dal::workflow_registry_storage"
 description: "Filesystem DAL for workflow registry storage operations."
+editUrl: false
 sidebar:
-  order: 80
+  order: 64
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Filesystem DAL for workflow registry storage operations.
 
@@ -17,10 +17,9 @@ non-database storage backends.
 
 ## Structs
 
-### <span id="struct.FilesystemRegistryStorage"></span>`struct FilesystemRegistryStorage`
+### <span id="struct.FilesystemRegistryStorage"></span><code style="font-size: 0.85em">struct FilesystemRegistryStorage</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -30,13 +29,21 @@ This DAL implementation handles binary workflow data storage as individual
 files on the local filesystem. Files are named using UUIDs to ensure
 uniqueness and avoid conflicts.
 
+**Directory Structure**
+
+```text
+/var/lib/cloacina/registry/
+├── a1b2c3d4-e5f6-7890-abcd-ef1234567890.so
+├── b2c3d4e5-f6g7-8901-bcde-f12345678901.so
+└── ...
+```
+
 **Examples:**
 
 ```rust
 use cloacina::dal::filesystem_dal::FilesystemRegistryStorage;
 use cloacina::registry::RegistryStorage;
 
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
 let mut storage = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
 
 // Store binary workflow data
@@ -47,25 +54,16 @@ let id = storage.store_binary(workflow_data).await?;
 if let Some(data) = storage.retrieve_binary(&id).await? {
     println!("Retrieved {} bytes", data.len());
 }
-# Ok(())
-# }
 ```
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `storage_dir` | `PathBuf` |  |
 
 #### Methods
 
-##### <span id="FilesystemRegistryStorage.new"></span>`new`
+##### <span id="FilesystemRegistryStorage.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new < P : AsRef < Path > > (storage_dir : P) -> Result < Self , std :: io :: Error >
+fn new<P: AsRef<Path>>(storage_dir: P) -> Result<Self, std::io::Error>
 ```
 
 Create a new filesystem workflow registry DAL.
@@ -74,22 +72,19 @@ Create a new filesystem workflow registry DAL.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `storage_dir` | `-` | Directory path where workflow files will be stored |
-
+| `storage_dir` | `P` | Directory path where workflow files will be stored |
 
 **Returns:**
 
-* `Ok(FilesystemWorkflowRegistryDAL)` - Successfully created DAL * `Err(std::io::Error)` - If directory creation fails
+* `Ok(FilesystemWorkflowRegistryDAL)` - Successfully created DAL
+* `Err(std::io::Error)` - If directory creation fails
 
 **Examples:**
 
 ```rust
 use cloacina::dal::filesystem_dal::FilesystemRegistryStorage;
 
-# fn example() -> Result<(), Box<dyn std::error::Error>> {
 let dal = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
-# Ok(())
-# }
 ```
 
 <details>
@@ -113,15 +108,12 @@ let dal = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
 
 </details>
 
-
-
-##### <span id="FilesystemRegistryStorage.storage_dir"></span>`storage_dir`
+##### <span id="FilesystemRegistryStorage.storage_dir"></span><code>storage_​dir</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn storage_dir (& self) -> & Path
+fn storage_dir(&self) -> &Path
 ```
 
 Get the storage directory path.
@@ -137,40 +129,13 @@ Get the storage directory path.
 
 </details>
 
-
-
-##### <span id="FilesystemRegistryStorage.file_path"></span>`file_path`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn file_path (& self , id : & str) -> PathBuf
-```
-
-Generate the file path for a given workflow ID.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn file_path(&self, id: &str) -> PathBuf {
-        self.storage_dir.join(format!("{}.so", id))
-    }
-```
-
-</details>
-
-
-
-##### <span id="FilesystemRegistryStorage.check_disk_space"></span>`check_disk_space`
+##### <span id="FilesystemRegistryStorage.check_disk_space"></span><code>check_​disk_​space</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn check_disk_space (& self) -> Result < u64 , StorageError >
+async fn check_disk_space(&self) -> Result<u64, StorageError>
 ```
 
 Check available disk space and validate against a threshold.
@@ -197,8 +162,3 @@ Check available disk space and validate against a threshold.
 ```
 
 </details>
-
-
-
-
-

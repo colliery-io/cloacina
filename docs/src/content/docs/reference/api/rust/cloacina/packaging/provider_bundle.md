@@ -1,13 +1,13 @@
 ---
 title: "cloacina::packaging::provider_bundle"
 description: "Provider **discovery + bundling** for the packaged-constructor build side (CLOACI-T-0836 / S-0015 / A-0010)."
+editUrl: false
 sidebar:
-  order: 168
+  order: 151
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Provider **discovery + bundling** for the packaged-constructor build side (CLOACI-T-0836 / S-0015 / A-0010).
 
@@ -18,24 +18,25 @@ provider directory and no network — the consumer's build resolves each provide
 dep, builds it to a wasm component, and **bundles** it inside the package under
 `providers/<crate>-<version>/`. The loader then resolves `constructor!` `from`
 references against that bundled directory (the same on-disk layout
-[`crate::registry::loader::provider_search_path`] already expects).
+[`crate::registry::loader::provider_search_path`](../../../../rust/cloacina/registry/loader/constructor_loader/#fn.provider_search_path) already expects).
+
 This module is the reusable core the compiler orchestrates:
-* [`resolve_provider_crate`] — locate a provider crate in the consumer's
-resolved dependency graph via `cargo metadata` (crates.io / path / git
-uniformly);
-* [`bundle_providers`] — resolve + build + unpack every referenced provider
-into a `providers/` tree, returning the `from`→bundled-dir map.
+  * [`resolve_provider_crate`](../../../../rust/cloacina/packaging/provider_bundle/#fn.resolve_provider_crate) — locate a provider crate in the consumer's
+    resolved dependency graph via `cargo metadata` (crates.io / path / git
+    uniformly);
+  * [`bundle_providers`](../../../../rust/cloacina/packaging/provider_bundle/#fn.bundle_providers) — resolve + build + unpack every referenced provider
+    into a `providers/` tree, returning the `from`→bundled-dir map.
+
 Gated behind `constructor-packaging` (the serde-only contract path) — it builds
-wasm via [`super::constructor_provider::package_constructor_provider`] and
-unpacks with [`fidius_core::package::unpack_package`], neither of which pulls
+wasm via [`super::constructor_provider::package_constructor_provider`](../../../../rust/cloacina/packaging/constructor_provider/#fn.package_constructor_provider) and
+unpacks with `fidius_core::package::unpack_package`, neither of which pulls
 wasmtime (only the *loader* does).
 
 ## Structs
 
-### <span id="struct.ProviderRef"></span>`struct ProviderRef`
+### <span id="struct.ProviderRef"></span><code style="font-size: 0.85em">struct ProviderRef</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `PartialEq`, `Eq`
 
@@ -46,18 +47,16 @@ A provider reference discovered on a consumer's `constructor!` / `#[reactor]` de
 | Name | Type | Description |
 |------|------|-------------|
 | `name` | `String` | The exact Cargo package name the consumer depends on. |
-| `version` | `Option < String >` | Optional `@version` suffix (advisory pin; must be satisfiable by the
-resolved dep). `None` if the consumer wrote a bare `from = "<name>"`. |
+| `version` | `Option<String>` | Optional `@version` suffix (advisory pin; must be satisfiable by the resolved dep). `None` if the consumer wrote a bare `from = "<name>"`. |
 
 #### Methods
 
-##### <span id="ProviderRef.parse"></span>`parse`
+##### <span id="ProviderRef.parse"></span><code>parse</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn parse (from : & str) -> Self
+fn parse(from: &str) -> Self
 ```
 
 Parse a `from = "name[@version]"` reference.
@@ -82,14 +81,9 @@ Parse a `from = "name[@version]"` reference.
 
 </details>
 
-
-
-
-
-### <span id="struct.BundledProvider"></span>`struct BundledProvider`
+### <span id="struct.BundledProvider"></span><code style="font-size: 0.85em">struct BundledProvider</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -104,14 +98,11 @@ One provider that was resolved, built, and unpacked into the bundle.
 | `provider_name` | `String` | The provider's own name from its `provider.json` (usually == `from`). |
 | `version` | `String` | The provider version (from `provider.json`). |
 | `bundled_dir` | `PathBuf` | The bundled directory `providers/<crate>-<version>/` under `dest`. |
-| `constructors` | `Vec < String >` | The member constructors the provider carries. |
+| `constructors` | `Vec<String>` | The member constructors the provider carries. |
 
-
-
-### <span id="struct.PackedProvider"></span>`struct PackedProvider`
+### <span id="struct.PackedProvider"></span><code style="font-size: 0.85em">struct PackedProvider</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -124,20 +115,15 @@ One provider resolved + built + PACKED (not unpacked) — the storage form the c
 | `from` | `String` | The `from` name the consumer referenced (the exact Cargo package name). |
 | `provider_name` | `String` | The provider's own name from its `provider.json`. |
 | `version` | `String` | The provider version (from `provider.json`). |
-| `constructors` | `Vec < String >` | The member constructors the provider carries. |
-| `archive` | `Vec < u8 >` | The packed provider `.cloacina` archive bytes. |
-| `runtime` | `cloacina_constructor_contract :: ProviderRuntime` | CLOACI-T-0908: the runtime the provider was built for — `Wasm`
-(arch-neutral component) or `Native` (an arch-SPECIFIC host cdylib the
-per-target compiler must rebuild per triple). |
-
-
+| `constructors` | `Vec<String>` | The member constructors the provider carries. |
+| `archive` | `Vec<u8>` | The packed provider `.cloacina` archive bytes. |
+| `runtime` | `cloacina_constructor_contract::ProviderRuntime` | CLOACI-T-0908: the runtime the provider was built for — `Wasm` (arch-neutral component) or `Native` (an arch-SPECIFIC host cdylib the per-target compiler must rebuild per triple). |
 
 ## Enums
 
-### <span id="enum.ProviderBundleError"></span>`enum ProviderBundleError`
+### <span id="enum.ProviderBundleError"></span><code style="font-size: 0.85em">enum ProviderBundleError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors resolving / building / bundling a provider.
 
@@ -145,21 +131,20 @@ Errors resolving / building / bundling a provider.
 
 - **`Metadata`** - `cargo metadata` failed or its output was unparsable.
 - **`NotFound`** - No dependency with the requested `from` name (+ version) was found in the
-consumer's resolved dependency graph.
+  consumer's resolved dependency graph.
 - **`Package`** - Building / packing the provider failed.
 - **`Io`** - An IO / unpack error while bundling.
 
-
-
 ## Functions
 
-### <span id="fn.provider_runtime_for_crate"></span>`fn provider_runtime_for_crate`
+### <span id="fn.provider_runtime_for_crate"></span><code style="font-size: 0.85em">fn provider_​runtime_​for_​crate</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn provider_runtime_for_crate (crate_dir : & Path ,) -> cloacina_constructor_contract :: ProviderRuntime
+fn provider_runtime_for_crate(
+    crate_dir: &Path,
+) -> cloacina_constructor_contract::ProviderRuntime
 ```
 
 The runtime a provider crate declares for itself (CLOACI-T-0907): a NATIVE provider (e.g. one shipping rdkafka — C code that cannot target `wasm32-wasip2`) opts in explicitly in its own `Cargo.toml`:
@@ -168,6 +153,7 @@ The runtime a provider crate declares for itself (CLOACI-T-0907): a NATIVE provi
 [package.metadata.cloacina]
 runtime = "native"
 ```
+
 Absent marker (or unreadable manifest) defaults to WASM — the sandboxed tier
 stays the default; native is a deliberate authoring choice the bundler honors
 rather than infers.
@@ -183,7 +169,7 @@ pub fn provider_runtime_for_crate(
     let Ok(raw) = std::fs::read_to_string(crate_dir.join("Cargo.toml")) else {
         return ProviderRuntime::Wasm;
     };
-    let Ok(value) = raw.parse::<toml::Value>() else {
+    let Ok(value) = raw.parse::<toml::Table>().map(toml::Value::Table) else {
         return ProviderRuntime::Wasm;
     };
     match value
@@ -201,15 +187,15 @@ pub fn provider_runtime_for_crate(
 
 </details>
 
-
-
-### <span id="fn.resolve_provider_crate"></span>`fn resolve_provider_crate`
+### <span id="fn.resolve_provider_crate"></span><code style="font-size: 0.85em">fn resolve_​provider_​crate</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn resolve_provider_crate (consumer_dir : & Path , provider : & ProviderRef ,) -> Result < PathBuf , ProviderBundleError >
+fn resolve_provider_crate(
+    consumer_dir: &Path,
+    provider: &ProviderRef,
+) -> Result<PathBuf, ProviderBundleError>
 ```
 
 Locate a provider crate in the consumer's resolved dependency graph.
@@ -314,25 +300,28 @@ pub fn resolve_provider_crate(
 
 </details>
 
-
-
-### <span id="fn.bundle_providers"></span>`fn bundle_providers`
+### <span id="fn.bundle_providers"></span><code style="font-size: 0.85em">fn bundle_​providers</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn bundle_providers (consumer_dir : & Path , provider_refs : & [ProviderRef] , dest : & Path , release : bool ,) -> Result < Vec < BundledProvider > , ProviderBundleError >
+fn bundle_providers(
+    consumer_dir: &Path,
+    provider_refs: &[ProviderRef],
+    dest: &Path,
+    release: bool,
+) -> Result<Vec<BundledProvider>, ProviderBundleError>
 ```
 
 Resolve, build, and bundle every referenced provider into `dest/providers/`.
 
-For each unique [`ProviderRef`]: resolve the crate ([`resolve_provider_crate`]),
-build+pack it ([`package_constructor_provider`]) to a temp archive, and unpack it
+For each unique [`ProviderRef`](../../../../rust/cloacina/packaging/provider_bundle/#struct.ProviderRef): resolve the crate ([`resolve_provider_crate`](../../../../rust/cloacina/packaging/provider_bundle/#fn.resolve_provider_crate)),
+build+pack it ([`package_constructor_provider`](../../../../rust/cloacina/packaging/constructor_provider/#fn.package_constructor_provider)) to a temp archive, and unpack it
 into `dest/providers/` (fidius names the unpacked dir `<name>-<version>/`). The
 resulting `providers/` tree is exactly what
-[`crate::registry::loader::set_provider_search_path`] points the loader at, so
+[`crate::registry::loader::set_provider_search_path`](../../../../rust/cloacina/registry/loader/constructor_loader/#fn.set_provider_search_path) points the loader at, so
 bundled constructors resolve with no external provider directory.
+
 `release` selects the wasm build profile. Duplicate `from` names are built once.
 
 <details>
@@ -414,18 +403,19 @@ pub fn bundle_providers(
 
 </details>
 
-
-
-### <span id="fn.pack_providers"></span>`fn pack_providers`
+### <span id="fn.pack_providers"></span><code style="font-size: 0.85em">fn pack_​providers</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn pack_providers (consumer_dir : & Path , provider_refs : & [ProviderRef] , release : bool ,) -> Result < Vec < PackedProvider > , ProviderBundleError >
+fn pack_providers(
+    consumer_dir: &Path,
+    provider_refs: &[ProviderRef],
+    release: bool,
+) -> Result<Vec<PackedProvider>, ProviderBundleError>
 ```
 
-Resolve + build + PACK every referenced provider, returning the archives (the compiler-side variant of [`bundle_providers`]: same resolve/build, but the output is bytes for the `package_providers` store rather than an unpacked `providers/` tree). Duplicate `from` names are built once.
+Resolve + build + PACK every referenced provider, returning the archives (the compiler-side variant of [`bundle_providers`](../../../../rust/cloacina/packaging/provider_bundle/#fn.bundle_providers): same resolve/build, but the output is bytes for the `package_providers` store rather than an unpacked `providers/` tree). Duplicate `from` names are built once.
 
 <details>
 <summary>Source</summary>
@@ -485,15 +475,15 @@ pub fn pack_providers(
 
 </details>
 
-
-
-### <span id="fn.pack_providers_from_specs"></span>`fn pack_providers_from_specs`
+### <span id="fn.pack_providers_from_specs"></span><code style="font-size: 0.85em">fn pack_​providers_​from_​specs</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn pack_providers_from_specs (specs : & [(String , String)] , release : bool ,) -> Result < Vec < PackedProvider > , ProviderBundleError >
+fn pack_providers_from_specs(
+    specs: &[(String, String)],
+    release: bool,
+) -> Result<Vec<PackedProvider>, ProviderBundleError>
 ```
 
 Resolve + build + PACK providers from **manifest dependency specs** rather than an existing Cargo project — the path for PYTHON consumers (CLOACI-T-0831), which have no Cargo.toml. Each spec is `(provider_name, toml_dep_value)` where the value is the literal TOML dependency expression from the package manifest's `[providers]` section (e.g. `"0.1"`, `{ path = "/abs" }`, `{ git = "…" }`), embedded VERBATIM into a synthesized scratch Cargo project so version, path, and git providers resolve uniformly through cargo.
@@ -521,7 +511,7 @@ pub fn pack_providers_from_specs(
          [package]\n\
          name = \"cloacina-provider-fetch\"\n\
          version = \"0.0.0\"\n\
-         edition = \"2021\"\n\n\
+         edition = \"2024\"\n\n\
          [dependencies]\n",
     );
     for (name, spec) in specs {
@@ -550,15 +540,12 @@ pub fn pack_providers_from_specs(
 
 </details>
 
-
-
-### <span id="fn.discover_provider_refs"></span>`fn discover_provider_refs`
+### <span id="fn.discover_provider_refs"></span><code style="font-size: 0.85em">fn discover_​provider_​refs</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn discover_provider_refs (source_dir : & Path) -> Vec < ProviderRef >
+fn discover_provider_refs(source_dir: &Path) -> Vec<ProviderRef>
 ```
 
 Discover the provider references a consumer's SOURCE declares: scan `.rs` files for `constructor!( ... from = "<ref>" ... )` and `#[reactor( ... from = "<ref>" ... )]` occurrences (the S-0015 discovery rule — build + bundle ONLY what the package references). Anchored on the macro tokens so stray `from = "..."` strings elsewhere don't false-positive; a wrong ref fails loudly at resolve.
@@ -619,53 +606,8 @@ pub fn discover_provider_refs(source_dir: &Path) -> Vec<ProviderRef> {
 
 </details>
 
+## Constants
 
-
-### <span id="fn.extract_from_literal"></span>`fn extract_from_literal`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn extract_from_literal (window : & str) -> Option < String >
-```
-
-Pull the `from = "<value>"` string literal out of a macro-body window.
-
-Loops over `from` occurrences rather than bailing on the first: a `from`
-inside a preceding value literal (`id = "reader_from_disk"`) or a trailing
-comment must not shadow the real field. A hit counts only when it sits on a
-token boundary AND is followed (after whitespace) by `=`.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn extract_from_literal(window: &str) -> Option<String> {
-    let mut search = window;
-    while let Some(idx) = search.find("from") {
-        let boundary_ok = idx == 0
-            || matches!(
-                search.as_bytes()[idx - 1],
-                b' ' | b'\t' | b'\n' | b'\r' | b',' | b'(' | b'{'
-            );
-        let after = search[idx + 4..].trim_start();
-        if boundary_ok {
-            if let Some(rest) = after.strip_prefix('=') {
-                let rest = rest.trim_start();
-                if let Some(rest) = rest.strip_prefix('"') {
-                    let end = rest.find('"')?;
-                    return Some(rest[..end].to_string());
-                }
-            }
-        }
-        search = &search[idx + 4..];
-    }
-    None
-}
-```
-
-</details>
-
-
-
+| Name | Type | Value | Description |
+|------|------|-------|-------------|
+| <span id="const.PROVIDERS_DIR"></span>`PROVIDERS_DIR` | `&str` | `"providers"` | The subdirectory (inside a package / bundle) that holds unpacked provider packages, one per `providers/<crate>-<version>/`. |

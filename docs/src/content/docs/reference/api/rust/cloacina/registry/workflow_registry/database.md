@@ -1,22 +1,21 @@
 ---
 title: "cloacina::registry::workflow_registry::database"
 description: "Database operations for workflow registry metadata storage."
+editUrl: false
 sidebar:
-  order: 191
+  order: 173
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Database operations for workflow registry metadata storage.
 
 ## Structs
 
-### <span id="struct.InspectedPackage"></span>`struct InspectedPackage`
+### <span id="struct.InspectedPackage"></span><code style="font-size: 0.85em">struct InspectedPackage</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -28,16 +27,13 @@ Result of inspecting a package — full metadata plus the raw build state.
 |------|------|-------------|
 | `metadata` | `WorkflowMetadata` |  |
 | `build_status` | `String` |  |
-| `build_error` | `Option < String >` |  |
+| `build_error` | `Option<String>` |  |
 
-
-
-### <span id="struct.BuildQueueStats"></span>`struct BuildQueueStats`
+### <span id="struct.BuildQueueStats"></span><code style="font-size: 0.85em">struct BuildQueueStats</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `serde :: Serialize`
+**Derives:** `Debug`, `Clone`, `serde::Serialize`
 
 Snapshot of the build queue for the compiler's status endpoint.
 
@@ -47,18 +43,15 @@ Snapshot of the build queue for the compiler's status endpoint.
 |------|------|-------------|
 | `pending` | `u64` |  |
 | `building` | `u64` |  |
-| `last_success_at` | `Option < chrono :: DateTime < chrono :: Utc > >` |  |
-| `last_failure_at` | `Option < chrono :: DateTime < chrono :: Utc > >` |  |
-| `heartbeat_at` | `Option < chrono :: DateTime < chrono :: Utc > >` |  |
+| `last_success_at` | `Option<chrono::DateTime<chrono::Utc>>` |  |
+| `last_failure_at` | `Option<chrono::DateTime<chrono::Utc>>` |  |
+| `heartbeat_at` | `Option<chrono::DateTime<chrono::Utc>>` |  |
 
-
-
-### <span id="struct.ReconcilerStats"></span>`struct ReconcilerStats`
+### <span id="struct.ReconcilerStats"></span><code style="font-size: 0.85em">struct ReconcilerStats</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `serde :: Serialize`
+**Derives:** `Debug`, `Clone`, `serde::Serialize`
 
 Package-availability snapshot for the reconciler tile (CLOACI-T-0718 / absorbs T-0717): how many packages built successfully and are available to load, how many failed, and when the most recent successful build landed. Counts the active (non-superseded) rows. Independent of the registry's package loader — powers the server's ops-metrics publisher.
 
@@ -68,14 +61,11 @@ Package-availability snapshot for the reconciler tile (CLOACI-T-0718 / absorbs T
 |------|------|-------------|
 | `built` | `u64` |  |
 | `failed` | `u64` |  |
-| `last_built_at` | `Option < chrono :: DateTime < chrono :: Utc > >` |  |
+| `last_built_at` | `Option<chrono::DateTime<chrono::Utc>>` |  |
 
-
-
-### <span id="struct.ClaimedBuild"></span>`struct ClaimedBuild`
+### <span id="struct.ClaimedBuild"></span><code style="font-size: 0.85em">struct ClaimedBuild</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -91,60 +81,19 @@ A build row claimed by the compiler. Everything the compiler needs to locate the
 | `version` | `String` |  |
 | `metadata` | `String` |  |
 
-
-
 ## Functions
 
-### <span id="fn.build_task_graph"></span>`fn build_task_graph`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">pub(super)</span>
-
-
-```rust
-fn build_task_graph (package_metadata : & crate :: registry :: loader :: package_loader :: PackageMetadata ,) -> Vec < WorkflowTaskNode >
-```
-
-Build the task dependency graph (one node per task, with its upstream dependencies) from the persisted package metadata's task list, so the API and UI can render the full DAG. (CLOACI-T-0663)
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub(super) fn build_task_graph(
-    package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
-) -> Vec<WorkflowTaskNode> {
-    package_metadata
-        .tasks
-        .iter()
-        .map(|t| WorkflowTaskNode {
-            id: t.local_id.clone(),
-            dependencies: t.dependencies.clone(),
-            description: if t.description.trim().is_empty() {
-                None
-            } else {
-                Some(t.description.clone())
-            },
-            doc_what: t.doc_what.clone(),
-            doc_why: t.doc_why.clone(),
-        })
-        .collect()
-}
-```
-
-</details>
-
-
-
-### <span id="fn.build_queue_stats"></span>`fn build_queue_stats`
+### <span id="fn.build_queue_stats"></span><code style="font-size: 0.85em">fn build_​queue_​stats</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn build_queue_stats (database : & crate :: database :: Database ,) -> Result < BuildQueueStats , RegistryError >
+async fn build_queue_stats(
+    database: &crate::database::Database,
+) -> Result<BuildQueueStats, RegistryError>
 ```
 
-Build-queue telemetry over a raw [`Database`] handle, independent of the registry's package loader. Powers both the compiler's `/v1/status` (via [`WorkflowRegistryImpl::build_queue_stats`]) and the server's operator compiler-status endpoint (CLOACI-I-0124), which has a `Database` but no reason to construct a full registry (and its FFI loader) per request.
+Build-queue telemetry over a raw [`Database`](../../../../../rust/cloacina/database/connection/#struct.Database) handle, independent of the registry's package loader. Powers both the compiler's `/v1/status` (via `WorkflowRegistryImpl::build_queue_stats`) and the server's operator compiler-status endpoint (CLOACI-I-0124), which has a `Database` but no reason to construct a full registry (and its FFI loader) per request.
 
 <details>
 <summary>Source</summary>
@@ -198,18 +147,17 @@ pub async fn build_queue_stats(
 
 </details>
 
-
-
-### <span id="fn.reconciler_stats"></span>`fn reconciler_stats`
+### <span id="fn.reconciler_stats"></span><code style="font-size: 0.85em">fn reconciler_​stats</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn reconciler_stats (database : & crate :: database :: Database ,) -> Result < ReconcilerStats , RegistryError >
+async fn reconciler_stats(
+    database: &crate::database::Database,
+) -> Result<ReconcilerStats, RegistryError>
 ```
 
-Compute [`ReconcilerStats`] over a raw [`Database`] handle.
+Compute [`ReconcilerStats`](../../../../../rust/cloacina/registry/workflow_registry/database/#struct.ReconcilerStats) over a raw [`Database`](../../../../../rust/cloacina/database/connection/#struct.Database) handle.
 
 <details>
 <summary>Source</summary>
@@ -250,6 +198,3 @@ pub async fn reconciler_stats(
 ```
 
 </details>
-
-
-

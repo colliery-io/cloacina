@@ -1,13 +1,13 @@
 ---
 title: "cloacina::models::workflow_packages"
 description: "Database models for workflow package metadata."
+editUrl: false
 sidebar:
-  order: 163
+  order: 146
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Database models for workflow package metadata.
 
@@ -16,10 +16,9 @@ These are API-level types; backend-specific models handle database storage.
 
 ## Structs
 
-### <span id="struct.WorkflowPackage"></span>`struct WorkflowPackage`
+### <span id="struct.WorkflowPackage"></span><code style="font-size: 0.85em">struct WorkflowPackage</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -33,27 +32,24 @@ Domain model for workflow package metadata.
 | `registry_id` | `UniversalUuid` |  |
 | `package_name` | `String` |  |
 | `version` | `String` |  |
-| `description` | `Option < String >` |  |
-| `author` | `Option < String >` |  |
+| `description` | `Option<String>` |  |
+| `author` | `Option<String>` |  |
 | `metadata` | `String` |  |
 | `storage_type` | `StorageType` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
-| `tenant_id` | `Option < String >` |  |
+| `tenant_id` | `Option<String>` |  |
 | `content_hash` | `String` |  |
 | `superseded` | `bool` |  |
-| `compiled_data` | `Option < Vec < u8 > >` |  |
+| `compiled_data` | `Option<Vec<u8>>` |  |
 | `build_status` | `String` |  |
-| `build_error` | `Option < String >` |  |
-| `build_claimed_at` | `Option < UniversalTimestamp >` |  |
-| `compiled_at` | `Option < UniversalTimestamp >` |  |
+| `build_error` | `Option<String>` |  |
+| `build_claimed_at` | `Option<UniversalTimestamp>` |  |
+| `compiled_at` | `Option<UniversalTimestamp>` |  |
 
-
-
-### <span id="struct.NewWorkflowPackage"></span>`struct NewWorkflowPackage`
+### <span id="struct.NewWorkflowPackage"></span><code style="font-size: 0.85em">struct NewWorkflowPackage</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -66,20 +62,27 @@ Model for creating new workflow package metadata entries (domain type).
 | `registry_id` | `UniversalUuid` |  |
 | `package_name` | `String` |  |
 | `version` | `String` |  |
-| `description` | `Option < String >` |  |
-| `author` | `Option < String >` |  |
+| `description` | `Option<String>` |  |
+| `author` | `Option<String>` |  |
 | `metadata` | `String` |  |
 | `storage_type` | `StorageType` |  |
 
 #### Methods
 
-##### <span id="NewWorkflowPackage.new"></span>`new`
+##### <span id="NewWorkflowPackage.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (registry_id : UniversalUuid , package_name : String , version : String , description : Option < String > , author : Option < String > , metadata : String , storage_type : StorageType ,) -> Self
+fn new(
+    registry_id: UniversalUuid,
+    package_name: String,
+    version: String,
+    description: Option<String>,
+    author: Option<String>,
+    metadata: String,
+    storage_type: StorageType,
+) -> Self
 ```
 
 <details>
@@ -109,16 +112,11 @@ fn new (registry_id : UniversalUuid , package_name : String , version : String ,
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.StorageType"></span>`enum StorageType`
+### <span id="enum.StorageType"></span><code style="font-size: 0.85em">enum StorageType</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Storage type for workflow binary data.
 
@@ -127,5 +125,26 @@ Storage type for workflow binary data.
 - **`Database`** - Binary stored in workflow_registry database table
 - **`Filesystem`** - Binary stored on filesystem at {storage_dir}/{registry_id}.so
 
+#### Methods
 
+##### <span id="StorageType.as_str"></span><code>as_​str</code>
 
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn as_str(&self) -> &'static str
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StorageType::Database => "database",
+            StorageType::Filesystem => "filesystem",
+        }
+    }
+```
+
+</details>

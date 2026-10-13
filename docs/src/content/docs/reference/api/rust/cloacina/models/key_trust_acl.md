@@ -1,13 +1,13 @@
 ---
 title: "cloacina::models::key_trust_acl"
 description: "Domain models for key trust ACLs."
+editUrl: false
 sidebar:
-  order: 154
+  order: 137
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Domain models for key trust ACLs.
 
@@ -17,10 +17,9 @@ trusts packages signed by the child org's trusted keys.
 
 ## Structs
 
-### <span id="struct.KeyTrustAcl"></span>`struct KeyTrustAcl`
+### <span id="struct.KeyTrustAcl"></span><code style="font-size: 0.85em">struct KeyTrustAcl</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -37,17 +36,16 @@ packages signed by keys trusted by `child_org_id`.
 | `parent_org_id` | `UniversalUuid` | The organization granting trust |
 | `child_org_id` | `UniversalUuid` | The organization being trusted |
 | `granted_at` | `UniversalTimestamp` |  |
-| `revoked_at` | `Option < UniversalTimestamp >` | None if active, Some if revoked |
+| `revoked_at` | `Option<UniversalTimestamp>` | None if active, Some if revoked |
 
 #### Methods
 
-##### <span id="KeyTrustAcl.is_active"></span>`is_active`
+##### <span id="KeyTrustAcl.is_active"></span><code>is_​active</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_active (& self) -> bool
+fn is_active(&self) -> bool
 ```
 
 Check if this trust relationship is currently active
@@ -63,15 +61,12 @@ Check if this trust relationship is currently active
 
 </details>
 
-
-
-##### <span id="KeyTrustAcl.is_revoked"></span>`is_revoked`
+##### <span id="KeyTrustAcl.is_revoked"></span><code>is_​revoked</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_revoked (& self) -> bool
+fn is_revoked(&self) -> bool
 ```
 
 Check if this trust relationship has been revoked
@@ -87,14 +82,9 @@ Check if this trust relationship has been revoked
 
 </details>
 
-
-
-
-
-### <span id="struct.NewKeyTrustAcl"></span>`struct NewKeyTrustAcl`
+### <span id="struct.NewKeyTrustAcl"></span><code style="font-size: 0.85em">struct NewKeyTrustAcl</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -109,13 +99,15 @@ Model for creating a new key trust ACL.
 
 #### Methods
 
-##### <span id="NewKeyTrustAcl.new"></span>`new`
+##### <span id="NewKeyTrustAcl.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (parent_org_id : UniversalUuid , child_org_id : UniversalUuid) -> Self
+fn new(
+    parent_org_id: UniversalUuid,
+    child_org_id: UniversalUuid,
+) -> Self
 ```
 
 <details>
@@ -131,8 +123,3 @@ fn new (parent_org_id : UniversalUuid , child_org_id : UniversalUuid) -> Self
 ```
 
 </details>
-
-
-
-
-

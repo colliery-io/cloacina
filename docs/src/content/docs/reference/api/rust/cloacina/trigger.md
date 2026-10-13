@@ -1,13 +1,26 @@
 ---
 title: "cloacina::trigger"
 description: "API reference of the Rust module cloacina::trigger."
+editUrl: false
 sidebar:
-  order: 218
+  order: 200
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
+**Trigger System**
+
+This module provides event-based workflow triggering functionality.
+Triggers are user-defined polling functions that can fire workflows
+when specific conditions are met.
+
+**Overview**
+
+Triggers enable event-driven workflow execution by:
+- Polling user-defined conditions at configurable intervals
+- Firing workflows with optional context when conditions are met
+- Deduplicating concurrent executions based on context hash
 
 **Examples:**
 
@@ -30,12 +43,16 @@ async fn file_watcher() -> TriggerResult {
 }
 ```
 
+## Re-exports
+
+- [`TriggerResult`](../../../rust/cloacina-workflow/trigger/#enum.TriggerResult)
+- [`Trigger`](../../../rust/cloacina-workflow/trigger/#trait.Trigger)
+
 ## Structs
 
-### <span id="struct.TriggerConfig"></span>`struct TriggerConfig`
+### <span id="struct.TriggerConfig"></span><code style="font-size: 0.85em">struct TriggerConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -56,13 +73,12 @@ for persistence across restarts.
 
 #### Methods
 
-##### <span id="TriggerConfig.new"></span>`new`
+##### <span id="TriggerConfig.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (name : & str , workflow_name : & str , poll_interval : Duration) -> Self
+fn new(name: &str, workflow_name: &str, poll_interval: Duration) -> Self
 ```
 
 Creates a new trigger configuration.
@@ -84,15 +100,12 @@ Creates a new trigger configuration.
 
 </details>
 
-
-
-##### <span id="TriggerConfig.with_allow_concurrent"></span>`with_allow_concurrent`
+##### <span id="TriggerConfig.with_allow_concurrent"></span><code>with_​allow_​concurrent</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_allow_concurrent (mut self , allow : bool) -> Self
+fn with_allow_concurrent(mut self, allow: bool) -> Self
 ```
 
 Sets whether concurrent executions are allowed.
@@ -109,15 +122,12 @@ Sets whether concurrent executions are allowed.
 
 </details>
 
-
-
-##### <span id="TriggerConfig.with_enabled"></span>`with_enabled`
+##### <span id="TriggerConfig.with_enabled"></span><code>with_​enabled</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_enabled (mut self , enabled : bool) -> Self
+fn with_enabled(mut self, enabled: bool) -> Self
 ```
 
 Sets whether the trigger is enabled.
@@ -134,16 +144,11 @@ Sets whether the trigger is enabled.
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.TriggerError"></span>`enum TriggerError`
+### <span id="enum.TriggerError"></span><code style="font-size: 0.85em">enum TriggerError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during trigger operations.
 
@@ -155,6 +160,3 @@ Errors that can occur during trigger operations.
 - **`Database`** - Database error during trigger operations
 - **`ConnectionPool`** - Connection pool error
 - **`WorkflowSchedulingFailed`** - Workflow scheduling failed
-
-
-

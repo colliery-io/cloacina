@@ -1,86 +1,96 @@
 ---
 title: "cloacina::registry::loader::constructor_loader"
 description: "WASM constructor loader + primitive adapters (CLOACI-I-0132 / T-0823, T-0824)."
+editUrl: false
 sidebar:
-  order: 176
+  order: 158
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 WASM constructor loader + primitive adapters (CLOACI-I-0132 / T-0823, T-0824).
 
 Loads a WASM **constructor** package (a `.wasm` component + a sidecar
 `constructor.json` manifest) and wraps the configured fidius handle as the
 cloacina primitive the manifest's `primitive_kind` names — a
-[`crate::task::Task`] (T-0823) or a [`crate::trigger::Trigger`] (T-0824) —
+[`crate::task::Task`](../../../../../rust/cloacina/registry/loader/constructor_loader/#enum.ConstructorBinding) (T-0823) or a [`crate::trigger::Trigger`](../../../../../rust/cloacina-workflow/trigger/#trait.Trigger) (T-0824) —
 that the existing async executor / scheduler can run unchanged, then
-registers it into a [`Runtime`] so it participates in workflows/schedules
+registers it into a [`Runtime`](../../../../../rust/cloacina/runtime/#struct.Runtime) so it participates in workflows/schedules
 exactly like a macro-authored one.
+
 Gated behind the default-OFF `constructors-wasm` feature: enabling it turns on
 `fidius-host`'s `wasm` feature (→ wasmtime/cranelift) and pulls
 `fidius-macro` + `cloacina-constructor-contract`. The default cloacina build
 pulls none of this (verified via `cargo tree`).
 
+**Flow (per primitive)**
+
+1. Read the package's `constructor.json` into an `ConstructorManifest`.
+2. Require the `primitive_kind` the caller asked for and an
+   `interface_version` matching that primitive's contract.
+3. `load_wasm_configured(component, &config)` — config binds ONCE at load.
+4. Wrap the handle as the matching adapter and run the **async↔sync bridge**:
+   serialize the async input → `JSON(...Invocation)` → `spawn_blocking` the
+   wasmtime `call_method` → parse `JSON(...Outcome)` → rebuild the async
+   result, surfacing a failed outcome as the primitive's normal error.
+   - TASK: `Context` → `TaskInvocation` / `TaskOutcome` → `Context`.
+   - TRIGGER: `()` → `TriggerInvocation` / `PollOutcome` →
+     [`TriggerResult`](../../../../../rust/cloacina-workflow/trigger/#enum.TriggerResult).
+
+**Runtime registration**
+
+[`load_constructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor) reads the manifest and dispatches on `primitive_kind`,
+registering the configured primitive into a [`Runtime`](../../../../../rust/cloacina/runtime/#struct.Runtime) (Task →
+[`Runtime::register_task`](../../../../../rust/cloacina/runtime/#Runtime.register_task), Trigger → [`Runtime::register_trigger`](../../../../../rust/cloacina/runtime/#Runtime.register_trigger)). The
+registered constructor hands out `Arc` clones that share the one configured
+fidius handle, so every `get_task`/`get_trigger` call dispatches into the
+same sandboxed instance.
+
+**Accumulator + reactor (CLOACI-T-0828)**
+
+These two primitives are NOT plain `Runtime` constructors, so they are wired
+differently from task/trigger:
+
+  * ACCUMULATOR — [`WasmAccumulatorConstructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#struct.WasmAccumulatorConstructor) implements
+    [`Accumulator`](../../../../../rust/cloacina/computation_graph/accumulator/#trait.Accumulator)
+    directly; [`load_accumulator_constructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_accumulator_constructor) returns it for
+    `accumulator_runtime` to drive. `Accumulator::process` is SYNC, so the
+    bridge calls the blocking wasmtime `ingest` directly (no `spawn_blocking`).
+  * REACTOR — the reactor's firing decision is now pluggable via the
+    [`ReactorFireDecider`](../../../../../rust/cloacina/computation_graph/reactor/#trait.ReactorFireDecider) seam added to
+    [`Reactor`](../../../../../rust/cloacina/computation_graph/reactor/#struct.Reactor)
+    (`with_evaluator`). [`WasmReactorConstructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#struct.WasmReactorConstructor) implements it, bridging the
+    async decision to a `spawn_blocking` `evaluate`. The bridge + seam are
+    proven against `Reactor` directly; threading a reactor constructor through
+    the CG SCHEDULER's package-load path is a documented remaining lift.
+
+The `#[constructor]` authoring macro covers all four kinds (task/trigger T-0826,
+accumulator/reactor T-0828).
+
 ## Structs
 
-### <span id="struct.ProviderConfigure"></span>`struct ProviderConfigure`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-**Derives:** `serde :: Serialize`
-
-The host-side **name-in-configure** wire wrapper (CLOACI-A-0011). A provider is a suite of N members behind ONE per-kind fidius interface; the member is chosen by NAME carried in the `configure` payload. The host serializes `(name, the member's config bytes)` and the guest shell's `configure` decodes it, looks up the member, and hands `config` to that member's `__constructor_make`.
-
-The field order/types are byte-identical to the macro-emitted guest
-`__Provider<Kind>Configure { name: String, config: Vec<u8> }`. `config` is the
-member's own config tuple pre-serialized with fidius's wire codec
-([`fidius_core::wire::serialize`]) — the SAME bytes the guest decodes as the
-member's `__<Struct>Config` today, so a suite-of-one is wire-compatible with the
-pre-suite single-constructor encoding plus the leading name.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String` |  |
-| `config` | `Vec < u8 >` |  |
-
-
-
-### <span id="struct.WasmTaskConstructor"></span>`struct WasmTaskConstructor`
+### <span id="struct.WasmTaskConstructor"></span><code style="font-size: 0.85em">struct WasmTaskConstructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+A loaded, configured WASM task constructor wrapped as a cloacina [`Task`](../../../../../rust/cloacina-workflow/task/#trait.Task).
 
-A loaded, configured WASM task constructor wrapped as a cloacina [`Task`].
-
-Holds the configured fidius [`fidius_host::PluginHandle`] (the
+Holds the configured fidius `fidius_host::PluginHandle` (the
 `configure` hook bound the constructor's config once at load, so per-call
 `execute` dispatches on the already-configured persistent store). The handle
-is held behind an [`Arc`] so the async bridge can hand a `'static + Send`
+is held behind an `Arc` so the async bridge can hand a `'static + Send`
 clone to `spawn_blocking`; concurrent calls are serialized inside the handle
 (the WASM backend guards its store with a mutex).
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `String` |  |
-| `handle` | `Arc < fidius_host :: PluginHandle >` |  |
-| `dependencies` | `Vec < TaskNamespace >` |  |
-
 #### Methods
 
-##### <span id="WasmTaskConstructor.name"></span>`name`
+##### <span id="WasmTaskConstructor.name"></span><code>name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn name (& self) -> & str
+fn name(&self) -> &str
 ```
 
 The constructor's declared name (its task id).
@@ -96,14 +106,9 @@ The constructor's declared name (its task id).
 
 </details>
 
-
-
-
-
-### <span id="struct.TriggerBinding"></span>`struct TriggerBinding`
+### <span id="struct.TriggerBinding"></span><code style="font-size: 0.85em">struct TriggerBinding</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -122,65 +127,42 @@ these are bound here — the trigger analogue of "config binds once at load".
 | `poll_interval` | `Duration` | How often the reconciler polls this trigger (ignored for cron triggers). |
 | `allow_concurrent` | `bool` | Whether concurrent fires with the same context hash are allowed. |
 | `workflow_name` | `String` | The workflow this trigger fires (the `#[trigger(on = "...")]` binding). |
-| `cron_expression` | `Option < String >` | Optional cron expression; `Some` routes to the cron scheduler instead of
-the poll-interval trigger registry. |
+| `cron_expression` | `Option<String>` | Optional cron expression; `Some` routes to the cron scheduler instead of the poll-interval trigger registry. |
 
-
-
-### <span id="struct.WasmTriggerConstructor"></span>`struct WasmTriggerConstructor`
+### <span id="struct.WasmTriggerConstructor"></span><code style="font-size: 0.85em">struct WasmTriggerConstructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+A loaded, configured WASM trigger constructor wrapped as a cloacina [`Trigger`](../../../../../rust/cloacina-workflow/trigger/#trait.Trigger).
 
-A loaded, configured WASM trigger constructor wrapped as a cloacina [`Trigger`].
-
-Mirrors [`WasmTaskConstructor`]: holds the configured fidius handle behind an
-[`Arc`] so the async `poll` bridge can hand a `'static + Send` clone to
-`spawn_blocking`. The host-side [`TriggerBinding`] supplies the scheduling
+Mirrors [`WasmTaskConstructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#struct.WasmTaskConstructor): holds the configured fidius handle behind an
+`Arc` so the async `poll` bridge can hand a `'static + Send` clone to
+`spawn_blocking`. The host-side [`TriggerBinding`](../../../../../rust/cloacina/registry/loader/constructor_loader/#struct.TriggerBinding) supplies the scheduling
 metadata the `Trigger` trait exposes (`poll_interval`, `workflow_name`, …).
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String` |  |
-| `handle` | `Arc < fidius_host :: PluginHandle >` |  |
-| `binding` | `TriggerBinding` |  |
-
-
-
-### <span id="struct.WasmAccumulatorConstructor"></span>`struct WasmAccumulatorConstructor`
+### <span id="struct.WasmAccumulatorConstructor"></span><code style="font-size: 0.85em">struct WasmAccumulatorConstructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+A loaded, configured WASM accumulator constructor wrapped as a cloacina `Accumulator`.
 
-A loaded, configured WASM accumulator constructor wrapped as a cloacina [`Accumulator`].
-
-Holds the configured fidius handle behind an [`Arc`]; each event's `process`
+Holds the configured fidius handle behind an `Arc`; each event's `process`
 dispatches the sync `ingest` into the already-configured sandbox. Its
 `Output` is the boundary's JSON **bytes** (`Vec<u8>`): the
 `BoundarySender` then bincode-serializes that to `bincode(json_bytes)` —
 exactly the canonical boundary frame the reactor's FFI bridge /
-[`capture_fire_inputs`](crate::computation_graph::reactor) decode. Emitting a
+[`capture_fire_inputs`](../../../../../rust/cloacina/computation_graph/reactor/) decode. Emitting a
 `serde_json::Value` would NOT round-trip (bincode is not self-describing), so
 the JSON-bytes shape is both correct and downstream-compatible.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String` |  |
-| `handle` | `Arc < fidius_host :: PluginHandle >` |  |
-
 #### Methods
 
-##### <span id="WasmAccumulatorConstructor.name"></span>`name`
+##### <span id="WasmAccumulatorConstructor.name"></span><code>name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn name (& self) -> & str
+fn name(&self) -> &str
 ```
 
 The accumulator constructor's declared name.
@@ -196,63 +178,39 @@ The accumulator constructor's declared name.
 
 </details>
 
-
-
-
-
-### <span id="struct.ProviderStreamSource"></span>`struct ProviderStreamSource`
+### <span id="struct.ProviderStreamSource"></span><code style="font-size: 0.85em">struct ProviderStreamSource</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+An `EventSource` that drains a native provider's server-streaming `source` (a `fidius_host::ChunkStream` from `fidius_host::PluginHandle::call_streaming`) and pushes each boundary-JSON item onto the accumulator merge channel.
 
-An [`EventSource`] that drains a native provider's server-streaming `source` (a [`fidius_host::ChunkStream`] from [`fidius_host::PluginHandle::call_streaming`]) and pushes each boundary-JSON item onto the accumulator merge channel.
-
-The held `Arc` of [`fidius_host::PluginHandle`] keeps the dlopen'd
+The held `Arc` of `fidius_host::PluginHandle` keeps the dlopen'd
 provider (and thus its stream producer) alive for the stream's lifetime.
 Dropping this source drops the `ChunkStream`, which tears the producer down —
 the fidius host-pull backpressure/teardown contract (REQ-003), matching how an
 `EventSource` shutdown tears a Kafka consumer down.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String` |  |
-| `_handle` | `Arc < fidius_host :: PluginHandle >` |  |
-| `stream` | `fidius_host :: ChunkStream` |  |
-
-
-
-### <span id="struct.WasmReactorConstructor"></span>`struct WasmReactorConstructor`
+### <span id="struct.WasmReactorConstructor"></span><code style="font-size: 0.85em">struct WasmReactorConstructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A loaded, configured WASM reactor constructor.
 
-Holds the configured fidius handle behind an [`Arc`]. Exposes the firing
+Holds the configured fidius handle behind an `Arc`. Exposes the firing
 decision two ways:
-* [`WasmReactorConstructor::evaluate`] — call the bridge directly with a
-pre-serialized boundaries JSON (used by tests / a future scheduler), and
-* the [`ReactorFireDecider`] impl — what a live [`Reactor`] consults via
-`with_evaluator` so the WASM guest IS the firing criteria.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String` |  |
-| `handle` | `Arc < fidius_host :: PluginHandle >` |  |
+  * [`WasmReactorConstructor::evaluate`](../../../../../rust/cloacina/registry/loader/constructor_loader/#WasmReactorConstructor.evaluate) — call the bridge directly with a
+    pre-serialized boundaries JSON (used by tests / a future scheduler), and
+  * the [`ReactorFireDecider`](../../../../../rust/cloacina/computation_graph/reactor/#trait.ReactorFireDecider) impl — what a live [`Reactor`](../../../../../rust/cloacina-computation-graph/#trait.Reactor) consults via
+    `with_evaluator` so the WASM guest IS the firing criteria.
 
 #### Methods
 
-##### <span id="WasmReactorConstructor.name"></span>`name`
+##### <span id="WasmReactorConstructor.name"></span><code>name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn name (& self) -> & str
+fn name(&self) -> &str
 ```
 
 The reactor constructor's declared name.
@@ -268,19 +226,19 @@ The reactor constructor's declared name.
 
 </details>
 
-
-
-##### <span id="WasmReactorConstructor.evaluate"></span>`evaluate`
+##### <span id="WasmReactorConstructor.evaluate"></span><code>evaluate</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn evaluate (& self , boundaries_json : String) -> Result < ReactorOutcome , LoaderError >
+async fn evaluate(
+    &self,
+    boundaries_json: String,
+) -> Result<ReactorOutcome, LoaderError>
 ```
 
-Bridge the firing decision: serialize-free `boundaries_json` in, [`ReactorOutcome`] out. Hops into the blocking wasmtime `evaluate` on a `spawn_blocking` thread (mirrors the task/trigger bridge).
+Bridge the firing decision: serialize-free `boundaries_json` in, `ReactorOutcome` out. Hops into the blocking wasmtime `evaluate` on a `spawn_blocking` thread (mirrors the task/trigger bridge).
 
 <details>
 <summary>Source</summary>
@@ -316,39 +274,28 @@ Bridge the firing decision: serialize-free `boundaries_json` in, [`ReactorOutcom
 
 </details>
 
-
-
-
-
-### <span id="struct.ScopedProviderSearch"></span>`struct ScopedProviderSearch`
+### <span id="struct.ScopedProviderSearch"></span><code style="font-size: 0.85em">struct ScopedProviderSearch</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-RAII guard installing a [`ProviderScope`] on the current thread for the duration of one package load (CLOACI-T-0925).
+RAII guard installing a [`ProviderScope`](../../../../../rust/cloacina/registry/loader/constructor_loader/#enum.ProviderScope) on the current thread for the duration of one package load (CLOACI-T-0925).
 
 Nests: the previous scope is saved and restored on drop, so a load that
 transitively triggers another scoped load cannot strand the outer scope.
+
 **Threads, not futures.** Hold it across synchronous work only (a Python
 module import, a `spawn_blocking` closure). A guard held across an `.await`
 would follow the THREAD, not the task, once the executor moves the future —
 async resolution sites take the directory as an explicit argument instead.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `previous` | `Option < ProviderScope >` |  |
-
 #### Methods
 
-##### <span id="ScopedProviderSearch.enter"></span>`enter`
+##### <span id="ScopedProviderSearch.enter"></span><code>enter</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enter (scope : ProviderScope) -> Self
+fn enter(scope: ProviderScope) -> Self
 ```
 
 Install `scope` on this thread until the guard drops.
@@ -364,15 +311,12 @@ Install `scope` on this thread until the guard drops.
 
 </details>
 
-
-
-##### <span id="ScopedProviderSearch.enter_opt"></span>`enter_opt`
+##### <span id="ScopedProviderSearch.enter_opt"></span><code>enter_​opt</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn enter_opt (scope : Option < ProviderScope >) -> Self
+fn enter_opt(scope: Option<ProviderScope>) -> Self
 ```
 
 Install `scope` (or uninstall any scope, for `None`) on this thread until the guard drops. `None` is what an unscoped caller propagates.
@@ -389,15 +333,12 @@ Install `scope` (or uninstall any scope, for `None`) on this thread until the gu
 
 </details>
 
-
-
-##### <span id="ScopedProviderSearch.for_staged_root"></span>`for_staged_root`
+##### <span id="ScopedProviderSearch.for_staged_root"></span><code>for_​staged_​root</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn for_staged_root (root : Option < std :: path :: PathBuf >) -> Self
+fn for_staged_root(root: Option<std::path::PathBuf>) -> Self
 ```
 
 Install the scope for a package whose bundled providers were staged into `root` (`None` = the package bundles none).
@@ -413,128 +354,222 @@ Install the scope for a package whose bundled providers were staged into `root` 
 
 </details>
 
-
-
-
-
-### <span id="struct.ConstructorNode"></span>`struct ConstructorNode`
+### <span id="struct.ConstructorNode"></span><code style="font-size: 0.85em">struct ConstructorNode</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 A workflow DAG node backed by a packaged WASM task constructor — the runtime representation of a `constructor!(...)` declaration (CLOACI-T-0829).
 
-Wraps the `Arc<dyn Task>` [`load_task_constructor`] returns, overriding its
+Wraps the `Arc<dyn Task>` [`load_task_constructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_task_constructor) returns, overriding its
 `id` (the DAG node id the workflow author chose, which other tasks depend on —
 distinct from the constructor's own `constructor.json` name) and its
 `dependencies` (the workflow-namespaced deps the `constructor!` declared).
 Everything else delegates to the loaded constructor.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `String` |  |
-| `inner` | `Arc < dyn Task >` |  |
-| `dependencies` | `Vec < TaskNamespace >` |  |
-
-
-
-### <span id="struct.OrderedConfig"></span>`struct OrderedConfig`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-The reordered `#[config]` values in the guest's DECLARATION order, serialized as a bincode TUPLE (no length prefix, no field names) — byte-identical to the guest's generated config struct. This is what crosses the sandbox to the `configure` hook once at load.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `0` | `Vec < TypedConfigValue >` |  |
-
-
-
 ## Enums
 
-### <span id="enum.ConstructorBinding"></span>`enum ConstructorBinding`
+### <span id="enum.ConstructorBinding"></span><code style="font-size: 0.85em">enum ConstructorBinding</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-Per-primitive binding the caller supplies to [`load_constructor`]. The variant must match the loaded constructor's `primitive_kind` or the load fails closed.
+Per-primitive binding the caller supplies to [`load_constructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor). The variant must match the loaded constructor's `primitive_kind` or the load fails closed.
 
 #### Variants
 
-- **`Task`** - Register the loaded constructor as a [`Task`] under this namespace.
-- **`Trigger`** - Register the loaded constructor as a [`Trigger`] with this scheduling
-metadata. The trigger is keyed in the registry by the manifest `name`.
+- **`Task`** - Register the loaded constructor as a [`Task`](../../../../../rust/cloacina-workflow/task/#trait.Task) under this namespace.
+- **`Trigger`** - Register the loaded constructor as a [`Trigger`](../../../../../rust/cloacina-workflow/trigger/#trait.Trigger) with this scheduling
+  metadata. The trigger is keyed in the registry by the manifest `name`.
 
-
-
-### <span id="enum.ProviderScope"></span>`enum ProviderScope`
+### <span id="enum.ProviderScope"></span><code style="font-size: 0.85em">enum ProviderScope</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 The provider tree ONE package load resolves `from = ".."` against (CLOACI-T-0925).
 
 #### Variants
 
 - **`Staged`** - The package's OWN bundled providers, unpacked into this directory by the
-reconciler. Highest precedence — it is this package's hermetic world.
+  reconciler. Highest precedence — it is this package's hermetic world.
 - **`Unbundled`** - The package bundles NO providers. Its `from = ".."` refs must not fall
-back to whatever another tenant's load staged, so the process-wide
-override is SKIPPED and resolution falls through to
-[`PROVIDER_PATH_ENV`] / [`DEFAULT_PROVIDER_DIR`] — the same directory the
-pre-T-0925 `clear_provider_search_path()` call left behind, but scoped to
-this load instead of stomping the process.
+  back to whatever another tenant's load staged, so the process-wide
+  override is SKIPPED and resolution falls through to
+  [`PROVIDER_PATH_ENV`](../../../../../rust/cloacina/registry/loader/constructor_loader/#const.PROVIDER_PATH_ENV) / [`DEFAULT_PROVIDER_DIR`](../../../../../rust/cloacina/registry/loader/constructor_loader/#const.DEFAULT_PROVIDER_DIR) — the same directory the
+  pre-T-0925 `clear_provider_search_path()` call left behind, but scoped to
+  this load instead of stomping the process.
 
+#### Methods
 
-
-### <span id="enum.TypedConfigValue"></span>`enum TypedConfigValue`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-A single `#[config]` value resolved from a `constructor!(config = { … })` literal, typed per the constructor manifest's declared field type (CLOACI-T-0829).
-
-fidius binds config via bincode, which is positional + width-sensitive (an `i64`
-field is 8 bytes, an `i32` field 4). Serializing a `serde_json::Value` directly
-would emit the wrong bytes (an enum tag, the wrong width), so each kwarg value is
-coerced into the concrete variant matching the guest's declared field type and
-serialized with the matching serde method — byte-identical to what the guest's
-generated config struct decodes.
-
-#### Variants
-
-- **`Str`**
-- **`Bool`**
-- **`I8`**
-- **`I16`**
-- **`I32`**
-- **`I64`**
-- **`U8`**
-- **`U16`**
-- **`U32`**
-- **`U64`**
-- **`F32`**
-- **`F64`**
-
-
-
-## Functions
-
-### <span id="fn.read_provider_manifest"></span>`fn read_provider_manifest`
+##### <span id="ProviderScope.from_staged_root"></span><code>from_​staged_​root</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn read_provider_manifest (package_dir : & Path) -> Result < ProviderManifest , LoaderError >
+fn from_staged_root(root: Option<std::path::PathBuf>) -> Self
 ```
 
-Read and parse a provider package's `provider.json` into a [`ProviderManifest`].
+`Some(root)` → [`ProviderScope::Staged`](../../../../../rust/cloacina/registry/loader/constructor_loader/#enum.ProviderScope); `None` → [`ProviderScope::Unbundled`](../../../../../rust/cloacina/registry/loader/constructor_loader/#enum.ProviderScope).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn from_staged_root(root: Option<std::path::PathBuf>) -> Self {
+        match root {
+            Some(root) => ProviderScope::Staged(root),
+            None => ProviderScope::Unbundled,
+        }
+    }
+```
+
+</details>
+
+##### <span id="ProviderScope.search_path"></span><code>search_​path</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn search_path(&self) -> std::path::PathBuf
+```
+
+The directory this scope resolves in.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn search_path(&self) -> std::path::PathBuf {
+        match self {
+            ProviderScope::Staged(root) => root.clone(),
+            ProviderScope::Unbundled => provider_search_path_from_env(),
+        }
+    }
+```
+
+</details>
+
+## Traits
+
+### <span id="trait.TaskConstructor"></span><code style="font-size: 0.85em">trait TaskConstructor</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+**Supertraits:** `Send + Sync`
+
+Host-side re-declaration of the TASK-constructor interface. This is the SAME trait shape the guest implements; declaring it with `crate = "fidius_core"` makes the fidius macro emit the matching `TaskConstructor_WASM_DESCRIPTOR` (in the companion `__fidius_TaskConstructor` module) that the loader links the component against. The `fidius-interface-hash` export then gates integrity at load (CLOACI-T-0821).
+
+#### Methods
+
+##### <span id="TaskConstructor.execute"></span><code>execute</code>
+
+```rust
+fn execute(&self, invocation_json: String) -> String
+```
+
+`JSON(TaskInvocation)` in -> `JSON(TaskOutcome)` out. SYNC.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn execute(&self, invocation_json: String) -> String;
+```
+
+</details>
+
+### <span id="trait.TriggerConstructor"></span><code style="font-size: 0.85em">trait TriggerConstructor</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+**Supertraits:** `Send + Sync`
+
+Host-side re-declaration of the TRIGGER-constructor interface (CLOACI-T-0824). Same trait shape the guest implements; the fidius macro emits the matching `TriggerConstructor_WASM_DESCRIPTOR` (in `__fidius_TriggerConstructor`) the loader links the component against. Single SYNC method — the WASM analogue of the async `cloacina_workflow::Trigger::poll`.
+
+#### Methods
+
+##### <span id="TriggerConstructor.poll"></span><code>poll</code>
+
+```rust
+fn poll(&self, invocation_json: String) -> String
+```
+
+`JSON(TriggerInvocation)` in -> `JSON(PollOutcome)` out. SYNC.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn poll(&self, invocation_json: String) -> String;
+```
+
+</details>
+
+### <span id="trait.AccumulatorConstructor"></span><code style="font-size: 0.85em">trait AccumulatorConstructor</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+**Supertraits:** `Send + Sync`
+
+Host-side re-declaration of the ACCUMULATOR-constructor interface (CLOACI-T-0828). Same trait shape the guest implements; the fidius macro emits the matching `AccumulatorConstructor_WASM_DESCRIPTOR` the loader links against. Single SYNC method — the WASM analogue of `Accumulator::process`.
+
+#### Methods
+
+##### <span id="AccumulatorConstructor.ingest"></span><code>ingest</code>
+
+```rust
+fn ingest(&self, invocation_json: String) -> String
+```
+
+`JSON(AccumulatorInvocation)` in -> `JSON(AccumulatorOutcome)` out. SYNC.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn ingest(&self, invocation_json: String) -> String;
+```
+
+</details>
+
+### <span id="trait.ReactorConstructor"></span><code style="font-size: 0.85em">trait ReactorConstructor</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+**Supertraits:** `Send + Sync`
+
+Host-side re-declaration of the REACTOR-constructor interface (CLOACI-T-0828). Same trait shape the guest implements; the fidius macro emits the matching `ReactorConstructor_WASM_DESCRIPTOR` the loader links against. Single SYNC method — the WASM analogue of the reactor's firing-criteria evaluation.
+
+#### Methods
+
+##### <span id="ReactorConstructor.evaluate"></span><code>evaluate</code>
+
+```rust
+fn evaluate(&self, invocation_json: String) -> String
+```
+
+`JSON(ReactorInvocation)` in -> `JSON(ReactorOutcome)` out. SYNC.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn evaluate(&self, invocation_json: String) -> String;
+```
+
+</details>
+
+## Functions
+
+### <span id="fn.read_provider_manifest"></span><code style="font-size: 0.85em">fn read_​provider_​manifest</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn read_provider_manifest(
+    package_dir: &Path,
+) -> Result<ProviderManifest, LoaderError>
+```
+
+Read and parse a provider package's `provider.json` into a `ProviderManifest`.
 
 <details>
 <summary>Source</summary>
@@ -554,273 +589,14 @@ pub fn read_provider_manifest(package_dir: &Path) -> Result<ProviderManifest, Lo
 
 </details>
 
-
-
-### <span id="fn.read_member_manifest"></span>`fn read_member_manifest`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn read_member_manifest (package_dir : & Path , constructor_name : & str ,) -> Result < ConstructorManifest , LoaderError >
-```
-
-Read a provider's `provider.json` and select the named member, failing closed (naming the available members) if the suite has no such constructor.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn read_member_manifest(
-    package_dir: &Path,
-    constructor_name: &str,
-) -> Result<ConstructorManifest, LoaderError> {
-    let provider = read_provider_manifest(package_dir)?;
-    provider
-        .constructor(constructor_name)
-        .cloned()
-        .ok_or_else(|| LoaderError::Validation {
-            reason: format!(
-                "provider '{}' has no constructor '{}'; members: [{}]",
-                provider.name,
-                constructor_name,
-                provider
-                    .constructors
-                    .iter()
-                    .map(|c| c.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        })
-}
-```
-
-</details>
-
-
-
-### <span id="fn.wrap_member_config"></span>`fn wrap_member_config`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn wrap_member_config < C : Serialize > (constructor_name : & str , config : & C ,) -> Result < ProviderConfigure , LoaderError >
-```
-
-Build the [`ProviderConfigure`] name-in-configure wrapper: pre-serialize the member's config tuple with fidius's wire codec, then tag it with the member name the guest shell dispatches on.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn wrap_member_config<C: Serialize>(
-    constructor_name: &str,
-    config: &C,
-) -> Result<ProviderConfigure, LoaderError> {
-    let inner = fidius_core::wire::serialize(config).map_err(|e| LoaderError::Validation {
-        reason: format!("serialize config for constructor '{constructor_name}': {e}"),
-    })?;
-    Ok(ProviderConfigure {
-        name: constructor_name.to_string(),
-        config: inner,
-    })
-}
-```
-
-</details>
-
-
-
-### <span id="fn.resolve_native_provider"></span>`fn resolve_native_provider`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn resolve_native_provider (search_path : & Path , package_name : & str ,) -> Result < Option < (std :: path :: PathBuf , ProviderManifest) > , LoaderError >
-```
-
-Scan `search_path` (one level, mirroring `find_wasm_package`) for a NATIVE provider package named `package_name`. Returns `Ok(None)` when none is present — the package is absent OR is a WASM provider — so the caller falls through to the WASM load path; `Ok(Some((dir, manifest)))` for a native provider.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn resolve_native_provider(
-    search_path: &Path,
-    package_name: &str,
-) -> Result<Option<(std::path::PathBuf, ProviderManifest)>, LoaderError> {
-    if !search_path.is_dir() {
-        return Ok(None);
-    }
-    let entries = std::fs::read_dir(search_path).map_err(|e| LoaderError::FileSystem {
-        path: search_path.display().to_string(),
-        error: e.to_string(),
-    })?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        // Only a directory that holds a parseable provider.json is a candidate.
-        if let Ok(provider) = read_provider_manifest(&path) {
-            if provider.name == package_name && provider.runtime == ProviderRuntime::Native {
-                return Ok(Some((path, provider)));
-            }
-        }
-    }
-    Ok(None)
-}
-```
-
-</details>
-
-
-
-### <span id="fn.load_native_member"></span>`fn load_native_member`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn load_native_member < C : Serialize > (search_path : & Path , package_name : & str , constructor_name : & str , config : & C , expected_kind : PrimitiveKind , expected_iface_version : u32 , holder_plugin : & str ,) -> Result < Option < (fidius_host :: PluginHandle , ConstructorManifest) > , LoaderError >
-```
-
-Load a configured member from a NATIVE provider cdylib. Returns `Ok(None)` when `package_name` is not a native provider in `search_path` (caller then takes the WASM path). On the native path it `dlopen`s the provider cdylib, selects the per-kind holder plugin (`__Provider{Task,Trigger,Accumulator,Reactor}`), and binds the member's config once via `configure_from_loaded`. NO grants/egress are applied (native = trusted, I-0139 (e)).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn load_native_member<C: Serialize>(
-    search_path: &Path,
-    package_name: &str,
-    constructor_name: &str,
-    config: &C,
-    expected_kind: PrimitiveKind,
-    expected_iface_version: u32,
-    holder_plugin: &str,
-) -> Result<Option<(fidius_host::PluginHandle, ConstructorManifest)>, LoaderError> {
-    let Some((dir, provider)) = resolve_native_provider(search_path, package_name)? else {
-        return Ok(None);
-    };
-
-    let member = provider
-        .constructor(constructor_name)
-        .cloned()
-        .ok_or_else(|| LoaderError::Validation {
-            reason: format!(
-                "native provider '{}' has no constructor '{}'; members: [{}]",
-                provider.name,
-                constructor_name,
-                provider
-                    .constructors
-                    .iter()
-                    .map(|c| c.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        })?;
-
-    if member.primitive_kind != expected_kind {
-        return Err(LoaderError::Validation {
-            reason: format!(
-                "constructor '{}' is {:?}, not {:?}",
-                member.name, member.primitive_kind, expected_kind
-            ),
-        });
-    }
-    if member.interface_version != expected_iface_version {
-        return Err(LoaderError::Validation {
-            reason: format!(
-                "native constructor '{}' declares interface v{}, loader supports v{}",
-                member.name, member.interface_version, expected_iface_version
-            ),
-        });
-    }
-
-    // Same name-in-configure wrapper the WASM path uses (positional bincode config
-    // tagged with the member name the suite shell name-dispatches on).
-    let configure = wrap_member_config(constructor_name, config)?;
-    let lib_path = dir.join(&provider.component);
-    let loaded =
-        fidius_host::loader::load_library(&lib_path).map_err(|e| LoaderError::LibraryLoad {
-            path: lib_path.display().to_string(),
-            // Name the host triple: a wrong-arch cdylib (a bundle built on a
-            // different arch, CLOACI-T-0908) dies here and should read as an
-            // arch mismatch, not corruption.
-            error: format!(
-                "load_library (native provider, host triple '{}'): {e} — if this is a \
-                 wrong-arch cdylib, the per-target compiler has not filled this arch yet",
-                crate::fleet::protocol::host_target_triple()
-            ),
-        })?;
-    let plugin = loaded
-        .plugins
-        .into_iter()
-        .find(|p| p.info.name == holder_plugin)
-        .ok_or_else(|| LoaderError::Validation {
-            reason: format!(
-                "native provider '{}' cdylib '{}' has no '{}' plugin (kind {:?})",
-                provider.name, provider.component, holder_plugin, expected_kind
-            ),
-        })?;
-    let handle =
-        fidius_host::PluginHandle::configure_from_loaded(plugin, &configure).map_err(|e| {
-            LoaderError::LibraryLoad {
-                path: lib_path.display().to_string(),
-                error: format!("configure_from_loaded (native provider): {e}"),
-            }
-        })?;
-    // CLOACI-T-0907: surface the trust tier at load — a native provider runs
-    // unsandboxed in-process (grants advisory), unlike sandboxed wasm providers.
-    tracing::info!(
-        provider = %provider.name,
-        constructor = %constructor_name,
-        "loaded NATIVE constructor provider (trusted, unsandboxed in-process; grants advisory)"
-    );
-    Ok(Some((handle, member)))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.exec_err"></span>`fn exec_err`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn exec_err (task_id : & str , message : impl Into < String >) -> TaskError
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn exec_err(task_id: &str, message: impl Into<String>) -> TaskError {
-    TaskError::ExecutionFailed {
-        message: message.into(),
-        task_id: task_id.to_string(),
-        timestamp: Utc::now(),
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.read_constructor_manifest"></span>`fn read_constructor_manifest`
+### <span id="fn.read_constructor_manifest"></span><code style="font-size: 0.85em">fn read_​constructor_​manifest</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn read_constructor_manifest (package_dir : & Path) -> Result < ConstructorManifest , LoaderError >
+fn read_constructor_manifest(
+    package_dir: &Path,
+) -> Result<ConstructorManifest, LoaderError>
 ```
 
 Read and parse a package's sidecar `constructor.json` manifest.
@@ -843,25 +619,29 @@ pub fn read_constructor_manifest(package_dir: &Path) -> Result<ConstructorManife
 
 </details>
 
-
-
-### <span id="fn.load_task_constructor"></span>`fn load_task_constructor`
+### <span id="fn.load_task_constructor"></span><code style="font-size: 0.85em">fn load_​task_​constructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_task_constructor < C : Serialize > (search_path : impl AsRef < Path > , package_name : & str , constructor_name : & str , config : & C , grants : & ResolvedGrants ,) -> Result < Arc < dyn Task > , LoaderError >
+fn load_task_constructor<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+    grants: &ResolvedGrants,
+) -> Result<Arc<dyn Task>, LoaderError>
 ```
 
-Load a WASM **task** constructor and return it as a runnable [`Task`].
+Load a WASM **task** constructor and return it as a runnable [`Task`](../../../../../rust/cloacina-workflow/task/#trait.Task).
 
 `search_path` is a directory containing constructor package subdirectories;
 `package_name` is the `[package].name` in the package's `package.toml` (what
 fidius matches on). `config` binds the constructor's per-instance configuration
 once at load (the `configure` hook) — two loads with different configs yield
 two independently-configured constructors.
-Fails closed (a clear [`LoaderError`]) if the package is missing, the
+
+Fails closed (a clear `LoaderError`) if the package is missing, the
 manifest is unreadable, the primitive is not a `Task`, or the interface
 version doesn't match the contract. (fidius's `fidius-interface-hash` export
 additionally gates ABI integrity inside `load_wasm_configured`.)
@@ -962,27 +742,29 @@ pub fn load_task_constructor<C: Serialize>(
 
 </details>
 
-
-
-### <span id="fn.unpack_provider_archive"></span>`fn unpack_provider_archive`
+### <span id="fn.unpack_provider_archive"></span><code style="font-size: 0.85em">fn unpack_​provider_​archive</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unpack_provider_archive (archive : impl AsRef < Path > , dest : impl AsRef < Path > , verify_keys : & [ed25519_dalek :: VerifyingKey] ,) -> Result < std :: path :: PathBuf , LoaderError >
+fn unpack_provider_archive(
+    archive: impl AsRef<Path>,
+    dest: impl AsRef<Path>,
+    verify_keys: &[ed25519_dalek::VerifyingKey],
+) -> Result<std::path::PathBuf, LoaderError>
 ```
 
-Unpack a packed **provider package** archive (a `.cloacina`/`.fid` produced by [`crate::packaging::constructor_provider::package_constructor_provider`]) into `dest` and, when `verify_keys` is non-empty, verify its Ed25519 `package.sig` against those trusted keys. Returns the unpacked package directory (which contains `package.toml`, the `constructor.json` sidecar, and the `.wasm` component).
+Unpack a packed **provider package** archive (a `.cloacina`/`.fid` produced by [`crate::packaging::constructor_provider::package_constructor_provider`](../../../../../rust/cloacina/packaging/constructor_provider/#fn.package_constructor_provider)) into `dest` and, when `verify_keys` is non-empty, verify its Ed25519 `package.sig` against those trusted keys. Returns the unpacked package directory (which contains `package.toml`, the `constructor.json` sidecar, and the `.wasm` component).
 
 Fails closed at every stage:
-* a structurally-hostile archive (path traversal, absolute path, symlink,
-hardlink, size/ratio bomb, or no `package.toml`) is rejected by
-[`fidius_core::package::unpack_package`];
-* with `verify_keys` supplied, a missing or non-verifying signature — which
-is exactly what tampering with the component or manifest after signing
-produces (the digest no longer matches) — is a hard error via
-[`fidius_host::package::verify_package`].
+  * a structurally-hostile archive (path traversal, absolute path, symlink,
+    hardlink, size/ratio bomb, or no `package.toml`) is rejected by
+    `fidius_core::package::unpack_package`;
+  * with `verify_keys` supplied, a missing or non-verifying signature — which
+    is exactly what tampering with the component or manifest after signing
+    produces (the digest no longer matches) — is a hard error via
+    `fidius_host::package::verify_package`.
+
 An empty `verify_keys` skips signature checking (the unsigned/dev flow); the
 structural archive checks still apply.
 
@@ -1018,25 +800,31 @@ pub fn unpack_provider_archive(
 
 </details>
 
-
-
-### <span id="fn.load_task_constructor_from_package"></span>`fn load_task_constructor_from_package`
+### <span id="fn.load_task_constructor_from_package"></span><code style="font-size: 0.85em">fn load_​task_​constructor_​from_​package</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_task_constructor_from_package < C : Serialize > (archive : impl AsRef < Path > , dest : impl AsRef < Path > , package_name : & str , constructor_name : & str , config : & C , verify_keys : & [ed25519_dalek :: VerifyingKey] , grants : & ResolvedGrants ,) -> Result < Arc < dyn Task > , LoaderError >
+fn load_task_constructor_from_package<C: Serialize>(
+    archive: impl AsRef<Path>,
+    dest: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+    verify_keys: &[ed25519_dalek::VerifyingKey],
+    grants: &ResolvedGrants,
+) -> Result<Arc<dyn Task>, LoaderError>
 ```
 
-Load a WASM **task** constructor from a packed provider archive and return it as a runnable [`Task`].
+Load a WASM **task** constructor from a packed provider archive and return it as a runnable [`Task`](../../../../../rust/cloacina-workflow/task/#trait.Task).
 
-The packaged analogue of [`load_task_constructor`]: it unpacks (and, with
+The packaged analogue of [`load_task_constructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_task_constructor): it unpacks (and, with
 `verify_keys`, verifies the signature of) the provider archive into `dest`,
 then resolves `package_name` out of the unpacked tree exactly as the loose-dir
 loader does (the unpacked package dir lives under `dest`, and fidius matches
 the package by its `[package].name`, not its directory name). `config` binds
 the constructor's per-instance configuration once at load.
+
 Fails closed if the archive is hostile/unsigned-when-required, the package is
 missing, the manifest is unreadable or not a `Task`, or the interface version
 doesn't match the contract.
@@ -1066,18 +854,22 @@ pub fn load_task_constructor_from_package<C: Serialize>(
 
 </details>
 
-
-
-### <span id="fn.load_trigger_constructor"></span>`fn load_trigger_constructor`
+### <span id="fn.load_trigger_constructor"></span><code style="font-size: 0.85em">fn load_​trigger_​constructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_trigger_constructor < C : Serialize > (search_path : impl AsRef < Path > , package_name : & str , constructor_name : & str , config : & C , binding : TriggerBinding , grants : & ResolvedGrants ,) -> Result < Arc < dyn Trigger > , LoaderError >
+fn load_trigger_constructor<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+    binding: TriggerBinding,
+    grants: &ResolvedGrants,
+) -> Result<Arc<dyn Trigger>, LoaderError>
 ```
 
-Load a WASM **trigger** constructor and return it as a runnable [`Trigger`].
+Load a WASM **trigger** constructor and return it as a runnable [`Trigger`](../../../../../rust/cloacina-workflow/trigger/#trait.Trigger).
 
 `config` binds the constructor's per-instance WASM configuration once at load
 (the guest's `configure` hook); `binding` supplies the host-side scheduling
@@ -1176,15 +968,20 @@ pub fn load_trigger_constructor<C: Serialize>(
 
 </details>
 
-
-
-### <span id="fn.load_constructor"></span>`fn load_constructor`
+### <span id="fn.load_constructor"></span><code style="font-size: 0.85em">fn load_​constructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_constructor < C : Serialize > (runtime : & Runtime , search_path : impl AsRef < Path > , package_name : & str , constructor_name : & str , config : & C , binding : ConstructorBinding , grants : & ResolvedGrants ,) -> Result < () , LoaderError >
+fn load_constructor<C: Serialize>(
+    runtime: &Runtime,
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+    binding: ConstructorBinding,
+    grants: &ResolvedGrants,
+) -> Result<(), LoaderError>
 ```
 
 Load a WASM constructor and register the configured primitive into `runtime`, dispatching on the manifest's `primitive_kind`.
@@ -1195,7 +992,8 @@ workflows/schedules: after this returns, `runtime.get_task(ns)` /
 would a macro-authored one. The registered constructor clones a shared `Arc`
 over the single configured fidius handle, so every instantiation dispatches
 into the same sandboxed store.
-Fails closed if the [`ConstructorBinding`] variant doesn't match the constructor's
+
+Fails closed if the [`ConstructorBinding`](../../../../../rust/cloacina/registry/loader/constructor_loader/#enum.ConstructorBinding) variant doesn't match the constructor's
 declared `primitive_kind`, or on any underlying load error.
 
 <details>
@@ -1262,25 +1060,29 @@ pub fn load_constructor<C: Serialize>(
 
 </details>
 
-
-
-### <span id="fn.load_accumulator_constructor"></span>`fn load_accumulator_constructor`
+### <span id="fn.load_accumulator_constructor"></span><code style="font-size: 0.85em">fn load_​accumulator_​constructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_accumulator_constructor < C : Serialize > (search_path : impl AsRef < Path > , package_name : & str , constructor_name : & str , config : & C , grants : & ResolvedGrants ,) -> Result < WasmAccumulatorConstructor , LoaderError >
+fn load_accumulator_constructor<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+    grants: &ResolvedGrants,
+) -> Result<WasmAccumulatorConstructor, LoaderError>
 ```
 
-Load a WASM **accumulator** constructor and return it as a runnable [`Accumulator`].
+Load a WASM **accumulator** constructor and return it as a runnable `Accumulator`.
 
 The returned value is driven by
-[`accumulator_runtime`](crate::computation_graph::accumulator::accumulator_runtime):
+[`accumulator_runtime`](../../../../../rust/cloacina/computation_graph/accumulator/#fn.accumulator_runtime):
 hand it (plus an `AccumulatorContext` carrying the `BoundarySender` to the
 reactor) to that runtime and each socket/source event flows through the
 configured WASM `ingest`. `config` binds the constructor's per-instance WASM
 configuration once at load (the guest's `configure` hook).
+
 Fails closed if the package is missing, the manifest is unreadable, the
 primitive is not an `Accumulator`, or the interface version doesn't match the
 accumulator contract.
@@ -1344,7 +1146,9 @@ pub fn load_accumulator_constructor<C: Serialize>(
         return Err(LoaderError::Validation {
             reason: format!(
                 "constructor '{}' declares accumulator-constructor interface v{}, loader supports v{}",
-                manifest.name, manifest.interface_version, ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION
+                manifest.name,
+                manifest.interface_version,
+                ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION
             ),
         });
     }
@@ -1372,18 +1176,20 @@ pub fn load_accumulator_constructor<C: Serialize>(
 
 </details>
 
-
-
-### <span id="fn.load_stream_accumulator_source"></span>`fn load_stream_accumulator_source`
+### <span id="fn.load_stream_accumulator_source"></span><code style="font-size: 0.85em">fn load_​stream_​accumulator_​source</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn load_stream_accumulator_source < C : Serialize > (search_path : impl AsRef < Path > , package_name : & str , constructor_name : & str , config : & C ,) -> Result < ProviderStreamSource , LoaderError >
+async fn load_stream_accumulator_source<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+) -> Result<ProviderStreamSource, LoaderError>
 ```
 
-Load a NATIVE **stream accumulator** member and start its server-streaming `source`, returning an [`EventSource`] that drives boundary items onto an accumulator's merge channel (feed it to `accumulator_runtime_with_source` with a passthrough [`Accumulator`]).
+Load a NATIVE **stream accumulator** member and start its server-streaming `source`, returning an `EventSource` that drives boundary items onto an accumulator's merge channel (feed it to `accumulator_runtime_with_source` with a passthrough `Accumulator`).
 
 Native-only (a `runtime = "native"` provider whose member carries
 `interface = "stream-accumulator-constructor"`); wasm streaming parity is
@@ -1442,15 +1248,16 @@ pub async fn load_stream_accumulator_source<C: Serialize>(
 
 </details>
 
-
-
-### <span id="fn.load_stream_accumulator_source_from_config"></span>`fn load_stream_accumulator_source_from_config`
+### <span id="fn.load_stream_accumulator_source_from_config"></span><code style="font-size: 0.85em">fn load_​stream_​accumulator_​source_​from_​config</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn load_stream_accumulator_source_from_config (provider_name : & str , constructor_name : & str , config : & std :: collections :: HashMap < String , String > ,) -> Result < ProviderStreamSource , LoaderError >
+async fn load_stream_accumulator_source_from_config(
+    provider_name: &str,
+    constructor_name: &str,
+    config: &std::collections::HashMap<String, String>,
+) -> Result<ProviderStreamSource, LoaderError>
 ```
 
 Load a NATIVE stream-accumulator member declared by a PACKAGED workflow's `[[metadata.accumulators]]` config map (CLOACI-T-0907) and start its source.
@@ -1460,13 +1267,14 @@ The packaged-workflow declaration surface is a name-keyed STRING map
 `#[config]` crosses as bincode of its typed struct. This bridges the two the
 same way `constructor!(config = { … })` nodes do: read the member's declared
 `config_fields` from the provider manifest, bind the map BY NAME
-([`bind_config_by_name`] — fails closed on unknown/missing keys), and encode in
+(`bind_config_by_name` — fails closed on unknown/missing keys), and encode in
 declaration order. String values coerce per the declared field type (`"5"` for
 an `i64` field parses; kafka's fields are all `String`).
-The provider resolves from the ambient [`provider_search_path`] — the same
+
+The provider resolves from the ambient [`provider_search_path`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.provider_search_path) — the same
 `providers/` tree the reconciler unpacks a package's bundled providers into.
 A host that knows which package it is loading should call
-[`load_stream_accumulator_source_from_config_in`] instead: this resolution runs
+[`load_stream_accumulator_source_from_config_in`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_stream_accumulator_source_from_config_in) instead: this resolution runs
 from a spawned accumulator task, so an ambient read can land long after the
 load that staged the providers finished (CLOACI-T-0925).
 
@@ -1491,18 +1299,20 @@ pub async fn load_stream_accumulator_source_from_config(
 
 </details>
 
-
-
-### <span id="fn.load_stream_accumulator_source_from_config_in"></span>`fn load_stream_accumulator_source_from_config_in`
+### <span id="fn.load_stream_accumulator_source_from_config_in"></span><code style="font-size: 0.85em">fn load_​stream_​accumulator_​source_​from_​config_​in</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn load_stream_accumulator_source_from_config_in (search_path : & Path , provider_name : & str , constructor_name : & str , config : & std :: collections :: HashMap < String , String > ,) -> Result < ProviderStreamSource , LoaderError >
+async fn load_stream_accumulator_source_from_config_in(
+    search_path: &Path,
+    provider_name: &str,
+    constructor_name: &str,
+    config: &std::collections::HashMap<String, String>,
+) -> Result<ProviderStreamSource, LoaderError>
 ```
 
-[`load_stream_accumulator_source_from_config`] against an EXPLICIT provider directory (CLOACI-T-0925) — the root captured when the accumulator's declaration was built, not whatever the process global holds when the spawned stream task happens to run.
+[`load_stream_accumulator_source_from_config`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_stream_accumulator_source_from_config) against an EXPLICIT provider directory (CLOACI-T-0925) — the root captured when the accumulator's declaration was built, not whatever the process global holds when the spawned stream task happens to run.
 
 <details>
 <summary>Source</summary>
@@ -1521,11 +1331,11 @@ pub async fn load_stream_accumulator_source_from_config_in(
         resolve_native_provider(&search_path, provider_name)?.ok_or_else(|| {
             LoaderError::Validation {
                 reason: format!(
-                "stream accumulator declares provider '{provider_name}' but no NATIVE provider \
+                    "stream accumulator declares provider '{provider_name}' but no NATIVE provider \
                  by that name exists under '{}' (bundle it with the package, or check the \
                  provider/runtime — wasm stream providers are CLOACI-T-0906/0907 follow-up)",
-                search_path.display()
-            ),
+                    search_path.display()
+                ),
             }
         })?;
     let member = provider
@@ -1586,24 +1396,28 @@ pub async fn load_stream_accumulator_source_from_config_in(
 
 </details>
 
-
-
-### <span id="fn.load_reactor_constructor"></span>`fn load_reactor_constructor`
+### <span id="fn.load_reactor_constructor"></span><code style="font-size: 0.85em">fn load_​reactor_​constructor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_reactor_constructor < C : Serialize > (search_path : impl AsRef < Path > , package_name : & str , constructor_name : & str , config : & C , grants : & ResolvedGrants ,) -> Result < WasmReactorConstructor , LoaderError >
+fn load_reactor_constructor<C: Serialize>(
+    search_path: impl AsRef<Path>,
+    package_name: &str,
+    constructor_name: &str,
+    config: &C,
+    grants: &ResolvedGrants,
+) -> Result<WasmReactorConstructor, LoaderError>
 ```
 
 Load a WASM **reactor** constructor and return its configured firing-decision bridge.
 
-Hand the returned [`WasmReactorConstructor`] to
-[`Reactor::with_evaluator`](crate::computation_graph::reactor::Reactor::with_evaluator)
+Hand the returned [`WasmReactorConstructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#struct.WasmReactorConstructor) to
+[`Reactor::with_evaluator`](../../../../../rust/cloacina/computation_graph/reactor/#Reactor.with_evaluator)
 (as an `Arc<dyn ReactorFireDecider>`) so the running reactor consults the WASM
 guest's `evaluate` for its firing decision. `config` binds the constructor's
 per-instance WASM configuration once at load.
+
 Fails closed if the package is missing, the manifest is unreadable, the
 primitive is not a `Reactor`, or the interface version doesn't match the
 reactor contract.
@@ -1695,22 +1509,19 @@ pub fn load_reactor_constructor<C: Serialize>(
 
 </details>
 
-
-
-### <span id="fn.set_provider_search_path"></span>`fn set_provider_search_path`
+### <span id="fn.set_provider_search_path"></span><code style="font-size: 0.85em">fn set_​provider_​search_​path</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_provider_search_path (path : impl Into < std :: path :: PathBuf >)
+fn set_provider_search_path(path: impl Into<std::path::PathBuf>)
 ```
 
-Set the process-wide provider search path used to resolve `constructor!` `from = "..."` references. Takes precedence over [`PROVIDER_PATH_ENV`].
+Set the process-wide provider search path used to resolve `constructor!` `from = "..."` references. Takes precedence over [`PROVIDER_PATH_ENV`](../../../../../rust/cloacina/registry/loader/constructor_loader/#const.PROVIDER_PATH_ENV).
 
 Embedded / single-tenant use only. A multi-tenant host (the server's
 reconciler) must NOT set this — it scopes each package load instead
-([`ScopedProviderSearch`] / the `*_in` loader entry points), because one
+([`ScopedProviderSearch`](../../../../../rust/cloacina/registry/loader/constructor_loader/#struct.ScopedProviderSearch) / the `*_in` loader entry points), because one
 process-wide directory makes every tenant's staged providers visible to
 every other tenant's resolution (CLOACI-T-0925).
 
@@ -1725,15 +1536,12 @@ pub fn set_provider_search_path(path: impl Into<std::path::PathBuf>) {
 
 </details>
 
-
-
-### <span id="fn.clear_provider_search_path"></span>`fn clear_provider_search_path`
+### <span id="fn.clear_provider_search_path"></span><code style="font-size: 0.85em">fn clear_​provider_​search_​path</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn clear_provider_search_path ()
+fn clear_provider_search_path()
 ```
 
 Clear the process-wide provider search-path override (falls back to env/default).
@@ -1749,22 +1557,19 @@ pub fn clear_provider_search_path() {
 
 </details>
 
-
-
-### <span id="fn.current_provider_scope"></span>`fn current_provider_scope`
+### <span id="fn.current_provider_scope"></span><code style="font-size: 0.85em">fn current_​provider_​scope</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn current_provider_scope () -> Option < ProviderScope >
+fn current_provider_scope() -> Option<ProviderScope>
 ```
 
 The provider scope installed on this thread (`None` when unscoped).
 
 Capture this before spawning a thread that will resolve constructors on the
 caller's behalf (the Python loader does exactly that) and re-install it there
-with [`ScopedProviderSearch::enter_opt`] — a thread-local does not follow a
+with [`ScopedProviderSearch::enter_opt`](../../../../../rust/cloacina/registry/loader/constructor_loader/#ScopedProviderSearch.enter_opt) — a thread-local does not follow a
 `std::thread::spawn` / `spawn_blocking` hop on its own.
 
 <details>
@@ -1778,55 +1583,25 @@ pub fn current_provider_scope() -> Option<ProviderScope> {
 
 </details>
 
-
-
-### <span id="fn.provider_search_path_from_env"></span>`fn provider_search_path_from_env`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn provider_search_path_from_env () -> std :: path :: PathBuf
-```
-
-[`PROVIDER_PATH_ENV`] else [`DEFAULT_PROVIDER_DIR`] — the deployment-level directory, with no process override and no per-load scope applied.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn provider_search_path_from_env() -> std::path::PathBuf {
-    if let Ok(p) = std::env::var(PROVIDER_PATH_ENV) {
-        if !p.is_empty() {
-            return std::path::PathBuf::from(p);
-        }
-    }
-    std::path::PathBuf::from(DEFAULT_PROVIDER_DIR)
-}
-```
-
-</details>
-
-
-
-### <span id="fn.provider_search_path"></span>`fn provider_search_path`
+### <span id="fn.provider_search_path"></span><code style="font-size: 0.85em">fn provider_​search_​path</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn provider_search_path () -> std :: path :: PathBuf
+fn provider_search_path() -> std::path::PathBuf
 ```
 
 The directory `constructor!(from = ...)` resolves provider packages in.
 
 Precedence (highest first, CLOACI-T-0925):
-1. the per-load [`ProviderScope`] installed on this thread
-([`ScopedProviderSearch`]) — the tenant/package-scoped world;
-2. the process-wide [`set_provider_search_path`] override — the
-embedded/single-tenant convenience knob;
-3. [`PROVIDER_PATH_ENV`];
-4. [`DEFAULT_PROVIDER_DIR`].
+
+  1. the per-load [`ProviderScope`](../../../../../rust/cloacina/registry/loader/constructor_loader/#enum.ProviderScope) installed on this thread
+     ([`ScopedProviderSearch`](../../../../../rust/cloacina/registry/loader/constructor_loader/#struct.ScopedProviderSearch)) — the tenant/package-scoped world;
+  2. the process-wide [`set_provider_search_path`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.set_provider_search_path) override — the
+     embedded/single-tenant convenience knob;
+  3. [`PROVIDER_PATH_ENV`](../../../../../rust/cloacina/registry/loader/constructor_loader/#const.PROVIDER_PATH_ENV);
+  4. [`DEFAULT_PROVIDER_DIR`](../../../../../rust/cloacina/registry/loader/constructor_loader/#const.DEFAULT_PROVIDER_DIR).
+
 With no scope installed this is byte-for-byte the pre-T-0925 behavior.
 
 <details>
@@ -1846,154 +1621,15 @@ pub fn provider_search_path() -> std::path::PathBuf {
 
 </details>
 
-
-
-### <span id="fn.provider_package_name"></span>`fn provider_package_name`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn provider_package_name (from : & str) -> & str
-```
-
-Strip an optional `@version` suffix from a `from = "name[@version]"` reference, yielding the fidius `[package].name` the loader matches on.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn provider_package_name(from: &str) -> &str {
-    match from.split_once('@') {
-        Some((name, _ver)) => name,
-        None => from,
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.provider_version_pin"></span>`fn provider_version_pin`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn provider_version_pin (from : & str) -> Option < & str >
-```
-
-The optional `@version` pin from a `from = "name[@version]"` reference.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn provider_version_pin(from: &str) -> Option<&str> {
-    from.split_once('@').map(|(_name, ver)| ver)
-}
-```
-
-</details>
-
-
-
-### <span id="fn.version_satisfies_pin"></span>`fn version_satisfies_pin`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn version_satisfies_pin (actual : & str , pin : & str) -> bool
-```
-
-True when the provider's actual `version` satisfies the author's pin: exact equality or a SEGMENT prefix ("0.1" matches 0.1.x but NOT 0.10.x — hence the trailing dot). Mirrors the build-side filter in `packaging::provider_bundle::resolve_provider_crate` so a ref that bundled also loads (CLOACI-T-0833).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn version_satisfies_pin(actual: &str, pin: &str) -> bool {
-    actual == pin || actual.starts_with(&format!("{pin}."))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.enforce_version_pin"></span>`fn enforce_version_pin`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn enforce_version_pin (context : & str , from : & str , dir : & Path) -> Result < () , LoaderError >
-```
-
-Enforce a `from = "name@version"` pin against the RESOLVED provider's `provider.json` version (CLOACI-T-0833). No pin → no check. Fails closed with a clear error naming both versions on mismatch.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn enforce_version_pin(context: &str, from: &str, dir: &Path) -> Result<(), LoaderError> {
-    let Some(pin) = provider_version_pin(from) else {
-        return Ok(());
-    };
-    let provider = read_provider_manifest(dir)?;
-    if version_satisfies_pin(&provider.version, pin) {
-        return Ok(());
-    }
-    Err(LoaderError::Validation {
-        reason: format!(
-            "{context}: provider '{}' resolved at version {} but the reference \
-             pins @{pin} — restage the pinned provider version or update the pin",
-            provider.name, provider.version
-        ),
-    })
-}
-```
-
-</details>
-
-
-
-### <span id="fn.runtime_literal"></span>`fn runtime_literal`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn runtime_literal (runtime : ProviderRuntime) -> & 'static str
-```
-
-The `runtime = "..."` spelling of a [`ProviderRuntime`] — the consumer-surface literal, so error messages tell the author exactly what to type.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn runtime_literal(runtime: ProviderRuntime) -> &'static str {
-    match runtime {
-        ProviderRuntime::Wasm => "wasm",
-        ProviderRuntime::Native => "native",
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.parse_runtime_pin"></span>`fn parse_runtime_pin`
+### <span id="fn.parse_runtime_pin"></span><code style="font-size: 0.85em">fn parse_​runtime_​pin</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn parse_runtime_pin (context : & str , literal : & str) -> Result < ProviderRuntime , LoaderError >
+fn parse_runtime_pin(
+    context: &str,
+    literal: &str,
+) -> Result<ProviderRuntime, LoaderError>
 ```
 
 Parse a consumer-surface `runtime = "wasm"|"native"` literal (CLOACI-T-0920).
@@ -2021,362 +1657,39 @@ pub fn parse_runtime_pin(context: &str, literal: &str) -> Result<ProviderRuntime
 
 </details>
 
-
-
-### <span id="fn.enforce_runtime_pin"></span>`fn enforce_runtime_pin`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn enforce_runtime_pin (context : & str , from : & str , search_path : & Path , package_name : & str , pin : Option < ProviderRuntime > , grants : & GrantSpec ,) -> Result < Option < std :: path :: PathBuf > , LoaderError >
-```
-
-Enforce the T-0920 trust-tier rules for one constructor consumption site.
-
-`context` is the caller-facing prefix (e.g. `constructor node 'greet'`), `from`
-the provider reference as written, `pin` the author's optional
-`runtime = "wasm"|"native"`, and `grants` what the author asked to be enforced.
-Returns `Some(dir)` when the provider resolved as NATIVE (its package directory,
-so the caller can skip the wasm-only `find_wasm_package`), `None` for wasm. Fails
-closed on either rule; on the accepted native-with-acknowledged-grants path it
-emits a `warn!` so the decorative grants are still visible in the log.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn enforce_runtime_pin(
-    context: &str,
-    from: &str,
-    search_path: &Path,
-    package_name: &str,
-    pin: Option<ProviderRuntime>,
-    grants: &GrantSpec,
-) -> Result<Option<std::path::PathBuf>, LoaderError> {
-    // A `runtime = "native"` provider is found by scanning for its `provider.json`;
-    // anything else is treated as wasm and left to the caller's normal
-    // `find_wasm_package` resolution (which owns the canonical "provider not found"
-    // diagnostic). Assuming `Wasm` for an absent package is deliberate: this decides
-    // TRUST TIER, not existence.
-    let native_dir = resolve_native_provider(search_path, package_name)?.map(|(dir, _)| dir);
-    let resolved = match native_dir {
-        Some(_) => ProviderRuntime::Native,
-        None => ProviderRuntime::Wasm,
-    };
-
-    // Rule 1 — an explicit pin must match the resolved provider exactly.
-    if let Some(pinned) = pin {
-        if pinned != resolved {
-            return Err(LoaderError::Validation {
-                reason: format!(
-                    "{context} (from = '{from}'): pinned runtime = \"{}\" but provider \
-                     '{package_name}' resolved as runtime = \"{}\". A provider changing runtime \
-                     between versions is a BREAKING change (grants are enforced on wasm, advisory \
-                     on native) — restage the pinned runtime, or update the pin deliberately",
-                    runtime_literal(pinned),
-                    runtime_literal(resolved),
-                ),
-            });
-        }
-    }
-
-    // Rule 2 — grants present + native resolved + no explicit acknowledgement.
-    if resolved == ProviderRuntime::Native && !grants.is_empty() {
-        if pin != Some(ProviderRuntime::Native) {
-            return Err(LoaderError::Validation {
-                reason: format!(
-                    "{context} (from = '{from}'): grants are not enforced on native providers; \
-                     either pin runtime = \"wasm\", acknowledge with runtime = \"native\", or \
-                     remove grants"
-                ),
-            });
-        }
-        tracing::warn!(
-            context = %context,
-            from = %from,
-            provider = %package_name,
-            "grants declared against a NATIVE provider are ADVISORY ONLY (acknowledged via \
-             runtime = \"native\"): the constructor runs unsandboxed in-process with full host \
-             trust"
-        );
-    }
-
-    Ok(native_dir)
-}
-```
-
-</details>
-
-
-
-### <span id="fn.coerce_config_value"></span>`fn coerce_config_value`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn coerce_config_value (key : & str , ty : & str , value : & serde_json :: Value ,) -> Result < TypedConfigValue , String >
-```
-
-Coerce one kwarg JSON value into the [`TypedConfigValue`] matching the declared Rust type `ty` (the manifest's `ConfigField::ty`). Returns a clear, key-named error if the literal's JSON kind doesn't fit the declared type.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn coerce_config_value(
-    key: &str,
-    ty: &str,
-    value: &serde_json::Value,
-) -> Result<TypedConfigValue, String> {
-    let wrong =
-        |want: &str| format!("config field '{key}' expects {want} (declared `{ty}`), got {value}");
-    match ty {
-        "String" | "str" => value
-            .as_str()
-            .map(|s| TypedConfigValue::Str(s.to_string()))
-            .ok_or_else(|| wrong("a string")),
-        "bool" => value
-            .as_bool()
-            .map(TypedConfigValue::Bool)
-            .ok_or_else(|| wrong("a boolean")),
-        "i8" => int_in_range::<i8>(value)
-            .map(TypedConfigValue::I8)
-            .ok_or_else(|| wrong("an i8")),
-        "i16" => int_in_range::<i16>(value)
-            .map(TypedConfigValue::I16)
-            .ok_or_else(|| wrong("an i16")),
-        "i32" => int_in_range::<i32>(value)
-            .map(TypedConfigValue::I32)
-            .ok_or_else(|| wrong("an i32")),
-        // `isize` is serialized as i64 by serde/bincode, so it shares this arm.
-        "i64" | "isize" => value
-            .as_i64()
-            .map(TypedConfigValue::I64)
-            .ok_or_else(|| wrong("an i64")),
-        "u8" => uint_in_range::<u8>(value)
-            .map(TypedConfigValue::U8)
-            .ok_or_else(|| wrong("a u8")),
-        "u16" => uint_in_range::<u16>(value)
-            .map(TypedConfigValue::U16)
-            .ok_or_else(|| wrong("a u16")),
-        "u32" => uint_in_range::<u32>(value)
-            .map(TypedConfigValue::U32)
-            .ok_or_else(|| wrong("a u32")),
-        // `usize` is serialized as u64 by serde/bincode, so it shares this arm.
-        "u64" | "usize" => value
-            .as_u64()
-            .map(TypedConfigValue::U64)
-            .ok_or_else(|| wrong("a u64")),
-        "f32" => value
-            .as_f64()
-            .map(|f| TypedConfigValue::F32(f as f32))
-            .ok_or_else(|| wrong("a number")),
-        "f64" => value
-            .as_f64()
-            .map(TypedConfigValue::F64)
-            .ok_or_else(|| wrong("a number")),
-        other => Err(format!(
-            "config field '{key}' has unsupported declared type `{other}`; \
-             constructor config supports string/bool/integer/float literals"
-        )),
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.int_in_range"></span>`fn int_in_range`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn int_in_range < T : TryFrom < i64 > > (value : & serde_json :: Value) -> Option < T >
-```
-
-Narrow a JSON integer into a signed target width, rejecting out-of-range.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn int_in_range<T: TryFrom<i64>>(value: &serde_json::Value) -> Option<T> {
-    value.as_i64().and_then(|v| T::try_from(v).ok())
-}
-```
-
-</details>
-
-
-
-### <span id="fn.uint_in_range"></span>`fn uint_in_range`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn uint_in_range < T : TryFrom < u64 > > (value : & serde_json :: Value) -> Option < T >
-```
-
-Narrow a JSON integer into an unsigned target width, rejecting out-of-range.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn uint_in_range<T: TryFrom<u64>>(value: &serde_json::Value) -> Option<T> {
-    value.as_u64().and_then(|v| T::try_from(v).ok())
-}
-```
-
-</details>
-
-
-
-### <span id="fn.bind_config_by_name"></span>`fn bind_config_by_name`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn bind_config_by_name (node_id : & str , from : & str , constructor_name : & str , manifest : & ConstructorManifest , mut author : Vec < (String , serde_json :: Value) > ,) -> Result < OrderedConfig , LoaderError >
-```
-
-Bind the author's `config = { name = value }` kwargs BY NAME against the constructor's declared `#[config]` schema (CLOACI-T-0829), reordering them into the guest's declaration order and coercing each to its declared type.
-
-Enforces true kwarg semantics, failing closed with a key-named error on:
-* an UNKNOWN config key (not a declared `#[config]` field),
-* a DUPLICATE config key,
-* a MISSING declared field, or
-* a value whose JSON kind doesn't fit the declared type.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn bind_config_by_name(
-    node_id: &str,
-    from: &str,
-    constructor_name: &str,
-    manifest: &ConstructorManifest,
-    mut author: Vec<(String, serde_json::Value)>,
-) -> Result<OrderedConfig, LoaderError> {
-    let ctx = |reason: String| {
-        LoaderError::Validation {
-        reason: format!(
-            "constructor node '{node_id}' (from = '{from}', constructor = '{constructor_name}'): {reason}"
-        ),
-    }
-    };
-    let declared: Vec<&str> = manifest
-        .config_fields
-        .iter()
-        .map(|f| f.name.as_str())
-        .collect();
-
-    // Reject unknown keys up front (names the offending key, lists the valid set).
-    for (k, _) in &author {
-        if !declared.contains(&k.as_str()) {
-            return Err(ctx(format!(
-                "config key '{k}' is not a #[config] field of constructor '{}'. \
-                 Declared config fields: [{}]",
-                manifest.name,
-                declared.join(", ")
-            )));
-        }
-    }
-
-    // Pull each declared field's value in DECLARATION order; absence is an error.
-    let mut ordered = Vec::with_capacity(manifest.config_fields.len());
-    for field in &manifest.config_fields {
-        let pos = author.iter().position(|(k, _)| k == &field.name);
-        let value = match pos {
-            Some(i) => author.remove(i).1,
-            None => {
-                return Err(ctx(format!(
-                    "missing required config field '{}' for constructor '{}'",
-                    field.name, manifest.name
-                )))
-            }
-        };
-        let typed = coerce_config_value(&field.name, &field.ty, &value).map_err(ctx)?;
-        ordered.push(typed);
-    }
-
-    // Anything left over (unknown keys were already rejected) is a duplicate key.
-    if let Some((dup, _)) = author.into_iter().next() {
-        return Err(ctx(format!("duplicate config key '{dup}'")));
-    }
-
-    Ok(OrderedConfig(ordered))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.lint_constructor_grants"></span>`fn lint_constructor_grants`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn lint_constructor_grants (node_id : & str , from : & str , dir : & Path , grants : & GrantSpec)
-```
-
-Load-time capability lint (REQ-1.3.1 / [[CLOACI-S-0014]]): read the package's declared `[wasm].capabilities` (the author's stated intent) and emit a warning for each capability the tenant's `grants` don't cover. Advisory only — best-effort (a manifest we can't read is silently skipped); enforcement still fails closed at runtime. This turns "this constructor wants `http` you didn't grant" from a mystery runtime denial into a load-time heads-up.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn lint_constructor_grants(node_id: &str, from: &str, dir: &Path, grants: &GrantSpec) {
-    let Ok(pkg) = fidius_core::package::load_manifest_untyped(dir) else {
-        return;
-    };
-    let Some(wasm) = pkg.wasm.as_ref() else {
-        return;
-    };
-    for warning in lint_unmet_intents(&wasm.capabilities, grants) {
-        tracing::warn!(node = %node_id, from = %from, "{warning}");
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.load_constructor_node"></span>`fn load_constructor_node`
+### <span id="fn.load_constructor_node"></span><code style="font-size: 0.85em">fn load_​constructor_​node</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_constructor_node (node_id : & str , from : & str , constructor_name : & str , config : Vec < (String , serde_json :: Value) > , dependencies : Vec < TaskNamespace > , grants : GrantSpec ,) -> Result < Arc < dyn Task > , LoaderError >
+fn load_constructor_node(
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    dependencies: Vec<TaskNamespace>,
+    grants: GrantSpec,
+) -> Result<Arc<dyn Task>, LoaderError>
 ```
 
 Resolve + load a packaged constructor as a workflow DAG node (the runtime half of the `constructor!(...)` consumer form).
 
-Resolves `from` against the [`provider_search_path`], reads the resolved
+Resolves `from` against the [`provider_search_path`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.provider_search_path), reads the resolved
 constructor's manifest to learn its `#[config]` schema, binds the author's
-`config = { name = value }` kwargs BY NAME ([`bind_config_by_name`]), loads the
+`config = { name = value }` kwargs BY NAME (`bind_config_by_name`), loads the
 named `constructor` via the packaged task-constructor loader (binding the
 reordered config once), validates that the provider actually carries the
-requested constructor, and wraps it as a [`ConstructorNode`] carrying the
+requested constructor, and wraps it as a [`ConstructorNode`](../../../../../rust/cloacina/registry/loader/constructor_loader/#struct.ConstructorNode) carrying the
 author-chosen `node_id` + the workflow-namespaced `dependencies`.
+
 `config` is the author's `config = { … }` entries as `(name, value)` pairs in
 WRITTEN order. fidius binds config via bincode (positional, NOT self-describing),
 so before loading we **reorder** the values into the constructor's `#[config]`
 DECLARATION order — read from the manifest's `config_fields` — and coerce each to
 its declared type. This gives `config = { name = value }` true kwarg semantics:
 the field NAMES bind the values, not their written order.
-Fails closed (a clear [`LoaderError`]) if the provider is missing, the manifest
+
+Fails closed (a clear `LoaderError`) if the provider is missing, the manifest
 is unreadable / not a `Task`, the interface version mismatches, a config kwarg is
 unknown / duplicated / missing / mistyped, or the resolved constructor name does
 not match `constructor_name`.
@@ -2407,25 +1720,30 @@ pub fn load_constructor_node(
 
 </details>
 
-
-
-### <span id="fn.load_constructor_node_pinned"></span>`fn load_constructor_node_pinned`
+### <span id="fn.load_constructor_node_pinned"></span><code style="font-size: 0.85em">fn load_​constructor_​node_​pinned</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_constructor_node_pinned (node_id : & str , from : & str , constructor_name : & str , config : Vec < (String , serde_json :: Value) > , dependencies : Vec < TaskNamespace > , grants : GrantSpec , runtime_pin : Option < ProviderRuntime > ,) -> Result < Arc < dyn Task > , LoaderError >
+fn load_constructor_node_pinned(
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    dependencies: Vec<TaskNamespace>,
+    grants: GrantSpec,
+    runtime_pin: Option<ProviderRuntime>,
+) -> Result<Arc<dyn Task>, LoaderError>
 ```
 
-[`load_constructor_node`] with the author's optional trust-tier pin (`constructor!(.., runtime = "wasm"|"native")` — CLOACI-T-0920).
+[`load_constructor_node`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor_node) with the author's optional trust-tier pin (`constructor!(.., runtime = "wasm"|"native")` — CLOACI-T-0920).
 
 This is what the `#[workflow]` macro emits. The pin rides the Rust signature
 rather than the packaged FFI declaration struct
-([`cloacina_workflow_plugin::ConstructorPackageMetadata`], which crosses a
+(`cloacina_workflow_plugin::ConstructorPackageMetadata`, which crosses a
 **bincode** wire via `get_constructor_metadata` — appending a field there would
 mis-decode every already-built cdylib). Packaged workflows therefore resolve
-through the unpinned [`load_constructor_node`] and are still protected, because
+through the unpinned [`load_constructor_node`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor_node) and are still protected, because
 the grants-present-but-unenforced rule keys off `grants`, which already cross the
 wire.
 
@@ -2457,21 +1775,26 @@ pub fn load_constructor_node_pinned(
 
 </details>
 
-
-
-### <span id="fn.load_constructor_node_in"></span>`fn load_constructor_node_in`
+### <span id="fn.load_constructor_node_in"></span><code style="font-size: 0.85em">fn load_​constructor_​node_​in</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_constructor_node_in (search_path : & Path , node_id : & str , from : & str , constructor_name : & str , config : Vec < (String , serde_json :: Value) > , dependencies : Vec < TaskNamespace > , grants : GrantSpec ,) -> Result < Arc < dyn Task > , LoaderError >
+fn load_constructor_node_in(
+    search_path: &Path,
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    dependencies: Vec<TaskNamespace>,
+    grants: GrantSpec,
+) -> Result<Arc<dyn Task>, LoaderError>
 ```
 
-[`load_constructor_node`] against an EXPLICIT provider directory (CLOACI-T-0925) — no shared state is read, so a multi-tenant host resolves each package against the tree it staged for that package and nothing else.
+[`load_constructor_node`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor_node) against an EXPLICIT provider directory (CLOACI-T-0925) — no shared state is read, so a multi-tenant host resolves each package against the tree it staged for that package and nothing else.
 
 This is the primitive; the ambient-path forms above are thin wrappers that
-supply [`provider_search_path`]. Host-side callers that know which package
+supply [`provider_search_path`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.provider_search_path). Host-side callers that know which package
 they are loading (the reconciler, the CG scheduler, provider-backed stream
 accumulators) MUST use this form: they resolve from spawned tasks that can
 outlive any process-global the load set.
@@ -2504,18 +1827,24 @@ pub fn load_constructor_node_in(
 
 </details>
 
-
-
-### <span id="fn.load_constructor_node_pinned_in"></span>`fn load_constructor_node_pinned_in`
+### <span id="fn.load_constructor_node_pinned_in"></span><code style="font-size: 0.85em">fn load_​constructor_​node_​pinned_​in</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_constructor_node_pinned_in (search_path : & Path , node_id : & str , from : & str , constructor_name : & str , config : Vec < (String , serde_json :: Value) > , dependencies : Vec < TaskNamespace > , grants : GrantSpec , runtime_pin : Option < ProviderRuntime > ,) -> Result < Arc < dyn Task > , LoaderError >
+fn load_constructor_node_pinned_in(
+    search_path: &Path,
+    node_id: &str,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    dependencies: Vec<TaskNamespace>,
+    grants: GrantSpec,
+    runtime_pin: Option<ProviderRuntime>,
+) -> Result<Arc<dyn Task>, LoaderError>
 ```
 
-[`load_constructor_node_pinned`] against an EXPLICIT provider directory (CLOACI-T-0925). See [`load_constructor_node_in`].
+[`load_constructor_node_pinned`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor_node_pinned) against an EXPLICIT provider directory (CLOACI-T-0925). See [`load_constructor_node_in`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor_node_in).
 
 <details>
 <summary>Source</summary>
@@ -2618,31 +1947,35 @@ pub fn load_constructor_node_pinned_in(
 
 </details>
 
-
-
-### <span id="fn.load_reactor_constructor_node"></span>`fn load_reactor_constructor_node`
+### <span id="fn.load_reactor_constructor_node"></span><code style="font-size: 0.85em">fn load_​reactor_​constructor_​node</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_reactor_constructor_node (from : & str , constructor_name : & str , config : Vec < (String , serde_json :: Value) > , grants : GrantSpec ,) -> Result < Arc < dyn ReactorFireDecider > , LoaderError >
+fn load_reactor_constructor_node(
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    grants: GrantSpec,
+) -> Result<Arc<dyn ReactorFireDecider>, LoaderError>
 ```
 
 Resolve + load a packaged WASM **reactor** constructor as a firing decider for the CG scheduler (the runtime half of the `#[reactor(from = .., constructor = .., config = { .. })]` authoring form — CLOACI-T-0830).
 
-Resolves `from` against the [`provider_search_path`], reads the resolved
+Resolves `from` against the [`provider_search_path`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.provider_search_path), reads the resolved
 constructor's manifest to learn its `#[config]` schema, binds the author's
-`config = { name = value }` kwargs BY NAME ([`bind_config_by_name`], reordered
+`config = { name = value }` kwargs BY NAME (`bind_config_by_name`, reordered
 into the guest's declaration order), loads the named reactor constructor via
-[`load_reactor_constructor`] (binding the reordered config once), validates the
+[`load_reactor_constructor`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_reactor_constructor) (binding the reordered config once), validates the
 resolved constructor's name matches `constructor_name`, and returns it as an
 `Arc<dyn ReactorFireDecider>` ready for
-[`Reactor::with_evaluator`](crate::computation_graph::reactor::Reactor::with_evaluator).
+[`Reactor::with_evaluator`](../../../../../rust/cloacina/computation_graph/reactor/#Reactor.with_evaluator).
+
 `config` is the author's `config = { … }` entries as `(name, value)` pairs in
-WRITTEN order; the reorder/coerce is identical to [`load_constructor_node`] (the
+WRITTEN order; the reorder/coerce is identical to [`load_constructor_node`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor_node) (the
 task/trigger node form) so config binds by NAME, not written order.
-Fails closed (a clear [`LoaderError`]) if the provider is missing, the manifest
+
+Fails closed (a clear `LoaderError`) if the provider is missing, the manifest
 is unreadable / not a `Reactor`, the interface version mismatches, a config kwarg
 is unknown / duplicated / missing / mistyped, or the resolved constructor name
 does not match `constructor_name`.
@@ -2663,18 +1996,21 @@ pub fn load_reactor_constructor_node(
 
 </details>
 
-
-
-### <span id="fn.load_reactor_constructor_node_pinned"></span>`fn load_reactor_constructor_node_pinned`
+### <span id="fn.load_reactor_constructor_node_pinned"></span><code style="font-size: 0.85em">fn load_​reactor_​constructor_​node_​pinned</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_reactor_constructor_node_pinned (from : & str , constructor_name : & str , config : Vec < (String , serde_json :: Value) > , grants : GrantSpec , runtime_pin : Option < ProviderRuntime > ,) -> Result < Arc < dyn ReactorFireDecider > , LoaderError >
+fn load_reactor_constructor_node_pinned(
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    grants: GrantSpec,
+    runtime_pin: Option<ProviderRuntime>,
+) -> Result<Arc<dyn ReactorFireDecider>, LoaderError>
 ```
 
-[`load_reactor_constructor_node`] with the author's optional trust-tier pin (`#[reactor(.., runtime = "wasm"|"native")]` — CLOACI-T-0920). Same semantics as [`load_constructor_node_pinned`]; see that function for why the pin is carried host-side rather than on the packaged FFI declaration.
+[`load_reactor_constructor_node`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_reactor_constructor_node) with the author's optional trust-tier pin (`#[reactor(.., runtime = "wasm"|"native")]` — CLOACI-T-0920). Same semantics as [`load_constructor_node_pinned`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_constructor_node_pinned); see that function for why the pin is carried host-side rather than on the packaged FFI declaration.
 
 <details>
 <summary>Source</summary>
@@ -2700,18 +2036,22 @@ pub fn load_reactor_constructor_node_pinned(
 
 </details>
 
-
-
-### <span id="fn.load_reactor_constructor_node_pinned_in"></span>`fn load_reactor_constructor_node_pinned_in`
+### <span id="fn.load_reactor_constructor_node_pinned_in"></span><code style="font-size: 0.85em">fn load_​reactor_​constructor_​node_​pinned_​in</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load_reactor_constructor_node_pinned_in (search_path : & Path , from : & str , constructor_name : & str , config : Vec < (String , serde_json :: Value) > , grants : GrantSpec , runtime_pin : Option < ProviderRuntime > ,) -> Result < Arc < dyn ReactorFireDecider > , LoaderError >
+fn load_reactor_constructor_node_pinned_in(
+    search_path: &Path,
+    from: &str,
+    constructor_name: &str,
+    config: Vec<(String, serde_json::Value)>,
+    grants: GrantSpec,
+    runtime_pin: Option<ProviderRuntime>,
+) -> Result<Arc<dyn ReactorFireDecider>, LoaderError>
 ```
 
-[`load_reactor_constructor_node_pinned`] against an EXPLICIT provider directory (CLOACI-T-0925). The CG scheduler resolves a reactor constructor on a `spawn_blocking` thread, i.e. off the load's task — it must carry the package's staged root rather than read process-global state that another tenant's load may already have re-pointed.
+[`load_reactor_constructor_node_pinned`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.load_reactor_constructor_node_pinned) against an EXPLICIT provider directory (CLOACI-T-0925). The CG scheduler resolves a reactor constructor on a `spawn_blocking` thread, i.e. off the load's task — it must carry the package's staged root rather than read process-global state that another tenant's load may already have re-pointed.
 
 <details>
 <summary>Source</summary>
@@ -2808,5 +2148,11 @@ pub fn load_reactor_constructor_node_pinned_in(
 
 </details>
 
+## Constants
 
-
+| Name | Type | Value | Description |
+|------|------|-------|-------------|
+| <span id="const.CONSTRUCTOR_MANIFEST_FILE"></span>`CONSTRUCTOR_MANIFEST_FILE` | `&str` | `"constructor.json"` | The sidecar manifest filename inside a WASM constructor package. |
+| <span id="const.PROVIDER_MANIFEST_FILE"></span>`PROVIDER_MANIFEST_FILE` | `&str` | `"provider.json"` | The provider-index filename inside a WASM provider package (CLOACI-A-0011): the `ProviderManifest` listing every member constructor the suite exposes. |
+| <span id="const.PROVIDER_PATH_ENV"></span>`PROVIDER_PATH_ENV` | `&str` | `"CLOACINA_PROVIDER_PATH"` | Environment variable naming the directory `constructor!(from = ...)` resolves provider packages in (overridden by [`set_provider_search_path`](../../../../../rust/cloacina/registry/loader/constructor_loader/#fn.set_provider_search_path)). |
+| <span id="const.DEFAULT_PROVIDER_DIR"></span>`DEFAULT_PROVIDER_DIR` | `&str` | `"providers"` | Default provider search-path directory (relative to CWD) when neither the process override nor [`PROVIDER_PATH_ENV`](../../../../../rust/cloacina/registry/loader/constructor_loader/#const.PROVIDER_PATH_ENV) is set. |
