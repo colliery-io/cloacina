@@ -173,7 +173,8 @@ jobs:
       - name: List runnable examples (sharded)
         id: list
         run: |
-          shards=$(angreal demos matrix --shards 4)
+          # T-0966 DIAGNOSTIC ONLY (revert before merge): one Python example.
+          shards='[{"shard": 1, "examples": "python-cron"}]'
           echo "$shards"
           echo "shards=$shards" >> "$GITHUB_OUTPUT"
 

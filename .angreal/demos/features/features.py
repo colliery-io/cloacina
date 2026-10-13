@@ -366,8 +366,12 @@ def _run_gold_path(
             server_proc is not None
             and server_proc.poll() is None
             and sys.platform.startswith("linux")
-            and shutil.which("gdb")
         ):
+            if not shutil.which("gdb"):
+                subprocess.run(
+                    ["sudo", "-n", "apt-get", "install", "-y", "-qq", "gdb"],
+                    capture_output=True, timeout=300, check=False,
+                )
             dump = subprocess.run(
                 ["sudo", "-n", "gdb", "-p", str(server_proc.pid), "-batch",
                  "-ex", "set pagination off", "-ex", "thread apply all bt"],
@@ -377,6 +381,8 @@ def _run_gold_path(
                 line[:220] for line in dump.stdout.splitlines()
                 if line.startswith(("Thread ", "#"))
             ]
+            if not frames:
+                frames = [f"gdb rc={dump.returncode}", *dump.stderr.splitlines()[-20:]]
             tails.append("--- server threads (gdb) ---\n" + "\n".join(frames[:900]))
         raise RuntimeError(f"{exc}\n\n" + "\n\n".join(tails)) from exc
     finally:
