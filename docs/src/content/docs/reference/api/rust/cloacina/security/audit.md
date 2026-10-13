@@ -1,13 +1,13 @@
 ---
 title: "cloacina::security::audit"
 description: "Security audit logging for SIEM integration."
+editUrl: false
 sidebar:
-  order: 207
+  order: 189
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Security audit logging for SIEM integration.
 
@@ -15,18 +15,23 @@ This module provides structured audit logging for all security-sensitive operati
 - Package loads (success/failure)
 - Key operations (create, revoke, trust)
 - Signature verification
+
 All events use structured fields compatible with common SIEM systems.
 Events are logged using the `tracing` crate at appropriate levels.
 
 ## Functions
 
-### <span id="fn.log_signing_key_created"></span>`fn log_signing_key_created`
+### <span id="fn.log_signing_key_created"></span><code style="font-size: 0.85em">fn log_​signing_​key_​created</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_signing_key_created (org_id : UniversalUuid , key_id : UniversalUuid , key_fingerprint : & str , key_name : & str ,)
+fn log_signing_key_created(
+    org_id: UniversalUuid,
+    key_id: UniversalUuid,
+    key_fingerprint: &str,
+    key_name: &str,
+)
 ```
 
 Log a signing key creation event.
@@ -54,15 +59,16 @@ pub fn log_signing_key_created(
 
 </details>
 
-
-
-### <span id="fn.log_signing_key_create_failed"></span>`fn log_signing_key_create_failed`
+### <span id="fn.log_signing_key_create_failed"></span><code style="font-size: 0.85em">fn log_​signing_​key_​create_​failed</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_signing_key_create_failed (org_id : UniversalUuid , key_name : & str , error : & str)
+fn log_signing_key_create_failed(
+    org_id: UniversalUuid,
+    key_name: &str,
+    error: &str,
+)
 ```
 
 Log a signing key creation failure.
@@ -84,15 +90,17 @@ pub fn log_signing_key_create_failed(org_id: UniversalUuid, key_name: &str, erro
 
 </details>
 
-
-
-### <span id="fn.log_signing_key_revoked"></span>`fn log_signing_key_revoked`
+### <span id="fn.log_signing_key_revoked"></span><code style="font-size: 0.85em">fn log_​signing_​key_​revoked</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_signing_key_revoked (org_id : UniversalUuid , key_id : UniversalUuid , key_fingerprint : & str , key_name : Option < & str > ,)
+fn log_signing_key_revoked(
+    org_id: UniversalUuid,
+    key_id: UniversalUuid,
+    key_fingerprint: &str,
+    key_name: Option<&str>,
+)
 ```
 
 Log a signing key revocation event.
@@ -120,15 +128,12 @@ pub fn log_signing_key_revoked(
 
 </details>
 
-
-
-### <span id="fn.log_key_exported"></span>`fn log_key_exported`
+### <span id="fn.log_key_exported"></span><code style="font-size: 0.85em">fn log_​key_​exported</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_key_exported (key_id : UniversalUuid , key_fingerprint : & str)
+fn log_key_exported(key_id: UniversalUuid, key_fingerprint: &str)
 ```
 
 Log a public key export event.
@@ -149,15 +154,17 @@ pub fn log_key_exported(key_id: UniversalUuid, key_fingerprint: &str) {
 
 </details>
 
-
-
-### <span id="fn.log_trusted_key_added"></span>`fn log_trusted_key_added`
+### <span id="fn.log_trusted_key_added"></span><code style="font-size: 0.85em">fn log_​trusted_​key_​added</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_trusted_key_added (org_id : UniversalUuid , key_id : UniversalUuid , key_fingerprint : & str , key_name : Option < & str > ,)
+fn log_trusted_key_added(
+    org_id: UniversalUuid,
+    key_id: UniversalUuid,
+    key_fingerprint: &str,
+    key_name: Option<&str>,
+)
 ```
 
 Log a trusted key addition event.
@@ -185,15 +192,12 @@ pub fn log_trusted_key_added(
 
 </details>
 
-
-
-### <span id="fn.log_trusted_key_revoked"></span>`fn log_trusted_key_revoked`
+### <span id="fn.log_trusted_key_revoked"></span><code style="font-size: 0.85em">fn log_​trusted_​key_​revoked</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_trusted_key_revoked (key_id : UniversalUuid)
+fn log_trusted_key_revoked(key_id: UniversalUuid)
 ```
 
 Log a trusted key revocation event.
@@ -213,15 +217,15 @@ pub fn log_trusted_key_revoked(key_id: UniversalUuid) {
 
 </details>
 
-
-
-### <span id="fn.log_trust_acl_granted"></span>`fn log_trust_acl_granted`
+### <span id="fn.log_trust_acl_granted"></span><code style="font-size: 0.85em">fn log_​trust_​acl_​granted</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_trust_acl_granted (parent_org : UniversalUuid , child_org : UniversalUuid)
+fn log_trust_acl_granted(
+    parent_org: UniversalUuid,
+    child_org: UniversalUuid,
+)
 ```
 
 Log a trust ACL grant event.
@@ -242,15 +246,15 @@ pub fn log_trust_acl_granted(parent_org: UniversalUuid, child_org: UniversalUuid
 
 </details>
 
-
-
-### <span id="fn.log_trust_acl_revoked"></span>`fn log_trust_acl_revoked`
+### <span id="fn.log_trust_acl_revoked"></span><code style="font-size: 0.85em">fn log_​trust_​acl_​revoked</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_trust_acl_revoked (parent_org : UniversalUuid , child_org : UniversalUuid)
+fn log_trust_acl_revoked(
+    parent_org: UniversalUuid,
+    child_org: UniversalUuid,
+)
 ```
 
 Log a trust ACL revocation event.
@@ -271,15 +275,16 @@ pub fn log_trust_acl_revoked(parent_org: UniversalUuid, child_org: UniversalUuid
 
 </details>
 
-
-
-### <span id="fn.log_package_signed"></span>`fn log_package_signed`
+### <span id="fn.log_package_signed"></span><code style="font-size: 0.85em">fn log_​package_​signed</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_package_signed (package_path : & str , package_hash : & str , key_fingerprint : & str)
+fn log_package_signed(
+    package_path: &str,
+    package_hash: &str,
+    key_fingerprint: &str,
+)
 ```
 
 Log a package signing event.
@@ -301,15 +306,12 @@ pub fn log_package_signed(package_path: &str, package_hash: &str, key_fingerprin
 
 </details>
 
-
-
-### <span id="fn.log_package_sign_failed"></span>`fn log_package_sign_failed`
+### <span id="fn.log_package_sign_failed"></span><code style="font-size: 0.85em">fn log_​package_​sign_​failed</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_package_sign_failed (package_path : & str , error : & str)
+fn log_package_sign_failed(package_path: &str, error: &str)
 ```
 
 Log a package signing failure.
@@ -330,15 +332,18 @@ pub fn log_package_sign_failed(package_path: &str, error: &str) {
 
 </details>
 
-
-
-### <span id="fn.log_package_load_success"></span>`fn log_package_load_success`
+### <span id="fn.log_package_load_success"></span><code style="font-size: 0.85em">fn log_​package_​load_​success</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_package_load_success (org_id : UniversalUuid , package_path : & str , package_hash : & str , signer_fingerprint : Option < & str > , signature_verified : bool ,)
+fn log_package_load_success(
+    org_id: UniversalUuid,
+    package_path: &str,
+    package_hash: &str,
+    signer_fingerprint: Option<&str>,
+    signature_verified: bool,
+)
 ```
 
 Log a package load success event.
@@ -368,15 +373,17 @@ pub fn log_package_load_success(
 
 </details>
 
-
-
-### <span id="fn.log_package_load_failure"></span>`fn log_package_load_failure`
+### <span id="fn.log_package_load_failure"></span><code style="font-size: 0.85em">fn log_​package_​load_​failure</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_package_load_failure (org_id : UniversalUuid , package_path : & str , error : & str , failure_reason : & str ,)
+fn log_package_load_failure(
+    org_id: UniversalUuid,
+    package_path: &str,
+    error: &str,
+    failure_reason: &str,
+)
 ```
 
 Log a package load failure event.
@@ -404,15 +411,17 @@ pub fn log_package_load_failure(
 
 </details>
 
-
-
-### <span id="fn.log_verification_success"></span>`fn log_verification_success`
+### <span id="fn.log_verification_success"></span><code style="font-size: 0.85em">fn log_​verification_​success</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_verification_success (org_id : UniversalUuid , package_hash : & str , signer_fingerprint : & str , signer_name : Option < & str > ,)
+fn log_verification_success(
+    org_id: UniversalUuid,
+    package_hash: &str,
+    signer_fingerprint: &str,
+    signer_name: Option<&str>,
+)
 ```
 
 Log a verification success event.
@@ -440,15 +449,17 @@ pub fn log_verification_success(
 
 </details>
 
-
-
-### <span id="fn.log_verification_failure"></span>`fn log_verification_failure`
+### <span id="fn.log_verification_failure"></span><code style="font-size: 0.85em">fn log_​verification_​failure</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_verification_failure (org_id : UniversalUuid , package_hash : & str , failure_reason : & str , signer_fingerprint : Option < & str > ,)
+fn log_verification_failure(
+    org_id: UniversalUuid,
+    package_hash: &str,
+    failure_reason: &str,
+    signer_fingerprint: Option<&str>,
+)
 ```
 
 Log a verification failure event.
@@ -476,15 +487,17 @@ pub fn log_verification_failure(
 
 </details>
 
-
-
-### <span id="fn.log_tenant_teardown_step"></span>`fn log_tenant_teardown_step`
+### <span id="fn.log_tenant_teardown_step"></span><code style="font-size: 0.85em">fn log_​tenant_​teardown_​step</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_tenant_teardown_step (event_type : & 'static str , tenant_id : & str , count : usize , step_duration_ms : u64 ,)
+fn log_tenant_teardown_step(
+    event_type: &'static str,
+    tenant_id: &str,
+    count: usize,
+    step_duration_ms: u64,
+)
 ```
 
 CLOACI-T-0581: log a successful tenant teardown step. `step` is one of the `TENANT_TEARDOWN_*` event-kind constants. Each step also carries its row/entity count (e.g. number of keys revoked) so operators can sanity-check at a glance.
@@ -511,15 +524,16 @@ pub fn log_tenant_teardown_step(
 
 </details>
 
-
-
-### <span id="fn.log_tenant_teardown_outcome"></span>`fn log_tenant_teardown_outcome`
+### <span id="fn.log_tenant_teardown_outcome"></span><code style="font-size: 0.85em">fn log_​tenant_​teardown_​outcome</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_tenant_teardown_outcome (tenant_id : & str , success : bool , total_duration_ms : u64)
+fn log_tenant_teardown_outcome(
+    tenant_id: &str,
+    success: bool,
+    total_duration_ms: u64,
+)
 ```
 
 CLOACI-T-0581: log the overall teardown outcome.
@@ -549,15 +563,19 @@ pub fn log_tenant_teardown_outcome(tenant_id: &str, success: bool, total_duratio
 
 </details>
 
-
-
-### <span id="fn.log_compiler_build_started"></span>`fn log_compiler_build_started`
+### <span id="fn.log_compiler_build_started"></span><code style="font-size: 0.85em">fn log_​compiler_​build_​started</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_compiler_build_started (build_claim_id : UniversalUuid , package_name : & str , package_version : & str , cargo_toml_hash : & str , cargo_lock_hash : Option < & str > , compiler_instance_id : UniversalUuid ,)
+fn log_compiler_build_started(
+    build_claim_id: UniversalUuid,
+    package_name: &str,
+    package_version: &str,
+    cargo_toml_hash: &str,
+    cargo_lock_hash: Option<&str>,
+    compiler_instance_id: UniversalUuid,
+)
 ```
 
 Log a compiler build start event. Emitted by `cloacina-compiler` once per build claim, after the source archive is unpacked and content hashes are computed, just before the cargo subprocess fires. CLOACI-T-0576.
@@ -589,15 +607,25 @@ pub fn log_compiler_build_started(
 
 </details>
 
-
-
-### <span id="fn.log_compiler_build_finished"></span>`fn log_compiler_build_finished`
+### <span id="fn.log_compiler_build_finished"></span><code style="font-size: 0.85em">fn log_​compiler_​build_​finished</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_compiler_build_finished (build_claim_id : UniversalUuid , package_name : & str , package_version : & str , cargo_toml_hash : & str , cargo_lock_hash : Option < & str > , compiler_instance_id : UniversalUuid , outcome : & str , exit_status : Option < i32 > , exit_signal : Option < & str > , wall_clock_ms : u64 , failure_reason : Option < & str > , sandbox_level : & str ,)
+fn log_compiler_build_finished(
+    build_claim_id: UniversalUuid,
+    package_name: &str,
+    package_version: &str,
+    cargo_toml_hash: &str,
+    cargo_lock_hash: Option<&str>,
+    compiler_instance_id: UniversalUuid,
+    outcome: &str,
+    exit_status: Option<i32>,
+    exit_signal: Option<&str>,
+    wall_clock_ms: u64,
+    failure_reason: Option<&str>,
+    sandbox_level: &str,
+)
 ```
 
 Log a compiler build finished event. Emitted exactly once per build claim on every outcome path (`success`, `failed`, `timeout_killed`, `internal_error`). CLOACI-T-0576.
@@ -651,15 +679,19 @@ pub fn log_compiler_build_finished(
 
 </details>
 
-
-
-### <span id="fn.log_reactor_manual_fire"></span>`fn log_reactor_manual_fire`
+### <span id="fn.log_reactor_manual_fire"></span><code style="font-size: 0.85em">fn log_​reactor_​manual_​fire</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_reactor_manual_fire (reactor : & str , key_id : UniversalUuid , key_name : & str , tenant_id : Option < & str > , mode : & str , sources : & [String] ,)
+fn log_reactor_manual_fire(
+    reactor: &str,
+    key_id: UniversalUuid,
+    key_name: &str,
+    tenant_id: Option<&str>,
+    mode: &str,
+    sources: &[String],
+)
 ```
 
 CLOACI-T-0751: log an operator manual reactor fire.
@@ -697,15 +729,18 @@ pub fn log_reactor_manual_fire(
 
 </details>
 
-
-
-### <span id="fn.log_accumulator_manual_inject"></span>`fn log_accumulator_manual_inject`
+### <span id="fn.log_accumulator_manual_inject"></span><code style="font-size: 0.85em">fn log_​accumulator_​manual_​inject</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_accumulator_manual_inject (accumulator : & str , key_id : UniversalUuid , key_name : & str , tenant_id : Option < & str > , delivered : usize ,)
+fn log_accumulator_manual_inject(
+    accumulator: &str,
+    key_id: UniversalUuid,
+    key_name: &str,
+    tenant_id: Option<&str>,
+    delivered: usize,
+)
 ```
 
 Audit an operator's manual REST injection into an accumulator (CLOACI-T-0753).
@@ -736,15 +771,17 @@ pub fn log_accumulator_manual_inject(
 
 </details>
 
-
-
-### <span id="fn.log_login_lockout"></span>`fn log_login_lockout`
+### <span id="fn.log_login_lockout"></span><code style="font-size: 0.85em">fn log_​login_​lockout</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn log_login_lockout (throttle_key : & str , scope : & str , failure_count : i32 , locked_for_seconds : i64 ,)
+fn log_login_lockout(
+    throttle_key: &str,
+    scope: &str,
+    failure_count: i32,
+    locked_for_seconds: i64,
+)
 ```
 
 Log a local-login lockout (CLOACI-T-0923, I-0118 OQ-13).
@@ -776,6 +813,3 @@ pub fn log_login_lockout(
 ```
 
 </details>
-
-
-

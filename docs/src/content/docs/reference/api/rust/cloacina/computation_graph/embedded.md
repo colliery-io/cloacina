@@ -1,13 +1,13 @@
 ---
 title: "cloacina::computation_graph::embedded"
 description: "Embedded computation-graph runtime builder (CLOACI-T-0738)."
+editUrl: false
 sidebar:
-  order: 57
+  order: 41
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Embedded computation-graph runtime builder (CLOACI-T-0738).
 
@@ -16,45 +16,35 @@ Replaces the ~60-line hand-wired `main()` block (four channels, an
 unused `manual_rx`, two `tokio::spawn`s) that embedded CG examples used to
 copy-paste. The production scheduler already does all of that wiring in
 `load_graph`; this is the embedded-friendly face of the same machinery:
+
 ```rust
 let graph = EmbeddedGraph::spawn(my_graph_declaration()).await?;
 graph.push("prices", &serde_json::json!({"symbol": "X", "px": 42.0})).await?;
 // ... later
 graph.shutdown().await;
 ```
+
 Manual wiring still works — this is additive.
 
 ## Structs
 
-### <span id="struct.EmbeddedGraph"></span>`struct EmbeddedGraph`
+### <span id="struct.EmbeddedGraph"></span><code style="font-size: 0.85em">struct EmbeddedGraph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-A running embedded computation graph: accumulators spawned, reactor live, events pushed via [`push`](Self::push). Dropping the value does NOT stop the graph — call [`shutdown`](Self::shutdown).
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `scheduler` | `ComputationGraphScheduler` |  |
-| `registry` | `EndpointRegistry` |  |
-| `graph_name` | `String` |  |
-| `tenant_id` | `Option < String >` | Tenant the declaration was loaded under (`None` for the usual
-untenanted embedded graph). CLOACI-T-0921: endpoint lookups are
-`(tenant, name)`-scoped, so pushes must carry the same scope the
-scheduler registered under. |
+A running embedded computation graph: accumulators spawned, reactor live, events pushed via `push`. Dropping the value does NOT stop the graph — call `shutdown`.
 
 #### Methods
 
-##### <span id="EmbeddedGraph.spawn"></span>`spawn`
+##### <span id="EmbeddedGraph.spawn"></span><code>spawn</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn spawn (decl : ComputationGraphDeclaration) -> Result < Self , String >
+async fn spawn(
+    decl: ComputationGraphDeclaration,
+) -> Result<Self, String>
 ```
 
 Wire and spawn `decl` (accumulators + reactor + compiled graph fn) — the whole block embedded examples used to hand-write.
@@ -80,16 +70,17 @@ Wire and spawn `decl` (accumulators + reactor + compiled graph fn) — the whole
 
 </details>
 
-
-
-##### <span id="EmbeddedGraph.push"></span>`push`
+##### <span id="EmbeddedGraph.push"></span><code>push</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn push (& self , accumulator : & str , event : & impl Serialize) -> Result < () , String >
+async fn push(
+    &self) -> Result<(,
+    accumulator: &str) -> Result<(,
+    event: &impl Serialize) -> Result<(,
+) -> Result<(), String>
 ```
 
 Push a JSON-serializable event into an accumulator by name (the same raw-JSON socket contract the server's WS/REST injection uses).
@@ -106,16 +97,17 @@ Push a JSON-serializable event into an accumulator by name (the same raw-JSON so
 
 </details>
 
-
-
-##### <span id="EmbeddedGraph.push_raw"></span>`push_raw`
+##### <span id="EmbeddedGraph.push_raw"></span><code>push_​raw</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn push_raw (& self , accumulator : & str , bytes : Vec < u8 >) -> Result < () , String >
+async fn push_raw(
+    &self) -> Result<(,
+    accumulator: &str) -> Result<(,
+    bytes: Vec<u8>) -> Result<(,
+) -> Result<(), String>
 ```
 
 Push pre-encoded raw event bytes into an accumulator by name.
@@ -139,15 +131,12 @@ Push pre-encoded raw event bytes into an accumulator by name.
 
 </details>
 
-
-
-##### <span id="EmbeddedGraph.graph_name"></span>`graph_name`
+##### <span id="EmbeddedGraph.graph_name"></span><code>graph_​name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn graph_name (& self) -> & str
+fn graph_name(&self) -> &str
 ```
 
 The graph's name (== reactor name for self-reactor declarations).
@@ -163,15 +152,12 @@ The graph's name (== reactor name for self-reactor declarations).
 
 </details>
 
-
-
-##### <span id="EmbeddedGraph.scheduler"></span>`scheduler`
+##### <span id="EmbeddedGraph.scheduler"></span><code>scheduler</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn scheduler (& self) -> & ComputationGraphScheduler
+fn scheduler(&self) -> &ComputationGraphScheduler
 ```
 
 Escape hatch: the underlying scheduler, for anything the lean surface doesn't cover (manual force-fire, health, additional graphs).
@@ -187,15 +173,12 @@ Escape hatch: the underlying scheduler, for anything the lean surface doesn't co
 
 </details>
 
-
-
-##### <span id="EmbeddedGraph.registry"></span>`registry`
+##### <span id="EmbeddedGraph.registry"></span><code>registry</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn registry (& self) -> & EndpointRegistry
+fn registry(&self) -> &EndpointRegistry
 ```
 
 Escape hatch: the endpoint registry (reactor handles, health).
@@ -211,16 +194,13 @@ Escape hatch: the endpoint registry (reactor handles, health).
 
 </details>
 
-
-
-##### <span id="EmbeddedGraph.shutdown"></span>`shutdown`
+##### <span id="EmbeddedGraph.shutdown"></span><code>shutdown</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn shutdown (self)
+async fn shutdown(self)
 ```
 
 Stop the reactor and accumulators.
@@ -235,8 +215,3 @@ Stop the reactor and accumulators.
 ```
 
 </details>
-
-
-
-
-

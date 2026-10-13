@@ -1,27 +1,149 @@
 ---
 title: "cloacina::execution_planner"
 description: "API reference of the Rust module cloacina::execution_planner."
+editUrl: false
 sidebar:
-  order: 128
+  order: 111
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
+**Task Scheduler**
 
+The Task Scheduler converts Workflow definitions into persistent database execution plans
+and manages task readiness based on dependencies and trigger rules.
 
+**Overview**
+
+The scheduler builds on existing Cloacina components:
+- **Workflow**: Task definitions and dependency graphs
+- **Context**: Type-safe serializable execution context
+- **Database**: Persistent execution state tracking
+- **DAL**: Data access layer for database operations
+
+**Key Features**
+
+- Convert Workflow instances into database execution plans
+- Manage task state transitions based on dependencies
+- Support advanced trigger rules for conditional execution
+- Coordinate with executor through database state
+- Context management and merging for task dependencies
+
+Recovery of orphaned tasks is handled out-of-band by
+[`stale_claim_sweeper::StaleClaimSweeper`](../../../rust/cloacina/execution_planner/stale_claim_sweeper/#struct.StaleClaimSweeper), which releases stale claims
+based on heartbeat expiry rather than wall-clock task status.
+
+**Task State Management**
+
+Tasks transition through the following states:
+- **NotStarted**: Initial state when task is created
+- **Pending**: Waiting for dependencies to complete
+- **Ready**: Dependencies satisfied, ready for execution
+- **Running**: Currently being executed
+- **Completed**: Successfully finished
+- **Failed**: Execution failed
+- **Skipped**: Skipped due to trigger rules
+- **Abandoned**: Permanently failed after recovery attempts
+
+**Error Handling & Recovery**
+
+The scheduler relies on per-task retry policies for failure handling.
+Orphaned tasks (claimed by a runner whose heartbeat has expired) are
+reclaimed by the stale claim sweeper rather than by scheduler startup.
+
+**Context Management**
+
+Context handling follows these rules:
+- Initial context provided at workflow execution
+- Single dependency: inherits context directly
+- Multiple dependencies: merges contexts with later overrides
+- Type-safe serialization/deserialization
+- Validation of context values in trigger rules
+
+**Performance Considerations**
+
+- Scheduling loop runs every second by default
+- Efficient database queries for task state updates
+- Batch processing of task readiness checks
+- Optimized context merging for multiple dependencies
+- Minimal database locking for concurrent operations
+
+**Thread Safety**
+
+The scheduler is designed for concurrent operation:
+- Thread-safe database operations
+- Atomic task state transitions
+- Safe context merging for parallel tasks
+- Lock-free trigger rule evaluation
+
+**Usage**
+
+```rust
+use cloacina::{workflow, task, Context, Database, TaskError};
+use cloacina::execution_planner::TaskScheduler;
+
+// Define tasks
+#[task(id = "fetch-data", dependencies = [])]
+async fn fetch_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+    context.insert("data", serde_json::json!({"status": "fetched"}))?;
+    Ok(())
+}
+
+// Create workflow
+let workflow = workflow! {
+    name: "data-pipeline",
+    description: "Simple data processing workflow",
+    tasks: [fetch_data]
+};
+
+// Schedule execution
+let database = Database::new("postgresql://localhost/cloacina")?;
+let scheduler = TaskScheduler::new(database, vec![workflow]);
+let input_context = Context::new();
+let execution_id = scheduler.schedule_workflow_execution("data-pipeline", input_context).await?;
+
+// Run scheduling loop
+scheduler.run_scheduling_loop().await?;
+```
+
+## Re-exports
+
+- [`TriggerCondition`](../../../rust/cloacina/execution_planner/trigger_rules/#enum.TriggerCondition)
+- [`TriggerRule`](../../../rust/cloacina/execution_planner/trigger_rules/#enum.TriggerRule)
+- [`ValueOperator`](../../../rust/cloacina/execution_planner/trigger_rules/#enum.ValueOperator)
 
 ## Structs
 
-### <span id="struct.TaskScheduler"></span>`struct TaskScheduler`
+### <span id="struct.TaskScheduler"></span><code style="font-size: 0.85em">struct TaskScheduler</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 The main Task Scheduler that manages workflow execution and task readiness.
 
 The TaskScheduler converts Workflow definitions into persistent database execution plans,
 tracks task state transitions, and manages dependencies through trigger rules.
+
+**Thread Safety**
+
+The TaskScheduler is designed to be thread-safe and can be shared across multiple threads.
+All database operations are performed through a connection pool, and state transitions
+are handled atomically.
+
+**Error Handling**
+
+The scheduler implements comprehensive error handling:
+- Database errors are wrapped in ValidationError
+- Workflow validation errors are caught early
+- Context evaluation errors are handled gracefully
+
+**Performance**
+
+The scheduler is optimized for:
+- Efficient database operations
+- Minimal locking
+- Batch processing where possible
+- Memory-efficient context management
 
 **Examples:**
 
@@ -37,27 +159,15 @@ let scheduler = TaskScheduler::with_global_workflows_and_recovery(database).awai
 scheduler.run_scheduling_loop().await?;
 ```
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `dal` | `DAL` |  |
-| `runtime` | `Arc < Runtime >` |  |
-| `instance_id` | `Uuid` |  |
-| `poll_interval` | `Duration` |  |
-| `dispatcher` | `Option < Arc < dyn Dispatcher > >` | Optional dispatcher for push-based task execution |
-| `shutdown_rx` | `Option < tokio :: sync :: watch :: Receiver < bool > >` | Shutdown signal for graceful termination of the scheduling loop. |
-
 #### Methods
 
-##### <span id="TaskScheduler.new"></span>`new`
+##### <span id="TaskScheduler.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn new (database : Database) -> Result < Self , ValidationError >
+async fn new(database: Database) -> Result<Self, ValidationError>
 ```
 
 Creates a new TaskScheduler instance with default configuration using global workflow registry.
@@ -70,19 +180,15 @@ This is the recommended constructor for most use cases. The TaskScheduler will:
 
 | Name | Type | Description |
 |------|------|-------------|
-| `database` | `-` | Database instance for persistence |
-
+| `database` | `Database` | Database instance for persistence |
 
 **Returns:**
 
 A new TaskScheduler instance ready to schedule and manage workflow executions.
 
-**Raises:**
+**Errors:**
 
-| Exception | Description |
-|-----------|-------------|
-| `Error` | May return ValidationError if construction fails. |
-
+May return ValidationError if construction fails.
 
 **Examples:**
 
@@ -105,16 +211,16 @@ let scheduler = TaskScheduler::new(database).await?;
 
 </details>
 
-
-
-##### <span id="TaskScheduler.with_poll_interval"></span>`with_poll_interval`
+##### <span id="TaskScheduler.with_poll_interval"></span><code>with_​poll_​interval</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn with_poll_interval (database : Database , poll_interval : Duration ,) -> Result < Self , ValidationError >
+async fn with_poll_interval(
+    database: Database,
+    poll_interval: Duration,
+) -> Result<Self, ValidationError>
 ```
 
 Creates a new TaskScheduler with custom poll interval using global workflow registry.
@@ -123,9 +229,8 @@ Creates a new TaskScheduler with custom poll interval using global workflow regi
 
 | Name | Type | Description |
 |------|------|-------------|
-| `database` | `-` | Database instance for persistence |
-| `poll_interval` | `-` | How often to check for ready tasks |
-
+| `database` | `Database` | Database instance for persistence |
+| `poll_interval` | `Duration` | How often to check for ready tasks |
 
 **Returns:**
 
@@ -145,48 +250,12 @@ A new TaskScheduler instance ready to schedule and manage workflow executions.
 
 </details>
 
-
-
-##### <span id="TaskScheduler.with_poll_interval_sync"></span>`with_poll_interval_sync`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">pub(crate)</span>
-
-
-```rust
-fn with_poll_interval_sync (database : Database , poll_interval : Duration) -> Self
-```
-
-Creates a new TaskScheduler with custom poll interval (synchronous version).
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(crate) fn with_poll_interval_sync(database: Database, poll_interval: Duration) -> Self {
-        let dal = DAL::new(database.clone());
-
-        Self {
-            dal,
-            runtime: Arc::new(Runtime::new()),
-            instance_id: Uuid::new_v4(),
-            poll_interval,
-            dispatcher: None,
-            shutdown_rx: None,
-        }
-    }
-```
-
-</details>
-
-
-
-##### <span id="TaskScheduler.with_runtime"></span>`with_runtime`
+##### <span id="TaskScheduler.with_runtime"></span><code>with_​runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_runtime (mut self , runtime : Arc < Runtime >) -> Self
+fn with_runtime(mut self, runtime: Arc<Runtime>) -> Self
 ```
 
 Sets the runtime for this scheduler, replacing the default.
@@ -203,15 +272,12 @@ Sets the runtime for this scheduler, replacing the default.
 
 </details>
 
-
-
-##### <span id="TaskScheduler.runtime"></span>`runtime`
+##### <span id="TaskScheduler.runtime"></span><code>runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn runtime (& self) -> & Arc < Runtime >
+fn runtime(&self) -> &Arc<Runtime>
 ```
 
 Returns a reference to the runtime used by this scheduler.
@@ -227,15 +293,15 @@ Returns a reference to the runtime used by this scheduler.
 
 </details>
 
-
-
-##### <span id="TaskScheduler.with_shutdown"></span>`with_shutdown`
+##### <span id="TaskScheduler.with_shutdown"></span><code>with_​shutdown</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_shutdown (mut self , shutdown_rx : tokio :: sync :: watch :: Receiver < bool >) -> Self
+fn with_shutdown(
+    mut self,
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> Self
 ```
 
 Sets the shutdown receiver for graceful termination of the scheduling loop.
@@ -252,15 +318,12 @@ Sets the shutdown receiver for graceful termination of the scheduling loop.
 
 </details>
 
-
-
-##### <span id="TaskScheduler.with_dispatcher"></span>`with_dispatcher`
+##### <span id="TaskScheduler.with_dispatcher"></span><code>with_​dispatcher</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_dispatcher (mut self , dispatcher : Arc < dyn Dispatcher >) -> Self
+fn with_dispatcher(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self
 ```
 
 Sets the dispatcher for push-based task execution.
@@ -272,8 +335,7 @@ when tasks become ready, in addition to marking them Ready in the database.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `dispatcher` | `-` | The dispatcher to use for task events |
-
+| `dispatcher` | `Arc<dyn Dispatcher>` | The dispatcher to use for task events |
 
 **Returns:**
 
@@ -291,15 +353,12 @@ Self for method chaining
 
 </details>
 
-
-
-##### <span id="TaskScheduler.dispatcher"></span>`dispatcher`
+##### <span id="TaskScheduler.dispatcher"></span><code>dispatcher</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn dispatcher (& self) -> Option < & Arc < dyn Dispatcher > >
+fn dispatcher(&self) -> Option<&Arc<dyn Dispatcher>>
 ```
 
 Returns a reference to the dispatcher if configured.
@@ -315,16 +374,17 @@ Returns a reference to the dispatcher if configured.
 
 </details>
 
-
-
-##### <span id="TaskScheduler.schedule_workflow_execution"></span>`schedule_workflow_execution`
+##### <span id="TaskScheduler.schedule_workflow_execution"></span><code>schedule_​workflow_​execution</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn schedule_workflow_execution (& self , workflow_name : & str , input_context : Context < serde_json :: Value > ,) -> Result < Uuid , ValidationError >
+async fn schedule_workflow_execution(
+    &self,
+    workflow_name: &str,
+    input_context: Context<serde_json::Value>,
+) -> Result<Uuid, ValidationError>
 ```
 
 Schedules a new workflow execution with the provided input context.
@@ -335,24 +395,30 @@ This method:
 3. Creates a new workflow execution record
 4. Initializes task execution records for all workflow tasks
 
+**Performance**
+
+This operation performs multiple database transactions:
+- Context storage
+- Workflow execution creation
+- Task execution initialization
+
+All operations are performed in a single transaction for consistency.
+
 **Parameters:**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `workflow_name` | `-` | Name of the workflow to execute |
-| `input_context` | `-` | Context containing input data for the workflow |
-
+| `workflow_name` | `&str` | Name of the workflow to execute |
+| `input_context` | `Context<serde_json::Value>` | Context containing input data for the workflow |
 
 **Returns:**
 
 The UUID of the created workflow execution on success.
 
-**Raises:**
+**Errors:**
 
-| Exception | Description |
-|-----------|-------------|
-| `Error` | Returns `ValidationError::WorkflowNotFound` if the workflow doesn't exist in the registry, or other validation errors if database operations fail. |
-
+Returns `ValidationError::WorkflowNotFound` if the workflow doesn't exist in the registry,
+or other validation errors if database operations fail.
 
 **Examples:**
 
@@ -465,176 +531,13 @@ let execution_id = scheduler.schedule_workflow_execution("my-workflow", context)
 
 </details>
 
-
-
-##### <span id="TaskScheduler.create_workflow_execution_postgres"></span>`create_workflow_execution_postgres`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn create_workflow_execution_postgres (& self , workflow_execution_id : UniversalUuid , now : UniversalTimestamp , workflow_name : String , workflow_version : String , stored_context : Option < UniversalUuid > , task_data : Vec < (String , String , String , i32) > ,) -> Result < () , ValidationError >
-```
-
-Creates workflow execution and tasks in PostgreSQL.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn create_workflow_execution_postgres(
-        &self,
-        workflow_execution_id: UniversalUuid,
-        now: UniversalTimestamp,
-        workflow_name: String,
-        workflow_version: String,
-        stored_context: Option<UniversalUuid>,
-        task_data: Vec<(String, String, String, i32)>,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database()
-            .get_postgres_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            conn.transaction(|conn| {
-                // Insert workflow execution
-                diesel::insert_into(workflow_executions::table)
-                    .values(&NewUnifiedWorkflowExecution {
-                        id: workflow_execution_id,
-                        workflow_name,
-                        workflow_version,
-                        status: "Pending".to_string(),
-                        context_id: stored_context,
-                        started_at: now,
-                        created_at: now,
-                        updated_at: now,
-                    })
-                    .execute(conn)?;
-
-                // Insert all tasks
-                for (task_name, trigger_rules, task_config, max_attempts) in task_data {
-                    diesel::insert_into(task_executions::table)
-                        .values(&NewUnifiedTaskExecution {
-                            id: UniversalUuid::new_v4(),
-                            workflow_execution_id,
-                            task_name,
-                            status: "NotStarted".to_string(),
-                            attempt: 1,
-                            max_attempts,
-                            trigger_rules,
-                            task_configuration: task_config,
-                            created_at: now,
-                            updated_at: now,
-                        })
-                        .execute(conn)?;
-                }
-
-                Ok::<_, diesel::result::Error>(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-```
-
-</details>
-
-
-
-##### <span id="TaskScheduler.create_workflow_execution_sqlite"></span>`create_workflow_execution_sqlite`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn create_workflow_execution_sqlite (& self , workflow_execution_id : UniversalUuid , now : UniversalTimestamp , workflow_name : String , workflow_version : String , stored_context : Option < UniversalUuid > , task_data : Vec < (String , String , String , i32) > ,) -> Result < () , ValidationError >
-```
-
-Creates workflow execution and tasks in SQLite.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn create_workflow_execution_sqlite(
-        &self,
-        workflow_execution_id: UniversalUuid,
-        now: UniversalTimestamp,
-        workflow_name: String,
-        workflow_version: String,
-        stored_context: Option<UniversalUuid>,
-        task_data: Vec<(String, String, String, i32)>,
-    ) -> Result<(), ValidationError> {
-        let conn = self
-            .dal
-            .database()
-            .get_sqlite_connection()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        conn.interact(move |conn| {
-            conn.transaction(|conn| {
-                // Insert workflow execution
-                diesel::insert_into(workflow_executions::table)
-                    .values(&NewUnifiedWorkflowExecution {
-                        id: workflow_execution_id,
-                        workflow_name,
-                        workflow_version,
-                        status: "Pending".to_string(),
-                        context_id: stored_context,
-                        started_at: now,
-                        created_at: now,
-                        updated_at: now,
-                    })
-                    .execute(conn)?;
-
-                // Insert all tasks
-                for (task_name, trigger_rules, task_config, max_attempts) in task_data {
-                    diesel::insert_into(task_executions::table)
-                        .values(&NewUnifiedTaskExecution {
-                            id: UniversalUuid::new_v4(),
-                            workflow_execution_id,
-                            task_name,
-                            status: "NotStarted".to_string(),
-                            attempt: 1,
-                            max_attempts,
-                            trigger_rules,
-                            task_configuration: task_config,
-                            created_at: now,
-                            updated_at: now,
-                        })
-                        .execute(conn)?;
-                }
-
-                Ok::<_, diesel::result::Error>(())
-            })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-```
-
-</details>
-
-
-
-##### <span id="TaskScheduler.run_scheduling_loop"></span>`run_scheduling_loop`
+##### <span id="TaskScheduler.run_scheduling_loop"></span><code>run_​scheduling_​loop</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn run_scheduling_loop (& self) -> Result < () , ValidationError >
+async fn run_scheduling_loop(&self) -> Result<(), ValidationError>
 ```
 
 Runs the main scheduling loop that continuously processes active workflow executions.
@@ -645,16 +548,27 @@ This loop:
 3. Marks completed workflow executions
 4. Repeats every second
 
+**Performance**
+
+The scheduling loop:
+- Runs every second by default
+- Processes all active workflow executions in each iteration
+- Uses efficient batch queries where possible
+- Implements backoff for database errors
+
+**Thread Safety**
+
+The scheduling loop is designed to be run in a separate thread or task.
+Multiple instances should not be run simultaneously.
+
 **Returns:**
 
 This method runs indefinitely until an error occurs.
 
-**Raises:**
+**Errors:**
 
-| Exception | Description |
-|-----------|-------------|
-| `Error` | Returns validation errors if database operations fail during the scheduling loop. The loop will continue running on non-fatal errors, with errors logged. |
-
+Returns validation errors if database operations fail during the scheduling loop.
+The loop will continue running on non-fatal errors, with errors logged.
 
 **Examples:**
 
@@ -686,16 +600,13 @@ scheduler.run_scheduling_loop().await?;
 
 </details>
 
-
-
-##### <span id="TaskScheduler.process_active_executions"></span>`process_active_executions`
+##### <span id="TaskScheduler.process_active_executions"></span><code>process_​active_​executions</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn process_active_executions (& self) -> Result < () , ValidationError >
+async fn process_active_executions(&self) -> Result<(), ValidationError>
 ```
 
 Processes all active workflow executions to update task readiness.
@@ -717,68 +628,3 @@ Processes all active workflow executions to update task readiness.
 ```
 
 </details>
-
-
-
-##### <span id="TaskScheduler.get_task_trigger_rules"></span>`get_task_trigger_rules`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn get_task_trigger_rules (& self , workflow : & Workflow , task_namespace : & TaskNamespace ,) -> serde_json :: Value
-```
-
-Gets trigger rules for a specific task from the task implementation.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn get_task_trigger_rules(
-        &self,
-        workflow: &Workflow,
-        task_namespace: &TaskNamespace,
-    ) -> serde_json::Value {
-        workflow
-            .get_task(task_namespace)
-            .map(|task| task.trigger_rules())
-            .unwrap_or_else(|_| serde_json::json!({"type": "Always"}))
-    }
-```
-
-</details>
-
-
-
-##### <span id="TaskScheduler.get_task_configuration"></span>`get_task_configuration`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn get_task_configuration (& self , _workflow : & Workflow , _task_namespace : & TaskNamespace ,) -> serde_json :: Value
-```
-
-Gets task configuration (currently returns empty object).
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn get_task_configuration(
-        &self,
-        _workflow: &Workflow,
-        _task_namespace: &TaskNamespace,
-    ) -> serde_json::Value {
-        // In the future, this could include task-specific configuration
-        serde_json::json!({})
-    }
-```
-
-</details>
-
-
-
-
-

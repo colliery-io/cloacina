@@ -1,23 +1,24 @@
 ---
 title: "cloacina::workflow_instance"
 description: "Parameterized workflow instances (CLOACI-I-0116)."
+editUrl: false
 sidebar:
-  order: 225
+  order: 207
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Parameterized workflow instances (CLOACI-I-0116).
 
-A [`WorkflowInstance`] is a *partial*: a clonable, serializable value of
+A [`WorkflowInstance`](../../../rust/cloacina/workflow_instance/#struct.WorkflowInstance) is a *partial*: a clonable, serializable value of
 `(workflow name + fully-resolved bound parameters)`. It is NOT a captured
 closure — the same workflow may run in-process, inside a dlopen'd package,
 or on a remote fleet agent, so what an instance binds must be data that
 travels with the run (via `Context`). Defaults are snapshotted at
-[`WorkflowInstanceBuilder::build`]; a registered instance is an immutable
+[`WorkflowInstanceBuilder::build`](../../../rust/cloacina/workflow_instance/#WorkflowInstanceBuilder.build); a registered instance is an immutable
 snapshot (re-register to adopt new defaults).
+
 Params are delivered as FLAT top-level context keys — the same mapping the
 server's validated execute path uses — with the scheduler's reserved keys
 (`scheduled_time`, `schedule_id`, `schedule_timezone`,
@@ -26,32 +27,29 @@ conflict so a binding can never spoof them.
 
 ## Structs
 
-### <span id="struct.WorkflowInstance"></span>`struct WorkflowInstance`
+### <span id="struct.WorkflowInstance"></span><code style="font-size: 0.85em">struct WorkflowInstance</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
-A fully-resolved, immutable, serializable workflow "partial" (CLOACI-I-0116 decision #1). Build via [`WorkflowInstanceBuilder`].
+A fully-resolved, immutable, serializable workflow "partial" (CLOACI-I-0116 decision #1). Build via [`WorkflowInstanceBuilder`](../../../rust/cloacina/workflow_instance/#struct.WorkflowInstanceBuilder).
 
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
 | `workflow_name` | `String` |  |
-| `params` | `serde_json :: Map < String , serde_json :: Value >` | Fully-resolved params: every declared param present (defaults
-snapshotted at build), validated against the declared slots. |
+| `params` | `serde_json::Map<String, serde_json::Value>` | Fully-resolved params: every declared param present (defaults snapshotted at build), validated against the declared slots. |
 
 #### Methods
 
-##### <span id="WorkflowInstance.builder"></span>`builder`
+##### <span id="WorkflowInstance.builder"></span><code>builder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn builder (workflow_name : impl Into < String >) -> WorkflowInstanceBuilder
+fn builder(workflow_name: impl Into<String>) -> WorkflowInstanceBuilder
 ```
 
 Start building an instance of `workflow_name`.
@@ -70,18 +68,18 @@ Start building an instance of `workflow_name`.
 
 </details>
 
-
-
-##### <span id="WorkflowInstance.from_resolved"></span>`from_resolved`
+##### <span id="WorkflowInstance.from_resolved"></span><code>from_​resolved</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_resolved (workflow_name : impl Into < String > , params : serde_json :: Map < String , serde_json :: Value > ,) -> Self
+fn from_resolved(
+    workflow_name: impl Into<String>,
+    params: serde_json::Map<String, serde_json::Value>,
+) -> Self
 ```
 
-Construct from an ALREADY-RESOLVED param map, trusting the caller (dynamic surfaces — e.g. the Python bindings — where the declared slots aren't at hand; the validated path is [`Self::builder`]).
+Construct from an ALREADY-RESOLVED param map, trusting the caller (dynamic surfaces — e.g. the Python bindings — where the declared slots aren't at hand; the validated path is `Self::builder`).
 
 <details>
 <summary>Source</summary>
@@ -100,15 +98,12 @@ Construct from an ALREADY-RESOLVED param map, trusting the caller (dynamic surfa
 
 </details>
 
-
-
-##### <span id="WorkflowInstance.params_json"></span>`params_json`
+##### <span id="WorkflowInstance.params_json"></span><code>params_​json</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn params_json (& self) -> Result < String , WorkflowInstanceError >
+fn params_json(&self) -> Result<String, WorkflowInstanceError>
 ```
 
 The instance's params as a `Context`-ready JSON object string (persisted on the schedule row at register time).
@@ -125,33 +120,24 @@ The instance's params as a `Context`-ready JSON object string (persisted on the 
 
 </details>
 
-
-
-
-
-### <span id="struct.WorkflowInstanceBuilder"></span>`struct WorkflowInstanceBuilder`
+### <span id="struct.WorkflowInstanceBuilder"></span><code style="font-size: 0.85em">struct WorkflowInstanceBuilder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-Builder: `.param(k, v)` binds values; [`build`](Self::build) validates against the workflow's declared input slots and snapshots defaults.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `workflow_name` | `String` |  |
-| `supplied` | `serde_json :: Map < String , serde_json :: Value >` |  |
+Builder: `.param(k, v)` binds values; `build` validates against the workflow's declared input slots and snapshots defaults.
 
 #### Methods
 
-##### <span id="WorkflowInstanceBuilder.param"></span>`param`
+##### <span id="WorkflowInstanceBuilder.param"></span><code>param</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn param (mut self , name : impl Into < String > , value : impl Serialize ,) -> Result < Self , WorkflowInstanceError >
+fn param(
+    mut self,
+    name: impl Into<String>,
+    value: impl Serialize,
+) -> Result<Self, WorkflowInstanceError>
 ```
 
 Bind a param value. Values must be serde-serializable data — you can bind a path, a mode, an ID; not a live handle (decision #1).
@@ -175,18 +161,23 @@ Bind a param value. Values must be serde-serializable data — you can bind a pa
 
 </details>
 
-
-
-##### <span id="WorkflowInstanceBuilder.build"></span>`build`
+##### <span id="WorkflowInstanceBuilder.build"></span><code>build</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn build (self , declared : & [InputSlot]) -> Result < WorkflowInstance , WorkflowInstanceError >
+fn build(
+    self,
+    declared: &[InputSlot],
+) -> Result<WorkflowInstance, WorkflowInstanceError>
 ```
 
-Validate against the workflow's declared input slots and produce the fully-resolved instance: - unknown supplied param → error - required (no default) and omitted → error - omitted with default → default snapshotted NOW (decision #3) - param named like a reserved scheduler key → error
+Validate against the workflow's declared input slots and produce the fully-resolved instance:
+
+- unknown supplied param → error
+- required (no default) and omitted → error
+- omitted with default → default snapshotted NOW (decision #3)
+- param named like a reserved scheduler key → error
 
 <details>
 <summary>Source</summary>
@@ -250,16 +241,11 @@ Validate against the workflow's declared input slots and produce the fully-resol
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.WorkflowInstanceError"></span>`enum WorkflowInstanceError`
+### <span id="enum.WorkflowInstanceError"></span><code style="font-size: 0.85em">enum WorkflowInstanceError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors from building or using a workflow instance.
 
@@ -274,29 +260,28 @@ Errors from building or using a workflow instance.
 - **`MalformedSecretRef`**
 - **`Serialization`**
 
-
-
 ## Functions
 
-### <span id="fn.secret_ref_target"></span>`fn secret_ref_target`
+### <span id="fn.secret_ref_target"></span><code style="font-size: 0.85em">fn secret_​ref_​target</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn secret_ref_target (value : & serde_json :: Value) -> Result < Option < String > , String >
+fn secret_ref_target(
+    value: &serde_json::Value,
+) -> Result<Option<String>, String>
 ```
 
 Classify an instance-param value as a secret reference.
 
 Returns:
 - `Ok(Some(secret_name))` when `value` is exactly `{"$secret": "<name>"}`
-(a single `$secret` key mapping to a non-empty string);
+  (a single `$secret` key mapping to a non-empty string);
 - `Ok(None)` for any value that is not a `$secret` marker object (a plain
-param);
+  param);
 - `Err(message)` when the value *looks like* a secret reference but is
-malformed (`$secret` present but not a lone non-empty string key) — a clear
-error rather than a silent mis-route.
+  malformed (`$secret` present but not a lone non-empty string key) — a clear
+  error rather than a silent mis-route.
 
 <details>
 <summary>Source</summary>
@@ -327,15 +312,15 @@ pub fn secret_ref_target(value: &serde_json::Value) -> Result<Option<String>, St
 
 </details>
 
-
-
-### <span id="fn.merge_instance_params"></span>`fn merge_instance_params`
+### <span id="fn.merge_instance_params"></span><code style="font-size: 0.85em">fn merge_​instance_​params</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn merge_instance_params (context : & mut crate :: Context < serde_json :: Value > , params_json : & str ,) -> Result < () , String >
+fn merge_instance_params(
+    context: &mut crate::Context<serde_json::Value>,
+    params_json: &str,
+) -> Result<(), String>
 ```
 
 Merge a schedule row's stored instance params into a fire context as flat top-level keys, SKIPPING the reserved scheduler keys (reserved always wins) and — via `Context::update` semantics on the caller side — letting bound params override a trigger-produced payload (OQ-3). Shared by the cron and trigger fire paths.
@@ -410,5 +395,9 @@ pub fn merge_instance_params(
 
 </details>
 
+## Constants
 
-
+| Name | Type | Value | Description |
+|------|------|-------|-------------|
+| <span id="const.RESERVED_FIRE_KEYS"></span>`RESERVED_FIRE_KEYS` | `&[&str]` | `&["scheduled_time", "schedule_id", "schedule_timezone", "...` | Context keys the cron/trigger schedulers own; instance params can never override these (they are stamped after the params merge). |
+| <span id="const.SECRET_REF_MARKER"></span>`SECRET_REF_MARKER` | `&str` | `"$secret"` | The instance-param marker key for a secret reference (CLOACI-I-0133 / T-0859, design D-4): an instance binds a declared encrypted input by giving the param the value `{"$secret": "secret_name"}`. |

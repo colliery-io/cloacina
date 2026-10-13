@@ -1,13 +1,13 @@
 ---
 title: "cloacina::workflow::metadata"
 description: "Workflow metadata and versioning."
+editUrl: false
 sidebar:
-  order: 223
+  order: 205
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Workflow metadata and versioning.
 
@@ -16,10 +16,9 @@ workflow versioning, timestamps, and organizational tags.
 
 ## Structs
 
-### <span id="struct.WorkflowMetadata"></span>`struct WorkflowMetadata`
+### <span id="struct.WorkflowMetadata"></span><code style="font-size: 0.85em">struct WorkflowMetadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -27,6 +26,20 @@ Metadata information for a Workflow.
 
 Contains versioning, creation timestamps, and arbitrary tags for
 organizing and managing workflow instances.
+
+**Fields**
+
+* `created_at`: DateTime<Utc> - When the workflow was created
+* `version`: String - Content-based version hash
+* `description`: Option<String> - Optional human-readable description
+* `tags`: HashMap<String, String> - Arbitrary key-value tags for organization
+
+**Implementation Details**
+
+The version field is automatically calculated based on:
+- Workflow topology (task IDs and dependencies)
+- Task definitions (code fingerprints)
+- Workflow configuration (name, description, tags)
 
 **Examples:**
 
@@ -44,10 +57,7 @@ metadata.tags.insert("team".to_string(), "data-engineering".to_string());
 
 | Name | Type | Description |
 |------|------|-------------|
-| `created_at` | `DateTime < Utc >` | When the workflow was created |
+| `created_at` | `DateTime<Utc>` | When the workflow was created |
 | `version` | `String` | Content-based version hash |
-| `description` | `Option < String >` | Optional human-readable description |
-| `tags` | `HashMap < String , String >` | Arbitrary key-value tags for organization |
-
-
-
+| `description` | `Option<String>` | Optional human-readable description |
+| `tags` | `HashMap<String, String>` | Arbitrary key-value tags for organization |

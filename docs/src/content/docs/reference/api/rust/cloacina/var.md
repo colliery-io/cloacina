@@ -1,13 +1,13 @@
 ---
 title: "cloacina::var"
 description: "Variable registry for external connections and configuration."
+editUrl: false
 sidebar:
-  order: 219
+  order: 201
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Variable registry for external connections and configuration.
 
@@ -16,12 +16,40 @@ environment variable convention. Similar to Airflow's connection/variable
 system — external connections, secrets, and config values are referenced
 by name and resolved from env vars at runtime.
 
+**Convention**
+
+```text
+CLOACINA_VAR_KAFKA_BROKER=localhost:9092
+CLOACINA_VAR_ANALYTICS_DB=postgres://user:pass@host/db
+CLOACINA_VAR_API_KEY=abc123
+CLOACINA_VAR_MODEL_THRESHOLD=0.85
+```
+
+**Usage**
+
+```rust
+use cloacina::var;
+
+let broker = var("KAFKA_BROKER")?;
+let threshold: f64 = var_or("MODEL_THRESHOLD", "0.5").parse().unwrap();
+```
+
+**Template Resolution**
+
+Package metadata can reference variables with `{{ VAR_NAME }}` syntax:
+
+```toml
+[[metadata.accumulators]]
+broker = "{{ KAFKA_BROKER }}"
+```
+
+Use [`resolve_template`](../../../rust/cloacina/var/#fn.resolve_template) to expand these references.
+
 ## Structs
 
-### <span id="struct.VarNotFound"></span>`struct VarNotFound`
+### <span id="struct.VarNotFound"></span><code style="font-size: 0.85em">struct VarNotFound</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -33,17 +61,14 @@ Error returned when a required variable is not found.
 |------|------|-------------|
 | `name` | `String` | The variable name (without the `CLOACINA_VAR_` prefix). |
 
-
-
 ## Functions
 
-### <span id="fn.var"></span>`fn var`
+### <span id="fn.var"></span><code style="font-size: 0.85em">fn var</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn var (name : & str) -> Result < String , VarNotFound >
+fn var(name: &str) -> Result<String, VarNotFound>
 ```
 
 Resolve a variable by name from `CLOACINA_VAR_{NAME}`.
@@ -52,8 +77,7 @@ Resolve a variable by name from `CLOACINA_VAR_{NAME}`.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | `-` | Variable name without the prefix (e.g., `"KAFKA_BROKER"`) |
-
+| `name` | `&str` | Variable name without the prefix (e.g., `"KAFKA_BROKER"`) |
 
 **Returns:**
 
@@ -81,15 +105,12 @@ pub fn var(name: &str) -> Result<String, VarNotFound> {
 
 </details>
 
-
-
-### <span id="fn.var_or"></span>`fn var_or`
+### <span id="fn.var_or"></span><code style="font-size: 0.85em">fn var_​or</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn var_or (name : & str , default : & str) -> String
+fn var_or(name: &str, default: &str) -> String
 ```
 
 Resolve a variable by name, returning a default if not set.
@@ -98,9 +119,8 @@ Resolve a variable by name, returning a default if not set.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | `-` | Variable name without the prefix (e.g., `"MODEL_THRESHOLD"`) |
-| `default` | `-` | Default value if the variable is not set |
-
+| `name` | `&str` | Variable name without the prefix (e.g., `"MODEL_THRESHOLD"`) |
+| `default` | `&str` | Default value if the variable is not set |
 
 **Examples:**
 
@@ -119,15 +139,12 @@ pub fn var_or(name: &str, default: &str) -> String {
 
 </details>
 
-
-
-### <span id="fn.resolve_template"></span>`fn resolve_template`
+### <span id="fn.resolve_template"></span><code style="font-size: 0.85em">fn resolve_​template</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn resolve_template (input : & str) -> Result < String , Vec < VarNotFound > >
+fn resolve_template(input: &str) -> Result<String, Vec<VarNotFound>>
 ```
 
 Resolve template references in a string, replacing `{{ VAR_NAME }}` with the corresponding `CLOACINA_VAR_{VAR_NAME}` value.
@@ -184,6 +201,3 @@ pub fn resolve_template(input: &str) -> Result<String, Vec<VarNotFound>> {
 ```
 
 </details>
-
-
-

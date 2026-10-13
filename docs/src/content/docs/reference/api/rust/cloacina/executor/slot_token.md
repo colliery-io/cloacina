@@ -1,13 +1,13 @@
 ---
 title: "cloacina::executor::slot_token"
 description: "Concurrency slot token for executor resource management."
+editUrl: false
 sidebar:
-  order: 139
+  order: 122
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Concurrency slot token for executor resource management.
 
@@ -18,10 +18,9 @@ extensions like weighted slots or cross-executor management.
 
 ## Structs
 
-### <span id="struct.SlotToken"></span>`struct SlotToken`
+### <span id="struct.SlotToken"></span><code style="font-size: 0.85em">struct SlotToken</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A token representing a held concurrency slot in the executor.
 
@@ -29,49 +28,22 @@ When a task is executing, it holds a `SlotToken` that reserves one of the
 executor's concurrency slots. The token can be temporarily released (e.g.,
 during deferred polling) and later reclaimed.
 
-#### Fields
+**Lifecycle**
 
-| Name | Type | Description |
-|------|------|-------------|
-| `permit` | `Option < OwnedSemaphorePermit >` |  |
-| `semaphore` | `Arc < Semaphore >` |  |
+1. Created by the executor when a task begins execution (permit acquired)
+2. Held for the duration of normal task execution
+3. Optionally released during `defer_until` to free the slot
+4. Reclaimed when the deferred condition is met
+5. Dropped when the task completes (permit returned to semaphore)
 
 #### Methods
 
-##### <span id="SlotToken.new"></span>`new`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">pub(crate)</span>
-
-
-```rust
-fn new (permit : OwnedSemaphorePermit , semaphore : Arc < Semaphore >) -> Self
-```
-
-Creates a new SlotToken from an already-acquired permit.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(crate) fn new(permit: OwnedSemaphorePermit, semaphore: Arc<Semaphore>) -> Self {
-        Self {
-            permit: Some(permit),
-            semaphore,
-        }
-    }
-```
-
-</details>
-
-
-
-##### <span id="SlotToken.release"></span>`release`
+##### <span id="SlotToken.release"></span><code>release</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn release (& mut self) -> bool
+fn release(&mut self) -> bool
 ```
 
 Release the concurrency slot, freeing it for other tasks.
@@ -79,6 +51,7 @@ Release the concurrency slot, freeing it for other tasks.
 This drops the semaphore permit, making the slot available immediately.
 After calling `release()`, the token is in a released state and
 `reclaim()` must be called before the task resumes real work.
+
 Returns `true` if a permit was released, `false` if already released.
 
 <details>
@@ -92,16 +65,13 @@ Returns `true` if a permit was released, `false` if already released.
 
 </details>
 
-
-
-##### <span id="SlotToken.reclaim"></span>`reclaim`
+##### <span id="SlotToken.reclaim"></span><code>reclaim</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn reclaim (& mut self) -> Result < () , ExecutorError >
+async fn reclaim(&mut self) -> Result<(), ExecutorError>
 ```
 
 Reclaim a concurrency slot after it was released.
@@ -109,12 +79,9 @@ Reclaim a concurrency slot after it was released.
 This acquires a new semaphore permit. If all slots are occupied,
 this will wait until one becomes available.
 
-**Raises:**
+**Errors:**
 
-| Exception | Description |
-|-----------|-------------|
-| `Error` | Returns an error if the semaphore is closed (executor shutting down). |
-
+Returns an error if the semaphore is closed (executor shutting down).
 
 <details>
 <summary>Source</summary>
@@ -141,15 +108,12 @@ this will wait until one becomes available.
 
 </details>
 
-
-
-##### <span id="SlotToken.is_held"></span>`is_held`
+##### <span id="SlotToken.is_held"></span><code>is_​held</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_held (& self) -> bool
+fn is_held(&self) -> bool
 ```
 
 Returns whether the token currently holds a concurrency slot.
@@ -164,8 +128,3 @@ Returns whether the token currently holds a concurrency slot.
 ```
 
 </details>
-
-
-
-
-

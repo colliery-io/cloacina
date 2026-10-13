@@ -1,13 +1,13 @@
 ---
 title: "cloacina-python::bindings::admin"
 description: "Python bindings for database administration functionality."
+editUrl: false
 sidebar:
-  order: 21
+  order: 6
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Python bindings for database administration functionality.
 
@@ -16,12 +16,11 @@ multi-tenant PostgreSQL deployments.
 
 ## Structs
 
-### <span id="struct.PyTenantConfig"></span>`class TenantConfig`
+### <span id="struct.PyTenantConfig"></span><code style="font-size: 0.85em">class TenantConfig</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.admin.TenantConfig](../../../../cloacina-python/bindings/admin/#class.TenantConfig)
+> **Python API**: [`cloaca.TenantConfig`](../../../../cloaca/#class.TenantConfig)
 
 Python wrapper for TenantConfig
 
@@ -33,13 +32,17 @@ Python wrapper for TenantConfig
 
 #### Methods
 
-##### <span id="PyTenantConfig.new"></span>`new`
+##### <span id="PyTenantConfig.new"></span><code>new</code>
 
 ```rust
-fn new (schema_name : String , username : String , password : Option < String >) -> Self
+fn new(
+    schema_name: String,
+    username: String,
+    password: Option<String>,
+) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantConfig.new](../../../../cloacina-python/bindings/admin/#TenantConfig.new)
+> **Python API**: [`cloaca.TenantConfig.new`](../../../../cloaca/#TenantConfig.new)
 
 <details>
 <summary>Source</summary>
@@ -58,15 +61,13 @@ fn new (schema_name : String , username : String , password : Option < String >)
 
 </details>
 
-
-
-##### <span id="PyTenantConfig.schema_name"></span>`schema_name`
+##### <span id="PyTenantConfig.schema_name"></span><code>schema_​name</code>
 
 ```rust
-fn schema_name (& self) -> String
+fn schema_name(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantConfig.schema_name](../../../../cloacina-python/bindings/admin/#TenantConfig.schema_name)
+> **Python API**: [`cloaca.TenantConfig.schema_name`](../../../../cloaca/#TenantConfig.schema_name)
 
 <details>
 <summary>Source</summary>
@@ -79,15 +80,13 @@ fn schema_name (& self) -> String
 
 </details>
 
-
-
-##### <span id="PyTenantConfig.username"></span>`username`
+##### <span id="PyTenantConfig.username"></span><code>username</code>
 
 ```rust
-fn username (& self) -> String
+fn username(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantConfig.username](../../../../cloacina-python/bindings/admin/#TenantConfig.username)
+> **Python API**: [`cloaca.TenantConfig.username`](../../../../cloaca/#TenantConfig.username)
 
 <details>
 <summary>Source</summary>
@@ -100,15 +99,13 @@ fn username (& self) -> String
 
 </details>
 
-
-
-##### <span id="PyTenantConfig.password"></span>`password`
+##### <span id="PyTenantConfig.password"></span><code>password</code>
 
 ```rust
-fn password (& self) -> String
+fn password(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantConfig.password](../../../../cloacina-python/bindings/admin/#TenantConfig.password)
+> **Python API**: [`cloaca.TenantConfig.password`](../../../../cloaca/#TenantConfig.password)
 
 <details>
 <summary>Source</summary>
@@ -121,15 +118,13 @@ fn password (& self) -> String
 
 </details>
 
-
-
-##### <span id="PyTenantConfig.__repr__"></span>`__repr__`
+##### <span id="PyTenantConfig.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantConfig.__repr__](../../../../cloacina-python/bindings/admin/#TenantConfig.__repr__)
+> **Python API**: [`cloaca.TenantConfig.__repr__`](../../../../cloaca/#TenantConfig.__repr__)
 
 <details>
 <summary>Source</summary>
@@ -145,16 +140,11 @@ fn __repr__ (& self) -> String
 
 </details>
 
-
-
-
-
-### <span id="struct.PyTenantCredentials"></span>`class TenantCredentials`
+### <span id="struct.PyTenantCredentials"></span><code style="font-size: 0.85em">class TenantCredentials</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.admin.TenantCredentials](../../../../cloacina-python/bindings/admin/#class.TenantCredentials)
+> **Python API**: [`cloaca.TenantCredentials`](../../../../cloaca/#class.TenantCredentials)
 
 Python wrapper for TenantCredentials
 
@@ -166,13 +156,13 @@ Python wrapper for TenantCredentials
 
 #### Methods
 
-##### <span id="PyTenantCredentials.username"></span>`username`
+##### <span id="PyTenantCredentials.username"></span><code>username</code>
 
 ```rust
-fn username (& self) -> String
+fn username(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantCredentials.username](../../../../cloacina-python/bindings/admin/#TenantCredentials.username)
+> **Python API**: [`cloaca.TenantCredentials.username`](../../../../cloaca/#TenantCredentials.username)
 
 <details>
 <summary>Source</summary>
@@ -185,15 +175,13 @@ fn username (& self) -> String
 
 </details>
 
-
-
-##### <span id="PyTenantCredentials.password"></span>`password`
+##### <span id="PyTenantCredentials.password"></span><code>password</code>
 
 ```rust
-fn password (& self) -> String
+fn password(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantCredentials.password](../../../../cloacina-python/bindings/admin/#TenantCredentials.password)
+> **Python API**: [`cloaca.TenantCredentials.password`](../../../../cloaca/#TenantCredentials.password)
 
 <details>
 <summary>Source</summary>
@@ -206,15 +194,13 @@ fn password (& self) -> String
 
 </details>
 
-
-
-##### <span id="PyTenantCredentials.schema_name"></span>`schema_name`
+##### <span id="PyTenantCredentials.schema_name"></span><code>schema_​name</code>
 
 ```rust
-fn schema_name (& self) -> String
+fn schema_name(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantCredentials.schema_name](../../../../cloacina-python/bindings/admin/#TenantCredentials.schema_name)
+> **Python API**: [`cloaca.TenantCredentials.schema_name`](../../../../cloaca/#TenantCredentials.schema_name)
 
 <details>
 <summary>Source</summary>
@@ -227,15 +213,13 @@ fn schema_name (& self) -> String
 
 </details>
 
-
-
-##### <span id="PyTenantCredentials.connection_string"></span>`connection_string`
+##### <span id="PyTenantCredentials.connection_string"></span><code>connection_​string</code>
 
 ```rust
-fn connection_string (& self) -> String
+fn connection_string(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantCredentials.connection_string](../../../../cloacina-python/bindings/admin/#TenantCredentials.connection_string)
+> **Python API**: [`cloaca.TenantCredentials.connection_string`](../../../../cloaca/#TenantCredentials.connection_string)
 
 <details>
 <summary>Source</summary>
@@ -248,15 +232,13 @@ fn connection_string (& self) -> String
 
 </details>
 
-
-
-##### <span id="PyTenantCredentials.__repr__"></span>`__repr__`
+##### <span id="PyTenantCredentials.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.TenantCredentials.__repr__](../../../../cloacina-python/bindings/admin/#TenantCredentials.__repr__)
+> **Python API**: [`cloaca.TenantCredentials.__repr__`](../../../../cloaca/#TenantCredentials.__repr__)
 
 <details>
 <summary>Source</summary>
@@ -272,16 +254,11 @@ fn __repr__ (& self) -> String
 
 </details>
 
-
-
-
-
-### <span id="struct.PyDatabaseAdmin"></span>`class DatabaseAdmin`
+### <span id="struct.PyDatabaseAdmin"></span><code style="font-size: 0.85em">class DatabaseAdmin</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.admin.DatabaseAdmin](../../../../cloacina-python/bindings/admin/#class.DatabaseAdmin)
+> **Python API**: [`cloaca.DatabaseAdmin`](../../../../cloaca/#class.DatabaseAdmin)
 
 Python wrapper for DatabaseAdmin
 
@@ -296,13 +273,13 @@ SQLite does not support database schemas or user management.
 
 #### Methods
 
-##### <span id="PyDatabaseAdmin.new"></span>`new`
+##### <span id="PyDatabaseAdmin.new"></span><code>new</code>
 
 ```rust
-fn new (database_url : String) -> PyResult < Self >
+fn new(database_url: String) -> PyResult<Self>
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.DatabaseAdmin.new](../../../../cloacina-python/bindings/admin/#DatabaseAdmin.new)
+> **Python API**: [`cloaca.DatabaseAdmin.new`](../../../../cloaca/#DatabaseAdmin.new)
 
 <details>
 <summary>Source</summary>
@@ -356,15 +333,17 @@ fn new (database_url : String) -> PyResult < Self >
 
 </details>
 
-
-
-##### <span id="PyDatabaseAdmin.create_tenant"></span>`create_tenant`
+##### <span id="PyDatabaseAdmin.create_tenant"></span><code>create_​tenant</code>
 
 ```rust
-fn create_tenant (& self , py : Python < '_ > , config : & PyTenantConfig ,) -> PyResult < PyTenantCredentials >
+fn create_tenant(
+    &self,
+    py: Python<'_>,
+    config: &PyTenantConfig,
+) -> PyResult<PyTenantCredentials>
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.DatabaseAdmin.create_tenant](../../../../cloacina-python/bindings/admin/#DatabaseAdmin.create_tenant)
+> **Python API**: [`cloaca.DatabaseAdmin.create_tenant`](../../../../cloaca/#DatabaseAdmin.create_tenant)
 
 <details>
 <summary>Source</summary>
@@ -396,15 +375,18 @@ fn create_tenant (& self , py : Python < '_ > , config : & PyTenantConfig ,) -> 
 
 </details>
 
-
-
-##### <span id="PyDatabaseAdmin.remove_tenant"></span>`remove_tenant`
+##### <span id="PyDatabaseAdmin.remove_tenant"></span><code>remove_​tenant</code>
 
 ```rust
-fn remove_tenant (& self , py : Python < '_ > , schema_name : String , username : String ,) -> PyResult < () >
+fn remove_tenant(
+    &self,
+    py: Python<'_>,
+    schema_name: String,
+    username: String,
+) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.DatabaseAdmin.remove_tenant](../../../../cloacina-python/bindings/admin/#DatabaseAdmin.remove_tenant)
+> **Python API**: [`cloaca.DatabaseAdmin.remove_tenant`](../../../../cloaca/#DatabaseAdmin.remove_tenant)
 
 <details>
 <summary>Source</summary>
@@ -430,15 +412,13 @@ fn remove_tenant (& self , py : Python < '_ > , schema_name : String , username 
 
 </details>
 
-
-
-##### <span id="PyDatabaseAdmin.__repr__"></span>`__repr__`
+##### <span id="PyDatabaseAdmin.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.admin.DatabaseAdmin.__repr__](../../../../cloacina-python/bindings/admin/#DatabaseAdmin.__repr__)
+> **Python API**: [`cloaca.DatabaseAdmin.__repr__`](../../../../cloaca/#DatabaseAdmin.__repr__)
 
 <details>
 <summary>Source</summary>
@@ -450,34 +430,3 @@ fn __repr__ (& self) -> String
 ```
 
 </details>
-
-
-
-
-
-## Functions
-
-### <span id="fn.is_postgres_url"></span>`fn is_postgres_url`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn is_postgres_url (url : & str) -> bool
-```
-
-Helper to check if a URL is a PostgreSQL connection string
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn is_postgres_url(url: &str) -> bool {
-    url.starts_with("postgres://") || url.starts_with("postgresql://")
-}
-```
-
-</details>
-
-
-

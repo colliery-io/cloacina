@@ -1,0 +1,221 @@
+---
+title: "API reference"
+description: "The API reference, written by plissken from the source."
+editUrl: false
+sidebar:
+  order: 0
+  hidden: true
+---
+
+## Python
+
+- [`cloaca`](cloaca/)
+
+## Rust
+
+- [`cloacina`](rust/cloacina/)
+- [`cloacina-computation-graph`](rust/cloacina-computation-graph/): Core types for Cloacina computation graph plugins.
+- [`cloacina-python`](rust/cloacina-python/): Python integration for Cloacina.
+- [`cloacina-python::bindings`](rust/cloacina-python/bindings/): Python API wrapper types for the cloaca wheel.
+- [`cloacina-python::bindings::admin`](rust/cloacina-python/bindings/admin/): Python bindings for database administration functionality.
+- [`cloacina-python::bindings::context`](rust/cloacina-python/bindings/context/)
+- [`cloacina-python::bindings::runner`](rust/cloacina-python/bindings/runner/)
+- [`cloacina-python::bindings::trigger`](rust/cloacina-python/bindings/trigger/): Python trigger support for event-driven workflow execution.
+- [`cloacina-python::bindings::value_objects`](rust/cloacina-python/bindings/value_objects/)
+- [`cloacina-python::bindings::value_objects::retry`](rust/cloacina-python/bindings/value_objects/retry/)
+- [`cloacina-python::computation_graph`](rust/cloacina-python/computation_graph/): Python computation graph bindings.
+- [`cloacina-python::constructor`](rust/cloacina-python/constructor/): `cloaca.constructor(...)` — the Python consumer surface for packaged WASM constructor providers (CLOACI-T-0831), mirroring Rust's `constructor!(...)`.
+- [`cloacina-python::context`](rust/cloacina-python/context/)
+- [`cloacina-python::gil`](rust/cloacina-python/gil/): The one GIL-safe async→sync bridge for the Python bindings (CLOACI-I-0136).
+- [`cloacina-python::import_guard`](rust/cloacina-python/import_guard/): Supervision for packaged-Python module imports (CLOACI-T-0919).
+- [`cloacina-python::loader`](rust/cloacina-python/loader/): Python workflow package loader.
+- [`cloacina-python::namespace`](rust/cloacina-python/namespace/)
+- [`cloacina-python::package_loader`](rust/cloacina-python/package_loader/): Server-side Python package loader.
+- [`cloacina-python::reactor`](rust/cloacina-python/reactor/): `@cloaca.reactor` class decorator — Python parity for Rust's `#[reactor]`.
+- [`cloacina-python::registration_scope`](rust/cloacina-python/registration_scope/): Thread-local "who is importing right now" slot (CLOACI-T-0921).
+- [`cloacina-python::runtime_impl`](rust/cloacina-python/runtime_impl/): `cloacina-python`'s implementation of `cloacina::python_runtime::PythonRuntime`.
+- [`cloacina-python::runtime_scope`](rust/cloacina-python/runtime_scope/): Thread-local "current Runtime" slot used by Python decorators/loader.
+- [`cloacina-python::task`](rust/cloacina-python/task/)
+- [`cloacina-python::trigger`](rust/cloacina-python/trigger/): Python trigger bindings via PyO3.
+- [`cloacina-python::trigger_rules`](rust/cloacina-python/trigger_rules/): Python trigger-rule authoring (CLOACI-T-0763): Python parity for Rust's `#[task(trigger_rules = ...)]`. These builder pyfunctions return plain JSON-shaped dicts matching the core `TriggerRule` / `TriggerCondition` serde representation (execution_planner::trigger_rules), so `@cloaca.task( trigger_rules=...)` can gate a task and have it land in the real `Skipped` state — the same evaluator the Rust DSL feeds.
+- [`cloacina-python::workflow`](rust/cloacina-python/workflow/)
+- [`cloacina-python::workflow_context`](rust/cloacina-python/workflow_context/)
+- [`cloacina-workflow`](rust/cloacina-workflow/)
+- [`cloacina-workflow::context`](rust/cloacina-workflow/context/)
+- [`cloacina-workflow::cron_evaluator`](rust/cloacina-workflow/cron_evaluator/): Timezone-aware cron expression evaluator
+- [`cloacina-workflow::error`](rust/cloacina-workflow/error/)
+- [`cloacina-workflow::input_interface`](rust/cloacina-workflow/input_interface/): Injectable input interface — JSON Schema generation (CLOACI-I-0128).
+- [`cloacina-workflow::namespace`](rust/cloacina-workflow/namespace/): Task namespace management for isolated task execution.
+- [`cloacina-workflow::retry`](rust/cloacina-workflow/retry/)
+- [`cloacina-workflow::secret`](rust/cloacina-workflow/secret/): Secret resolution side channel (CLOACI-I-0133 / T-0858, design D-1).
+- [`cloacina-workflow::task`](rust/cloacina-workflow/task/)
+- [`cloacina-workflow::trigger`](rust/cloacina-workflow/trigger/): Trigger types for workflow authoring.
+- [`cloacina::computation_graph`](rust/cloacina/computation_graph/)
+- [`cloacina::computation_graph::accumulator`](rust/cloacina/computation_graph/accumulator/): Accumulator trait, runtime, and supporting types.
+- [`cloacina::computation_graph::embedded`](rust/cloacina/computation_graph/embedded/): Embedded computation-graph runtime builder (CLOACI-T-0738).
+- [`cloacina::computation_graph::global_registry`](rust/cloacina/computation_graph/global_registry/): Computation graph constructor types.
+- [`cloacina::computation_graph::graph_executor`](rust/cloacina/computation_graph/graph_executor/): The graph-execution seam (CLOACI-T-0722).
+- [`cloacina::computation_graph::packaging_bridge`](rust/cloacina/computation_graph/packaging_bridge/): Bridge from FFI-loaded package metadata to ComputationGraphScheduler types.
+- [`cloacina::computation_graph::reactor`](rust/cloacina/computation_graph/reactor/): Reactor — the long-lived process that wires accumulators to a compiled computation graph.
+- [`cloacina::computation_graph::reactor_lock_key`](rust/cloacina/computation_graph/reactor_lock_key/): Advisory-lock key derivation for per-reactor leadership (CLOACI-T-0851, [`ADR CLOACI-A-0012`]).
+- [`cloacina::computation_graph::reactor_ownership`](rust/cloacina/computation_graph/reactor_ownership/): Per-reactor ownership via a single long-lived advisory-lock session (CLOACI-T-0851, [`ADR CLOACI-A-0012`]).
+- [`cloacina::computation_graph::reactor_routing`](rust/cloacina/computation_graph/reactor_routing/): Routing reactive events to the replica that owns the reactor (CLOACI-T-0851, [`ADR CLOACI-A-0012`] Decision item 2).
+- [`cloacina::computation_graph::registry`](rust/cloacina/computation_graph/registry/): Endpoint registry — maps accumulator/reactor names to their channel senders.
+- [`cloacina::computation_graph::scheduler`](rust/cloacina/computation_graph/scheduler/): Computation graph scheduler — spawns, supervises, and shuts down accumulator/reactor tasks from computation graph declarations.
+- [`cloacina::computation_graph::stream_backend`](rust/cloacina/computation_graph/stream_backend/): StreamBackend trait and registry for pluggable broker backends.
+- [`cloacina::computation_graph::triggerless`](rust/cloacina/computation_graph/triggerless/): Trigger-less computation graph registration.
+- [`cloacina::computation_graph::types`](rust/cloacina/computation_graph/types/): Core types for computation graph execution.
+- [`cloacina::context`](rust/cloacina/context/)
+- [`cloacina::cron_evaluator`](rust/cloacina/cron_evaluator/): T-0553 / I-0102: timezone-aware cron expression evaluator relocated to `cloacina-workflow` so packaged cdylibs (which depend on `cloacina-workflow` but not on `cloacina`) can use it from the `#[trigger(cron = "...")]` macro emission. Engine paths re-export.
+- [`cloacina::cron_recovery`](rust/cloacina/cron_recovery/): Cron execution recovery service for handling lost executions.
+- [`cloacina::cron_trigger_scheduler`](rust/cloacina/cron_trigger_scheduler/): Unified scheduler for both cron and trigger-based workflow execution.
+- [`cloacina::crypto`](rust/cloacina/crypto/): Cryptographic utilities for package signing.
+- [`cloacina::crypto::envelope`](rust/cloacina/crypto/envelope/): Per-execution HPKE envelope wrap for fleet secret resolution (CLOACI-T-0861).
+- [`cloacina::crypto::key_encryption`](rust/cloacina/crypto/key_encryption/): AES-256-GCM encryption for private key storage at rest.
+- [`cloacina::crypto::signing`](rust/cloacina/crypto/signing/): Ed25519 signing utilities for package signatures.
+- [`cloacina::dal`](rust/cloacina/dal/): Data Access Layer with runtime backend selection
+- [`cloacina::dal::filesystem_dal`](rust/cloacina/dal/filesystem_dal/): Filesystem Data Access Layer
+- [`cloacina::dal::filesystem_dal::workflow_registry_storage`](rust/cloacina/dal/filesystem_dal/workflow_registry_storage/): Filesystem DAL for workflow registry storage operations.
+- [`cloacina::dal::unified`](rust/cloacina/dal/unified/): Unified Data Access Layer with runtime backend selection
+- [`cloacina::dal::unified::agent_desired`](rust/cloacina/dal/unified/agent_desired/): Agent desired count — per-tenant self-service provisioning state (CLOACI-T-0809, CLOACI-I-0127). **Postgres only.**
+- [`cloacina::dal::unified::agent_limits`](rust/cloacina/dal/unified/agent_limits/): Agent capacity limits — per-tenant exceptions to the global default (CLOACI-T-0808, CLOACI-I-0127). **Postgres only.**
+- [`cloacina::dal::unified::api_keys`](rust/cloacina/dal/unified/api_keys/): API key DAL — Postgres only.
+- [`cloacina::dal::unified::api_keys::crud`](rust/cloacina/dal/unified/api_keys/crud/): Postgres CRUD operations for api_keys table.
+- [`cloacina::dal::unified::checkpoint`](rust/cloacina/dal/unified/checkpoint/): Unified Checkpoint DAL for computation graph state persistence
+- [`cloacina::dal::unified::context`](rust/cloacina/dal/unified/context/): Unified Context DAL with runtime backend selection
+- [`cloacina::dal::unified::delivery_outbox`](rust/cloacina/dal/unified/delivery_outbox/): Unified Delivery Outbox DAL (substrate — CLOACI-S-0012 / A-0006, task T-0625).
+- [`cloacina::dal::unified::execution_event`](rust/cloacina/dal/unified/execution_event/): Unified Execution Event DAL with runtime backend selection
+- [`cloacina::dal::unified::fleet_agents`](rust/cloacina/dal/unified/fleet_agents/): Unified fleet-agent roster DAL (CLOACI-T-0916).
+- [`cloacina::dal::unified::local_accounts`](rust/cloacina/dal/unified/local_accounts/): Local accounts — self-managed username/password login (CLOACI-T-0795).
+- [`cloacina::dal::unified::login_throttle`](rust/cloacina/dal/unified/login_throttle/): Unified login-throttle DAL — brute-force defense for local login (CLOACI-T-0923, closes I-0118 OQ-13 "required before production").
+- [`cloacina::dal::unified::models`](rust/cloacina/dal/unified/models/): Unified database models using custom SQL types
+- [`cloacina::dal::unified::oidc_login_flows`](rust/cloacina/dal/unified/oidc_login_flows/): OIDC in-flight login state (CLOACI-T-0801). **Postgres only.**
+- [`cloacina::dal::unified::oidc_sessions`](rust/cloacina/dal/unified/oidc_sessions/): Server-side OIDC **login-session** store (CLOACI-T-0793, T-0923). **Postgres only** — like the rest of the auth strand (`api_keys`, `local_accounts`, `oidc_login_flows`), because the API server runs on Postgres.
+- [`cloacina::dal::unified::reactor_owner_addresses`](rust/cloacina/dal/unified/reactor_owner_addresses/): DAL for reactor owner addresses (CLOACI-T-0851 / A-0012 Amendment 3).
+- [`cloacina::dal::unified::reactor_subscriptions`](rust/cloacina/dal/unified/reactor_subscriptions/): Reactor-triggered workflow subscriptions — DB-backed event log + fan-out.
+- [`cloacina::dal::unified::recovery_event`](rust/cloacina/dal/unified/recovery_event/): Unified Recovery Event DAL with runtime backend selection
+- [`cloacina::dal::unified::schedule`](rust/cloacina/dal/unified/schedule/): Unified Schedule DAL with runtime backend selection
+- [`cloacina::dal::unified::schedule::crud`](rust/cloacina/dal/unified/schedule/crud/): Backend-divergent CRUD operations for unified schedules (CLOACI-I-0135).
+- [`cloacina::dal::unified::schedule_execution`](rust/cloacina/dal/unified/schedule_execution/): Unified Schedule Execution DAL with runtime backend selection
+- [`cloacina::dal::unified::task_execution`](rust/cloacina/dal/unified/task_execution/): Task Execution Data Access Layer for Unified Backend Support
+- [`cloacina::dal::unified::task_execution::claiming`](rust/cloacina/dal/unified/task_execution/claiming/): Task claiming and retry scheduling operations.
+- [`cloacina::dal::unified::task_execution::crud`](rust/cloacina/dal/unified/task_execution/crud/): CRUD operations for task executions.
+- [`cloacina::dal::unified::task_execution::queries`](rust/cloacina/dal/unified/task_execution/queries/): Query operations for task executions.
+- [`cloacina::dal::unified::task_execution::recovery`](rust/cloacina/dal/unified/task_execution/recovery/): Recovery operations for orphaned and failed tasks.
+- [`cloacina::dal::unified::task_execution::state`](rust/cloacina/dal/unified/task_execution/state/): State transition operations for task executions.
+- [`cloacina::dal::unified::task_execution_metadata`](rust/cloacina/dal/unified/task_execution_metadata/): Unified Task Execution Metadata DAL with runtime backend selection
+- [`cloacina::dal::unified::workflow_execution`](rust/cloacina/dal/unified/workflow_execution/): Unified Workflow Execution DAL with compile-time backend selection
+- [`cloacina::dal::unified::workflow_packages`](rust/cloacina/dal/unified/workflow_packages/): Unified Workflow Packages DAL with runtime backend selection
+- [`cloacina::dal::unified::workflow_registry_storage`](rust/cloacina/dal/unified/workflow_registry_storage/): Unified workflow registry storage with runtime backend selection
+- [`cloacina::dal::unified::ws_tickets`](rust/cloacina/dal/unified/ws_tickets/): Unified WS-ticket DAL (CLOACI-T-0916).
+- [`cloacina::database`](rust/cloacina/database/)
+- [`cloacina::database::admin`](rust/cloacina/database/admin/): Database administration module for multi-tenant operations
+- [`cloacina::database::connection`](rust/cloacina/database/connection/): Database connection management module supporting both PostgreSQL and SQLite.
+- [`cloacina::database::connection::backend`](rust/cloacina/database/connection/backend/): Database backend types and runtime backend selection.
+- [`cloacina::database::connection::schema_validation`](rust/cloacina/database/connection/schema_validation/): PostgreSQL identifier validation to prevent SQL injection.
+- [`cloacina::database::universal_types`](rust/cloacina/database/universal_types/): Universal type wrappers for cross-database compatibility
+- [`cloacina::delivery`](rust/cloacina/delivery/): Delivery relay for the interservice communication substrate (spec CLOACI-S-0012, ADR CLOACI-A-0006, task T-0626).
+- [`cloacina::delivery::envelope`](rust/cloacina/delivery/envelope/): Substrate WS envelope — re-exported from `cloacina-api-types`.
+- [`cloacina::delivery::sweeper`](rust/cloacina/delivery/sweeper/): Safety-net sweeper for the delivery substrate (CLOACI-I-0115 / S-0012 / A-0006, task T-0628).
+- [`cloacina::dispatcher`](rust/cloacina/dispatcher/)
+- [`cloacina::dispatcher::default`](rust/cloacina/dispatcher/default/): Default dispatcher implementation.
+- [`cloacina::dispatcher::traits`](rust/cloacina/dispatcher/traits/): Trait definitions for dispatcher and executor abstractions.
+- [`cloacina::dispatcher::types`](rust/cloacina/dispatcher/types/): Core types for the dispatcher system.
+- [`cloacina::error`](rust/cloacina/error/)
+- [`cloacina::execution_planner`](rust/cloacina/execution_planner/)
+- [`cloacina::execution_planner::context_manager`](rust/cloacina/execution_planner/context_manager/): Context management for task execution.
+- [`cloacina::execution_planner::scheduler_loop`](rust/cloacina/execution_planner/scheduler_loop/): Scheduler loop and workflow execution processing.
+- [`cloacina::execution_planner::stale_claim_sweeper`](rust/cloacina/execution_planner/stale_claim_sweeper/): Stale claim sweeper — background service for expired claim recovery.
+- [`cloacina::execution_planner::state_manager`](rust/cloacina/execution_planner/state_manager/): Task state management and dependency checking.
+- [`cloacina::execution_planner::trigger_rules`](rust/cloacina/execution_planner/trigger_rules/): Trigger rules for conditional task execution.
+- [`cloacina::executor`](rust/cloacina/executor/)
+- [`cloacina::executor::context_builder`](rust/cloacina/executor/context_builder/): Shared dependency-context builder (CLOACI-I-0114 / task T-0633).
+- [`cloacina::executor::deferral_registry`](rust/cloacina/executor/deferral_registry/): Slot access for packaged tasks that defer (CLOACI-T-0897).
+- [`cloacina::executor::host_impl`](rust/cloacina/executor/host_impl/): The engine's implementation of the `CloacinaHost` callback interface (CLOACI-T-0897) — what a packaged task's `defer_until` actually drives.
+- [`cloacina::executor::result_handler`](rust/cloacina/executor/result_handler/): Shared post-execution result handler (CLOACI-I-0114 / task T-0630).
+- [`cloacina::executor::slot_token`](rust/cloacina/executor/slot_token/): Concurrency slot token for executor resource management.
+- [`cloacina::executor::task_handle`](rust/cloacina/executor/task_handle/): Task execution control handle.
+- [`cloacina::executor::thread_task_executor`](rust/cloacina/executor/thread_task_executor/): Task Executor Module
+- [`cloacina::executor::types`](rust/cloacina/executor/types/): Core types and structures for the Cloacina task execution system.
+- [`cloacina::executor::workflow_executor`](rust/cloacina/executor/workflow_executor/): Workflow execution engine for workflow orchestration.
+- [`cloacina::fleet`](rust/cloacina/fleet/): Execution-agent fleet protocol (CLOACI-I-0114).
+- [`cloacina::fleet::protocol`](rust/cloacina/fleet/protocol/): Wire types for the execution-agent fleet protocol (CLOACI-T-0631).
+- [`cloacina::graph`](rust/cloacina/graph/)
+- [`cloacina::input_interface`](rust/cloacina/input_interface/): Injectable input interface (CLOACI-I-0128) — re-export of the canonical helpers.
+- [`cloacina::inventory_entries`](rust/cloacina/inventory_entries/): Inventory entry types for linker-collected registry seeding.
+- [`cloacina::logging`](rust/cloacina/logging/)
+- [`cloacina::models`](rust/cloacina/models/)
+- [`cloacina::models::context`](rust/cloacina/models/context/): Context management module for storing and retrieving context data.
+- [`cloacina::models::delivery_outbox`](rust/cloacina/models/delivery_outbox/): Delivery Outbox Model
+- [`cloacina::models::execution_event`](rust/cloacina/models/execution_event/): Execution Event Model
+- [`cloacina::models::key_trust_acl`](rust/cloacina/models/key_trust_acl/): Domain models for key trust ACLs.
+- [`cloacina::models::package_signature`](rust/cloacina/models/package_signature/): Domain models for package signatures.
+- [`cloacina::models::recovery_event`](rust/cloacina/models/recovery_event/): Recovery Event Model
+- [`cloacina::models::schedule`](rust/cloacina/models/schedule/): Unified schedule management module for both cron and trigger-based workflow execution.
+- [`cloacina::models::signing_key`](rust/cloacina/models/signing_key/): Domain models for Ed25519 signing keys.
+- [`cloacina::models::task_execution`](rust/cloacina/models/task_execution/): Task Execution Model
+- [`cloacina::models::task_execution_metadata`](rust/cloacina/models/task_execution_metadata/): Task Execution Metadata Module
+- [`cloacina::models::trusted_key`](rust/cloacina/models/trusted_key/): Domain models for trusted public keys.
+- [`cloacina::models::workflow_execution`](rust/cloacina/models/workflow_execution/): Workflow Execution Models
+- [`cloacina::models::workflow_packages`](rust/cloacina/models/workflow_packages/): Database models for workflow package metadata.
+- [`cloacina::models::workflow_registry`](rust/cloacina/models/workflow_registry/): Database models for workflow registry storage.
+- [`cloacina::packaging`](rust/cloacina/packaging/): Workflow packaging functionality for creating distributable workflow packages.
+- [`cloacina::packaging::constructor_provider`](rust/cloacina/packaging/constructor_provider/): Constructor **provider package** assembly + packing (CLOACI-T-0827 / A-0011).
+- [`cloacina::packaging::platform`](rust/cloacina/packaging/platform/): Platform detection and target validation for workflow packages.
+- [`cloacina::packaging::provider_bundle`](rust/cloacina/packaging/provider_bundle/): Provider **discovery + bundling** for the packaged-constructor build side (CLOACI-T-0836 / S-0015 / A-0010).
+- [`cloacina::packaging::types`](rust/cloacina/packaging/types/)
+- [`cloacina::packaging::validation`](rust/cloacina/packaging/validation/)
+- [`cloacina::python_runtime`](rust/cloacina/python_runtime/): Indirection layer between the reconciler and the Python runtime.
+- [`cloacina::registry`](rust/cloacina/registry/)
+- [`cloacina::registry::error`](rust/cloacina/registry/error/): Error types for the workflow registry system.
+- [`cloacina::registry::loader`](rust/cloacina/registry/loader/): Package loader module for workflow registry.
+- [`cloacina::registry::loader::constructor_loader`](rust/cloacina/registry/loader/constructor_loader/): WASM constructor loader + primitive adapters (CLOACI-I-0132 / T-0823, T-0824).
+- [`cloacina::registry::loader::ffi_trigger`](rust/cloacina/registry/loader/ffi_trigger/): Host-side `Trigger` adapter that dispatches `poll()` through a packaged cdylib via fidius FFI.
+- [`cloacina::registry::loader::ffi_triggerless_graph`](rust/cloacina/registry/loader/ffi_triggerless_graph/): Host-side adapter that dispatches a trigger-less computation graph through fidius FFI into a packaged cdylib.
+- [`cloacina::registry::loader::grants`](rust/cloacina/registry/loader/grants/): Constructor capability grants → fidius enforcement (CLOACI-T-0834).
+- [`cloacina::registry::loader::package_loader`](rust/cloacina/registry/loader/package_loader/): Package loader for extracting metadata from workflow library files.
+- [`cloacina::registry::loader::task_registrar`](rust/cloacina/registry/loader/task_registrar/): Task registrar for integrating packaged workflow tasks with the global registry.
+- [`cloacina::registry::loader::task_registrar::dynamic_task`](rust/cloacina/registry/loader/task_registrar/dynamic_task/): Dynamic library task implementation using fidius-host for task execution.
+- [`cloacina::registry::loader::task_registrar::extraction`](rust/cloacina/registry/loader/task_registrar/extraction/): Task metadata extraction from dynamic libraries via fidius-host.
+- [`cloacina::registry::loader::task_registrar::types`](rust/cloacina/registry/loader/task_registrar/types/): Types for task metadata exchange with dynamic libraries.
+- [`cloacina::registry::reconciler`](rust/cloacina/registry/reconciler/)
+- [`cloacina::registry::reconciler::loading`](rust/cloacina/registry/reconciler/loading/): Package loading, unloading, and task/workflow registration.
+- [`cloacina::registry::storage`](rust/cloacina/registry/storage/): Storage backend implementations for the workflow registry.
+- [`cloacina::registry::traits`](rust/cloacina/registry/traits/): Core trait definitions for the workflow registry system.
+- [`cloacina::registry::types`](rust/cloacina/registry/types/): Data types for the workflow registry system.
+- [`cloacina::registry::workflow_registry`](rust/cloacina/registry/workflow_registry/): Complete implementation of the workflow registry.
+- [`cloacina::registry::workflow_registry::database`](rust/cloacina/registry/workflow_registry/database/): Database operations for workflow registry metadata storage.
+- [`cloacina::registry::workflow_registry::filesystem`](rust/cloacina/registry/workflow_registry/filesystem/): Filesystem-backed workflow registry for daemon mode.
+- [`cloacina::registry::workflow_registry::package`](rust/cloacina/registry/workflow_registry/package/): Package format detection utilities.
+- [`cloacina::retry`](rust/cloacina/retry/)
+- [`cloacina::runner`](rust/cloacina/runner/): Workflow runners for executing complete workflows.
+- [`cloacina::runner::default_runner`](rust/cloacina/runner/default_runner/): Default runner for workflow execution.
+- [`cloacina::runner::default_runner::config`](rust/cloacina/runner/default_runner/config/): Configuration types for the DefaultRunner.
+- [`cloacina::runner::default_runner::cron_api`](rust/cloacina/runner/default_runner/cron_api/): Cron scheduling API for the DefaultRunner.
+- [`cloacina::runner::default_runner::reactor_subscriptions_api`](rust/cloacina/runner/default_runner/reactor_subscriptions_api/): Reactor-subscription API for the DefaultRunner (CLOACI-I-0100 / T-0600).
+- [`cloacina::runner::default_runner::service_manager`](rust/cloacina/runner/default_runner/service_manager/): Background service lifecycle management for `DefaultRunner`.
+- [`cloacina::runner::default_runner::services`](rust/cloacina/runner/default_runner/services/): Background service construction and registration for the DefaultRunner.
+- [`cloacina::runner::default_runner::workflow_executor_impl`](rust/cloacina/runner/default_runner/workflow_executor_impl/): WorkflowExecutor trait implementation for DefaultRunner.
+- [`cloacina::runner::default_runner::workflow_result`](rust/cloacina/runner/default_runner/workflow_result/): Workflow execution result building for the DefaultRunner.
+- [`cloacina::runtime`](rust/cloacina/runtime/): Scoped runtime unifying all cloacina registries.
+- [`cloacina::security`](rust/cloacina/security/): Security module for package signing and key management.
+- [`cloacina::security::api_keys`](rust/cloacina/security/api_keys/): API key generation and hashing utilities.
+- [`cloacina::security::audit`](rust/cloacina/security/audit/): Security audit logging for SIEM integration.
+- [`cloacina::security::db_key_manager`](rust/cloacina/security/db_key_manager/): Database-backed key manager implementation.
+- [`cloacina::security::fleet_secret`](rust/cloacina/security/fleet_secret/): Fleet secret resolution — server-side wrap + agent-side unwrap (CLOACI-T-0861, I-0133 D-2/D-5/D-6, NFR-003).
+- [`cloacina::security::key_manager`](rust/cloacina/security/key_manager/): Key manager trait and associated types.
+- [`cloacina::security::package_signer`](rust/cloacina/security/package_signer/): Package signing and signature storage.
+- [`cloacina::security::secret_resolver`](rust/cloacina/security/secret_resolver/): Concrete secret resolver over the tenant-scoped `SecretStore` (CLOACI-I-0133 / T-0858, design D-1).
+- [`cloacina::security::secret_store`](rust/cloacina/security/secret_store/): Encrypted, tenant-scoped secrets store (CLOACI-I-0133 / T-0857).
+- [`cloacina::security::verification`](rust/cloacina/security/verification/): Package verification for secure loading.
+- [`cloacina::task`](rust/cloacina/task/)
+- [`cloacina::task::namespace`](rust/cloacina/task/namespace/): Task namespace management for isolated task execution.
+- [`cloacina::tenant_scope`](rust/cloacina/tenant_scope/): Shared tenant-keying primitives for process-global name registries.
+- [`cloacina::trigger`](rust/cloacina/trigger/)
+- [`cloacina::var`](rust/cloacina/var/): Variable registry for external connections and configuration.
+- [`cloacina::workflow`](rust/cloacina/workflow/)
+- [`cloacina::workflow::builder`](rust/cloacina/workflow/builder/): Workflow builder for fluent workflow construction.
+- [`cloacina::workflow::graph`](rust/cloacina/workflow/graph/): Dependency graph for workflow task relationships.
+- [`cloacina::workflow::metadata`](rust/cloacina/workflow/metadata/): Workflow metadata and versioning.
+- [`cloacina::workflow::registry`](rust/cloacina/workflow/registry/): Workflow registry types.
+- [`cloacina::workflow_instance`](rust/cloacina/workflow_instance/): Parameterized workflow instances (CLOACI-I-0116).

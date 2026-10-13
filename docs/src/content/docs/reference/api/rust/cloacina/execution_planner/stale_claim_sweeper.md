@@ -1,25 +1,32 @@
 ---
 title: "cloacina::execution_planner::stale_claim_sweeper"
 description: "Stale claim sweeper — background service for expired claim recovery."
+editUrl: false
 sidebar:
-  order: 131
+  order: 114
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Stale claim sweeper — background service for expired claim recovery.
 
 Periodically scans for tasks with stale heartbeats (crashed runners),
 releases their claims, and resets them to Ready for re-execution.
 
+**Startup Grace Period**
+
+In a distributed system, the scheduler may restart while runners are
+still executing tasks. The sweeper records when it became ready and
+ignores all claims during its first `stale_threshold` duration after
+startup. This prevents false positives where tasks look stale simply
+because the sweeper wasn't running to observe their heartbeats.
+
 ## Structs
 
-### <span id="struct.StaleClaimSweeperConfig"></span>`struct StaleClaimSweeperConfig`
+### <span id="struct.StaleClaimSweeperConfig"></span><code style="font-size: 0.85em">struct StaleClaimSweeperConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -30,41 +37,27 @@ Configuration for the stale claim sweeper.
 | Name | Type | Description |
 |------|------|-------------|
 | `sweep_interval` | `Duration` | How often to run the sweep (default 30s). |
-| `stale_threshold` | `Duration` | How old a heartbeat must be to consider the claim stale (default 60s).
-Must be greater than the heartbeat interval. |
-| `max_recovery_attempts` | `i32` | How many stale-claim recoveries a single task gets before it is
-abandoned (marked `Failed` with an `ABANDONED:` error) instead of
-re-Readied (default 3, mirroring `cron_max_recovery_attempts`).
-Without a cap, a task that reliably kills its runner recycles
-forever (CLOACI-T-0914). |
+| `stale_threshold` | `Duration` | How old a heartbeat must be to consider the claim stale (default 60s). Must be greater than the heartbeat interval. |
+| `max_recovery_attempts` | `i32` | How many stale-claim recoveries a single task gets before it is abandoned (marked `Failed` with an `ABANDONED:` error) instead of re-Readied (default 3, mirroring `cron_max_recovery_attempts`). Without a cap, a task that reliably kills its runner recycles forever (CLOACI-T-0914). |
 
-
-
-### <span id="struct.StaleClaimSweeper"></span>`struct StaleClaimSweeper`
+### <span id="struct.StaleClaimSweeper"></span><code style="font-size: 0.85em">struct StaleClaimSweeper</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Background service that sweeps for stale task claims.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `dal` | `Arc < DAL >` |  |
-| `config` | `StaleClaimSweeperConfig` |  |
-| `shutdown_rx` | `watch :: Receiver < bool >` |  |
-| `ready_at` | `Instant` | When the sweeper became ready. Used for the startup grace period. |
-
 #### Methods
 
-##### <span id="StaleClaimSweeper.new"></span>`new`
+##### <span id="StaleClaimSweeper.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (dal : Arc < DAL > , config : StaleClaimSweeperConfig , shutdown_rx : watch :: Receiver < bool > ,) -> Self
+fn new(
+    dal: Arc<DAL>,
+    config: StaleClaimSweeperConfig,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Self
 ```
 
 Create a new stale claim sweeper.
@@ -89,16 +82,13 @@ Create a new stale claim sweeper.
 
 </details>
 
-
-
-##### <span id="StaleClaimSweeper.run"></span>`run`
+##### <span id="StaleClaimSweeper.run"></span><code>run</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn run (& mut self)
+async fn run(&mut self)
 ```
 
 Run the sweep loop.
@@ -136,16 +126,13 @@ Run the sweep loop.
 
 </details>
 
-
-
-##### <span id="StaleClaimSweeper.sweep"></span>`sweep`
+##### <span id="StaleClaimSweeper.sweep"></span><code>sweep</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn sweep (& self)
+async fn sweep(&self)
 ```
 
 Perform a single sweep pass.
@@ -276,8 +263,3 @@ Perform a single sweep pass.
 ```
 
 </details>
-
-
-
-
-

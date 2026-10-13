@@ -1,22 +1,79 @@
 ---
 title: "cloacina::workflow"
 description: "API reference of the Rust module cloacina::workflow."
+editUrl: false
 sidebar:
-  order: 220
+  order: 202
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
+**Workflow Management**
 
+This module provides the core functionality for creating and managing task workflows in Cloacina.
+It implements a directed acyclic graph (DAG) of tasks with dependency management, validation,
+and content-based versioning.
 
+**Core Components**
+
+- `Workflow`: Main structure for managing task graphs and execution
+- `WorkflowMetadata`: Versioning and metadata management
+- `DependencyGraph`: Low-level dependency tracking and cycle detection
+- `WorkflowBuilder`: Fluent interface for workflow construction
+
+**Key Features**
+
+- Directed acyclic graph (DAG) task dependencies
+- Automatic cycle detection and validation
+- Content-based versioning for reliable workflow management
+- Parallel execution planning
+- Global workflow registry
+
+**Type Definitions**
+
+```rust
+pub struct Workflow {
+    name: String,
+    tasks: HashMap<String, Arc<dyn Task>>,
+    dependency_graph: DependencyGraph,
+    metadata: WorkflowMetadata,
+}
+
+pub struct WorkflowMetadata {
+    pub created_at: DateTime<Utc>,
+    pub version: String,
+    pub description: Option<String>,
+    pub tags: HashMap<String, String>,
+}
+
+pub struct DependencyGraph {
+    nodes: HashSet<String>,
+    edges: HashMap<String, Vec<String>>,
+}
+```
+
+**Error Types**
+
+- `WorkflowError`: Errors during workflow construction and management
+- `ValidationError`: Errors during workflow validation
+- `SubgraphError`: Errors during subgraph operations
+
+The process-global workflow registry was removed in CLOACI-T-0509. Workflow
+constructors are owned by [`crate::Runtime`](../../../rust/cloacina/runtime/#struct.Runtime) and seeded from `inventory`.
+
+## Re-exports
+
+- [`WorkflowBuilder`](../../../rust/cloacina/workflow/builder/#struct.WorkflowBuilder)
+- [`DependencyGraph`](../../../rust/cloacina/workflow/graph/#struct.DependencyGraph)
+- [`WorkflowMetadata`](../../../rust/cloacina/workflow/metadata/#struct.WorkflowMetadata)
+- [`WorkflowConstructor`](../../../rust/cloacina/workflow/registry/#type.WorkflowConstructor)
 
 ## Structs
 
-### <span id="struct.Workflow"></span>`struct Workflow`
+### <span id="struct.Workflow"></span><code style="font-size: 0.85em">struct Workflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
@@ -26,20 +83,28 @@ A Workflow contains a collection of tasks with their dependency relationships,
 ensuring that the graph remains acyclic and provides methods for execution
 planning and analysis.
 
+**Fields**
+
+* `name`: String - Unique identifier for the workflow
+* `tenant`: String - Unique identifier for the tenant
+* `tasks`: HashMap<TaskNamespace, Arc<dyn Task>> - Map of task namespaces to task implementations
+* `dependency_graph`: DependencyGraph - Internal representation of task dependencies
+* `metadata`: WorkflowMetadata - Versioning and metadata information
+
+**Implementation Details**
+
+The Workflow structure provides:
+- Task dependency management
+- Cycle detection and validation
+- Content-based versioning
+- Parallel execution planning
+- Subgraph operations
+
 **Examples:**
 
 ```rust
 use cloacina::*;
 
-# struct TestTask { id: String, deps: Vec<String> }
-# impl TestTask { fn new(id: &str, deps: Vec<&str>) -> Self { Self { id: id.to_string(), deps: deps.into_iter().map(|s| s.to_string()).collect() } } }
-# use async_trait::async_trait;
-# #[async_trait]
-# impl Task for TestTask {
-#     async fn execute(&self, context: Context<serde_json::Value>) -> Result<Context<serde_json::Value>, TaskError> { Ok(context) }
-#     fn id(&self) -> &str { &self.id }
-#     fn dependencies(&self) -> &[String] { &self.deps }
-# }
 let workflow = Workflow::builder("test-workflow")
     .description("Test workflow")
     .add_task(TestTask::new("task1", vec![]))?
@@ -48,29 +113,16 @@ let workflow = Workflow::builder("test-workflow")
 
 assert_eq!(workflow.name(), "test-workflow");
 assert!(!workflow.metadata().version.is_empty());
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String` |  |
-| `tenant` | `String` |  |
-| `package` | `String` |  |
-| `tasks` | `HashMap < TaskNamespace , Arc < dyn Task > >` |  |
-| `dependency_graph` | `DependencyGraph` |  |
-| `metadata` | `WorkflowMetadata` |  |
 
 #### Methods
 
-##### <span id="Workflow.new"></span>`new`
+##### <span id="Workflow.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (name : & str) -> Self
+fn new(name: &str) -> Self
 ```
 
 Create a new Workflow with the given name
@@ -81,8 +133,7 @@ Most users should use the `workflow!` macro or builder pattern instead.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | `-` | Unique name for the workflow |
-
+| `name` | `&str` | Unique name for the workflow |
 
 **Examples:**
 
@@ -111,15 +162,12 @@ assert_eq!(workflow.name(), "my_workflow");
 
 </details>
 
-
-
-##### <span id="Workflow.builder"></span>`builder`
+##### <span id="Workflow.builder"></span><code>builder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn builder (name : & str) -> WorkflowBuilder
+fn builder(name: &str) -> WorkflowBuilder
 ```
 
 Create a Workflow builder for programmatic construction
@@ -128,8 +176,7 @@ Create a Workflow builder for programmatic construction
 
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | `-` | Unique name for the workflow |
-
+| `name` | `&str` | Unique name for the workflow |
 
 **Examples:**
 
@@ -151,15 +198,12 @@ let builder = Workflow::builder("my_workflow")
 
 </details>
 
-
-
-##### <span id="Workflow.name"></span>`name`
+##### <span id="Workflow.name"></span><code>name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn name (& self) -> & str
+fn name(&self) -> &str
 ```
 
 Get the Workflow name
@@ -175,15 +219,12 @@ Get the Workflow name
 
 </details>
 
-
-
-##### <span id="Workflow.tenant"></span>`tenant`
+##### <span id="Workflow.tenant"></span><code>tenant</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn tenant (& self) -> & str
+fn tenant(&self) -> &str
 ```
 
 Get the Workflow tenant
@@ -199,15 +240,12 @@ Get the Workflow tenant
 
 </details>
 
-
-
-##### <span id="Workflow.set_tenant"></span>`set_tenant`
+##### <span id="Workflow.set_tenant"></span><code>set_​tenant</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_tenant (& mut self , tenant : & str)
+fn set_tenant(&mut self, tenant: &str)
 ```
 
 Set the Workflow tenant
@@ -223,15 +261,12 @@ Set the Workflow tenant
 
 </details>
 
-
-
-##### <span id="Workflow.package"></span>`package`
+##### <span id="Workflow.package"></span><code>package</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn package (& self) -> & str
+fn package(&self) -> &str
 ```
 
 Get the Workflow package
@@ -247,15 +282,12 @@ Get the Workflow package
 
 </details>
 
-
-
-##### <span id="Workflow.set_package"></span>`set_package`
+##### <span id="Workflow.set_package"></span><code>set_​package</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_package (& mut self , package : & str)
+fn set_package(&mut self, package: &str)
 ```
 
 Set the Workflow package
@@ -271,15 +303,12 @@ Set the Workflow package
 
 </details>
 
-
-
-##### <span id="Workflow.metadata"></span>`metadata`
+##### <span id="Workflow.metadata"></span><code>metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn metadata (& self) -> & WorkflowMetadata
+fn metadata(&self) -> &WorkflowMetadata
 ```
 
 Get the Workflow metadata
@@ -287,8 +316,6 @@ Get the Workflow metadata
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 let metadata = workflow.metadata();
 println!("Version: {}", metadata.version);
 println!("Created: {}", metadata.created_at);
@@ -305,15 +332,12 @@ println!("Created: {}", metadata.created_at);
 
 </details>
 
-
-
-##### <span id="Workflow.set_version"></span>`set_version`
+##### <span id="Workflow.set_version"></span><code>set_​version</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_version (& mut self , version : & str)
+fn set_version(&mut self, version: &str)
 ```
 
 Set the Workflow version manually
@@ -332,15 +356,12 @@ calculate content-based versions.
 
 </details>
 
-
-
-##### <span id="Workflow.set_description"></span>`set_description`
+##### <span id="Workflow.set_description"></span><code>set_​description</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_description (& mut self , description : & str)
+fn set_description(&mut self, description: &str)
 ```
 
 Set the Workflow description
@@ -356,15 +377,12 @@ Set the Workflow description
 
 </details>
 
-
-
-##### <span id="Workflow.add_tag"></span>`add_tag`
+##### <span id="Workflow.add_tag"></span><code>add_​tag</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn add_tag (& mut self , key : & str , value : & str)
+fn add_tag(&mut self, key: &str, value: &str)
 ```
 
 Add a metadata tag
@@ -373,15 +391,12 @@ Add a metadata tag
 
 | Name | Type | Description |
 |------|------|-------------|
-| `key` | `-` | Tag key |
-| `value` | `-` | Tag value |
-
+| `key` | `&str` | Tag key |
+| `value` | `&str` | Tag value |
 
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let mut workflow = Workflow::new("test");
 workflow.add_tag("environment", "production");
 workflow.add_tag("team", "data-engineering");
 ```
@@ -399,15 +414,12 @@ workflow.add_tag("team", "data-engineering");
 
 </details>
 
-
-
-##### <span id="Workflow.remove_tag"></span>`remove_tag`
+##### <span id="Workflow.remove_tag"></span><code>remove_​tag</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn remove_tag (& mut self , key : & str) -> Option < String >
+fn remove_tag(&mut self, key: &str) -> Option<String>
 ```
 
 Remove a tag from the workflow metadata
@@ -416,16 +428,16 @@ Remove a tag from the workflow metadata
 
 | Name | Type | Description |
 |------|------|-------------|
-| `key` | `-` | Tag key to remove |
-
+| `key` | `&str` | Tag key to remove |
 
 **Returns:**
 
-* `Some(String)` - The removed tag value if it existed * `None` - If no tag with that key existed
+* `Some(String)` - The removed tag value if it existed
+* `None` - If no tag with that key existed
 
 **Examples:**
 
-```
+```rust
 use cloacina::Workflow;
 
 let mut workflow = Workflow::new("test-workflow");
@@ -446,15 +458,12 @@ assert_eq!(removed, Some("staging".to_string()));
 
 </details>
 
-
-
-##### <span id="Workflow.add_task"></span>`add_task`
+##### <span id="Workflow.add_task"></span><code>add_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn add_task (& mut self , task : Arc < dyn Task >) -> Result < () , WorkflowError >
+fn add_task(&mut self, task: Arc<dyn Task>) -> Result<(), WorkflowError>
 ```
 
 Add a task to the Workflow
@@ -463,31 +472,21 @@ Add a task to the Workflow
 
 | Name | Type | Description |
 |------|------|-------------|
-| `task` | `-` | Task to add |
-
+| `task` | `Arc<dyn Task>` | Task to add |
 
 **Returns:**
 
-* `Ok(())` - If the task was added successfully * `Err(WorkflowError)` - If the task ID is duplicate
+* `Ok(())` - If the task was added successfully
+* `Err(WorkflowError)` - If the task ID is duplicate
 
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# use async_trait::async_trait;
-# struct MyTask;
-# #[async_trait]
-# impl Task for MyTask {
-#     async fn execute(&self, context: Context<serde_json::Value>) -> Result<Context<serde_json::Value>, TaskError> { Ok(context) }
-#     fn id(&self) -> &str { "my_task" }
-#     fn dependencies(&self) -> &[String] { &[] }
-# }
 let mut workflow = Workflow::new("test_workflow");
 let task = MyTask;
 
 workflow.add_task(task)?;
 assert!(workflow.get_task("my_task").is_some());
-# Ok::<(), WorkflowError>(())
 ```
 
 <details>
@@ -520,15 +519,15 @@ assert!(workflow.get_task("my_task").is_some());
 
 </details>
 
-
-
-##### <span id="Workflow.remove_task"></span>`remove_task`
+##### <span id="Workflow.remove_task"></span><code>remove_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn remove_task (& mut self , namespace : & TaskNamespace) -> Option < Arc < dyn Task > >
+fn remove_task(
+    &mut self,
+    namespace: &TaskNamespace,
+) -> Option<Arc<dyn Task>>
 ```
 
 Remove a task from the workflow
@@ -542,10 +541,10 @@ Returns the removed task if it existed.
 |------|------|-------------|
 | `task_id` | `-` | ID of the task to remove |
 
-
 **Returns:**
 
-* `Some(Arc<dyn Task>)` - The removed task if it existed * `None` - If no task with that ID existed
+* `Some(Arc<dyn Task>)` - The removed task if it existed
+* `None` - If no task with that ID existed
 
 **Examples:**
 
@@ -560,7 +559,6 @@ workflow.add_task(task.clone())?;
 let removed = workflow.remove_task("task1");
 assert!(removed.is_some());
 assert!(workflow.get_task("task1").is_none());
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 <details>
@@ -578,15 +576,16 @@ assert!(workflow.get_task("task1").is_none());
 
 </details>
 
-
-
-##### <span id="Workflow.remove_dependency"></span>`remove_dependency`
+##### <span id="Workflow.remove_dependency"></span><code>remove_​dependency</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn remove_dependency (& mut self , from_task : & TaskNamespace , to_task : & TaskNamespace)
+fn remove_dependency(
+    &mut self,
+    from_task: &TaskNamespace,
+    to_task: &TaskNamespace,
+)
 ```
 
 Remove a dependency between two tasks
@@ -597,9 +596,8 @@ This removes the dependency edge but keeps both tasks in the workflow.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `from_task` | `-` | Task that currently depends on `to_task` |
-| `to_task` | `-` | Task that `from_task` currently depends on |
-
+| `from_task` | `&TaskNamespace` | Task that currently depends on `to_task` |
+| `to_task` | `&TaskNamespace` | Task that `from_task` currently depends on |
 
 **Examples:**
 
@@ -614,7 +612,6 @@ workflow.add_task(Arc::new(MockTask::new("task2", vec!["task1"])))?;
 
 // Remove the dependency (task2 no longer depends on task1)
 workflow.remove_dependency("task2", "task1");
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 <details>
@@ -628,15 +625,12 @@ workflow.remove_dependency("task2", "task1");
 
 </details>
 
-
-
-##### <span id="Workflow.validate"></span>`validate`
+##### <span id="Workflow.validate"></span><code>validate</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate (& self) -> Result < () , ValidationError >
+fn validate(&self) -> Result<(), ValidationError>
 ```
 
 Validate the Workflow structure
@@ -648,13 +642,12 @@ Checks for:
 
 **Returns:**
 
-* `Ok(())` - If validation passes * `Err(ValidationError)` - If validation fails
+* `Ok(())` - If validation passes
+* `Err(ValidationError)` - If validation fails
 
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 match workflow.validate() {
     Ok(()) => println!("Workflow is valid"),
     Err(e) => println!("Validation error: {:?}", e),
@@ -701,15 +694,14 @@ match workflow.validate() {
 
 </details>
 
-
-
-##### <span id="Workflow.topological_sort"></span>`topological_sort`
+##### <span id="Workflow.topological_sort"></span><code>topological_​sort</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn topological_sort (& self) -> Result < Vec < TaskNamespace > , ValidationError >
+fn topological_sort(
+    &self,
+) -> Result<Vec<TaskNamespace>, ValidationError>
 ```
 
 Get topological ordering of tasks
@@ -718,16 +710,14 @@ Returns tasks in dependency-safe execution order.
 
 **Returns:**
 
-* `Ok(Vec<String>)` - Task IDs in execution order * `Err(ValidationError)` - If the workflow is invalid
+* `Ok(Vec<String>)` - Task IDs in execution order
+* `Err(ValidationError)` - If the workflow is invalid
 
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 let execution_order = workflow.topological_sort()?;
 println!("Execute tasks in order: {:?}", execution_order);
-# Ok::<(), ValidationError>(())
 ```
 
 <details>
@@ -742,15 +732,15 @@ println!("Execute tasks in order: {:?}", execution_order);
 
 </details>
 
-
-
-##### <span id="Workflow.get_task"></span>`get_task`
+##### <span id="Workflow.get_task"></span><code>get_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_task (& self , namespace : & TaskNamespace) -> Result < Arc < dyn Task > , WorkflowError >
+fn get_task(
+    &self,
+    namespace: &TaskNamespace,
+) -> Result<Arc<dyn Task>, WorkflowError>
 ```
 
 Get a task by namespace
@@ -759,12 +749,12 @@ Get a task by namespace
 
 | Name | Type | Description |
 |------|------|-------------|
-| `namespace` | `-` | Task namespace to look up |
-
+| `namespace` | `&TaskNamespace` | Task namespace to look up |
 
 **Returns:**
 
-* `Ok(Arc<dyn Task>)` - If the task exists * `Err(WorkflowError)` - If no task with that namespace exists
+* `Ok(Arc<dyn Task>)` - If the task exists
+* `Err(WorkflowError)` - If no task with that namespace exists
 
 <details>
 <summary>Source</summary>
@@ -780,15 +770,15 @@ Get a task by namespace
 
 </details>
 
-
-
-##### <span id="Workflow.get_dependencies"></span>`get_dependencies`
+##### <span id="Workflow.get_dependencies"></span><code>get_​dependencies</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_dependencies (& self , namespace : & TaskNamespace ,) -> Result < & [TaskNamespace] , WorkflowError >
+fn get_dependencies(
+    &self,
+    namespace: &TaskNamespace,
+) -> Result<&[TaskNamespace], WorkflowError>
 ```
 
 Get dependencies for a task
@@ -797,12 +787,12 @@ Get dependencies for a task
 
 | Name | Type | Description |
 |------|------|-------------|
-| `namespace` | `-` | Task namespace to get dependencies for |
-
+| `namespace` | `&TaskNamespace` | Task namespace to get dependencies for |
 
 **Returns:**
 
-* `Ok(&[TaskNamespace])` - Array of dependency task namespaces * `Err(WorkflowError)` - If the task doesn't exist
+* `Ok(&[TaskNamespace])` - Array of dependency task namespaces
+* `Err(WorkflowError)` - If the task doesn't exist
 
 <details>
 <summary>Source</summary>
@@ -821,15 +811,15 @@ Get dependencies for a task
 
 </details>
 
-
-
-##### <span id="Workflow.get_dependents"></span>`get_dependents`
+##### <span id="Workflow.get_dependents"></span><code>get_​dependents</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_dependents (& self , namespace : & TaskNamespace ,) -> Result < Vec < TaskNamespace > , WorkflowError >
+fn get_dependents(
+    &self,
+    namespace: &TaskNamespace,
+) -> Result<Vec<TaskNamespace>, WorkflowError>
 ```
 
 Get dependents of a task
@@ -840,22 +830,19 @@ Returns tasks that depend on the given task.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `namespace` | `-` | Task namespace to get dependents for |
-
+| `namespace` | `&TaskNamespace` | Task namespace to get dependents for |
 
 **Returns:**
 
-* `Ok(Vec<TaskNamespace>)` - Vector of task namespaces that depend on the given task * `Err(WorkflowError)` - If the task doesn't exist
+* `Ok(Vec<TaskNamespace>)` - Vector of task namespaces that depend on the given task
+* `Err(WorkflowError)` - If the task doesn't exist
 
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 let namespace = TaskNamespace::new("public", "embedded", "test", "extract_data");
 let dependents = workflow.get_dependents(&namespace)?;
 println!("Tasks depending on extract_data: {:?}", dependents);
-# Ok::<(), WorkflowError>(())
 ```
 
 <details>
@@ -878,15 +865,15 @@ println!("Tasks depending on extract_data: {:?}", dependents);
 
 </details>
 
-
-
-##### <span id="Workflow.subgraph"></span>`subgraph`
+##### <span id="Workflow.subgraph"></span><code>subgraph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn subgraph (& self , task_namespaces : & [& TaskNamespace]) -> Result < Workflow , SubgraphError >
+fn subgraph(
+    &self,
+    task_namespaces: &[&TaskNamespace],
+) -> Result<Workflow, SubgraphError>
 ```
 
 Create a subgraph containing only specified tasks and their dependencies
@@ -897,10 +884,10 @@ Create a subgraph containing only specified tasks and their dependencies
 |------|------|-------------|
 | `task_ids` | `-` | Tasks to include in the subgraph |
 
-
 **Returns:**
 
-* `Ok(Workflow)` - New workflow containing only specified tasks * `Err(SubgraphError)` - If any tasks don't exist or other errors
+* `Ok(Workflow)` - New workflow containing only specified tasks
+* `Err(SubgraphError)` - If any tasks don't exist or other errors
 
 <details>
 <summary>Source</summary>
@@ -946,51 +933,14 @@ Create a subgraph containing only specified tasks and their dependencies
 
 </details>
 
-
-
-##### <span id="Workflow.collect_dependencies"></span>`collect_dependencies`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn collect_dependencies (& self , task_namespace : & TaskNamespace , collected : & mut HashSet < TaskNamespace > ,)
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn collect_dependencies(
-        &self,
-        task_namespace: &TaskNamespace,
-        collected: &mut HashSet<TaskNamespace>,
-    ) {
-        if collected.contains(task_namespace) {
-            return;
-        }
-
-        collected.insert(task_namespace.clone());
-
-        if let Some(task) = self.tasks.get(task_namespace) {
-            for dep in task.dependencies() {
-                self.collect_dependencies(dep, collected);
-            }
-        }
-    }
-```
-
-</details>
-
-
-
-##### <span id="Workflow.get_execution_levels"></span>`get_execution_levels`
+##### <span id="Workflow.get_execution_levels"></span><code>get_​execution_​levels</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_execution_levels (& self) -> Result < Vec < Vec < TaskNamespace > > , ValidationError >
+fn get_execution_levels(
+    &self,
+) -> Result<Vec<Vec<TaskNamespace>>, ValidationError>
 ```
 
 Get execution levels (tasks that can run in parallel)
@@ -1000,13 +950,12 @@ can run in parallel with each other.
 
 **Returns:**
 
-* `Ok(Vec<Vec<String>>)` - Tasks grouped by execution level * `Err(ValidationError)` - If the workflow is invalid
+* `Ok(Vec<Vec<String>>)` - Tasks grouped by execution level
+* `Err(ValidationError)` - If the workflow is invalid
 
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 let levels = workflow.get_execution_levels()?;
 for (level, tasks) in levels.iter().enumerate() {
     println!("Level {}: {} tasks can run in parallel", level, tasks.len());
@@ -1014,7 +963,6 @@ for (level, tasks) in levels.iter().enumerate() {
         println!("  - {}", task);
     }
 }
-# Ok::<(), ValidationError>(())
 ```
 
 <details>
@@ -1059,15 +1007,12 @@ for (level, tasks) in levels.iter().enumerate() {
 
 </details>
 
-
-
-##### <span id="Workflow.get_roots"></span>`get_roots`
+##### <span id="Workflow.get_roots"></span><code>get_​roots</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_roots (& self) -> Vec < TaskNamespace >
+fn get_roots(&self) -> Vec<TaskNamespace>
 ```
 
 Get root tasks (tasks with no dependencies)
@@ -1079,8 +1024,6 @@ Vector of task IDs that have no dependencies
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 let roots = workflow.get_roots();
 println!("Starting tasks: {:?}", roots);
 ```
@@ -1105,15 +1048,12 @@ println!("Starting tasks: {:?}", roots);
 
 </details>
 
-
-
-##### <span id="Workflow.get_leaves"></span>`get_leaves`
+##### <span id="Workflow.get_leaves"></span><code>get_​leaves</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_leaves (& self) -> Vec < TaskNamespace >
+fn get_leaves(&self) -> Vec<TaskNamespace>
 ```
 
 Get leaf tasks (tasks with no dependents)
@@ -1125,8 +1065,6 @@ Vector of task IDs that no other tasks depend on
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 let leaves = workflow.get_leaves();
 println!("Final tasks: {:?}", leaves);
 ```
@@ -1152,15 +1090,16 @@ println!("Final tasks: {:?}", leaves);
 
 </details>
 
-
-
-##### <span id="Workflow.can_run_parallel"></span>`can_run_parallel`
+##### <span id="Workflow.can_run_parallel"></span><code>can_​run_​parallel</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn can_run_parallel (& self , task_a : & TaskNamespace , task_b : & TaskNamespace) -> bool
+fn can_run_parallel(
+    &self,
+    task_a: &TaskNamespace,
+    task_b: &TaskNamespace,
+) -> bool
 ```
 
 Check if two tasks can run in parallel
@@ -1169,9 +1108,8 @@ Check if two tasks can run in parallel
 
 | Name | Type | Description |
 |------|------|-------------|
-| `task_a` | `-` | First task ID |
-| `task_b` | `-` | Second task ID |
-
+| `task_a` | `&TaskNamespace` | First task ID |
+| `task_b` | `&TaskNamespace` | Second task ID |
 
 **Returns:**
 
@@ -1180,8 +1118,6 @@ Check if two tasks can run in parallel
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 if workflow.can_run_parallel("fetch_users", "fetch_orders") {
     println!("These tasks can run simultaneously");
 }
@@ -1199,60 +1135,12 @@ if workflow.can_run_parallel("fetch_users", "fetch_orders") {
 
 </details>
 
-
-
-##### <span id="Workflow.has_path"></span>`has_path`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn has_path (& self , from : & TaskNamespace , to : & TaskNamespace) -> bool
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn has_path(&self, from: &TaskNamespace, to: &TaskNamespace) -> bool {
-        if from == to {
-            return true;
-        }
-
-        let mut visited = HashSet::new();
-        let mut stack = vec![from];
-
-        while let Some(current) = stack.pop() {
-            if visited.contains(current) {
-                continue;
-            }
-            visited.insert(current);
-
-            if let Some(task) = self.tasks.get(current) {
-                for dep in task.dependencies() {
-                    if dep == to {
-                        return true;
-                    }
-                    stack.push(dep);
-                }
-            }
-        }
-
-        false
-    }
-```
-
-</details>
-
-
-
-##### <span id="Workflow.calculate_version"></span>`calculate_version`
+##### <span id="Workflow.calculate_version"></span><code>calculate_​version</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn calculate_version (& self) -> String
+fn calculate_version(&self) -> String
 ```
 
 Calculate content-based version hash from Workflow structure and tasks.
@@ -1269,8 +1157,6 @@ A hexadecimal string representing the content hash.
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let mut workflow = Workflow::new("my-workflow");
 let version = workflow.calculate_version();
 assert_eq!(version.len(), 16); // 16-character hex string
 ```
@@ -1298,139 +1184,12 @@ assert_eq!(version.len(), 16); // 16-character hex string
 
 </details>
 
-
-
-##### <span id="Workflow.hash_topology"></span>`hash_topology`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn hash_topology (& self , hasher : & mut DefaultHasher)
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn hash_topology(&self, hasher: &mut DefaultHasher) {
-        // Get tasks in deterministic order
-        let mut task_ids: Vec<_> = self.tasks.keys().collect();
-        task_ids.sort();
-
-        for task_id in task_ids {
-            task_id.hash(hasher);
-
-            // Include dependencies in deterministic order
-            let mut deps: Vec<_> = self.tasks[task_id].dependencies().to_vec();
-            deps.sort();
-            deps.hash(hasher);
-        }
-    }
-```
-
-</details>
-
-
-
-##### <span id="Workflow.hash_task_definitions"></span>`hash_task_definitions`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn hash_task_definitions (& self , hasher : & mut DefaultHasher)
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn hash_task_definitions(&self, hasher: &mut DefaultHasher) {
-        // Get tasks in deterministic order
-        let mut task_ids: Vec<_> = self.tasks.keys().collect();
-        task_ids.sort();
-
-        for task_id in task_ids {
-            let task = &self.tasks[task_id];
-
-            // Hash task metadata
-            task.id().hash(hasher);
-            task.dependencies().hash(hasher);
-
-            // Hash task code fingerprint (if available)
-            if let Some(code_hash) = self.get_task_code_hash(task_id) {
-                code_hash.hash(hasher);
-            }
-        }
-    }
-```
-
-</details>
-
-
-
-##### <span id="Workflow.hash_configuration"></span>`hash_configuration`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn hash_configuration (& self , hasher : & mut DefaultHasher)
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn hash_configuration(&self, hasher: &mut DefaultHasher) {
-        // Hash Workflow-level configuration (excluding version and timestamps)
-        self.name.hash(hasher);
-        self.tenant.hash(hasher);
-        self.metadata.description.hash(hasher);
-
-        // Hash tags in deterministic order
-        let mut tags: Vec<_> = self.metadata.tags.iter().collect();
-        tags.sort_by_key(|(k, _)| *k);
-        tags.hash(hasher);
-    }
-```
-
-</details>
-
-
-
-##### <span id="Workflow.get_task_code_hash"></span>`get_task_code_hash`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn get_task_code_hash (& self , task_namespace : & TaskNamespace) -> Option < String >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn get_task_code_hash(&self, task_namespace: &TaskNamespace) -> Option<String> {
-        self.tasks
-            .get(task_namespace)
-            .and_then(|task| task.code_fingerprint())
-    }
-```
-
-</details>
-
-
-
-##### <span id="Workflow.get_task_ids"></span>`get_task_ids`
+##### <span id="Workflow.get_task_ids"></span><code>get_​task_​ids</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_task_ids (& self) -> Vec < TaskNamespace >
+fn get_task_ids(&self) -> Vec<TaskNamespace>
 ```
 
 Get all task namespaces in the workflow
@@ -1442,8 +1201,6 @@ Vector of all task namespaces currently in the workflow
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let workflow = Workflow::new("test");
 let task_namespaces = workflow.get_task_ids();
 println!("Tasks in workflow: {:?}", task_namespaces);
 ```
@@ -1459,15 +1216,12 @@ println!("Tasks in workflow: {:?}", task_namespaces);
 
 </details>
 
-
-
-##### <span id="Workflow.finalize"></span>`finalize`
+##### <span id="Workflow.finalize"></span><code>finalize</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn finalize (mut self) -> Self
+fn finalize(mut self) -> Self
 ```
 
 Finalize Workflow and calculate version.
@@ -1483,8 +1237,6 @@ The Workflow with the calculated version set.
 **Examples:**
 
 ```rust
-# use cloacina::*;
-# let mut workflow = Workflow::new("my-workflow");
 // Version is empty before finalization
 assert!(workflow.metadata().version.is_empty());
 
@@ -1506,8 +1258,3 @@ assert!(!finalized_workflow.metadata().version.is_empty());
 ```
 
 </details>
-
-
-
-
-

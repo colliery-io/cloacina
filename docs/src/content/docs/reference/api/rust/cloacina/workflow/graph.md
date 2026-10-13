@@ -1,13 +1,13 @@
 ---
 title: "cloacina::workflow::graph"
 description: "Dependency graph for workflow task relationships."
+editUrl: false
 sidebar:
-  order: 222
+  order: 204
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Dependency graph for workflow task relationships.
 
@@ -16,10 +16,9 @@ task dependencies, cycle detection, and topological sorting.
 
 ## Structs
 
-### <span id="struct.DependencyGraph"></span>`struct DependencyGraph`
+### <span id="struct.DependencyGraph"></span><code style="font-size: 0.85em">struct DependencyGraph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -27,6 +26,19 @@ Low-level representation of task dependencies.
 
 The DependencyGraph manages the relationships between tasks as a directed graph,
 providing cycle detection, topological sorting, and dependency analysis.
+
+**Fields**
+
+* `nodes`: HashSet<TaskNamespace> - Set of all task namespaces in the graph
+* `edges`: HashMap<TaskNamespace, Vec<TaskNamespace>> - Map from task namespace to its dependencies
+
+**Implementation Details**
+
+The graph is implemented as a directed graph where:
+- Nodes represent tasks
+- Edges represent dependencies (from dependent to dependency)
+- Cycles are detected using depth-first search
+- Topological sorting uses Kahn's algorithm
 
 **Examples:**
 
@@ -42,22 +54,14 @@ assert!(!graph.has_cycles());
 assert_eq!(graph.get_dependencies("task2"), Some(&vec!["task1".to_string()]));
 ```
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `nodes` | `HashSet < TaskNamespace >` |  |
-| `edges` | `HashMap < TaskNamespace , Vec < TaskNamespace > >` |  |
-
 #### Methods
 
-##### <span id="DependencyGraph.new"></span>`new`
+##### <span id="DependencyGraph.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 Create a new empty dependency graph
@@ -76,15 +80,12 @@ Create a new empty dependency graph
 
 </details>
 
-
-
-##### <span id="DependencyGraph.add_node"></span>`add_node`
+##### <span id="DependencyGraph.add_node"></span><code>add_​node</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn add_node (& mut self , node_id : TaskNamespace)
+fn add_node(&mut self, node_id: TaskNamespace)
 ```
 
 Add a node (task) to the graph
@@ -101,15 +102,12 @@ Add a node (task) to the graph
 
 </details>
 
-
-
-##### <span id="DependencyGraph.add_edge"></span>`add_edge`
+##### <span id="DependencyGraph.add_edge"></span><code>add_​edge</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn add_edge (& mut self , from : TaskNamespace , to : TaskNamespace)
+fn add_edge(&mut self, from: TaskNamespace, to: TaskNamespace)
 ```
 
 Add an edge (dependency) to the graph
@@ -127,15 +125,12 @@ Add an edge (dependency) to the graph
 
 </details>
 
-
-
-##### <span id="DependencyGraph.remove_node"></span>`remove_node`
+##### <span id="DependencyGraph.remove_node"></span><code>remove_​node</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn remove_node (& mut self , node_id : & TaskNamespace)
+fn remove_node(&mut self, node_id: &TaskNamespace)
 ```
 
 Remove a node (task) from the graph This also removes all edges involving this node
@@ -157,15 +152,12 @@ Remove a node (task) from the graph This also removes all edges involving this n
 
 </details>
 
-
-
-##### <span id="DependencyGraph.remove_edge"></span>`remove_edge`
+##### <span id="DependencyGraph.remove_edge"></span><code>remove_​edge</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn remove_edge (& mut self , from : & TaskNamespace , to : & TaskNamespace)
+fn remove_edge(&mut self, from: &TaskNamespace, to: &TaskNamespace)
 ```
 
 Remove a specific edge (dependency) from the graph
@@ -183,15 +175,15 @@ Remove a specific edge (dependency) from the graph
 
 </details>
 
-
-
-##### <span id="DependencyGraph.get_dependencies"></span>`get_dependencies`
+##### <span id="DependencyGraph.get_dependencies"></span><code>get_​dependencies</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_dependencies (& self , node_id : & TaskNamespace) -> Option < & Vec < TaskNamespace > >
+fn get_dependencies(
+    &self,
+    node_id: &TaskNamespace,
+) -> Option<&Vec<TaskNamespace>>
 ```
 
 Get dependencies for a task
@@ -207,15 +199,12 @@ Get dependencies for a task
 
 </details>
 
-
-
-##### <span id="DependencyGraph.get_dependents"></span>`get_dependents`
+##### <span id="DependencyGraph.get_dependents"></span><code>get_​dependents</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_dependents (& self , node_id : & TaskNamespace) -> Vec < TaskNamespace >
+fn get_dependents(&self, node_id: &TaskNamespace) -> Vec<TaskNamespace>
 ```
 
 Get tasks that depend on the given task
@@ -240,15 +229,12 @@ Get tasks that depend on the given task
 
 </details>
 
-
-
-##### <span id="DependencyGraph.has_cycles"></span>`has_cycles`
+##### <span id="DependencyGraph.has_cycles"></span><code>has_​cycles</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn has_cycles (& self) -> bool
+fn has_cycles(&self) -> bool
 ```
 
 Check if the graph contains cycles
@@ -284,15 +270,14 @@ Check if the graph contains cycles
 
 </details>
 
-
-
-##### <span id="DependencyGraph.topological_sort"></span>`topological_sort`
+##### <span id="DependencyGraph.topological_sort"></span><code>topological_​sort</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn topological_sort (& self) -> Result < Vec < TaskNamespace > , ValidationError >
+fn topological_sort(
+    &self,
+) -> Result<Vec<TaskNamespace>, ValidationError>
 ```
 
 Get tasks in topological order
@@ -351,92 +336,3 @@ Get tasks in topological order
 ```
 
 </details>
-
-
-
-##### <span id="DependencyGraph.find_cycle"></span>`find_cycle`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">pub(crate)</span>
-
-
-```rust
-fn find_cycle (& self) -> Option < Vec < TaskNamespace > >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(crate) fn find_cycle(&self) -> Option<Vec<TaskNamespace>> {
-        // Simple DFS-based cycle detection
-        let mut visited = HashSet::new();
-        let mut rec_stack = HashSet::new();
-        let mut path = Vec::new();
-
-        for node in &self.nodes {
-            if !visited.contains(node) {
-                if let Some(cycle) = self.dfs_cycle(node, &mut visited, &mut rec_stack, &mut path) {
-                    return Some(cycle);
-                }
-            }
-        }
-        None
-    }
-```
-
-</details>
-
-
-
-##### <span id="DependencyGraph.dfs_cycle"></span>`dfs_cycle`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn dfs_cycle (& self , node : & TaskNamespace , visited : & mut HashSet < TaskNamespace > , rec_stack : & mut HashSet < TaskNamespace > , path : & mut Vec < TaskNamespace > ,) -> Option < Vec < TaskNamespace > >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn dfs_cycle(
-        &self,
-        node: &TaskNamespace,
-        visited: &mut HashSet<TaskNamespace>,
-        rec_stack: &mut HashSet<TaskNamespace>,
-        path: &mut Vec<TaskNamespace>,
-    ) -> Option<Vec<TaskNamespace>> {
-        visited.insert(node.clone());
-        rec_stack.insert(node.clone());
-        path.push(node.clone());
-
-        if let Some(deps) = self.edges.get(node) {
-            for dep in deps {
-                if !visited.contains(dep) {
-                    if let Some(cycle) = self.dfs_cycle(dep, visited, rec_stack, path) {
-                        return Some(cycle);
-                    }
-                } else if rec_stack.contains(dep) {
-                    // Found cycle
-                    let cycle_start = path.iter().position(|x| x == dep).unwrap_or(0);
-                    let mut cycle = path[cycle_start..].to_vec();
-                    cycle.push(dep.clone());
-                    return Some(cycle);
-                }
-            }
-        }
-
-        rec_stack.remove(node);
-        path.pop();
-        None
-    }
-```
-
-</details>
-
-
-
-
-

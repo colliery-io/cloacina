@@ -1,27 +1,26 @@
 ---
 title: "cloacina::security::package_signer"
 description: "Package signing and signature storage."
+editUrl: false
 sidebar:
-  order: 211
+  order: 193
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Package signing and signature storage.
 
 This module provides:
-- [`PackageSigner`] trait for signing packages
-- [`DbPackageSigner`] database-backed implementation
-- [`DetachedSignature`] format for standalone signature files
+- [`PackageSigner`](../../../../rust/cloacina/security/package_signer/#trait.PackageSigner) trait for signing packages
+- [`DbPackageSigner`](../../../../rust/cloacina/security/package_signer/#struct.DbPackageSigner) database-backed implementation
+- [`DetachedSignature`](../../../../rust/cloacina/security/package_signer/#struct.DetachedSignature) format for standalone signature files
 
 ## Structs
 
-### <span id="struct.PackageSignatureInfo"></span>`struct PackageSignatureInfo`
+### <span id="struct.PackageSignatureInfo"></span><code style="font-size: 0.85em">struct PackageSignatureInfo</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -33,15 +32,12 @@ A package signature with all metadata.
 |------|------|-------------|
 | `package_hash` | `String` | SHA256 hex hash of the package binary |
 | `key_fingerprint` | `String` | SHA256 hex fingerprint of the signing key |
-| `signature` | `Vec < u8 >` | 64-byte Ed25519 signature |
+| `signature` | `Vec<u8>` | 64-byte Ed25519 signature |
 | `signed_at` | `UniversalTimestamp` | When the package was signed |
 
-
-
-### <span id="struct.DetachedSignature"></span>`struct DetachedSignature`
+### <span id="struct.DetachedSignature"></span><code style="font-size: 0.85em">struct DetachedSignature</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -63,13 +59,12 @@ that can be distributed alongside packages.
 
 #### Methods
 
-##### <span id="DetachedSignature.from_signature_info"></span>`from_signature_info`
+##### <span id="DetachedSignature.from_signature_info"></span><code>from_​signature_​info</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_signature_info (info : & PackageSignatureInfo) -> Self
+fn from_signature_info(info: &PackageSignatureInfo) -> Self
 ```
 
 Create a detached signature from signature info.
@@ -92,15 +87,12 @@ Create a detached signature from signature info.
 
 </details>
 
-
-
-##### <span id="DetachedSignature.from_json"></span>`from_json`
+##### <span id="DetachedSignature.from_json"></span><code>from_​json</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_json (json : & str) -> Result < Self , PackageSignError >
+fn from_json(json: &str) -> Result<Self, PackageSignError>
 ```
 
 Parse a detached signature from JSON.
@@ -117,15 +109,12 @@ Parse a detached signature from JSON.
 
 </details>
 
-
-
-##### <span id="DetachedSignature.to_json"></span>`to_json`
+##### <span id="DetachedSignature.to_json"></span><code>to_​json</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn to_json (& self) -> Result < String , PackageSignError >
+fn to_json(&self) -> Result<String, PackageSignError>
 ```
 
 Serialize to JSON.
@@ -142,15 +131,12 @@ Serialize to JSON.
 
 </details>
 
-
-
-##### <span id="DetachedSignature.signature_bytes"></span>`signature_bytes`
+##### <span id="DetachedSignature.signature_bytes"></span><code>signature_​bytes</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn signature_bytes (& self) -> Result < Vec < u8 > , PackageSignError >
+fn signature_bytes(&self) -> Result<Vec<u8>, PackageSignError>
 ```
 
 Get the raw signature bytes.
@@ -168,15 +154,12 @@ Get the raw signature bytes.
 
 </details>
 
-
-
-##### <span id="DetachedSignature.write_to_file"></span>`write_to_file`
+##### <span id="DetachedSignature.write_to_file"></span><code>write_​to_​file</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn write_to_file (& self , path : & Path) -> Result < () , PackageSignError >
+fn write_to_file(&self, path: &Path) -> Result<(), PackageSignError>
 ```
 
 Write the detached signature to a file.
@@ -194,15 +177,12 @@ Write the detached signature to a file.
 
 </details>
 
-
-
-##### <span id="DetachedSignature.read_from_file"></span>`read_from_file`
+##### <span id="DetachedSignature.read_from_file"></span><code>read_​from_​file</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn read_from_file (path : & Path) -> Result < Self , PackageSignError >
+fn read_from_file(path: &Path) -> Result<Self, PackageSignError>
 ```
 
 Read a detached signature from a file.
@@ -219,34 +199,22 @@ Read a detached signature from a file.
 
 </details>
 
-
-
-
-
-### <span id="struct.DbPackageSigner"></span>`struct DbPackageSigner`
+### <span id="struct.DbPackageSigner"></span><code style="font-size: 0.85em">struct DbPackageSigner</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
 Database-backed package signer implementation.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `dal` | `DAL` |  |
-
 #### Methods
 
-##### <span id="DbPackageSigner.new"></span>`new`
+##### <span id="DbPackageSigner.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (dal : DAL) -> Self
+fn new(dal: DAL) -> Self
 ```
 
 Create a new database-backed package signer.
@@ -262,96 +230,11 @@ Create a new database-backed package signer.
 
 </details>
 
-
-
-##### <span id="DbPackageSigner.compute_file_hash"></span>`compute_file_hash`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn compute_file_hash (path : & Path) -> Result < String , PackageSignError >
-```
-
-Compute the SHA256 hash of a file.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn compute_file_hash(path: &Path) -> Result<String, PackageSignError> {
-        let data = std::fs::read(path)?;
-        Self::compute_data_hash(&data)
-    }
-```
-
-</details>
-
-
-
-##### <span id="DbPackageSigner.compute_data_hash"></span>`compute_data_hash`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn compute_data_hash (data : & [u8]) -> Result < String , PackageSignError >
-```
-
-Compute the SHA256 hash of data.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn compute_data_hash(data: &[u8]) -> Result<String, PackageSignError> {
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        Ok(hex::encode(hasher.finalize()))
-    }
-```
-
-</details>
-
-
-
-##### <span id="DbPackageSigner.to_signature_info"></span>`to_signature_info`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn to_signature_info (sig : UnifiedPackageSignature) -> PackageSignatureInfo
-```
-
-Convert database model to SignatureInfo.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn to_signature_info(sig: UnifiedPackageSignature) -> PackageSignatureInfo {
-        PackageSignatureInfo {
-            package_hash: sig.package_hash,
-            key_fingerprint: sig.key_fingerprint,
-            signature: sig.signature.into_inner(),
-            signed_at: sig.signed_at,
-        }
-    }
-```
-
-</details>
-
-
-
-
-
 ## Enums
 
-### <span id="enum.PackageSignError"></span>`enum PackageSignError`
+### <span id="enum.PackageSignError"></span><code style="font-size: 0.85em">enum PackageSignError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during package signing operations.
 
@@ -366,5 +249,230 @@ Errors that can occur during package signing operations.
 - **`VerificationFailed`**
 - **`InvalidSignatureFile`**
 
+## Traits
 
+### <span id="trait.PackageSigner"></span><code style="font-size: 0.85em">trait PackageSigner</code>
 
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+**Supertraits:** `Send + Sync`
+
+Trait for signing packages and managing signatures.
+
+#### Methods
+
+##### <span id="PackageSigner.sign_package_with_db_key"></span><code>sign_​package_​with_​db_​key</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn sign_package_with_db_key(
+    &self,
+    package_path: &Path,
+    key_id: UniversalUuid,
+    master_key: &[u8],
+    store_signature: bool,
+) -> Result<PackageSignatureInfo, PackageSignError>
+```
+
+Sign a package file using a key from the database.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `package_path` | `&Path` | Path to the package file to sign |
+| `key_id` | `UniversalUuid` | ID of the signing key in the database |
+| `master_key` | `&[u8]` | AES-256 key for decrypting the signing key |
+| `store_signature` | `bool` | Whether to store the signature in the database |
+
+**Returns:**
+
+The signature information.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn sign_package_with_db_key(
+```
+
+</details>
+
+##### <span id="PackageSigner.sign_package_with_raw_key"></span><code>sign_​package_​with_​raw_​key</code>
+
+```rust
+fn sign_package_with_raw_key(
+    &self,
+    package_path: &Path,
+    private_key: &[u8],
+    public_key: &[u8],
+) -> Result<PackageSignatureInfo, PackageSignError>
+```
+
+Sign a package file using a raw key (for offline signing).
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `package_path` | `&Path` | Path to the package file to sign |
+| `private_key` | `&[u8]` | 32-byte Ed25519 private key |
+| `public_key` | `&[u8]` | 32-byte Ed25519 public key (for fingerprint) |
+
+**Returns:**
+
+The signature information.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn sign_package_with_raw_key(
+```
+
+</details>
+
+##### <span id="PackageSigner.sign_package_data"></span><code>sign_​package_​data</code>
+
+```rust
+fn sign_package_data(
+    &self,
+    package_data: &[u8],
+    private_key: &[u8],
+    public_key: &[u8],
+) -> Result<PackageSignatureInfo, PackageSignError>
+```
+
+Sign package data directly (already in memory).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn sign_package_data(
+```
+
+</details>
+
+##### <span id="PackageSigner.store_signature"></span><code>store_​signature</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn store_signature(
+    &self,
+    signature: &PackageSignatureInfo,
+) -> Result<UniversalUuid, PackageSignError>
+```
+
+Store a signature in the database.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn store_signature(
+```
+
+</details>
+
+##### <span id="PackageSigner.find_signature"></span><code>find_​signature</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn find_signature(
+    &self,
+    package_hash: &str,
+) -> Result<Option<PackageSignatureInfo>, PackageSignError>
+```
+
+Find a signature by package hash.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn find_signature(
+```
+
+</details>
+
+##### <span id="PackageSigner.find_signatures"></span><code>find_​signatures</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn find_signatures(
+    &self,
+    package_hash: &str,
+) -> Result<Vec<PackageSignatureInfo>, PackageSignError>
+```
+
+Find all signatures for a package hash.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn find_signatures(
+```
+
+</details>
+
+##### <span id="PackageSigner.verify_package"></span><code>verify_​package</code>
+
+<span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
+
+```rust
+async fn verify_package(
+    &self,
+    package_path: &Path,
+    org_id: UniversalUuid,
+) -> Result<PackageSignatureInfo, PackageSignError>
+```
+
+Verify a package against a stored signature.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `package_path` | `&Path` | Path to the package file to verify |
+| `org_id` | `UniversalUuid` | Organization to check trusted keys for |
+
+**Returns:**
+
+The signature info if verification succeeds.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn verify_package(
+```
+
+</details>
+
+##### <span id="PackageSigner.verify_package_with_detached_signature"></span><code>verify_​package_​with_​detached_​signature</code>
+
+```rust
+fn verify_package_with_detached_signature(
+    &self,
+    package_path: &Path,
+    signature: &DetachedSignature,
+    public_key: &[u8],
+) -> Result<(), PackageSignError>
+```
+
+Verify a package against a detached signature file.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn verify_package_with_detached_signature(
+```
+
+</details>

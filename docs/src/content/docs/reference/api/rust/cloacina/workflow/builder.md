@@ -1,13 +1,13 @@
 ---
 title: "cloacina::workflow::builder"
 description: "Workflow builder for fluent workflow construction."
+editUrl: false
 sidebar:
-  order: 221
+  order: 203
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Workflow builder for fluent workflow construction.
 
@@ -16,10 +16,9 @@ workflows using a chainable, fluent API.
 
 ## Structs
 
-### <span id="struct.WorkflowBuilder"></span>`struct WorkflowBuilder`
+### <span id="struct.WorkflowBuilder"></span><code style="font-size: 0.85em">struct WorkflowBuilder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
@@ -29,20 +28,23 @@ The WorkflowBuilder provides a chainable interface for constructing Workflows,
 making it easy to set metadata, add tasks, and validate the structure
 before finalizing the Workflow.
 
+**Fields**
+
+* `workflow`: Workflow - The workflow being constructed
+
+**Implementation Details**
+
+The builder pattern provides:
+- Fluent interface for workflow construction
+- Automatic validation during build
+- Content-based version calculation
+- Metadata management
+
 **Examples:**
 
 ```rust
 use cloacina::*;
 
-# struct TestTask { id: String, deps: Vec<String> }
-# impl TestTask { fn new(id: &str, deps: Vec<&str>) -> Self { Self { id: id.to_string(), deps: deps.into_iter().map(|s| s.to_string()).collect() } } }
-# use async_trait::async_trait;
-# #[async_trait]
-# impl Task for TestTask {
-#     async fn execute(&self, context: Context<serde_json::Value>) -> Result<Context<serde_json::Value>, TaskError> { Ok(context) }
-#     fn id(&self) -> &str { &self.id }
-#     fn dependencies(&self) -> &[String] { &self.deps }
-# }
 let workflow = Workflow::builder("etl-pipeline")
     .description("Customer data ETL workflow")
     .tag("environment", "staging")
@@ -54,24 +56,16 @@ let workflow = Workflow::builder("etl-pipeline")
 
 assert_eq!(workflow.name(), "etl-pipeline");
 assert!(!workflow.metadata().version.is_empty());
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `workflow` | `Workflow` |  |
 
 #### Methods
 
-##### <span id="WorkflowBuilder.new"></span>`new`
+##### <span id="WorkflowBuilder.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (name : & str) -> Self
+fn new(name: &str) -> Self
 ```
 
 Create a new workflow builder
@@ -89,15 +83,12 @@ Create a new workflow builder
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.name"></span>`name`
+##### <span id="WorkflowBuilder.name"></span><code>name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn name (& self) -> & str
+fn name(&self) -> &str
 ```
 
 Get the workflow name
@@ -113,15 +104,12 @@ Get the workflow name
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.get_description"></span>`get_description`
+##### <span id="WorkflowBuilder.get_description"></span><code>get_​description</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_description (& self) -> Option < & str >
+fn get_description(&self) -> Option<&str>
 ```
 
 Get the workflow description (if set).
@@ -137,15 +125,12 @@ Get the workflow description (if set).
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.get_tags"></span>`get_tags`
+##### <span id="WorkflowBuilder.get_tags"></span><code>get_​tags</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_tags (& self) -> & std :: collections :: HashMap < String , String >
+fn get_tags(&self) -> &std::collections::HashMap<String, String>
 ```
 
 Get the workflow tags.
@@ -161,15 +146,12 @@ Get the workflow tags.
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.description"></span>`description`
+##### <span id="WorkflowBuilder.description"></span><code>description</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn description (mut self , description : & str) -> Self
+fn description(mut self, description: &str) -> Self
 ```
 
 Set the workflow description
@@ -186,15 +168,12 @@ Set the workflow description
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.tenant"></span>`tenant`
+##### <span id="WorkflowBuilder.tenant"></span><code>tenant</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn tenant (mut self , tenant : & str) -> Self
+fn tenant(mut self, tenant: &str) -> Self
 ```
 
 Set the workflow tenant
@@ -211,15 +190,12 @@ Set the workflow tenant
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.tag"></span>`tag`
+##### <span id="WorkflowBuilder.tag"></span><code>tag</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn tag (mut self , key : & str , value : & str) -> Self
+fn tag(mut self, key: &str, value: &str) -> Self
 ```
 
 Add a tag to the workflow metadata
@@ -236,15 +212,15 @@ Add a tag to the workflow metadata
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.add_task"></span>`add_task`
+##### <span id="WorkflowBuilder.add_task"></span><code>add_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn add_task (mut self , task : Arc < dyn Task >) -> Result < Self , WorkflowError >
+fn add_task(
+    mut self,
+    task: Arc<dyn Task>,
+) -> Result<Self, WorkflowError>
 ```
 
 Add a task to the workflow
@@ -261,15 +237,12 @@ Add a task to the workflow
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.validate"></span>`validate`
+##### <span id="WorkflowBuilder.validate"></span><code>validate</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate (self) -> Result < Self , ValidationError >
+fn validate(self) -> Result<Self, ValidationError>
 ```
 
 Validate the workflow structure
@@ -286,15 +259,12 @@ Validate the workflow structure
 
 </details>
 
-
-
-##### <span id="WorkflowBuilder.build"></span>`build`
+##### <span id="WorkflowBuilder.build"></span><code>build</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn build (self) -> Result < Workflow , ValidationError >
+fn build(self) -> Result<Workflow, ValidationError>
 ```
 
 Build the final workflow with automatic version calculation
@@ -311,8 +281,3 @@ Build the final workflow with automatic version calculation
 ```
 
 </details>
-
-
-
-
-

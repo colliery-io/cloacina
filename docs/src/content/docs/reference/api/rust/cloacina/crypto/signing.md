@@ -1,13 +1,13 @@
 ---
 title: "cloacina::crypto::signing"
 description: "Ed25519 signing utilities for package signatures."
+editUrl: false
 sidebar:
-  order: 77
+  order: 61
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Ed25519 signing utilities for package signatures.
 
@@ -19,10 +19,9 @@ Provides functions for:
 
 ## Structs
 
-### <span id="struct.GeneratedKeypair"></span>`struct GeneratedKeypair`
+### <span id="struct.GeneratedKeypair"></span><code style="font-size: 0.85em">struct GeneratedKeypair</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A generated Ed25519 keypair.
 
@@ -30,18 +29,15 @@ A generated Ed25519 keypair.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `private_key` | `Vec < u8 >` | The 32-byte private key seed (should be encrypted before storage) |
-| `public_key` | `Vec < u8 >` | The 32-byte public key |
+| `private_key` | `Vec<u8>` | The 32-byte private key seed (should be encrypted before storage) |
+| `public_key` | `Vec<u8>` | The 32-byte public key |
 | `fingerprint` | `String` | SHA256 hex fingerprint of the public key |
-
-
 
 ## Enums
 
-### <span id="enum.SigningError"></span>`enum SigningError`
+### <span id="enum.SigningError"></span><code style="font-size: 0.85em">enum SigningError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during signing operations.
 
@@ -54,17 +50,14 @@ Errors that can occur during signing operations.
 - **`SignatureFailed`**
 - **`VerificationFailed`**
 
-
-
 ## Functions
 
-### <span id="fn.generate_signing_keypair"></span>`fn generate_signing_keypair`
+### <span id="fn.generate_signing_keypair"></span><code style="font-size: 0.85em">fn generate_​signing_​keypair</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn generate_signing_keypair () -> GeneratedKeypair
+fn generate_signing_keypair() -> GeneratedKeypair
 ```
 
 Generates a new Ed25519 signing keypair.
@@ -78,8 +71,11 @@ A `GeneratedKeypair` containing the private key, public key, and fingerprint.
 
 ```rust
 pub fn generate_signing_keypair() -> GeneratedKeypair {
-    let mut csprng = rand::thread_rng();
-    let signing_key = SigningKey::generate(&mut csprng);
+    // ed25519-dalek 2 wants a rand_core 0.6 RNG; draw the 32-byte seed
+    // from rand 0.10 instead (CLOACINA-T-0963).
+    let mut seed = [0u8; 32];
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut seed);
+    let signing_key = SigningKey::from_bytes(&seed);
     let verifying_key = signing_key.verifying_key();
 
     let public_key_bytes = verifying_key.to_bytes();
@@ -95,15 +91,12 @@ pub fn generate_signing_keypair() -> GeneratedKeypair {
 
 </details>
 
-
-
-### <span id="fn.compute_key_fingerprint"></span>`fn compute_key_fingerprint`
+### <span id="fn.compute_key_fingerprint"></span><code style="font-size: 0.85em">fn compute_​key_​fingerprint</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn compute_key_fingerprint (public_key : & [u8]) -> String
+fn compute_key_fingerprint(public_key: &[u8]) -> String
 ```
 
 Computes the SHA256 hex fingerprint of a public key.
@@ -112,8 +105,7 @@ Computes the SHA256 hex fingerprint of a public key.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `public_key` | `-` | The 32-byte Ed25519 public key |
-
+| `public_key` | `&[u8]` | The 32-byte Ed25519 public key |
 
 **Returns:**
 
@@ -133,15 +125,15 @@ pub fn compute_key_fingerprint(public_key: &[u8]) -> String {
 
 </details>
 
-
-
-### <span id="fn.sign_package"></span>`fn sign_package`
+### <span id="fn.sign_package"></span><code style="font-size: 0.85em">fn sign_​package</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn sign_package (package_hash : & [u8] , private_key : & [u8]) -> Result < Vec < u8 > , SigningError >
+fn sign_package(
+    package_hash: &[u8],
+    private_key: &[u8],
+) -> Result<Vec<u8>, SigningError>
 ```
 
 Signs a package hash using an Ed25519 private key.
@@ -150,20 +142,16 @@ Signs a package hash using an Ed25519 private key.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `package_hash` | `-` | The SHA256 hash of the package (as raw bytes or hex string bytes) |
-| `private_key` | `-` | The 32-byte Ed25519 private key seed |
-
+| `package_hash` | `&[u8]` | The SHA256 hash of the package (as raw bytes or hex string bytes) |
+| `private_key` | `&[u8]` | The 32-byte Ed25519 private key seed |
 
 **Returns:**
 
 The 64-byte Ed25519 signature.
 
-**Raises:**
+**Errors:**
 
-| Exception | Description |
-|-----------|-------------|
-| `Error` | Returns `SigningError` if the private key is invalid. |
-
+Returns `SigningError` if the private key is invalid.
 
 <details>
 <summary>Source</summary>
@@ -187,15 +175,16 @@ pub fn sign_package(package_hash: &[u8], private_key: &[u8]) -> Result<Vec<u8>, 
 
 </details>
 
-
-
-### <span id="fn.verify_signature"></span>`fn verify_signature`
+### <span id="fn.verify_signature"></span><code style="font-size: 0.85em">fn verify_​signature</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn verify_signature (package_hash : & [u8] , signature : & [u8] , public_key : & [u8] ,) -> Result < () , SigningError >
+fn verify_signature(
+    package_hash: &[u8],
+    signature: &[u8],
+    public_key: &[u8],
+) -> Result<(), SigningError>
 ```
 
 Verifies a package signature using an Ed25519 public key.
@@ -204,21 +193,17 @@ Verifies a package signature using an Ed25519 public key.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `package_hash` | `-` | The SHA256 hash of the package that was signed |
-| `signature` | `-` | The 64-byte Ed25519 signature |
-| `public_key` | `-` | The 32-byte Ed25519 public key |
-
+| `package_hash` | `&[u8]` | The SHA256 hash of the package that was signed |
+| `signature` | `&[u8]` | The 64-byte Ed25519 signature |
+| `public_key` | `&[u8]` | The 32-byte Ed25519 public key |
 
 **Returns:**
 
 `Ok(())` if the signature is valid.
 
-**Raises:**
+**Errors:**
 
-| Exception | Description |
-|-----------|-------------|
-| `Error` | Returns `SigningError` if the signature is invalid or verification fails. |
-
+Returns `SigningError` if the signature is invalid or verification fails.
 
 <details>
 <summary>Source</summary>
@@ -257,15 +242,12 @@ pub fn verify_signature(
 
 </details>
 
-
-
-### <span id="fn.compute_package_hash"></span>`fn compute_package_hash`
+### <span id="fn.compute_package_hash"></span><code style="font-size: 0.85em">fn compute_​package_​hash</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn compute_package_hash (data : & [u8]) -> String
+fn compute_package_hash(data: &[u8]) -> String
 ```
 
 Computes the SHA256 hash of package data.
@@ -274,8 +256,7 @@ Computes the SHA256 hash of package data.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `data` | `-` | The package binary data |
-
+| `data` | `&[u8]` | The package binary data |
 
 **Returns:**
 
@@ -294,6 +275,3 @@ pub fn compute_package_hash(data: &[u8]) -> String {
 ```
 
 </details>
-
-
-

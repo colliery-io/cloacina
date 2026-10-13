@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The web UI uses Aurora (`colliery-io-aurora`) 0.6.1. Dialogs open at the
   end of `<body>`; focused inputs have a ring.
+- The API reference is written by plissken 0.2.0: no private items, one
+  `cloaca` page for the Python API, an overview at `reference/api/`. The old
+  addresses of removed pages redirect to the nearest page.
 - **Dependency pass** (CLOACI-T-0942): pruned 21 unused dependencies across
   seven core crates and vendored the two trivially-replaceable ones — the
   `dirs` crate (a home-directory lookup) leaves the dependency tree entirely,

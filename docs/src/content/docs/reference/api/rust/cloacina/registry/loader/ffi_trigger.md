@@ -1,13 +1,13 @@
 ---
 title: "cloacina::registry::loader::ffi_trigger"
 description: "Host-side `Trigger` adapter that dispatches `poll()` through a packaged cdylib via fidius FFI."
+editUrl: false
 sidebar:
-  order: 177
+  order: 159
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Host-side `Trigger` adapter that dispatches `poll()` through a packaged cdylib via fidius FFI.
 
@@ -28,32 +28,26 @@ runtime.
 
 ## Structs
 
-### <span id="struct.FfiTriggerImpl"></span>`struct FfiTriggerImpl`
+### <span id="struct.FfiTriggerImpl"></span><code style="font-size: 0.85em">struct FfiTriggerImpl</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Host-side `Trigger` impl that proxies to a packaged cdylib through fidius. Cached metadata (`name`, `poll_interval`, `allow_concurrent`, `cron_expression`) comes from `get_trigger_metadata` at registration time, so the synchronous accessors don't cross the FFI boundary — only `poll()` does.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `handle` | `Arc < fidius_host :: PluginHandle >` |  |
-| `name` | `String` |  |
-| `poll_interval` | `Duration` |  |
-| `allow_concurrent` | `bool` |  |
-| `cron_expression` | `Option < String >` |  |
-
 #### Methods
 
-##### <span id="FfiTriggerImpl.new"></span>`new`
+##### <span id="FfiTriggerImpl.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (handle : Arc < fidius_host :: PluginHandle > , name : String , poll_interval : Duration , allow_concurrent : bool , cron_expression : Option < String > ,) -> Self
+fn new(
+    handle: Arc<fidius_host::PluginHandle>,
+    name: String,
+    poll_interval: Duration,
+    allow_concurrent: bool,
+    cron_expression: Option<String>,
+) -> Self
 ```
 
 <details>
@@ -78,8 +72,3 @@ fn new (handle : Arc < fidius_host :: PluginHandle > , name : String , poll_inte
 ```
 
 </details>
-
-
-
-
-

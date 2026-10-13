@@ -1,13 +1,13 @@
 ---
 title: "cloacina-python::constructor"
 description: "`cloaca.constructor(...)` — the Python consumer surface for packaged WASM constructor providers (CLOACI-T-0831), mirroring Rust's `constructor!(...)`."
+editUrl: false
 sidebar:
-  order: 29
+  order: 13
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 `cloaca.constructor(...)` — the Python consumer surface for packaged WASM constructor providers (CLOACI-T-0831), mirroring Rust's `constructor!(...)`.
 
@@ -16,22 +16,25 @@ functions are defined), it resolves the named member of a provider suite via
 the SAME host loader the Rust surface uses (`load_constructor_node`:
 provider-search-path resolution, name-keyed config binding, name-in-configure
 member selection, default-closed capability grants) and registers the resolved
-node into the current scoped [`Runtime`] under
+node into the current scoped `Runtime` under
 `TaskNamespace(tenant, package, workflow, id)` — the workflow's DAG assembly
 then picks it up exactly like a `@cloaca.task`.
+
 ```python
 with cloaca.WorkflowBuilder("granted") as _:
-cloaca.constructor(
-id="reader",
-from_="cloacina-provider-fs@0.1.1",
-constructor="read_file",
-config={"path": "/data/secret.txt"},
-grants={"fs": ["ro:/data"]},
-runtime="wasm",  # optional trust-tier pin (CLOACI-T-0920)
-)
-@cloaca.task(id="echo", dependencies=["reader"])
-def echo(context): ...
+    cloaca.constructor(
+        id="reader",
+        from_="cloacina-provider-fs@0.1.1",
+        constructor="read_file",
+        config={"path": "/data/secret.txt"},
+        grants={"fs": ["ro:/data"]},
+        runtime="wasm",  # optional trust-tier pin (CLOACI-T-0920)
+    )
+
+    @cloaca.task(id="echo", dependencies=["reader"])
+    def echo(context): ...
 ```
+
 Execution is language-agnostic — the node runs in the Rust runtime's WASM
 sandbox; Python only authors the wiring. Providers resolve against the same
 provider search path as Rust (`CLOACINA_PROVIDER_PATH` / `./providers` /
@@ -39,15 +42,23 @@ provider search path as Rust (`CLOACINA_PROVIDER_PATH` / `./providers` /
 
 ## Functions
 
-### <span id="fn.constructor"></span>`fn constructor`
+### <span id="fn.constructor"></span><code style="font-size: 0.85em">fn constructor</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.constructor.constructor](../../../cloacina-python/constructor/#fn.constructor)
+> **Python API**: [`cloaca.constructor`](../../../cloaca/#fn.constructor)
 
 ```rust
-fn constructor (py : Python , id : String , from_ : String , constructor : String , config : Option < Bound < '_ , PyDict > > , grants : Option < Bound < '_ , PyDict > > , dependencies : Option < Vec < PyObject > > , runtime : Option < String > ,) -> PyResult < () >
+fn constructor(
+    py: Python,
+    id: String,
+    from_: String,
+    constructor: String,
+    config: Option<Bound<'_, PyDict>>,
+    grants: Option<Bound<'_, PyDict>>,
+    dependencies: Option<Vec<PyObject>>,
+    runtime: Option<String>,
+) -> PyResult<()>
 ```
 
 Wire a packaged constructor-provider member into the current workflow as a DAG node. See the module docs for the full model; `from_` is the provider (Cargo package) name with an optional `@version` pin, `constructor` selects the member, `config` binds by NAME against the member's declared `#[config]` schema, and `grants` is the default-closed capability grant map (`{"http": [...], "tcp": [...], "fs": [...], "env": [...]}`).
@@ -122,25 +133,27 @@ pub fn constructor(
             return Err(PyValueError::new_err(format!(
                 "cloaca.constructor: unknown runtime '{other}'; valid values are \
                  \"wasm\" and \"native\""
-            )))
+            )));
         }
     };
 
     // dependencies: strings or function objects (same convention as @task deps).
     let mut dep_namespaces: Vec<cloacina::TaskNamespace> = Vec::new();
     for (i, dep) in dependencies.unwrap_or_default().iter().enumerate() {
-        let dep_id = if let Ok(s) = dep.extract::<String>(py) {
-            s
-        } else if let Ok(name) = dep.getattr(py, "__name__") {
-            name.extract::<String>(py).map_err(|e| {
-                PyValueError::new_err(format!(
-                    "cloaca.constructor: dependency {i} __name__ is not a string: {e}"
-                ))
-            })?
-        } else {
-            return Err(PyValueError::new_err(format!(
-                "cloaca.constructor: dependency {i} must be a string or a task function"
-            )));
+        let dep_id = match dep.extract::<String>(py) {
+            Ok(s) => s,
+            _ => match dep.getattr(py, "__name__") {
+                Ok(name) => name.extract::<String>(py).map_err(|e| {
+                    PyValueError::new_err(format!(
+                        "cloaca.constructor: dependency {i} __name__ is not a string: {e}"
+                    ))
+                })?,
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "cloaca.constructor: dependency {i} must be a string or a task function"
+                    )));
+                }
+            },
         };
         dep_namespaces.push(cloacina::TaskNamespace::new(
             tenant_id,
@@ -188,6 +201,3 @@ pub fn constructor(
 ```
 
 </details>
-
-
-

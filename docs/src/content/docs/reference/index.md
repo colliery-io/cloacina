@@ -60,4 +60,4 @@ if you need the concepts behind a symbol.
 Auto-generated from source by [plissken](https://github.com/colliery-io/plissken) (`plissken.toml` at the repo root) — the authoritative symbol-level API:
 
 - [Rust API](api/) — `cloacina`, `cloacina-macros`, and the computation-graph crates.
-- [Python API (`cloaca`)](api/) — the PyO3 bindings.
+- [Python API (`cloaca`)](api/cloaca/) — the PyO3 bindings.

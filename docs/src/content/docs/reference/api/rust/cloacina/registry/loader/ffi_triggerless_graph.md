@@ -1,13 +1,13 @@
 ---
 title: "cloacina::registry::loader::ffi_triggerless_graph"
 description: "Host-side adapter that dispatches a trigger-less computation graph through fidius FFI into a packaged cdylib."
+editUrl: false
 sidebar:
-  order: 178
+  order: 160
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Host-side adapter that dispatches a trigger-less computation graph through fidius FFI into a packaged cdylib.
 
@@ -21,13 +21,16 @@ invocation back across the FFI boundary via method index 8
 
 ## Functions
 
-### <span id="fn.build_ffi_triggerless_graph_fn"></span>`fn build_ffi_triggerless_graph_fn`
+### <span id="fn.build_ffi_triggerless_graph_fn"></span><code style="font-size: 0.85em">fn build_​ffi_​triggerless_​graph_​fn</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn build_ffi_triggerless_graph_fn (handle : Arc < fidius_host :: PluginHandle > , graph_name : String , terminal_count : usize ,) -> cloacina_workflow_plugin :: TriggerlessGraphFn
+fn build_ffi_triggerless_graph_fn(
+    handle: Arc<fidius_host::PluginHandle>,
+    graph_name: String,
+    terminal_count: usize,
+) -> cloacina_workflow_plugin::TriggerlessGraphFn
 ```
 
 Build a `TriggerlessGraphFn` that dispatches the named graph through the cdylib at every invocation. The returned closure captures an `Arc<PluginHandle>` (so the dlopen stays alive) plus the graph name + terminal-output names. Each invocation:
@@ -35,12 +38,12 @@ Build a `TriggerlessGraphFn` that dispatches the named graph through the cdylib 
 1. Serializes the workflow context to JSON.
 2. Bounces through `tokio::task::spawn_blocking` (fidius is sync).
 3. Calls `handle.call_method(8, ...)` with a
-`TriggerlessGraphInvokeRequest`.
+   `TriggerlessGraphInvokeRequest`.
 4. Reconstructs `GraphResult` from the wire result. Terminal
-outputs are returned as boxed `serde_json::Value` so the
-workflow-task post-invocation logic in `cloacina-macros` can
-`downcast_ref::<serde_json::Value>` them, identical to the
-in-process path.
+   outputs are returned as boxed `serde_json::Value` so the
+   workflow-task post-invocation logic in `cloacina-macros` can
+   `downcast_ref::<serde_json::Value>` them, identical to the
+   in-process path.
 
 <details>
 <summary>Source</summary>
@@ -135,6 +138,3 @@ pub fn build_ffi_triggerless_graph_fn(
 ```
 
 </details>
-
-
-

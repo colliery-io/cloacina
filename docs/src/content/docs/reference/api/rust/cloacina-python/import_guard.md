@@ -1,13 +1,13 @@
 ---
 title: "cloacina-python::import_guard"
 description: "Supervision for packaged-Python module imports (CLOACI-T-0919)."
+editUrl: false
 sidebar:
-  order: 32
+  order: 16
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Supervision for packaged-Python module imports (CLOACI-T-0919).
 
@@ -20,32 +20,49 @@ Before this module the only mitigation was a poll-join timeout that
 reported failure and the process quietly lost the ability to load any
 Python package until restart.
 
+**The ladder**
+
+1. **Interrupt.** A *pure-Python* infinite loop does NOT hold the GIL
+   exclusively — CPython's eval breaker switches threads every few
+   milliseconds — so another thread can acquire the GIL and inject an
+   asynchronous exception into the hung thread with
+   `PyThreadState_SetAsyncExc`. The exception is raised at the hung
+   thread's next bytecode boundary, the import unwinds, the thread joins,
+   and the interpreter is left healthy. This recovers the overwhelmingly
+   common case (`while True: pass`, a runaway comprehension, a spin-wait).
+
+2. **Surface.** Interruption cannot beat everything: a hang inside a C
+   extension that never returns to the eval loop never reaches a bytecode
+   boundary, and code that catches `BaseException` inside its own loop can
+   swallow the injected exception. Those are indistinguishable from here.
+   When the grace join fails we latch the process-global wedged flag
+   (`cloacina::python_runtime::mark_python_runtime_wedged`), which drives
+   the `cloacina_python_runtime_wedged` gauge, a loud `error!`, and a
+   failing `/ready` — the operator sees a broken replica instead of
+   silently vanishing Python support.
+
+Note on `time.sleep`: it releases the GIL, so a sleeping thread does not
+block the interrupter, but the async exception only lands when the sleep
+returns. A long sleep therefore looks like a wedge until it finishes.
+
 ## Structs
 
-### <span id="struct.ImportThreadIdent"></span>`struct ImportThreadIdent`
+### <span id="struct.ImportThreadIdent"></span><code style="font-size: 0.85em">struct ImportThreadIdent</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Default`
 
 Shared slot holding the Python-level thread id (`threading.get_ident()`) of an import thread, so the supervisor can target it with `PyThreadState_SetAsyncExc`. `-1` means "not recorded yet".
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `0` | `AtomicI64` |  |
-
 #### Methods
 
-##### <span id="ImportThreadIdent.new"></span>`new`
+##### <span id="ImportThreadIdent.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Arc < Self >
+fn new() -> Arc<Self>
 ```
 
 <details>
@@ -59,15 +76,12 @@ fn new () -> Arc < Self >
 
 </details>
 
-
-
-##### <span id="ImportThreadIdent.record"></span>`record`
+##### <span id="ImportThreadIdent.record"></span><code>record</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn record (& self , py : Python < '_ >)
+fn record(&self, py: Python<'_>)
 ```
 
 Record the CURRENT thread's Python ident. Called from inside the import thread once it holds the GIL, before any user code runs.
@@ -94,66 +108,17 @@ Record the CURRENT thread's Python ident. Called from inside the import thread o
 
 </details>
 
-
-
-##### <span id="ImportThreadIdent.get"></span>`get`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn get (& self) -> Option < i64 >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn get(&self) -> Option<i64> {
-        match self.0.load(Ordering::SeqCst) {
-            -1 => None,
-            id => Some(id),
-        }
-    }
-```
-
-</details>
-
-
-
-
-
-## Enums
-
-### <span id="enum.InterruptOutcome"></span>`enum InterruptOutcome`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-Outcome of an interruption attempt against a hung import thread.
-
-#### Variants
-
-- **`Injected`** - The async exception was installed on the target thread state.
-- **`GilUnavailable`** - The GIL could not be acquired inside [`GIL_ACQUIRE_TIMEOUT`] — strong
-evidence of a C-level hold that never yields.
-- **`NoSuchThread`** - `PyThreadState_SetAsyncExc` found no thread with that id (it already
-exited), or the ident was never recorded.
-
-
-
 ## Functions
 
-### <span id="fn.import_timeout"></span>`fn import_timeout`
+### <span id="fn.import_timeout"></span><code style="font-size: 0.85em">fn import_​timeout</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn import_timeout () -> Duration
+fn import_timeout() -> Duration
 ```
 
-Effective import timeout: [`IMPORT_TIMEOUT_ENV`] if it parses as a positive integer, else [`DEFAULT_IMPORT_TIMEOUT_SECS`].
+Effective import timeout: [`IMPORT_TIMEOUT_ENV`](../../../rust/cloacina-python/import_guard/#const.IMPORT_TIMEOUT_ENV) if it parses as a positive integer, else [`DEFAULT_IMPORT_TIMEOUT_SECS`](../../../rust/cloacina-python/import_guard/#const.DEFAULT_IMPORT_TIMEOUT_SECS).
 
 <details>
 <summary>Source</summary>
@@ -178,15 +143,14 @@ pub fn import_timeout() -> Duration {
 
 </details>
 
-
-
-### <span id="fn.ensure_python_runtime_usable"></span>`fn ensure_python_runtime_usable`
+### <span id="fn.ensure_python_runtime_usable"></span><code style="font-size: 0.85em">fn ensure_​python_​runtime_​usable</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn ensure_python_runtime_usable (label : & str) -> Result < () , PythonLoaderError >
+fn ensure_python_runtime_usable(
+    label: &str) -> Result<(,
+) -> Result<(), PythonLoaderError>
 ```
 
 Refuse to start an import when the interpreter is already known-wedged.
@@ -213,114 +177,24 @@ pub fn ensure_python_runtime_usable(label: &str) -> Result<(), PythonLoaderError
 
 </details>
 
-
-
-### <span id="fn.inject_async_exception"></span>`fn inject_async_exception`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn inject_async_exception (ident : i64) -> InterruptOutcome
-```
-
-Inject [`ImportTimeout`] into the Python thread `ident`, from a scratch thread so a GIL that never becomes available cannot hang the supervisor.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn inject_async_exception(ident: i64) -> InterruptOutcome {
-    let worker = std::thread::spawn(move || -> i32 {
-        Python::with_gil(|py| {
-            // SAFETY: the GIL is held for the duration of this call (required
-            // by PyThreadState_SetAsyncExc, which walks the interpreter's
-            // thread-state list). `exc` is a borrowed reference to a type
-            // object that outlives the call — CPython INCREFs it itself.
-            let exc = ImportTimeout::type_object(py);
-            let modified =
-                unsafe { pyo3::ffi::PyThreadState_SetAsyncExc(ident as _, exc.as_ptr()) };
-
-            // Documented revert protocol: a return value > 1 means the call
-            // did something unexpected (more than one thread state matched);
-            // the caller must clear the pending exception by calling again
-            // with NULL, or those threads carry an exception nobody asked for.
-            if modified > 1 {
-                unsafe {
-                    pyo3::ffi::PyThreadState_SetAsyncExc(ident as _, std::ptr::null_mut());
-                }
-            }
-            modified
-        })
-    });
-
-    let deadline = Instant::now() + GIL_ACQUIRE_TIMEOUT;
-    while Instant::now() < deadline {
-        if worker.is_finished() {
-            return match worker.join() {
-                Ok(1) => InterruptOutcome::Injected,
-                Ok(0) => InterruptOutcome::NoSuchThread,
-                // >1 was reverted above; treat as "not usefully injected".
-                Ok(_) | Err(_) => InterruptOutcome::NoSuchThread,
-            };
-        }
-        std::thread::sleep(POLL_INTERVAL);
-    }
-    // The scratch thread is abandoned; it is parked in PyGILState_Ensure and
-    // will finish harmlessly if the GIL is ever released.
-    InterruptOutcome::GilUnavailable
-}
-```
-
-</details>
-
-
-
-### <span id="fn.join_within"></span>`fn join_within`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn join_within < T > (handle : & std :: thread :: JoinHandle < T > , timeout : Duration) -> bool
-```
-
-Poll-join `handle` until it finishes or `deadline` elapses.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn join_within<T>(handle: &std::thread::JoinHandle<T>, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if handle.is_finished() {
-            return true;
-        }
-        std::thread::sleep(POLL_INTERVAL);
-    }
-    handle.is_finished()
-}
-```
-
-</details>
-
-
-
-### <span id="fn.supervise_import"></span>`fn supervise_import`
+### <span id="fn.supervise_import"></span><code style="font-size: 0.85em">fn supervise_​import</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn supervise_import < T > (label : & str , handle : std :: thread :: JoinHandle < Result < T , PythonLoaderError > > , ident : Arc < ImportThreadIdent > , timeout : Duration ,) -> Result < T , PythonLoaderError >
+fn supervise_import<T>(
+    label: &str,
+    handle: std::thread::JoinHandle<Result<T, PythonLoaderError>>,
+    ident: Arc<ImportThreadIdent>,
+    timeout: Duration,
+) -> Result<T, PythonLoaderError>
 ```
 
 Wait for a packaged-Python import thread, escalating through the interrupt → surface ladder if it blows the deadline.
 
 `label` names the package (or graph) in logs and in the wedged reason.
 `ident` must be the slot the import thread populated via
-[`ImportThreadIdent::record`].
+[`ImportThreadIdent::record`](../../../rust/cloacina-python/import_guard/#ImportThreadIdent.record).
 
 <details>
 <summary>Source</summary>
@@ -416,34 +290,9 @@ pub fn supervise_import<T>(
 
 </details>
 
+## Constants
 
-
-### <span id="fn.wedge"></span>`fn wedge`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn wedge < T > (label : & str , detail : & str) -> Result < T , PythonLoaderError >
-```
-
-Latch the wedged flag and return the corresponding load error.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn wedge<T>(label: &str, detail: &str) -> Result<T, PythonLoaderError> {
-    let reason = format!("python runtime wedged by package {label} import hang");
-    cloacina::python_runtime::mark_python_runtime_wedged(reason.clone());
-    Err(PythonLoaderError::RuntimeError(format!(
-        "{reason}: {detail}. The embedded Python interpreter cannot be recovered \
-         in-process — restart this process and remove the offending package."
-    )))
-}
-```
-
-</details>
-
-
-
+| Name | Type | Value | Description |
+|------|------|-------|-------------|
+| <span id="const.DEFAULT_IMPORT_TIMEOUT_SECS"></span>`DEFAULT_IMPORT_TIMEOUT_SECS` | `u64` | `60` | Default timeout for Python module import (seconds). |
+| <span id="const.IMPORT_TIMEOUT_ENV"></span>`IMPORT_TIMEOUT_ENV` | `&str` | `"CLOACINA_PYTHON_IMPORT_TIMEOUT_SECS"` | Environment override for the import timeout. Exists so tests (and operators with pathologically slow packages) don't have to live with the 60s default; a hostile-fixture test cannot wait a minute. |

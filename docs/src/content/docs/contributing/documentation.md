@@ -33,11 +33,12 @@ Two documentation surfaces are generated from source rather than hand-written. K
 
 ### 1. plissken → `docs/src/content/docs/reference/api/`
 
-The [plissken](https://github.com/colliery-io/plissken) tool generates the entire `reference/api/` folder from source (the overview page is `reference/api.md`):
+The [plissken](https://github.com/colliery-io/plissken) tool generates the entire `reference/api/` folder from source, its overview page (`reference/api/index.md`) included:
 
 - **Config**: `plissken.toml` at the repository root, with `template = "starlight"`. It lists the Rust crates to document (`crates/cloacina`, `crates/cloacina-computation-graph`, `crates/cloacina-workflow`, `crates/cloacina-python`) and the Python package (`cloaca`, generated from the PyO3 binding source in `crates/cloacina-python/src`).
-- **Command**: `plissken render` from the project root. Output lands in `docs/src/content/docs/reference/api/` (one page for each module, and `_sidebar.mjs`, the sidebar group) and is committed like any other content. plissken does not delete pages: remove the folder before you render.
-- **Wiring**: this pipeline is **not** run by any angreal task or CI workflow — regeneration is a manual step. If you add, move, or remove public modules in the covered crates, rerun `plissken render` and commit the result; otherwise the generated tree drifts (orphaned pages for removed modules, missing pages for new ones).
+- **Command**: `plissken render` (0.2.0) from the project root. Output lands in `docs/src/content/docs/reference/api/` (`index.md`, one page for each module, and `_sidebar.mjs`, the sidebar group) and is committed like any other content. Private items are left out. The Python API follows the `#[pymodule]` of the bindings and is one page, `cloaca`.
+- **Removed pages**: plissken deletes the page of a module that went away. Add its old address to `docs/src/redirects.json`, pointing at the nearest page, so the address keeps working.
+- **Wiring**: this pipeline is **not** run by any angreal task or CI workflow — regeneration is a manual step. If you add, move, or remove public modules in the covered crates, rerun `plissken render` and commit the result; otherwise the generated tree drifts (pages of removed modules, missing pages for new ones).
 - **Doc links**: write rustdoc links to other crates in the intra-doc form, `` [`cloacina_workflow::Context::secret`] ``. plissken copies a link written as `[text](cloacina_workflow::Context::secret)` into the page as is, and it is a broken link there.
 
 ### 2. utoipa → `docs/public/openapi.json` (CI drift-gated)

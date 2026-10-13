@@ -1,22 +1,21 @@
 ---
 title: "cloacina-python::namespace"
 description: "API reference of the Rust module cloacina-python::namespace."
+editUrl: false
 sidebar:
-  order: 34
+  order: 18
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 ## Structs
 
-### <span id="struct.PyTaskNamespace"></span>`class TaskNamespace`
+### <span id="struct.PyTaskNamespace"></span><code style="font-size: 0.85em">class TaskNamespace</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.namespace.TaskNamespace](../../../cloacina-python/namespace/#class.TaskNamespace)
+> **Python API**: [`cloaca.TaskNamespace`](../../../cloaca/#class.TaskNamespace)
 
 Python wrapper for TaskNamespace
 
@@ -24,17 +23,22 @@ Python wrapper for TaskNamespace
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `cloacina :: TaskNamespace` |  |
+| `inner` | `cloacina::TaskNamespace` |  |
 
 #### Methods
 
-##### <span id="PyTaskNamespace.new"></span>`new`
+##### <span id="PyTaskNamespace.new"></span><code>new</code>
 
 ```rust
-fn new (tenant_id : & str , package_name : & str , workflow_id : & str , task_id : & str) -> Self
+fn new(
+    tenant_id: &str,
+    package_name: &str,
+    workflow_id: &str,
+    task_id: &str,
+) -> Self
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.new](../../../cloacina-python/namespace/#TaskNamespace.new)
+> **Python API**: [`cloaca.TaskNamespace.new`](../../../cloaca/#TaskNamespace.new)
 
 Create a new TaskNamespace
 
@@ -51,15 +55,13 @@ Create a new TaskNamespace
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.from_string"></span>`from_string`
+##### <span id="PyTaskNamespace.from_string"></span><code>from_​string</code>
 
 ```rust
-fn from_string (namespace_str : & str) -> PyResult < Self >
+fn from_string(namespace_str: &str) -> PyResult<Self>
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.from_string](../../../cloacina-python/namespace/#TaskNamespace.from_string)
+> **Python API**: [`cloaca.TaskNamespace.from_string`](../../../cloaca/#TaskNamespace.from_string)
 
 Parse TaskNamespace from string format "tenant::package::workflow::task"
 
@@ -76,15 +78,13 @@ Parse TaskNamespace from string format "tenant::package::workflow::task"
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.tenant_id"></span>`tenant_id`
+##### <span id="PyTaskNamespace.tenant_id"></span><code>tenant_​id</code>
 
 ```rust
-fn tenant_id (& self) -> & str
+fn tenant_id(&self) -> &str
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.tenant_id](../../../cloacina-python/namespace/#TaskNamespace.tenant_id)
+> **Python API**: [`cloaca.TaskNamespace.tenant_id`](../../../cloaca/#TaskNamespace.tenant_id)
 
 Get tenant ID
 
@@ -99,15 +99,13 @@ Get tenant ID
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.package_name"></span>`package_name`
+##### <span id="PyTaskNamespace.package_name"></span><code>package_​name</code>
 
 ```rust
-fn package_name (& self) -> & str
+fn package_name(&self) -> &str
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.package_name](../../../cloacina-python/namespace/#TaskNamespace.package_name)
+> **Python API**: [`cloaca.TaskNamespace.package_name`](../../../cloaca/#TaskNamespace.package_name)
 
 Get package name
 
@@ -122,15 +120,13 @@ Get package name
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.workflow_id"></span>`workflow_id`
+##### <span id="PyTaskNamespace.workflow_id"></span><code>workflow_​id</code>
 
 ```rust
-fn workflow_id (& self) -> & str
+fn workflow_id(&self) -> &str
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.workflow_id](../../../cloacina-python/namespace/#TaskNamespace.workflow_id)
+> **Python API**: [`cloaca.TaskNamespace.workflow_id`](../../../cloaca/#TaskNamespace.workflow_id)
 
 Get workflow ID
 
@@ -145,15 +141,13 @@ Get workflow ID
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.task_id"></span>`task_id`
+##### <span id="PyTaskNamespace.task_id"></span><code>task_​id</code>
 
 ```rust
-fn task_id (& self) -> & str
+fn task_id(&self) -> &str
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.task_id](../../../cloacina-python/namespace/#TaskNamespace.task_id)
+> **Python API**: [`cloaca.TaskNamespace.task_id`](../../../cloaca/#TaskNamespace.task_id)
 
 Get task ID
 
@@ -168,15 +162,13 @@ Get task ID
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.parent"></span>`parent`
+##### <span id="PyTaskNamespace.parent"></span><code>parent</code>
 
 ```rust
-fn parent (& self) -> Self
+fn parent(&self) -> Self
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.parent](../../../cloacina-python/namespace/#TaskNamespace.parent)
+> **Python API**: [`cloaca.TaskNamespace.parent`](../../../cloaca/#TaskNamespace.parent)
 
 Get parent namespace (without task_id)
 
@@ -198,15 +190,13 @@ Get parent namespace (without task_id)
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.is_child_of"></span>`is_child_of`
+##### <span id="PyTaskNamespace.is_child_of"></span><code>is_​child_​of</code>
 
 ```rust
-fn is_child_of (& self , parent : & PyTaskNamespace) -> bool
+fn is_child_of(&self, parent: &PyTaskNamespace) -> bool
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.is_child_of](../../../cloacina-python/namespace/#TaskNamespace.is_child_of)
+> **Python API**: [`cloaca.TaskNamespace.is_child_of`](../../../cloaca/#TaskNamespace.is_child_of)
 
 Check if this namespace is a child of another
 
@@ -225,15 +215,13 @@ Check if this namespace is a child of another
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.is_sibling_of"></span>`is_sibling_of`
+##### <span id="PyTaskNamespace.is_sibling_of"></span><code>is_​sibling_​of</code>
 
 ```rust
-fn is_sibling_of (& self , other : & PyTaskNamespace) -> bool
+fn is_sibling_of(&self, other: &PyTaskNamespace) -> bool
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.is_sibling_of](../../../cloacina-python/namespace/#TaskNamespace.is_sibling_of)
+> **Python API**: [`cloaca.TaskNamespace.is_sibling_of`](../../../cloaca/#TaskNamespace.is_sibling_of)
 
 Check if this namespace is a sibling of another (same parent)
 
@@ -253,15 +241,13 @@ Check if this namespace is a sibling of another (same parent)
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.__str__"></span>`__str__`
+##### <span id="PyTaskNamespace.__str__"></span><code>_​_​str_​_​</code>
 
 ```rust
-fn __str__ (& self) -> String
+fn __str__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.__str__](../../../cloacina-python/namespace/#TaskNamespace.__str__)
+> **Python API**: [`cloaca.TaskNamespace.__str__`](../../../cloaca/#TaskNamespace.__str__)
 
 String representation
 
@@ -276,15 +262,13 @@ String representation
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.__repr__"></span>`__repr__`
+##### <span id="PyTaskNamespace.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.__repr__](../../../cloacina-python/namespace/#TaskNamespace.__repr__)
+> **Python API**: [`cloaca.TaskNamespace.__repr__`](../../../cloaca/#TaskNamespace.__repr__)
 
 String representation
 
@@ -305,15 +289,13 @@ String representation
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.__eq__"></span>`__eq__`
+##### <span id="PyTaskNamespace.__eq__"></span><code>_​_​eq_​_​</code>
 
 ```rust
-fn __eq__ (& self , other : & PyTaskNamespace) -> bool
+fn __eq__(&self, other: &PyTaskNamespace) -> bool
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.__eq__](../../../cloacina-python/namespace/#TaskNamespace.__eq__)
+> **Python API**: [`cloaca.TaskNamespace.__eq__`](../../../cloaca/#TaskNamespace.__eq__)
 
 Equality comparison
 
@@ -328,15 +310,13 @@ Equality comparison
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.__hash__"></span>`__hash__`
+##### <span id="PyTaskNamespace.__hash__"></span><code>_​_​hash_​_​</code>
 
 ```rust
-fn __hash__ (& self) -> u64
+fn __hash__(&self) -> u64
 ```
 
-> **Python API**: [cloacina-python.namespace.TaskNamespace.__hash__](../../../cloacina-python/namespace/#TaskNamespace.__hash__)
+> **Python API**: [`cloaca.TaskNamespace.__hash__`](../../../cloaca/#TaskNamespace.__hash__)
 
 Hash for use in sets/dicts
 
@@ -356,15 +336,12 @@ Hash for use in sets/dicts
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.from_rust"></span>`from_rust`
+##### <span id="PyTaskNamespace.from_rust"></span><code>from_​rust</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_rust (namespace : cloacina :: TaskNamespace) -> Self
+fn from_rust(namespace: cloacina::TaskNamespace) -> Self
 ```
 
 Convert from Rust TaskNamespace (for internal use)
@@ -380,15 +357,12 @@ Convert from Rust TaskNamespace (for internal use)
 
 </details>
 
-
-
-##### <span id="PyTaskNamespace.to_rust"></span>`to_rust`
+##### <span id="PyTaskNamespace.to_rust"></span><code>to_​rust</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn to_rust (& self) -> cloacina :: TaskNamespace
+fn to_rust(&self) -> cloacina::TaskNamespace
 ```
 
 Convert to Rust TaskNamespace (for internal use)
@@ -403,8 +377,3 @@ Convert to Rust TaskNamespace (for internal use)
 ```
 
 </details>
-
-
-
-
-

@@ -1,13 +1,13 @@
 ---
 title: "cloacina-python::bindings::trigger"
 description: "Python trigger support for event-driven workflow execution."
+editUrl: false
 sidebar:
-  order: 24
+  order: 9
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Python trigger support for event-driven workflow execution.
 
@@ -16,12 +16,11 @@ user-defined conditions and fire workflows when those conditions are met.
 
 ## Structs
 
-### <span id="struct.PyTriggerResult"></span>`class TriggerResult`
+### <span id="struct.PyTriggerResult"></span><code style="font-size: 0.85em">class TriggerResult</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.bindings.trigger.TriggerResult](../../../../cloacina-python/bindings/trigger/#class.TriggerResult)
+> **Python API**: [`cloaca.TriggerResult`](../../../../cloaca/#class.TriggerResult)
 
 Python TriggerResult class - represents the result of a trigger poll.
 
@@ -33,17 +32,17 @@ Use `TriggerResult.fire(context=None)` when the condition is met.
 | Name | Type | Description |
 |------|------|-------------|
 | `is_fire` | `bool` |  |
-| `data` | `Option < std :: collections :: HashMap < String , Value > >` |  |
+| `data` | `Option<std::collections::HashMap<String, Value>>` |  |
 
 #### Methods
 
-##### <span id="PyTriggerResult.skip"></span>`skip`
+##### <span id="PyTriggerResult.skip"></span><code>skip</code>
 
 ```rust
-fn skip () -> Self
+fn skip() -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.trigger.TriggerResult.skip](../../../../cloacina-python/bindings/trigger/#TriggerResult.skip)
+> **Python API**: [`cloaca.TriggerResult.skip`](../../../../cloaca/#TriggerResult.skip)
 
 Create a Skip result - condition not met, continue polling.
 
@@ -61,15 +60,13 @@ Create a Skip result - condition not met, continue polling.
 
 </details>
 
-
-
-##### <span id="PyTriggerResult.fire"></span>`fire`
+##### <span id="PyTriggerResult.fire"></span><code>fire</code>
 
 ```rust
-fn fire (context : Option < & PyContext >) -> Self
+fn fire(context: Option<&PyContext>) -> Self
 ```
 
-> **Python API**: [cloacina-python.bindings.trigger.TriggerResult.fire](../../../../cloacina-python/bindings/trigger/#TriggerResult.fire)
+> **Python API**: [`cloaca.TriggerResult.fire`](../../../../cloaca/#TriggerResult.fire)
 
 Create a Fire result - condition met, trigger the workflow.
 
@@ -77,8 +74,7 @@ Create a Fire result - condition met, trigger the workflow.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `context` | `-` | Optional context to pass to the workflow |
-
+| `context` | `Option<&PyContext>` | Optional context to pass to the workflow |
 
 <details>
 <summary>Source</summary>
@@ -95,15 +91,13 @@ Create a Fire result - condition met, trigger the workflow.
 
 </details>
 
-
-
-##### <span id="PyTriggerResult.__repr__"></span>`__repr__`
+##### <span id="PyTriggerResult.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.bindings.trigger.TriggerResult.__repr__](../../../../cloacina-python/bindings/trigger/#TriggerResult.__repr__)
+> **Python API**: [`cloaca.TriggerResult.__repr__`](../../../../cloaca/#TriggerResult.__repr__)
 
 <details>
 <summary>Source</summary>
@@ -122,15 +116,13 @@ fn __repr__ (& self) -> String
 
 </details>
 
-
-
-##### <span id="PyTriggerResult.is_fire_result"></span>`is_fire_result`
+##### <span id="PyTriggerResult.is_fire_result"></span><code>is_​fire_​result</code>
 
 ```rust
-fn is_fire_result (& self) -> bool
+fn is_fire_result(&self) -> bool
 ```
 
-> **Python API**: [cloacina-python.bindings.trigger.TriggerResult.is_fire_result](../../../../cloacina-python/bindings/trigger/#TriggerResult.is_fire_result)
+> **Python API**: [`cloaca.TriggerResult.is_fire_result`](../../../../cloaca/#TriggerResult.is_fire_result)
 
 Check if this is a Fire result
 
@@ -145,15 +137,13 @@ Check if this is a Fire result
 
 </details>
 
-
-
-##### <span id="PyTriggerResult.is_skip_result"></span>`is_skip_result`
+##### <span id="PyTriggerResult.is_skip_result"></span><code>is_​skip_​result</code>
 
 ```rust
-fn is_skip_result (& self) -> bool
+fn is_skip_result(&self) -> bool
 ```
 
-> **Python API**: [cloacina-python.bindings.trigger.TriggerResult.is_skip_result](../../../../cloacina-python/bindings/trigger/#TriggerResult.is_skip_result)
+> **Python API**: [`cloaca.TriggerResult.is_skip_result`](../../../../cloaca/#TriggerResult.is_skip_result)
 
 Check if this is a Skip result
 
@@ -168,15 +158,12 @@ Check if this is a Skip result
 
 </details>
 
-
-
-##### <span id="PyTriggerResult.into_rust"></span>`into_rust`
+##### <span id="PyTriggerResult.into_rust"></span><code>into_​rust</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn into_rust (self) -> TriggerResult
+fn into_rust(self) -> TriggerResult
 ```
 
 Convert to Rust TriggerResult by consuming self.
@@ -203,15 +190,12 @@ Convert to Rust TriggerResult by consuming self.
 
 </details>
 
-
-
-##### <span id="PyTriggerResult.clone_into_rust"></span>`clone_into_rust`
+##### <span id="PyTriggerResult.clone_into_rust"></span><code>clone_​into_​rust</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn clone_into_rust (& self) -> TriggerResult
+fn clone_into_rust(&self) -> TriggerResult
 ```
 
 Convert to Rust TriggerResult by cloning self (for &self callers such as the cross-API loader-side `PythonTriggerWrapper.poll`).
@@ -238,39 +222,23 @@ Convert to Rust TriggerResult by cloning self (for &self callers such as the cro
 
 </details>
 
-
-
-
-
-### <span id="struct.PythonTriggerWrapper"></span>`struct PythonTriggerWrapper`
+### <span id="struct.PythonTriggerWrapper"></span><code style="font-size: 0.85em">struct PythonTriggerWrapper</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Python trigger wrapper implementing Rust Trigger trait.
 
 This struct allows Python functions to be registered and executed
 as triggers within the Cloacina trigger scheduler.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String` |  |
-| `workflow_name` | `String` |  |
-| `poll_interval` | `Duration` |  |
-| `allow_concurrent` | `bool` |  |
-| `python_function` | `PyObject` |  |
-
 #### Methods
 
-##### <span id="PythonTriggerWrapper.workflow_name"></span>`workflow_name`
+##### <span id="PythonTriggerWrapper.workflow_name"></span><code>workflow_​name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn workflow_name (& self) -> & str
+fn workflow_name(&self) -> &str
 ```
 
 Get the workflow name this trigger is associated with
@@ -286,16 +254,9 @@ Get the workflow name this trigger is associated with
 
 </details>
 
-
-
-
-
-### <span id="struct.TriggerDecorator"></span>`class TriggerDecorator`
+### <span id="struct.TriggerDecorator"></span><code style="font-size: 0.85em">class TriggerDecorator</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
-
-
-> **Python API**: [cloacina-python.trigger.TriggerDecorator](../../../../cloacina-python/trigger/#class.TriggerDecorator)
 
 Decorator class that holds trigger configuration
 
@@ -303,20 +264,18 @@ Decorator class that holds trigger configuration
 
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | `Option < String >` |  |
+| `name` | `Option<String>` |  |
 | `workflow` | `String` |  |
 | `poll_interval` | `Duration` |  |
 | `allow_concurrent` | `bool` |  |
 
 #### Methods
 
-##### <span id="TriggerDecorator.__call__"></span>`__call__`
+##### <span id="TriggerDecorator.__call__"></span><code>_​_​call_​_​</code>
 
 ```rust
-fn __call__ (& self , py : Python , func : PyObject) -> PyResult < PyObject >
+fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject>
 ```
-
-> **Python API**: [cloacina-python.trigger.TriggerDecorator.__call__](../../../../cloacina-python/trigger/#TriggerDecorator.__call__)
 
 <details>
 <summary>Source</summary>
@@ -368,65 +327,19 @@ fn __call__ (& self , py : Python , func : PyObject) -> PyResult < PyObject >
 
 </details>
 
-
-
-
-
 ## Functions
 
-### <span id="fn.parse_duration"></span>`fn parse_duration`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn parse_duration (s : & str) -> Result < Duration , String >
-```
-
-Parse duration string like "5s", "100ms", "1m" into Duration
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn parse_duration(s: &str) -> Result<Duration, String> {
-    let s = s.trim();
-    if let Some(stripped) = s.strip_suffix("ms") {
-        let num: u64 = stripped
-            .parse()
-            .map_err(|_| format!("Invalid duration: {}", s))?;
-        Ok(Duration::from_millis(num))
-    } else if let Some(stripped) = s.strip_suffix('s') {
-        let num: u64 = stripped
-            .parse()
-            .map_err(|_| format!("Invalid duration: {}", s))?;
-        Ok(Duration::from_secs(num))
-    } else if let Some(stripped) = s.strip_suffix('m') {
-        let num: u64 = stripped
-            .parse()
-            .map_err(|_| format!("Invalid duration: {}", s))?;
-        Ok(Duration::from_secs(num * 60))
-    } else {
-        // Default to seconds if no suffix
-        let num: u64 = s.parse().map_err(|_| format!("Invalid duration: {}", s))?;
-        Ok(Duration::from_secs(num))
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.trigger"></span>`fn trigger`
+### <span id="fn.trigger"></span><code style="font-size: 0.85em">fn trigger</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.trigger.trigger](../../../../cloacina-python/trigger/#fn.trigger)
-
 ```rust
-fn trigger (workflow : String , name : Option < String > , poll_interval : & str , allow_concurrent : bool ,) -> PyResult < TriggerDecorator >
+fn trigger(
+    workflow: String,
+    name: Option<String>,
+    poll_interval: &str,
+    allow_concurrent: bool,
+) -> PyResult<TriggerDecorator>
 ```
 
 Python @trigger decorator function
@@ -476,6 +389,3 @@ pub fn trigger(
 ```
 
 </details>
-
-
-

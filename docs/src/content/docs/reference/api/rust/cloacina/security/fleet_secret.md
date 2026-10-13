@@ -1,59 +1,73 @@
 ---
 title: "cloacina::security::fleet_secret"
 description: "Fleet secret resolution — server-side wrap + agent-side unwrap (CLOACI-T-0861, I-0133 D-2/D-5/D-6, NFR-003)."
+editUrl: false
 sidebar:
-  order: 209
+  order: 191
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Fleet secret resolution — server-side wrap + agent-side unwrap (CLOACI-T-0861, I-0133 D-2/D-5/D-6, NFR-003).
 
-This module bridges the [`crate::crypto::envelope`] HPKE primitive and the
-[`crate::fleet::protocol`] wire types into the two halves of the fleet path:
-- **Server:** [`resolve_and_wrap_secrets`] grant-checks + decrypts each named
-secret through a [`SecretResolver`] (e.g. the gated
-[`crate::security::SecretStoreResolver`]) and HPKE-wraps the plaintext to
-the agent's advertised ephemeral public key, producing
-[`WrappedSecret`](crate::fleet::protocol::WrappedSecret) blobs. Only
-ciphertext leaves the server.
-- **Agent:** [`InMemorySecretResolver::from_wrapped`] unwraps those blobs with
-the agent's ephemeral private key into an in-memory map, then serves them to
-task bodies via [`cloacina_workflow::Context::secret`]. The
-agent never holds the at-rest KEK and never persists the plaintext.
+This module bridges the [`crate::crypto::envelope`](../../../../rust/cloacina/crypto/envelope/) HPKE primitive and the
+[`crate::fleet::protocol`](../../../../rust/cloacina/fleet/protocol/) wire types into the two halves of the fleet path:
+
+- **Server:** [`resolve_and_wrap_secrets`](../../../../rust/cloacina/security/fleet_secret/#fn.resolve_and_wrap_secrets) grant-checks + decrypts each named
+  secret through a [`SecretResolver`](../../../../rust/cloacina-workflow/secret/#trait.SecretResolver) (e.g. the gated
+  [`crate::security::SecretStoreResolver`](../../../../rust/cloacina/security/secret_resolver/#struct.SecretStoreResolver)) and HPKE-wraps the plaintext to
+  the agent's advertised ephemeral public key, producing
+  [`WrappedSecret`](../../../../rust/cloacina/fleet/protocol/#struct.WrappedSecret) blobs. Only
+  ciphertext leaves the server.
+- **Agent:** [`InMemorySecretResolver::from_wrapped`](../../../../rust/cloacina/security/fleet_secret/#InMemorySecretResolver.from_wrapped) unwraps those blobs with
+  the agent's ephemeral private key into an in-memory map, then serves them to
+  task bodies via [`cloacina_workflow::Context::secret`](../../../../rust/cloacina-workflow/context/#Context.secret). The
+  agent never holds the at-rest KEK and never persists the plaintext.
+
+**Binding (replay/isolation)**
+
+Each wrap's AEAD associated data is `"{execution_id}/{name}"` ([`secret_aad`](../../../../rust/cloacina/security/fleet_secret/#fn.secret_aad)).
+Both sides derive it identically, so a ciphertext for one execution+secret
+cannot be opened as a different one — on top of the per-keypair binding the
+HPKE KEM already provides.
+
+**Per-execution forward secrecy via a one-time key POOL (D-5, refined)**
+
+The live fleet protocol is **push**, not claim — the server pushes a
+`WorkPacket` and there is no per-dispatch round-trip on which the agent could
+attach a fresh key. D-5 therefore uses a **one-time key pool**: the agent
+mints a pool of ephemeral keypairs ([`AgentKeyPool`](../../../../rust/cloacina/security/fleet_secret/#struct.AgentKeyPool)), advertises the public
+halves (each with a `key_id`) at registration + replenish; the server persists
+the unused public keys ([`ServerKeyPool`](../../../../rust/cloacina/security/fleet_secret/#struct.ServerKeyPool)) and **consumes exactly one** per
+secret-bearing dispatch, stamping its `key_id` on the packet. The agent looks
+up the matching private key, unwraps ONCE, and discards it. Each execution
+thus gets a fresh single-use key = true per-execution forward secrecy, with no
+dispatch latency. Pool exhaustion fails the dispatch cleanly (never plaintext,
+never key reuse); the server signals the agent to top up before that happens.
 
 ## Structs
 
-### <span id="struct.InMemorySecretResolver"></span>`struct InMemorySecretResolver`
+### <span id="struct.InMemorySecretResolver"></span><code style="font-size: 0.85em">struct InMemorySecretResolver</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`, `Default`
 
-A [`SecretResolver`] that serves already-resolved values from an in-memory map — the fleet **agent's** resolver (CLOACI-T-0861).
+A [`SecretResolver`](../../../../rust/cloacina-workflow/secret/#trait.SecretResolver) that serves already-resolved values from an in-memory map — the fleet **agent's** resolver (CLOACI-T-0861).
 
-Built by unwrapping the dispatch's [`WrappedSecret`] blobs. Holds the
+Built by unwrapping the dispatch's [`WrappedSecret`](../../../../rust/cloacina/fleet/protocol/#struct.WrappedSecret) blobs. Holds the
 decrypted `{field: value}` maps in memory for the run only; there is no DB,
-no KEK, and nothing is persisted. Its [`Debug`] renders names only.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `secrets` | `HashMap < String , BTreeMap < String , String > >` |  |
+no KEK, and nothing is persisted. Its `Debug` renders names only.
 
 #### Methods
 
-##### <span id="InMemorySecretResolver.new"></span>`new`
+##### <span id="InMemorySecretResolver.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (secrets : HashMap < String , BTreeMap < String , String > >) -> Self
+fn new(secrets: HashMap<String, BTreeMap<String, String>>) -> Self
 ```
 
 Build directly from a name → field-map table (mainly for tests / the embedded caller that already holds plaintext).
@@ -69,15 +83,12 @@ Build directly from a name → field-map table (mainly for tests / the embedded 
 
 </details>
 
-
-
-##### <span id="InMemorySecretResolver.empty"></span>`empty`
+##### <span id="InMemorySecretResolver.empty"></span><code>empty</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn empty () -> Self
+fn empty() -> Self
 ```
 
 An empty resolver — serves nothing (every lookup is `NotFound`).
@@ -93,18 +104,19 @@ An empty resolver — serves nothing (every lookup is `NotFound`).
 
 </details>
 
-
-
-##### <span id="InMemorySecretResolver.from_wrapped"></span>`from_wrapped`
+##### <span id="InMemorySecretResolver.from_wrapped"></span><code>from_​wrapped</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_wrapped (private_key : & EphemeralPrivateKey , wrapped : & [WrappedSecret] , execution_id : & str ,) -> Result < Self , FleetSecretError >
+fn from_wrapped(
+    private_key: &EphemeralPrivateKey,
+    wrapped: &[WrappedSecret],
+    execution_id: &str,
+) -> Result<Self, FleetSecretError>
 ```
 
-Agent side: unwrap a set of [`WrappedSecret`] blobs with the ephemeral private key into an in-memory resolver.
+Agent side: unwrap a set of [`WrappedSecret`](../../../../rust/cloacina/fleet/protocol/#struct.WrappedSecret) blobs with the ephemeral private key into an in-memory resolver.
 
 `execution_id` MUST be the same value the server used to wrap (the
 dispatch's `task_execution_id` / `firing_id`) so the per-message AAD
@@ -140,15 +152,12 @@ matches; otherwise the AEAD open fails closed.
 
 </details>
 
-
-
-##### <span id="InMemorySecretResolver.len"></span>`len`
+##### <span id="InMemorySecretResolver.len"></span><code>len</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn len (& self) -> usize
+fn len(&self) -> usize
 ```
 
 Number of secrets held.
@@ -164,15 +173,12 @@ Number of secrets held.
 
 </details>
 
-
-
-##### <span id="InMemorySecretResolver.is_empty"></span>`is_empty`
+##### <span id="InMemorySecretResolver.is_empty"></span><code>is_​empty</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_empty (& self) -> bool
+fn is_empty(&self) -> bool
 ```
 
 Whether the resolver holds no secrets.
@@ -188,15 +194,12 @@ Whether the resolver holds no secrets.
 
 </details>
 
-
-
-##### <span id="InMemorySecretResolver.into_arc"></span>`into_arc`
+##### <span id="InMemorySecretResolver.into_arc"></span><code>into_​arc</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn into_arc (self) -> Arc < dyn SecretResolver >
+fn into_arc(self) -> Arc<dyn SecretResolver>
 ```
 
 Box as a trait object ready to attach to a `Context`.
@@ -212,41 +215,29 @@ Box as a trait object ready to attach to a `Context`.
 
 </details>
 
-
-
-
-
-### <span id="struct.AgentKeyPool"></span>`struct AgentKeyPool`
+### <span id="struct.AgentKeyPool"></span><code style="font-size: 0.85em">struct AgentKeyPool</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Default`
 
 The **agent's** one-time ephemeral key pool (CLOACI-T-0861 / D-5).
 
 Mints ephemeral X25519 keypairs, retains the private halves keyed by an opaque
-`key_id`, and hands the public halves out as [`EphemeralKeyEntry`]s to
+`key_id`, and hands the public halves out as [`EphemeralKeyEntry`](../../../../rust/cloacina/fleet/protocol/#struct.EphemeralKeyEntry)s to
 advertise to the server. A private key is used **at most once**: on a dispatch
-stamped with a `key_id`, the agent [`take`](AgentKeyPool::take)s (removes) that
+stamped with a `key_id`, the agent [`take`](../../../../rust/cloacina/security/fleet_secret/#AgentKeyPool.take)s (removes) that
 key, unwraps, and the key is gone forever. The private key material never
 leaves the process and is never serialized.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `keys` | `HashMap < String , EphemeralPrivateKey >` |  |
-
 #### Methods
 
-##### <span id="AgentKeyPool.new"></span>`new`
+##### <span id="AgentKeyPool.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 An empty pool.
@@ -262,15 +253,12 @@ An empty pool.
 
 </details>
 
-
-
-##### <span id="AgentKeyPool.mint"></span>`mint`
+##### <span id="AgentKeyPool.mint"></span><code>mint</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn mint (& mut self , n : usize) -> Vec < EphemeralKeyEntry >
+fn mint(&mut self, n: usize) -> Vec<EphemeralKeyEntry>
 ```
 
 Mint `n` fresh one-time keypairs: retain each private key under a fresh `key_id` and return the public entries to advertise to the server.
@@ -297,15 +285,12 @@ Mint `n` fresh one-time keypairs: retain each private key under a fresh `key_id`
 
 </details>
 
-
-
-##### <span id="AgentKeyPool.len"></span>`len`
+##### <span id="AgentKeyPool.len"></span><code>len</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn len (& self) -> usize
+fn len(&self) -> usize
 ```
 
 Number of unused private keys held.
@@ -321,15 +306,12 @@ Number of unused private keys held.
 
 </details>
 
-
-
-##### <span id="AgentKeyPool.is_empty"></span>`is_empty`
+##### <span id="AgentKeyPool.is_empty"></span><code>is_​empty</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_empty (& self) -> bool
+fn is_empty(&self) -> bool
 ```
 
 Whether the pool holds no unused keys.
@@ -345,15 +327,12 @@ Whether the pool holds no unused keys.
 
 </details>
 
-
-
-##### <span id="AgentKeyPool.take"></span>`take`
+##### <span id="AgentKeyPool.take"></span><code>take</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn take (& mut self , key_id : & str) -> Option < EphemeralPrivateKey >
+fn take(&mut self, key_id: &str) -> Option<EphemeralPrivateKey>
 ```
 
 Take (remove) the private key for `key_id` for **one-time** use. `None` when the `key_id` is unknown or already consumed — the caller MUST then fail the execution cleanly rather than run with missing secrets.
@@ -369,39 +348,27 @@ Take (remove) the private key for `key_id` for **one-time** use. `None` when the
 
 </details>
 
-
-
-
-
-### <span id="struct.ServerKeyPool"></span>`struct ServerKeyPool`
+### <span id="struct.ServerKeyPool"></span><code style="font-size: 0.85em">struct ServerKeyPool</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Default`, `Clone`
 
 The **server's** view of one agent's UNUSED one-time public keys (CLOACI-T-0861 / D-5).
 
-Consume-once: [`consume`](ServerKeyPool::consume) hands out each key exactly
+Consume-once: [`consume`](../../../../rust/cloacina/security/fleet_secret/#ServerKeyPool.consume) hands out each key exactly
 once and removes it, so a key is NEVER reused across dispatches. Exhaustion
 (`consume` → `None`) MUST fail the dispatch cleanly — never send plaintext,
 never reuse a key. FIFO so the oldest advertised key is spent first.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `unused` | `VecDeque < EphemeralKeyEntry >` |  |
-
 #### Methods
 
-##### <span id="ServerKeyPool.new"></span>`new`
+##### <span id="ServerKeyPool.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 An empty pool.
@@ -417,15 +384,12 @@ An empty pool.
 
 </details>
 
-
-
-##### <span id="ServerKeyPool.from_entries"></span>`from_entries`
+##### <span id="ServerKeyPool.from_entries"></span><code>from_​entries</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_entries (entries : Vec < EphemeralKeyEntry >) -> Self
+fn from_entries(entries: Vec<EphemeralKeyEntry>) -> Self
 ```
 
 Seed the pool from an agent's advertised entries (e.g. at registration).
@@ -443,15 +407,15 @@ Seed the pool from an agent's advertised entries (e.g. at registration).
 
 </details>
 
-
-
-##### <span id="ServerKeyPool.replenish"></span>`replenish`
+##### <span id="ServerKeyPool.replenish"></span><code>replenish</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn replenish (& mut self , entries : impl IntoIterator < Item = EphemeralKeyEntry >) -> usize
+fn replenish(
+    &mut self,
+    entries: impl IntoIterator<Item = EphemeralKeyEntry>,
+) -> usize
 ```
 
 Append fresh entries (a replenish top-up). De-dupes by `key_id` so a retried top-up can't double-insert the same key.
@@ -474,15 +438,12 @@ Append fresh entries (a replenish top-up). De-dupes by `key_id` so a retried top
 
 </details>
 
-
-
-##### <span id="ServerKeyPool.consume"></span>`consume`
+##### <span id="ServerKeyPool.consume"></span><code>consume</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn consume (& mut self) -> Option < EphemeralKeyEntry >
+fn consume(&mut self) -> Option<EphemeralKeyEntry>
 ```
 
 Consume one unused key (FIFO), removing it so it can never be handed out again (one-time). `None` when the pool is exhausted.
@@ -498,15 +459,12 @@ Consume one unused key (FIFO), removing it so it can never be handed out again (
 
 </details>
 
-
-
-##### <span id="ServerKeyPool.len"></span>`len`
+##### <span id="ServerKeyPool.len"></span><code>len</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn len (& self) -> usize
+fn len(&self) -> usize
 ```
 
 Number of unused keys remaining.
@@ -522,15 +480,12 @@ Number of unused keys remaining.
 
 </details>
 
-
-
-##### <span id="ServerKeyPool.is_empty"></span>`is_empty`
+##### <span id="ServerKeyPool.is_empty"></span><code>is_​empty</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_empty (& self) -> bool
+fn is_empty(&self) -> bool
 ```
 
 Whether the pool is exhausted.
@@ -546,15 +501,12 @@ Whether the pool is exhausted.
 
 </details>
 
-
-
-##### <span id="ServerKeyPool.replenish_deficit"></span>`replenish_deficit`
+##### <span id="ServerKeyPool.replenish_deficit"></span><code>replenish_​deficit</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn replenish_deficit (& self , target : usize) -> usize
+fn replenish_deficit(&self, target: usize) -> usize
 ```
 
 How many more keys are needed to reach `target` (0 if at/above it) — the replenish signal the server returns to the agent.
@@ -570,16 +522,11 @@ How many more keys are needed to reach `target` (0 if at/above it) — the reple
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.FleetSecretError"></span>`enum FleetSecretError`
+### <span id="enum.FleetSecretError"></span><code style="font-size: 0.85em">enum FleetSecretError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors from the fleet wrap/unwrap path.
 
@@ -587,20 +534,17 @@ Errors from the fleet wrap/unwrap path.
 
 - **`Resolve`** - A secret failed to resolve on the server before wrapping.
 - **`Envelope`** - HPKE wrap/unwrap failed.
-- **`Encoding`** - A base64 field on a [`WrappedSecret`] was malformed.
+- **`Encoding`** - A base64 field on a [`WrappedSecret`](../../../../rust/cloacina/fleet/protocol/#struct.WrappedSecret) was malformed.
 - **`Payload`** - The unwrapped bytes were not a valid JSON `{field: value}` map.
-
-
 
 ## Functions
 
-### <span id="fn.secret_aad"></span>`fn secret_aad`
+### <span id="fn.secret_aad"></span><code style="font-size: 0.85em">fn secret_​aad</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn secret_aad (execution_id : & str , name : & str) -> Vec < u8 >
+fn secret_aad(execution_id: &str, name: &str) -> Vec<u8>
 ```
 
 Derive the AEAD associated data binding a wrap to one execution + secret.
@@ -618,22 +562,24 @@ pub fn secret_aad(execution_id: &str, name: &str) -> Vec<u8> {
 
 </details>
 
-
-
-### <span id="fn.resolve_and_wrap_secrets"></span>`fn resolve_and_wrap_secrets`
+### <span id="fn.resolve_and_wrap_secrets"></span><code style="font-size: 0.85em">fn resolve_​and_​wrap_​secrets</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn resolve_and_wrap_secrets (resolver : & dyn SecretResolver , names : & [String] , execution_id : & str , recipient_public_key : & [u8] ,) -> Result < Vec < WrappedSecret > , FleetSecretError >
+async fn resolve_and_wrap_secrets(
+    resolver: &dyn SecretResolver,
+    names: &[String],
+    execution_id: &str,
+    recipient_public_key: &[u8],
+) -> Result<Vec<WrappedSecret>, FleetSecretError>
 ```
 
 Server side: resolve each named secret (grant-checked by `resolver`) and HPKE-wrap it to `recipient_public_key`, bound to `execution_id`.
 
 `resolver` should be the tenant + grant scoped resolver from T-0858/T-0860
 (the wrap step adds no authorization of its own — it trusts the resolver's
-gate). Returns one [`WrappedSecret`] per name; the plaintext exists only
+gate). Returns one [`WrappedSecret`](../../../../rust/cloacina/fleet/protocol/#struct.WrappedSecret) per name; the plaintext exists only
 transiently on the stack here and is never logged or persisted (NFR-001).
 
 <details>
@@ -668,20 +614,22 @@ pub async fn resolve_and_wrap_secrets(
 
 </details>
 
-
-
-### <span id="fn.wrap_field_map"></span>`fn wrap_field_map`
+### <span id="fn.wrap_field_map"></span><code style="font-size: 0.85em">fn wrap_​field_​map</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn wrap_field_map (name : & str , fields : & BTreeMap < String , String > , execution_id : & str , recipient_public_key : & [u8] ,) -> Result < WrappedSecret , FleetSecretError >
+fn wrap_field_map(
+    name: &str,
+    fields: &BTreeMap<String, String>,
+    execution_id: &str,
+    recipient_public_key: &[u8],
+) -> Result<WrappedSecret, FleetSecretError>
 ```
 
-Wrap an already-resolved `{field: value}` map into a [`WrappedSecret`].
+Wrap an already-resolved `{field: value}` map into a [`WrappedSecret`](../../../../rust/cloacina/fleet/protocol/#struct.WrappedSecret).
 
-Split out from [`resolve_and_wrap_secrets`] so callers holding pre-resolved
+Split out from [`resolve_and_wrap_secrets`](../../../../rust/cloacina/security/fleet_secret/#fn.resolve_and_wrap_secrets) so callers holding pre-resolved
 values (and tests) can wrap directly.
 
 <details>
@@ -710,18 +658,15 @@ pub fn wrap_field_map(
 
 </details>
 
-
-
-### <span id="fn.secret_ref_names"></span>`fn secret_ref_names`
+### <span id="fn.secret_ref_names"></span><code style="font-size: 0.85em">fn secret_​ref_​names</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn secret_ref_names (context : & serde_json :: Value) -> Vec < String >
+fn secret_ref_names(context: &serde_json::Value) -> Vec<String>
 ```
 
-Extract the concrete secret NAMES a fire context references via the T-0859 `{"$secret": name}` alias map (stored under [`cloacina_workflow::secret::SECRET_REFS_KEY`]).
+Extract the concrete secret NAMES a fire context references via the T-0859 `{"$secret": name}` alias map (stored under [`cloacina_workflow::secret::SECRET_REFS_KEY`](../../../../rust/cloacina-workflow/secret/#const.SECRET_REFS_KEY)).
 
 Returns the deduped, sorted set of secret names a fleet dispatch must resolve
 + wrap. NAMES only — this reads the alias map, which by construction carries
@@ -749,18 +694,17 @@ pub fn secret_ref_names(context: &serde_json::Value) -> Vec<String> {
 
 </details>
 
-
-
-### <span id="fn.decode_pool_public_key"></span>`fn decode_pool_public_key`
+### <span id="fn.decode_pool_public_key"></span><code style="font-size: 0.85em">fn decode_​pool_​public_​key</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn decode_pool_public_key (entry : & EphemeralKeyEntry) -> Result < Vec < u8 > , FleetSecretError >
+fn decode_pool_public_key(
+    entry: &EphemeralKeyEntry,
+) -> Result<Vec<u8>, FleetSecretError>
 ```
 
-Decode an [`EphemeralKeyEntry`]'s base64 public key into raw X25519 bytes.
+Decode an [`EphemeralKeyEntry`](../../../../rust/cloacina/fleet/protocol/#struct.EphemeralKeyEntry)'s base64 public key into raw X25519 bytes.
 
 <details>
 <summary>Source</summary>
@@ -774,6 +718,3 @@ pub fn decode_pool_public_key(entry: &EphemeralKeyEntry) -> Result<Vec<u8>, Flee
 ```
 
 </details>
-
-
-

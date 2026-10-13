@@ -1,13 +1,13 @@
 ---
 title: "cloacina::security::secret_store"
 description: "Encrypted, tenant-scoped secrets store (CLOACI-I-0133 / T-0857)."
+editUrl: false
 sidebar:
-  order: 213
+  order: 195
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Encrypted, tenant-scoped secrets store (CLOACI-I-0133 / T-0857).
 
@@ -16,15 +16,31 @@ encrypted at rest — the encrypted sibling of a parameter. This module is the
 foundation task of I-0133: the store, the DAL, and metadata-only CRUD. It
 deliberately does NOT implement the resolution side channel (the `ctx.secret()`
 accessor, D-1), grants (D-3), instance-param `$secret` references (D-4), or the
-fleet per-execution envelope wrap (D-2) — those are later tasks. [`resolve_secret`]
+fleet per-execution envelope wrap (D-2) — those are later tasks. [`resolve_secret`](../../../../rust/cloacina/security/secret_store/#SecretStore.resolve_secret)
 exists here as the INTERNAL decrypt primitive those tasks will call.
+
+**Envelope encryption (D-7)**
+
+Each tenant has a per-tenant **data key (DEK)** — 32 random bytes generated on
+first use — wrapped by a server **KEK** and stored in `tenant_data_keys`. A
+secret's field map is serialized to JSON and encrypted under the tenant DEK
+(AES-256-GCM, `nonce || ciphertext || tag`). The KEK is supplied by the caller
+on every method as `kek: &[u8]` (32 bytes), mirroring the `master_key`
+parameter of [`crate::security::DbKeyManager`](../../../../rust/cloacina/security/db_key_manager/#struct.DbKeyManager). Unwrapping the DEK happens only
+server-side; the plaintext DEK and plaintext field values live only transiently
+in memory.
+
+**Metadata vs. plaintext (REQ-002 / NFR-001)**
+
+[`SecretMetadata`](../../../../rust/cloacina/security/secret_store/#struct.SecretMetadata) (returned by list/get) carries names, field names, and
+timestamps — NEVER a plaintext or ciphertext value. Plaintext field values are
+returned ONLY by [`resolve_secret`](../../../../rust/cloacina/security/secret_store/#SecretStore.resolve_secret), the internal resolve path.
 
 ## Structs
 
-### <span id="struct.SecretMetadata"></span>`struct SecretMetadata`
+### <span id="struct.SecretMetadata"></span><code style="font-size: 0.85em">struct SecretMetadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `PartialEq`, `Eq`
 
@@ -37,71 +53,28 @@ Metadata-only view of a secret. **Never** carries a plaintext or ciphertext valu
 | `id` | `UniversalUuid` |  |
 | `org_id` | `UniversalUuid` |  |
 | `name` | `String` |  |
-| `field_names` | `Vec < String >` | The declared field names (plaintext metadata) — values are NOT included. |
+| `field_names` | `Vec<String>` | The declared field names (plaintext metadata) — values are NOT included. |
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
 
-#### Methods
-
-##### <span id="SecretMetadata.from_row"></span>`from_row`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn from_row (row : & Secret) -> Result < Self , SecretError >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn from_row(row: &Secret) -> Result<Self, SecretError> {
-        let field_names: Vec<String> = serde_json::from_str(&row.field_names)
-            .map_err(|e| SecretError::Serialization(e.to_string()))?;
-        Ok(Self {
-            id: row.id,
-            org_id: row.org_id,
-            name: row.name.clone(),
-            field_names,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-    }
-```
-
-</details>
-
-
-
-
-
-### <span id="struct.SecretStore"></span>`struct SecretStore`
+### <span id="struct.SecretStore"></span><code style="font-size: 0.85em">struct SecretStore</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
-Encrypted, tenant-scoped secrets store (mirrors [`crate::security::DbKeyManager`]).
+Encrypted, tenant-scoped secrets store (mirrors [`crate::security::DbKeyManager`](../../../../rust/cloacina/security/db_key_manager/#struct.DbKeyManager)).
 
 Holds no key material: the server KEK is passed into each method that needs it.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `dal` | `DAL` |  |
-
 #### Methods
 
-##### <span id="SecretStore.new"></span>`new`
+##### <span id="SecretStore.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (dal : DAL) -> Self
+fn new(dal: DAL) -> Self
 ```
 
 Creates a new secrets store over the given DAL.
@@ -117,162 +90,24 @@ Creates a new secrets store over the given DAL.
 
 </details>
 
-
-
-##### <span id="SecretStore.serialize_fields"></span>`serialize_fields`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn serialize_fields (fields : & BTreeMap < String , String >) -> Result < Vec < u8 > , SecretError >
-```
-
-Serialize the `{field: value}` map to canonical JSON bytes. A `BTreeMap` gives a deterministic field order in the plaintext.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn serialize_fields(fields: &BTreeMap<String, String>) -> Result<Vec<u8>, SecretError> {
-        serde_json::to_vec(fields).map_err(|e| SecretError::Serialization(e.to_string()))
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.serialize_field_names"></span>`serialize_field_names`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn serialize_field_names (fields : & BTreeMap < String , String >) -> Result < String , SecretError >
-```
-
-JSON array of just the field names (plaintext metadata).
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn serialize_field_names(fields: &BTreeMap<String, String>) -> Result<String, SecretError> {
-        let names: Vec<&String> = fields.keys().collect();
-        serde_json::to_string(&names).map_err(|e| SecretError::Serialization(e.to_string()))
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.encrypt_fields"></span>`encrypt_fields`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn encrypt_fields (fields : & BTreeMap < String , String > , dek : & [u8] ,) -> Result < Vec < u8 > , SecretError >
-```
-
-Encrypt a serialized field map under the tenant DEK.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn encrypt_fields(
-        fields: &BTreeMap<String, String>,
-        dek: &[u8],
-    ) -> Result<Vec<u8>, SecretError> {
-        let plaintext = Self::serialize_fields(fields)?;
-        encrypt_bytes(&plaintext, dek).map_err(|e| SecretError::Encryption(e.to_string()))
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.get_or_create_tenant_dek"></span>`get_or_create_tenant_dek`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn get_or_create_tenant_dek (& self , org_id : UniversalUuid , kek : & [u8] ,) -> Result < Vec < u8 > , SecretError >
-```
-
-Get the tenant's data key (DEK), generating + wrapping one on first use.
-
-Returns the UNWRAPPED 32-byte DEK. The DEK is stored wrapped under the
-server `kek`; unwrapping happens only here, server-side. Internal — callers
-in this module hold the plaintext DEK only transiently.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn get_or_create_tenant_dek(
-        &self,
-        org_id: UniversalUuid,
-        kek: &[u8],
-    ) -> Result<Vec<u8>, SecretError> {
-        // Fast path: an existing wrapped DEK.
-        if let Some(row) = self.get_tenant_data_key_row(org_id).await? {
-            return decrypt_bytes(&row.wrapped_dek.into_inner(), kek)
-                .map_err(|e| SecretError::Decryption(e.to_string()));
-        }
-
-        // Generate a fresh DEK and wrap it under the KEK.
-        let mut dek = vec![0u8; DEK_SIZE];
-        rand::thread_rng().fill_bytes(&mut dek);
-        let wrapped =
-            encrypt_bytes(&dek, kek).map_err(|e| SecretError::Encryption(e.to_string()))?;
-
-        let new_row = NewTenantDataKey {
-            id: UniversalUuid::new_v4(),
-            org_id,
-            wrapped_dek: UniversalBinary::new(wrapped),
-            created_at: UniversalTimestamp::now(),
-        };
-
-        match self.insert_tenant_data_key(new_row).await {
-            Ok(()) => Ok(dek),
-            Err(SecretError::DuplicateName(_)) => {
-                // Lost a race with a concurrent create: adopt the winner's DEK.
-                let row = self
-                    .get_tenant_data_key_row(org_id)
-                    .await?
-                    .ok_or_else(|| SecretError::Database("tenant DEK vanished".to_string()))?;
-                decrypt_bytes(&row.wrapped_dek.into_inner(), kek)
-                    .map_err(|e| SecretError::Decryption(e.to_string()))
-            }
-            Err(e) => Err(e),
-        }
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.create_secret"></span>`create_secret`
+##### <span id="SecretStore.create_secret"></span><code>create_​secret</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn create_secret (& self , org_id : UniversalUuid , name : & str , fields : & BTreeMap < String , String > , kek : & [u8] ,) -> Result < SecretMetadata , SecretError >
+async fn create_secret(
+    &self,
+    org_id: UniversalUuid,
+    name: &str,
+    fields: &BTreeMap<String, String>,
+    kek: &[u8],
+) -> Result<SecretMetadata, SecretError>
 ```
 
 Create a new secret from a `{field: value}` map, encrypted under the tenant DEK.
 
-Returns metadata only. Errors with [`SecretError::DuplicateName`] if a secret
+Returns metadata only. Errors with [`SecretError::DuplicateName`](../../../../rust/cloacina/security/secret_store/#enum.SecretError) if a secret
 of that name already exists for the tenant.
 
 <details>
@@ -310,16 +145,19 @@ of that name already exists for the tenant.
 
 </details>
 
-
-
-##### <span id="SecretStore.rotate_secret"></span>`rotate_secret`
+##### <span id="SecretStore.rotate_secret"></span><code>rotate_​secret</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn rotate_secret (& self , org_id : UniversalUuid , name : & str , fields : & BTreeMap < String , String > , kek : & [u8] ,) -> Result < SecretMetadata , SecretError >
+async fn rotate_secret(
+    &self,
+    org_id: UniversalUuid,
+    name: &str,
+    fields: &BTreeMap<String, String>,
+    kek: &[u8],
+) -> Result<SecretMetadata, SecretError>
 ```
 
 Rotate a secret's values in place (D-8 OQ-5: in-place, no versioning).
@@ -363,16 +201,16 @@ The next resolve sees the new value. Returns metadata only.
 
 </details>
 
-
-
-##### <span id="SecretStore.list_secrets_metadata"></span>`list_secrets_metadata`
+##### <span id="SecretStore.list_secrets_metadata"></span><code>list_​secrets_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn list_secrets_metadata (& self , org_id : UniversalUuid ,) -> Result < Vec < SecretMetadata > , SecretError >
+async fn list_secrets_metadata(
+    &self,
+    org_id: UniversalUuid,
+) -> Result<Vec<SecretMetadata>, SecretError>
 ```
 
 List metadata for all of a tenant's secrets. **No plaintext, no ciphertext.**
@@ -392,16 +230,17 @@ List metadata for all of a tenant's secrets. **No plaintext, no ciphertext.**
 
 </details>
 
-
-
-##### <span id="SecretStore.get_secret_metadata"></span>`get_secret_metadata`
+##### <span id="SecretStore.get_secret_metadata"></span><code>get_​secret_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn get_secret_metadata (& self , org_id : UniversalUuid , name : & str ,) -> Result < SecretMetadata , SecretError >
+async fn get_secret_metadata(
+    &self,
+    org_id: UniversalUuid,
+    name: &str,
+) -> Result<SecretMetadata, SecretError>
 ```
 
 Get metadata for one secret by name. **No plaintext, no ciphertext.**
@@ -425,16 +264,18 @@ Get metadata for one secret by name. **No plaintext, no ciphertext.**
 
 </details>
 
-
-
-##### <span id="SecretStore.resolve_secret"></span>`resolve_secret`
+##### <span id="SecretStore.resolve_secret"></span><code>resolve_​secret</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn resolve_secret (& self , org_id : UniversalUuid , name : & str , kek : & [u8] ,) -> Result < BTreeMap < String , String > , SecretError >
+async fn resolve_secret(
+    &self,
+    org_id: UniversalUuid,
+    name: &str,
+    kek: &[u8],
+) -> Result<BTreeMap<String, String>, SecretError>
 ```
 
 INTERNAL: resolve a secret to its plaintext `{field: value}` map.
@@ -468,16 +309,17 @@ or the fires log (NFR-001).
 
 </details>
 
-
-
-##### <span id="SecretStore.delete_secret"></span>`delete_secret`
+##### <span id="SecretStore.delete_secret"></span><code>delete_​secret</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn delete_secret (& self , org_id : UniversalUuid , name : & str ,) -> Result < () , SecretError >
+async fn delete_secret(
+    &self,
+    org_id: UniversalUuid,
+    name: &str,
+) -> Result<(), SecretError>
 ```
 
 Delete a secret by name.
@@ -501,260 +343,11 @@ Delete a secret by name.
 
 </details>
 
-
-
-##### <span id="SecretStore.get_tenant_data_key_row"></span>`get_tenant_data_key_row`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn get_tenant_data_key_row (& self , org_id : UniversalUuid ,) -> Result < Option < TenantDataKey > , SecretError >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn get_tenant_data_key_row(
-        &self,
-        org_id: UniversalUuid,
-    ) -> Result<Option<TenantDataKey>, SecretError> {
-        crate::interact_on_backend!(self.dal, |conn| {
-            tenant_data_keys::table
-                .filter(tenant_data_keys::org_id.eq(org_id))
-                .first(conn)
-                .optional()
-        })
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.insert_tenant_data_key"></span>`insert_tenant_data_key`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn insert_tenant_data_key (& self , new_row : NewTenantDataKey) -> Result < () , SecretError >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn insert_tenant_data_key(&self, new_row: NewTenantDataKey) -> Result<(), SecretError> {
-        crate::interact_on_backend!(self.dal, |conn| {
-            diesel::insert_into(tenant_data_keys::table)
-                .values(&new_row)
-                .execute(conn)
-        })
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                SecretError::DuplicateName("tenant_data_key".to_string())
-            } else {
-                SecretError::Database(e.to_string())
-            }
-        })?;
-
-        Ok(())
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.insert_secret"></span>`insert_secret`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn insert_secret (& self , new_secret : NewSecret) -> Result < () , SecretError >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn insert_secret(&self, new_secret: NewSecret) -> Result<(), SecretError> {
-        let name = new_secret.name.clone();
-
-        crate::interact_on_backend!(self.dal, |conn| {
-            diesel::insert_into(secrets::table)
-                .values(&new_secret)
-                .execute(conn)
-        })
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                SecretError::DuplicateName(name.clone())
-            } else {
-                SecretError::Database(e.to_string())
-            }
-        })?;
-
-        Ok(())
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.update_secret"></span>`update_secret`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn update_secret (& self , org_id : UniversalUuid , name : String , field_names : String , encrypted_fields : UniversalBinary , updated_at : UniversalTimestamp ,) -> Result < usize , SecretError >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn update_secret(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-        field_names: String,
-        encrypted_fields: UniversalBinary,
-        updated_at: UniversalTimestamp,
-    ) -> Result<usize, SecretError> {
-        crate::interact_on_backend!(self.dal, |conn| {
-            diesel::update(
-                secrets::table
-                    .filter(secrets::org_id.eq(org_id))
-                    .filter(secrets::name.eq(name)),
-            )
-            .set((
-                secrets::field_names.eq(field_names),
-                secrets::encrypted_fields.eq(encrypted_fields),
-                secrets::updated_at.eq(updated_at),
-            ))
-            .execute(conn)
-        })
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.get_secret_row"></span>`get_secret_row`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn get_secret_row (& self , org_id : UniversalUuid , name : String ,) -> Result < Option < Secret > , SecretError >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn get_secret_row(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-    ) -> Result<Option<Secret>, SecretError> {
-        crate::interact_on_backend!(self.dal, |conn| {
-            secrets::table
-                .filter(secrets::org_id.eq(org_id))
-                .filter(secrets::name.eq(name))
-                .first(conn)
-                .optional()
-        })
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.list_secret_rows"></span>`list_secret_rows`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn list_secret_rows (& self , org_id : UniversalUuid) -> Result < Vec < Secret > , SecretError >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn list_secret_rows(&self, org_id: UniversalUuid) -> Result<Vec<Secret>, SecretError> {
-        crate::interact_on_backend!(self.dal, |conn| {
-            secrets::table.filter(secrets::org_id.eq(org_id)).load(conn)
-        })
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-```
-
-</details>
-
-
-
-##### <span id="SecretStore.delete_secret_row"></span>`delete_secret_row`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn delete_secret_row (& self , org_id : UniversalUuid , name : String ,) -> Result < usize , SecretError >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn delete_secret_row(
-        &self,
-        org_id: UniversalUuid,
-        name: String,
-    ) -> Result<usize, SecretError> {
-        crate::interact_on_backend!(self.dal, |conn| {
-            diesel::delete(
-                secrets::table
-                    .filter(secrets::org_id.eq(org_id))
-                    .filter(secrets::name.eq(name)),
-            )
-            .execute(conn)
-        })
-        .map_err(|e| SecretError::Database(e.to_string()))
-    }
-```
-
-</details>
-
-
-
-
-
 ## Enums
 
-### <span id="enum.SecretError"></span>`enum SecretError`
+### <span id="enum.SecretError"></span><code style="font-size: 0.85em">enum SecretError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur in the secrets store.
 
@@ -766,33 +359,3 @@ Errors that can occur in the secrets store.
 - **`Decryption`**
 - **`Serialization`**
 - **`Database`**
-
-
-
-## Functions
-
-### <span id="fn.is_unique_violation"></span>`fn is_unique_violation`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn is_unique_violation (e : & diesel :: result :: Error) -> bool
-```
-
-Classify an insert error as a uniqueness violation vs. a generic DB error.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn is_unique_violation(e: &diesel::result::Error) -> bool {
-    let s = e.to_string();
-    s.contains("duplicate") || s.contains("UNIQUE")
-}
-```
-
-</details>
-
-
-

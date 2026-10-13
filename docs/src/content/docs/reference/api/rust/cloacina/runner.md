@@ -1,13 +1,13 @@
 ---
 title: "cloacina::runner"
 description: "Workflow runners for executing complete workflows."
+editUrl: false
 sidebar:
-  order: 195
+  order: 177
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Workflow runners for executing complete workflows.
 
@@ -15,3 +15,9 @@ This module provides high-level workflow execution components that coordinate
 scheduling and task execution. Runners handle the complete lifecycle of
 workflow execution from scheduling to completion.
 
+## Re-exports
+
+- [`DefaultRunner`](../../../rust/cloacina/runner/default_runner/#struct.DefaultRunner)
+- [`DefaultRunnerConfig`](../../../rust/cloacina/runner/default_runner/config/#struct.DefaultRunnerConfig)
+- [`DefaultRunnerConfigBuilder`](../../../rust/cloacina/runner/default_runner/config/#struct.DefaultRunnerConfigBuilder)
+- [`DefaultRunnerBuilder`](../../../rust/cloacina/runner/default_runner/config/#struct.DefaultRunnerBuilder)

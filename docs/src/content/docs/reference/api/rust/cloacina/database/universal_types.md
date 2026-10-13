@@ -1,13 +1,13 @@
 ---
 title: "cloacina::database::universal_types"
 description: "Universal type wrappers for cross-database compatibility"
+editUrl: false
 sidebar:
-  order: 119
+  order: 102
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Universal type wrappers for cross-database compatibility
 
@@ -16,58 +16,55 @@ to/from backend-specific database types. These types are used at the API
 boundary and in business logic, while backend-specific models handle
 the actual database storage.
 
+**Architecture**
+
+When both postgres and sqlite features are enabled:
+- Domain code uses UniversalUuid, UniversalTimestamp, UniversalBool
+- PostgreSQL DAL converts to/from uuid::Uuid, NaiveDateTime, bool
+- SQLite DAL converts to/from Vec<u8>, String, i32
+
+This avoids conflicting Diesel trait implementations by keeping
+Diesel-specific code isolated in backend-specific model modules.
+
 ## Structs
 
-### <span id="struct.DbUuid"></span>`struct DbUuid`
+### <span id="struct.DbUuid"></span><code style="font-size: 0.85em">struct DbUuid</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `Copy`, `diesel :: sql_types :: SqlType`, `diesel :: query_builder :: QueryId`
+**Derives:** `Debug`, `Clone`, `Copy`, `diesel::sql_types::SqlType`, `diesel::query_builder::QueryId`
 
 Custom SQL type for UUIDs that works across backends. PostgreSQL: maps to native UUID type SQLite: maps to BLOB (16-byte binary)
 
-
-
-### <span id="struct.DbTimestamp"></span>`struct DbTimestamp`
+### <span id="struct.DbTimestamp"></span><code style="font-size: 0.85em">struct DbTimestamp</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `Copy`, `diesel :: sql_types :: SqlType`, `diesel :: query_builder :: QueryId`
+**Derives:** `Debug`, `Clone`, `Copy`, `diesel::sql_types::SqlType`, `diesel::query_builder::QueryId`
 
 Custom SQL type for timestamps that works across backends. PostgreSQL: maps to native TIMESTAMP type SQLite: maps to TEXT (RFC3339 string format)
 
-
-
-### <span id="struct.DbBool"></span>`struct DbBool`
+### <span id="struct.DbBool"></span><code style="font-size: 0.85em">struct DbBool</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `Copy`, `diesel :: sql_types :: SqlType`, `diesel :: query_builder :: QueryId`
+**Derives:** `Debug`, `Clone`, `Copy`, `diesel::sql_types::SqlType`, `diesel::query_builder::QueryId`
 
 Custom SQL type for booleans that works across backends. PostgreSQL: maps to native BOOL type SQLite: maps to INTEGER (0/1)
 
-
-
-### <span id="struct.DbBinary"></span>`struct DbBinary`
+### <span id="struct.DbBinary"></span><code style="font-size: 0.85em">struct DbBinary</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `Copy`, `diesel :: sql_types :: SqlType`, `diesel :: query_builder :: QueryId`
+**Derives:** `Debug`, `Clone`, `Copy`, `diesel::sql_types::SqlType`, `diesel::query_builder::QueryId`
 
 Custom SQL type for binary data that works across backends. PostgreSQL: maps to BYTEA SQLite: maps to BLOB
 
-
-
-### <span id="struct.UniversalUuid"></span>`struct UniversalUuid`
+### <span id="struct.UniversalUuid"></span><code style="font-size: 0.85em">struct UniversalUuid</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `Copy`, `Hash`, `Eq`, `PartialEq`, `Serialize`, `Deserialize`, `AsExpression`, `FromSqlRow`, ``
+**Derives:** `Debug`, `Clone`, `Copy`, `Hash`, `Eq`, `PartialEq`, `Serialize`, `Deserialize`, `AsExpression`, `FromSqlRow`
 
 Universal UUID wrapper for cross-database compatibility
 
@@ -82,13 +79,12 @@ both PostgreSQL (native UUID) and SQLite (BLOB) backends.
 
 #### Methods
 
-##### <span id="UniversalUuid.new_v4"></span>`new_v4`
+##### <span id="UniversalUuid.new_v4"></span><code>new_​v4</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new_v4 () -> Self
+fn new_v4() -> Self
 ```
 
 <details>
@@ -102,15 +98,12 @@ fn new_v4 () -> Self
 
 </details>
 
-
-
-##### <span id="UniversalUuid.as_uuid"></span>`as_uuid`
+##### <span id="UniversalUuid.as_uuid"></span><code>as_​uuid</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn as_uuid (& self) -> Uuid
+fn as_uuid(&self) -> Uuid
 ```
 
 <details>
@@ -124,15 +117,12 @@ fn as_uuid (& self) -> Uuid
 
 </details>
 
-
-
-##### <span id="UniversalUuid.as_bytes"></span>`as_bytes`
+##### <span id="UniversalUuid.as_bytes"></span><code>as_​bytes</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn as_bytes (& self) -> & [u8 ; 16]
+fn as_bytes(&self) -> &[u8; 16]
 ```
 
 Convert to bytes for SQLite BLOB storage
@@ -148,15 +138,12 @@ Convert to bytes for SQLite BLOB storage
 
 </details>
 
-
-
-##### <span id="UniversalUuid.from_bytes"></span>`from_bytes`
+##### <span id="UniversalUuid.from_bytes"></span><code>from_​bytes</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_bytes (bytes : & [u8]) -> Result < Self , uuid :: Error >
+fn from_bytes(bytes: &[u8]) -> Result<Self, uuid::Error>
 ```
 
 Create from bytes (SQLite BLOB)
@@ -172,16 +159,11 @@ Create from bytes (SQLite BLOB)
 
 </details>
 
-
-
-
-
-### <span id="struct.UniversalTimestamp"></span>`struct UniversalTimestamp`
+### <span id="struct.UniversalTimestamp"></span><code style="font-size: 0.85em">struct UniversalTimestamp</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `Copy`, `Hash`, `Eq`, `PartialEq`, `Serialize`, `Deserialize`, `AsExpression`, `FromSqlRow`, ``
+**Derives:** `Debug`, `Clone`, `Copy`, `Hash`, `Eq`, `PartialEq`, `Serialize`, `Deserialize`, `AsExpression`, `FromSqlRow`
 
 Universal timestamp wrapper for cross-database compatibility
 
@@ -192,17 +174,16 @@ both PostgreSQL (native TIMESTAMP) and SQLite (TEXT as RFC3339) backends.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `0` | `DateTime < Utc >` |  |
+| `0` | `DateTime<Utc>` |  |
 
 #### Methods
 
-##### <span id="UniversalTimestamp.now"></span>`now`
+##### <span id="UniversalTimestamp.now"></span><code>now</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn now () -> Self
+fn now() -> Self
 ```
 
 <details>
@@ -216,15 +197,12 @@ fn now () -> Self
 
 </details>
 
-
-
-##### <span id="UniversalTimestamp.as_datetime"></span>`as_datetime`
+##### <span id="UniversalTimestamp.as_datetime"></span><code>as_​datetime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn as_datetime (& self) -> & DateTime < Utc >
+fn as_datetime(&self) -> &DateTime<Utc>
 ```
 
 <details>
@@ -238,15 +216,12 @@ fn as_datetime (& self) -> & DateTime < Utc >
 
 </details>
 
-
-
-##### <span id="UniversalTimestamp.into_inner"></span>`into_inner`
+##### <span id="UniversalTimestamp.into_inner"></span><code>into_​inner</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn into_inner (self) -> DateTime < Utc >
+fn into_inner(self) -> DateTime<Utc>
 ```
 
 <details>
@@ -260,15 +235,12 @@ fn into_inner (self) -> DateTime < Utc >
 
 </details>
 
-
-
-##### <span id="UniversalTimestamp.to_rfc3339"></span>`to_rfc3339`
+##### <span id="UniversalTimestamp.to_rfc3339"></span><code>to_​rfc3339</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn to_rfc3339 (& self) -> String
+fn to_rfc3339(&self) -> String
 ```
 
 Convert to RFC3339 string for SQLite TEXT storage
@@ -284,15 +256,12 @@ Convert to RFC3339 string for SQLite TEXT storage
 
 </details>
 
-
-
-##### <span id="UniversalTimestamp.from_rfc3339"></span>`from_rfc3339`
+##### <span id="UniversalTimestamp.from_rfc3339"></span><code>from_​rfc3339</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_rfc3339 (s : & str) -> Result < Self , chrono :: ParseError >
+fn from_rfc3339(s: &str) -> Result<Self, chrono::ParseError>
 ```
 
 Create from RFC3339 string (SQLite TEXT)
@@ -308,15 +277,12 @@ Create from RFC3339 string (SQLite TEXT)
 
 </details>
 
-
-
-##### <span id="UniversalTimestamp.to_naive"></span>`to_naive`
+##### <span id="UniversalTimestamp.to_naive"></span><code>to_​naive</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn to_naive (& self) -> chrono :: NaiveDateTime
+fn to_naive(&self) -> chrono::NaiveDateTime
 ```
 
 Convert to NaiveDateTime for PostgreSQL TIMESTAMP storage
@@ -332,15 +298,12 @@ Convert to NaiveDateTime for PostgreSQL TIMESTAMP storage
 
 </details>
 
-
-
-##### <span id="UniversalTimestamp.from_naive"></span>`from_naive`
+##### <span id="UniversalTimestamp.from_naive"></span><code>from_​naive</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_naive (naive : chrono :: NaiveDateTime) -> Self
+fn from_naive(naive: chrono::NaiveDateTime) -> Self
 ```
 
 Create from NaiveDateTime (PostgreSQL TIMESTAMP)
@@ -357,16 +320,11 @@ Create from NaiveDateTime (PostgreSQL TIMESTAMP)
 
 </details>
 
-
-
-
-
-### <span id="struct.UniversalBool"></span>`struct UniversalBool`
+### <span id="struct.UniversalBool"></span><code style="font-size: 0.85em">struct UniversalBool</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
-**Derives:** `Debug`, `Clone`, `Copy`, `Hash`, `Eq`, `PartialEq`, `Serialize`, `Deserialize`, `AsExpression`, `FromSqlRow`, ``
+**Derives:** `Debug`, `Clone`, `Copy`, `Hash`, `Eq`, `PartialEq`, `Serialize`, `Deserialize`, `AsExpression`, `FromSqlRow`
 
 Universal boolean wrapper for cross-database compatibility
 
@@ -381,13 +339,12 @@ both PostgreSQL (native BOOL) and SQLite (INTEGER 0/1) backends.
 
 #### Methods
 
-##### <span id="UniversalBool.new"></span>`new`
+##### <span id="UniversalBool.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (value : bool) -> Self
+fn new(value: bool) -> Self
 ```
 
 <details>
@@ -401,15 +358,12 @@ fn new (value : bool) -> Self
 
 </details>
 
-
-
-##### <span id="UniversalBool.is_true"></span>`is_true`
+##### <span id="UniversalBool.is_true"></span><code>is_​true</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_true (& self) -> bool
+fn is_true(&self) -> bool
 ```
 
 <details>
@@ -423,15 +377,12 @@ fn is_true (& self) -> bool
 
 </details>
 
-
-
-##### <span id="UniversalBool.is_false"></span>`is_false`
+##### <span id="UniversalBool.is_false"></span><code>is_​false</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_false (& self) -> bool
+fn is_false(&self) -> bool
 ```
 
 <details>
@@ -445,15 +396,12 @@ fn is_false (& self) -> bool
 
 </details>
 
-
-
-##### <span id="UniversalBool.to_i32"></span>`to_i32`
+##### <span id="UniversalBool.to_i32"></span><code>to_​i32</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn to_i32 (& self) -> i32
+fn to_i32(&self) -> i32
 ```
 
 Convert to i32 for SQLite INTEGER storage
@@ -463,25 +411,18 @@ Convert to i32 for SQLite INTEGER storage
 
 ```rust
     pub fn to_i32(&self) -> i32 {
-        if self.0 {
-            1
-        } else {
-            0
-        }
+        if self.0 { 1 } else { 0 }
     }
 ```
 
 </details>
 
-
-
-##### <span id="UniversalBool.from_i32"></span>`from_i32`
+##### <span id="UniversalBool.from_i32"></span><code>from_​i32</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_i32 (value : i32) -> Self
+fn from_i32(value: i32) -> Self
 ```
 
 Create from i32 (SQLite INTEGER)
@@ -497,14 +438,9 @@ Create from i32 (SQLite INTEGER)
 
 </details>
 
-
-
-
-
-### <span id="struct.UniversalBinary"></span>`struct UniversalBinary`
+### <span id="struct.UniversalBinary"></span><code style="font-size: 0.85em">struct UniversalBinary</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Hash`, `Eq`, `PartialEq`, `Serialize`, `Deserialize`, `AsExpression`, `FromSqlRow`
 
@@ -517,17 +453,16 @@ both PostgreSQL (BYTEA) and SQLite (BLOB) backends.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `0` | `Vec < u8 >` |  |
+| `0` | `Vec<u8>` |  |
 
 #### Methods
 
-##### <span id="UniversalBinary.new"></span>`new`
+##### <span id="UniversalBinary.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (data : Vec < u8 >) -> Self
+fn new(data: Vec<u8>) -> Self
 ```
 
 <details>
@@ -541,15 +476,12 @@ fn new (data : Vec < u8 >) -> Self
 
 </details>
 
-
-
-##### <span id="UniversalBinary.as_slice"></span>`as_slice`
+##### <span id="UniversalBinary.as_slice"></span><code>as_​slice</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn as_slice (& self) -> & [u8]
+fn as_slice(&self) -> &[u8]
 ```
 
 <details>
@@ -563,15 +495,12 @@ fn as_slice (& self) -> & [u8]
 
 </details>
 
-
-
-##### <span id="UniversalBinary.into_inner"></span>`into_inner`
+##### <span id="UniversalBinary.into_inner"></span><code>into_​inner</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn into_inner (self) -> Vec < u8 >
+fn into_inner(self) -> Vec<u8>
 ```
 
 <details>
@@ -585,19 +514,14 @@ fn into_inner (self) -> Vec < u8 >
 
 </details>
 
-
-
-
-
 ## Functions
 
-### <span id="fn.current_timestamp"></span>`fn current_timestamp`
+### <span id="fn.current_timestamp"></span><code style="font-size: 0.85em">fn current_​timestamp</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn current_timestamp () -> UniversalTimestamp
+fn current_timestamp() -> UniversalTimestamp
 ```
 
 Helper function for current timestamp
@@ -612,6 +536,3 @@ pub fn current_timestamp() -> UniversalTimestamp {
 ```
 
 </details>
-
-
-

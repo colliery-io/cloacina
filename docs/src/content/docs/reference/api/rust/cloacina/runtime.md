@@ -1,71 +1,64 @@
 ---
 title: "cloacina::runtime"
 description: "Scoped runtime unifying all cloacina registries."
+editUrl: false
 sidebar:
-  order: 204
+  order: 186
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Scoped runtime unifying all cloacina registries.
 
-[`Runtime`] owns the registries for tasks, workflows, triggers, computation
+[`Runtime`](../../../rust/cloacina/runtime/#struct.Runtime) owns the registries for tasks, workflows, triggers, computation
 graphs, and stream backends. Every entry can be registered and unregistered
 at runtime, which is the mechanism the reconciler uses to hot-swap packages.
+
 The process-global static registries that predated `Runtime` were deleted
-in CLOACI-T-0509. [`Runtime::new`] seeds itself from the `inventory` entries
+in CLOACI-T-0509. [`Runtime::new`](../../../rust/cloacina/runtime/#Runtime.new) seeds itself from the `inventory` entries
 emitted by the macros; the reconciler and Python bindings push into it
-directly via [`Runtime::register_task`], [`Runtime::register_workflow`], etc.
+directly via [`Runtime::register_task`](../../../rust/cloacina/runtime/#Runtime.register_task), [`Runtime::register_workflow`](../../../rust/cloacina/runtime/#Runtime.register_workflow), etc.
+
 ```rust
 use cloacina::Runtime;
+
 let runtime = Runtime::new(); // seeded from inventory
 runtime.register_task(namespace, || Arc::new(my_task()));
 runtime.unregister_workflow("obsolete_workflow");
 ```
 
+**Tenant scoping (CLOACI-T-0924)**
+
+One `Runtime` allocation is shared by every tenant's runner in
+`cloacina-server` (`TenantRunnerCache::shared_runtime`), so the name-keyed
+registries below carry the tenant **in the key**: they are
+[`TenantKey`](../../../rust/cloacina/tenant_scope/#struct.TenantKey)`(tenant, name)` maps, matching the `EndpointKey` convention
+CLOACI-T-0921 established for the `EndpointRegistry`. (`tasks` stays keyed
+by [`TaskNamespace`](../../../rust/cloacina-workflow/namespace/#struct.TaskNamespace) — `tenant::package::workflow::task` is persisted on
+`task_executions` rows, so its readers genuinely have all four components.
+Every reader of the other five registries addresses them by *bare name*.)
+
+The tenant is not threaded through every `get_workflow(&str)` call site.
+Instead the **handle** carries it: `Runtime` is a cheap `Arc` share plus a
+scope, and [`Runtime::scoped_to_tenant`](../../../rust/cloacina/runtime/#Runtime.scoped_to_tenant) / [`Runtime::untenanted_view`](../../../rust/cloacina/runtime/#Runtime.untenanted_view) /
+[`Runtime::admin_view`](../../../rust/cloacina/runtime/#Runtime.admin_view) produce differently-scoped views over the *same*
+registries. `DefaultRunner` binds its handle to `config.tenant_id()` at
+construction, so the scheduler, executor, reconciler and cron scheduler it
+builds all inherit it.
+
+Resolution order is CLOACI-T-0921's, verbatim: the caller's own tenant, then
+the untenanted entry (embedded / pre-multi-tenancy, and what
+[`Runtime::seed_from_inventory`](../../../rust/cloacina/runtime/#Runtime.seed_from_inventory) always writes), then — for admin views only
+— a *unique* cross-tenant match. Two tenants owning a name is never a guess.
+An untenanted deployment therefore behaves exactly as it did before this
+change: every entry is untenanted and every lookup hits step 2.
+
 ## Structs
 
-### <span id="struct.ScopedEntry"></span>`struct ScopedEntry<V>`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-One entry in a [`ScopedRegistry`]: the constructor plus who claimed it.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `owner` | `TenantOwner` |  |
-| `value` | `V` |  |
-
-
-
-### <span id="struct.ScopedRegistry"></span>`struct ScopedRegistry<V>`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-A `(tenant, name)`-keyed registry with owner-checked replacement.
-
-Shared by the five bare-name registries so they have exactly one keying and
-one resolution rule between them.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `kind` | `& 'static str` | Operator-facing noun used in conflict errors ("workflow", "reactor", …). |
-| `entries` | `RwLock < HashMap < TenantKey , ScopedEntry < V > > >` |  |
-
-
-
-### <span id="struct.Runtime"></span>`struct Runtime`
+### <span id="struct.Runtime"></span><code style="font-size: 0.85em">struct Runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
@@ -74,26 +67,19 @@ A scoped runtime holding the registries for every cloacina extension point.
 All five namespaces — tasks, workflows, triggers, computation graphs, and
 stream backends — are registered and unregistered through the same surface.
 `Runtime` is cheap to clone: it shares its registries via `Arc`.
-A clone carries the same tenant scope; use [`Runtime::scoped_to_tenant`],
-[`Runtime::untenanted_view`] or [`Runtime::admin_view`] to get a
+
+A clone carries the same tenant scope; use [`Runtime::scoped_to_tenant`](../../../rust/cloacina/runtime/#Runtime.scoped_to_tenant),
+[`Runtime::untenanted_view`](../../../rust/cloacina/runtime/#Runtime.untenanted_view) or [`Runtime::admin_view`](../../../rust/cloacina/runtime/#Runtime.admin_view) to get a
 differently-scoped view over the same registries.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `inner` | `Arc < RuntimeInner >` |  |
-| `scope` | `RuntimeScope` |  |
 
 #### Methods
 
-##### <span id="Runtime.new"></span>`new`
+##### <span id="Runtime.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new () -> Self
+fn new() -> Self
 ```
 
 Create a runtime seeded with every macro-registered entry from the `inventory` crate (tasks, workflows, triggers, computation graphs, stream backends).
@@ -102,7 +88,7 @@ Create a runtime seeded with every macro-registered entry from the `inventory` c
 after `main()`, so every entry registered by the `#[task]`,
 `#[workflow]`, `#[trigger]`, `#[computation_graph]`, and stream-backend
 macros in the current binary is visible here. For a blank-slate runtime
-(used by isolation-sensitive tests), use [`Runtime::empty`] instead.
+(used by isolation-sensitive tests), use [`Runtime::empty`](../../../rust/cloacina/runtime/#Runtime.empty) instead.
 
 <details>
 <summary>Source</summary>
@@ -117,22 +103,19 @@ macros in the current binary is visible here. For a blank-slate runtime
 
 </details>
 
-
-
-##### <span id="Runtime.empty"></span>`empty`
+##### <span id="Runtime.empty"></span><code>empty</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn empty () -> Self
+fn empty() -> Self
 ```
 
 Create an empty runtime with no registered entries in any namespace.
 
 Use this when you want complete isolation — no macro-registered tasks,
 workflows, triggers, CGs, or stream backends are installed. Intended
-for unit tests; production code should generally use [`Runtime::new`].
+for unit tests; production code should generally use [`Runtime::new`](../../../rust/cloacina/runtime/#Runtime.new).
 
 <details>
 <summary>Source</summary>
@@ -156,39 +139,12 @@ for unit tests; production code should generally use [`Runtime::new`].
 
 </details>
 
-
-
-##### <span id="Runtime.scope"></span>`scope`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn scope (& self) -> TenantScope < '_ >
-```
-
-The scope this handle registers and resolves under.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn scope(&self) -> TenantScope<'_> {
-        self.scope.as_tenant_scope()
-    }
-```
-
-</details>
-
-
-
-##### <span id="Runtime.scoped_to_tenant"></span>`scoped_to_tenant`
+##### <span id="Runtime.scoped_to_tenant"></span><code>scoped_​to_​tenant</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn scoped_to_tenant (& self , tenant_id : impl Into < String >) -> Self
+fn scoped_to_tenant(&self, tenant_id: impl Into<String>) -> Self
 ```
 
 A view over the *same* registries bound to `tenant_id`.
@@ -215,15 +171,12 @@ the untenanted (inventory / embedded) entries. This is what
 
 </details>
 
-
-
-##### <span id="Runtime.untenanted_view"></span>`untenanted_view`
+##### <span id="Runtime.untenanted_view"></span><code>untenanted_​view</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn untenanted_view (& self) -> Self
+fn untenanted_view(&self) -> Self
 ```
 
 A view over the same registries with no tenant — the embedded / pre-multi-tenancy scope, and the scope `seed_from_inventory` writes under.
@@ -242,15 +195,12 @@ A view over the same registries with no tenant — the embedded / pre-multi-tena
 
 </details>
 
-
-
-##### <span id="Runtime.admin_view"></span>`admin_view`
+##### <span id="Runtime.admin_view"></span><code>admin_​view</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn admin_view (& self) -> Self
+fn admin_view(&self) -> Self
 ```
 
 A view that may resolve any tenant's entry, but only when the name is unique across tenants. Intended for operator/diagnostic surfaces.
@@ -272,15 +222,12 @@ A view that may resolve any tenant's entry, but only when the name is unique acr
 
 </details>
 
-
-
-##### <span id="Runtime.tenant_id"></span>`tenant_id`
+##### <span id="Runtime.tenant_id"></span><code>tenant_​id</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn tenant_id (& self) -> Option < & str >
+fn tenant_id(&self) -> Option<&str>
 ```
 
 The tenant this handle is bound to, if any.
@@ -296,15 +243,12 @@ The tenant this handle is bound to, if any.
 
 </details>
 
-
-
-##### <span id="Runtime.is_admin"></span>`is_admin`
+##### <span id="Runtime.is_admin"></span><code>is_​admin</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_admin (& self) -> bool
+fn is_admin(&self) -> bool
 ```
 
 Whether this handle is an admin view.
@@ -320,15 +264,12 @@ Whether this handle is an admin view.
 
 </details>
 
-
-
-##### <span id="Runtime.shares_registries_with"></span>`shares_registries_with`
+##### <span id="Runtime.shares_registries_with"></span><code>shares_​registries_​with</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn shares_registries_with (& self , other : & Runtime) -> bool
+fn shares_registries_with(&self, other: &Runtime) -> bool
 ```
 
 `true` when both handles are views over the same registry allocation.
@@ -347,15 +288,12 @@ runners share one `RuntimeInner` but hold differently-scoped handles.
 
 </details>
 
-
-
-##### <span id="Runtime.seed_from_inventory"></span>`seed_from_inventory`
+##### <span id="Runtime.seed_from_inventory"></span><code>seed_​from_​inventory</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn seed_from_inventory (& self)
+fn seed_from_inventory(&self)
 ```
 
 Populate the runtime from the `inventory` entries emitted by the macros.
@@ -363,6 +301,7 @@ Populate the runtime from the `inventory` entries emitted by the macros.
 `inventory`'s linker-section collection works across `dlopen`'d cdylibs
 on Linux/macOS, so the reconciler calls this again after loading a new
 workflow package to pick up the entries emitted by that cdylib.
+
 Inventory entries are always registered **untenanted**, whatever scope
 this handle carries (CLOACI-T-0924). They are host-binary, compile-time
 declarations — never tenant-authored — and the reconciler re-runs this
@@ -421,15 +360,14 @@ which is exactly the pre-CLOACI-T-0924 behaviour.
 
 </details>
 
-
-
-##### <span id="Runtime.register_task"></span>`register_task`
+##### <span id="Runtime.register_task"></span><code>register_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register_task < F > (& self , namespace : TaskNamespace , factory : F) where F : Fn () -> Arc < dyn Task > + Send + Sync + 'static ,
+fn register_task<F>(&self, namespace: TaskNamespace, factory: F)
+where
+    F: Fn() -> Arc<dyn Task> + Send + Sync + 'static,
 ```
 
 Register a task constructor for the given namespace.
@@ -451,15 +389,12 @@ Register a task constructor for the given namespace.
 
 </details>
 
-
-
-##### <span id="Runtime.unregister_task"></span>`unregister_task`
+##### <span id="Runtime.unregister_task"></span><code>unregister_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unregister_task (& self , namespace : & TaskNamespace) -> bool
+fn unregister_task(&self, namespace: &TaskNamespace) -> bool
 ```
 
 Remove a task constructor. Returns true if the entry existed.
@@ -475,15 +410,12 @@ Remove a task constructor. Returns true if the entry existed.
 
 </details>
 
-
-
-##### <span id="Runtime.get_task"></span>`get_task`
+##### <span id="Runtime.get_task"></span><code>get_​task</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_task (& self , namespace : & TaskNamespace) -> Option < Arc < dyn Task > >
+fn get_task(&self, namespace: &TaskNamespace) -> Option<Arc<dyn Task>>
 ```
 
 Look up and instantiate a task by namespace.
@@ -499,39 +431,12 @@ Look up and instantiate a task by namespace.
 
 </details>
 
-
-
-##### <span id="Runtime.has_task"></span>`has_task`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">pub(crate)</span>
-
-
-```rust
-fn has_task (& self , namespace : & TaskNamespace) -> bool
-```
-
-Check if a task is registered for the given namespace.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(crate) fn has_task(&self, namespace: &TaskNamespace) -> bool {
-        self.inner.tasks.read().contains_key(namespace)
-    }
-```
-
-</details>
-
-
-
-##### <span id="Runtime.task_namespaces"></span>`task_namespaces`
+##### <span id="Runtime.task_namespaces"></span><code>task_​namespaces</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn task_namespaces (& self) -> Vec < TaskNamespace >
+fn task_namespaces(&self) -> Vec<TaskNamespace>
 ```
 
 Snapshot of every currently-registered task namespace. Used by code that needs to enumerate tasks (e.g. collecting all tasks belonging to a specific tenant/package/workflow triple during Python import).
@@ -547,21 +452,20 @@ Snapshot of every currently-registered task namespace. Used by code that needs t
 
 </details>
 
-
-
-##### <span id="Runtime.register_workflow"></span>`register_workflow`
+##### <span id="Runtime.register_workflow"></span><code>register_​workflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register_workflow < F > (& self , name : String , constructor : F) where F : Fn () -> Workflow + Send + Sync + 'static ,
+fn register_workflow<F>(&self, name: String, constructor: F)
+where
+    F: Fn() -> Workflow + Send + Sync + 'static,
 ```
 
 Register a workflow constructor by name, under this handle's tenant.
 
 Unattributed registration: it never conflicts, so it cannot fail. Use
-[`Runtime::try_register_workflow`] from the package loader, where the
+[`Runtime::try_register_workflow`](../../../rust/cloacina/runtime/#Runtime.try_register_workflow) from the package loader, where the
 owning package is known and a same-tenant collision must be loud.
 
 <details>
@@ -583,15 +487,19 @@ owning package is known and a same-tenant collision must be loud.
 
 </details>
 
-
-
-##### <span id="Runtime.try_register_workflow"></span>`try_register_workflow`
+##### <span id="Runtime.try_register_workflow"></span><code>try_​register_​workflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn try_register_workflow < F > (& self , owner : & TenantOwner , name : String , constructor : F ,) -> Result < () , RuntimeRegistrationError > where F : Fn () -> Workflow + Send + Sync + 'static ,
+fn try_register_workflow<F>(
+    &self,
+    owner: &TenantOwner,
+    name: String,
+    constructor: F,
+) -> Result<(), RuntimeRegistrationError>
+where
+    F: Fn() -> Workflow + Send + Sync + 'static,
 ```
 
 Register a workflow constructor attributed to `owner`, rejecting a same-tenant claim on a name a *different* package already owns.
@@ -617,15 +525,12 @@ Register a workflow constructor attributed to `owner`, rejecting a same-tenant c
 
 </details>
 
-
-
-##### <span id="Runtime.unregister_workflow"></span>`unregister_workflow`
+##### <span id="Runtime.unregister_workflow"></span><code>unregister_​workflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unregister_workflow (& self , name : & str) -> bool
+fn unregister_workflow(&self, name: &str) -> bool
 ```
 
 Remove a workflow constructor. Returns true if the entry existed.
@@ -641,15 +546,12 @@ Remove a workflow constructor. Returns true if the entry existed.
 
 </details>
 
-
-
-##### <span id="Runtime.get_workflow"></span>`get_workflow`
+##### <span id="Runtime.get_workflow"></span><code>get_​workflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_workflow (& self , name : & str) -> Option < Workflow >
+fn get_workflow(&self, name: &str) -> Option<Workflow>
 ```
 
 Look up and instantiate a workflow by name, within this handle's scope.
@@ -665,15 +567,12 @@ Look up and instantiate a workflow by name, within this handle's scope.
 
 </details>
 
-
-
-##### <span id="Runtime.workflow_names"></span>`workflow_names`
+##### <span id="Runtime.workflow_names"></span><code>workflow_​names</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn workflow_names (& self) -> Vec < String >
+fn workflow_names(&self) -> Vec<String>
 ```
 
 Get every workflow name visible to this handle's scope.
@@ -689,15 +588,12 @@ Get every workflow name visible to this handle's scope.
 
 </details>
 
-
-
-##### <span id="Runtime.workflow_keys"></span>`workflow_keys`
+##### <span id="Runtime.workflow_keys"></span><code>workflow_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn workflow_keys (& self) -> Vec < TenantKey >
+fn workflow_keys(&self) -> Vec<TenantKey>
 ```
 
 Every `(tenant, workflow)` key in the process, unfiltered. Diagnostics and cross-tenant isolation tests.
@@ -713,15 +609,14 @@ Every `(tenant, workflow)` key in the process, unfiltered. Diagnostics and cross
 
 </details>
 
-
-
-##### <span id="Runtime.register_trigger"></span>`register_trigger`
+##### <span id="Runtime.register_trigger"></span><code>register_​trigger</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register_trigger < F > (& self , name : String , factory : F) where F : Fn () -> Arc < dyn Trigger > + Send + Sync + 'static ,
+fn register_trigger<F>(&self, name: String, factory: F)
+where
+    F: Fn() -> Arc<dyn Trigger> + Send + Sync + 'static,
 ```
 
 Register a trigger constructor by name, under this handle's tenant.
@@ -745,15 +640,19 @@ Register a trigger constructor by name, under this handle's tenant.
 
 </details>
 
-
-
-##### <span id="Runtime.try_register_trigger"></span>`try_register_trigger`
+##### <span id="Runtime.try_register_trigger"></span><code>try_​register_​trigger</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn try_register_trigger < F > (& self , owner : & TenantOwner , name : String , factory : F ,) -> Result < () , RuntimeRegistrationError > where F : Fn () -> Arc < dyn Trigger > + Send + Sync + 'static ,
+fn try_register_trigger<F>(
+    &self,
+    owner: &TenantOwner,
+    name: String,
+    factory: F,
+) -> Result<(), RuntimeRegistrationError>
+where
+    F: Fn() -> Arc<dyn Trigger> + Send + Sync + 'static,
 ```
 
 Register a trigger constructor attributed to `owner`, rejecting a same-tenant claim on a name a *different* package already owns.
@@ -779,15 +678,16 @@ Register a trigger constructor attributed to `owner`, rejecting a same-tenant cl
 
 </details>
 
-
-
-##### <span id="Runtime.may_claim_trigger"></span>`may_claim_trigger`
+##### <span id="Runtime.may_claim_trigger"></span><code>may_​claim_​trigger</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn may_claim_trigger (& self , owner : & TenantOwner , name : & str ,) -> Result < bool , RuntimeRegistrationError >
+fn may_claim_trigger(
+    &self,
+    owner: &TenantOwner,
+    name: &str,
+) -> Result<bool, RuntimeRegistrationError>
 ```
 
 Ask whether `owner` may claim the trigger `name` in this handle's scope *before* registering it (CLOACI-T-0924).
@@ -814,15 +714,12 @@ this tenant.
 
 </details>
 
-
-
-##### <span id="Runtime.unregister_trigger"></span>`unregister_trigger`
+##### <span id="Runtime.unregister_trigger"></span><code>unregister_​trigger</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unregister_trigger (& self , name : & str) -> bool
+fn unregister_trigger(&self, name: &str) -> bool
 ```
 
 Remove a trigger constructor. Returns true if the entry existed.
@@ -838,15 +735,12 @@ Remove a trigger constructor. Returns true if the entry existed.
 
 </details>
 
-
-
-##### <span id="Runtime.get_trigger"></span>`get_trigger`
+##### <span id="Runtime.get_trigger"></span><code>get_​trigger</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_trigger (& self , name : & str) -> Option < Arc < dyn Trigger > >
+fn get_trigger(&self, name: &str) -> Option<Arc<dyn Trigger>>
 ```
 
 Look up and instantiate a trigger by name, within this handle's scope.
@@ -862,15 +756,12 @@ Look up and instantiate a trigger by name, within this handle's scope.
 
 </details>
 
-
-
-##### <span id="Runtime.trigger_names"></span>`trigger_names`
+##### <span id="Runtime.trigger_names"></span><code>trigger_​names</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn trigger_names (& self) -> Vec < String >
+fn trigger_names(&self) -> Vec<String>
 ```
 
 Get every trigger name visible to this handle's scope.
@@ -886,15 +777,12 @@ Get every trigger name visible to this handle's scope.
 
 </details>
 
-
-
-##### <span id="Runtime.trigger_keys"></span>`trigger_keys`
+##### <span id="Runtime.trigger_keys"></span><code>trigger_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn trigger_keys (& self) -> Vec < TenantKey >
+fn trigger_keys(&self) -> Vec<TenantKey>
 ```
 
 Every `(tenant, trigger)` key in the process, unfiltered.
@@ -910,15 +798,14 @@ Every `(tenant, trigger)` key in the process, unfiltered.
 
 </details>
 
-
-
-##### <span id="Runtime.register_computation_graph"></span>`register_computation_graph`
+##### <span id="Runtime.register_computation_graph"></span><code>register_​computation_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register_computation_graph < F > (& self , name : String , constructor : F) where F : Fn () -> ComputationGraphRegistration + Send + Sync + 'static ,
+fn register_computation_graph<F>(&self, name: String, constructor: F)
+where
+    F: Fn() -> ComputationGraphRegistration + Send + Sync + 'static,
 ```
 
 Register a computation graph constructor by graph name, under this handle's tenant.
@@ -942,15 +829,19 @@ Register a computation graph constructor by graph name, under this handle's tena
 
 </details>
 
-
-
-##### <span id="Runtime.try_register_computation_graph"></span>`try_register_computation_graph`
+##### <span id="Runtime.try_register_computation_graph"></span><code>try_​register_​computation_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn try_register_computation_graph < F > (& self , owner : & TenantOwner , name : String , constructor : F ,) -> Result < () , RuntimeRegistrationError > where F : Fn () -> ComputationGraphRegistration + Send + Sync + 'static ,
+fn try_register_computation_graph<F>(
+    &self,
+    owner: &TenantOwner,
+    name: String,
+    constructor: F,
+) -> Result<(), RuntimeRegistrationError>
+where
+    F: Fn() -> ComputationGraphRegistration + Send + Sync + 'static,
 ```
 
 Register a computation graph attributed to `owner`, rejecting a same-tenant claim on a name a *different* package already owns.
@@ -979,15 +870,12 @@ Register a computation graph attributed to `owner`, rejecting a same-tenant clai
 
 </details>
 
-
-
-##### <span id="Runtime.unregister_computation_graph"></span>`unregister_computation_graph`
+##### <span id="Runtime.unregister_computation_graph"></span><code>unregister_​computation_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unregister_computation_graph (& self , name : & str) -> bool
+fn unregister_computation_graph(&self, name: &str) -> bool
 ```
 
 Remove a computation graph constructor. Returns true if the entry existed.
@@ -1003,15 +891,15 @@ Remove a computation graph constructor. Returns true if the entry existed.
 
 </details>
 
-
-
-##### <span id="Runtime.get_computation_graph"></span>`get_computation_graph`
+##### <span id="Runtime.get_computation_graph"></span><code>get_​computation_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_computation_graph (& self , name : & str) -> Option < ComputationGraphRegistration >
+fn get_computation_graph(
+    &self,
+    name: &str,
+) -> Option<ComputationGraphRegistration>
 ```
 
 Look up and instantiate a computation graph registration by name.
@@ -1029,15 +917,12 @@ Look up and instantiate a computation graph registration by name.
 
 </details>
 
-
-
-##### <span id="Runtime.computation_graph_names"></span>`computation_graph_names`
+##### <span id="Runtime.computation_graph_names"></span><code>computation_​graph_​names</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn computation_graph_names (& self) -> Vec < String >
+fn computation_graph_names(&self) -> Vec<String>
 ```
 
 Get every computation graph name visible to this handle's scope.
@@ -1053,15 +938,12 @@ Get every computation graph name visible to this handle's scope.
 
 </details>
 
-
-
-##### <span id="Runtime.computation_graph_keys"></span>`computation_graph_keys`
+##### <span id="Runtime.computation_graph_keys"></span><code>computation_​graph_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn computation_graph_keys (& self) -> Vec < TenantKey >
+fn computation_graph_keys(&self) -> Vec<TenantKey>
 ```
 
 Every `(tenant, graph)` key in the process, unfiltered.
@@ -1077,15 +959,14 @@ Every `(tenant, graph)` key in the process, unfiltered.
 
 </details>
 
-
-
-##### <span id="Runtime.register_triggerless_graph"></span>`register_triggerless_graph`
+##### <span id="Runtime.register_triggerless_graph"></span><code>register_​triggerless_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register_triggerless_graph < F > (& self , name : String , constructor : F) where F : Fn () -> TriggerlessGraphRegistration + Send + Sync + 'static ,
+fn register_triggerless_graph<F>(&self, name: String, constructor: F)
+where
+    F: Fn() -> TriggerlessGraphRegistration + Send + Sync + 'static,
 ```
 
 Register a trigger-less computation graph constructor by graph name.
@@ -1114,15 +995,19 @@ Trigger-less graphs are declared with `#[computation_graph(graph =
 
 </details>
 
-
-
-##### <span id="Runtime.try_register_triggerless_graph"></span>`try_register_triggerless_graph`
+##### <span id="Runtime.try_register_triggerless_graph"></span><code>try_​register_​triggerless_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn try_register_triggerless_graph < F > (& self , owner : & TenantOwner , name : String , constructor : F ,) -> Result < () , RuntimeRegistrationError > where F : Fn () -> TriggerlessGraphRegistration + Send + Sync + 'static ,
+fn try_register_triggerless_graph<F>(
+    &self,
+    owner: &TenantOwner,
+    name: String,
+    constructor: F,
+) -> Result<(), RuntimeRegistrationError>
+where
+    F: Fn() -> TriggerlessGraphRegistration + Send + Sync + 'static,
 ```
 
 Register a trigger-less graph attributed to `owner`, rejecting a same-tenant claim on a name a *different* package already owns.
@@ -1151,18 +1036,19 @@ Register a trigger-less graph attributed to `owner`, rejecting a same-tenant cla
 
 </details>
 
-
-
-##### <span id="Runtime.may_claim_triggerless_graph"></span>`may_claim_triggerless_graph`
+##### <span id="Runtime.may_claim_triggerless_graph"></span><code>may_​claim_​triggerless_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn may_claim_triggerless_graph (& self , owner : & TenantOwner , name : & str ,) -> Result < bool , RuntimeRegistrationError >
+fn may_claim_triggerless_graph(
+    &self,
+    owner: &TenantOwner,
+    name: &str,
+) -> Result<bool, RuntimeRegistrationError>
 ```
 
-Ask whether `owner` may claim the trigger-less graph `name` in this handle's scope before registering it. See [`Runtime::may_claim_trigger`] for the three outcomes.
+Ask whether `owner` may claim the trigger-less graph `name` in this handle's scope before registering it. See [`Runtime::may_claim_trigger`](../../../rust/cloacina/runtime/#Runtime.may_claim_trigger) for the three outcomes.
 
 <details>
 <summary>Source</summary>
@@ -1181,15 +1067,12 @@ Ask whether `owner` may claim the trigger-less graph `name` in this handle's sco
 
 </details>
 
-
-
-##### <span id="Runtime.unregister_triggerless_graph"></span>`unregister_triggerless_graph`
+##### <span id="Runtime.unregister_triggerless_graph"></span><code>unregister_​triggerless_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unregister_triggerless_graph (& self , name : & str) -> bool
+fn unregister_triggerless_graph(&self, name: &str) -> bool
 ```
 
 Remove a trigger-less graph constructor. Returns true if the entry existed.
@@ -1205,15 +1088,15 @@ Remove a trigger-less graph constructor. Returns true if the entry existed.
 
 </details>
 
-
-
-##### <span id="Runtime.get_triggerless_graph"></span>`get_triggerless_graph`
+##### <span id="Runtime.get_triggerless_graph"></span><code>get_​triggerless_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_triggerless_graph (& self , name : & str) -> Option < TriggerlessGraphRegistration >
+fn get_triggerless_graph(
+    &self,
+    name: &str,
+) -> Option<TriggerlessGraphRegistration>
 ```
 
 Look up and instantiate a trigger-less graph registration by name.
@@ -1231,15 +1114,12 @@ Look up and instantiate a trigger-less graph registration by name.
 
 </details>
 
-
-
-##### <span id="Runtime.triggerless_graph_names"></span>`triggerless_graph_names`
+##### <span id="Runtime.triggerless_graph_names"></span><code>triggerless_​graph_​names</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn triggerless_graph_names (& self) -> Vec < String >
+fn triggerless_graph_names(&self) -> Vec<String>
 ```
 
 Get every trigger-less graph name visible to this handle's scope.
@@ -1255,15 +1135,12 @@ Get every trigger-less graph name visible to this handle's scope.
 
 </details>
 
-
-
-##### <span id="Runtime.triggerless_graph_keys"></span>`triggerless_graph_keys`
+##### <span id="Runtime.triggerless_graph_keys"></span><code>triggerless_​graph_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn triggerless_graph_keys (& self) -> Vec < TenantKey >
+fn triggerless_graph_keys(&self) -> Vec<TenantKey>
 ```
 
 Every `(tenant, trigger-less graph)` key in the process, unfiltered.
@@ -1279,15 +1156,14 @@ Every `(tenant, trigger-less graph)` key in the process, unfiltered.
 
 </details>
 
-
-
-##### <span id="Runtime.register_reactor"></span>`register_reactor`
+##### <span id="Runtime.register_reactor"></span><code>register_​reactor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register_reactor < F > (& self , name : String , constructor : F) where F : Fn () -> ReactorRegistration + Send + Sync + 'static ,
+fn register_reactor<F>(&self, name: String, constructor: F)
+where
+    F: Fn() -> ReactorRegistration + Send + Sync + 'static,
 ```
 
 Register a reactor constructor by name.
@@ -1315,15 +1191,19 @@ of `#[computation_graph]` land here. Graphs that declare
 
 </details>
 
-
-
-##### <span id="Runtime.try_register_reactor"></span>`try_register_reactor`
+##### <span id="Runtime.try_register_reactor"></span><code>try_​register_​reactor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn try_register_reactor < F > (& self , owner : & TenantOwner , name : String , constructor : F ,) -> Result < () , RuntimeRegistrationError > where F : Fn () -> ReactorRegistration + Send + Sync + 'static ,
+fn try_register_reactor<F>(
+    &self,
+    owner: &TenantOwner,
+    name: String,
+    constructor: F,
+) -> Result<(), RuntimeRegistrationError>
+where
+    F: Fn() -> ReactorRegistration + Send + Sync + 'static,
 ```
 
 Register a reactor attributed to `owner`, rejecting a same-tenant claim on a name a *different* package already owns.
@@ -1349,15 +1229,12 @@ Register a reactor attributed to `owner`, rejecting a same-tenant claim on a nam
 
 </details>
 
-
-
-##### <span id="Runtime.unregister_reactor"></span>`unregister_reactor`
+##### <span id="Runtime.unregister_reactor"></span><code>unregister_​reactor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unregister_reactor (& self , name : & str) -> bool
+fn unregister_reactor(&self, name: &str) -> bool
 ```
 
 Remove a reactor constructor. Returns true if the entry existed.
@@ -1373,15 +1250,12 @@ Remove a reactor constructor. Returns true if the entry existed.
 
 </details>
 
-
-
-##### <span id="Runtime.get_reactor"></span>`get_reactor`
+##### <span id="Runtime.get_reactor"></span><code>get_​reactor</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_reactor (& self , name : & str) -> Option < ReactorRegistration >
+fn get_reactor(&self, name: &str) -> Option<ReactorRegistration>
 ```
 
 Look up and instantiate a reactor registration by name.
@@ -1397,15 +1271,12 @@ Look up and instantiate a reactor registration by name.
 
 </details>
 
-
-
-##### <span id="Runtime.reactor_names"></span>`reactor_names`
+##### <span id="Runtime.reactor_names"></span><code>reactor_​names</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn reactor_names (& self) -> Vec < String >
+fn reactor_names(&self) -> Vec<String>
 ```
 
 Get every reactor name visible to this handle's scope.
@@ -1421,15 +1292,12 @@ Get every reactor name visible to this handle's scope.
 
 </details>
 
-
-
-##### <span id="Runtime.reactor_keys"></span>`reactor_keys`
+##### <span id="Runtime.reactor_keys"></span><code>reactor_​keys</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn reactor_keys (& self) -> Vec < TenantKey >
+fn reactor_keys(&self) -> Vec<TenantKey>
 ```
 
 Every `(tenant, reactor)` key in the process, unfiltered.
@@ -1445,15 +1313,16 @@ Every `(tenant, reactor)` key in the process, unfiltered.
 
 </details>
 
-
-
-##### <span id="Runtime.register_stream_backend"></span>`register_stream_backend`
+##### <span id="Runtime.register_stream_backend"></span><code>register_​stream_​backend</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register_stream_backend (& self , type_name : String , factory : StreamBackendFactory)
+fn register_stream_backend(
+    &self,
+    type_name: String,
+    factory: StreamBackendFactory,
+)
 ```
 
 Register a stream backend factory by type name (e.g. `"kafka"`, `"mock"`).
@@ -1472,15 +1341,12 @@ Register a stream backend factory by type name (e.g. `"kafka"`, `"mock"`).
 
 </details>
 
-
-
-##### <span id="Runtime.unregister_stream_backend"></span>`unregister_stream_backend`
+##### <span id="Runtime.unregister_stream_backend"></span><code>unregister_​stream_​backend</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn unregister_stream_backend (& self , type_name : & str) -> bool
+fn unregister_stream_backend(&self, type_name: &str) -> bool
 ```
 
 Remove a stream backend factory. Returns true if the entry existed.
@@ -1500,39 +1366,16 @@ Remove a stream backend factory. Returns true if the entry existed.
 
 </details>
 
-
-
-##### <span id="Runtime.has_stream_backend"></span>`has_stream_backend`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">pub(crate)</span>
-
-
-```rust
-fn has_stream_backend (& self , type_name : & str) -> bool
-```
-
-Check if a stream backend is registered for the given type name.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(crate) fn has_stream_backend(&self, type_name: &str) -> bool {
-        self.inner.stream_backends.read().contains_key(type_name)
-    }
-```
-
-</details>
-
-
-
-##### <span id="Runtime.create_stream_backend"></span>`create_stream_backend`
+##### <span id="Runtime.create_stream_backend"></span><code>create_​stream_​backend</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn create_stream_backend (& self , type_name : & str , config : StreamConfig ,) -> Option < StreamBackendFuture >
+fn create_stream_backend(
+    &self,
+    type_name: &str,
+    config: StreamConfig,
+) -> Option<StreamBackendFuture>
 ```
 
 Get the creation future for a stream backend without holding the lock across await. Returns `None` if the type is not registered.
@@ -1554,107 +1397,11 @@ Get the creation future for a stream backend without holding the lock across awa
 
 </details>
 
-
-
-##### <span id="Runtime.stream_backend_names"></span>`stream_backend_names`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">pub(crate)</span>
-
-
-```rust
-fn stream_backend_names (& self) -> Vec < String >
-```
-
-Get all registered stream backend type names.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub(crate) fn stream_backend_names(&self) -> Vec<String> {
-        self.inner.stream_backends.read().keys().cloned().collect()
-    }
-```
-
-</details>
-
-
-
-
-
-### <span id="struct.RuntimeScope"></span>`struct RuntimeScope`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-**Derives:** `Clone`, `Debug`, `Default`, `PartialEq`, `Eq`
-
-The owned form of [`TenantScope`] carried on a [`Runtime`] handle.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `tenant_id` | `Option < String >` |  |
-| `is_admin` | `bool` |  |
-
-#### Methods
-
-##### <span id="RuntimeScope.as_tenant_scope"></span>`as_tenant_scope`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn as_tenant_scope (& self) -> TenantScope < '_ >
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn as_tenant_scope(&self) -> TenantScope<'_> {
-        TenantScope {
-            tenant_id: self.tenant_id.as_deref(),
-            is_admin: self.is_admin,
-        }
-    }
-```
-
-</details>
-
-
-
-
-
-### <span id="struct.RuntimeInner"></span>`struct RuntimeInner`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `tasks` | `RwLock < HashMap < TaskNamespace , TaskConstructorFn > >` | Already `tenant::package::workflow::task`-keyed — see the module docs
-for why this one keeps [`TaskNamespace`] rather than [`TenantKey`]. |
-| `workflows` | `ScopedRegistry < WorkflowConstructorFn >` |  |
-| `triggers` | `ScopedRegistry < TriggerConstructorFn >` |  |
-| `computation_graphs` | `ScopedRegistry < ComputationGraphConstructor >` |  |
-| `triggerless_graphs` | `ScopedRegistry < TriggerlessGraphConstructor >` |  |
-| `reactors` | `ScopedRegistry < ReactorConstructor >` |  |
-| `stream_backends` | `RwLock < HashMap < String , StreamBackendFactory > >` | Keyed by backend *kind* (`"kafka"`, `"mock"`), not by a tenant-authored
-entity name — CLOACI-T-0921's audit classified this as collision-safe by
-construction, so it stays a plain name map. |
-
-
-
 ## Enums
 
-### <span id="enum.RuntimeRegistrationError"></span>`enum RuntimeRegistrationError`
+### <span id="enum.RuntimeRegistrationError"></span><code style="font-size: 0.85em">enum RuntimeRegistrationError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A registration was refused because the name is already claimed inside the same tenant by a different package (CLOACI-T-0924).
 
@@ -1665,6 +1412,3 @@ packages' entities, so the second package must rename.
 #### Variants
 
 - **`OwnershipConflict`**
-
-
-

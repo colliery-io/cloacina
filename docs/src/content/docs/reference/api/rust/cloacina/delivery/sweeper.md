@@ -1,13 +1,13 @@
 ---
 title: "cloacina::delivery::sweeper"
 description: "Safety-net sweeper for the delivery substrate (CLOACI-I-0115 / S-0012 / A-0006, task T-0628)."
+editUrl: false
 sidebar:
-  order: 122
+  order: 105
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Safety-net sweeper for the delivery substrate (CLOACI-I-0115 / S-0012 / A-0006, task T-0628).
 
@@ -19,12 +19,27 @@ that crashed between commit and ack would otherwise leave rows stranded.
 The sweeper periodically scans the outbox for rows that have been open
 past a threshold and pushes them back through the relay path.
 
+**Multi-replica (OQ-D)**
+
+Every replica may run a sweeper; ownership is **not** needed because
+[`crate::dal::unified::delivery_outbox::DeliveryOutboxDAL::reset_to_pending`](../../../../rust/cloacina/dal/unified/delivery_outbox/#DeliveryOutboxDAL.reset_to_pending)
+is an atomic compare-and-set. Concurrent sweepers racing on the same row
+produce exactly one `Ok(())` and N-1 `InvalidStateTransition`s — safe, just
+ignored. There is no need for a per-replica claim column or an elected
+sweeper for the v1 substrate.
+
+**Cost / NFR-1.2.1**
+
+Sweep cost is `O(stuck rows + 1 count query)` every `sweep_interval`
+(default 30s). With the relay handling the steady-state via NOTIFY-driven
+wakes, the sweeper is genuinely a backstop — its traffic is a tiny fraction
+of what the former "anything ready?" poll loops produced.
+
 ## Structs
 
-### <span id="struct.SweeperConfig"></span>`struct SweeperConfig`
+### <span id="struct.SweeperConfig"></span><code style="font-size: 0.85em">struct SweeperConfig</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`
 
@@ -35,39 +50,26 @@ Tunables for the sweeper.
 | Name | Type | Description |
 |------|------|-------------|
 | `sweep_interval` | `Duration` | How often the sweeper wakes to scan. |
-| `stuck_threshold` | `Duration` | Rows whose `created_at` is older than `now - stuck_threshold` are
-considered stuck and eligible for redelivery. |
+| `stuck_threshold` | `Duration` | Rows whose `created_at` is older than `now - stuck_threshold` are considered stuck and eligible for redelivery. |
 | `batch_limit` | `i64` | Maximum rows examined per sweep, keeping a single tick bounded. |
 
-
-
-### <span id="struct.DeliverySweeper"></span>`struct DeliverySweeper`
+### <span id="struct.DeliverySweeper"></span><code style="font-size: 0.85em">struct DeliverySweeper</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Periodic backstop scan over the delivery outbox.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `dal` | `DAL` |  |
-| `wake` | `WakeHandle` |  |
-| `config` | `SweeperConfig` |  |
-
 #### Methods
 
-##### <span id="DeliverySweeper.new"></span>`new`
+##### <span id="DeliverySweeper.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (dal : DAL , wake : WakeHandle) -> Self
+fn new(dal: DAL, wake: WakeHandle) -> Self
 ```
 
-Construct with [`SweeperConfig::default`].
+Construct with `SweeperConfig::default`.
 
 <details>
 <summary>Source</summary>
@@ -80,15 +82,16 @@ Construct with [`SweeperConfig::default`].
 
 </details>
 
-
-
-##### <span id="DeliverySweeper.with_config"></span>`with_config`
+##### <span id="DeliverySweeper.with_config"></span><code>with_​config</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn with_config (dal : DAL , wake : WakeHandle , config : SweeperConfig) -> Self
+fn with_config(
+    dal: DAL,
+    wake: WakeHandle,
+    config: SweeperConfig,
+) -> Self
 ```
 
 <details>
@@ -102,16 +105,13 @@ fn with_config (dal : DAL , wake : WakeHandle , config : SweeperConfig) -> Self
 
 </details>
 
-
-
-##### <span id="DeliverySweeper.run"></span>`run`
+##### <span id="DeliverySweeper.run"></span><code>run</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn run (self , mut shutdown : watch :: Receiver < bool >)
+async fn run(self, mut shutdown: watch::Receiver<bool>)
 ```
 
 Run until `shutdown` flips to `true` (or the sender drops).
@@ -146,16 +146,13 @@ Run until `shutdown` flips to `true` (or the sender drops).
 
 </details>
 
-
-
-##### <span id="DeliverySweeper.sweep_once"></span>`sweep_once`
+##### <span id="DeliverySweeper.sweep_once"></span><code>sweep_​once</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn sweep_once (& self) -> Result < usize , ValidationError >
+async fn sweep_once(&self) -> Result<usize, ValidationError>
 ```
 
 One sweep pass. Returns the number of rows reset (`delivered → pending`). Pending-past-threshold rows are left alone — a wake at the end of the sweep tells the relay to retry them via its normal drain path.
@@ -228,8 +225,3 @@ One sweep pass. Returns the number of rows reset (`delivered → pending`). Pend
 ```
 
 </details>
-
-
-
-
-

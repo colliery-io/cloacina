@@ -1,22 +1,21 @@
 ---
 title: "cloacina-python::context"
 description: "API reference of the Rust module cloacina-python::context."
+editUrl: false
 sidebar:
-  order: 30
+  order: 14
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 ## Structs
 
-### <span id="struct.PyContext"></span>`class Context`
+### <span id="struct.PyContext"></span><code style="font-size: 0.85em">class Context</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.context.Context](../../../cloacina-python/context/#class.Context)
+> **Python API**: [`cloaca.Context`](../../../cloaca/#class.Context)
 
 PyContext - Python wrapper for Rust Context<serde_json::Value>
 
@@ -24,17 +23,17 @@ PyContext - Python wrapper for Rust Context<serde_json::Value>
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `cloacina :: Context < serde_json :: Value >` |  |
+| `inner` | `cloacina::Context<serde_json::Value>` |  |
 
 #### Methods
 
-##### <span id="PyContext.new"></span>`new`
+##### <span id="PyContext.new"></span><code>new</code>
 
 ```rust
-fn new (data : Option < & Bound < '_ , PyDict > >) -> PyResult < Self >
+fn new(data: Option<&Bound<'_, PyDict>>) -> PyResult<Self>
 ```
 
-> **Python API**: [cloacina-python.context.Context.new](../../../cloacina-python/context/#Context.new)
+> **Python API**: [`cloaca.Context.new`](../../../cloaca/#Context.new)
 
 Creates a new empty context
 
@@ -64,15 +63,17 @@ Creates a new empty context
 
 </details>
 
-
-
-##### <span id="PyContext.get"></span>`get`
+##### <span id="PyContext.get"></span><code>get</code>
 
 ```rust
-fn get (& self , key : & str , default : Option < & Bound < '_ , PyAny > >) -> PyResult < PyObject >
+fn get(
+    &self,
+    key: &str,
+    default: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyObject>
 ```
 
-> **Python API**: [cloacina-python.context.Context.get](../../../cloacina-python/context/#Context.get)
+> **Python API**: [`cloaca.Context.get`](../../../cloaca/#Context.get)
 
 Gets a value from the context
 
@@ -93,15 +94,13 @@ Gets a value from the context
 
 </details>
 
-
-
-##### <span id="PyContext.set"></span>`set`
+##### <span id="PyContext.set"></span><code>set</code>
 
 ```rust
-fn set (& mut self , key : & str , value : & Bound < '_ , PyAny >) -> PyResult < () >
+fn set(&mut self, key: &str, value: &Bound<'_, PyAny>) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.context.Context.set](../../../cloacina-python/context/#Context.set)
+> **Python API**: [`cloaca.Context.set`](../../../cloaca/#Context.set)
 
 Sets a value in the context (insert or update)
 
@@ -128,15 +127,17 @@ Sets a value in the context (insert or update)
 
 </details>
 
-
-
-##### <span id="PyContext.update"></span>`update`
+##### <span id="PyContext.update"></span><code>update</code>
 
 ```rust
-fn update (& mut self , key : & str , value : & Bound < '_ , PyAny >) -> PyResult < () >
+fn update(
+    &mut self) -> PyResult<(,
+    key: &str) -> PyResult<(,
+    value: &Bound<'_, PyAny>) -> PyResult<(,
+) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.context.Context.update](../../../cloacina-python/context/#Context.update)
+> **Python API**: [`cloaca.Context.update`](../../../cloaca/#Context.update)
 
 Updates an existing value in the context
 
@@ -154,15 +155,17 @@ Updates an existing value in the context
 
 </details>
 
-
-
-##### <span id="PyContext.insert"></span>`insert`
+##### <span id="PyContext.insert"></span><code>insert</code>
 
 ```rust
-fn insert (& mut self , key : & str , value : & Bound < '_ , PyAny >) -> PyResult < () >
+fn insert(
+    &mut self) -> PyResult<(,
+    key: &str) -> PyResult<(,
+    value: &Bound<'_, PyAny>) -> PyResult<(,
+) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.context.Context.insert](../../../cloacina-python/context/#Context.insert)
+> **Python API**: [`cloaca.Context.insert`](../../../cloaca/#Context.insert)
 
 Inserts a new value into the context
 
@@ -180,15 +183,13 @@ Inserts a new value into the context
 
 </details>
 
-
-
-##### <span id="PyContext.remove"></span>`remove`
+##### <span id="PyContext.remove"></span><code>remove</code>
 
 ```rust
-fn remove (& mut self , key : & str) -> PyResult < Option < PyObject > >
+fn remove(&mut self, key: &str) -> PyResult<Option<PyObject>>
 ```
 
-> **Python API**: [cloacina-python.context.Context.remove](../../../cloacina-python/context/#Context.remove)
+> **Python API**: [`cloaca.Context.remove`](../../../cloaca/#Context.remove)
 
 Removes and returns a value from the context
 
@@ -206,15 +207,13 @@ Removes and returns a value from the context
 
 </details>
 
-
-
-##### <span id="PyContext.to_dict"></span>`to_dict`
+##### <span id="PyContext.to_dict"></span><code>to_​dict</code>
 
 ```rust
-fn to_dict (& self , py : Python < '_ >) -> PyResult < PyObject >
+fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject>
 ```
 
-> **Python API**: [cloacina-python.context.Context.to_dict](../../../cloacina-python/context/#Context.to_dict)
+> **Python API**: [`cloaca.Context.to_dict`](../../../cloaca/#Context.to_dict)
 
 Returns the context as a Python dictionary
 
@@ -229,15 +228,13 @@ Returns the context as a Python dictionary
 
 </details>
 
-
-
-##### <span id="PyContext.update_from_dict"></span>`update_from_dict`
+##### <span id="PyContext.update_from_dict"></span><code>update_​from_​dict</code>
 
 ```rust
-fn update_from_dict (& mut self , data : & Bound < '_ , PyDict >) -> PyResult < () >
+fn update_from_dict(&mut self, data: &Bound<'_, PyDict>) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.context.Context.update_from_dict](../../../cloacina-python/context/#Context.update_from_dict)
+> **Python API**: [`cloaca.Context.update_from_dict`](../../../cloaca/#Context.update_from_dict)
 
 Updates the context with values from a Python dictionary
 
@@ -268,15 +265,13 @@ Updates the context with values from a Python dictionary
 
 </details>
 
-
-
-##### <span id="PyContext.to_json"></span>`to_json`
+##### <span id="PyContext.to_json"></span><code>to_​json</code>
 
 ```rust
-fn to_json (& self) -> PyResult < String >
+fn to_json(&self) -> PyResult<String>
 ```
 
-> **Python API**: [cloacina-python.context.Context.to_json](../../../cloacina-python/context/#Context.to_json)
+> **Python API**: [`cloaca.Context.to_json`](../../../cloaca/#Context.to_json)
 
 Serializes the context to a JSON string
 
@@ -296,15 +291,13 @@ Serializes the context to a JSON string
 
 </details>
 
-
-
-##### <span id="PyContext.from_json"></span>`from_json`
+##### <span id="PyContext.from_json"></span><code>from_​json</code>
 
 ```rust
-fn from_json (json_str : & str) -> PyResult < Self >
+fn from_json(json_str: &str) -> PyResult<Self>
 ```
 
-> **Python API**: [cloacina-python.context.Context.from_json](../../../cloacina-python/context/#Context.from_json)
+> **Python API**: [`cloaca.Context.from_json`](../../../cloaca/#Context.from_json)
 
 Creates a context from a JSON string
 
@@ -325,15 +318,13 @@ Creates a context from a JSON string
 
 </details>
 
-
-
-##### <span id="PyContext.__len__"></span>`__len__`
+##### <span id="PyContext.__len__"></span><code>_​_​len_​_​</code>
 
 ```rust
-fn __len__ (& self) -> usize
+fn __len__(&self) -> usize
 ```
 
-> **Python API**: [cloacina-python.context.Context.__len__](../../../cloacina-python/context/#Context.__len__)
+> **Python API**: [`cloaca.Context.__len__`](../../../cloaca/#Context.__len__)
 
 Returns the number of key-value pairs in the context
 
@@ -348,15 +339,13 @@ Returns the number of key-value pairs in the context
 
 </details>
 
-
-
-##### <span id="PyContext.__contains__"></span>`__contains__`
+##### <span id="PyContext.__contains__"></span><code>_​_​contains_​_​</code>
 
 ```rust
-fn __contains__ (& self , key : & str) -> bool
+fn __contains__(&self, key: &str) -> bool
 ```
 
-> **Python API**: [cloacina-python.context.Context.__contains__](../../../cloacina-python/context/#Context.__contains__)
+> **Python API**: [`cloaca.Context.__contains__`](../../../cloaca/#Context.__contains__)
 
 Checks if a key exists in the context
 
@@ -371,15 +360,13 @@ Checks if a key exists in the context
 
 </details>
 
-
-
-##### <span id="PyContext.__repr__"></span>`__repr__`
+##### <span id="PyContext.__repr__"></span><code>_​_​repr_​_​</code>
 
 ```rust
-fn __repr__ (& self) -> String
+fn __repr__(&self) -> String
 ```
 
-> **Python API**: [cloacina-python.context.Context.__repr__](../../../cloacina-python/context/#Context.__repr__)
+> **Python API**: [`cloaca.Context.__repr__`](../../../cloaca/#Context.__repr__)
 
 String representation of the context
 
@@ -397,15 +384,13 @@ String representation of the context
 
 </details>
 
-
-
-##### <span id="PyContext.__getitem__"></span>`__getitem__`
+##### <span id="PyContext.__getitem__"></span><code>_​_​getitem_​_​</code>
 
 ```rust
-fn __getitem__ (& self , key : & str) -> PyResult < PyObject >
+fn __getitem__(&self, key: &str) -> PyResult<PyObject>
 ```
 
-> **Python API**: [cloacina-python.context.Context.__getitem__](../../../cloacina-python/context/#Context.__getitem__)
+> **Python API**: [`cloaca.Context.__getitem__`](../../../cloaca/#Context.__getitem__)
 
 Dictionary-style item access
 
@@ -430,15 +415,17 @@ Dictionary-style item access
 
 </details>
 
-
-
-##### <span id="PyContext.__setitem__"></span>`__setitem__`
+##### <span id="PyContext.__setitem__"></span><code>_​_​setitem_​_​</code>
 
 ```rust
-fn __setitem__ (& mut self , key : & str , value : & Bound < '_ , PyAny >) -> PyResult < () >
+fn __setitem__(
+    &mut self) -> PyResult<(,
+    key: &str) -> PyResult<(,
+    value: &Bound<'_, PyAny>) -> PyResult<(,
+) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.context.Context.__setitem__](../../../cloacina-python/context/#Context.__setitem__)
+> **Python API**: [`cloaca.Context.__setitem__`](../../../cloaca/#Context.__setitem__)
 
 Dictionary-style item assignment
 
@@ -453,15 +440,13 @@ Dictionary-style item assignment
 
 </details>
 
-
-
-##### <span id="PyContext.__delitem__"></span>`__delitem__`
+##### <span id="PyContext.__delitem__"></span><code>_​_​delitem_​_​</code>
 
 ```rust
-fn __delitem__ (& mut self , key : & str) -> PyResult < () >
+fn __delitem__(&mut self, key: &str) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.context.Context.__delitem__](../../../cloacina-python/context/#Context.__delitem__)
+> **Python API**: [`cloaca.Context.__delitem__`](../../../cloaca/#Context.__delitem__)
 
 Dictionary-style item deletion
 
@@ -482,26 +467,26 @@ Dictionary-style item deletion
 
 </details>
 
-
-
-##### <span id="PyContext.secret"></span>`secret`
+##### <span id="PyContext.secret"></span><code>secret</code>
 
 ```rust
-fn secret (& self , py : Python < '_ > , name : & str) -> PyResult < PyObject >
+fn secret(&self, py: Python<'_>, name: &str) -> PyResult<PyObject>
 ```
 
-> **Python API**: [cloacina-python.context.Context.secret](../../../cloacina-python/context/#Context.secret)
+> **Python API**: [`cloaca.Context.secret`](../../../cloaca/#Context.secret)
 
 Read a resolved secret by name, returning a dict of its `{field: value}` pairs (CLOACI-I-0133 / T-0864 — the Python read accessor).
 
-Calls through to the SAME Rust [`cloacina::Context::secret`] accessor and
+Calls through to the SAME Rust [`cloacina::Context::secret`](../../../rust/cloacina-workflow/context/#Context.secret) accessor and
 the SAME `SecretResolver` the runtime attached to this context at
 execution time, so it is alias-aware through the instance's `{"$secret"}`
 map (T-0859): `name` may be either the declared local binding name or the
 concrete secret name.
+
 No-leak: the resolved value is returned to the caller ONLY. It is never
 written back into the context's serialized `data`, so it cannot reach
 `schedules.params`, the fires log, or execution history.
+
 Raises `RuntimeError` when no resolver is configured on this execution
 scope (`CLOACINA_SECRET_KEK` unset) or the backend fails, `KeyError` when
 the secret is not found, `PermissionError` when the name is not granted.
@@ -523,20 +508,23 @@ the secret is not found, `PermissionError` when the name is not granted.
 
 </details>
 
-
-
-##### <span id="PyContext.secret_field"></span>`secret_field`
+##### <span id="PyContext.secret_field"></span><code>secret_​field</code>
 
 ```rust
-fn secret_field (& self , py : Python < '_ > , name : & str , field : & str) -> PyResult < String >
+fn secret_field(
+    &self,
+    py: Python<'_>,
+    name: &str,
+    field: &str,
+) -> PyResult<String>
 ```
 
-> **Python API**: [cloacina-python.context.Context.secret_field](../../../cloacina-python/context/#Context.secret_field)
+> **Python API**: [`cloaca.Context.secret_field`](../../../cloaca/#Context.secret_field)
 
-Read a single field of a named secret (convenience over [`Self::secret`]).
+Read a single field of a named secret (convenience over `Self::secret`).
 
 Same resolver, alias-awareness, no-leak, and error mapping as
-[`Self::secret`]; additionally raises `KeyError` when the secret exists but
+`Self::secret`; additionally raises `KeyError` when the secret exists but
 has no field of that name.
 
 <details>
@@ -551,15 +539,14 @@ has no field of that name.
 
 </details>
 
-
-
-##### <span id="PyContext.from_rust_context"></span>`from_rust_context`
+##### <span id="PyContext.from_rust_context"></span><code>from_​rust_​context</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn from_rust_context (context : cloacina :: Context < serde_json :: Value >) -> Self
+fn from_rust_context(
+    context: cloacina::Context<serde_json::Value>,
+) -> Self
 ```
 
 Create a PyContext from a Rust Context (for internal use)
@@ -575,15 +562,12 @@ Create a PyContext from a Rust Context (for internal use)
 
 </details>
 
-
-
-##### <span id="PyContext.into_inner"></span>`into_inner`
+##### <span id="PyContext.into_inner"></span><code>into_​inner</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn into_inner (self) -> cloacina :: Context < serde_json :: Value >
+fn into_inner(self) -> cloacina::Context<serde_json::Value>
 ```
 
 Extract the inner Rust Context (for internal use)
@@ -599,15 +583,12 @@ Extract the inner Rust Context (for internal use)
 
 </details>
 
-
-
-##### <span id="PyContext.clone_inner"></span>`clone_inner`
+##### <span id="PyContext.clone_inner"></span><code>clone_​inner</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn clone_inner (& self) -> cloacina :: Context < serde_json :: Value >
+fn clone_inner(&self) -> cloacina::Context<serde_json::Value>
 ```
 
 Clone the inner Rust Context (for internal use)
@@ -623,15 +604,14 @@ Clone the inner Rust Context (for internal use)
 
 </details>
 
-
-
-##### <span id="PyContext.get_data_clone"></span>`get_data_clone`
+##### <span id="PyContext.get_data_clone"></span><code>get_​data_​clone</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_data_clone (& self) -> std :: collections :: HashMap < String , serde_json :: Value >
+fn get_data_clone(
+    &self,
+) -> std::collections::HashMap<String, serde_json::Value>
 ```
 
 Get a clone of the context data as a HashMap (for internal use)
@@ -646,45 +626,3 @@ Get a clone of the context data as a HashMap (for internal use)
 ```
 
 </details>
-
-
-
-
-
-## Functions
-
-### <span id="fn.secret_access_error_to_pyerr"></span>`fn secret_access_error_to_pyerr`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn secret_access_error_to_pyerr (err : cloacina :: SecretAccessError) -> PyErr
-```
-
-Map a Rust [`cloacina::SecretAccessError`] onto a clear Python exception.
-
-`NotConfigured`/`Backend` → `RuntimeError` (environment/backend faults),
-`NotFound`/`FieldNotFound` → `KeyError` (a missing name/field), `NotGranted`
-→ `PermissionError` (the grant gate denied it). The `Display` message is
-non-plaintext by construction (it names the secret/field, never a value).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn secret_access_error_to_pyerr(err: cloacina::SecretAccessError) -> PyErr {
-    use cloacina::SecretAccessError as E;
-    let msg = err.to_string();
-    match err {
-        E::NotConfigured | E::Backend(_) => pyo3::exceptions::PyRuntimeError::new_err(msg),
-        E::NotFound(_) | E::FieldNotFound { .. } => pyo3::exceptions::PyKeyError::new_err(msg),
-        E::NotGranted(_) => pyo3::exceptions::PyPermissionError::new_err(msg),
-    }
-}
-```
-
-</details>
-
-
-

@@ -1,13 +1,13 @@
 ---
 title: "cloacina::models::signing_key"
 description: "Domain models for Ed25519 signing keys."
+editUrl: false
 sidebar:
-  order: 158
+  order: 141
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Domain models for Ed25519 signing keys.
 
@@ -16,10 +16,9 @@ Private keys are stored encrypted at rest using AES-256-GCM.
 
 ## Structs
 
-### <span id="struct.SigningKey"></span>`struct SigningKey`
+### <span id="struct.SigningKey"></span><code style="font-size: 0.85em">struct SigningKey</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -34,21 +33,20 @@ The private key is stored encrypted - use the crypto module to decrypt.
 | `id` | `UniversalUuid` |  |
 | `org_id` | `UniversalUuid` |  |
 | `key_name` | `String` |  |
-| `encrypted_private_key` | `Vec < u8 >` | AES-256-GCM encrypted Ed25519 private key (nonce || ciphertext || tag) |
-| `public_key` | `Vec < u8 >` | Ed25519 public key (32 bytes) |
+| `encrypted_private_key` | `Vec<u8>` | AES-256-GCM encrypted Ed25519 private key (nonce \|\| ciphertext \|\| tag) |
+| `public_key` | `Vec<u8>` | Ed25519 public key (32 bytes) |
 | `key_fingerprint` | `String` | SHA256 hex fingerprint of the public key |
 | `created_at` | `UniversalTimestamp` |  |
-| `revoked_at` | `Option < UniversalTimestamp >` | None if active, Some if revoked |
+| `revoked_at` | `Option<UniversalTimestamp>` | None if active, Some if revoked |
 
 #### Methods
 
-##### <span id="SigningKey.is_active"></span>`is_active`
+##### <span id="SigningKey.is_active"></span><code>is_​active</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_active (& self) -> bool
+fn is_active(&self) -> bool
 ```
 
 Check if this key is currently active (not revoked)
@@ -64,15 +62,12 @@ Check if this key is currently active (not revoked)
 
 </details>
 
-
-
-##### <span id="SigningKey.is_revoked"></span>`is_revoked`
+##### <span id="SigningKey.is_revoked"></span><code>is_​revoked</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_revoked (& self) -> bool
+fn is_revoked(&self) -> bool
 ```
 
 Check if this key has been revoked
@@ -88,14 +83,9 @@ Check if this key has been revoked
 
 </details>
 
-
-
-
-
-### <span id="struct.NewSigningKey"></span>`struct NewSigningKey`
+### <span id="struct.NewSigningKey"></span><code style="font-size: 0.85em">struct NewSigningKey</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -107,19 +97,24 @@ Model for creating a new signing key.
 |------|------|-------------|
 | `org_id` | `UniversalUuid` |  |
 | `key_name` | `String` |  |
-| `encrypted_private_key` | `Vec < u8 >` |  |
-| `public_key` | `Vec < u8 >` |  |
+| `encrypted_private_key` | `Vec<u8>` |  |
+| `public_key` | `Vec<u8>` |  |
 | `key_fingerprint` | `String` |  |
 
 #### Methods
 
-##### <span id="NewSigningKey.new"></span>`new`
+##### <span id="NewSigningKey.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (org_id : UniversalUuid , key_name : String , encrypted_private_key : Vec < u8 > , public_key : Vec < u8 > , key_fingerprint : String ,) -> Self
+fn new(
+    org_id: UniversalUuid,
+    key_name: String,
+    encrypted_private_key: Vec<u8>,
+    public_key: Vec<u8>,
+    key_fingerprint: String,
+) -> Self
 ```
 
 <details>
@@ -145,14 +140,9 @@ fn new (org_id : UniversalUuid , key_name : String , encrypted_private_key : Vec
 
 </details>
 
-
-
-
-
-### <span id="struct.SigningKeyInfo"></span>`struct SigningKeyInfo`
+### <span id="struct.SigningKeyInfo"></span><code style="font-size: 0.85em">struct SigningKeyInfo</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Debug`, `Clone`, `Serialize`, `Deserialize`
 
@@ -167,7 +157,4 @@ Information about a signing key (without the private key material).
 | `key_name` | `String` |  |
 | `key_fingerprint` | `String` |  |
 | `created_at` | `UniversalTimestamp` |  |
-| `revoked_at` | `Option < UniversalTimestamp >` |  |
-
-
-
+| `revoked_at` | `Option<UniversalTimestamp>` |  |

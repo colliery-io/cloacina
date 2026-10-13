@@ -1,19 +1,27 @@
 ---
 title: "cloacina::database::connection"
 description: "Database connection management module supporting both PostgreSQL and SQLite."
+editUrl: false
 sidebar:
-  order: 115
+  order: 99
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Database connection management module supporting both PostgreSQL and SQLite.
 
 This module provides an async connection pool implementation using `deadpool-diesel` for managing
 database connections efficiently. It handles async connection pooling, connection lifecycle,
 and provides a thread-safe way to access database connections.
+
+**Features**
+
+- Connection pooling with configurable pool size
+- Thread-safe connection management
+- Automatic connection cleanup
+- URL-based configuration for PostgreSQL
+- File path or `:memory:` configuration for SQLite
 
 **Examples:**
 
@@ -35,29 +43,27 @@ use cloacina::database::connection::Database;
 );
 ```
 
+## Re-exports
+
+- [`AnyConnection`](../../../../rust/cloacina/database/connection/backend/#enum.AnyConnection)
+- [`AnyPool`](../../../../rust/cloacina/database/connection/backend/#enum.AnyPool)
+- [`BackendType`](../../../../rust/cloacina/database/connection/backend/#enum.BackendType)
+- [`SchemaError`](../../../../rust/cloacina/database/connection/schema_validation/#enum.SchemaError)
+- [`UsernameError`](../../../../rust/cloacina/database/connection/schema_validation/#enum.UsernameError)
+- [`escape_password`](../../../../rust/cloacina/database/connection/schema_validation/#fn.escape_password)
+- [`validate_schema_name`](../../../../rust/cloacina/database/connection/schema_validation/#fn.validate_schema_name)
+- [`validate_username`](../../../../rust/cloacina/database/connection/schema_validation/#fn.validate_username)
+- [`DbConnection`](../../../../rust/cloacina/database/connection/backend/#type.DbConnection)
+- [`DbConnectionManager`](../../../../rust/cloacina/database/connection/backend/#type.DbConnectionManager)
+- [`DbPool`](../../../../rust/cloacina/database/connection/backend/#type.DbPool)
+- [`DbConnection`](../../../../rust/cloacina/database/connection/backend/#type.DbConnection)
+- [`DbPool`](../../../../rust/cloacina/database/connection/backend/#type.DbPool)
+
 ## Structs
 
-### <span id="struct.CurrentSchemaRow"></span>`struct CurrentSchemaRow`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-**Derives:** `diesel :: QueryableByName`, `Debug`
-
-Row shape for the `SELECT current_schema()` defense-in-depth probe. `current_schema()` returns NULL when no schema is set; we model that as `Option<String>`. CLOACI-T-0582.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `s` | `Option < String >` |  |
-
-
-
-### <span id="struct.Database"></span>`struct Database`
+### <span id="struct.Database"></span><code style="font-size: 0.85em">struct Database</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
@@ -67,37 +73,23 @@ This struct provides a thread-safe wrapper around a connection pool,
 allowing multiple parts of the application to share database connections
 efficiently. Supports runtime backend selection between PostgreSQL and SQLite.
 
-#### Fields
+**Thread Safety**
 
-| Name | Type | Description |
-|------|------|-------------|
-| `pool` | `AnyPool` | The connection pool (PostgreSQL or SQLite) |
-| `backend` | `BackendType` | The detected backend type |
-| `schema` | `Option < String >` | The PostgreSQL schema name for multi-tenant isolation (ignored for SQLite) |
-| `endpoint` | `Option < String >` | The resolved PostgreSQL endpoint this pool dials, with ANY userinfo
-stripped — `postgresql://host:port/dbname?params` (CLOACI-T-0888).
-
-Kept so tenant provisioning can hand out a credential string that points
-at the SAME deployment the admin connection uses, instead of guessing
-`localhost:5432`. Credentials are deliberately NOT retained here: the
-pool already holds the admin secret, and this field exists purely to
-carry the non-secret coordinates. `None` for SQLite, which has no
-per-user credential model to hand out. |
-| `_memory_tempfile` | `Option < Arc < NamedTempFile > >` | Backing tempfile when the user requested `:memory:` (or
-`sqlite://:memory:`). Held via Arc so every Database clone keeps the
-file alive; when the last clone drops, NamedTempFile::Drop deletes
-the file. See `materialize_sqlite_connection` for why we substitute
-a real tempfile for in-memory requests. |
+The `Database` struct is `Clone` and can be safely shared between threads.
+Each clone references the same underlying connection pool.
 
 #### Methods
 
-##### <span id="Database.new"></span>`new`
+##### <span id="Database.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (connection_string : & str , database_name : & str , max_size : u32) -> Self
+fn new(
+    connection_string: &str,
+    database_name: &str,
+    max_size: u32,
+) -> Self
 ```
 
 Creates a new database connection pool with automatic backend detection.
@@ -110,17 +102,13 @@ The backend is detected from the connection string:
 
 | Name | Type | Description |
 |------|------|-------------|
-| `connection_string` | `-` | The database connection URL or path |
-| `database_name` | `-` | The database name (used for PostgreSQL, ignored for SQLite) |
-| `max_size` | `-` | Maximum number of connections in the pool |
+| `connection_string` | `&str` | The database connection URL or path |
+| `database_name` | `&str` | The database name (used for PostgreSQL, ignored for SQLite) |
+| `max_size` | `u32` | Maximum number of connections in the pool |
 
+**Panics:**
 
-**Raises:**
-
-| Exception | Description |
-|-----------|-------------|
-| `Panic` | Panics if the connection pool cannot be created. |
-
+Panics if the connection pool cannot be created.
 
 <details>
 <summary>Source</summary>
@@ -133,15 +121,17 @@ The backend is detected from the connection string:
 
 </details>
 
-
-
-##### <span id="Database.new_with_schema"></span>`new_with_schema`
+##### <span id="Database.new_with_schema"></span><code>new_​with_​schema</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new_with_schema (connection_string : & str , database_name : & str , max_size : u32 , schema : Option < & str > ,) -> Self
+fn new_with_schema(
+    connection_string: &str,
+    database_name: &str,
+    max_size: u32,
+    schema: Option<&str>,
+) -> Self
 ```
 
 Creates a new database connection pool with optional schema support.
@@ -153,18 +143,15 @@ effective for PostgreSQL; the schema parameter is stored but ignored for SQLite.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `connection_string` | `-` | The database connection URL or path |
-| `database_name` | `-` | The database name (used for PostgreSQL, ignored for SQLite) |
-| `max_size` | `-` | Maximum number of connections in the pool |
-| `schema` | `-` | Optional schema name for PostgreSQL multi-tenant isolation |
+| `connection_string` | `&str` | The database connection URL or path |
+| `database_name` | `&str` | The database name (used for PostgreSQL, ignored for SQLite) |
+| `max_size` | `u32` | Maximum number of connections in the pool |
+| `schema` | `Option<&str>` | Optional schema name for PostgreSQL multi-tenant isolation |
 
+**Panics:**
 
-**Raises:**
-
-| Exception | Description |
-|-----------|-------------|
-| `Panic` | Panics if connection pool creation fails or if the schema name is invalid. Use [`try_new_with_schema`](Self::try_new_with_schema) for fallible construction. |
-
+Panics if connection pool creation fails or if the schema name is invalid.
+Use `try_new_with_schema` for fallible construction.
 
 <details>
 <summary>Source</summary>
@@ -183,39 +170,37 @@ effective for PostgreSQL; the schema parameter is stored but ignored for SQLite.
 
 </details>
 
-
-
-##### <span id="Database.try_new_with_schema"></span>`try_new_with_schema`
+##### <span id="Database.try_new_with_schema"></span><code>try_​new_​with_​schema</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn try_new_with_schema (connection_string : & str , _database_name : & str , max_size : u32 , schema : Option < & str > ,) -> Result < Self , DatabaseError >
+fn try_new_with_schema(
+    connection_string: &str,
+    _database_name: &str,
+    max_size: u32,
+    schema: Option<&str>,
+) -> Result<Self, DatabaseError>
 ```
 
 Creates a new database connection pool with optional schema support.
 
-This is the fallible version of [`new_with_schema`](Self::new_with_schema).
+This is the fallible version of `new_with_schema`.
 
 **Parameters:**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `connection_string` | `-` | The database connection URL or path |
+| `connection_string` | `&str` | The database connection URL or path |
 | `database_name` | `-` | The database name (used for PostgreSQL, ignored for SQLite) |
-| `max_size` | `-` | Maximum number of connections in the pool |
-| `schema` | `-` | Optional schema name for PostgreSQL multi-tenant isolation |
+| `max_size` | `u32` | Maximum number of connections in the pool |
+| `schema` | `Option<&str>` | Optional schema name for PostgreSQL multi-tenant isolation |
 
+**Errors:**
 
-**Raises:**
-
-| Exception | Description |
-|-----------|-------------|
-| `Error` | Returns an error if: |
-| `Error` | The schema name is invalid (SQL injection prevention) |
-| `Error` | The connection pool cannot be created |
-
+- Returns an error if:
+- The schema name is invalid (SQL injection prevention)
+- The connection pool cannot be created
 
 <details>
 <summary>Source</summary>
@@ -377,15 +362,12 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
 
 </details>
 
-
-
-##### <span id="Database.backend"></span>`backend`
+##### <span id="Database.backend"></span><code>backend</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn backend (& self) -> BackendType
+fn backend(&self) -> BackendType
 ```
 
 Returns the detected backend type.
@@ -401,15 +383,12 @@ Returns the detected backend type.
 
 </details>
 
-
-
-##### <span id="Database.schema"></span>`schema`
+##### <span id="Database.schema"></span><code>schema</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn schema (& self) -> Option < & str >
+fn schema(&self) -> Option<&str>
 ```
 
 Returns the schema name if set.
@@ -425,15 +404,16 @@ Returns the schema name if set.
 
 </details>
 
-
-
-##### <span id="Database.tenant_connection_string"></span>`tenant_connection_string`
+##### <span id="Database.tenant_connection_string"></span><code>tenant_​connection_​string</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn tenant_connection_string (& self , username : & str , password : & str) -> Option < String >
+fn tenant_connection_string(
+    &self,
+    username: &str,
+    password: &str,
+) -> Option<String>
 ```
 
 Build a connection string for `username`/`password` that points at the SAME deployment this pool dials (CLOACI-T-0888).
@@ -443,6 +423,7 @@ admin URL, so a tenant credential issued against a non-default
 deployment — the dev stack on 15432, a remote host, a database not
 named `cloacina` — is actually dialable. Only the credentials are
 substituted.
+
 Returns `None` for SQLite (no per-user credential model) and when the
 endpoint could not be derived, so callers can decide what to do rather
 than receive a plausible-looking but wrong string.
@@ -458,15 +439,12 @@ than receive a plausible-looking but wrong string.
 
 </details>
 
-
-
-##### <span id="Database.pool"></span>`pool`
+##### <span id="Database.pool"></span><code>pool</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn pool (& self) -> AnyPool
+fn pool(&self) -> AnyPool
 ```
 
 Returns a clone of the connection pool.
@@ -482,15 +460,12 @@ Returns a clone of the connection pool.
 
 </details>
 
-
-
-##### <span id="Database.get_connection"></span>`get_connection`
+##### <span id="Database.get_connection"></span><code>get_​connection</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn get_connection (& self) -> AnyPool
+fn get_connection(&self) -> AnyPool
 ```
 
 Alias for `pool()` for backward compatibility.
@@ -506,15 +481,12 @@ Alias for `pool()` for backward compatibility.
 
 </details>
 
-
-
-##### <span id="Database.close"></span>`close`
+##### <span id="Database.close"></span><code>close</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn close (& self)
+fn close(&self)
 ```
 
 Closes the connection pool, releasing all database connections.
@@ -544,157 +516,13 @@ db.close(); // Release all connections
 
 </details>
 
-
-
-##### <span id="Database.build_postgres_url"></span>`build_postgres_url`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn build_postgres_url (base_url : & str , database_name : & str) -> Result < String , url :: ParseError >
-```
-
-Builds a PostgreSQL connection URL.
-
-Respects an explicit database name already present in `base_url` (e.g.
-`postgres://host/mydb`); only falls back to the `database_name`
-parameter when the URL carries no database (empty path or just `/`).
-Previously this unconditionally called `set_path(database_name)`, so a
-`--database-url postgres://…/mydb` silently connected to the
-caller-supplied `database_name` (the server hardcodes `"cloacina"`)
-while logging `mydb` — data landed in the wrong database (CLOACI-T-0649).
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn build_postgres_url(base_url: &str, database_name: &str) -> Result<String, url::ParseError> {
-        let mut url = Url::parse(base_url)?;
-        let has_explicit_db = !url.path().trim_start_matches('/').is_empty();
-        if !has_explicit_db {
-            url.set_path(database_name);
-        }
-        // CLOACI-T-0910: default `gssencmode=disable` (caller's explicit value
-        // wins). libpq's GSSAPI negotiation walks libkrb5 init on every new
-        // connection, which is getenv-heavy — and glibc's getenv is unlocked,
-        // so it segfaults if ANY other thread setenv/putenv's concurrently
-        // (e.g. Python `os.environ[...] = ...` while a pool thread opens a
-        // connection). This was the rotating CI segfault class: symbolized
-        // core showed SIGSEGV in __GI_getenv("KRB5_TRACE") under
-        // PQconnectdb ← deadpool Manager::create on a tokio blocking thread.
-        // Disabling GSS encryption skips the krb5 path entirely; anyone who
-        // actually needs GSSAPI sets gssencmode explicitly in their URL.
-        let has_gssencmode = url.query_pairs().any(|(k, _)| k == "gssencmode");
-        if !has_gssencmode {
-            url.query_pairs_mut().append_pair("gssencmode", "disable");
-        }
-        Ok(url.to_string())
-    }
-```
-
-</details>
-
-
-
-##### <span id="Database.materialize_sqlite_connection"></span>`materialize_sqlite_connection`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn materialize_sqlite_connection (connection_string : & str ,) -> Result < (String , Option < Arc < NamedTempFile > >) , DatabaseError >
-```
-
-Resolve a SQLite connection string into (url, optional tempfile owner).
-
-`:memory:` (with or without the `sqlite://` prefix) is substituted
-for a per-Database tempfile on disk. Diesel 2.3+ does set
-`SQLITE_OPEN_URI` (and rewrites a leading `sqlite://` to `file:`),
-but this crate strips the scheme before diesel sees the string, so
-the path is always opened literally — the tempfile substitution
-remains the reliable way to get multi-connection sharing here.
-Query parameters after a `sqlite://` scheme are dropped with a
-warning: they were never interpreted on this path (WAL and
-busy_timeout are applied as pragmas on every connection), and
-historically they leaked into the on-disk filename
-(`app.db?mode=rwc` the file — CLOACI-T-0912). Bare paths pass
-through byte-for-byte.
-The returned `NamedTempFile` must be held for the lifetime of the
-Database (we wrap it in `Arc` and stash it on `Self` so Clone'd
-Databases share ownership and the file is deleted only when the
-last clone drops).
-Returns `(url, Some(handle))` for `:memory:` requests; otherwise
-`(url, None)` and the file path passes through unchanged.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn materialize_sqlite_connection(
-        connection_string: &str,
-    ) -> Result<(String, Option<Arc<NamedTempFile>>), DatabaseError> {
-        let (stripped, had_scheme) = match connection_string.strip_prefix("sqlite://") {
-            Some(rest) => (rest, true),
-            None => (connection_string, false),
-        };
-        let stripped = if had_scheme {
-            match stripped.split_once('?') {
-                Some((path, params)) => {
-                    warn!(
-                        "ignoring query parameters in sqlite:// URL (they are not \
-                         interpreted; WAL + busy_timeout are set automatically): ?{}",
-                        params
-                    );
-                    path
-                }
-                None => stripped,
-            }
-        } else {
-            stripped
-        };
-        if stripped != ":memory:" {
-            return Ok((stripped.to_string(), None));
-        }
-
-        // Build a tempfile in the system temp dir. We use NamedTempFile so
-        // the path is stable across pool connection opens. The file gets
-        // unlinked on Drop.
-        let tempfile = NamedTempFile::new().map_err(|e| DatabaseError::PoolCreation {
-            backend: "SQLite",
-            source: Box::new(e),
-        })?;
-        let path = tempfile
-            .path()
-            .to_str()
-            .ok_or_else(|| DatabaseError::PoolCreation {
-                backend: "SQLite",
-                source: Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "tempfile path is not valid UTF-8",
-                )),
-            })?
-            .to_string();
-        info!(
-            "SQLite `:memory:` substituted with tempfile path '{}' (per-Database, cleaned on drop)",
-            path
-        );
-        Ok((path, Some(Arc::new(tempfile))))
-    }
-```
-
-</details>
-
-
-
-##### <span id="Database.run_migrations"></span>`run_migrations`
+##### <span id="Database.run_migrations"></span><code>run_​migrations</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn run_migrations (& self) -> Result < () , String >
+async fn run_migrations(&self) -> Result<(), String>
 ```
 
 Runs pending database migrations for the appropriate backend.
@@ -785,16 +613,13 @@ This method detects the backend type and runs the corresponding migrations.
 
 </details>
 
-
-
-##### <span id="Database.setup_schema"></span>`setup_schema`
+##### <span id="Database.setup_schema"></span><code>setup_​schema</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn setup_schema (& self , schema : & str) -> Result < () , String >
+async fn setup_schema(&self, schema: &str) -> Result<(), String>
 ```
 
 Sets up the PostgreSQL schema for multi-tenant isolation.
@@ -802,6 +627,11 @@ Sets up the PostgreSQL schema for multi-tenant isolation.
 Creates the schema if it doesn't exist and runs migrations within it.
 Returns an error if called on a SQLite backend or if the schema name
 is invalid (to prevent SQL injection).
+
+**Security**
+
+Schema names are validated to prevent SQL injection attacks.
+Only alphanumeric characters and underscores are allowed.
 
 <details>
 <summary>Source</summary>
@@ -864,22 +694,28 @@ is invalid (to prevent SQL injection).
 
 </details>
 
-
-
-##### <span id="Database.get_connection_with_schema"></span>`get_connection_with_schema`
+##### <span id="Database.get_connection_with_schema"></span><code>get_​connection_​with_​schema</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn get_connection_with_schema (& self ,) -> Result < deadpool :: managed :: Object < PgManager > , deadpool :: managed :: PoolError < deadpool_diesel :: Error > , >
+async fn get_connection_with_schema(
+    &self,
+) -> Result<
+    deadpool::managed::Object<PgManager>,
+    deadpool::managed::PoolError<deadpool_diesel::Error>,
+>
 ```
 
 Gets a PostgreSQL connection with the schema search path set.
 
 For PostgreSQL, this sets the search path to the configured schema.
 For SQLite, this is a no-op and returns an error.
+
+**Security**
+
+Schema names are validated before use in SQL to prevent injection attacks.
 
 <details>
 <summary>Source</summary>
@@ -1025,16 +861,18 @@ For SQLite, this is a no-op and returns an error.
 
 </details>
 
-
-
-##### <span id="Database.get_postgres_connection"></span>`get_postgres_connection`
+##### <span id="Database.get_postgres_connection"></span><code>get_​postgres_​connection</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn get_postgres_connection (& self ,) -> Result < deadpool :: managed :: Object < PgManager > , deadpool :: managed :: PoolError < deadpool_diesel :: Error > , >
+async fn get_postgres_connection(
+    &self,
+) -> Result<
+    deadpool::managed::Object<PgManager>,
+    deadpool::managed::PoolError<deadpool_diesel::Error>,
+>
 ```
 
 Gets a PostgreSQL connection.
@@ -1057,16 +895,18 @@ Returns an error if this is a SQLite backend.
 
 </details>
 
-
-
-##### <span id="Database.get_sqlite_connection"></span>`get_sqlite_connection`
+##### <span id="Database.get_sqlite_connection"></span><code>get_​sqlite_​connection</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
 
-
 ```rust
-async fn get_sqlite_connection (& self ,) -> Result < deadpool :: managed :: Object < SqliteManager > , deadpool :: managed :: PoolError < deadpool_diesel :: Error > , >
+async fn get_sqlite_connection(
+    &self,
+) -> Result<
+    deadpool::managed::Object<SqliteManager>,
+    deadpool::managed::PoolError<deadpool_diesel::Error>,
+>
 ```
 
 Gets a SQLite connection.
@@ -1110,16 +950,11 @@ Returns an error if this is a PostgreSQL backend.
 
 </details>
 
-
-
-
-
 ## Enums
 
-### <span id="enum.DatabaseError"></span>`enum DatabaseError`
+### <span id="enum.DatabaseError"></span><code style="font-size: 0.85em">enum DatabaseError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during database operations.
 
@@ -1133,17 +968,14 @@ migration execution, and schema validation failures.
 - **`Schema`** - Schema validation failed
 - **`Migration`** - Migration execution failed
 
-
-
 ## Functions
 
-### <span id="fn.set_strict_search_path"></span>`fn set_strict_search_path`
+### <span id="fn.set_strict_search_path"></span><code style="font-size: 0.85em">fn set_​strict_​search_​path</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn set_strict_search_path (enabled : bool)
+fn set_strict_search_path(enabled: bool)
 ```
 
 Set the process-wide strict-search-path flag. Idempotent; safe to call at any point during process startup. CLOACI-T-0582.
@@ -1159,15 +991,12 @@ pub fn set_strict_search_path(enabled: bool) {
 
 </details>
 
-
-
-### <span id="fn.is_strict_search_path"></span>`fn is_strict_search_path`
+### <span id="fn.is_strict_search_path"></span><code style="font-size: 0.85em">fn is_​strict_​search_​path</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_strict_search_path () -> bool
+fn is_strict_search_path() -> bool
 ```
 
 Read the process-wide strict-search-path flag. CLOACI-T-0582.
@@ -1182,112 +1011,3 @@ pub fn is_strict_search_path() -> bool {
 ```
 
 </details>
-
-
-
-### <span id="fn.search_path_pool_error"></span>`fn search_path_pool_error`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn search_path_pool_error (tenant_schema : & str , cause : & str ,) -> deadpool :: managed :: PoolError < deadpool_diesel :: Error >
-```
-
-Construct a `PoolError::Backend` carrying a CLOACI-T-0582 search_path failure so callers see a typed error rather than a silent fallback. The error message names the tenant schema and the underlying cause.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn search_path_pool_error(
-    tenant_schema: &str,
-    cause: &str,
-) -> deadpool::managed::PoolError<deadpool_diesel::Error> {
-    // Encode as `Ping(QueryBuilderError)` so the public PoolError surface
-    // stays unchanged while still surfacing our message. `QueryBuilderError`
-    // takes `Box<dyn Error + Send + Sync>` which gives us free-form text.
-    let inner = diesel::result::Error::QueryBuilderError(
-        format!(
-            "search_path setup failed for tenant '{}': {} (CLOACI-T-0582)",
-            tenant_schema, cause
-        )
-        .into(),
-    );
-    deadpool::managed::PoolError::Backend(deadpool_diesel::Error::Ping(inner))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.endpoint_of"></span>`fn endpoint_of`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn endpoint_of (connection_url : & str) -> Option < String >
-```
-
-Reduce a resolved PostgreSQL URL to its non-secret coordinates (CLOACI-T-0888): scheme, host, port, database, and query params, with any `user:password@` removed.
-
-Returns `None` when the URL will not parse — the caller then falls back
-rather than emitting a half-built string.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn endpoint_of(connection_url: &str) -> Option<String> {
-    let mut url = url::Url::parse(connection_url).ok()?;
-    // Both setters only fail on a "cannot-be-a-base" URL, which a parsed
-    // postgres:// URL never is.
-    url.set_username("").ok()?;
-    url.set_password(None).ok()?;
-    Some(url.to_string())
-}
-```
-
-</details>
-
-
-
-### <span id="fn.inject_credentials"></span>`fn inject_credentials`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn inject_credentials (endpoint : & str , username : & str , password : & str) -> Option < String >
-```
-
-Substitute `username`/`password` into an endpoint produced by [`endpoint_of`], preserving host, port, database and query parameters (CLOACI-T-0888).
-
-Split out from [`Database::tenant_connection_string`] so the string
-behavior is unit-testable without standing up a connection pool.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn inject_credentials(endpoint: &str, username: &str, password: &str) -> Option<String> {
-    let mut url = url::Url::parse(endpoint).ok()?;
-    url.set_username(username).ok()?;
-    // `set_password(Some(""))` would serialize a bare `:` — normalize an empty
-    // password to "no password" instead.
-    url.set_password(if password.is_empty() {
-        None
-    } else {
-        Some(password)
-    })
-    .ok()?;
-    Some(url.to_string())
-}
-```
-
-</details>
-
-
-

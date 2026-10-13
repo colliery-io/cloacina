@@ -1,58 +1,93 @@
 ---
 title: "cloacina::packaging::constructor_provider"
 description: "Constructor **provider package** assembly + packing (CLOACI-T-0827 / A-0011)."
+editUrl: false
 sidebar:
-  order: 166
+  order: 149
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Constructor **provider package** assembly + packing (CLOACI-T-0827 / A-0011).
 
 Turns a built `#[constructor]` **provider crate** (a *suite* of constructor
 members, CLOACI-A-0011) into a distributable, signable **fidius provider
 package** — the same machinery cloacina already uses to pack a workflow into a
-`.cloacina` archive ([`super::package_workflow`] →
-[`fidius_core::package::pack_package`]), reused for constructor providers rather
+`.cloacina` archive ([`super::package_workflow`](../../../../rust/cloacina/packaging/#fn.package_workflow) →
+`fidius_core::package::pack_package`), reused for constructor providers rather
 than a parallel format.
+
+**What a provider package is**
+
+A provider package is an ordinary fidius source package — a directory with a
+`package.toml` header that fidius understands — carrying:
+
+  * the provider's single **component** — a `.wasm` component built to
+    `wasm32-wasip2` (fidius `runtime = "wasm"`), OR a host **cdylib** for a
+    NATIVE provider (fidius `runtime = "rust"`, CLOACI-T-0903) — which exposes
+    EVERY member constructor behind one per-kind fidius interface (the member is
+    selected at load by name-in-configure), and
+  * `provider.json`, the `ProviderManifest` (`List[Constructor]`) the loader
+    reads to select a member by `constructor = "<name>"` — written here from the
+    macro-generated `__provider_manifest()` (the step the macro cannot do).
+
+It is packed (tar + bzip2) into a `<name>-<version>.cloacina` archive and may be
+**Ed25519-signed** (a `package.sig` over the package digest) reusing fidius's
+signing scheme verbatim, so `fidius_host::verify_package` /
+`fidius_core::package::package_digest` verify it unchanged.
+
+**Providers carry N constructors (Airflow "provider" = package of operators)**
+
+One provider crate compiles to ONE component exposing N members; the
+`provider.json` is the `List[Constructor]` index over them. A homogeneous suite
+(every member the same kind — the common case) exports one fidius interface, so
+the `package.toml` header's `interface`/`interface_version` come from the
+members (they share one). A mixed-kind suite (multiple interfaces in one
+component) is a documented follow-on.
+
+**Gating**
+
+Behind the default-OFF `constructor-packaging` feature, which pulls only the
+serde-only `cloacina-constructor-contract` crate. It deliberately does NOT
+enable `fidius-host/wasm`, so building the *packaging* tool does not drag in
+wasmtime — only the *loader* (`constructors-wasm`) does. Resolving a packed
+provider back to a runnable primitive lives in the loader
+(`registry::loader::constructor_loader::load_task_constructor_from_package`).
+
+## Re-exports
+
+- `ProviderRuntime` (`cloacina_constructor_contract::ProviderRuntime`)
 
 ## Structs
 
-### <span id="struct.ProviderPackageOptions"></span>`struct ProviderPackageOptions`
+### <span id="struct.ProviderPackageOptions"></span><code style="font-size: 0.85em">struct ProviderPackageOptions</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 **Derives:** `Debug`, `Clone`
 
-Inputs to [`package_constructor_provider`].
+Inputs to [`package_constructor_provider`](../../../../rust/cloacina/packaging/constructor_provider/#fn.package_constructor_provider).
 
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
 | `crate_dir` | `PathBuf` | The `#[constructor]` provider crate directory to package. |
-| `output` | `Option < PathBuf >` | Output archive path. `None` → `<name>-<version>.cloacina` in the CWD. |
-| `sign_key` | `Option < PathBuf >` | Ed25519 secret-key file (32 raw bytes) to sign the package with. `None`
-produces an unsigned provider. |
-| `manifest_bin` | `String` | Host binary in the crate that prints the provider manifest JSON to stdout
-(the `__provider_manifest()` emitter). Defaults to `emit_manifest`. |
+| `output` | `Option<PathBuf>` | Output archive path. `None` → `<name>-<version>.cloacina` in the CWD. |
+| `sign_key` | `Option<PathBuf>` | Ed25519 secret-key file (32 raw bytes) to sign the package with. `None` produces an unsigned provider. |
+| `manifest_bin` | `String` | Host binary in the crate that prints the provider manifest JSON to stdout (the `__provider_manifest()` emitter). Defaults to `emit_manifest`. |
 | `release` | `bool` | Build in release profile (default `true`). |
-| `runtime` | `ProviderRuntime` | Runtime to build + package for (CLOACI-T-0903). `Wasm` (default) builds a
-`wasm32-wasip2` component; `Native` builds a host cdylib (loaded in-process
-via the T-0902 native path). |
+| `runtime` | `ProviderRuntime` | Runtime to build + package for (CLOACI-T-0903). `Wasm` (default) builds a `wasm32-wasip2` component; `Native` builds a host cdylib (loaded in-process via the T-0902 native path). |
 
 #### Methods
 
-##### <span id="ProviderPackageOptions.new"></span>`new`
+##### <span id="ProviderPackageOptions.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (crate_dir : impl Into < PathBuf >) -> Self
+fn new(crate_dir: impl Into<PathBuf>) -> Self
 ```
 
 Options for `crate_dir` with the conventional defaults (`emit_manifest` bin, release build, unsigned, CWD output, WASM runtime).
@@ -75,18 +110,15 @@ Options for `crate_dir` with the conventional defaults (`emit_manifest` bin, rel
 
 </details>
 
-
-
-##### <span id="ProviderPackageOptions.new_native"></span>`new_native`
+##### <span id="ProviderPackageOptions.new_native"></span><code>new_​native</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new_native (crate_dir : impl Into < PathBuf >) -> Self
+fn new_native(crate_dir: impl Into<PathBuf>) -> Self
 ```
 
-As [`new`](Self::new) but building + packaging a NATIVE host cdylib (CLOACI-T-0903).
+As `new` but building + packaging a NATIVE host cdylib (CLOACI-T-0903).
 
 <details>
 <summary>Source</summary>
@@ -102,18 +134,13 @@ As [`new`](Self::new) but building + packaging a NATIVE host cdylib (CLOACI-T-09
 
 </details>
 
-
-
-
-
-### <span id="struct.ProviderPackageResult"></span>`struct ProviderPackageResult`
+### <span id="struct.ProviderPackageResult"></span><code style="font-size: 0.85em">struct ProviderPackageResult</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 **Derives:** `Debug`, `Clone`
 
-What [`package_constructor_provider`] produced.
+What [`package_constructor_provider`](../../../../rust/cloacina/packaging/constructor_provider/#fn.package_constructor_provider) produced.
 
 #### Fields
 
@@ -123,16 +150,13 @@ What [`package_constructor_provider`] produced.
 | `signed` | `bool` | Whether the archive carries a `package.sig` (was signed). |
 | `provider_name` | `String` | The provider name (fidius package name). |
 | `provider_version` | `String` | The provider version (from its `provider.json`). |
-| `constructors` | `Vec < String >` | Names of the member constructors the provider carries. |
-
-
+| `constructors` | `Vec<String>` | Names of the member constructors the provider carries. |
 
 ## Enums
 
-### <span id="enum.ProviderPackageError"></span>`enum ProviderPackageError`
+### <span id="enum.ProviderPackageError"></span><code style="font-size: 0.85em">enum ProviderPackageError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors assembling/packing a constructor provider package.
 
@@ -141,41 +165,40 @@ Errors assembling/packing a constructor provider package.
 - **`Io`** - The crate directory or an expected build artifact was missing/unreadable.
 - **`Build`** - `cargo build`/`cargo run` failed.
 - **`Manifest`** - The emitted manifest JSON did not parse as a `ProviderManifest`, or the
-provider declared no members.
+  provider declared no members.
 - **`SigningKey`** - The Ed25519 secret key was missing or not exactly 32 bytes.
 - **`Pack`** - The underlying fidius pack step failed.
 
-
-
 ## Functions
 
-### <span id="fn.package_constructor_provider"></span>`fn package_constructor_provider`
+### <span id="fn.package_constructor_provider"></span><code style="font-size: 0.85em">fn package_​constructor_​provider</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn package_constructor_provider (opts : & ProviderPackageOptions ,) -> Result < ProviderPackageResult , ProviderPackageError >
+fn package_constructor_provider(
+    opts: &ProviderPackageOptions,
+) -> Result<ProviderPackageResult, ProviderPackageError>
 ```
 
 Build, assemble, (optionally sign,) and pack a `#[constructor]` provider crate into a distributable provider package.
 
 Steps, mirroring `package_workflow` but for a constructor suite component:
 1. Build the component per `opts.runtime`: WASM → `cargo build --lib --target
-wasm32-wasip2` (a `.wasm` component); NATIVE → `cargo build --lib --features
-native` (a host cdylib, CLOACI-T-0903).
+   wasm32-wasip2` (a `.wasm` component); NATIVE → `cargo build --lib --features
+   native` (a host cdylib, CLOACI-T-0903).
 2. `cargo run --bin <manifest_bin>` → the provider's manifest JSON, parsed into
-a [`ProviderManifest`] (this is the packaging step writing `provider.json`,
-which the macro cannot do itself).
+   a `ProviderManifest` (this is the packaging step writing `provider.json`,
+   which the macro cannot do itself).
 3. Stage `package.toml`, the component, and `provider.json` (its `component`
-corrected to the actual built artifact, its `runtime` stamped to
-`opts.runtime`) into a temp dir. The fidius `package.toml` `runtime` is
-`"wasm"` for WASM and `"rust"` for NATIVE (fidius's cdylib runtime — it has
-no `"native"` value; cloacina's `native` discriminator lives in
-`provider.json`).
+   corrected to the actual built artifact, its `runtime` stamped to
+   `opts.runtime`) into a temp dir. The fidius `package.toml` `runtime` is
+   `"wasm"` for WASM and `"rust"` for NATIVE (fidius's cdylib runtime — it has
+   no `"native"` value; cloacina's `native` discriminator lives in
+   `provider.json`).
 4. If `sign_key` is set, write a `package.sig` (Ed25519 over the package
-digest) reusing fidius's signing scheme.
-5. [`fidius_core::package::pack_package`] → the `.cloacina` archive.
+   digest) reusing fidius's signing scheme.
+5. `fidius_core::package::pack_package` → the `.cloacina` archive.
 
 <details>
 <summary>Source</summary>
@@ -288,437 +311,9 @@ pub fn package_constructor_provider(
 
 </details>
 
-
-
-### <span id="fn.render_package_toml"></span>`fn render_package_toml`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn render_package_toml (name : & str , version : & str , interface : & str , interface_version : u32 , primitive : PrimitiveKind , component_file : & str , runtime : ProviderRuntime ,) -> String
-```
-
-Render the fidius `package.toml` header for a constructor provider.
-
-NOTE the TWO-manifest split (CLOACI-T-0903): the fidius `package.toml`
-`runtime` vocabulary is `rust`/`python`/`wasm` — there is NO `"native"`, and
-`fidius_core`'s `runtime_strict()` REJECTS unknown values. A native cdylib is
-fidius's default `runtime = "rust"` (cdylib + `PluginRegistry`), which takes
-no `[wasm]` section. cloacina's OWN discriminator (`wasm`/`native`) lives in
-`provider.json` (`ProviderManifest.runtime`), which is what the loader
-dispatches on — the loader `dlopen`s the cdylib directly and never consults
-this file's runtime for native providers.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn render_package_toml(
-    name: &str,
-    version: &str,
-    interface: &str,
-    interface_version: u32,
-    primitive: PrimitiveKind,
-    component_file: &str,
-    runtime: ProviderRuntime,
-) -> String {
-    let header = format!(
-        "# Generated by cloacina constructor packaging (CLOACI-T-0827).\n\
-         [package]\n\
-         name = \"{name}\"\n\
-         version = \"{version}\"\n\
-         interface = \"{interface}\"\n\
-         interface_version = {iface_version}\n\
-         extension = \"{ext}\"\n\
-         runtime = \"{fidius_runtime}\"\n\n\
-         [metadata]\n\
-         category = \"constructor\"\n\
-         primitive_kind = \"{primitive}\"\n",
-        name = name,
-        version = version,
-        interface = interface,
-        iface_version = interface_version,
-        ext = PROVIDER_EXTENSION,
-        fidius_runtime = fidius_runtime_str(runtime),
-        primitive = primitive_kind_str(primitive),
-    );
-    match runtime {
-        // WASM: fidius requires the `[wasm]` section with the component filename.
-        ProviderRuntime::Wasm => {
-            format!("{header}\n[wasm]\ncomponent = \"{component_file}\"\n")
-        }
-        // NATIVE (fidius `runtime = "rust"`): no `[wasm]`/`[python]` section is
-        // permitted; the cdylib filename lives in provider.json's `component`.
-        ProviderRuntime::Native => header,
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.fidius_runtime_str"></span>`fn fidius_runtime_str`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn fidius_runtime_str (runtime : ProviderRuntime) -> & 'static str
-```
-
-The fidius `package.toml` `runtime` string for a cloacina provider runtime. `Wasm` → `"wasm"`; `Native` → `"rust"` (fidius's cdylib runtime — it has no `"native"` value).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn fidius_runtime_str(runtime: ProviderRuntime) -> &'static str {
-    match runtime {
-        ProviderRuntime::Wasm => "wasm",
-        ProviderRuntime::Native => "rust",
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.primitive_kind_str"></span>`fn primitive_kind_str`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn primitive_kind_str (kind : PrimitiveKind) -> & 'static str
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn primitive_kind_str(kind: PrimitiveKind) -> &'static str {
-    match kind {
-        PrimitiveKind::Task => "task",
-        PrimitiveKind::Trigger => "trigger",
-        PrimitiveKind::Accumulator => "accumulator",
-        PrimitiveKind::Reactor => "reactor",
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.build_wasm_component"></span>`fn build_wasm_component`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn build_wasm_component (crate_dir : & Path , release : bool) -> Result < PathBuf , ProviderPackageError >
-```
-
-`cargo build --lib --target wasm32-wasip2 [--release]` in `crate_dir`, then locate the produced `.wasm` component.
-
-Honors `CARGO_TARGET_DIR` (relative paths resolve against `crate_dir`, matching
-cargo): environments like the compiler service set a SHARED target dir, so the
-artifact does NOT land under `<crate>/target` there — caught live by the first
-in-container provider bundle (CLOACI-T-0836).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn build_wasm_component(crate_dir: &Path, release: bool) -> Result<PathBuf, ProviderPackageError> {
-    let mut cmd = Command::new("cargo");
-    cmd.arg("build")
-        .arg("--lib")
-        .arg("--target")
-        .arg("wasm32-wasip2")
-        .current_dir(crate_dir);
-    let profile = if release {
-        cmd.arg("--release");
-        "release"
-    } else {
-        "debug"
-    };
-
-    let status = cmd
-        .status()
-        .map_err(|e| ProviderPackageError::Build(format!("spawn cargo build: {e}")))?;
-    if !status.success() {
-        return Err(ProviderPackageError::Build(format!(
-            "cargo build --target wasm32-wasip2 failed with status {status}"
-        )));
-    }
-
-    // Where cargo actually wrote the artifact: CARGO_TARGET_DIR if set (relative →
-    // against the build cwd, i.e. `crate_dir`), else `<crate>/target`.
-    let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
-        Some(dir) if !dir.is_empty() => {
-            let p = PathBuf::from(dir);
-            if p.is_absolute() {
-                p
-            } else {
-                crate_dir.join(p)
-            }
-        }
-        _ => crate_dir.join("target"),
-    };
-
-    let out_dir = target_root.join("wasm32-wasip2").join(profile);
-
-    // Prefer the artifact named after the crate; fall back to the sole `.wasm`.
-    let preferred = crate_name(crate_dir).map(|n| out_dir.join(format!("{n}.wasm")));
-    if let Some(p) = &preferred {
-        if p.exists() {
-            return Ok(p.clone());
-        }
-    }
-
-    let mut wasms: Vec<PathBuf> = std::fs::read_dir(&out_dir)
-        .map_err(|e| ProviderPackageError::Io(format!("read {}: {e}", out_dir.display())))?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("wasm"))
-        .collect();
-    wasms.sort();
-    match wasms.len() {
-        0 => Err(ProviderPackageError::Build(format!(
-            "build succeeded but no .wasm component found in {}",
-            out_dir.display()
-        ))),
-        1 => Ok(wasms.pop().unwrap()),
-        _ => Err(ProviderPackageError::Build(format!(
-            "multiple .wasm components in {} ({:?}); name the lib to match the crate",
-            out_dir.display(),
-            wasms
-        ))),
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.build_native_cdylib"></span>`fn build_native_cdylib`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn build_native_cdylib (crate_dir : & Path , release : bool) -> Result < PathBuf , ProviderPackageError >
-```
-
-`cargo build --lib --features native [--release]` in `crate_dir` (CLOACI-T-0903), then locate the produced host cdylib.
-
-The native analogue of [`build_wasm_component`]: NO `--target` (build for the
-host triple), and `--features native` so the crate's native provider shell is
-emitted (the `native` feature gates the `fidius_core`-referencing glue — see
-the fixture Cargo.toml). Host artifacts land in `<target>/<profile>/` (no
-target-triple subdir); the platform dylib is `lib<crate>.{dylib|so}` or
-`<crate>.dll`. Honors `CARGO_TARGET_DIR` like the wasm path.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn build_native_cdylib(crate_dir: &Path, release: bool) -> Result<PathBuf, ProviderPackageError> {
-    let mut cmd = Command::new("cargo");
-    cmd.arg("build")
-        .arg("--lib")
-        .args(["--features", "native"])
-        .current_dir(crate_dir);
-    let profile = if release {
-        cmd.arg("--release");
-        "release"
-    } else {
-        "debug"
-    };
-
-    let status = cmd
-        .status()
-        .map_err(|e| ProviderPackageError::Build(format!("spawn cargo build (native): {e}")))?;
-    if !status.success() {
-        return Err(ProviderPackageError::Build(format!(
-            "cargo build --lib --features native failed with status {status}"
-        )));
-    }
-
-    let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
-        Some(dir) if !dir.is_empty() => {
-            let p = PathBuf::from(dir);
-            if p.is_absolute() {
-                p
-            } else {
-                crate_dir.join(p)
-            }
-        }
-        _ => crate_dir.join("target"),
-    };
-    let out_dir = target_root.join(profile);
-
-    // Prefer the artifact named after the crate for each platform's convention.
-    if let Some(stem) = crate_name(crate_dir) {
-        for candidate in [
-            format!("lib{stem}.dylib"), // macOS
-            format!("lib{stem}.so"),    // Linux
-            format!("{stem}.dll"),      // Windows
-        ] {
-            let p = out_dir.join(&candidate);
-            if p.exists() {
-                return Ok(p);
-            }
-        }
-    }
-
-    // Fall back to the sole dynamic-library artifact in the profile dir.
-    let mut libs: Vec<PathBuf> = std::fs::read_dir(&out_dir)
-        .map_err(|e| ProviderPackageError::Io(format!("read {}: {e}", out_dir.display())))?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            matches!(
-                p.extension().and_then(|x| x.to_str()),
-                Some("dylib") | Some("so") | Some("dll")
-            )
-        })
-        .collect();
-    libs.sort();
-    match libs.len() {
-        0 => Err(ProviderPackageError::Build(format!(
-            "build succeeded but no cdylib found in {}",
-            out_dir.display()
-        ))),
-        1 => Ok(libs.pop().unwrap()),
-        _ => Err(ProviderPackageError::Build(format!(
-            "multiple cdylibs in {} ({:?}); name the lib to match the crate",
-            out_dir.display(),
-            libs
-        ))),
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.crate_name"></span>`fn crate_name`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn crate_name (crate_dir : & Path) -> Option < String >
-```
-
-Best-effort crate name (`[package].name`, `-`→`_`) for artifact matching.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn crate_name(crate_dir: &Path) -> Option<String> {
-    let toml = std::fs::read_to_string(crate_dir.join("Cargo.toml")).ok()?;
-    let value: toml::Value = toml.parse().ok()?;
-    let name = value.get("package")?.get("name")?.as_str()?;
-    Some(name.replace('-', "_"))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.emit_manifest_json"></span>`fn emit_manifest_json`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn emit_manifest_json (crate_dir : & Path , manifest_bin : & str , runtime : ProviderRuntime ,) -> Result < String , ProviderPackageError >
-```
-
-Run the crate's manifest-emitter host binary and capture its stdout JSON.
-
-For a native provider the crate's native glue is behind its `native` cargo
-feature, so the emitter is run with `--features native` (harmless for the
-manifest itself — `__provider_manifest()` is not feature-gated — but keeps the
-build unit consistent with the packaged cdylib and avoids a rebuild churn).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn emit_manifest_json(
-    crate_dir: &Path,
-    manifest_bin: &str,
-    runtime: ProviderRuntime,
-) -> Result<String, ProviderPackageError> {
-    let mut cmd = Command::new("cargo");
-    cmd.args(["run", "--quiet", "--bin", manifest_bin]);
-    if runtime == ProviderRuntime::Native {
-        cmd.args(["--features", "native"]);
-    }
-    let out = cmd.current_dir(crate_dir).output().map_err(|e| {
-        ProviderPackageError::Build(format!("spawn cargo run --bin {manifest_bin}: {e}"))
-    })?;
-    if !out.status.success() {
-        return Err(ProviderPackageError::Build(format!(
-            "`cargo run --bin {manifest_bin}` failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        )));
-    }
-    String::from_utf8(out.stdout)
-        .map_err(|e| ProviderPackageError::Manifest(format!("manifest stdout not UTF-8: {e}")))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.sign_package_dir"></span>`fn sign_package_dir`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn sign_package_dir (pkg_dir : & Path , key_path : & Path) -> Result < () , ProviderPackageError >
-```
-
-Sign a staged package directory in place, reusing fidius's scheme: an Ed25519 signature over [`fidius_core::package::package_digest`], written to `package.sig`. This is byte-compatible with `fidius_host::verify_package`, so we are reusing fidius's signing/verification rather than rolling our own.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn sign_package_dir(pkg_dir: &Path, key_path: &Path) -> Result<(), ProviderPackageError> {
-    let key_bytes: [u8; 32] = std::fs::read(key_path)
-        .map_err(|e| ProviderPackageError::SigningKey(format!("read {}: {e}", key_path.display())))?
-        .try_into()
-        .map_err(|_| {
-            ProviderPackageError::SigningKey("secret key must be exactly 32 bytes".to_string())
-        })?;
-    let signing_key = SigningKey::from_bytes(&key_bytes);
-
-    let digest = fidius_core::package::package_digest(pkg_dir)
-        .map_err(|e| ProviderPackageError::Pack(format!("compute package digest: {e}")))?;
-    let signature = signing_key.sign(&digest);
-
-    std::fs::write(pkg_dir.join("package.sig"), signature.to_bytes())
-        .map_err(|e| ProviderPackageError::Io(format!("write package.sig: {e}")))?;
-    Ok(())
-}
-```
-
-</details>
-
-
-
+## Constants
+
+| Name | Type | Value | Description |
+|------|------|-------|-------------|
+| <span id="const.PROVIDER_MANIFEST_FILE"></span>`PROVIDER_MANIFEST_FILE` | `&str` | `"provider.json"` | The provider-index filename inside a provider package (the file the loader reads). Mirrors `constructor_loader::PROVIDER_MANIFEST_FILE`. |
+| <span id="const.PROVIDER_EXTENSION"></span>`PROVIDER_EXTENSION` | `&str` | `"cloacina"` | The archive extension cloacina packages use (vs fidius's default `fid`). |

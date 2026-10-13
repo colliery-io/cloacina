@@ -1,22 +1,21 @@
 ---
 title: "cloacina-python::task"
 description: "API reference of the Rust module cloacina-python::task."
+editUrl: false
 sidebar:
-  order: 40
+  order: 24
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 ## Structs
 
-### <span id="struct.PyTaskHandle"></span>`class TaskHandle`
+### <span id="struct.PyTaskHandle"></span><code style="font-size: 0.85em">class TaskHandle</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.task.TaskHandle](../../../cloacina-python/task/#class.TaskHandle)
+> **Python API**: [`cloaca.TaskHandle`](../../../cloaca/#class.TaskHandle)
 
 Python wrapper for TaskHandle providing defer_until capability.
 
@@ -24,17 +23,22 @@ Python wrapper for TaskHandle providing defer_until capability.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `inner` | `Option < cloacina :: TaskHandle >` |  |
+| `inner` | `Option<cloacina::TaskHandle>` |  |
 
 #### Methods
 
-##### <span id="PyTaskHandle.defer_until"></span>`defer_until`
+##### <span id="PyTaskHandle.defer_until"></span><code>defer_​until</code>
 
 ```rust
-fn defer_until (& mut self , py : Python , condition : PyObject , poll_interval_ms : u64 ,) -> PyResult < () >
+fn defer_until(
+    &mut self,
+    py: Python,
+    condition: PyObject,
+    poll_interval_ms: u64,
+) -> PyResult<()>
 ```
 
-> **Python API**: [cloacina-python.task.TaskHandle.defer_until](../../../cloacina-python/task/#TaskHandle.defer_until)
+> **Python API**: [`cloaca.TaskHandle.defer_until`](../../../cloaca/#TaskHandle.defer_until)
 
 Release the concurrency slot while polling an external condition.
 
@@ -80,15 +84,13 @@ Release the concurrency slot while polling an external condition.
 
 </details>
 
-
-
-##### <span id="PyTaskHandle.is_slot_held"></span>`is_slot_held`
+##### <span id="PyTaskHandle.is_slot_held"></span><code>is_​slot_​held</code>
 
 ```rust
-fn is_slot_held (& self) -> PyResult < bool >
+fn is_slot_held(&self) -> PyResult<bool>
 ```
 
-> **Python API**: [cloacina-python.task.TaskHandle.is_slot_held](../../../cloacina-python/task/#TaskHandle.is_slot_held)
+> **Python API**: [`cloaca.TaskHandle.is_slot_held`](../../../cloaca/#TaskHandle.is_slot_held)
 
 Returns whether the handle currently holds a concurrency slot.
 
@@ -107,14 +109,9 @@ Returns whether the handle currently holds a concurrency slot.
 
 </details>
 
-
-
-
-
-### <span id="struct.WorkflowBuilderRef"></span>`struct WorkflowBuilderRef`
+### <span id="struct.WorkflowBuilderRef"></span><code style="font-size: 0.85em">struct WorkflowBuilderRef</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 **Derives:** `Clone`
 
@@ -126,27 +123,9 @@ Workflow builder reference for automatic task registration
 |------|------|-------------|
 | `context` | `PyWorkflowContext` |  |
 
-
-
-### <span id="struct.ContextStack"></span>`struct ContextStack`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-Per-thread stack. The `Drop` impl exists so an import thread that dies mid-scope (e.g. the T-0919 timeout interrupt unwinding a hung import) does not leave `ACTIVE_CONTEXT_PUSHES` permanently inflated, which would make every later "no context" error claim a cross-thread problem that isn't one.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `0` | `RefCell < Vec < WorkflowBuilderRef > >` |  |
-
-
-
-### <span id="struct.CGInvocation"></span>`struct CGInvocation`
+### <span id="struct.CGInvocation"></span><code style="font-size: 0.85em">struct CGInvocation</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Optional `@cloaca.task(invokes=..., post_invocation=...)` plumbing.
 
@@ -161,99 +140,19 @@ Rust's `#[task(invokes = computation_graph(...))]` (T-0540 M3+M5).
 | Name | Type | Description |
 |------|------|-------------|
 | `graph_name` | `String` |  |
-| `post_invocation` | `Option < PyObject >` |  |
+| `post_invocation` | `Option<PyObject>` |  |
 
-
-
-### <span id="struct.PythonTaskWrapper"></span>`struct PythonTaskWrapper`
+### <span id="struct.PythonTaskWrapper"></span><code style="font-size: 0.85em">struct PythonTaskWrapper</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 Python task wrapper implementing Rust Task trait
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `String` |  |
-| `dependencies` | `Vec < cloacina :: TaskNamespace >` |  |
-| `retry_policy` | `cloacina :: retry :: RetryPolicy` |  |
-| `python_function` | `PyObject` |  |
-| `on_success_callback` | `Option < PyObject >` |  |
-| `on_failure_callback` | `Option < PyObject >` |  |
-| `requires_handle` | `bool` |  |
-| `cg_invocation` | `Option < CGInvocation >` |  |
-| `trigger_rules` | `serde_json :: Value` | Authored trigger rule as canonical TriggerRule JSON (CLOACI-T-0763).
-`{"type":"Always"}` when the task declares no rule. |
-
-#### Methods
-
-##### <span id="PythonTaskWrapper.fire_on_failure"></span>`fire_on_failure`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
- <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-blue-low); color: var(--sl-color-blue-high);">async</span>
-
-
-```rust
-async fn fire_on_failure (& self , task_id : & str , message : & str , context : & cloacina :: Context < serde_json :: Value > , on_failure : Option < & PyObject > ,)
-```
-
-Helper: invoke an `on_failure` callback (if any) with a fresh `PyContext` built from the current task context. Errors from the callback are logged and swallowed — the task already has its own terminal error to surface. CLOACI-T-0622 follow-up: runs the callback on the blocking pool, NOT a direct `Python::with_gil` on the async executor worker (the PyO3↔tokio deadlock that hung scenario_30, and via the CG path, scenario_32). `async` so callers `.await` it; the GIL is acquired only inside `spawn_blocking`.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    async fn fire_on_failure(
-        &self,
-        task_id: &str,
-        message: &str,
-        context: &cloacina::Context<serde_json::Value>,
-        on_failure: Option<&PyObject>,
-    ) {
-        let Some(callback) = on_failure else {
-            return;
-        };
-        let callback = Python::with_gil(|py| callback.clone_ref(py));
-        let task_id = task_id.to_string();
-        let message = message.to_string();
-        let data: Vec<(String, serde_json::Value)> = context
-            .data()
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        let _ = tokio::task::spawn_blocking(move || {
-            Python::with_gil(|py| {
-                let mut ctx = cloacina::Context::new();
-                for (k, v) in data {
-                    ctx.insert(k, v).ok();
-                }
-                let py_ctx = super::context::PyContext::from_rust_context(ctx);
-                if let Err(e) = callback.call1(py, (&task_id, &message, py_ctx)) {
-                    eprintln!(
-                        "[cloaca] on_failure callback failed for task '{}': {}",
-                        task_id, e
-                    );
-                }
-            })
-        })
-        .await;
-    }
-```
-
-</details>
-
-
-
-
-
-### <span id="struct.TaskDecorator"></span>`class TaskDecorator`
+### <span id="struct.TaskDecorator"></span><code style="font-size: 0.85em">class TaskDecorator</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.task.TaskDecorator](../../../cloacina-python/task/#class.TaskDecorator)
+> **Python API**: [`cloaca.TaskDecorator`](../../../cloaca/#class.TaskDecorator)
 
 Decorator class that holds task configuration
 
@@ -261,25 +160,24 @@ Decorator class that holds task configuration
 
 | Name | Type | Description |
 |------|------|-------------|
-| `id` | `Option < String >` |  |
-| `dependencies` | `Vec < PyObject >` |  |
-| `retry_policy` | `cloacina :: retry :: RetryPolicy` |  |
-| `on_success` | `Option < PyObject >` |  |
-| `on_failure` | `Option < PyObject >` |  |
-| `invokes` | `Option < PyObject >` | `invokes=GraphHandle` — an instance of `ComputationGraphBuilder`
-(or any object exposing `NAME`) that names a trigger-less graph. |
-| `post_invocation` | `Option < PyObject >` | `post_invocation=fn` — only meaningful when `invokes` is set. |
-| `trigger_rules` | `serde_json :: Value` | `trigger_rules=...` — canonical TriggerRule JSON (CLOACI-T-0763). |
+| `id` | `Option<String>` |  |
+| `dependencies` | `Vec<PyObject>` |  |
+| `retry_policy` | `cloacina::retry::RetryPolicy` |  |
+| `on_success` | `Option<PyObject>` |  |
+| `on_failure` | `Option<PyObject>` |  |
+| `invokes` | `Option<PyObject>` | `invokes=GraphHandle` — an instance of `ComputationGraphBuilder` (or any object exposing `NAME`) that names a trigger-less graph. |
+| `post_invocation` | `Option<PyObject>` | `post_invocation=fn` — only meaningful when `invokes` is set. |
+| `trigger_rules` | `serde_json::Value` | `trigger_rules=...` — canonical TriggerRule JSON (CLOACI-T-0763). |
 
 #### Methods
 
-##### <span id="TaskDecorator.__call__"></span>`__call__`
+##### <span id="TaskDecorator.__call__"></span><code>_​_​call_​_​</code>
 
 ```rust
-fn __call__ (& self , py : Python , func : PyObject) -> PyResult < PyObject >
+fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject>
 ```
 
-> **Python API**: [cloacina-python.task.TaskDecorator.__call__](../../../cloacina-python/task/#TaskDecorator.__call__)
+> **Python API**: [`cloaca.TaskDecorator.__call__`](../../../cloaca/#TaskDecorator.__call__)
 
 <details>
 <summary>Source</summary>
@@ -424,98 +322,17 @@ fn __call__ (& self , py : Python , func : PyObject) -> PyResult < PyObject >
 
 </details>
 
-
-
-##### <span id="TaskDecorator.convert_dependencies_to_namespaces"></span>`convert_dependencies_to_namespaces`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn convert_dependencies_to_namespaces (& self , py : Python , context : & PyWorkflowContext ,) -> PyResult < Vec < cloacina :: TaskNamespace > >
-```
-
-Convert mixed dependencies (strings and function objects) to TaskNamespace objects
-
-<details>
-<summary>Source</summary>
-
-```rust
-    fn convert_dependencies_to_namespaces(
-        &self,
-        py: Python,
-        context: &PyWorkflowContext,
-    ) -> PyResult<Vec<cloacina::TaskNamespace>> {
-        let mut namespace_deps = Vec::new();
-
-        for (i, dep) in self.dependencies.iter().enumerate() {
-            let task_name = if let Ok(string_dep) = dep.extract::<String>(py) {
-                string_dep
-            } else {
-                match dep.bind(py).hasattr("__name__") {
-                    Ok(true) => match dep.getattr(py, "__name__") {
-                        Ok(name_obj) => match name_obj.extract::<String>(py) {
-                            Ok(func_name) => func_name,
-                            Err(e) => {
-                                return Err(PyValueError::new_err(format!(
-                                    "Dependency {} has __name__ but it's not a string: {}",
-                                    i, e
-                                )));
-                            }
-                        },
-                        Err(e) => {
-                            return Err(PyValueError::new_err(format!(
-                                "Failed to get __name__ from dependency {}: {}",
-                                i, e
-                            )));
-                        }
-                    },
-                    Ok(false) => {
-                        return Err(PyValueError::new_err(format!(
-                            "Dependency {} must be either a string or a function object with __name__ attribute",
-                            i
-                        )));
-                    }
-                    Err(e) => {
-                        return Err(PyValueError::new_err(format!(
-                            "Failed to check if dependency {} has __name__ attribute: {}",
-                            i, e
-                        )));
-                    }
-                }
-            };
-
-            let (tenant_id, package_name, workflow_id) = context.as_components();
-            namespace_deps.push(cloacina::TaskNamespace::new(
-                tenant_id,
-                package_name,
-                workflow_id,
-                &task_name,
-            ));
-        }
-
-        Ok(namespace_deps)
-    }
-```
-
-</details>
-
-
-
-
-
 ## Functions
 
-### <span id="fn.push_workflow_context"></span>`fn push_workflow_context`
+### <span id="fn.push_workflow_context"></span><code style="font-size: 0.85em">fn push_​workflow_​context</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn push_workflow_context (context : PyWorkflowContext)
+fn push_workflow_context(context: PyWorkflowContext)
 ```
 
-Push a workflow context onto this THREAD's stack (called when entering workflow scope). The matching [`pop_workflow_context`] must run on the same thread — decorated modules are imported on one thread by construction.
+Push a workflow context onto this THREAD's stack (called when entering workflow scope). The matching [`pop_workflow_context`](../../../rust/cloacina-python/task/#fn.pop_workflow_context) must run on the same thread — decorated modules are imported on one thread by construction.
 
 <details>
 <summary>Source</summary>
@@ -529,15 +346,12 @@ pub fn push_workflow_context(context: PyWorkflowContext) {
 
 </details>
 
-
-
-### <span id="fn.pop_workflow_context"></span>`fn pop_workflow_context`
+### <span id="fn.pop_workflow_context"></span><code style="font-size: 0.85em">fn pop_​workflow_​context</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn pop_workflow_context () -> Option < WorkflowBuilderRef >
+fn pop_workflow_context() -> Option<WorkflowBuilderRef>
 ```
 
 Pop a workflow context from this thread's stack (called when exiting workflow scope).
@@ -571,15 +385,12 @@ pub fn pop_workflow_context() -> Option<WorkflowBuilderRef> {
 
 </details>
 
-
-
-### <span id="fn.current_workflow_context"></span>`fn current_workflow_context`
+### <span id="fn.current_workflow_context"></span><code style="font-size: 0.85em">fn current_​workflow_​context</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn current_workflow_context () -> PyResult < PyWorkflowContext >
+fn current_workflow_context() -> PyResult<PyWorkflowContext>
 ```
 
 Get the current workflow context (used by the task decorator).
@@ -628,110 +439,30 @@ pub fn current_workflow_context() -> PyResult<PyWorkflowContext> {
 
 </details>
 
+### <span id="fn.task"></span><code style="font-size: 0.85em">fn task</code>
 
+<span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-### <span id="fn.build_retry_policy"></span>`fn build_retry_policy`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn build_retry_policy (retry_attempts : Option < usize > , retry_backoff : Option < String > , retry_delay_ms : Option < u64 > , retry_max_delay_ms : Option < u64 > , retry_condition : Option < String > , retry_jitter : Option < bool > ,) -> PyResult < cloacina :: retry :: RetryPolicy >
-```
-
-Build retry policy from Python decorator parameters.
-
-CLOACI-T-0930: unrecognized `retry_backoff` / `retry_condition` strings are
-ERRORS, not silent defaults. The old `_ =>` fallthroughs meant
-`retry_backoff="exponentail"` (typo) quietly configured Fixed backoff and an
-unknown condition quietly retried ALL errors — the workflow ran with retry
-semantics its author never asked for, invisibly. Failing loudly here is a
-deliberate behavior change: the population currently hitting the fallback
-is exactly the misconfigured one.
-
-<details>
-<summary>Source</summary>
+> **Python API**: [`cloaca.task`](../../../cloaca/#fn.task)
 
 ```rust
-fn build_retry_policy(
+fn task(
+    py: Python,
+    id: Option<String>,
+    dependencies: Option<Vec<PyObject>>,
+    retry: Option<crate::bindings::PyRetryPolicy>,
     retry_attempts: Option<usize>,
     retry_backoff: Option<String>,
     retry_delay_ms: Option<u64>,
     retry_max_delay_ms: Option<u64>,
     retry_condition: Option<String>,
     retry_jitter: Option<bool>,
-) -> PyResult<cloacina::retry::RetryPolicy> {
-    use cloacina::retry::*;
-    use std::time::Duration;
-
-    let mut builder = RetryPolicy::builder();
-
-    if let Some(attempts) = retry_attempts {
-        builder = builder.max_attempts(attempts as i32);
-    }
-
-    if let Some(backoff) = retry_backoff {
-        let strategy = match backoff.as_str() {
-            "fixed" => BackoffStrategy::Fixed,
-            "linear" => BackoffStrategy::Linear { multiplier: 1.0 },
-            "exponential" => BackoffStrategy::Exponential {
-                base: 2.0,
-                multiplier: 1.0,
-            },
-            other => {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "unknown retry_backoff {other:?}: expected one of \
-                     \"fixed\", \"linear\", \"exponential\""
-                )))
-            }
-        };
-        builder = builder.backoff_strategy(strategy);
-    }
-
-    if let Some(delay) = retry_delay_ms {
-        builder = builder.initial_delay(Duration::from_millis(delay));
-    }
-
-    if let Some(max_delay) = retry_max_delay_ms {
-        builder = builder.max_delay(Duration::from_millis(max_delay));
-    }
-
-    if let Some(condition) = retry_condition {
-        let retry_cond = match condition.as_str() {
-            "never" => RetryCondition::Never,
-            "transient" => RetryCondition::TransientOnly,
-            "all" => RetryCondition::AllErrors,
-            other => {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "unknown retry_condition {other:?}: expected one of \
-                     \"never\", \"transient\", \"all\""
-                )))
-            }
-        };
-        builder = builder.retry_condition(retry_cond);
-    }
-
-    if let Some(jitter) = retry_jitter {
-        builder = builder.with_jitter(jitter);
-    }
-
-    Ok(builder.build())
-}
-```
-
-</details>
-
-
-
-### <span id="fn.task"></span>`fn task`
-
-<span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
-
-
-> **Python API**: [cloacina-python.task.task](../../../cloacina-python/task/#fn.task)
-
-```rust
-fn task (py : Python , id : Option < String > , dependencies : Option < Vec < PyObject > > , retry : Option < crate :: bindings :: PyRetryPolicy > , retry_attempts : Option < usize > , retry_backoff : Option < String > , retry_delay_ms : Option < u64 > , retry_max_delay_ms : Option < u64 > , retry_condition : Option < String > , retry_jitter : Option < bool > , on_success : Option < PyObject > , on_failure : Option < PyObject > , invokes : Option < PyObject > , post_invocation : Option < PyObject > , trigger_rules : Option < PyObject > ,) -> PyResult < TaskDecorator >
+    on_success: Option<PyObject>,
+    on_failure: Option<PyObject>,
+    invokes: Option<PyObject>,
+    post_invocation: Option<PyObject>,
+    trigger_rules: Option<PyObject>,
+) -> PyResult<TaskDecorator>
 ```
 
 Python @task decorator function
@@ -817,6 +548,3 @@ pub fn task(
 ```
 
 </details>
-
-
-

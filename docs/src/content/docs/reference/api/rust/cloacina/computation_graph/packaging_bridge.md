@@ -1,13 +1,13 @@
 ---
 title: "cloacina::computation_graph::packaging_bridge"
 description: "Bridge from FFI-loaded package metadata to ComputationGraphScheduler types."
+editUrl: false
 sidebar:
-  order: 60
+  order: 44
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Bridge from FFI-loaded package metadata to ComputationGraphScheduler types.
 
@@ -15,12 +15,24 @@ Converts `GraphPackageMetadata` + library data into `ComputationGraphDeclaration
 with `AccumulatorFactory` implementations and a `CompiledGraphFn` that calls
 `execute_graph()` via fidius FFI.
 
+## Re-exports
+
+- `METHOD_EXECUTE_GRAPH` (`cloacina_workflow_plugin::METHOD_EXECUTE_GRAPH`)
+- `METHOD_EXECUTE_TASK` (`cloacina_workflow_plugin::METHOD_EXECUTE_TASK`)
+- `METHOD_GET_CONSTRUCTOR_METADATA` (`cloacina_workflow_plugin::METHOD_GET_CONSTRUCTOR_METADATA`)
+- `METHOD_GET_GRAPH_METADATA` (`cloacina_workflow_plugin::METHOD_GET_GRAPH_METADATA`)
+- `METHOD_GET_REACTOR_METADATA` (`cloacina_workflow_plugin::METHOD_GET_REACTOR_METADATA`)
+- `METHOD_GET_TASK_METADATA` (`cloacina_workflow_plugin::METHOD_GET_TASK_METADATA`)
+- `METHOD_GET_TRIGGER_METADATA` (`cloacina_workflow_plugin::METHOD_GET_TRIGGER_METADATA`)
+- `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` (`cloacina_workflow_plugin::METHOD_GET_TRIGGERLESS_GRAPH_METADATA`)
+- `METHOD_INVOKE_TRIGGER_POLL` (`cloacina_workflow_plugin::METHOD_INVOKE_TRIGGER_POLL`)
+- `METHOD_INVOKE_TRIGGERLESS_GRAPH` (`cloacina_workflow_plugin::METHOD_INVOKE_TRIGGERLESS_GRAPH`)
+
 ## Structs
 
-### <span id="struct.LoadedGraphPlugin"></span>`struct LoadedGraphPlugin`
+### <span id="struct.LoadedGraphPlugin"></span><code style="font-size: 0.85em">struct LoadedGraphPlugin</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A persistent handle to a loaded FFI graph plugin.
 
@@ -28,22 +40,14 @@ Loaded once from library bytes, kept alive for the lifetime of the graph.
 The `PluginHandle` is behind a `Mutex` because fidius calls are synchronous
 and must not be invoked concurrently.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `handle` | `std :: sync :: Mutex < fidius_host :: PluginHandle >` |  |
-| `_temp_dir` | `tempfile :: TempDir` |  |
-
 #### Methods
 
-##### <span id="LoadedGraphPlugin.load"></span>`load`
+##### <span id="LoadedGraphPlugin.load"></span><code>load</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn load (library_data : & [u8]) -> Result < Self , String >
+fn load(library_data: &[u8]) -> Result<Self, String>
 ```
 
 Load a graph plugin from library bytes. The library is written to a temp file, loaded via fidius, and kept resident for reuse. Public so the execution agent can run whole-graph firings (CLOACI-T-0722).
@@ -90,15 +94,15 @@ Load a graph plugin from library bytes. The library is written to a temp file, l
 
 </details>
 
-
-
-##### <span id="LoadedGraphPlugin.execute_graph"></span>`execute_graph`
+##### <span id="LoadedGraphPlugin.execute_graph"></span><code>execute_​graph</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn execute_graph (& self , request : GraphExecutionRequest ,) -> Result < cloacina_workflow_plugin :: GraphExecutionResult , String >
+fn execute_graph(
+    &self,
+    request: GraphExecutionRequest,
+) -> Result<cloacina_workflow_plugin::GraphExecutionResult, String>
 ```
 
 Call execute_graph on the loaded plugin.
@@ -123,14 +127,9 @@ Call execute_graph on the loaded plugin.
 
 </details>
 
-
-
-
-
-### <span id="struct.PassthroughAccumulatorFactory"></span>`struct PassthroughAccumulatorFactory`
+### <span id="struct.PassthroughAccumulatorFactory"></span><code style="font-size: 0.85em">struct PassthroughAccumulatorFactory</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A generic passthrough accumulator factory for FFI-loaded packages.
 
@@ -138,24 +137,15 @@ All packaged accumulators are passthrough at the host level — they receive
 serialized events via WebSocket/socket and forward them to the reactor.
 The actual processing logic lives inside the FFI plugin's `execute_graph()`.
 
-
-
-### <span id="struct.GenericPassthroughAccumulator"></span>`struct GenericPassthroughAccumulator`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-
-
-### <span id="struct.ProviderStreamAccumulatorFactory"></span>`struct ProviderStreamAccumulatorFactory`
+### <span id="struct.ProviderStreamAccumulatorFactory"></span><code style="font-size: 0.85em">struct ProviderStreamAccumulatorFactory</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A PROVIDER-backed stream accumulator factory (CLOACI-T-0907): the `stream` accumulator's source comes from a constructor provider the package bundles (e.g. `cloacina-provider-kafka`), not from host-compiled backend code.
 
 Selected by `accumulator_factory_for` when the accumulator's config carries a
 `provider` key:
+
 ```toml
 [[metadata.accumulators]]
 name = "ticks"
@@ -167,34 +157,21 @@ broker = "{{ KAFKA_BROKER }}"          # member #[config] (name-keyed, templated
 topic = "tour.ticks"
 group = "cg-feature-tour-group"
 ```
+
 The provider resolves from the process-wide provider search path (the
 `providers/` tree the reconciler unpacks bundled providers into); its member's
 `source` is driven via fidius `call_streaming` and drained onto the boundary
 channel by `ProviderStreamSource` (T-0904). Load failure is LOUD: an ERROR log
 + health `Disconnected` — never a silent passthrough (CLOACI-T-0898 item 3).
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `config` | `std :: collections :: HashMap < String , String >` | Full accumulator config; `provider`/`constructor` are routing keys, the
-rest are the member's `#[config]` values (may be `{{ VAR }}` templates). |
-| `provider_root` | `Option < std :: path :: PathBuf >` | The provider tree this accumulator resolves in, CAPTURED when the
-declaration was built (CLOACI-T-0925). The source loads from a spawned
-task that can run long after the load finished — and, in a shared server
-process, after another tenant's load re-pointed any ambient path. Binding
-the directory at declaration time is what keeps the resolution the owning
-package's own. |
-
 #### Methods
 
-##### <span id="ProviderStreamAccumulatorFactory.new"></span>`new`
+##### <span id="ProviderStreamAccumulatorFactory.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (config : std :: collections :: HashMap < String , String >) -> Self
+fn new(config: std::collections::HashMap<String, String>) -> Self
 ```
 
 Capture the CURRENTLY-EFFECTIVE provider search path (the ambient scope installed for a package import, else the process/env/default path) as this accumulator's resolution root.
@@ -217,15 +194,15 @@ Capture the CURRENTLY-EFFECTIVE provider search path (the ambient scope installe
 
 </details>
 
-
-
-##### <span id="ProviderStreamAccumulatorFactory.new_in"></span>`new_in`
+##### <span id="ProviderStreamAccumulatorFactory.new_in"></span><code>new_​in</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new_in (config : std :: collections :: HashMap < String , String > , provider_root : std :: path :: PathBuf ,) -> Self
+fn new_in(
+    config: std::collections::HashMap<String, String>,
+    provider_root: std::path::PathBuf,
+) -> Self
 ```
 
 Bind an EXPLICIT provider tree — what the reconciler staged for the package that declared this accumulator.
@@ -247,14 +224,9 @@ Bind an EXPLICIT provider tree — what the reconciler staged for the package th
 
 </details>
 
-
-
-
-
-### <span id="struct.StateAccumulatorFactory"></span>`struct StateAccumulatorFactory`
+### <span id="struct.StateAccumulatorFactory"></span><code style="font-size: 0.85em">struct StateAccumulatorFactory</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A state-backed accumulator factory for FFI-loaded / Python packages.
 
@@ -264,26 +236,20 @@ Spawns `state_accumulator_runtime::<serde_json::Value>` with a bounded
 `#[state_accumulator(capacity=…)]`): values pushed over the socket are
 buffered, persisted to the DAL on every write, and the full list is emitted
 back as the boundary so the graph can feed its own state on the next fire.
+
 Capacity semantics (see `StateAccumulator`):
 - `> 0`: bounded — evicts oldest when at capacity
 - `< 0`: unbounded — grows without limit
 - `0`:  write-only sink — no history emitted back
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `capacity` | `i32` |  |
-
 #### Methods
 
-##### <span id="StateAccumulatorFactory.new"></span>`new`
+##### <span id="StateAccumulatorFactory.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (capacity : i32) -> Self
+fn new(capacity: i32) -> Self
 ```
 
 <details>
@@ -297,42 +263,23 @@ fn new (capacity : i32) -> Self
 
 </details>
 
-
-
-
-
-### <span id="struct.JsonListBatchAccumulator"></span>`struct JsonListBatchAccumulator`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-A generic, list-collecting batch accumulator for the packaged path (CLOACI-T-0896). Socket events arrive as JSON bytes (the same wire the passthrough/state accumulators receive); on flush we emit the whole batch as a JSON array, so the boundary matches the shape the FFI cache expects (`bincode(Vec<u8>)` of JSON — see `input_cache_to_ffi_cache`). This mirrors what `state_window_frame` does for the state accumulator.
-
-
-
-### <span id="struct.BatchAccumulatorFactory"></span>`struct BatchAccumulatorFactory`
+### <span id="struct.BatchAccumulatorFactory"></span><code style="font-size: 0.85em">struct BatchAccumulatorFactory</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Packaged batch-accumulator factory (CLOACI-T-0896): buffers socket events and flushes the whole buffer as one boundary on the flush interval or when the buffer fills. Mirrors `StateAccumulatorFactory` — socket-driven, so it fits the existing spawn contract without any FFI change.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `flush_interval` | `Option < std :: time :: Duration >` |  |
-| `max_buffer_size` | `Option < usize >` |  |
-
 #### Methods
 
-##### <span id="BatchAccumulatorFactory.new"></span>`new`
+##### <span id="BatchAccumulatorFactory.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (flush_interval : Option < std :: time :: Duration > , max_buffer_size : Option < usize > ,) -> Self
+fn new(
+    flush_interval: Option<std::time::Duration>,
+    max_buffer_size: Option<usize>,
+) -> Self
 ```
 
 <details>
@@ -352,48 +299,20 @@ fn new (flush_interval : Option < std :: time :: Duration > , max_buffer_size : 
 
 </details>
 
-
-
-
-
-### <span id="struct.ClosurePollingAccumulator"></span>`struct ClosurePollingAccumulator`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-A [`PollingAccumulator`] driven by an injected [`PollClosure`] (the Python poll fn). `poll()` runs the closure on a blocking thread so the GIL work never blocks the async executor — the same discipline `PythonTriggerWrapper` uses for poll triggers. (CLOACI-T-0896)
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `poll_fn` | `PollClosure` |  |
-| `interval` | `std :: time :: Duration` |  |
-
-
-
-### <span id="struct.PollingAccumulatorFactory"></span>`struct PollingAccumulatorFactory`
+### <span id="struct.PollingAccumulatorFactory"></span><code style="font-size: 0.85em">struct PollingAccumulatorFactory</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Packaged polling-accumulator factory (CLOACI-T-0896). Resolves the poll closure by name at spawn time via the registered builder, then runs `polling_accumulator_runtime` on the configured interval. If no closure is registered for the name, the accumulator simply never emits (logged) rather than failing the load.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `interval` | `std :: time :: Duration` |  |
-
 #### Methods
 
-##### <span id="PollingAccumulatorFactory.new"></span>`new`
+##### <span id="PollingAccumulatorFactory.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (interval : std :: time :: Duration) -> Self
+fn new(interval: std::time::Duration) -> Self
 ```
 
 <details>
@@ -407,19 +326,16 @@ fn new (interval : std :: time :: Duration) -> Self
 
 </details>
 
-
-
-
-
 ## Functions
 
-### <span id="fn.call_get_reactor_metadata"></span>`fn call_get_reactor_metadata`
+### <span id="fn.call_get_reactor_metadata"></span><code style="font-size: 0.85em">fn call_​get_​reactor_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn call_get_reactor_metadata (handle : & fidius_host :: PluginHandle ,) -> Result < Vec < cloacina_workflow_plugin :: ReactorPackageMetadata > , String >
+fn call_get_reactor_metadata(
+    handle: &fidius_host::PluginHandle,
+) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, String>
 ```
 
 Call `get_reactor_metadata` (method index 4) on a loaded fidius plugin.
@@ -451,15 +367,14 @@ pub fn call_get_reactor_metadata(
 
 </details>
 
-
-
-### <span id="fn.call_get_constructor_metadata"></span>`fn call_get_constructor_metadata`
+### <span id="fn.call_get_constructor_metadata"></span><code style="font-size: 0.85em">fn call_​get_​constructor_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn call_get_constructor_metadata (handle : & fidius_host :: PluginHandle ,) -> Result < Vec < cloacina_workflow_plugin :: ConstructorPackageMetadata > , String >
+fn call_get_constructor_metadata(
+    handle: &fidius_host::PluginHandle,
+) -> Result<Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>, String>
 ```
 
 Call `get_constructor_metadata` (method index 10) on a loaded fidius plugin (CLOACI-T-0832). Returns the packaged workflow's declared `constructor!(...)` nodes for the host to resolve + inject. Plugins built before trait v4 return `CallError::NotImplemented` → `Ok(vec![])` ("package declares no constructor nodes"), so older packages keep loading unchanged.
@@ -484,15 +399,14 @@ pub fn call_get_constructor_metadata(
 
 </details>
 
-
-
-### <span id="fn.call_get_trigger_metadata"></span>`fn call_get_trigger_metadata`
+### <span id="fn.call_get_trigger_metadata"></span><code style="font-size: 0.85em">fn call_​get_​trigger_​metadata</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn call_get_trigger_metadata (handle : & fidius_host :: PluginHandle ,) -> Result < Vec < cloacina_workflow_plugin :: TriggerPackageMetadata > , String >
+fn call_get_trigger_metadata(
+    handle: &fidius_host::PluginHandle,
+) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, String>
 ```
 
 Call `get_trigger_metadata` (method index 5) on a loaded fidius plugin.
@@ -521,15 +435,15 @@ pub fn call_get_trigger_metadata(
 
 </details>
 
-
-
-### <span id="fn.build_declaration_from_ffi"></span>`fn build_declaration_from_ffi`
+### <span id="fn.build_declaration_from_ffi"></span><code style="font-size: 0.85em">fn build_​declaration_​from_​ffi</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn build_declaration_from_ffi (graph_meta : & GraphPackageMetadata , library_data : Vec < u8 > ,) -> ComputationGraphDeclaration
+fn build_declaration_from_ffi(
+    graph_meta: &GraphPackageMetadata,
+    library_data: Vec<u8>,
+) -> ComputationGraphDeclaration
 ```
 
 Convert FFI graph metadata + library data into a `ComputationGraphDeclaration` that the `ComputationGraphScheduler` can load.
@@ -551,18 +465,19 @@ pub fn build_declaration_from_ffi(
 
 </details>
 
-
-
-### <span id="fn.build_declaration_from_ffi_in"></span>`fn build_declaration_from_ffi_in`
+### <span id="fn.build_declaration_from_ffi_in"></span><code style="font-size: 0.85em">fn build_​declaration_​from_​ffi_​in</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn build_declaration_from_ffi_in (graph_meta : & GraphPackageMetadata , library_data : Vec < u8 > , provider_root : Option < & std :: path :: Path > ,) -> ComputationGraphDeclaration
+fn build_declaration_from_ffi_in(
+    graph_meta: &GraphPackageMetadata,
+    library_data: Vec<u8>,
+    provider_root: Option<&std::path::Path>,
+) -> ComputationGraphDeclaration
 ```
 
-[`build_declaration_from_ffi`] binding an EXPLICIT provider tree (CLOACI-T-0925): `provider_root` is where the reconciler staged this package's bundled providers, and every provider-backed accumulator in the resulting declaration resolves there rather than against ambient state that another tenant's concurrent load can re-point.
+[`build_declaration_from_ffi`](../../../../rust/cloacina/computation_graph/packaging_bridge/#fn.build_declaration_from_ffi) binding an EXPLICIT provider tree (CLOACI-T-0925): `provider_root` is where the reconciler staged this package's bundled providers, and every provider-backed accumulator in the resulting declaration resolves there rather than against ambient state that another tenant's concurrent load can re-point.
 
 <details>
 <summary>Source</summary>
@@ -651,18 +566,17 @@ pub fn build_declaration_from_ffi_in(
 
 </details>
 
-
-
-### <span id="fn.input_cache_to_ffi_cache"></span>`fn input_cache_to_ffi_cache`
+### <span id="fn.input_cache_to_ffi_cache"></span><code style="font-size: 0.85em">fn input_​cache_​to_​ffi_​cache</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn input_cache_to_ffi_cache (cache : & InputCache) -> Result < HashMap < String , String > , String >
+fn input_cache_to_ffi_cache(
+    cache: &InputCache,
+) -> Result<HashMap<String, String>, String>
 ```
 
-Execute a computation graph via FFI using the pre-loaded plugin handle. Convert an [`InputCache`] snapshot into the FFI/wire cache shape (source name → UTF-8 JSON string) — the same conversion the in-process FFI call performs, shared with the fleet path so a dispatched firing carries an agent-ready cache (CLOACI-T-0722). Boundary frames are `bincode(Vec<u8>)` of raw event JSON; non-UTF-8 payloads are hex-encoded.
+Execute a computation graph via FFI using the pre-loaded plugin handle. Convert an `InputCache` snapshot into the FFI/wire cache shape (source name → UTF-8 JSON string) — the same conversion the in-process FFI call performs, shared with the fleet path so a dispatched firing carries an agent-ready cache (CLOACI-T-0722). Boundary frames are `bincode(Vec<u8>)` of raw event JSON; non-UTF-8 payloads are hex-encoded.
 
 <details>
 <summary>Source</summary>
@@ -701,141 +615,12 @@ pub fn input_cache_to_ffi_cache(cache: &InputCache) -> Result<HashMap<String, St
 
 </details>
 
-
-
-### <span id="fn.execute_graph_via_ffi"></span>`fn execute_graph_via_ffi`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-async fn execute_graph_via_ffi (plugin : & Arc < LoadedGraphPlugin > , cache : & InputCache) -> GraphResult
-```
-
-<details>
-<summary>Source</summary>
-
-```rust
-async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult {
-    let ffi_cache = match input_cache_to_ffi_cache(cache) {
-        Ok(c) => c,
-        Err(e) => return GraphResult::error(GraphError::Serialization(e)),
-    };
-
-    let request = GraphExecutionRequest { cache: ffi_cache };
-
-    // FFI call is synchronous — run in a blocking task
-    let plugin = plugin.clone();
-    let result = tokio::task::spawn_blocking(move || plugin.execute_graph(request)).await;
-
-    match result {
-        Ok(Ok(ffi_result)) => {
-            if ffi_result.success {
-                // CLOACI-T-0775: keep the terminal outputs as JSON (for the
-                // per-fire output history) in addition to the type-erased boxes.
-                let outputs_json: Vec<serde_json::Value> = ffi_result
-                    .terminal_outputs_json
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|json_str| {
-                        serde_json::from_str::<serde_json::Value>(&json_str).ok()
-                    })
-                    .collect();
-                let outputs: Vec<Box<dyn std::any::Any + Send>> = outputs_json
-                    .iter()
-                    .cloned()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any + Send>)
-                    .collect();
-                GraphResult::completed_with_json(outputs, outputs_json)
-            } else {
-                let error_msg = ffi_result
-                    .error
-                    .unwrap_or_else(|| "unknown FFI execution error".to_string());
-                GraphResult::error(GraphError::NodeExecution(error_msg))
-            }
-        }
-        Ok(Err(e)) => GraphResult::error(GraphError::NodeExecution(format!(
-            "FFI execute_graph call failed: {}",
-            e
-        ))),
-        Err(join_err) => GraphResult::error(GraphError::NodeExecution(format!(
-            "FFI execute_graph panicked: {}",
-            join_err
-        ))),
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.state_capacity_from_config"></span>`fn state_capacity_from_config`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn state_capacity_from_config (config : & std :: collections :: HashMap < String , String >) -> i32
-```
-
-Parse a state accumulator's capacity from its String-keyed config map. Defaults to `0` (write-only sink) when absent or unparsable.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn state_capacity_from_config(config: &std::collections::HashMap<String, String>) -> i32 {
-    config
-        .get("capacity")
-        .and_then(|c| c.parse::<i32>().ok())
-        .unwrap_or(0)
-}
-```
-
-</details>
-
-
-
-### <span id="fn.batch_config_from_config"></span>`fn batch_config_from_config`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn batch_config_from_config (config : & std :: collections :: HashMap < String , String > ,) -> (Option < std :: time :: Duration > , Option < usize >)
-```
-
-Parse a batch accumulator's `flush_interval` (e.g. `"1s"`, `"500ms"`) and `max_buffer_size` from its String-keyed config map. Absent/unparsable → `None` (the runtime treats each as an optional flush trigger).
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn batch_config_from_config(
-    config: &std::collections::HashMap<String, String>,
-) -> (Option<std::time::Duration>, Option<usize>) {
-    let flush_interval = config
-        .get("flush_interval")
-        .and_then(|s| crate::packaging::parse_duration_str(s).ok());
-    let max_buffer_size = config
-        .get("max_buffer_size")
-        .and_then(|s| s.parse::<usize>().ok());
-    (flush_interval, max_buffer_size)
-}
-```
-
-</details>
-
-
-
-### <span id="fn.register_polling_accumulator_builder"></span>`fn register_polling_accumulator_builder`
+### <span id="fn.register_polling_accumulator_builder"></span><code style="font-size: 0.85em">fn register_​polling_​accumulator_​builder</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn register_polling_accumulator_builder (builder : PollingClosureBuilder)
+fn register_polling_accumulator_builder(builder: PollingClosureBuilder)
 ```
 
 Register the polling-accumulator poll-closure resolver for the packaged path (CLOACI-T-0896). Idempotent — the first registration wins. The Python extension calls this at module install so a packaged polling accumulator drives its Python poll fn on the configured interval. A pure-Rust host that never installs one gets a loud passthrough fallback for polling accumulators.
@@ -851,108 +636,17 @@ pub fn register_polling_accumulator_builder(builder: PollingClosureBuilder) {
 
 </details>
 
-
-
-### <span id="fn.polling_interval_from_config"></span>`fn polling_interval_from_config`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn polling_interval_from_config (config : & std :: collections :: HashMap < String , String > ,) -> std :: time :: Duration
-```
-
-Parse a polling accumulator's `interval` (e.g. `"2s"`) from config; defaults to 5s when absent/unparsable.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn polling_interval_from_config(
-    config: &std::collections::HashMap<String, String>,
-) -> std::time::Duration {
-    config
-        .get("interval")
-        .and_then(|s| crate::packaging::parse_duration_str(s).ok())
-        .unwrap_or_else(|| std::time::Duration::from_secs(5))
-}
-```
-
-</details>
-
-
-
-### <span id="fn.accumulator_factory_for"></span>`fn accumulator_factory_for`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-gray-6); color: var(--sl-color-gray-2);">private</span>
-
-
-```rust
-fn accumulator_factory_for (acc_type : & str , config : & std :: collections :: HashMap < String , String > , provider_root : Option < & std :: path :: Path > ,) -> Arc < dyn AccumulatorFactory >
-```
-
-`provider_root` (CLOACI-T-0925) is the tree a provider-backed `stream` accumulator resolves in — the directory the reconciler staged for the package that declared it. `None` = no staged tree known (embedded, tests, or a Python import that already has the scope installed), in which case the factory captures the ambient search path at construction.
-
-<details>
-<summary>Source</summary>
-
-```rust
-fn accumulator_factory_for(
-    acc_type: &str,
-    config: &std::collections::HashMap<String, String>,
-    provider_root: Option<&std::path::Path>,
-) -> Arc<dyn AccumulatorFactory> {
-    match acc_type {
-        // CLOACI-T-0898/T-0907: a stream accumulator's source ALWAYS comes from
-        // a bundled constructor provider (`provider`/`constructor` config keys —
-        // e.g. cloacina-provider-kafka). The host-compiled kafka backend is
-        // gone; a declaration without a `provider` key fails LOUDLY at spawn
-        // (ERROR + health Disconnected), never a silent passthrough.
-        "stream" => match provider_root {
-            Some(root) => Arc::new(ProviderStreamAccumulatorFactory::new_in(
-                config.clone(),
-                root.to_path_buf(),
-            )),
-            None => Arc::new(ProviderStreamAccumulatorFactory::new(config.clone())),
-        },
-        "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
-            config,
-        ))),
-        "batch" => {
-            let (flush_interval, max_buffer_size) = batch_config_from_config(config);
-            Arc::new(BatchAccumulatorFactory::new(
-                flush_interval,
-                max_buffer_size,
-            ))
-        }
-        "polling" => Arc::new(PollingAccumulatorFactory::new(
-            polling_interval_from_config(config),
-        )),
-        "passthrough" => Arc::new(PassthroughAccumulatorFactory),
-        other => {
-            tracing::warn!(
-                accumulator_type = %other,
-                "unknown accumulator type in packaged graph — falling back to \
-                 passthrough (CLOACI-T-0896); firing will be per-event, not the \
-                 declared behavior"
-            );
-            Arc::new(PassthroughAccumulatorFactory)
-        }
-    }
-}
-```
-
-</details>
-
-
-
-### <span id="fn.dispatch_runtime_reactors_into_scheduler"></span>`fn dispatch_runtime_reactors_into_scheduler`
+### <span id="fn.dispatch_runtime_reactors_into_scheduler"></span><code style="font-size: 0.85em">fn dispatch_​runtime_​reactors_​into_​scheduler</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn dispatch_runtime_reactors_into_scheduler (runtime : & crate :: Runtime , scheduler : & super :: scheduler :: ComputationGraphScheduler , accumulator_overrides : & [cloacina_workflow_plugin :: types :: AccumulatorConfig] , tenant_id : Option < String > ,) -> Result < Vec < String > , String >
+async fn dispatch_runtime_reactors_into_scheduler(
+    runtime: &crate::Runtime,
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+) -> Result<Vec<String>, String>
 ```
 
 Dispatch every reactor registered in `runtime` into `scheduler` via `scheduler.load_reactor`. Idempotent on `(reactor_name, contract)` — callable repeatedly without spawning duplicate reactors.
@@ -963,6 +657,7 @@ drives this once per package load, after the language-specific loader
 has populated the runtime's reactor registry. Accumulator factories
 come from optional `package.toml`-style overrides (passthrough/stream)
 with passthrough as the default.
+
 Returns the names of reactors that were dispatched (newly loaded plus
 idempotent re-loads). Errors short-circuit and surface to the caller —
 package loading is fail-fast under the I-0101 lifecycle model.
@@ -990,18 +685,21 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
 
 </details>
 
-
-
-### <span id="fn.dispatch_runtime_reactors_into_scheduler_in"></span>`fn dispatch_runtime_reactors_into_scheduler_in`
+### <span id="fn.dispatch_runtime_reactors_into_scheduler_in"></span><code style="font-size: 0.85em">fn dispatch_​runtime_​reactors_​into_​scheduler_​in</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn dispatch_runtime_reactors_into_scheduler_in (runtime : & crate :: Runtime , scheduler : & super :: scheduler :: ComputationGraphScheduler , accumulator_overrides : & [cloacina_workflow_plugin :: types :: AccumulatorConfig] , tenant_id : Option < String > , provider_root : Option < & std :: path :: Path > ,) -> Result < Vec < String > , String >
+async fn dispatch_runtime_reactors_into_scheduler_in(
+    runtime: &crate::Runtime,
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+    provider_root: Option<&std::path::Path>,
+) -> Result<Vec<String>, String>
 ```
 
-[`dispatch_runtime_reactors_into_scheduler`] binding an EXPLICIT provider tree (CLOACI-T-0925) — the directory the reconciler staged for this package. Both the reactor's own `#[reactor(from = ..)]` constructor and its provider-backed accumulators resolve there.
+[`dispatch_runtime_reactors_into_scheduler`](../../../../rust/cloacina/computation_graph/packaging_bridge/#fn.dispatch_runtime_reactors_into_scheduler) binding an EXPLICIT provider tree (CLOACI-T-0925) — the directory the reconciler staged for this package. Both the reactor's own `#[reactor(from = ..)]` constructor and its provider-backed accumulators resolve there.
 
 <details>
 <summary>Source</summary>
@@ -1081,15 +779,17 @@ pub async fn dispatch_runtime_reactors_into_scheduler_in(
 
 </details>
 
-
-
-### <span id="fn.dispatch_package_reactors_into_scheduler"></span>`fn dispatch_package_reactors_into_scheduler`
+### <span id="fn.dispatch_package_reactors_into_scheduler"></span><code style="font-size: 0.85em">fn dispatch_​package_​reactors_​into_​scheduler</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn dispatch_package_reactors_into_scheduler (reactor_metadata : & [cloacina_workflow_plugin :: ReactorPackageMetadata] , scheduler : & super :: scheduler :: ComputationGraphScheduler , accumulator_overrides : & [cloacina_workflow_plugin :: types :: AccumulatorConfig] , tenant_id : Option < String > ,) -> Result < Vec < String > , String >
+async fn dispatch_package_reactors_into_scheduler(
+    reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata],
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+) -> Result<Vec<String>, String>
 ```
 
 Dispatch reactors declared by a packaged Rust cdylib (T-B / I-0102).
@@ -1100,6 +800,7 @@ reactor with the `ComputationGraphScheduler`. Mirrors the shape of
 `dispatch_runtime_reactors_into_scheduler` (which serves the Python
 path) so the reconciler's reactor step looks identical between
 languages.
+
 `accumulator_overrides` is the manifest's `[metadata].accumulators`
 table — kept as input until T-E removes manifest-side accumulator
 overrides entirely. Today it shadows FFI-default `passthrough` with
@@ -1128,18 +829,21 @@ pub async fn dispatch_package_reactors_into_scheduler(
 
 </details>
 
-
-
-### <span id="fn.dispatch_package_reactors_into_scheduler_in"></span>`fn dispatch_package_reactors_into_scheduler_in`
+### <span id="fn.dispatch_package_reactors_into_scheduler_in"></span><code style="font-size: 0.85em">fn dispatch_​package_​reactors_​into_​scheduler_​in</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-async fn dispatch_package_reactors_into_scheduler_in (reactor_metadata : & [cloacina_workflow_plugin :: ReactorPackageMetadata] , scheduler : & super :: scheduler :: ComputationGraphScheduler , accumulator_overrides : & [cloacina_workflow_plugin :: types :: AccumulatorConfig] , tenant_id : Option < String > , provider_root : Option < & std :: path :: Path > ,) -> Result < Vec < String > , String >
+async fn dispatch_package_reactors_into_scheduler_in(
+    reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata],
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+    provider_root: Option<&std::path::Path>,
+) -> Result<Vec<String>, String>
 ```
 
-[`dispatch_package_reactors_into_scheduler`] binding an EXPLICIT provider tree (CLOACI-T-0925) — see [`dispatch_runtime_reactors_into_scheduler_in`].
+[`dispatch_package_reactors_into_scheduler`](../../../../rust/cloacina/computation_graph/packaging_bridge/#fn.dispatch_package_reactors_into_scheduler) binding an EXPLICIT provider tree (CLOACI-T-0925) — see [`dispatch_runtime_reactors_into_scheduler_in`](../../../../rust/cloacina/computation_graph/packaging_bridge/#fn.dispatch_runtime_reactors_into_scheduler_in).
 
 <details>
 <summary>Source</summary>
@@ -1215,5 +919,8 @@ pub async fn dispatch_package_reactors_into_scheduler_in(
 
 </details>
 
+## Type aliases
 
-
+| Name | Type | Description |
+|------|------|-------------|
+| <span id="type.PollClosure"></span>`PollClosure` | `Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>` | Central accumulator-factory dispatch for the packaged path (CLOACI-T-0896). Every packaged-reactor loader (Python runtime registration, Rust cdylib metadata, manifest overrides) resolves the same set of kinds here, and an unknown type WARNs loudly + falls back to passthrough instead of silently degrading — the whole point of T-0896. A poll closure for a packaged polling accumulator: invoked on each interval, it returns `Some(json_bytes)` to emit a boundary or `None` to skip. The closure does the blocking, GIL-taking work itself — cloacina runs it via `spawn_blocking` off the async executor. The Python layer supplies these (each wraps the registered Python poll fn); there is NO FFI accumulator-invoke method, and none is needed — the poll fn lives in-process. (CLOACI-T-0896) |

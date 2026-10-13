@@ -1,13 +1,13 @@
 ---
 title: "cloacina-python::trigger"
 description: "Python trigger bindings via PyO3."
+editUrl: false
 sidebar:
-  order: 41
+  order: 25
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 Python trigger bindings via PyO3.
 
@@ -18,10 +18,9 @@ Provides:
 
 ## Structs
 
-### <span id="struct.PythonTriggerDef"></span>`struct PythonTriggerDef`
+### <span id="struct.PythonTriggerDef"></span><code style="font-size: 0.85em">struct PythonTriggerDef</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 A collected Python trigger definition.
 
@@ -33,48 +32,45 @@ A collected Python trigger definition.
 | `poll_interval` | `Duration` |  |
 | `allow_concurrent` | `bool` |  |
 | `python_function` | `PyObject` |  |
-| `workflow_name` | `String` | Workflow this trigger fires, from `@cloaca.trigger(on=…)`. Mirrors the
-Rust `#[trigger(on = "…")]` binding (CLOACI-T-0688). Empty for legacy
-poll triggers that bind via `#[workflow(triggers=[…])]` subscription. |
-| `cron_expression` | `Option < String >` | Cron expression from `@cloaca.trigger(cron=…)`. When set, the reconciler
-routes this to the cron scheduler instead of the poll registry. |
-| `timezone` | `Option < String >` | Timezone for the cron schedule (`@cloaca.trigger(timezone=…)`). |
+| `workflow_name` | `String` | Workflow this trigger fires, from `@cloaca.trigger(on=…)`. Mirrors the Rust `#[trigger(on = "…")]` binding (CLOACI-T-0688). Empty for legacy poll triggers that bind via `#[workflow(triggers=[…])]` subscription. |
+| `cron_expression` | `Option<String>` | Cron expression from `@cloaca.trigger(cron=…)`. When set, the reconciler routes this to the cron scheduler instead of the poll registry. |
+| `timezone` | `Option<String>` | Timezone for the cron schedule (`@cloaca.trigger(timezone=…)`). |
 
-
-
-### <span id="struct.TriggerDecorator"></span>`class TriggerDecorator`
+### <span id="struct.TriggerDecorator"></span><code style="font-size: 0.85em">class TriggerDecorator</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.trigger.TriggerDecorator](../../../cloacina-python/trigger/#class.TriggerDecorator)
+> **Python API**: [`cloaca.TriggerDecorator`](../../../cloaca/#class.TriggerDecorator)
 
 Decorator for defining Python triggers.
 
 ```python
 @cloaca.trigger(name="check_inbox", poll_interval="30s")
 def check_inbox():
+    # Return TriggerResult.fire(context) to fire, .skip() otherwise
+    return TriggerResult.skip()
+```
 
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | `Option < String >` |  |
+| `name` | `Option<String>` |  |
 | `poll_interval` | `Duration` |  |
 | `allow_concurrent` | `bool` |  |
 | `workflow_name` | `String` |  |
-| `cron_expression` | `Option < String >` |  |
-| `timezone` | `Option < String >` |  |
+| `cron_expression` | `Option<String>` |  |
+| `timezone` | `Option<String>` |  |
 
 #### Methods
 
-##### <span id="TriggerDecorator.__call__"></span>`__call__`
+##### <span id="TriggerDecorator.__call__"></span><code>_​_​call_​_​</code>
 
 ```rust
-fn __call__ (& self , py : Python , func : PyObject) -> PyResult < PyObject >
+fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject>
 ```
 
-> **Python API**: [cloacina-python.trigger.TriggerDecorator.__call__](../../../cloacina-python/trigger/#TriggerDecorator.__call__)
+> **Python API**: [`cloaca.TriggerDecorator.__call__`](../../../cloaca/#TriggerDecorator.__call__)
 
 <details>
 <summary>Source</summary>
@@ -108,37 +104,20 @@ fn __call__ (& self , py : Python , func : PyObject) -> PyResult < PyObject >
 
 </details>
 
-
-
-
-
-### <span id="struct.PythonTriggerWrapper"></span>`struct PythonTriggerWrapper`
+### <span id="struct.PythonTriggerWrapper"></span><code style="font-size: 0.85em">struct PythonTriggerWrapper</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Rust wrapper that implements the `Trigger` trait by calling a Python function.
 
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String` |  |
-| `poll_interval` | `Duration` |  |
-| `allow_concurrent` | `bool` |  |
-| `python_function` | `PyObject` |  |
-| `workflow_name` | `String` |  |
-| `cron_expression` | `Option < String >` |  |
-
 #### Methods
 
-##### <span id="PythonTriggerWrapper.new"></span>`new`
+##### <span id="PythonTriggerWrapper.new"></span><code>new</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn new (def : & PythonTriggerDef) -> Self
+fn new(def: &PythonTriggerDef) -> Self
 ```
 
 <details>
@@ -160,19 +139,14 @@ fn new (def : & PythonTriggerDef) -> Self
 
 </details>
 
-
-
-
-
 ## Functions
 
-### <span id="fn.drain_python_triggers"></span>`fn drain_python_triggers`
+### <span id="fn.drain_python_triggers"></span><code style="font-size: 0.85em">fn drain_​python_​triggers</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn drain_python_triggers () -> Vec < PythonTriggerDef >
+fn drain_python_triggers() -> Vec<PythonTriggerDef>
 ```
 
 Collect all registered Python triggers and clear the registry.
@@ -189,27 +163,32 @@ pub fn drain_python_triggers() -> Vec<PythonTriggerDef> {
 
 </details>
 
-
-
-### <span id="fn.trigger"></span>`fn trigger`
+### <span id="fn.trigger"></span><code style="font-size: 0.85em">fn trigger</code>
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-purple-low); color: var(--sl-color-purple-high);">Binding</span>
 
-
-> **Python API**: [cloacina-python.trigger.trigger](../../../cloacina-python/trigger/#fn.trigger)
+> **Python API**: [`cloaca.trigger`](../../../cloaca/#fn.trigger)
 
 ```rust
-fn trigger (name : Option < String > , on : Option < String > , poll_interval : Option < String > , cron : Option < String > , timezone : Option < String > , allow_concurrent : bool ,) -> PyResult < TriggerDecorator >
+fn trigger(
+    name: Option<String>,
+    on: Option<String>,
+    poll_interval: Option<String>,
+    cron: Option<String>,
+    timezone: Option<String>,
+    allow_concurrent: bool,
+) -> PyResult<TriggerDecorator>
 ```
 
 `@cloaca.trigger(...)` decorator factory.
 
 Mirrors the Rust `#[trigger]` macro (CLOACI-T-0688). Two modes:
 - **Custom poll** — `poll_interval` + a function body that returns a
-`TriggerResult`.
+  `TriggerResult`.
 - **Cron** — `cron` (+ optional `timezone`); the framework schedules the
-`on` workflow on that cron expression (the function body is unused). The
-reconciler routes `cron_expression`-bearing triggers to the cron scheduler.
+  `on` workflow on that cron expression (the function body is unused). The
+  reconciler routes `cron_expression`-bearing triggers to the cron scheduler.
+
 `on` names the workflow the trigger fires; it is **required for cron**
 triggers. `cron` and `poll_interval` are mutually exclusive.
 
@@ -255,6 +234,3 @@ pub fn trigger(
 ```
 
 </details>
-
-
-

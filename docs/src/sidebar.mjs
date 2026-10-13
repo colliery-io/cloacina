@@ -43,6 +43,10 @@ export function entries(dir, replace = {}) {
 		const path = join(DOCS, dir, name);
 		const slug = dir ? `${dir}/${name}` : name;
 		if (statSync(path).isDirectory()) {
+			if (replace[slug]) {
+				items.push({ order: Infinity, ...replace[slug] });
+				continue;
+			}
 			const g = folder(slug, undefined, replace);
 			if (g) items.push(g);
 		} else if (PAGE.test(name) && !/^index\.mdx?$/.test(name)) {

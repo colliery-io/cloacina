@@ -1,33 +1,33 @@
 ---
 title: "cloacina::python_runtime"
 description: "Indirection layer between the reconciler and the Python runtime."
+editUrl: false
 sidebar:
-  order: 172
+  order: 154
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
 
-
 Indirection layer between the reconciler and the Python runtime.
 
 Python-language workflow packages need a pyo3-backed runtime to import
 user code and register tasks. That runtime lives behind the
-[`PythonRuntime`] trait so it can move into a separate crate
+[`PythonRuntime`](../../../rust/cloacina/python_runtime/#trait.PythonRuntime) trait so it can move into a separate crate
 (`cloacina-python`, CLOACI-T-0529) — binaries that don't execute
 Python (e.g. `cloacina-compiler`) simply don't link the impl and
 therefore don't drag in pyo3 / `Python3.framework`.
-A process that needs Python support calls [`register_python_runtime`]
+
+A process that needs Python support calls [`register_python_runtime`](../../../rust/cloacina/python_runtime/#fn.register_python_runtime)
 once at startup. The reconciler looks the registration up via
-[`python_runtime`]; if nothing is registered, Python packages fail
+[`python_runtime`](../../../rust/cloacina/python_runtime/#fn.python_runtime); if nothing is registered, Python packages fail
 with a clear `not attached` error at reconcile time.
 
 ## Structs
 
-### <span id="struct.PythonTaskNode"></span>`struct PythonTaskNode`
+### <span id="struct.PythonTaskNode"></span><code style="font-size: 0.85em">struct PythonTaskNode</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 One task in a loaded Python workflow, with its dependency edges — captured host-side (from the scoped Runtime, before it is dropped) so the reconciler can persist the task DAG into package metadata and the UI can render it like Rust workflows. (CLOACI-T-0672)
 
@@ -36,14 +36,11 @@ One task in a loaded Python workflow, with its dependency edges — captured hos
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `String` | Local task id (e.g. `"finish"`). |
-| `dependencies` | `Vec < String >` | Local ids of the tasks this task depends on (e.g. `["prepare"]`). |
+| `dependencies` | `Vec<String>` | Local ids of the tasks this task depends on (e.g. `["prepare"]`). |
 
-
-
-### <span id="struct.LoadedPythonWorkflow"></span>`struct LoadedPythonWorkflow`
+### <span id="struct.LoadedPythonWorkflow"></span><code style="font-size: 0.85em">struct LoadedPythonWorkflow</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Result of loading a Python workflow package.
 
@@ -51,26 +48,87 @@ Result of loading a Python workflow package.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `task_namespaces` | `Vec < TaskNamespace >` | Tasks registered in the global task registry under their fully-qualified
-namespace. The reconciler tracks these so it can unregister on unload. |
-| `tasks` | `Vec < PythonTaskNode >` | Per-task dependency edges (local ids), for persisting/rendering the task
-DAG. Mirrors the Rust path's `PackageMetadata.tasks`. (CLOACI-T-0672) |
+| `task_namespaces` | `Vec<TaskNamespace>` | Tasks registered in the global task registry under their fully-qualified namespace. The reconciler tracks these so it can unregister on unload. |
+| `tasks` | `Vec<PythonTaskNode>` | Per-task dependency edges (local ids), for persisting/rendering the task DAG. Mirrors the Rust path's `PackageMetadata.tasks`. (CLOACI-T-0672) |
 | `workflow_name` | `String` | Name of the workflow registered in the global workflow registry. |
 
+## Traits
 
-
-## Functions
-
-### <span id="fn.register_python_runtime"></span>`fn register_python_runtime`
+### <span id="trait.PythonRuntime"></span><code style="font-size: 0.85em">trait PythonRuntime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
+**Supertraits:** `Send + Sync`
+
+Runtime backing Python-language package loading.
+
+Implementations run on the calling thread (typically inside a
+`spawn_blocking`) — they're responsible for initializing the Python
+interpreter as needed. Errors are flattened to `String` because the
+reconciler wraps them in `RegistryError::RegistrationFailed` anyway.
+
+#### Methods
+
+##### <span id="PythonRuntime.load_workflow_package"></span><code>load_​workflow_​package</code>
 
 ```rust
-fn register_python_runtime (runtime : Arc < dyn PythonRuntime >)
+fn load_workflow_package(
+    &self,
+    archive_data: &[u8],
+    staging_dir: &Path,
+    tenant_id: &str,
+    runtime: &Arc<Runtime>,
+) -> Result<LoadedPythonWorkflow, String>
 ```
 
-Install a [`PythonRuntime`] implementation for this process. Only the first call wins — subsequent calls are silently ignored. Processes with no Python responsibility (e.g. `cloacina-compiler`) simply never call this and Python packages fail at reconcile time with a clear error.
+Extract a `.cloacina` archive, import the entry module, and register its tasks + triggers in the global registries for the given tenant.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn load_workflow_package(
+```
+
+</details>
+
+##### <span id="PythonRuntime.load_cg_package"></span><code>load_​cg_​package</code>
+
+```rust
+fn load_cg_package(
+    &self,
+    archive_data: &[u8],
+    staging_dir: &Path,
+    tenant_id: &str,
+    graph_name: &str,
+    entry_module: &str,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    runtime: &Arc<Runtime>,
+) -> Result<Option<ComputationGraphDeclaration>, String>
+```
+
+Extract + import a Python computation graph package, then build the [`ComputationGraphDeclaration`](../../../rust/cloacina/computation_graph/scheduler/#struct.ComputationGraphDeclaration) the `ComputationGraphScheduler` loads. Returns `None` if the imported module registered no executor for `graph_name` — matches the prior behavior where the caller silently moves on.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn load_cg_package(
+```
+
+</details>
+
+## Functions
+
+### <span id="fn.register_python_runtime"></span><code style="font-size: 0.85em">fn register_​python_​runtime</code>
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
+
+```rust
+fn register_python_runtime(runtime: Arc<dyn PythonRuntime>)
+```
+
+Install a [`PythonRuntime`](../../../rust/cloacina/python_runtime/#trait.PythonRuntime) implementation for this process. Only the first call wins — subsequent calls are silently ignored. Processes with no Python responsibility (e.g. `cloacina-compiler`) simply never call this and Python packages fail at reconcile time with a clear error.
 
 <details>
 <summary>Source</summary>
@@ -84,18 +142,15 @@ pub fn register_python_runtime(runtime: Arc<dyn PythonRuntime>) {
 
 </details>
 
-
-
-### <span id="fn.python_runtime"></span>`fn python_runtime`
+### <span id="fn.python_runtime"></span><code style="font-size: 0.85em">fn python_​runtime</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn python_runtime () -> Option < Arc < dyn PythonRuntime > >
+fn python_runtime() -> Option<Arc<dyn PythonRuntime>>
 ```
 
-Fetch the registered [`PythonRuntime`], if any. Returns `None` when no runtime is attached to this process.
+Fetch the registered [`PythonRuntime`](../../../rust/cloacina/python_runtime/#trait.PythonRuntime), if any. Returns `None` when no runtime is attached to this process.
 
 <details>
 <summary>Source</summary>
@@ -108,15 +163,12 @@ pub fn python_runtime() -> Option<Arc<dyn PythonRuntime>> {
 
 </details>
 
-
-
-### <span id="fn.mark_python_runtime_wedged"></span>`fn mark_python_runtime_wedged`
+### <span id="fn.mark_python_runtime_wedged"></span><code style="font-size: 0.85em">fn mark_​python_​runtime_​wedged</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn mark_python_runtime_wedged (reason : impl Into < String >)
+fn mark_python_runtime_wedged(reason: impl Into<String>)
 ```
 
 Latch the process-global "Python runtime is wedged" flag.
@@ -153,15 +205,12 @@ pub fn mark_python_runtime_wedged(reason: impl Into<String>) {
 
 </details>
 
-
-
-### <span id="fn.is_python_runtime_wedged"></span>`fn is_python_runtime_wedged`
+### <span id="fn.is_python_runtime_wedged"></span><code style="font-size: 0.85em">fn is_​python_​runtime_​wedged</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn is_python_runtime_wedged () -> bool
+fn is_python_runtime_wedged() -> bool
 ```
 
 Whether the embedded Python interpreter is known-wedged in this process.
@@ -177,15 +226,12 @@ pub fn is_python_runtime_wedged() -> bool {
 
 </details>
 
-
-
-### <span id="fn.python_runtime_wedged_reason"></span>`fn python_runtime_wedged_reason`
+### <span id="fn.python_runtime_wedged_reason"></span><code style="font-size: 0.85em">fn python_​runtime_​wedged_​reason</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn python_runtime_wedged_reason () -> Option < String >
+fn python_runtime_wedged_reason() -> Option<String>
 ```
 
 Reason the Python runtime is wedged, or `None` when it is healthy (or when Python is not used in this process at all).
@@ -208,15 +254,12 @@ pub fn python_runtime_wedged_reason() -> Option<String> {
 
 </details>
 
-
-
-### <span id="fn.record_python_import_interrupted"></span>`fn record_python_import_interrupted`
+### <span id="fn.record_python_import_interrupted"></span><code style="font-size: 0.85em">fn record_​python_​import_​interrupted</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn record_python_import_interrupted ()
+fn record_python_import_interrupted()
 ```
 
 Record that a hung Python import thread WAS successfully interrupted (`PyThreadState_SetAsyncExc` landed and the thread joined). The package load failed but the interpreter stayed healthy — the good outcome of the ladder.
@@ -232,15 +275,12 @@ pub fn record_python_import_interrupted() {
 
 </details>
 
-
-
-### <span id="fn.reset_python_runtime_wedged_for_tests"></span>`fn reset_python_runtime_wedged_for_tests`
+### <span id="fn.reset_python_runtime_wedged_for_tests"></span><code style="font-size: 0.85em">fn reset_​python_​runtime_​wedged_​for_​tests</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn reset_python_runtime_wedged_for_tests ()
+fn reset_python_runtime_wedged_for_tests()
 ```
 
 Clear the wedged flag. **Test support only.**
@@ -265,15 +305,12 @@ pub fn reset_python_runtime_wedged_for_tests() {
 
 </details>
 
-
-
-### <span id="fn.init_python_runtime_health_metrics"></span>`fn init_python_runtime_health_metrics`
+### <span id="fn.init_python_runtime_health_metrics"></span><code style="font-size: 0.85em">fn init_​python_​runtime_​health_​metrics</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn init_python_runtime_health_metrics ()
+fn init_python_runtime_health_metrics()
 ```
 
 Publish the wedged gauge as `0` so the series exists on healthy processes (a gauge that only appears when broken is invisible to alert rules that need a baseline). Called once when a Python runtime is registered.
@@ -290,6 +327,3 @@ pub fn init_python_runtime_health_metrics() {
 ```
 
 </details>
-
-
-

@@ -8,43 +8,11 @@
 export default {
   label: "API reference",
   items: [
+    { label: "Overview", slug: "reference/api" },
     {
       label: "Python",
       items: [
-        {
-          label: "cloacina-python",
-          collapsed: true,
-          items: [
-            {
-              label: "bindings",
-              collapsed: true,
-              items: [
-                { label: "admin", slug: "reference/api/cloacina-python/bindings/admin" },
-                { label: "context", slug: "reference/api/cloacina-python/bindings/context" },
-                { label: "runner", slug: "reference/api/cloacina-python/bindings/runner" },
-                { label: "trigger", slug: "reference/api/cloacina-python/bindings/trigger" },
-                {
-                  label: "value_objects",
-                  collapsed: true,
-                  items: [
-                    { label: "retry", slug: "reference/api/cloacina-python/bindings/value_objects/retry" },
-                  ],
-                },
-              ],
-            },
-            { label: "computation_graph", slug: "reference/api/cloacina-python/computation_graph" },
-            { label: "constructor", slug: "reference/api/cloacina-python/constructor" },
-            { label: "context", slug: "reference/api/cloacina-python/context" },
-            { label: "loader", slug: "reference/api/cloacina-python/loader" },
-            { label: "namespace", slug: "reference/api/cloacina-python/namespace" },
-            { label: "reactor", slug: "reference/api/cloacina-python/reactor" },
-            { label: "task", slug: "reference/api/cloacina-python/task" },
-            { label: "trigger", slug: "reference/api/cloacina-python/trigger" },
-            { label: "trigger_rules", slug: "reference/api/cloacina-python/trigger_rules" },
-            { label: "workflow", slug: "reference/api/cloacina-python/workflow" },
-            { label: "workflow_context", slug: "reference/api/cloacina-python/workflow_context" },
-          ],
-        },
+        { label: "cloaca", slug: "reference/api/cloaca" },
       ],
     },
     {
@@ -176,7 +144,6 @@ export default {
                     { label: "schema_validation", slug: "reference/api/rust/cloacina/database/connection/schema_validation" },
                   ],
                 },
-                { label: "schema", slug: "reference/api/rust/cloacina/database/schema" },
                 { label: "universal_types", slug: "reference/api/rust/cloacina/database/universal_types" },
               ],
             },
@@ -269,7 +236,6 @@ export default {
                 { label: "constructor_provider", slug: "reference/api/rust/cloacina/packaging/constructor_provider" },
                 { label: "platform", slug: "reference/api/rust/cloacina/packaging/platform" },
                 { label: "provider_bundle", slug: "reference/api/rust/cloacina/packaging/provider_bundle" },
-                { label: "tests", slug: "reference/api/rust/cloacina/packaging/tests" },
                 { label: "types", slug: "reference/api/rust/cloacina/packaging/types" },
                 { label: "validation", slug: "reference/api/rust/cloacina/packaging/validation" },
               ],
@@ -416,7 +382,6 @@ export default {
               ],
             },
             { label: "computation_graph", slug: "reference/api/rust/cloacina-python/computation_graph" },
-            { label: "computation_graph_tests", slug: "reference/api/rust/cloacina-python/computation_graph_tests" },
             { label: "constructor", slug: "reference/api/rust/cloacina-python/constructor" },
             { label: "context", slug: "reference/api/rust/cloacina-python/context" },
             { label: "gil", slug: "reference/api/rust/cloacina-python/gil" },

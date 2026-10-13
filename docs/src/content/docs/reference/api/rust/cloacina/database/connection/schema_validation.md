@@ -1,13 +1,13 @@
 ---
 title: "cloacina::database::connection::schema_validation"
 description: "PostgreSQL identifier validation to prevent SQL injection."
+editUrl: false
 sidebar:
-  order: 117
+  order: 101
   hidden: true
 ---
 
 <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-orange-low); color: var(--sl-color-orange-high);">Rust</span>
-
 
 PostgreSQL identifier validation to prevent SQL injection.
 
@@ -16,10 +16,9 @@ This module provides validation functions for PostgreSQL identifiers
 
 ## Enums
 
-### <span id="enum.SchemaError"></span>`enum SchemaError`
+### <span id="enum.SchemaError"></span><code style="font-size: 0.85em">enum SchemaError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during schema name validation.
 
@@ -33,12 +32,9 @@ designed to prevent SQL injection attacks.
 - **`InvalidCharacters`** - Schema name contains characters other than alphanumeric or underscore.
 - **`ReservedName`** - Schema name is a reserved PostgreSQL name.
 
-
-
-### <span id="enum.UsernameError"></span>`enum UsernameError`
+### <span id="enum.UsernameError"></span><code style="font-size: 0.85em">enum UsernameError</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
-
 
 Errors that can occur during username validation.
 
@@ -52,17 +48,14 @@ designed to prevent SQL injection attacks.
 - **`InvalidCharacters`** - Username contains characters other than alphanumeric or underscore.
 - **`ReservedName`** - Username is a reserved PostgreSQL role name.
 
-
-
 ## Functions
 
-### <span id="fn.validate_schema_name"></span>`fn validate_schema_name`
+### <span id="fn.validate_schema_name"></span><code style="font-size: 0.85em">fn validate_​schema_​name</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_schema_name (name : & str) -> Result < & str , SchemaError >
+fn validate_schema_name(name: &str) -> Result<&str, SchemaError>
 ```
 
 Validates a PostgreSQL schema name to prevent SQL injection.
@@ -77,16 +70,16 @@ This function enforces PostgreSQL identifier naming rules:
 
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | `-` | The schema name to validate |
-
+| `name` | `&str` | The schema name to validate |
 
 **Returns:**
 
-* `Ok(&str)` - The validated schema name (zero-copy) * `Err(SchemaError)` - Description of the validation failure
+* `Ok(&str)` - The validated schema name (zero-copy)
+* `Err(SchemaError)` - Description of the validation failure
 
 **Examples:**
 
-```
+```rust
 use cloacina::database::connection::validate_schema_name;
 
 assert!(validate_schema_name("my_schema").is_ok());
@@ -132,15 +125,12 @@ pub fn validate_schema_name(name: &str) -> Result<&str, SchemaError> {
 
 </details>
 
-
-
-### <span id="fn.validate_username"></span>`fn validate_username`
+### <span id="fn.validate_username"></span><code style="font-size: 0.85em">fn validate_​username</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn validate_username (name : & str) -> Result < & str , UsernameError >
+fn validate_username(name: &str) -> Result<&str, UsernameError>
 ```
 
 Validates a PostgreSQL username to prevent SQL injection.
@@ -155,16 +145,16 @@ This function enforces PostgreSQL identifier naming rules:
 
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | `-` | The username to validate |
-
+| `name` | `&str` | The username to validate |
 
 **Returns:**
 
-* `Ok(&str)` - The validated username (zero-copy) * `Err(UsernameError)` - Description of the validation failure
+* `Ok(&str)` - The validated username (zero-copy)
+* `Err(UsernameError)` - Description of the validation failure
 
 **Examples:**
 
-```
+```rust
 use cloacina::database::connection::validate_username;
 
 assert!(validate_username("tenant_user").is_ok());
@@ -210,15 +200,12 @@ pub fn validate_username(name: &str) -> Result<&str, UsernameError> {
 
 </details>
 
-
-
-### <span id="fn.escape_password"></span>`fn escape_password`
+### <span id="fn.escape_password"></span><code style="font-size: 0.85em">fn escape_​password</code>
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.05em 0.6em; font-family: var(--sl-font-mono); font-size: var(--sl-text-xs); line-height: 1.6; border-radius: var(--radius-pill, 1rem); vertical-align: middle; background: var(--sl-color-green-low); color: var(--sl-color-green-high);">pub</span>
 
-
 ```rust
-fn escape_password (password : & str) -> String
+fn escape_password(password: &str) -> String
 ```
 
 Escapes a password string for safe use in PostgreSQL SQL statements.
@@ -230,8 +217,7 @@ standard PostgreSQL escaping mechanism for string literals.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `password` | `-` | The password to escape |
-
+| `password` | `&str` | The password to escape |
 
 **Returns:**
 
@@ -239,7 +225,7 @@ A new String with all single quotes escaped
 
 **Examples:**
 
-```
+```rust
 use cloacina::database::connection::escape_password;
 
 assert_eq!(escape_password("simple"), "simple");
@@ -257,6 +243,3 @@ pub fn escape_password(password: &str) -> String {
 ```
 
 </details>
-
-
-
