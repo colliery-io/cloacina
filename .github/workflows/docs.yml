@@ -1,5 +1,7 @@
 # Builds the Starlight docs in docs/ on each pull request that changes them,
 # and publishes them to the GitHub Pages of this repository on a push to main.
+# The API reference is rendered by plissken (plissken.toml) before the build;
+# it is not in git.
 ---
 name: Documentation
 
@@ -9,10 +11,14 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'plissken.toml'
+      - 'crates/*/src/**'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - 'docs/**'
+      - 'plissken.toml'
+      - 'crates/*/src/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -25,6 +31,10 @@ concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PLISSKEN_VERSION: 0.2.1
+  PLISSKEN_SHA256: bf41f2fbc6f375552e29cf56a78b675cf857a1fa689c9905a5caba109ad292bf
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -33,6 +43,19 @@ jobs:
         working-directory: docs
     steps:
       - uses: actions/checkout@v7
+      - name: Install plissken
+        working-directory: .
+        run: |
+          tarball="plissken-${PLISSKEN_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSLO "https://github.com/colliery-io/plissken/releases/download/v${PLISSKEN_VERSION}/${tarball}"
+          echo "${PLISSKEN_SHA256}  ${tarball}" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/plissken"
+          tar -xzf "${tarball}" -C "$RUNNER_TEMP/plissken"
+          rm "${tarball}"
+          echo "$RUNNER_TEMP/plissken" >> "$GITHUB_PATH"
+      - name: Render the API reference
+        working-directory: .
+        run: plissken render
       - uses: actions/setup-node@v7
         with:
           node-version: 22

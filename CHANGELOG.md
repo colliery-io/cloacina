@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The API reference is written by plissken 0.2.0: no private items, one
   `cloaca` page for the Python API, an overview at `reference/api/`. The old
   addresses of removed pages redirect to the nearest page.
+- The API reference pages are no longer in git: the docs workflow renders
+  them with plissken 0.2.1 before each build, and `angreal docs build`,
+  `serve` and `api` do the same locally (CLOACINA-T-0969).
 - The docs use the starlight-aurora theme v0.3.0.
 - **Dependency pass** (CLOACI-T-0942): pruned 21 unused dependencies across
   seven core crates and vendored the two trivially-replaceable ones — the
