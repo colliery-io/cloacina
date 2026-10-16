@@ -65,6 +65,7 @@
 //! }
 //! ```
 
+pub mod completion_writes;
 pub mod context;
 pub mod cron_evaluator;
 pub mod error;
