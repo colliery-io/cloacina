@@ -34,6 +34,7 @@ if you need the concepts behind a symbol.
 - [package! Macro Reference](package-shell-macro/)
 - [FFI Vtable Reference](ffi-vtable/)
 - [Computation Graph Reference](computation-graphs/)
+- [Connector Contract](connector-contract/)
 - [SDKs](sdks/)
   - [Rust SDK](sdks/rust/)
   - [Python SDK](sdks/python/)
