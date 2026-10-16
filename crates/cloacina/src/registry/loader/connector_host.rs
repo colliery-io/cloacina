@@ -41,6 +41,9 @@
 // The fidius `#[plugin_interface]` macro emits a `#[cfg(host)]`-style gate that
 // the workspace's check-cfg lint flags as unknown — benign (see CLOACI-T-0821).
 #![allow(unexpected_cfgs)]
+// The same macro's expansion trips `redundant_field_names` on the trait method
+// spans; the lint has nothing to act on in this file.
+#![allow(clippy::redundant_field_names)]
 
 use std::path::Path;
 use std::sync::Arc;
@@ -64,9 +67,6 @@ use crate::registry::error::LoaderError;
 /// the loader links against; a guest declares the identical trait with
 /// `crate = "fidius_guest"`. Same signatures, same interface hash
 /// ([`cloacina_constructor_contract::sync`] documents the vtable order).
-// The macro's expansion trips `redundant_field_names` on the method spans; the
-// lint has nothing to act on in this file.
-#[allow(clippy::redundant_field_names)]
 #[fidius_macro::plugin_interface(version = 1, buffer = PluginAllocated, crate = "fidius_core")]
 pub trait Connector: Send + Sync {
     /// The static descriptor: name, version, roles, sync modes, config schema.
