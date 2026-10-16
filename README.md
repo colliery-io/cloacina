@@ -22,6 +22,8 @@ Cloacina exposes **two execution primitives**:
 - **Workflows** — Durable, DB-backed DAGs with retries, recovery, and multi-tenancy. Pick this when work needs to survive process restart.
 - **Computation graphs** — In-process, deterministic, event-driven DAGs that fire on accumulator boundaries via reactors. Pick this when work is event-driven and latency-sensitive.
 
+And one feature built from them, **Sync**: move records from a source to a destination through sandboxed connectors, segment by segment, with a cursor that advances only after each segment is durably written.
+
 Both surfaces share the runtime and compose: workflows can subscribe to reactor firings, and workflow tasks can invoke embedded computation graphs.
 
 **Cloaca** is the Python package — the same engine with a first-class Python authoring and runtime surface, not a wrapper around a subset.
@@ -34,6 +36,7 @@ New here? Start with [Is Cloacina for you?](https://colliery-io.github.io/cloaci
 
 - **Two ways to run it** — Embedded library inside your app, or `cloacina-server` loading packaged `.cloacina` archives over HTTP / WebSocket.
 - **Two execution primitives** — Durable workflows and in-process computation graphs; pick one or compose both on the same firing.
+- **Sync** — Data movement as a feature: sources and destinations as sandboxed WASM connectors, syncs that run on the agent fleet one segment at a time, a cursor that advances only after the durable write, dead-letters instead of failed runs.
 - **Resilient execution** — Automatic retries, failure recovery, atomic task-completion commits, heartbeat-driven stale-claim recovery.
 - **Type-safe workflows** — Compile-time validation of task dependencies and data flow via the `#[task]` / `#[workflow]` attribute macros.
 - **Database-backed** — PostgreSQL or SQLite, selected at runtime by connection URL.
