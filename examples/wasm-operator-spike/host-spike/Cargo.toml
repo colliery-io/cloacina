@@ -20,9 +20,9 @@ publish = false
 ignored = ["fidius-core"]
 
 [dependencies]
-fidius-host = { version = "0.5.4", features = ["wasm"] }
-fidius-macro = "0.5.4"
-fidius-core = "0.5.4"
+fidius-host = { version = "0.5.9", features = ["wasm"] }
+fidius-macro = "0.5.9"
+fidius-core = "0.5.9"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
