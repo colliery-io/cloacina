@@ -9,15 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-## [Unreleased]
-
-
-
-
-## [Unreleased]
-
-### Added
-
 - **Connector host** (COLLIERY-I-0632, CLOACINA-T-0973): `load_connector`
   loads a Sync source or destination member from a provider package under the
   consumer's grants and drives spec, check, discover, the streaming read and
