@@ -3,7 +3,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, sync]
     paths-ignore:
       - '.metis/**'
       - 'docs/**'
@@ -15,7 +15,7 @@ on:
       - '.vscode/**'
       - '.idea/**'
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, sync]
     paths-ignore:
       - '.metis/**'
       - 'docs/**'

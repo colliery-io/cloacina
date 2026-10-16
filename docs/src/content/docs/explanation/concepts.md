@@ -30,6 +30,10 @@ precise definition of every term.
   events a computation graph reacts to.
 - **Reactor** — a specialized trigger that watches one or more accumulators and
   fires a computation graph when its criteria are met.
+- **Sync** — a movement of records from a **source** to a **destination** through
+  sandboxed **connectors**, one segment per workflow execution, with a **cursor**
+  that advances only after each segment is durably written. See
+  [Sync](../primitives/sync/).
 
 These names are used consistently across the code, CLI, HTTP API, and docs, so
 what you read here matches what you see in every interface.
@@ -41,6 +45,8 @@ what you read here matches what you see in every interface.
 
  Accumulator ──events──▶ Reactor ───fires──▶ Computation graph
                                               (one deterministic traversal)
+
+ Source ──segments──▶ Sync workflow ──▶ Destination   (a sync: one execution per segment)
 ```
 
 - A **workflow** is driven by **triggers** (e.g. a cron schedule) and runs **tasks**.
@@ -48,6 +54,9 @@ what you read here matches what you see in every interface.
   boundary events.
 - The two compose: a workflow can **subscribe** to a reactor's firings, and a
   workflow **task** can **invoke** an embedded computation graph.
+- A **sync** is built from them: it is an instance of the built-in Sync
+  workflow, each segment of records is one execution, and its connectors are
+  constructor providers.
 
 ## Where to go next
 
