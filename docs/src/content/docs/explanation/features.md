@@ -43,6 +43,22 @@ problem, see [When to Use Cloacina](../is-cloacina-for-you/).
   and a task can
   [invoke a computation graph](../../how-to/embed/invoke-computation-graph-from-workflow/).
 
+## Sync
+
+- **[Sync](../primitives/sync/)** — data movement built from the two primitives:
+  a sync is a workflow instance, each segment of records is a workflow
+  execution, and connectors are constructor providers.
+- **Sources and destinations** — connector members under one
+  [contract](../../reference/connector-contract/): discover, a streaming read of
+  records and checkpoints, a client-streaming write.
+- **Cursor after the write** — the cursor advances in the transaction that
+  completes the write task, after the destination has accepted the segment, so
+  a crash replays at most one segment and never loses one.
+- **Dead-letters** — a record that cannot be mapped, coerced or written is kept
+  with its reason; the run goes on.
+- **Runs on the fleet** — every sync runs on an execution agent, never in the
+  server process; connectors run sandboxed in WASM.
+
 ## Computation-graph capabilities
 
 These build on reactors and accumulators — see [Concepts](../concepts/)
