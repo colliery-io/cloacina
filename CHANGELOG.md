@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for the catalog. The `wit` feature adds `WitType` derives for guests
   (CLOACINA-T-0972).
 
+- **Sync docs** (COLLIERY-I-0632, CLOACINA-T-0981): an explanation page for
+  Sync with its vocabulary and the segment-by-segment shape, a Connector
+  Contract reference, Sync in the concepts page, the features catalog, the
+  glossary and the README.
+
 ## [0.12.0] - 2026-10-13
 
 ### Changed
