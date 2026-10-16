@@ -50,6 +50,7 @@ pub mod agent_limits;
 #[cfg(feature = "postgres")]
 pub mod api_keys;
 pub mod checkpoint;
+pub mod completion_writes;
 pub mod context;
 pub mod delivery_outbox;
 pub mod execution_event;
@@ -67,6 +68,8 @@ pub mod reactor_subscriptions;
 pub mod recovery_event;
 pub mod schedule;
 pub mod schedule_execution;
+pub mod sync_dead_letters;
+pub mod sync_stream_state;
 pub mod task_execution;
 pub mod task_execution_metadata;
 pub mod workflow_execution;
@@ -200,6 +203,18 @@ impl DAL {
     /// semantics are testable without Postgres.
     pub fn reactor_owner_addresses(&self) -> reactor_owner_addresses::ReactorOwnerAddressesDAL<'_> {
         reactor_owner_addresses::ReactorOwnerAddressesDAL::new(self)
+    }
+
+    /// The committed state of sync streams (COLLIERY-I-0632 / CLOACINA-T-0974).
+    /// Reads only: the rows are written in a task's completion transaction.
+    pub fn sync_stream_state(&self) -> sync_stream_state::SyncStreamStateDAL<'_> {
+        sync_stream_state::SyncStreamStateDAL::new(self)
+    }
+
+    /// Sync dead-letters (COLLIERY-I-0632 / CLOACINA-T-0974). Reads only: the
+    /// rows are written in a task's completion transaction.
+    pub fn sync_dead_letters(&self) -> sync_dead_letters::SyncDeadLettersDAL<'_> {
+        sync_dead_letters::SyncDeadLettersDAL::new(self)
     }
 
     /// Returns an OIDC login-flow-state DAL (Postgres only). CLOACI-T-0801.

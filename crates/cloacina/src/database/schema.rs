@@ -220,6 +220,46 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// The committed state of a sync stream (COLLIERY-I-0632 /
+        /// CLOACINA-T-0974): the cursor and opaque resume bytes the last
+        /// completed write task committed, per (sync, stream, partition).
+        /// Written only inside a task's completion transaction.
+        sync_stream_state (id) {
+            id -> DbUuid,
+            sync_name -> Text,
+            stream -> Text,
+            partition_id -> Text,
+            cursor -> Nullable<Text>,
+            opaque -> DbBinary,
+            exhausted -> DbBool,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp};
+
+        /// Records a sync could not process, with the reason, stamped with
+        /// the task and workflow execution that produced them
+        /// (COLLIERY-I-0632 / CLOACINA-T-0974).
+        sync_dead_letters (id) {
+            id -> DbUuid,
+            sync_name -> Text,
+            stream -> Text,
+            task_execution_id -> Nullable<DbUuid>,
+            workflow_execution_id -> Nullable<DbUuid>,
+            record -> Text,
+            reason -> Text,
+            created_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         /// Execution-agent fleet roster (CLOACI-T-0916). DB-backed so
         /// register/heartbeat state, same-tenant selection, capacity views and
         /// dead-agent reclaim are correct across server replicas. Reads are
