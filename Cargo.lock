@@ -810,6 +810,7 @@ dependencies = [
  "clap",
  "cloacina",
  "cloacina-python",
+ "cloacina-workflow",
  "futures-util",
  "reqwest 0.13.5",
  "rustls",

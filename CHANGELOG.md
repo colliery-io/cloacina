@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Built-in workflows on the fleet** (COLLIERY-I-0632, CLOACINA-T-0975): a
+  task compiled into the server and the agent and seeded from inventory, with
+  no package artifact, dispatches to any agent in its tenant. The server marks
+  it built in when no artifact exists yet its own runtime knows the task. The
+  work packet's `language` is `"builtin"` (`cloacina::fleet::BUILTIN_LANGUAGE`);
+  the agent resolves the task from its own inventory and fetches nothing.
+
 ## [0.12.0] - 2026-10-13
 
 ### Changed

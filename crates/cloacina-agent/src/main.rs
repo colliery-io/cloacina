@@ -1518,10 +1518,14 @@ async fn process_work_packet(
     // be empty), and for Rust it avoids a redundant dlopen per task.
     let digest = packet.artifact.digest.clone();
     let is_python = packet.language.as_deref() == Some("python");
+    // CLOACINA-T-0975: a built-in task is compiled into this binary and seeded
+    // from inventory. Nothing to fetch, no arch to check; it resolves from a
+    // runtime seeded by `Runtime::new()` alone.
+    let is_builtin = packet.language.as_deref() == Some(cloacina::fleet::BUILTIN_LANGUAGE);
 
     // OQ-6 fail-closed for Rust cdylibs (built for a specific target). Python is
     // interpreted, so the artifact triple is irrelevant — skip the gate.
-    if !is_python && packet.artifact.build_target_triple != agent_triple {
+    if !is_python && !is_builtin && packet.artifact.build_target_triple != agent_triple {
         return cloacina::fleet::AgentOutcome::Refused {
             reason: RefusalReason::TargetTripleMismatch,
             message: format!(
@@ -1538,6 +1542,11 @@ async fn process_work_packet(
         let mut cache = loaded_runtimes().lock().await;
         if let Some(rt) = cache.get(&digest) {
             rt.clone()
+        } else if is_builtin {
+            // The agent's own inventory, under one cache key for every built-in task.
+            let rt = Arc::new(cloacina::Runtime::new());
+            cache.insert(digest.clone(), rt.clone());
+            rt
         } else {
             let rt = Arc::new(cloacina::Runtime::new());
             let loaded = if is_python {
@@ -1827,6 +1836,11 @@ const _: fn() = || {
 
 #[cfg(test)]
 mod tests {
+    // The `#[workflow]` macro behind the built-in probe emits
+    // `cfg(feature = "packaged")`, a feature this crate does not declare
+    // (CLOACINA-T-0975).
+    #![allow(unexpected_cfgs)]
+
     use super::*;
     use cloacina::fleet::{AgentOutcome, ArtifactRef};
 
@@ -1926,6 +1940,70 @@ mod tests {
             .unwrap()
             .as_nanos()
             .to_string()
+    }
+
+    use cloacina::workflow;
+
+    /// A workflow compiled into THIS test binary and seeded from its inventory,
+    /// the way `cloacina-sync` will be compiled into the shipped agent
+    /// (CLOACINA-T-0975). It stands in for a built-in task here.
+    #[workflow(
+        name = "builtin_probe",
+        description = "built-in probe",
+        author = "Test"
+    )]
+    pub mod builtin_probe {
+        use cloacina::{Context, TaskError, task};
+
+        #[task(id = "probe", dependencies = [])]
+        pub async fn probe(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+            context.insert("probe_ran", serde_json::json!(true))?;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_builtin_task_runs_from_the_agent_inventory_with_nothing_fetched() {
+        let packet = WorkPacket {
+            protocol_version: cloacina::fleet::AGENT_PROTOCOL_VERSION,
+            task_execution_id: "11111111-1111-1111-1111-111111111111".into(),
+            workflow_execution_id: "22222222-2222-2222-2222-222222222222".into(),
+            // The package segment of an inventory-seeded task is its crate name.
+            task_name: "public::cloacina-agent::builtin_probe::probe".into(),
+            attempt: 1,
+            context: serde_json::json!({"seed": 1}),
+            // A placeholder: nothing is fetched and the triple is not checked.
+            artifact: cloacina::fleet::ArtifactRef {
+                digest: cloacina::fleet::BUILTIN_LANGUAGE.into(),
+                fetch_url: String::new(),
+                build_target_triple: "nowhere-unknown-none".into(),
+            },
+            timeout_seconds: 10,
+            tenant_id: Some("public".into()),
+            language: Some(cloacina::fleet::BUILTIN_LANGUAGE.into()),
+            wrapped_secrets: vec![],
+            secret_key_id: None,
+        };
+        let http = reqwest::Client::new();
+        let tmp = tempdir();
+        // The server address is unreachable on purpose: a fetch would fail.
+        let outcome = process_work_packet(
+            &packet,
+            "aarch64-apple-darwin",
+            &http,
+            "http://127.0.0.1:1",
+            "ignored",
+            tmp.as_path(),
+            &empty_key_pool(),
+        )
+        .await;
+        match outcome {
+            AgentOutcome::Success { context } => {
+                assert_eq!(context.get("probe_ran"), Some(&serde_json::json!(true)));
+                assert_eq!(context.get("seed"), Some(&serde_json::json!(1)));
+            }
+            other => panic!("built-in task did not run: {other:?}"),
+        }
     }
 
     #[test]
