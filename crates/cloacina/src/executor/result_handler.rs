@@ -27,6 +27,7 @@
 //! it takes a `Result<Context, ExecutorError>` (the outcome) plus identity +
 //! retry policy + elapsed duration, and applies all persistent-state effects.
 
+use cloacina_workflow::completion_writes::CompletionWrites;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -288,8 +289,20 @@ impl TaskResultHandler {
     async fn complete_task_transaction(
         &self,
         claimed_task: &ClaimedTask,
-        context: Context<serde_json::Value>,
+        mut context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
+        // 0. Take the task's completion writes out of the context
+        //    (COLLIERY-I-0632 / CLOACINA-T-0974). The reserved key never
+        //    reaches the saved context; the rows are written in step 2, in
+        //    the same transaction as the status update. A payload that does
+        //    not parse fails the completion: the task asked for writes the
+        //    host cannot make.
+        let writes = CompletionWrites::take_from(&mut context)
+            .map_err(|e| {
+                ExecutorError::ContextLoadFailed(format!("completion writes do not parse: {e}"))
+            })?
+            .filter(|w| !w.is_empty());
+
         // 1. Save context FIRST. If this fails, the task is still marked
         //    Running with our claim — the heartbeat-loss / claim-sweep
         //    cycle will reset it to Ready and another attempt drives it
@@ -297,11 +310,12 @@ impl TaskResultHandler {
         //    context" state is reachable.
         self.save_task_context(claimed_task, context).await?;
 
-        // 2. Mark completed — guarded by claim ownership.
+        // 2. Mark completed — guarded by claim ownership — and apply the
+        //    completion writes in that transaction.
         let applied = self
             .dal
             .task_execution()
-            .mark_completed(claimed_task.task_execution_id, self.runner_id)
+            .mark_completed_with(claimed_task.task_execution_id, self.runner_id, writes)
             .await?;
 
         if !applied {
