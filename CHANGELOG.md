@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tables `sync_stream_state` (the committed cursor of a sync stream) and
   `sync_dead_letters`, with read-only DAL accessors; migration 051.
 
+- **Built-in workflows on the fleet** (COLLIERY-I-0632, CLOACINA-T-0975): a
+  task compiled into the server and the agent and seeded from inventory, with
+  no package artifact, dispatches to any agent in its tenant. The server marks
+  it built in when no artifact exists yet its own runtime knows the task. The
+  work packet's `language` is `"builtin"` (`cloacina::fleet::BUILTIN_LANGUAGE`);
+  the agent resolves the task from its own inventory and fetches nothing.
+
 ### Fixed
 
 - `cloacina_constructor_contract::sync::ConnectorError` implements `Display`
