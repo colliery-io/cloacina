@@ -303,6 +303,19 @@ impl TaskResultHandler {
             })?
             .filter(|w| !w.is_empty());
 
+        // Test-only fault (CLOACINA-T-0980): die here, with the agent's result
+        // in hand and nothing committed, when a test asks for it.
+        #[cfg(feature = "fault-injection")]
+        if writes.is_some()
+            && std::env::var_os("CLOACINA_FAULT_EXIT_BEFORE_COMPLETION_WRITES").is_some()
+        {
+            error!(
+                task_id = %claimed_task.task_execution_id,
+                "injected fault: exiting before the completion writes"
+            );
+            std::process::exit(86);
+        }
+
         // 1. Save context FIRST. If this fails, the task is still marked
         //    Running with our claim — the heartbeat-loss / claim-sweep
         //    cycle will reset it to Ready and another attempt drives it

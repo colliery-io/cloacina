@@ -1002,6 +1002,7 @@ dependencies = [
  "chrono",
  "cloacina",
  "cloacina-constructor-contract",
+ "cloacina-sync",
  "cloacina-testing",
  "cloacina-workflow",
  "postgres",

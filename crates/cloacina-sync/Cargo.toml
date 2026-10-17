@@ -32,7 +32,16 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 uuid = { version = "1.0", features = ["v4"] }
 
+[features]
+# Test-only faults a sync definition can ask for through the `fault` param
+# (CLOACINA-T-0980): fail the write task once after the destination accepted
+# the segment, or hold the write task so a harness can kill the agent mid-task.
+# Never on in a shipped binary; the tests enable it through the self
+# dev-dependency below.
+fault-injection = []
+
 [dev-dependencies]
+cloacina-sync = { path = ".", features = ["fault-injection"] }
 tempfile = "3.2"
 cloacina-testing = { workspace = true }
 # Raw SQL for seeding and checking the dev Postgres in the connector tests.

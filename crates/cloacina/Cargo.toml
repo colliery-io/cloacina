@@ -22,6 +22,11 @@ name = "cloacina"
 crate-type = ["lib", "cdylib"]
 
 [features]
+# Test-only (COLLIERY-I-0632 / CLOACINA-T-0980): honour
+# CLOACINA_FAULT_EXIT_BEFORE_COMPLETION_WRITES, which exits the process after a
+# task's result arrived and before its completion transaction, the window a
+# server crash must not lose a sync's segment in. Never on in a shipped binary.
+fault-injection = []
 # CLOACI-T-0898: no `kafka` feature — event-source backends live in constructor
 # PROVIDERS (e.g. cloacina-provider-kafka ships rdkafka), not in core.
 default = ["macros", "postgres", "sqlite"]

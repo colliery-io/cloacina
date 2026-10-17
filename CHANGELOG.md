@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sync resume tests** (COLLIERY-I-0632, CLOACINA-T-0980): a write task that
+  dies after the destination accepted its segment is retried and the cursor
+  advances once, on SQLite and on Postgres where upsert absorbs the second
+  write; and `angreal test e2e sync` proves it on a live server and agent,
+  killing the agent mid-write and the server before the completion commit.
+  The faults are deterministic and compiled in only with the
+  `fault-injection` feature of `cloacina`, `cloacina-sync`, `cloacina-server`
+  and `cloacina-agent`.
 - **The Postgres connector** (COLLIERY-I-0632, CLOACINA-T-0979):
   `connectors/postgres`, weir's Postgres guest on cloacina's contract, a Sync
   source (full refresh, incremental by cursor, CDC) and destination (append,

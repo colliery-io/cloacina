@@ -20,6 +20,8 @@ name = "cloacina-server"
 path = "src/main.rs"
 
 [features]
+# Test-only faults for the Sync resume tests (CLOACINA-T-0980).
+fault-injection = ["cloacina/fault-injection", "cloacina-sync/fault-injection"]
 default = ["postgres"]
 postgres = ["cloacina/postgres", "diesel/postgres"]
 sqlite = ["cloacina/sqlite"]
