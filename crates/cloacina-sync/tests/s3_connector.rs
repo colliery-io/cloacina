@@ -68,10 +68,8 @@ fn pg() -> postgres::Client {
 fn providers() -> &'static PathBuf {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join(format!(
-            "cloacina-sync-s3-providers-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("cloacina-sync-s3-providers-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         stage_connector(&dir, &repo("connectors/s3"));
         stage_connector(&dir, &repo("connectors/postgres"));
@@ -99,8 +97,12 @@ async fn an_s3_to_postgres_sync_signs_with_a_stored_secret() {
         minio::create_bucket(BUCKET).unwrap();
         // A fresh prefix per run, so earlier runs' objects stay out of the pass.
         for n in 1..=3 {
-            minio::put_object(BUCKET, &format!("{}/{n:03}.ndjson", run_prefix()), &object(n))
-                .unwrap();
+            minio::put_object(
+                BUCKET,
+                &format!("{}/{n:03}.ndjson", run_prefix()),
+                &object(n),
+            )
+            .unwrap();
         }
         pg().batch_execute("DROP TABLE IF EXISTS s3_dst").unwrap();
     })

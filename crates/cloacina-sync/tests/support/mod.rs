@@ -26,8 +26,8 @@ use cloacina_constructor_contract::sync::{
     CheckResult, Config, ConnectorSpec, DiscoverOutcome, ReadContext, RecordBatch, WriteContext,
     WriteOutcome,
 };
-use cloacina_sync::workflow::grant_spec_from_json;
 use cloacina_sync::credential::CredentialSpec;
+use cloacina_sync::workflow::grant_spec_from_json;
 use cloacina_testing::connectors::conformance::{Connector, Credential, Host, ReadIter, Service};
 use cloacina_testing::connectors::{crate_name, stage_connector};
 use serde_json::{Map, Value};
@@ -84,7 +84,8 @@ impl Host for ConnectorHost {
             };
             let spec: CredentialSpec = serde_json::from_value(c.spec.clone())
                 .map_err(|e| format!("credential spec: {e}"))?;
-            grants = grants.with_credential(spec.build(side, &c.secret).map_err(|e| e.to_string())?);
+            grants =
+                grants.with_credential(spec.build(side, &c.secret).map_err(|e| e.to_string())?);
         }
         load_connector(&self.root, package, member, config, &grants)
             .map(|h| Box::new(Handle(h)) as Box<dyn Connector>)

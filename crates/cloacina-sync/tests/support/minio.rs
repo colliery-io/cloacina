@@ -65,9 +65,18 @@ fn put(path: &str, body: &[u8]) -> Result<u16, String> {
         region: REGION,
         service: "s3",
     }
-    .authorization("PUT", path, "", &signed, &payload_hash, &amz_date, &datestamp);
+    .authorization(
+        "PUT",
+        path,
+        "",
+        &signed,
+        &payload_hash,
+        &amz_date,
+        &datestamp,
+    );
 
-    let mut stream = TcpStream::connect(&authority).map_err(|e| format!("connect {authority}: {e}"))?;
+    let mut stream =
+        TcpStream::connect(&authority).map_err(|e| format!("connect {authority}: {e}"))?;
     let head = format!(
         "PUT {path} HTTP/1.1\r\nHost: {authority}\r\nx-amz-date: {amz_date}\r\n\
          x-amz-content-sha256: {payload_hash}\r\nAuthorization: {auth}\r\n\

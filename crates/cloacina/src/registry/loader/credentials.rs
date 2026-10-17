@@ -176,7 +176,7 @@ impl EgressPolicy for CredentialEgress {
     }
 }
 
-/// Current UTC as SigV4's `(YYYYMMDDটHHMMSSZ, YYYYMMDD)`.
+/// Current UTC as SigV4's `(YYYYMMDDTHHMMSSZ, YYYYMMDD)`.
 fn now_amz() -> (String, String) {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -506,7 +506,7 @@ pub mod sigv4 {
         /// Build the `Authorization` header value for a request.
         ///
         /// `signed_headers` must be **lowercased names + trimmed values, sorted by name**;
-        /// `canonical_query` must be sorted + percent-encoded; `amz_date` is `YYYYMMDDটHHMMSSZ`
+        /// `canonical_query` must be sorted + percent-encoded; `amz_date` is `YYYYMMDDTHHMMSSZ`
         /// and `datestamp` is `YYYYMMDD` (both derived from one instant).
         #[allow(clippy::too_many_arguments)]
         pub fn authorization(
