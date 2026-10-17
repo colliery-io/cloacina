@@ -182,10 +182,10 @@ impl Dispatcher {
             }
         }
         let outcome = self.run_owned(&sync, &params, &template, &mut stop).await;
-        if let Some(own) = &self.ownership {
-            if let Err(e) = own.release(&id).await {
-                tracing::warn!(sync = %sync, error = %e, "sync: ownership release failed");
-            }
+        if let Some(own) = &self.ownership
+            && let Err(e) = own.release(&id).await
+        {
+            tracing::warn!(sync = %sync, error = %e, "sync: ownership release failed");
         }
         outcome
     }
