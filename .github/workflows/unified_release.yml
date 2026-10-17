@@ -145,6 +145,12 @@ jobs:
           publish cloacina-client
           sleep 30
 
+          # Tier 3.6: Sync (COLLIERY-I-0632; depends on cloacina, cloacina-workflow,
+          # cloacina-constructor-contract). The agent and the server link it, so
+          # it must precede them.
+          publish cloacina-sync
+          sleep 30
+
           # Tier 4: binaries (depend on cloacina + workflow-plugin + python).
           publish cloacinactl
           sleep 30
