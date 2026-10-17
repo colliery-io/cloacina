@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Sync dispatcher** (COLLIERY-I-0632, CLOACINA-T-0977):
+  `cloacina_sync::dispatcher::Dispatcher` runs one pass of a sync as a series
+  of segments, one execution of the Sync workflow at a time, reading the
+  committed cursor before each and stopping when the source reports its end.
+  It waits for any outstanding execution of the sync first, and on a server
+  claims the sync on the ownership session in a new `Sync` domain
+  (`OwnershipDomain`, `ReactorId::sync`), so a sync and a reactor with one
+  name never share a lock. The read task now looks one message past its
+  checkpoint budget, so a source that ends there reports exhausted.
 - **The Sync workflow** (COLLIERY-I-0632, CLOACINA-T-0976): new crate
   `cloacina-sync`, linked into the server and the agent, with the built-in
   workflow `sync` (read a segment, map and enforce, write), the mapping and
@@ -55,6 +64,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   work packet's `language` is `"builtin"` (`cloacina::fleet::BUILTIN_LANGUAGE`);
   the agent resolves the task from its own inventory and fetches nothing.
 
+- **Connector host** (COLLIERY-I-0632, CLOACINA-T-0973): `load_connector`
+  loads a Sync source or destination member from a provider package under the
+  consumer's grants and drives spec, check, discover, the streaming read and
+  the client-streaming write (`cloacina::registry::loader::connector_host`,
+  behind `constructors-wasm`). Two WASM fixtures, an echo connector and a
+  faulty one, under `examples/constructor-contract/`, with the canonical guest
+  copy of the Sync types a connector guest carries.
+
+- **The Sync workflow** (COLLIERY-I-0632, CLOACINA-T-0976): new crate
+  `cloacina-sync`, linked into the server and the agent, with the built-in
+  workflow `sync` (read a segment, map and enforce, write), the mapping and
+  schema-enforcement engine moved from weir, and the params a sync definition
+  binds. The write task returns the cursor and the dead-letters as completion
+  writes, so the cursor advances only after the destination has accepted the
+  segment.
 - **Connector host** (COLLIERY-I-0632, CLOACINA-T-0973): `load_connector`
   loads a Sync source or destination member from a provider package under the
   consumer's grants and drives spec, check, discover, the streaming read and
