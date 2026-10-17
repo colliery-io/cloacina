@@ -370,6 +370,23 @@ async fn a_fatal_source_fails_the_execution_and_commits_nothing() {
             .unwrap()
             .is_none()
     );
+    // Neither later task ran: a failed read must not be mapped or written.
+    let tasks = dal
+        .task_execution()
+        .get_all_tasks_for_workflow(cloacina::database::universal_types::UniversalUuid(
+            result.execution_id,
+        ))
+        .await
+        .unwrap();
+    for t in &tasks {
+        if t.task_name.ends_with("::map_enforce") || t.task_name.ends_with("::write") {
+            assert_ne!(
+                t.status, "Completed",
+                "{} ran after a failed read",
+                t.task_name
+            );
+        }
+    }
 
     runner.shutdown().await.unwrap();
 }
