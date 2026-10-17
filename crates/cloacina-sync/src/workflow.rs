@@ -168,8 +168,8 @@ pub fn read_segment_blocking(p: &SyncParams, input: SegmentInput) -> Result<Segm
         ..Default::default()
     };
     let mut checkpoints = 0u64;
-    let iter = source.read_blocking(&ctx)?;
-    for item in iter {
+    let mut iter = source.read_blocking(&ctx)?;
+    while let Some(item) = iter.next() {
         match item? {
             ReadMessage::Records(batch) => seg.batches.push(batch),
             ReadMessage::DeadLettered(d) => seg.dead_letters.push(d),
@@ -184,7 +184,12 @@ pub fn read_segment_blocking(p: &SyncParams, input: SegmentInput) -> Result<Segm
                 seg.next_state = state;
                 checkpoints += 1;
                 if checkpoints >= p.segment_checkpoints {
-                    seg.exhausted = false;
+                    // The budget is spent. Look one message ahead: a source that
+                    // ends here is exhausted, and the pass must say so, or the
+                    // dispatcher would reopen it at this cursor forever. A source
+                    // with more to say keeps `exhausted` false; the message we
+                    // looked at is read again next segment from this state.
+                    seg.exhausted = iter.next().is_none();
                     break;
                 }
             }

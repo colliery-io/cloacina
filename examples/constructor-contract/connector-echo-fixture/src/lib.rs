@@ -59,6 +59,18 @@ impl Echo {
             .ok()
             .and_then(|v| v.get("cursor").and_then(|c| c.as_str()).map(str::to_string))
     }
+
+    /// `{"segments": N}`: the read yields N groups of (rows, checkpoint), the
+    /// checkpoint cursor counting `"1"`, `"2"`, … so a dispatcher test can see
+    /// several segments and a cursor that moves. Default 1, which keeps the
+    /// single `cursor` config meaningful.
+    fn segments(&self) -> u64 {
+        serde_json::from_str::<serde_json::Value>(&self.cfg.json)
+            .ok()
+            .and_then(|v| v.get("segments").and_then(|n| n.as_u64()))
+            .unwrap_or(1)
+            .max(1)
+    }
 }
 
 #[plugin_impl(Connector, crate = "fidius_guest", config = contract::Config)]
@@ -97,19 +109,32 @@ impl Connector for Echo {
         })
     }
 
-    /// The configured rows in one batch, a log line, then a checkpoint.
-    fn read(&self, _ctx: ReadContext) -> fidius_guest::Stream<ReadMessage> {
-        fidius_guest::Stream::from_iter(vec![
-            ReadMessage::Records(RecordBatch::Rows(self.rows())),
-            ReadMessage::Log(LogEntry {
+    /// Per segment: the configured rows in one batch, a log line, then a
+    /// checkpoint. With `segments` > 1 the checkpoint cursor counts up and a
+    /// resume point `"k"` in `ctx.state` skips the first k segments, so a
+    /// dispatcher reopening the source at the committed cursor sees the rest.
+    fn read(&self, ctx: ReadContext) -> fidius_guest::Stream<ReadMessage> {
+        let total = self.segments();
+        let resume = ctx
+            .state
+            .cursor
+            .as_deref()
+            .and_then(|c| c.trim_matches('"').parse::<u64>().ok())
+            .unwrap_or(0);
+        let mut msgs = Vec::new();
+        for i in (resume + 1)..=total {
+            msgs.push(ReadMessage::Records(RecordBatch::Rows(self.rows())));
+            msgs.push(ReadMessage::Log(LogEntry {
                 level: LogLevel::Info,
-                message: "echo read".to_string(),
-            }),
-            ReadMessage::Checkpoint(StreamState {
-                cursor: self.cursor(),
+                message: format!("echo read segment {i}"),
+            }));
+            let cursor = if total == 1 { self.cursor() } else { Some(format!("\"{i}\"")) };
+            msgs.push(ReadMessage::Checkpoint(StreamState {
+                cursor,
                 opaque: Vec::new(),
-            }),
-        ])
+            }));
+        }
+        fidius_guest::Stream::from_iter(msgs)
     }
 
     /// Client streaming: pull every batch, counting the rows accepted.
