@@ -24,6 +24,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   faulty one, under `examples/constructor-contract/`, with the canonical guest
   copy of the Sync types a connector guest carries.
 
+- **Sync connector contract** (COLLIERY-I-0632, CLOACINA-A-0013): the
+  constructor contract gains two primitive kinds, `source` and `destination`,
+  one five-method `connector` interface (spec, check, discover, streaming
+  read, client-streaming write), and a `sync` module with the boundary types,
+  the typed stream schema, the error taxonomy, cursor comparison and the
+  bincode envelope codec, moved from weir with their wire shape unchanged. A
+  manifest may carry `connector` metadata (roles, sync modes, config schema)
+  for the catalog. The `wit` feature adds `WitType` derives for guests
+  (CLOACINA-T-0972).
+
+- **Sync docs** (COLLIERY-I-0632, CLOACINA-T-0981): an explanation page for
+  Sync with its vocabulary and the segment-by-segment shape, a Connector
+  Contract reference, Sync in the concepts page, the features catalog, the
+  glossary and the README.
+
+- **Completion writes** (COLLIERY-I-0632, CLOACINA-T-0974): a task can attach
+  rows under the reserved context key `__cloacina_completion_writes__`
+  (`cloacina_workflow::completion_writes`). The result handler strips the key
+  before the context is saved and writes the rows inside the transaction that
+  marks the task completed, on both backends and from the agent path. A lost
+  claim writes nothing; a failed write leaves the task not completed. New
+  tables `sync_stream_state` (the committed cursor of a sync stream) and
+  `sync_dead_letters`, with read-only DAL accessors; migration 051.
+
 ### Fixed
 
 - `cloacina_constructor_contract::sync::ConnectorError` implements `Display`
