@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sync definitions** (COLLIERY-I-0632, CLOACINA-T-0978): a sync definition
+  is a workflow instance of the built-in `sync` workflow, created through the
+  existing instances route. A fire of it, on its cron or by hand, runs a pass
+  instead of one execution: the runner gains an instance fire hook
+  (`cloacina::workflow_instance::InstanceFireHook`, `set_instance_fire_hook`,
+  `fire_instance`) that the cron scheduler and the manual-run route consult,
+  and `cloacina_sync::install` puts Sync's hook on a runner. The server
+  installs it on every tenant runner with the ownership session; an embedded
+  runner calls `install` and `cloacina_sync::run_pass` by instance name.
 - **The Sync dispatcher** (COLLIERY-I-0632, CLOACINA-T-0977):
   `cloacina_sync::dispatcher::Dispatcher` runs one pass of a sync as a series
   of segments, one execution of the Sync workflow at a time, reading the

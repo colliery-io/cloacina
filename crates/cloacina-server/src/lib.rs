@@ -752,6 +752,11 @@ pub async fn run(
 
     let endpoint_registry = EndpointRegistry::new();
     let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
+    // COLLIERY-I-0632 / CLOACINA-T-0978: the Sync dispatchers claim syncs on the
+    // same ownership session the reactors use, when there is one.
+    let mut sync_ownership: Option<
+        Arc<dyn cloacina::computation_graph::reactor_ownership::ReactorOwnership>,
+    > = None;
     let mut graph_scheduler_inner =
         ComputationGraphScheduler::with_dal(endpoint_registry.clone(), unified_dal.clone());
 
@@ -812,7 +817,10 @@ pub async fn run(
                 PostgresOwnership::new(session)
             }
         };
-        graph_scheduler_inner.set_ownership(Arc::new(ownership));
+        let ownership: Arc<dyn cloacina::computation_graph::reactor_ownership::ReactorOwnership> =
+            Arc::new(ownership);
+        sync_ownership = Some(ownership.clone());
+        graph_scheduler_inner.set_ownership(ownership);
         info!("reactor ownership session established (one pooled connection reserved)");
     }
 
@@ -905,6 +913,8 @@ pub async fn run(
 
     // Wire graph scheduler into the runner so the reconciler can route CG packages
     runner.set_graph_scheduler(graph_scheduler.clone()).await;
+    // The public runner runs the public tenant's syncs (CLOACINA-T-0978).
+    cloacina_sync::install(&runner, sync_ownership.clone(), Some("public".to_string()));
 
     // Fleet (CLOACI-I-0114 / T-0633): shared roster + result-rendezvous so the
     // FleetExecutor (registered on the runner's dispatcher below) and the agent
@@ -955,7 +965,8 @@ pub async fn run(
         // scheduler so their reconcilers can route packaged CGs. The scheduler
         // stores tenant_id per graph (T-0579), so health-endpoint filtering
         // still works.
-        .with_graph_scheduler(graph_scheduler.clone());
+        .with_graph_scheduler(graph_scheduler.clone())
+        .with_sync_ownership(sync_ownership.clone());
         if use_fleet {
             let reg_registry = agent_registry.clone();
             let reg_coordinator = fleet_coordinator.clone();

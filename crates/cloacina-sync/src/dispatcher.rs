@@ -45,7 +45,6 @@ use cloacina::computation_graph::reactor_ownership::{ReactorId, ReactorOwnership
 use cloacina::dal::DAL;
 use cloacina::database::universal_types::UniversalUuid;
 use cloacina::executor::{WorkflowExecution, WorkflowExecutor, WorkflowStatus};
-use cloacina::runner::DefaultRunner;
 use cloacina_constructor_contract::sync::StreamState;
 use serde_json::Value;
 
@@ -116,10 +115,11 @@ pub enum DispatchError {
     },
 }
 
-/// Runs passes of syncs on one runner.
+/// Runs passes of syncs on one executor.
+#[derive(Clone)]
 pub struct Dispatcher {
-    runner: DefaultRunner,
-    dal: DAL,
+    executor: Arc<dyn WorkflowExecutor>,
+    dal: Arc<DAL>,
     ownership: Option<Arc<dyn ReactorOwnership>>,
     tenant: Option<String>,
     /// Ceiling on one execution's wait; `None` waits as long as it takes.
@@ -127,12 +127,12 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
-    /// A dispatcher on a runner, for an embedded runner or a single-replica
-    /// server: no ownership, the one process runs every sync.
-    pub fn new(runner: DefaultRunner) -> Self {
-        let dal = DAL::new(runner.database().clone());
+    /// A dispatcher on an executor and its database. With no ownership, for
+    /// an embedded runner or a single-replica server, the one process runs
+    /// every sync.
+    pub fn new(executor: Arc<dyn WorkflowExecutor>, dal: Arc<DAL>) -> Self {
         Self {
-            runner,
+            executor,
             dal,
             ownership: None,
             tenant: None,
@@ -163,8 +163,41 @@ impl Dispatcher {
     pub async fn run_pass(
         &self,
         def: &SyncDefinition,
-        mut stop: tokio::sync::watch::Receiver<bool>,
+        stop: tokio::sync::watch::Receiver<bool>,
     ) -> Result<PassOutcome, DispatchError> {
+        let prepared = self.prepare(def).await?;
+        if *stop.borrow() {
+            self.release(&prepared).await;
+            return Ok(PassOutcome::Stopped { segments: 0 });
+        }
+        let first = match self.start_segment(&prepared).await {
+            Ok(h) => h,
+            Err(e) => {
+                self.release(&prepared).await;
+                return Err(e);
+            }
+        };
+        self.finish_pass(prepared, first.execution_id, stop).await
+    }
+
+    /// The first half of a pass: parse the definition, take the sync's lock,
+    /// and wait for any outstanding execution. Followed by
+    /// [`Self::start_segment`] and [`Self::finish_pass`]; a fire hook uses the
+    /// halves so it can hand the first execution back while the pass goes on.
+    pub async fn prepare(&self, def: &SyncDefinition) -> Result<PreparedPass, DispatchError> {
+        let prepared = self.claim(def).await?;
+        if let Err(e) = self.finish_outstanding(&prepared.sync).await {
+            self.release(&prepared).await;
+            return Err(e);
+        }
+        Ok(prepared)
+    }
+
+    /// Parse the definition and take the sync's lock, without waiting for
+    /// outstanding executions. A caller that must not block (the fire hook)
+    /// uses this with [`Self::outstanding`] and lets [`Self::finish_pass`] do
+    /// the waiting.
+    pub async fn claim(&self, def: &SyncDefinition) -> Result<PreparedPass, DispatchError> {
         let sync = def
             .name()
             .ok_or_else(|| DispatchError::Params(format!("param `{}` is missing", keys::SYNC)))?
@@ -172,7 +205,6 @@ impl Dispatcher {
         let template = def.context()?;
         let params = SyncParams::from_context(&template)
             .map_err(|e| DispatchError::Params(e.to_string()))?;
-
         let id = ReactorId::sync(self.tenant.clone(), sync.clone());
         if let Some(own) = &self.ownership {
             match own.claim(&id).await {
@@ -181,62 +213,126 @@ impl Dispatcher {
                 Err(error) => return Err(DispatchError::Ownership { sync, error }),
             }
         }
-        let outcome = self.run_owned(&sync, &params, &template, &mut stop).await;
-        if let Some(own) = &self.ownership
-            && let Err(e) = own.release(&id).await
+        Ok(PreparedPass {
+            sync,
+            params,
+            template,
+            id,
+        })
+    }
+
+    /// The first execution of this sync that has not reached a terminal
+    /// status, if any. One may have written its segment without its
+    /// completion landing yet.
+    pub async fn outstanding(&self, sync: &str) -> Result<Option<uuid::Uuid>, DispatchError> {
+        let active = self
+            .dal
+            .workflow_execution()
+            .get_active_executions()
+            .await
+            .map_err(|e| DispatchError::Database(e.to_string()))?;
+        for ex in active
+            .into_iter()
+            .filter(|e| e.workflow_name == WORKFLOW_NAME)
         {
-            tracing::warn!(sync = %sync, error = %e, "sync: ownership release failed");
+            let Some(context_id) = ex.context_id else {
+                continue;
+            };
+            let Ok(ctx) = self.dal.context().read::<Value>(context_id).await else {
+                continue;
+            };
+            if ctx.get(keys::SYNC).and_then(Value::as_str) == Some(sync) {
+                return Ok(Some(ex.id.0));
+            }
         }
+        Ok(None)
+    }
+
+    /// Release the sync's lock after a pass that will not run (the fire hook
+    /// uses this when it fails between [`Self::claim`] and a spawned
+    /// [`Self::finish_pass`]).
+    pub async fn abandon(&self, prepared: PreparedPass) {
+        self.release(&prepared).await;
+    }
+
+    /// Start the next segment: one execution of the Sync workflow at the
+    /// committed state. Returns its handle.
+    pub async fn start_segment(
+        &self,
+        prepared: &PreparedPass,
+    ) -> Result<WorkflowExecution, DispatchError> {
+        if let Some(own) = &self.ownership {
+            let believed = own.believed_owned().await;
+            if !believed
+                .iter()
+                .any(|b| b.name == prepared.sync && b.domain == prepared.id.domain)
+            {
+                return Err(DispatchError::NotOwner(prepared.sync.clone()));
+            }
+        }
+        let state = self
+            .committed_state(&prepared.sync, &prepared.params)
+            .await?;
+        let mut ctx = prepared.template.clone_data();
+        let state_json =
+            serde_json::to_string(&state).map_err(|e| DispatchError::Params(e.to_string()))?;
+        ctx.remove(keys::STATE);
+        ctx.insert(keys::STATE, Value::String(state_json))
+            .map_err(|e| DispatchError::Params(e.to_string()))?;
+        let handle = self
+            .executor
+            .execute_async(WORKFLOW_NAME, ctx)
+            .await
+            .map_err(|e| DispatchError::Start {
+                sync: prepared.sync.clone(),
+                error: e.to_string(),
+            })?;
+        tracing::info!(sync = %prepared.sync, execution_id = %handle.execution_id, cursor = ?state.cursor, "sync: segment started");
+        Ok(handle)
+    }
+
+    /// The rest of a pass after its first segment was started: wait for it,
+    /// then segments until exhausted or stopped. Releases the lock at the end.
+    pub async fn finish_pass(
+        &self,
+        prepared: PreparedPass,
+        first: uuid::Uuid,
+        mut stop: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<PassOutcome, DispatchError> {
+        let outcome = self.segments_after(&prepared, first, &mut stop).await;
+        self.release(&prepared).await;
         outcome
     }
 
-    async fn run_owned(
+    async fn segments_after(
         &self,
-        sync: &str,
-        params: &SyncParams,
-        template: &Context<Value>,
+        prepared: &PreparedPass,
+        first: uuid::Uuid,
         stop: &mut tokio::sync::watch::Receiver<bool>,
     ) -> Result<PassOutcome, DispatchError> {
-        self.finish_outstanding(sync).await?;
-
+        let sync = prepared.sync.as_str();
+        let mut in_flight = first;
         let mut segments = 0u64;
         loop {
-            if *stop.borrow() {
-                return Ok(PassOutcome::Stopped { segments });
-            }
-            if let Some(own) = &self.ownership {
-                let believed = own.believed_owned().await;
-                if !believed.iter().any(|b| b.name == sync) {
-                    return Err(DispatchError::NotOwner(sync.to_string()));
-                }
-            }
-
-            let state = self.committed_state(sync, params).await?;
-            let mut ctx = template.clone_data();
-            let state_json =
-                serde_json::to_string(&state).map_err(|e| DispatchError::Params(e.to_string()))?;
-            ctx.remove(keys::STATE);
-            ctx.insert(keys::STATE, Value::String(state_json))
-                .map_err(|e| DispatchError::Params(e.to_string()))?;
-
-            let handle = self
-                .runner
-                .execute_async(WORKFLOW_NAME, ctx)
-                .await
-                .map_err(|e| DispatchError::Start {
-                    sync: sync.to_string(),
-                    error: e.to_string(),
-                })?;
-            let execution_id = UniversalUuid(handle.execution_id);
-            tracing::info!(sync, %execution_id, segment = segments + 1, cursor = ?state.cursor, "sync: segment started");
-            self.wait(sync, handle).await?;
+            self.wait(sync, in_flight).await?;
             segments += 1;
-
-            let (_, exhausted) = self.committed_row(sync, params).await?;
+            let (_, exhausted) = self.committed_row(sync, &prepared.params).await?;
             if exhausted {
                 tracing::info!(sync, segments, "sync: pass done, source exhausted");
                 return Ok(PassOutcome::Exhausted { segments });
             }
+            if *stop.borrow() {
+                return Ok(PassOutcome::Stopped { segments });
+            }
+            in_flight = self.start_segment(prepared).await?.execution_id;
+        }
+    }
+
+    async fn release(&self, prepared: &PreparedPass) {
+        if let Some(own) = &self.ownership
+            && let Err(e) = own.release(&prepared.id).await
+        {
+            tracing::warn!(sync = %prepared.sync, error = %e, "sync: ownership release failed");
         }
     }
 
@@ -275,54 +371,69 @@ impl Dispatcher {
     /// Wait for every outstanding execution of this sync: one may have written
     /// its segment without its completion landing yet.
     async fn finish_outstanding(&self, sync: &str) -> Result<(), DispatchError> {
-        let active = self
-            .dal
-            .workflow_execution()
-            .get_active_executions()
-            .await
-            .map_err(|e| DispatchError::Database(e.to_string()))?;
-        for ex in active
-            .into_iter()
-            .filter(|e| e.workflow_name == WORKFLOW_NAME)
-        {
-            let Some(context_id) = ex.context_id else {
-                continue;
-            };
-            let ctx = match self.dal.context().read::<Value>(context_id).await {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            if ctx.get(keys::SYNC).and_then(Value::as_str) != Some(sync) {
-                continue;
-            }
-            tracing::info!(sync, execution_id = %ex.id, "sync: waiting for an outstanding execution before the next segment");
-            let handle =
-                WorkflowExecution::new(ex.id.0, WORKFLOW_NAME.to_string(), self.runner.clone());
+        while let Some(id) = self.outstanding(sync).await? {
+            tracing::info!(sync, execution_id = %id, "sync: waiting for an outstanding execution before the next segment");
             // An outstanding execution that fails is this pass's failure too:
             // its segment is not committed, and the next pass will redo it.
-            self.wait(sync, handle).await?;
+            self.wait(sync, id).await?;
         }
         Ok(())
     }
 
-    async fn wait(&self, sync: &str, handle: WorkflowExecution) -> Result<(), DispatchError> {
-        let execution_id = UniversalUuid(handle.execution_id);
-        let result = handle
-            .wait_for_completion_with_timeout(self.segment_timeout)
-            .await
-            .map_err(|e| DispatchError::Wait {
-                sync: sync.to_string(),
-                execution_id,
-                error: e.to_string(),
-            })?;
-        if result.status != WorkflowStatus::Completed {
-            return Err(DispatchError::SegmentFailed {
-                sync: sync.to_string(),
-                execution_id,
-                status: result.status,
-                error: result.error_message.unwrap_or_default(),
-            });
+    /// Wait for one execution to reach a terminal status, polling the executor
+    /// the way the engine's own execution handle does.
+    async fn wait(&self, sync: &str, execution_id: uuid::Uuid) -> Result<(), DispatchError> {
+        let started = std::time::Instant::now();
+        loop {
+            if let Some(limit) = self.segment_timeout
+                && started.elapsed() > limit
+            {
+                return Err(DispatchError::Wait {
+                    sync: sync.to_string(),
+                    execution_id: UniversalUuid(execution_id),
+                    error: format!("segment exceeded {}s", limit.as_secs()),
+                });
+            }
+            let status = self
+                .executor
+                .get_execution_status(execution_id)
+                .await
+                .map_err(|e| DispatchError::Wait {
+                    sync: sync.to_string(),
+                    execution_id: UniversalUuid(execution_id),
+                    error: e.to_string(),
+                })?;
+            match status {
+                WorkflowStatus::Completed => return Ok(()),
+                WorkflowStatus::Failed | WorkflowStatus::Cancelled => {
+                    let error = self
+                        .dal
+                        .workflow_execution()
+                        .get_by_id(UniversalUuid(execution_id))
+                        .await
+                        .ok()
+                        .and_then(|r| r.error_details)
+                        .unwrap_or_default();
+                    return Err(DispatchError::SegmentFailed {
+                        sync: sync.to_string(),
+                        execution_id: UniversalUuid(execution_id),
+                        status,
+                        error,
+                    });
+                }
+                WorkflowStatus::Pending | WorkflowStatus::Running | WorkflowStatus::Paused => {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
         }
-        Ok(())
     }
+}
+
+/// A pass between [`Dispatcher::prepare`] and [`Dispatcher::finish_pass`]:
+/// the parsed definition and the ownership id it holds.
+pub struct PreparedPass {
+    pub sync: String,
+    pub params: SyncParams,
+    template: Context<Value>,
+    id: ReactorId,
 }
