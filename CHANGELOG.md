@@ -106,6 +106,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   faulty one, under `examples/constructor-contract/`, with the canonical guest
   copy of the Sync types a connector guest carries.
 
+- **Sync definitions** (COLLIERY-I-0632, CLOACINA-T-0978): a sync definition
+  is a workflow instance of the built-in `sync` workflow, created through the
+  existing instances route. A fire of it, on its cron or by hand, runs a pass
+  instead of one execution: the runner gains an instance fire hook
+  (`cloacina::workflow_instance::InstanceFireHook`, `set_instance_fire_hook`,
+  `fire_instance`) that the cron scheduler and the manual-run route consult,
+  and `cloacina_sync::install` puts Sync's hook on a runner. The server
+  installs it on every tenant runner with the ownership session; an embedded
+  runner calls `install` and `cloacina_sync::run_pass` by instance name.
+- **The Sync dispatcher** (COLLIERY-I-0632, CLOACINA-T-0977):
+  `cloacina_sync::dispatcher::Dispatcher` runs one pass of a sync as a series
+  of segments, one execution of the Sync workflow at a time, reading the
+  committed cursor before each and stopping when the source reports its end.
+  It waits for any outstanding execution of the sync first, and on a server
+  claims the sync on the ownership session in a new `Sync` domain
+  (`OwnershipDomain`, `ReactorId::sync`), so a sync and a reactor with one
+  name never share a lock. The read task now looks one message past its
+  checkpoint budget, so a source that ends there reports exhausted.
+- **The Sync workflow** (COLLIERY-I-0632, CLOACINA-T-0976): new crate
+  `cloacina-sync`, linked into the server and the agent, with the built-in
+  workflow `sync` (read a segment, map and enforce, write), the mapping and
+  schema-enforcement engine moved from weir, and the params a sync definition
+  binds. The write task returns the cursor and the dead-letters as completion
+  writes, so the cursor advances only after the destination has accepted the
+  segment.
+- **Connector host** (COLLIERY-I-0632, CLOACINA-T-0973): `load_connector`
+  loads a Sync source or destination member from a provider package under the
+  consumer's grants and drives spec, check, discover, the streaming read and
+  the client-streaming write (`cloacina::registry::loader::connector_host`,
+  behind `constructors-wasm`). Two WASM fixtures, an echo connector and a
+  faulty one, under `examples/constructor-contract/`, with the canonical guest
+  copy of the Sync types a connector guest carries.
+
 ### Fixed
 
 - `cloacina_constructor_contract::sync::ConnectorError` implements `Display`

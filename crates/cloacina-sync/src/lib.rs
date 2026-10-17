@@ -67,6 +67,7 @@ pub fn install(
 ) -> std::sync::Arc<hook::SyncFireHook> {
     ensure_linked();
     let hook = std::sync::Arc::new(hook::SyncFireHook::new(ownership, tenant));
+    hook.set_runner(runner.clone());
     runner.set_instance_fire_hook(hook.clone());
     hook
 }
