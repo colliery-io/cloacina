@@ -9,34 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **The Postgres connector** (COLLIERY-I-0632, CLOACINA-T-0979):
-  `connectors/postgres`, weir's Postgres guest on cloacina's contract, a Sync
-  source (full refresh, incremental by cursor, CDC) and destination (append,
-  overwrite, upsert) as one `wasm32-wasip2` component, with the CDC helpers
-  that moved with it. The canonical guest copy of the Sync types lives at
-  `crates/cloacina-constructor-contract/guest/sync_guest_types.rs`, with a
-  drift test over every guest. `cloacina_testing::connectors` builds a guest
-  and stages it as a provider package for tests. The Postgres connector tests
-  run in the Postgres integration lane; the Sync crate's unit tests join the
-  unit lane and its wasm tests the nightly constructor suite.
-- **Sync definitions** (COLLIERY-I-0632, CLOACINA-T-0978): a sync definition
-  is a workflow instance of the built-in `sync` workflow, created through the
-  existing instances route. A fire of it, on its cron or by hand, runs a pass
-  instead of one execution: the runner gains an instance fire hook
-  (`cloacina::workflow_instance::InstanceFireHook`, `set_instance_fire_hook`,
-  `fire_instance`) that the cron scheduler and the manual-run route consult,
-  and `cloacina_sync::install` puts Sync's hook on a runner. The server
-  installs it on every tenant runner with the ownership session; an embedded
-  runner calls `install` and `cloacina_sync::run_pass` by instance name.
-- **The Sync dispatcher** (COLLIERY-I-0632, CLOACINA-T-0977):
-  `cloacina_sync::dispatcher::Dispatcher` runs one pass of a sync as a series
-  of segments, one execution of the Sync workflow at a time, reading the
-  committed cursor before each and stopping when the source reports its end.
-  It waits for any outstanding execution of the sync first, and on a server
-  claims the sync on the ownership session in a new `Sync` domain
-  (`OwnershipDomain`, `ReactorId::sync`), so a sync and a reactor with one
-  name never share a lock. The read task now looks one message past its
-  checkpoint budget, so a source that ends there reports exhausted.
 - **The Sync workflow** (COLLIERY-I-0632, CLOACINA-T-0976): new crate
   `cloacina-sync`, linked into the server and the agent, with the built-in
   workflow `sync` (read a segment, map and enforce, write), the mapping and
