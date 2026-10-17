@@ -811,6 +811,7 @@ dependencies = [
  "cloacina",
  "cloacina-python",
  "cloacina-sync",
+ "cloacina-workflow",
  "futures-util",
  "reqwest 0.13.5",
  "rustls",
