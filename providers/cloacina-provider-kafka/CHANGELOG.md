@@ -7,6 +7,9 @@ cloacina core (ADR A-0010); config-schema changes are breaking changes.
 
 ### Changed
 
+- fidius-core and fidius-macro pinned to 0.5.9, the version the cloacina
+  workspace and its lockfile resolve, so the native shell and the host never
+  disagree on the wire (CLOACINA-T-0971). No behavior or config-schema change.
 - Edition 2024 and `rust-version = "1.99"`; `cargo fix --edition` and the 2024
   rustfmt style. No behavior or config-schema change (CLOACINA-T-0954).
 
