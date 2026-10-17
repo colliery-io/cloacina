@@ -1,0 +1,109 @@
+# Conformance file for the S3 connector (CLOACINA-A-0014, CLOACINA-T-0985).
+# Needs MinIO: the `minio` service of .angreal/docker-compose.yaml (profile
+# `minio`) on 19000, or CLOACINA_TEST_MINIO_HOST and CLOACINA_TEST_MINIO_PORT.
+# Run by `cargo test -p cloacina-sync --test s3_connector -- --ignored` in the
+# Postgres integration lane. The format is documented in
+# `cloacina_testing::connectors::conformance`. A step with `bucket` creates
+# it; with `key` and `body` it puts that object. Every request the guest makes
+# is signed on the host with the `minio` secret.
+
+connector = "s3"
+crate = "."
+
+[source]
+config = { endpoint = "http://${CLOACINA_TEST_MINIO_HOST:-localhost}:${CLOACINA_TEST_MINIO_PORT:-19000}", bucket = "cloacina-conformance", prefix = "orders/" }
+grants = { http = ["${CLOACINA_TEST_MINIO_HOST:-localhost}:${CLOACINA_TEST_MINIO_PORT:-19000}"] }
+credential = { kind = "aws_sigv4", secret = "minio", region = "us-east-1" }
+
+# The test service's root user.
+[secrets.minio]
+access_key_id = "minioadmin"
+secret_access_key = "minioadmin"
+
+[secrets.wrong]
+access_key_id = "minioadmin"
+secret_access_key = "not-the-key"
+
+[[setup]]
+bucket = "cloacina-conformance"
+
+[[setup]]
+bucket = "cloacina-conformance"
+key = "orders/2026-01-01.ndjson"
+body = """
+{"id":1,"item":"pen"}
+{"id":2,"item":"ink"}
+"""
+
+[[setup]]
+bucket = "cloacina-conformance"
+key = "orders/2026-01-02.ndjson"
+body = '{"id":3,"item":"nib"}'
+
+[[setup]]
+bucket = "cloacina-conformance"
+key = "orders/2026-01-03.ndjson"
+body = """
+{"id":4,"item":"pad"}
+
+{"id":5,"item":"cap"}
+"""
+
+[[setup]]
+bucket = "cloacina-conformance"
+key = "other/2026-01-01.ndjson"
+body = '{"id":99,"item":"outside the prefix"}'
+
+[spec]
+name = "s3"
+contract_version = 1
+roles = ["Source"]
+supported_sync_modes = ["FullRefresh", "Incremental"]
+
+[[check]]
+case = "good config"
+success = true
+
+[[check]]
+case = "the wrong secret key"
+secret = "wrong"
+success = false
+message_contains = "403"
+
+[[check]]
+case = "no bucket"
+config_text = '{"endpoint": "http://localhost:19000"}'
+success = false
+message_contains = "required"
+
+[discover]
+streams = [{ name = "objects", source_defined_cursor = true, default_cursor_field = "_key" }]
+
+[[read]]
+case = "full refresh"
+stream = { stream = "objects" }
+records = [
+  { id = 1, item = "pen" }, { id = 2, item = "ink" }, { id = 3, item = "nib" },
+  { id = 4, item = "pad" }, { id = 5, item = "cap" },
+]
+checkpoints = [{ cursor = "orders/2026-01-03.ndjson" }]
+dead_letters = []
+
+[[read]]
+case = "a listing one key per page"
+config = { max_keys = 1 }
+stream = { stream = "objects" }
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }]
+
+[[read]]
+case = "incremental from the start"
+stream = { stream = "objects", sync_mode = "Incremental" }
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }]
+checkpoints = [{ cursor = "orders/2026-01-03.ndjson" }]
+
+[[read]]
+case = "incremental resumes after a key"
+stream = { stream = "objects", sync_mode = "Incremental" }
+state = { cursor = "orders/2026-01-01.ndjson" }
+records = [{ id = 3 }, { id = 4 }, { id = 5 }]
+checkpoints = [{ cursor = "orders/2026-01-03.ndjson" }]

@@ -316,6 +316,16 @@ def integration(
                     subprocess.run(mssql_cmd, check=True)
                 finally:
                     subprocess.run(compose + ["rm", "-sf", "mssql"], check=False)
+                # CLOACINA-T-0985: the S3 connector against MinIO, under the
+                # compose profile `minio`.
+                minio = ["docker", "compose", "-f", str(DOCKER_COMPOSE_FILE), "--profile", "minio"]
+                subprocess.run(minio + ["up", "-d", "--wait", "minio"], check=True)
+                try:
+                    s3_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "s3_connector", "--", "--ignored", "--test-threads=1"]
+                    print(f"Running: {' '.join(s3_cmd)}")
+                    subprocess.run(s3_cmd, check=True)
+                finally:
+                    subprocess.run(minio + ["rm", "-sf", "minio"], check=False)
             if backend_name == "postgres" and not skip_rust:
                 print_section_header("Running cloacina-server lib tests (Postgres)")
                 server_cmd = ["cargo", "test", "-p", "cloacina-server", "--lib"]
