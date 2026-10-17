@@ -266,11 +266,7 @@ async fn a_definition_without_a_name_is_refused_before_anything_runs() {
     let dispatcher = Dispatcher::new(runner.clone());
     let (_tx, stop) = tokio::sync::watch::channel(false);
     let def = SyncDefinition::new(HashMap::new());
-    let err = dispatcher
-        .run_pass(&def, stop)
-        .await
-        .err()
-        .expect("refused");
+    let err = dispatcher.run_pass(&def, stop).await.expect_err("refused");
     assert!(err.to_string().contains("sync"), "{err}");
     runner.shutdown().await.unwrap();
 }
