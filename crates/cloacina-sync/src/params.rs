@@ -29,6 +29,8 @@ use cloacina_constructor_contract::sync::{
     ConfiguredStream, DeadLetter, Partition, RecordBatch, StreamSchema, StreamState,
 };
 use serde::de::DeserializeOwned;
+
+use crate::credential::CredentialSpec;
 use serde_json::Value;
 
 /// Instance params of a sync definition, by key.
@@ -42,10 +44,14 @@ pub mod keys {
     pub const SOURCE_CONFIG: &str = "source_config";
     /// The source's capability grants, a JSON `GrantSpec`; absent means deny all.
     pub const SOURCE_GRANTS: &str = "source_grants";
+    /// The source's credential, a JSON `CredentialSpec`; absent means none.
+    /// It names a secret, never holds one.
+    pub const SOURCE_CREDENTIAL: &str = "source_credential";
     pub const DESTINATION_PROVIDER: &str = "destination_provider";
     pub const DESTINATION_MEMBER: &str = "destination_member";
     pub const DESTINATION_CONFIG: &str = "destination_config";
     pub const DESTINATION_GRANTS: &str = "destination_grants";
+    pub const DESTINATION_CREDENTIAL: &str = "destination_credential";
     /// The configured stream, a JSON `ConfiguredStream`.
     pub const STREAM: &str = "stream";
     /// The partition, a JSON `Partition`; absent means unpartitioned.
@@ -97,6 +103,8 @@ pub struct Endpoint {
     pub config: String,
     /// The capability grants, as a JSON `GrantSpec`; `None` means deny all.
     pub grants: Option<Value>,
+    /// The credential the host applies to this side's allowed requests.
+    pub credential: Option<CredentialSpec>,
 }
 
 /// The params of a sync definition as the tasks read them from the context.
@@ -151,12 +159,14 @@ fn endpoint(
     member: &'static str,
     config: &'static str,
     grants: &'static str,
+    credential: &'static str,
 ) -> Result<Endpoint, ParamError> {
     Ok(Endpoint {
         provider: string(ctx, provider)?,
         member: string(ctx, member)?,
         config: string(ctx, config).unwrap_or_else(|_| "{}".to_string()),
         grants: json::<Value>(ctx, grants)?,
+        credential: json::<CredentialSpec>(ctx, credential)?,
     })
 }
 
@@ -171,6 +181,7 @@ impl SyncParams {
                 keys::SOURCE_MEMBER,
                 keys::SOURCE_CONFIG,
                 keys::SOURCE_GRANTS,
+                keys::SOURCE_CREDENTIAL,
             )?,
             destination: endpoint(
                 ctx,
@@ -178,6 +189,7 @@ impl SyncParams {
                 keys::DESTINATION_MEMBER,
                 keys::DESTINATION_CONFIG,
                 keys::DESTINATION_GRANTS,
+                keys::DESTINATION_CREDENTIAL,
             )?,
             stream: json::<ConfiguredStream>(ctx, keys::STREAM)?
                 .ok_or(ParamError::Missing(keys::STREAM))?,

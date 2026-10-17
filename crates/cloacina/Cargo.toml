@@ -52,6 +52,8 @@ constructors-wasm = [
     "dep:fidius-macro",
     "dep:cloacina-constructor-contract",
     "fidius-host/wasm",
+    "dep:hmac",
+    "dep:ring",
     # CLOACI-T-0904: server-streaming dispatch (`PluginHandle::call_streaming` /
     # `ChunkStream`) for a native provider-supplied STREAM accumulator. Gates the
     # loader's stream-accumulator path + the fidius stream module.
@@ -119,6 +121,10 @@ argon2 = { version = "0.6" }
 # (CLOACINA-T-0963).
 ed25519-dalek = { version = "2.1" }
 hex = { version = "0.4" }
+# Host-side credential injection (CLOACINA-T-0982): SigV4 HMAC and the
+# Snowflake key-pair RS256 JWT. Only with `constructors-wasm`.
+hmac = { version = "0.13", optional = true }
+ring = { version = "0.17", optional = true }
 pem = { version = "4" }
 toml = { version = "1" }
 anyhow = { version = "1.0" }
