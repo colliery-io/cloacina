@@ -29,6 +29,10 @@ pub mod connector_host;
 /// Default-OFF behind the `constructors-wasm` feature.
 #[cfg(feature = "constructors-wasm")]
 pub mod constructor_loader;
+/// Host-side credential injection into egress (COLLIERY-I-0633 / CLOACINA-T-0982).
+/// Default-OFF behind the `constructors-wasm` feature.
+#[cfg(feature = "constructors-wasm")]
+pub mod credentials;
 pub mod ffi_trigger;
 pub mod ffi_triggerless_graph;
 /// Constructor capability grants → fidius enforcement (CLOACI-T-0834).
