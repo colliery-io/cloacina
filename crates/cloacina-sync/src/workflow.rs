@@ -353,7 +353,14 @@ pub mod sync {
     }
 
     /// Apply the mapping and the typed schema; failures become dead-letters.
-    #[task(id = "map_enforce", dependencies = ["read_segment"])]
+    // Only after a successful read: the default rule runs a dependent after an
+    // upstream failure too, and a segment that was never read must not be
+    // mapped or written.
+    #[task(
+        id = "map_enforce",
+        dependencies = ["read_segment"],
+        trigger_rules = task_success("read_segment")
+    )]
     pub async fn map_enforce(context: &mut Context<Value>) -> Result<(), TaskError> {
         let p = SyncParams::from_context(context).map_err(|e| task_err("map_enforce", e))?;
         let batches = params::batches(context).map_err(|e| task_err("map_enforce", e))?;
@@ -367,14 +374,28 @@ pub mod sync {
 
     /// Write the segment, then hand the cursor and the dead-letters to the
     /// completion transaction.
-    #[task(id = "write", dependencies = ["map_enforce"], retry_attempts = 3)]
+    // Only after a successful map: a write that ran after a failed read would
+    // commit an empty cursor and reset the stream.
+    #[task(
+        id = "write",
+        dependencies = ["map_enforce"],
+        retry_attempts = 3,
+        trigger_rules = task_success("map_enforce")
+    )]
     pub async fn write(context: &mut Context<Value>) -> Result<(), TaskError> {
         let p = SyncParams::from_context(context).map_err(|e| task_err("write", e))?;
         let batches = params::batches(context).map_err(|e| task_err("write", e))?;
         let mut dead = params::dead_letters(context).map_err(|e| task_err("write", e))?;
+        // The read's state is the cursor this write commits. Without it there is
+        // nothing safe to commit: refuse rather than write a fresh cursor.
         let next_state: StreamState = params::handoff(context, keys::NEXT_STATE)
             .map_err(|e| task_err("write", e))?
-            .unwrap_or_default();
+            .ok_or_else(|| {
+                task_err(
+                    "write",
+                    "no segment state from read_segment; refusing to commit a cursor",
+                )
+            })?;
         let exhausted = matches!(context.get(keys::EXHAUSTED), Some(Value::Bool(true)));
 
         let accepted = if batches.is_empty() {
