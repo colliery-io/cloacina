@@ -36,6 +36,7 @@
 // crate does not declare.
 #![allow(unexpected_cfgs)]
 
+pub mod credential;
 pub mod dispatcher;
 pub mod fault;
 pub mod hook;
