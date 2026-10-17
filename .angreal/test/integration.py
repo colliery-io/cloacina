@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import angreal  # type: ignore
-from utils import docker_clean, docker_down, docker_up
+from utils import DOCKER_COMPOSE_FILE, docker_clean, docker_down, docker_up
 
 from ._python_utils import (
     TestAggregator,
@@ -305,6 +305,17 @@ def integration(
                 sync_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "postgres_connector", "--test", "conformance", "--", "--ignored", "--test-threads=1"]
                 print(f"Running: {' '.join(sync_cmd)}")
                 subprocess.run(sync_cmd, check=True)
+                # CLOACINA-T-0984: the MSSQL connector against SQL Server, which
+                # runs under the compose profile `mssql` so a default
+                # `services up` never pulls it.
+                compose = ["docker", "compose", "-f", str(DOCKER_COMPOSE_FILE), "--profile", "mssql"]
+                subprocess.run(compose + ["up", "-d", "--wait", "mssql"], check=True)
+                try:
+                    mssql_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "mssql_connector", "--", "--ignored", "--test-threads=1"]
+                    print(f"Running: {' '.join(mssql_cmd)}")
+                    subprocess.run(mssql_cmd, check=True)
+                finally:
+                    subprocess.run(compose + ["rm", "-sf", "mssql"], check=False)
             if backend_name == "postgres" and not skip_rust:
                 print_section_header("Running cloacina-server lib tests (Postgres)")
                 server_cmd = ["cargo", "test", "-p", "cloacina-server", "--lib"]

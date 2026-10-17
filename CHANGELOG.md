@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The MSSQL connector** (COLLIERY-I-0633, CLOACINA-T-0984):
+  `connectors/mssql`, weir's SQL Server source (full refresh, incremental by
+  cursor) on cloacina's contract, with TLS through rustls. Its TDS driver is
+  `vendor/tiberius-wasm`, weir's fork of tiberius 0.12.3 (MIT or Apache-2.0)
+  that builds for `wasm32-wasip2`. An incremental read now compares the
+  cursor in the column's own type: weir compared it as text, so an integer
+  cursor at 9 skipped 10 and later rows. SQL Server runs under the compose
+  profile `mssql`, and the Postgres integration lane runs the MSSQL
+  conformance file and one MSSQL to Postgres sync against it.
 - **The connector conformance kit** (COLLIERY-I-0633, CLOACINA-T-0983,
   CLOACINA-A-0014): `cloacina_testing::connectors::conformance` runs a
   connector's conformance file, TOML beside the connector, through a host:

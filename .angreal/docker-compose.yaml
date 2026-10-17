@@ -69,6 +69,30 @@ services:
       timeout: 5s
       retries: 10
 
+  # SQL Server for the MSSQL connector tests (CLOACINA-T-0984). Under the
+  # `mssql` profile, so `angreal services up` does not pull the image (about
+  # 1.5 GB, amd64 only); the Postgres integration lane starts it. Developer
+  # edition, free for development and test. No volume: each start is fresh, and
+  # the tests seed what they read.
+  mssql:
+    profiles: ["mssql"]
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: cloacina-mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "cloacinaStrong!Pass1"
+      MSSQL_PID: "Developer"
+    ports:
+      - "127.0.0.1:11433:1433"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -Q "SELECT 1" || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
 volumes:
   postgres_data:
     name: cloacina_postgres_data

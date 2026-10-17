@@ -24,87 +24,17 @@
 //! the environment moves the guests' artifacts away from the path the kit
 //! reads; the build runs with it unset.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use cloacina::registry::loader::connector_host::{ConnectorHandle, load_connector};
-use cloacina::registry::loader::grants::{ResolvedGrants, translate};
 use cloacina_constructor_contract::sync::{
     CheckResult, Config, ConnectorSpec, DiscoverOutcome, ReadContext, ReadMessage, RecordBatch,
     WriteContext, WriteOutcome,
 };
-use cloacina_sync::workflow::grant_spec_from_json;
 use cloacina_testing::connectors::conformance::{self, Connector, Host, ReadIter, Report, Service};
-use cloacina_testing::connectors::{crate_name, stage_connector};
 use serde_json::{Map, Value};
 
-/// The kit's host over cloacina's connector host: stages each crate under one
-/// directory per test process and loads members from there.
-struct ConnectorHost {
-    root: PathBuf,
-}
-
-impl ConnectorHost {
-    fn new(tag: &str) -> Self {
-        let root =
-            std::env::temp_dir().join(format!("cloacina-conformance-{tag}-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        Self { root }
-    }
-}
-
-impl Host for ConnectorHost {
-    fn prepare(&self, crate_dir: &Path) -> Result<String, String> {
-        stage_connector(&self.root, crate_dir);
-        Ok(crate_name(crate_dir))
-    }
-
-    fn load(
-        &self,
-        package: &str,
-        member: &str,
-        config: &Config,
-        grants: Option<&Value>,
-    ) -> Result<Box<dyn Connector>, String> {
-        let grants = match grants {
-            None => ResolvedGrants::deny_all(),
-            Some(v) => translate(&grant_spec_from_json(v)?).map_err(|e| e.to_string())?,
-        };
-        load_connector(&self.root, package, member, config, &grants)
-            .map(|h| Box::new(Handle(h)) as Box<dyn Connector>)
-            .map_err(|e| e.to_string())
-    }
-}
-
-struct Handle(ConnectorHandle);
-
-impl Connector for Handle {
-    fn spec(&self) -> Result<ConnectorSpec, String> {
-        self.0.spec().map_err(|e| e.to_string())
-    }
-
-    fn check(&self, config: &Config) -> Result<CheckResult, String> {
-        self.0.check(config).map_err(|e| e.to_string())
-    }
-
-    fn discover(&self, config: &Config) -> Result<DiscoverOutcome, String> {
-        self.0.discover(config).map_err(|e| e.to_string())
-    }
-
-    fn read(&self, ctx: &ReadContext) -> Result<ReadIter<'_>, String> {
-        let iter = self.0.read_blocking(ctx).map_err(|e| e.to_string())?;
-        Ok(Box::new(iter.map(|m| m.map_err(|e| e.to_string()))))
-    }
-
-    fn write(&self, ctx: &WriteContext, batches: Vec<RecordBatch>) -> Result<WriteOutcome, String> {
-        self.0.write(ctx, batches).map_err(|e| e.to_string())
-    }
-}
-
-fn repo(path: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(path)
-}
+mod support;
+use support::{ConnectorHost, repo};
 
 #[test]
 fn echo_conforms() {
