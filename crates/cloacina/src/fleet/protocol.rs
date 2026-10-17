@@ -64,6 +64,16 @@ pub const GRAPH_PACKET_KIND: &str = "agent_graph";
 /// string for an agent is `format!("{}{}", AGENT_RECIPIENT_PREFIX, agent_id)`.
 pub const AGENT_RECIPIENT_PREFIX: &str = "agent:";
 
+/// The `WorkPacket.language` of a BUILT-IN task (COLLIERY-I-0632 /
+/// CLOACINA-T-0975): a task compiled into the server and the agent and seeded
+/// from inventory, whose namespace package segment is the crate that defines
+/// it. The server marks a task built in when no package artifact exists for
+/// that package yet its own runtime knows the task, which only inventory can
+/// explain. Any agent in the task's tenant may run it; the agent resolves it
+/// from its own inventory-seeded runtime and fetches nothing. The first
+/// built-in workflow is Sync's.
+pub const BUILTIN_LANGUAGE: &str = "builtin";
+
 /// Default suggested heartbeat interval the server returns to a registering
 /// agent if no operator override is configured.
 pub const DEFAULT_HEARTBEAT_INTERVAL_SECONDS: u32 = 15;
@@ -236,7 +246,9 @@ pub struct WorkPacket {
     /// absent, for older servers) → `dlopen` the cdylib at `artifact`;
     /// `"python"` → fetch the source archive and import it via PyO3. Defaults
     /// to `"rust"` when missing so a packet from a pre-CLOACI-T-0716 server is
-    /// still handled as before. (CLOACI-T-0716)
+    /// still handled as before. (CLOACI-T-0716) `"builtin"` ([`BUILTIN_LANGUAGE`])
+    /// → a task compiled into the agent binary; `artifact` is a placeholder
+    /// and nothing is fetched (CLOACINA-T-0975).
     #[serde(default)]
     pub language: Option<String>,
     /// CLOACI-T-0861 — secrets this task needs, each HPKE-wrapped to the target

@@ -9,15 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Sync connector contract** (COLLIERY-I-0632, CLOACINA-A-0013): the
-  constructor contract gains two primitive kinds, `source` and `destination`,
-  one five-method `connector` interface (spec, check, discover, streaming
-  read, client-streaming write), and a `sync` module with the boundary types,
-  the typed stream schema, the error taxonomy, cursor comparison and the
-  bincode envelope codec, moved from weir with their wire shape unchanged. A
-  manifest may carry `connector` metadata (roles, sync modes, config schema)
-  for the catalog. The `wit` feature adds `WitType` derives for guests
-  (CLOACINA-T-0972).
+- **Built-in workflows on the fleet** (COLLIERY-I-0632, CLOACINA-T-0975): a
+  task compiled into the server and the agent and seeded from inventory, with
+  no package artifact, dispatches to any agent in its tenant. The server marks
+  it built in when no artifact exists yet its own runtime knows the task. The
+  work packet's `language` is `"builtin"` (`cloacina::fleet::BUILTIN_LANGUAGE`);
+  the agent resolves the task from its own inventory and fetches nothing.
 
 - **Sync docs** (COLLIERY-I-0632, CLOACINA-T-0981): an explanation page for
   Sync with its vocabulary and the segment-by-segment shape, a Connector
@@ -32,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   claim writes nothing; a failed write leaves the task not completed. New
   tables `sync_stream_state` (the committed cursor of a sync stream) and
   `sync_dead_letters`, with read-only DAL accessors; migration 051.
+
+- **Sync connector contract** (COLLIERY-I-0632, CLOACINA-A-0013): the
+  constructor contract gains two primitive kinds, `source` and `destination`,
+  one five-method `connector` interface (spec, check, discover, streaming
+  read, client-streaming write), and a `sync` module with the boundary types,
+  the typed stream schema, the error taxonomy, cursor comparison and the
+  bincode envelope codec, moved from weir with their wire shape unchanged. A
+  manifest may carry `connector` metadata (roles, sync modes, config schema)
+  for the catalog. The `wit` feature adds `WitType` derives for guests
+  (CLOACINA-T-0972).
 
 ## [0.12.0] - 2026-10-13
 
