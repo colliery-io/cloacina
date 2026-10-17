@@ -48,6 +48,8 @@ utoipa = { version = "6" }
 # Python-language packages can be loaded by the reconciler. Compiler
 # service intentionally does not depend on this (T-0529).
 cloacina-python = { workspace = true, default-features = false }
+# The built-in Sync workflow (COLLIERY-I-0632): seeded from inventory at startup.
+cloacina-sync = { workspace = true }
 clap.workspace = true
 anyhow.workspace = true
 serde = { version = "1.0", features = ["derive"] }

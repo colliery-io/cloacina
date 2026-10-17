@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Sync workflow** (COLLIERY-I-0632, CLOACINA-T-0976): new crate
+  `cloacina-sync`, linked into the server and the agent, with the built-in
+  workflow `sync` (read a segment, map and enforce, write), the mapping and
+  schema-enforcement engine moved from weir, and the params a sync definition
+  binds. The write task returns the cursor and the dead-letters as completion
+  writes, so the cursor advances only after the destination has accepted the
+  segment.
 - **Connector host** (COLLIERY-I-0632, CLOACINA-T-0973): `load_connector`
   loads a Sync source or destination member from a provider package under the
   consumer's grants and drives spec, check, discover, the streaming read and
