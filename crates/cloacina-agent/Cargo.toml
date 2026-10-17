@@ -63,3 +63,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 [dev-dependencies]
+# The built-in probe workflow in the test module uses the authoring macros
+# (CLOACINA-T-0975); the shipped agent does not author workflows itself.
+cloacina = { workspace = true, default-features = false, features = ["sqlite", "constructors-wasm", "macros"] }
+# The macro-generated task code names this crate directly.
+cloacina-workflow = { workspace = true }
