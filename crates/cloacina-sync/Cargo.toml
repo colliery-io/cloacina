@@ -46,4 +46,7 @@ tempfile = "3.2"
 cloacina-testing = { workspace = true }
 # Raw SQL for seeding and checking the dev Postgres in the connector tests.
 postgres = "0.19"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+# Seeding the SQL Server of the MSSQL connector tests, unencrypted.
+tiberius = { version = "0.12", default-features = false, features = ["tds73"] }
+tokio-util = { version = "0.7", features = ["compat"] }

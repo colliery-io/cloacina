@@ -44,6 +44,12 @@ pub mod mapping;
 pub mod params;
 pub mod workflow;
 
+// The MSSQL connector's statements are pure, but the connector is a wasm guest
+// that no lane builds natively: its unit tests run here (CLOACINA-T-0984).
+#[cfg(test)]
+#[path = "../../../connectors/mssql/src/sql.rs"]
+mod mssql_sql;
+
 /// The name of the built-in Sync workflow, as a sync definition's instance
 /// names it and as the dispatcher executes it.
 pub const WORKFLOW_NAME: &str = "sync";
