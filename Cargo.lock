@@ -1027,9 +1027,11 @@ dependencies = [
  "cloacina-workflow",
  "indexmap 2.14.2",
  "petgraph 0.8.3",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]

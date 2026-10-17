@@ -23,6 +23,8 @@
 //! A `CARGO_TARGET_DIR` in the environment would move the guest's artifact
 //! away from the path this reads; the build is run with it unset.
 
+pub mod conformance;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;

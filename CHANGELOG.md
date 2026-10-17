@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The connector conformance kit** (COLLIERY-I-0633, CLOACINA-T-0983,
+  CLOACINA-A-0014): `cloacina_testing::connectors::conformance` runs a
+  connector's conformance file, TOML beside the connector, through a host:
+  spec, check with good and bad configs, discover, read from a state, and
+  write, with optional setup and verify steps against the test service. A
+  failure names the method, the case and the difference. The echo fixture and
+  the Postgres connector have conformance files, and
+  `cargo test -p cloacina-sync --test conformance` runs them through the real
+  connector host; the Postgres run joins the Postgres integration lane. The
+  unit lane now runs `cloacina-testing`'s tests.
 - **Sync credentials** (COLLIERY-I-0633, CLOACINA-T-0982): a sync side names
   its credential in `source_credential` or `destination_credential`, a JSON
   object with a `kind` (`header`, `query`, `aws_sigv4`,

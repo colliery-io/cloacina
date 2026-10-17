@@ -299,9 +299,10 @@ def integration(
             # them, so they drifted.
             # COLLIERY-I-0632 / CLOACINA-T-0979: the Sync Postgres connector tests
             # need the live Postgres and build the guest to wasm32-wasip2; they are
-            # #[ignore]d so a plain `cargo test` stays database-free.
+            # #[ignore]d so a plain `cargo test` stays database-free. The
+            # conformance target runs the Postgres conformance file (CLOACINA-T-0983).
             if backend_name == "postgres" and not skip_rust:
-                sync_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "postgres_connector", "--", "--ignored", "--test-threads=1"]
+                sync_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "postgres_connector", "--test", "conformance", "--", "--ignored", "--test-threads=1"]
                 print(f"Running: {' '.join(sync_cmd)}")
                 subprocess.run(sync_cmd, check=True)
             if backend_name == "postgres" and not skip_rust:

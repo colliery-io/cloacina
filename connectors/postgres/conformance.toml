@@ -1,0 +1,105 @@
+# Conformance file for the Postgres connector (CLOACINA-A-0014, CLOACINA-T-0983).
+# Needs a Postgres: the dev database on 15432 (`angreal services up`) or
+# CLOACINA_TEST_PG_URL. Run by `cargo test -p cloacina-sync --test conformance
+# -- --ignored` in the Postgres integration lane. The format is documented in
+# `cloacina_testing::connectors::conformance`; `sql` steps run statements and
+# `query` steps return rows.
+
+connector = "postgres"
+crate = "."
+
+[source]
+config = { url = "${CLOACINA_TEST_PG_URL:-postgres://cloacina:cloacina@localhost:15432/cloacina}?sslmode=disable" }
+# Any peer: the database's port comes from the environment.
+grants = { tcp = ["*"] }
+
+[destination]
+config = { url = "${CLOACINA_TEST_PG_URL:-postgres://cloacina:cloacina@localhost:15432/cloacina}?sslmode=disable" }
+grants = { tcp = ["*"] }
+
+[[setup]]
+sql = """
+DROP TABLE IF EXISTS conf_pg_src, conf_pg_append, conf_pg_upsert;
+CREATE TABLE conf_pg_src (n BIGINT PRIMARY KEY, name TEXT);
+INSERT INTO conf_pg_src (n, name) VALUES (1, 'row 1'), (2, 'row 2'), (3, 'row 3');
+"""
+
+[spec]
+name = "postgres"
+contract_version = 1
+roles = ["Source", "Destination"]
+supported_sync_modes = ["FullRefresh", "Incremental", "Cdc"]
+
+[[check]]
+case = "good config"
+success = true
+
+[[check]]
+case = "wrong password"
+config = { url = "postgres://nobody:wrong@localhost:${CLOACINA_TEST_PG_PORT:-15432}/cloacina?sslmode=disable" }
+success = false
+
+[discover]
+streams = [{ name = "conf_pg_src", source_defined_primary_key = ["n"] }]
+exact = false
+
+[[read]]
+case = "full refresh"
+stream = { stream = "conf_pg_src" }
+records = [
+  { n = 1, name = "row 1" },
+  { n = 2, name = "row 2" },
+  { n = 3, name = "row 3" },
+]
+dead_letters = []
+
+[[read]]
+case = "incremental from the start"
+stream = { stream = "conf_pg_src", sync_mode = "Incremental", cursor_field = "n" }
+records = [{ n = 1 }, { n = 2 }, { n = 3 }]
+checkpoints = [{ cursor = 3 }]
+
+[[read]]
+case = "incremental resumes after the cursor"
+stream = { stream = "conf_pg_src", sync_mode = "Incremental", cursor_field = "n" }
+state = { cursor = 2 }
+records = [{ n = 3, name = "row 3" }]
+checkpoints = [{ cursor = 3 }]
+
+[[write]]
+case = "append"
+config = { table = "conf_pg_append" }
+stream = { stream = "conf_pg_append" }
+batches = [[{ n = 1, name = "a" }, { n = 2, name = "b" }], [{ n = 3, name = "c" }]]
+accepted = 3
+dead_letters = []
+
+[[write.verify]]
+query = "SELECT n, name FROM conf_pg_append"
+rows = [
+  { n = 1, name = "a" },
+  { n = 2, name = "b" },
+  { n = 3, name = "c" },
+]
+
+[[write]]
+case = "upsert"
+config = { table = "conf_pg_upsert" }
+stream = { stream = "conf_pg_upsert", primary_key = ["n"], write_mode = { Upsert = { business_keys = ["n"] } } }
+batches = [[{ n = 1, name = "a" }, { n = 2, name = "b" }]]
+accepted = 2
+
+[[write]]
+case = "upsert again keeps one row per key"
+config = { table = "conf_pg_upsert" }
+stream = { stream = "conf_pg_upsert", primary_key = ["n"], write_mode = { Upsert = { business_keys = ["n"] } } }
+batches = [[{ n = 2, name = "b2" }, { n = 3, name = "c" }]]
+accepted = 2
+
+[[write.verify]]
+query = "SELECT n, name FROM conf_pg_upsert"
+rows = [
+  { n = 1, name = "a" },
+  { n = 2, name = "b2" },
+  { n = 3, name = "c" },
+]
