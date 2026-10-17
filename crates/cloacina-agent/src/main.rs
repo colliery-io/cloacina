@@ -100,6 +100,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Keep the Sync workflow's inventory entries linked in (COLLIERY-I-0632).
+    cloacina_sync::ensure_linked();
     // rustls has both ring and aws-lc-rs compiled in; without a process
     // default, a wss:// connect panics choosing one.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();

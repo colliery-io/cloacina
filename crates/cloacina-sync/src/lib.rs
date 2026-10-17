@@ -1,0 +1,51 @@
+/*
+ *  Copyright 2025-2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+//! # Sync (COLLIERY-I-0632, CLOACINA-A-0013)
+//!
+//! Move records from a **source** to a **destination** through sandboxed
+//! connectors, one **segment** per workflow execution, with a **cursor** that
+//! advances only after the durable write.
+//!
+//! This crate holds the built-in [`workflow`] with its three tasks (read a
+//! segment, map and enforce, write), the [`mapping`] engine, and the
+//! [`params`] a sync definition binds. It is linked into `cloacina-server` and
+//! `cloacina-agent` so the workflow is seeded from inventory on both; an
+//! embedded runner gets it by depending on this crate and calling
+//! [`ensure_linked`] once.
+//!
+//! The dispatcher that loops over segments is `dispatcher` (CLOACINA-T-0977).
+
+// The `#[workflow]` macro emits `cfg(feature = "packaged")`, a feature this
+// crate does not declare.
+#![allow(unexpected_cfgs)]
+
+pub mod mapping;
+pub mod params;
+pub mod workflow;
+
+/// The name of the built-in Sync workflow, as a sync definition's instance
+/// names it and as the dispatcher executes it.
+pub const WORKFLOW_NAME: &str = "sync";
+
+/// Keep this crate linked. The workflow registers itself through `inventory`
+/// entries in this crate's object file; a binary that depends on the crate
+/// but never names a symbol from it may have the linker drop the object and
+/// the entries with it. Call this once at startup from any binary that must
+/// run syncs. It does nothing else.
+pub fn ensure_linked() {
+    std::hint::black_box(WORKFLOW_NAME);
+}

@@ -181,6 +181,8 @@ fn default_home() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Keep the Sync workflow's inventory entries linked in (COLLIERY-I-0632).
+    cloacina_sync::ensure_linked();
     let cli = Cli::parse();
 
     if let Some(Command::EmitOpenapi) = cli.command {
