@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tables `sync_stream_state` (the committed cursor of a sync stream) and
   `sync_dead_letters`, with read-only DAL accessors; migration 051.
 
+- **Sync connector contract** (COLLIERY-I-0632, CLOACINA-A-0013): the
+  constructor contract gains two primitive kinds, `source` and `destination`,
+  one five-method `connector` interface (spec, check, discover, streaming
+  read, client-streaming write), and a `sync` module with the boundary types,
+  the typed stream schema, the error taxonomy, cursor comparison and the
+  bincode envelope codec, moved from weir with their wire shape unchanged. A
+  manifest may carry `connector` metadata (roles, sync modes, config schema)
+  for the catalog. The `wit` feature adds `WitType` derives for guests
+  (CLOACINA-T-0972).
+
 ## [0.12.0] - 2026-10-13
 
 ### Changed

@@ -904,7 +904,9 @@ dependencies = [
 name = "cloacina-constructor-contract"
 version = "0.12.0"
 dependencies = [
+ "bincode",
  "cloacina-api-types",
+ "fidius-macro",
  "serde",
  "serde_json",
 ]
