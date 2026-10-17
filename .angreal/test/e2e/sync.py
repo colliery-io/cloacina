@@ -191,6 +191,26 @@ def _start_agent(home: Path, server_url: str, bootstrap_key: str, providers: Pat
     return proc
 
 
+def _public_agent_key(server_url: str, bootstrap_key: str) -> str:
+    """A key scoped to the `public` tenant. Sync's tasks run in `public`, and the
+    fleet only hands a task to an agent registered in the task's tenant; the
+    bootstrap key is the admin realm, not `public`."""
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"{server_url}/v1/tenants/public/keys",
+        data=json.dumps({"name": "sync-e2e-agent", "role": "write"}).encode(),
+        headers={"Authorization": f"Bearer {bootstrap_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        body = json.loads(resp.read())
+    key = body.get("key") or body.get("api_key") or body.get("plaintext")
+    if not key:
+        raise AssertionError(f"tenant key response carried no key: {body}")
+    return key
+
+
 def _fire(home: Path, sync: str, params: dict) -> str:
     """Fire the sync by hand: the manual-run route goes through the instance
     fire hook, which runs a pass and returns its first execution."""
@@ -205,10 +225,25 @@ def _wait_cursor(sync: str, src_table: str, expect_cursor: str, timeout_s: float
             f"SELECT cursor || '|' || exhausted::text FROM sync_stream_state "
             f"WHERE sync_name = '{sync}' AND stream = '{src_table}'"
         )
-        if last == f"{expect_cursor}|t":
+        if last in (f"{expect_cursor}|t", f"{expect_cursor}|true"):
             return
         time.sleep(2.0)
     raise AssertionError(f"sync {sync!r} did not reach cursor {expect_cursor} exhausted; last row: {last!r}")
+
+
+def _wait_rows(table: str, expect: int, timeout_s: float) -> None:
+    """Poll until `table` exists and holds `expect` rows."""
+    deadline = time.time() + timeout_s
+    last = None
+    while time.time() < deadline:
+        try:
+            last = _psql(f"SELECT count(*) FROM {table}")
+            if last == str(expect):
+                return
+        except subprocess.CalledProcessError:
+            last = "(table not there yet)"
+        time.sleep(1.0)
+    raise AssertionError(f"{table} did not reach {expect} rows; last: {last!r}")
 
 
 def _seed(src_table: str, dst_table: str, rows: int) -> None:
@@ -253,8 +288,9 @@ def sync():
     try:
         server = _start_server(home, bind, bootstrap_key, "server.log")
         _cloacinactl(home, "config", "profile", "set", "local", server_url, "--api-key", bootstrap_key, "--default")
-        agent = _start_agent(home, server_url, bootstrap_key, providers, "agent.log")
-        print("  ok: server (fleet) and agent up")
+        agent_key = _public_agent_key(server_url, bootstrap_key)
+        agent = _start_agent(home, server_url, agent_key, providers, "agent.log")
+        print("  ok: server (fleet) and agent up, agent in tenant public")
 
         # The sync definition is an instance of the Sync workflow; the route
         # accepts the params the workflow declares.
@@ -267,13 +303,14 @@ def sync():
         # ---- A. kill the agent after the destination wrote, before the task returned ----
         _seed("e2e_src_a", "e2e_dst_a", 5)
         _fire(home, "e2e-agent-kill", params_a)
-        time.sleep(8.0)  # read and map are quick; the write is now held by the fault
-        written = _psql("SELECT count(*) FROM e2e_dst_a")
-        assert written == "5", f"the destination should hold the segment before the agent dies, got {written!r}"
+        # The destination holds the segment while the write task is held by the
+        # fault: the window between the durable write and the completion writes.
+        _wait_rows("e2e_dst_a", 5, timeout_s=120.0)
+        assert _psql("SELECT count(*) FROM sync_stream_state WHERE sync_name = 'e2e-agent-kill'") == "0", "nothing committed while the write is held"
         agent.send_signal(signal.SIGKILL)
         agent.wait(timeout=10)
         print("  agent killed mid-write; starting a new agent")
-        agent = _start_agent(home, server_url, bootstrap_key, providers, "agent2.log")
+        agent = _start_agent(home, server_url, agent_key, providers, "agent2.log")
         _wait_cursor("e2e-agent-kill", "e2e_src_a", "5", timeout_s=180.0)
         assert _psql("SELECT count(*) FROM e2e_dst_a") == "5", "upsert keeps the destination equal to the source"
         print("  ok: A. the reclaimed task wrote the segment again; cursor 5, five rows")
@@ -295,8 +332,7 @@ def sync():
         assert server.poll() == 86, f"the server should have exited through the injected fault, got {server.poll()!r}"
         print("  server exited before the completion writes; restarting without the fault")
         server = _start_server(home, bind, bootstrap_key, "server-b2.log")
-        time.sleep(5.0)
-        assert _psql("SELECT count(*) FROM e2e_dst_b") == "5", "the segment was written before the server died"
+        _wait_rows("e2e_dst_b", 5, timeout_s=30.0)  # the segment was written before the server died
         assert _psql("SELECT count(*) FROM sync_stream_state WHERE sync_name = 'e2e-server-kill'") == "0", "nothing committed yet"
         # The next fire waits for the outstanding execution: its stale claim is
         # swept and re-dispatched, the write runs again, and the commit lands.
