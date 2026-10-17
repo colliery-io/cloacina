@@ -48,6 +48,7 @@ use cloacina_constructor_contract::sync::{
 use cloacina_workflow::completion_writes::{CompletionWrites, DeadLetterWrite, StreamStateWrite};
 use serde_json::Value;
 
+use crate::fault;
 use crate::mapping::{self, Mapped};
 use crate::params::{self, Endpoint, SegmentInput, SyncParams, keys};
 
@@ -321,7 +322,8 @@ fn task_err(task_id: &str, e: impl std::fmt::Display) -> TaskError {
         stream: String,
         partition: String = "",
         schema: String = "",
-        segment_checkpoints: i64 = 1
+        segment_checkpoints: i64 = 1,
+        fault: String = ""
     )
 )]
 pub mod sync {
@@ -387,6 +389,12 @@ pub mod sync {
             dead.extend(more_dead);
             accepted
         };
+
+        // Test-only faults, between the durable write and the completion writes:
+        // exactly the window a crash must not lose a record in.
+        fault::after_write(context)
+            .await
+            .map_err(|e| task_err("write", e))?;
 
         // The durable write is done. The cursor and the dead-letters go to the
         // transaction that marks this task completed.

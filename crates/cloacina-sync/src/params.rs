@@ -55,6 +55,13 @@ pub mod keys {
     pub const SCHEMA: &str = "schema";
     /// How many connector checkpoints one segment may span. Default 1.
     pub const SEGMENT_CHECKPOINTS: &str = "segment_checkpoints";
+    /// Test-only (feature `fault-injection`): a fault the write task injects.
+    /// `fail_after_write_once` fails the task once per process after the
+    /// destination accepted the segment, before the completion writes, so the
+    /// retry writes the segment again; `slow_write_ms:<n>` holds the write
+    /// task for n milliseconds after the write, so a harness can kill the
+    /// process running it. Ignored without the feature.
+    pub const FAULT: &str = "fault";
 
     /// Per execution, set by the dispatcher: the committed `StreamState` the
     /// read starts from, JSON text. Absent means a fresh read.

@@ -68,3 +68,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 cloacina = { workspace = true, default-features = false, features = ["sqlite", "constructors-wasm", "macros"] }
 # The macro-generated task code names this crate directly.
 cloacina-workflow = { workspace = true }
+
+[features]
+# Test-only faults for the Sync resume tests (CLOACINA-T-0980).
+fault-injection = ["cloacina-sync/fault-injection"]

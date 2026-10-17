@@ -37,6 +37,7 @@
 #![allow(unexpected_cfgs)]
 
 pub mod dispatcher;
+pub mod fault;
 pub mod hook;
 pub mod mapping;
 pub mod params;
