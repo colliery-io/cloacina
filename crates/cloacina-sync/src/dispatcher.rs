@@ -185,6 +185,19 @@ impl Dispatcher {
     /// [`Self::start_segment`] and [`Self::finish_pass`]; a fire hook uses the
     /// halves so it can hand the first execution back while the pass goes on.
     pub async fn prepare(&self, def: &SyncDefinition) -> Result<PreparedPass, DispatchError> {
+        let prepared = self.claim(def).await?;
+        if let Err(e) = self.finish_outstanding(&prepared.sync).await {
+            self.release(&prepared).await;
+            return Err(e);
+        }
+        Ok(prepared)
+    }
+
+    /// Parse the definition and take the sync's lock, without waiting for
+    /// outstanding executions. A caller that must not block (the fire hook)
+    /// uses this with [`Self::outstanding`] and lets [`Self::finish_pass`] do
+    /// the waiting.
+    pub async fn claim(&self, def: &SyncDefinition) -> Result<PreparedPass, DispatchError> {
         let sync = def
             .name()
             .ok_or_else(|| DispatchError::Params(format!("param `{}` is missing", keys::SYNC)))?
@@ -200,17 +213,46 @@ impl Dispatcher {
                 Err(error) => return Err(DispatchError::Ownership { sync, error }),
             }
         }
-        let prepared = PreparedPass {
+        Ok(PreparedPass {
             sync,
             params,
             template,
             id,
-        };
-        if let Err(e) = self.finish_outstanding(&prepared.sync).await {
-            self.release(&prepared).await;
-            return Err(e);
+        })
+    }
+
+    /// The first execution of this sync that has not reached a terminal
+    /// status, if any. One may have written its segment without its
+    /// completion landing yet.
+    pub async fn outstanding(&self, sync: &str) -> Result<Option<uuid::Uuid>, DispatchError> {
+        let active = self
+            .dal
+            .workflow_execution()
+            .get_active_executions()
+            .await
+            .map_err(|e| DispatchError::Database(e.to_string()))?;
+        for ex in active
+            .into_iter()
+            .filter(|e| e.workflow_name == WORKFLOW_NAME)
+        {
+            let Some(context_id) = ex.context_id else {
+                continue;
+            };
+            let Ok(ctx) = self.dal.context().read::<Value>(context_id).await else {
+                continue;
+            };
+            if ctx.get(keys::SYNC).and_then(Value::as_str) == Some(sync) {
+                return Ok(Some(ex.id.0));
+            }
         }
-        Ok(prepared)
+        Ok(None)
+    }
+
+    /// Release the sync's lock after a pass that will not run (the fire hook
+    /// uses this when it fails between [`Self::claim`] and a spawned
+    /// [`Self::finish_pass`]).
+    pub async fn abandon(&self, prepared: PreparedPass) {
+        self.release(&prepared).await;
     }
 
     /// Start the next segment: one execution of the Sync workflow at the
@@ -329,30 +371,11 @@ impl Dispatcher {
     /// Wait for every outstanding execution of this sync: one may have written
     /// its segment without its completion landing yet.
     async fn finish_outstanding(&self, sync: &str) -> Result<(), DispatchError> {
-        let active = self
-            .dal
-            .workflow_execution()
-            .get_active_executions()
-            .await
-            .map_err(|e| DispatchError::Database(e.to_string()))?;
-        for ex in active
-            .into_iter()
-            .filter(|e| e.workflow_name == WORKFLOW_NAME)
-        {
-            let Some(context_id) = ex.context_id else {
-                continue;
-            };
-            let ctx = match self.dal.context().read::<Value>(context_id).await {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            if ctx.get(keys::SYNC).and_then(Value::as_str) != Some(sync) {
-                continue;
-            }
-            tracing::info!(sync, execution_id = %ex.id, "sync: waiting for an outstanding execution before the next segment");
+        while let Some(id) = self.outstanding(sync).await? {
+            tracing::info!(sync, execution_id = %id, "sync: waiting for an outstanding execution before the next segment");
             // An outstanding execution that fails is this pass's failure too:
             // its segment is not committed, and the next pass will redo it.
-            self.wait(sync, ex.id.0).await?;
+            self.wait(sync, id).await?;
         }
         Ok(())
     }

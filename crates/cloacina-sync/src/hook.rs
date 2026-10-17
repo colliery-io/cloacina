@@ -44,6 +44,10 @@ pub struct SyncFireHook {
     in_flight: Arc<Mutex<HashSet<String>>>,
     ownership: Option<Arc<dyn ReactorOwnership>>,
     tenant: Option<String>,
+    /// The runner the hook is installed on, to hand back a handle to an
+    /// execution that was already in flight. It holds the hook in turn; the
+    /// cycle lives as long as the runner, which is the process.
+    runner: Mutex<Option<cloacina::runner::DefaultRunner>>,
 }
 
 impl SyncFireHook {
@@ -52,7 +56,13 @@ impl SyncFireHook {
             in_flight: Arc::new(Mutex::new(HashSet::new())),
             ownership,
             tenant,
+            runner: Mutex::new(None),
         }
+    }
+
+    /// The runner this hook is installed on (set by [`crate::install`]).
+    pub fn set_runner(&self, runner: cloacina::runner::DefaultRunner) {
+        *self.runner.lock().unwrap() = Some(runner);
     }
 
     /// The syncs whose pass is running on this process right now.
@@ -79,6 +89,7 @@ impl InstanceFireHook for SyncFireHook {
             return None;
         }
         let in_flight = self.in_flight.clone();
+        let runner = self.runner.lock().unwrap().clone();
         let mut dispatcher = Dispatcher::new(executor, dal);
         if let Some(own) = &self.ownership {
             dispatcher = dispatcher.with_ownership(own.clone(), self.tenant.clone());
@@ -101,19 +112,51 @@ impl InstanceFireHook for SyncFireHook {
                 in_flight.lock().unwrap().remove(sync);
             };
 
-            let prepared = match dispatcher.prepare(&def).await {
+            // Never block the fire on a wait: the manual-run request and the cron
+            // loop are both waiting on this future. Claim, then either hand back
+            // the execution already in flight (a crash may have left one whose
+            // stale claim the sweeper has yet to reset) or start the first
+            // segment; the spawned task does any waiting.
+            let prepared = match dispatcher.claim(&def).await {
                 Ok(p) => p,
                 Err(e) => {
                     release(&in_flight, &sync);
                     return Err(failed(e.to_string()));
                 }
             };
-            let first = match dispatcher.start_segment(&prepared).await {
-                Ok(h) => h,
+            let outstanding = match dispatcher.outstanding(&sync).await {
+                Ok(o) => o,
                 Err(e) => {
+                    dispatcher.abandon(prepared).await;
                     release(&in_flight, &sync);
                     return Err(failed(e.to_string()));
                 }
+            };
+            let first = match (outstanding, runner) {
+                (Some(id), Some(runner)) => {
+                    tracing::info!(sync = %sync, execution_id = %id, "sync: fire resumes the execution already in flight");
+                    cloacina::executor::WorkflowExecution::new(
+                        id,
+                        WORKFLOW_NAME.to_string(),
+                        runner,
+                    )
+                }
+                (Some(_), None) => {
+                    // No runner to hand back a handle with: wait here instead.
+                    dispatcher.abandon(prepared).await;
+                    release(&in_flight, &sync);
+                    return Err(failed(format!(
+                        "sync `{sync}`: an execution is still in flight; fire again when it ends"
+                    )));
+                }
+                (None, _) => match dispatcher.start_segment(&prepared).await {
+                    Ok(h) => h,
+                    Err(e) => {
+                        dispatcher.abandon(prepared).await;
+                        release(&in_flight, &sync);
+                        return Err(failed(e.to_string()));
+                    }
+                },
             };
             let first_id = first.execution_id;
             let (_stop_tx, stop) = tokio::sync::watch::channel(false);
