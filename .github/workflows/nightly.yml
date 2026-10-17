@@ -87,6 +87,13 @@ jobs:
       - name: Run constructor suite
         run: cargo test -p cloacina --features constructors-wasm --test '*constructor*' --test provider_bundle
 
+      # COLLIERY-I-0632: the Sync connector host and the Sync crate's end-to-end
+      # tests build the echo and faulty connector guests to wasm32-wasip2.
+      - name: Run the Sync wasm suite
+        run: |
+          cargo test -p cloacina --features constructors-wasm --test connector_host_wasm
+          cargo test -p cloacina-sync --tests
+
   # -----------------------------------------------------------------------
   # Code coverage — cargo-tarpaulin on cloacina core
   # -----------------------------------------------------------------------

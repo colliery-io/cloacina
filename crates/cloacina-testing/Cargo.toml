@@ -30,6 +30,7 @@ rust-version.workspace = true
 [dependencies]
 # Local dependencies
 cloacina-workflow = { workspace = true }
+cloacina-constructor-contract = { workspace = true }
 
 # External dependencies
 async-trait = { workspace = true }
