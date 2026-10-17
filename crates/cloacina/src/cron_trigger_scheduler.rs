@@ -154,6 +154,8 @@ impl Default for SchedulerConfig {
 pub struct Scheduler {
     dal: Arc<DAL>,
     executor: Arc<dyn WorkflowExecutor>,
+    /// Takes over an instance fire when set (CLOACINA-T-0978).
+    fire_hook: crate::workflow_instance::InstanceFireHookSlot,
     config: SchedulerConfig,
     shutdown: watch::Receiver<bool>,
     /// Scoped runtime used to look up trigger constructors.
@@ -222,6 +224,7 @@ impl Scheduler {
         Self {
             dal,
             executor,
+            fire_hook: Arc::new(std::sync::RwLock::new(None)),
             config,
             shutdown,
             runtime,
@@ -234,6 +237,16 @@ impl Scheduler {
     }
 
     /// Creates a new unified scheduler with default configuration.
+    /// Share the runner's instance fire hook slot (CLOACINA-T-0978), so a hook
+    /// installed on the runner at any time is seen by this scheduler.
+    pub fn with_instance_fire_hook(
+        mut self,
+        slot: crate::workflow_instance::InstanceFireHookSlot,
+    ) -> Self {
+        self.fire_hook = slot;
+        self
+    }
+
     pub fn with_defaults(
         dal: Arc<DAL>,
         executor: Arc<dyn WorkflowExecutor>,
@@ -718,6 +731,25 @@ impl Scheduler {
             "Executing workflow '{}' for cron schedule {} (scheduled time: {})",
             schedule.workflow_name, schedule.id, scheduled_time
         );
+
+        // CLOACINA-T-0978: an instance fire hook may take the fire over (Sync
+        // runs a pass of many executions); it yields the first execution.
+        let hook = self.fire_hook.read().unwrap().clone();
+        if let Some(hook) = hook
+            && let Some(fut) = hook.fire(
+                self.executor.clone(),
+                self.dal.clone(),
+                &schedule.workflow_name,
+                context.clone_data(),
+            )
+        {
+            let handle = fut.await?;
+            debug!(
+                "Instance fire hook took over workflow '{}' (first execution_id: {})",
+                schedule.workflow_name, handle.execution_id
+            );
+            return Ok(handle);
+        }
 
         let handle = self
             .executor

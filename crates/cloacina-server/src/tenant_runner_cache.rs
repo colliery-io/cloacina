@@ -104,6 +104,10 @@ pub struct TenantRunnerCache {
     /// cross-tenant filtering at the health-endpoint layer still works
     /// even with a shared scheduler.
     graph_scheduler: Option<Arc<ComputationGraphScheduler>>,
+    /// COLLIERY-I-0632 / CLOACINA-T-0978: the ownership session a tenant's Sync
+    /// dispatcher claims syncs on (Postgres only; `None` on SQLite or a single replica).
+    sync_ownership:
+        Option<Arc<dyn cloacina::computation_graph::reactor_ownership::ReactorOwnership>>,
 }
 
 impl TenantRunnerCache {
@@ -116,6 +120,7 @@ impl TenantRunnerCache {
             shared_runtime: Arc::new(Runtime::new()),
             base_config,
             graph_scheduler: None,
+            sync_ownership: None,
             fleet_registrar: None,
         }
     }
@@ -136,6 +141,17 @@ impl TenantRunnerCache {
     /// reconciler can route CG packages. Idempotent — calling again
     /// replaces the scheduler reference, but already-constructed runners
     /// retain whatever they were given at construction time.
+    /// The ownership session Sync dispatchers claim syncs on (CLOACINA-T-0978).
+    pub fn with_sync_ownership(
+        mut self,
+        ownership: Option<
+            Arc<dyn cloacina::computation_graph::reactor_ownership::ReactorOwnership>,
+        >,
+    ) -> Self {
+        self.sync_ownership = ownership;
+        self
+    }
+
     pub fn with_graph_scheduler(mut self, scheduler: Arc<ComputationGraphScheduler>) -> Self {
         self.graph_scheduler = Some(scheduler);
         self
@@ -203,6 +219,13 @@ impl TenantRunnerCache {
         if let Some(registrar) = &self.fleet_registrar {
             registrar(&runner);
         }
+        // COLLIERY-I-0632 / CLOACINA-T-0978: a fire of a sync definition runs a
+        // pass, not one execution.
+        cloacina_sync::install(
+            &runner,
+            self.sync_ownership.clone(),
+            Some(tenant_id.to_string()),
+        );
         let runner = Arc::new(runner);
 
         // Install — evicting the LRU entry if we're at cap, with a

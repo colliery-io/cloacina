@@ -31,11 +31,44 @@
 //! conflict so a binding can never spoof them.
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use cloacina_api_types::InputSlot;
 
 /// Context keys the cron/trigger schedulers own; instance params can never
 /// override these (they are stamped after the params merge).
+/// A hook that takes over the firing of a workflow instance (COLLIERY-I-0632 /
+/// CLOACINA-T-0978). The runner calls it when an instance fires on its cron or
+/// is run by hand, with the instance's params already merged into `context`.
+/// Return `None` to let the runner execute the workflow once, as usual. Return
+/// `Some(future)` to take the fire over; the future yields the execution the
+/// hook started first, so the schedule's audit record has something to point
+/// at, and the hook may go on running more executions after that.
+///
+/// The first user is Sync: a sync definition is an instance of the built-in
+/// Sync workflow, and a fire is a pass of many segments, not one execution.
+pub trait InstanceFireHook: Send + Sync {
+    fn fire(
+        &self,
+        executor: Arc<dyn crate::executor::WorkflowExecutor>,
+        dal: Arc<crate::dal::DAL>,
+        workflow_name: &str,
+        context: crate::context::Context<serde_json::Value>,
+    ) -> Option<InstanceFireFuture>;
+}
+
+/// What an [`InstanceFireHook`] returns when it takes a fire over.
+pub type InstanceFireFuture = std::pin::Pin<
+    Box<
+        dyn std::future::Future<
+                Output = Result<crate::executor::WorkflowExecution, crate::WorkflowExecutionError>,
+            > + Send,
+    >,
+>;
+
+/// The slot a runner and its scheduler share for the hook; set at any time.
+pub type InstanceFireHookSlot = Arc<std::sync::RwLock<Option<Arc<dyn InstanceFireHook>>>>;
+
 pub const RESERVED_FIRE_KEYS: &[&str] = &[
     "scheduled_time",
     "schedule_id",

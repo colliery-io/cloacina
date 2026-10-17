@@ -27,13 +27,17 @@
 //! embedded runner gets it by depending on this crate and calling
 //! [`ensure_linked`] once.
 //!
-//! The dispatcher that loops over segments is `dispatcher` (CLOACINA-T-0977).
+//! The [`dispatcher`] loops over the segments of a pass (CLOACINA-T-0977). A
+//! sync definition is a workflow instance of the Sync workflow; [`install`]
+//! puts the [`hook`] on a runner so a fire of that instance, on its cron or by
+//! hand, runs a pass instead of one execution (CLOACINA-T-0978).
 
 // The `#[workflow]` macro emits `cfg(feature = "packaged")`, a feature this
 // crate does not declare.
 #![allow(unexpected_cfgs)]
 
 pub mod dispatcher;
+pub mod hook;
 pub mod mapping;
 pub mod params;
 pub mod workflow;
@@ -49,4 +53,49 @@ pub const WORKFLOW_NAME: &str = "sync";
 /// run syncs. It does nothing else.
 pub fn ensure_linked() {
     std::hint::black_box(WORKFLOW_NAME);
+}
+
+/// Install Sync on a runner: the instance fire hook that turns a fire of the
+/// Sync workflow into a pass. `ownership` and `tenant` are for a server with
+/// replicas; an embedded runner passes `None`.
+pub fn install(
+    runner: &cloacina::runner::DefaultRunner,
+    ownership: Option<
+        std::sync::Arc<dyn cloacina::computation_graph::reactor_ownership::ReactorOwnership>,
+    >,
+    tenant: Option<String>,
+) -> std::sync::Arc<hook::SyncFireHook> {
+    ensure_linked();
+    let hook = std::sync::Arc::new(hook::SyncFireHook::new(ownership, tenant));
+    runner.set_instance_fire_hook(hook.clone());
+    hook
+}
+
+/// Run one pass of the sync definition `instance` by hand and wait for it, on
+/// an embedded runner or anywhere a runner is at hand. The instance's params
+/// come from its schedule row.
+pub async fn run_pass(
+    runner: &cloacina::runner::DefaultRunner,
+    instance: &str,
+    stop: tokio::sync::watch::Receiver<bool>,
+) -> Result<dispatcher::PassOutcome, dispatcher::DispatchError> {
+    use dispatcher::DispatchError;
+    let dal = std::sync::Arc::new(cloacina::dal::DAL::new(runner.database().clone()));
+    let schedule = dal
+        .schedule()
+        .find_by_instance_name(WORKFLOW_NAME, instance)
+        .await
+        .map_err(|e| DispatchError::Database(e.to_string()))?
+        .ok_or_else(|| DispatchError::Params(format!("no sync definition named `{instance}`")))?;
+    let mut context = cloacina::Context::new();
+    if let Some(params) = schedule.params.as_deref() {
+        cloacina::workflow_instance::merge_instance_params(&mut context, params)
+            .map_err(|e| DispatchError::Params(e.to_string()))?;
+    }
+    let def = dispatcher::SyncDefinition::new(context.data().clone().into_iter().collect());
+    let executor: std::sync::Arc<dyn cloacina::executor::WorkflowExecutor> =
+        std::sync::Arc::new(runner.clone());
+    dispatcher::Dispatcher::new(executor, dal)
+        .run_pass(&def, stop)
+        .await
 }

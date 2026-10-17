@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use cloacina::dal::DAL;
 use cloacina::registry::loader::set_provider_search_path;
@@ -178,7 +178,7 @@ async fn a_pass_runs_three_segments_in_order_and_ends_when_the_source_does() {
     providers();
     let runner = runner().await;
     let dal = DAL::new(runner.database().clone());
-    let dispatcher = Dispatcher::new(runner.clone());
+    let dispatcher = Dispatcher::new(Arc::new(runner.clone()), Arc::new(dal.clone()));
     let (_tx, stop) = tokio::sync::watch::channel(false);
 
     // The echo source yields three segments, each one row and a checkpoint
@@ -238,7 +238,7 @@ async fn a_stop_between_segments_ends_the_pass_with_the_cursor_committed_so_far(
     providers();
     let runner = runner().await;
     let dal = DAL::new(runner.database().clone());
-    let dispatcher = Dispatcher::new(runner.clone());
+    let dispatcher = Dispatcher::new(Arc::new(runner.clone()), Arc::new(dal.clone()));
     let (tx, stop) = tokio::sync::watch::channel(false);
 
     // Stop is raised before the pass starts its first segment check: the
@@ -263,7 +263,8 @@ async fn a_definition_without_a_name_is_refused_before_anything_runs() {
     let _guard = RUNNER_LOCK.lock().await;
     providers();
     let runner = runner().await;
-    let dispatcher = Dispatcher::new(runner.clone());
+    let dal = DAL::new(runner.database().clone());
+    let dispatcher = Dispatcher::new(Arc::new(runner.clone()), Arc::new(dal.clone()));
     let (_tx, stop) = tokio::sync::watch::channel(false);
     let def = SyncDefinition::new(HashMap::new());
     let err = dispatcher.run_pass(&def, stop).await.expect_err("refused");

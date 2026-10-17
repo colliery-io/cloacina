@@ -827,6 +827,7 @@ impl DefaultRunnerBuilder {
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
             cron_change: Arc::new(tokio::sync::Notify::new()),
+            instance_fire_hook: Arc::new(std::sync::RwLock::new(None)),
         };
 
         // Start the background services immediately
