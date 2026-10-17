@@ -34,6 +34,8 @@ cloacina = { workspace = true, default-features = false, features = ["sqlite", "
 # the interpreter into the binary; the agent image carries libpython +
 # python3-dev. (CLOACI-T-0716)
 cloacina-python = { workspace = true, default-features = false }
+# The built-in Sync workflow (COLLIERY-I-0632): seeded from inventory at startup.
+cloacina-sync = { workspace = true }
 
 # HTTP client for REST endpoints (register/heartbeat/result/ws-ticket/artifact).
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
