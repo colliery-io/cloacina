@@ -202,3 +202,82 @@ pub struct ConnectionDescriptor {
     pub location: String,
 }
 ```
+
+## Sync Connector Testing
+
+`cloacina_testing::connectors` builds Sync connectors and tests them
+(CLOACINA-T-0979, CLOACINA-T-0983, CLOACINA-T-0986).
+
+### Building and staging
+
+```rust
+/// Build a guest crate to a release wasm32-wasip2 component; once per process.
+pub fn build_component(crate_dir: &Path) -> Vec<u8>;
+
+/// Build the crate and stage it under `root` as a provider package named
+/// after the crate, with a `source` and a `destination` member.
+pub fn stage_connector(root: &Path, crate_dir: &Path) -> PathBuf;
+```
+
+### The conformance kit
+
+`connectors::conformance` runs a connector's conformance file. The file
+format and how to run it are in
+[Test a Connector with the Conformance Kit](../../how-to/sync/test-a-connector/).
+
+```rust
+/// Run the file at `path`; `${NAME}`s come from the environment.
+pub fn run(path: &Path, host: &dyn Host, service: Option<&dyn Service>) -> Report;
+
+/// Run the file with `vars` for its `${NAME}`s first.
+pub fn run_with(
+    path: &Path,
+    vars: &BTreeMap<String, String>,
+    host: &dyn Host,
+    service: Option<&dyn Service>,
+) -> Report;
+
+/// Stages and loads connectors. The Sync crate's tests wrap the real
+/// connector host.
+pub trait Host {
+    fn prepare(&self, crate_dir: &Path) -> Result<String, String>;
+    fn load(
+        &self,
+        package: &str,
+        member: &str,
+        config: &Config,
+        grants: Option<&Value>,
+        credential: Option<&Credential>,
+    ) -> Result<Box<dyn Connector>, String>;
+}
+
+/// Runs a file's setup and verify steps against the test service.
+pub trait Service {
+    fn run(&self, step: &Map<String, Value>) -> Result<Vec<Value>, String>;
+}
+```
+
+`Report::assert_passed` panics with every failure; `Report::failures` lists
+them, each with its `method`, `case` and `difference`. The kit does not
+depend on the engine, so it publishes before `cloacina`.
+
+### The mock Snowflake SQL API
+
+`connectors::snowflake_mock::SnowflakeMock` is an in-memory SQL API on a free
+local port. It runs the statements the Snowflake connector builds, can answer
+`202` before settling and split results into partitions, and checks the
+key-pair JWT, with the key's fingerprint when given. It is also a `Service`:
+a `table` step with `columns` and `data` loads a table, and `rows_of` returns
+one.
+
+```rust
+let mock = SnowflakeMock::start(MockOptions {
+    fingerprint: Some("SHA256:...".into()),
+    asynchronous: true,
+    partition_rows: 5,
+    ..MockOptions::new("testorg-sync", "sync_test")
+});
+mock.load_table("ORDERS", &["ID", "NAME"], rows);
+let written = mock.rows("SF_DST");
+let refused = mock.rejected();
+```
