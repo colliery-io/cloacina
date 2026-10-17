@@ -71,6 +71,17 @@ def unit(filter=None, backend=None):
     except subprocess.CalledProcessError as e:
         print(f"cloacina-sync unit tests failed with error: {e}", file=sys.stderr)
         raise RuntimeError(f"Unit tests failed with return code {e.returncode}")
+    # The testing crate, which holds the connector conformance kit
+    # (CLOACINA-T-0983). Before it, no lane ran this crate's tests.
+    print("Running cloacina-testing unit tests...")
+    testing_cmd = ["cargo", "test", "-p", "cloacina-testing", "--lib"]
+    if filter:
+        testing_cmd.append(filter)
+    try:
+        subprocess.run(testing_cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"cloacina-testing unit tests failed with error: {e}", file=sys.stderr)
+        raise RuntimeError(f"Unit tests failed with return code {e.returncode}")
     print("Running cloacinactl unit tests...")
     ctl_cmd = [
         "cargo", "test", "-p", "cloacinactl",
