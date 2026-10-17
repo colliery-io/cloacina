@@ -38,6 +38,7 @@ use chrono::Utc;
 use cloacina::registry::loader::connector_host::{
     ConnectorHandle, ConnectorHostError, load_connector,
 };
+use cloacina::registry::loader::credentials::Credential;
 use cloacina::registry::loader::grants::{GrantSpec, ResolvedGrants, translate};
 use cloacina::registry::loader::provider_search_path;
 use cloacina::{Context, TaskError, task, workflow};
@@ -48,6 +49,7 @@ use cloacina_constructor_contract::sync::{
 use cloacina_workflow::completion_writes::{CompletionWrites, DeadLetterWrite, StreamStateWrite};
 use serde_json::Value;
 
+use crate::credential;
 use crate::fault;
 use crate::mapping::{self, Mapped};
 use crate::params::{self, Endpoint, SegmentInput, SyncParams, keys};
@@ -131,9 +133,18 @@ fn grants_of(side: &'static str, ep: &Endpoint) -> Result<ResolvedGrants, SyncEr
     }
 }
 
-/// Load one side's connector member from the provider search path.
-pub fn load_endpoint(side: &'static str, ep: &Endpoint) -> Result<ConnectorHandle, SyncError> {
-    let grants = grants_of(side, ep)?;
+/// Load one side's connector member from the provider search path. A
+/// credential rides on the grants' egress policy: the host applies it to each
+/// request the grants allow, and the guest never sees it.
+pub fn load_endpoint(
+    side: &'static str,
+    ep: &Endpoint,
+    credential: Option<Credential>,
+) -> Result<ConnectorHandle, SyncError> {
+    let mut grants = grants_of(side, ep)?;
+    if let Some(credential) = credential {
+        grants = grants.with_credential(credential);
+    }
     load_connector(
         provider_search_path(),
         &ep.provider,
@@ -156,8 +167,12 @@ pub fn load_endpoint(side: &'static str, ep: &Endpoint) -> Result<ConnectorHandl
 /// The segment closes at the `segment_checkpoints`-th checkpoint. The read
 /// stream is dropped there, which tears the producer down; the next segment
 /// reopens the source at the committed state.
-pub fn read_segment_blocking(p: &SyncParams, input: SegmentInput) -> Result<Segment, SyncError> {
-    let source = load_endpoint("source", &p.source)?;
+pub fn read_segment_blocking(
+    p: &SyncParams,
+    input: SegmentInput,
+    credential: Option<Credential>,
+) -> Result<Segment, SyncError> {
+    let source = load_endpoint("source", &p.source, credential)?;
     let ctx = ReadContext {
         stream: p.stream.clone(),
         partition: p.partition.clone(),
@@ -278,8 +293,9 @@ pub fn map_and_enforce(
 pub fn write_blocking(
     p: &SyncParams,
     batches: Vec<RecordBatch>,
+    credential: Option<Credential>,
 ) -> Result<(u64, Vec<DeadLetter>), SyncError> {
-    let destination = load_endpoint("destination", &p.destination)?;
+    let destination = load_endpoint("destination", &p.destination, credential)?;
     let outcome = destination.write(
         &WriteContext {
             stream: p.stream.clone(),
@@ -315,10 +331,12 @@ fn task_err(task_id: &str, e: impl std::fmt::Display) -> TaskError {
         source_member: String,
         source_config: String = "{}",
         source_grants: String = "",
+        source_credential: String = "",
         destination_provider: String,
         destination_member: String,
         destination_config: String = "{}",
         destination_grants: String = "",
+        destination_credential: String = "",
         stream: String,
         partition: String = "",
         schema: String = "",
@@ -334,7 +352,10 @@ pub mod sync {
     pub async fn read_segment(context: &mut Context<Value>) -> Result<(), TaskError> {
         let p = SyncParams::from_context(context).map_err(|e| task_err("read_segment", e))?;
         let input = SegmentInput::from_context(context).map_err(|e| task_err("read_segment", e))?;
-        let seg = tokio::task::spawn_blocking(move || read_segment_blocking(&p, input))
+        let cred = credential::resolve(context, "source", p.source.credential.as_ref())
+            .await
+            .map_err(|e| task_err("read_segment", e))?;
+        let seg = tokio::task::spawn_blocking(move || read_segment_blocking(&p, input, cred))
             .await
             .map_err(|e| task_err("read_segment", SyncError::Join(e.to_string())))?
             .map_err(|e| task_err("read_segment", e))?;
@@ -402,8 +423,12 @@ pub mod sync {
             0
         } else {
             let p2 = p.clone();
+            let cred =
+                credential::resolve(context, "destination", p.destination.credential.as_ref())
+                    .await
+                    .map_err(|e| task_err("write", e))?;
             let (accepted, more_dead) =
-                tokio::task::spawn_blocking(move || write_blocking(&p2, batches))
+                tokio::task::spawn_blocking(move || write_blocking(&p2, batches, cred))
                     .await
                     .map_err(|e| task_err("write", SyncError::Join(e.to_string())))?
                     .map_err(|e| task_err("write", e))?;

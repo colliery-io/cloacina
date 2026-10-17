@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sync credentials** (COLLIERY-I-0633, CLOACINA-T-0982): a sync side names
+  its credential in `source_credential` or `destination_credential`, a JSON
+  object with a `kind` (`header`, `query`, `aws_sigv4`,
+  `snowflake_keypair_jwt`), the `secret` to read, and the kind's non-secret
+  fields. The read and write tasks resolve the secret on the agent and the
+  host applies the credential to each request the grants allow: the guest
+  never holds it, and a credential never widens the grants.
+  `cloacina::registry::loader::credentials` holds the credentials, ported from
+  weir, and `ResolvedGrants::with_credential` puts one on a connector's
+  egress. OAuth2 and Google service accounts stay in Sync 3.
 - **Sync resume tests** (COLLIERY-I-0632, CLOACINA-T-0980): a write task that
   dies after the destination accepted its segment is retried and the cursor
   advances once, on SQLite and on Postgres where upsert absorbs the second
