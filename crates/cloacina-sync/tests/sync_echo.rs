@@ -245,8 +245,8 @@ async fn one_segment_moves_from_echo_to_echo_and_commits_the_cursor() {
     assert_eq!(result.final_context.get(keys::ACCEPTED), Some(&json!(2)));
     assert_eq!(
         result.final_context.get(keys::EXHAUSTED),
-        Some(&json!(false)),
-        "the echo source checkpoints once, so the segment closed at its budget"
+        Some(&json!(true)),
+        "the echo source ends right after its one checkpoint: the budget is spent and the look-ahead sees the end"
     );
     assert!(
         result.final_context.get(keys::BATCHES).is_none(),
@@ -261,7 +261,7 @@ async fn one_segment_moves_from_echo_to_echo_and_commits_the_cursor() {
         .unwrap()
         .expect("stream state row");
     assert_eq!(state.cursor.as_deref(), Some("\"3\""));
-    assert!(!state.exhausted.0);
+    assert!(state.exhausted.0);
 
     let dead = dal
         .sync_dead_letters()

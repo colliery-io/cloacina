@@ -64,7 +64,7 @@
 
 use std::collections::HashSet;
 
-use crate::computation_graph::reactor_lock_key::reactor_lock_key;
+use crate::computation_graph::reactor_lock_key::{OwnershipDomain, ownership_lock_key};
 
 /// Identifies a reactor for ownership purposes: the tenant scope it was loaded
 /// under (`None` for single-tenant / admin-owned) plus its name.
@@ -75,11 +75,25 @@ use crate::computation_graph::reactor_lock_key::reactor_lock_key;
 pub struct ReactorId {
     pub tenant: Option<String>,
     pub name: String,
+    /// Which kind of thing this id names. Reactors by default; a sync's
+    /// dispatcher takes its lock in the `Sync` domain so a sync and a reactor
+    /// with one name never share a lock (CLOACINA-T-0977).
+    pub domain: OwnershipDomain,
 }
 
 impl ReactorId {
+    /// A sync's ownership id: one replica runs a sync's segment loop.
+    pub fn sync(tenant: Option<impl Into<String>>, name: impl Into<String>) -> Self {
+        Self {
+            tenant: tenant.map(Into::into),
+            name: name.into(),
+            domain: OwnershipDomain::Sync,
+        }
+    }
+
     pub fn new(tenant: Option<impl Into<String>>, name: impl Into<String>) -> Self {
         Self {
+            domain: OwnershipDomain::Reactor,
             tenant: tenant.map(Into::into),
             name: name.into(),
         }
@@ -87,7 +101,7 @@ impl ReactorId {
 
     /// The database-wide advisory-lock key for this reactor.
     pub fn lock_key(&self) -> i64 {
-        reactor_lock_key(self.tenant.as_deref(), &self.name)
+        ownership_lock_key(self.domain, self.tenant.as_deref(), &self.name)
     }
 }
 
@@ -99,6 +113,7 @@ impl ReactorId {
 impl From<&crate::TenantKey> for ReactorId {
     fn from(k: &crate::TenantKey) -> Self {
         Self {
+            domain: OwnershipDomain::Reactor,
             tenant: k.tenant_id.clone(),
             name: k.name.clone(),
         }
