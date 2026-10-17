@@ -69,6 +69,14 @@ pub struct ConnectorError {
     pub context: Vec<ContextPair>,
 }
 
+impl std::fmt::Display for ConnectorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}: {}", self.kind, self.message)
+    }
+}
+
+impl std::error::Error for ConnectorError {}
+
 impl ConnectorError {
     /// Construct an error of `kind` with `message`. `retryable` defaults to
     /// `true` only for [`ErrorKind::Transient`].

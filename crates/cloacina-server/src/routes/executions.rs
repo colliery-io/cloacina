@@ -207,7 +207,8 @@ pub async fn execute_workflow(
         }
     };
 
-    match tenant_runner.execute_async(&name, context).await {
+    // CLOACINA-T-0978: a sync definition's fire runs a pass; the hook decides.
+    match tenant_runner.fire_instance(&name, context).await {
         Ok(execution) => {
             info!(
                 "Executed workflow '{}' for tenant '{}': {}",

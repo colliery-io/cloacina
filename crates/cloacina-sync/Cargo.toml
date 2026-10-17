@@ -1,0 +1,40 @@
+# cloacina-sync — the Sync feature (COLLIERY-I-0632 / CLOACINA-T-0976): the
+# built-in Sync workflow (read a segment, map and enforce, write), the mapping
+# and schema-enforcement engine, and the per-sync dispatcher. Linked into the
+# server and the agent so the workflow is seeded from inventory on both, and
+# available to embedded users as an ordinary dependency.
+[package]
+name = "cloacina-sync"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+description = "Sync for cloacina: move records from a source to a destination through sandboxed connectors, one segment per workflow execution, with a cursor that advances only after the durable write."
+
+[dependencies]
+# The engine, with the authoring macros and the connector host. The engine
+# needs at least one backend to compile; `sqlite` is the one every binary that
+# links this crate already carries (the agent is SQLite-only). A server adds
+# `postgres` itself.
+cloacina = { workspace = true, default-features = false, features = ["sqlite", "macros", "constructors-wasm"] }
+cloacina-workflow = { workspace = true }
+cloacina-constructor-contract = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.2"
+cloacina-testing = { workspace = true }
+# Raw SQL for seeding and checking the dev Postgres in the connector tests.
+postgres = "0.19"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

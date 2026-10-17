@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-client", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-constructor-contract", "crates/cloacina-python"]
+members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-client", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-constructor-contract", "crates/cloacina-python", "crates/cloacina-sync"]
 exclude = ["examples/*", "providers/*"]
 resolver = "2"
 
@@ -35,6 +35,8 @@ cloacina-macros = { version = "0.12.0", path = "crates/cloacina-macros" }
 cloacina-python = { version = "0.12.0", path = "crates/cloacina-python", default-features = false }
 cloacina-workflow = { version = "0.12.0", path = "crates/cloacina-workflow" }
 cloacina-workflow-plugin = { version = "0.12.0", path = "crates/cloacina-workflow-plugin" }
+cloacina-sync = { version = "0.12.0", path = "crates/cloacina-sync" }
+cloacina-testing = { version = "0.12.0", path = "crates/cloacina-testing" }
 cloacina-constructor-contract = { version = "0.12.0", path = "crates/cloacina-constructor-contract" }
 clap = { version = "4.0", features = ["derive", "env"] }
 anyhow = { version = "1.0" }
@@ -50,7 +52,11 @@ bincode = { version = "1.3" }
 # 0.5.7 adds the plugin -> host callback channel (`#[host_interface]`) that
 # CLOACI-T-0897's packaged `defer_until` needs. It is an ABI-additive patch, so
 # packages built against 0.5.6 load unchanged.
-fidius = { version = "0.5.7" }
-fidius-core = { version = "0.5.7" }
-fidius-host = { version = "0.5.7" }
-fidius-macro = { version = "0.5.7" }
+#
+# 0.5.9 is the version both this lockfile and weir's already resolve. Sync (COLLIERY-I-0632,
+# CLOACINA-T-0971) moves weir's connector guests in; the providers, the fixtures and the
+# workspace all pin this one version so a guest and the host never disagree.
+fidius = { version = "0.5.9" }
+fidius-core = { version = "0.5.9" }
+fidius-host = { version = "0.5.9" }
+fidius-macro = { version = "0.5.9" }

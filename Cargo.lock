@@ -810,6 +810,7 @@ dependencies = [
  "clap",
  "cloacina",
  "cloacina-python",
+ "cloacina-sync",
  "cloacina-workflow",
  "futures-util",
  "reqwest 0.13.5",
@@ -966,6 +967,7 @@ dependencies = [
  "cloacina-api-types",
  "cloacina-build",
  "cloacina-python",
+ "cloacina-sync",
  "diesel",
  "http-body-util",
  "k8s-openapi",
@@ -994,11 +996,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cloacina-sync"
+version = "0.12.0"
+dependencies = [
+ "chrono",
+ "cloacina",
+ "cloacina-constructor-contract",
+ "cloacina-testing",
+ "cloacina-workflow",
+ "postgres",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "cloacina-testing"
 version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "cloacina-constructor-contract",
  "cloacina-workflow",
  "indexmap 2.14.2",
  "petgraph 0.8.3",
@@ -4267,6 +4289,20 @@ dependencies = [
  "embedded-io 0.4.0",
  "embedded-io 0.6.1",
  "serde",
+]
+
+[[package]]
+name = "postgres"
+version = "0.19.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ad20e0aa0b24f5a394eab4f78c781d248982b22b25cecc7e3aa46a681605bd"
+dependencies = [
+ "bytes",
+ "fallible-iterator",
+ "futures-util",
+ "log",
+ "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]

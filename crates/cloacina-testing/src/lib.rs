@@ -54,6 +54,8 @@
 //! ## Feature Flags
 //!
 pub mod assertions;
+/// Build and stage Sync connector guests for tests (COLLIERY-I-0632).
+pub mod connectors;
 pub mod result;
 pub mod runner;
 
