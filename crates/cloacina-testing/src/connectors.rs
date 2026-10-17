@@ -24,6 +24,7 @@
 //! away from the path this reads; the build is run with it unset.
 
 pub mod conformance;
+pub mod snowflake_mock;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

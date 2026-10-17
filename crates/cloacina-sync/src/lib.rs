@@ -44,11 +44,15 @@ pub mod mapping;
 pub mod params;
 pub mod workflow;
 
-// The MSSQL connector's statements are pure, but the connector is a wasm guest
-// that no lane builds natively: its unit tests run here (CLOACINA-T-0984).
+// The MSSQL and Snowflake connectors' statements are pure, but the connectors
+// are wasm guests no lane builds natively: their unit tests run here
+// (CLOACINA-T-0984, CLOACINA-T-0986).
 #[cfg(test)]
 #[path = "../../../connectors/mssql/src/sql.rs"]
 mod mssql_sql;
+#[cfg(test)]
+#[path = "../../../connectors/snowflake/src/sql.rs"]
+mod snowflake_sql;
 
 /// The name of the built-in Sync workflow, as a sync definition's instance
 /// names it and as the dispatcher executes it.

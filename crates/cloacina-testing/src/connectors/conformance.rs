@@ -93,9 +93,10 @@
 //! verify = [{ sql = "SELECT id FROM t", rows = [{ id = 1 }, { id = 2 }] }]
 //! ```
 //!
-//! `${NAME}` and `${NAME:-default}` in the file are replaced from the
-//! environment before it is parsed, so a file can name its test service's
-//! address.
+//! `${NAME}` and `${NAME:-default}` in the file are replaced before it is
+//! parsed: from the variables the caller passes to [`run_with`] first, then
+//! from the environment. So a file can name its test service's address, or a
+//! mock's port.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -362,9 +363,19 @@ impl fmt::Display for Report {
 
 /// Run the conformance file at `path`.
 pub fn run(path: &Path, host: &dyn Host, service: Option<&dyn Service>) -> Report {
+    run_with(path, &BTreeMap::new(), host, service)
+}
+
+/// Run the conformance file at `path`, with `vars` for its `${NAME}`s.
+pub fn run_with(
+    path: &Path,
+    vars: &BTreeMap<String, String>,
+    host: &dyn Host,
+    service: Option<&dyn Service>,
+) -> Report {
     let base = path.parent().unwrap_or(Path::new("."));
     match std::fs::read_to_string(path) {
-        Ok(text) => run_text(&text, base, host, service),
+        Ok(text) => run_text_with(&text, vars, base, host, service),
         Err(e) => {
             let mut report = Report {
                 connector: path.display().to_string(),
@@ -378,8 +389,19 @@ pub fn run(path: &Path, host: &dyn Host, service: Option<&dyn Service>) -> Repor
 
 /// Run a conformance file's text; `base` is the directory `crate` is relative to.
 pub fn run_text(text: &str, base: &Path, host: &dyn Host, service: Option<&dyn Service>) -> Report {
+    run_text_with(text, &BTreeMap::new(), base, host, service)
+}
+
+/// [`run_text`] with `vars` for the file's `${NAME}`s.
+pub fn run_text_with(
+    text: &str,
+    vars: &BTreeMap<String, String>,
+    base: &Path,
+    host: &dyn Host,
+    service: Option<&dyn Service>,
+) -> Report {
     let mut report = Report::default();
-    let file = match interpolate(text).and_then(|t| {
+    let file = match interpolate_with(text, vars).and_then(|t| {
         toml::from_str::<ConformanceFile>(&t).map_err(|e| format!("does not parse: {e}"))
     }) {
         Ok(f) => f,
@@ -403,6 +425,11 @@ pub fn run_text(text: &str, base: &Path, host: &dyn Host, service: Option<&dyn S
 
 /// Replace `${NAME}` and `${NAME:-default}` from the environment.
 pub fn interpolate(text: &str) -> Result<String, String> {
+    interpolate_with(text, &BTreeMap::new())
+}
+
+/// Replace `${NAME}` and `${NAME:-default}` from `vars`, then the environment.
+pub fn interpolate_with(text: &str, vars: &BTreeMap<String, String>) -> Result<String, String> {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find("${") {
@@ -416,7 +443,12 @@ pub fn interpolate(text: &str) -> Result<String, String> {
             Some((n, d)) => (n, Some(d)),
             None => (body, None),
         };
-        match (std::env::var(name), default) {
+        let value = vars
+            .get(name)
+            .cloned()
+            .ok_or(())
+            .or_else(|()| std::env::var(name));
+        match (value, default) {
             (Ok(v), _) => out.push_str(&v),
             (Err(_), Some(d)) => out.push_str(d),
             (Err(_), None) => {
@@ -1501,6 +1533,11 @@ message_contains = "403"
         let out = interpolate("a=${CLOACINA_CONFORMANCE_UNSET_X:-dflt} b=$c").unwrap();
         assert_eq!(out, "a=dflt b=$c");
         assert!(interpolate("${CLOACINA_CONFORMANCE_UNSET_Y}").is_err());
+        let vars = BTreeMap::from([("MOCK_PORT".to_string(), "4321".to_string())]);
+        assert_eq!(
+            interpolate_with("port=${MOCK_PORT:-1}", &vars).unwrap(),
+            "port=4321"
+        );
         let path = std::env::var("PATH").unwrap();
         assert_eq!(interpolate("${PATH}").unwrap(), path);
     }
