@@ -73,6 +73,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   work packet's `language` is `"builtin"` (`cloacina::fleet::BUILTIN_LANGUAGE`);
   the agent resolves the task from its own inventory and fetches nothing.
 
+- **Connector host** (COLLIERY-I-0632, CLOACINA-T-0973): `load_connector`
+  loads a Sync source or destination member from a provider package under the
+  consumer's grants and drives spec, check, discover, the streaming read and
+  the client-streaming write (`cloacina::registry::loader::connector_host`,
+  behind `constructors-wasm`). Two WASM fixtures, an echo connector and a
+  faulty one, under `examples/constructor-contract/`, with the canonical guest
+  copy of the Sync types a connector guest carries.
+
 ### Fixed
 
 - `cloacina_constructor_contract::sync::ConnectorError` implements `Display`
