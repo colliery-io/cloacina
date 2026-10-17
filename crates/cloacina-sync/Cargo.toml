@@ -34,4 +34,7 @@ uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3.2"
+cloacina-testing = { workspace = true }
+# Raw SQL for seeding and checking the dev Postgres in the connector tests.
+postgres = "0.19"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

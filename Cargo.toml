@@ -36,6 +36,7 @@ cloacina-python = { version = "0.12.0", path = "crates/cloacina-python", default
 cloacina-workflow = { version = "0.12.0", path = "crates/cloacina-workflow" }
 cloacina-workflow-plugin = { version = "0.12.0", path = "crates/cloacina-workflow-plugin" }
 cloacina-sync = { version = "0.12.0", path = "crates/cloacina-sync" }
+cloacina-testing = { version = "0.12.0", path = "crates/cloacina-testing" }
 cloacina-constructor-contract = { version = "0.12.0", path = "crates/cloacina-constructor-contract" }
 clap = { version = "4.0", features = ["derive", "env"] }
 anyhow = { version = "1.0" }

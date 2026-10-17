@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Postgres connector** (COLLIERY-I-0632, CLOACINA-T-0979):
+  `connectors/postgres`, weir's Postgres guest on cloacina's contract, a Sync
+  source (full refresh, incremental by cursor, CDC) and destination (append,
+  overwrite, upsert) as one `wasm32-wasip2` component, with the CDC helpers
+  that moved with it. The canonical guest copy of the Sync types lives at
+  `crates/cloacina-constructor-contract/guest/sync_guest_types.rs`, with a
+  drift test over every guest. `cloacina_testing::connectors` builds a guest
+  and stages it as a provider package for tests. The Postgres connector tests
+  run in the Postgres integration lane; the Sync crate's unit tests join the
+  unit lane and its wasm tests the nightly constructor suite.
 - **Sync definitions** (COLLIERY-I-0632, CLOACINA-T-0978): a sync definition
   is a workflow instance of the built-in `sync` workflow, created through the
   existing instances route. A fire of it, on its cron or by hand, runs a pass
