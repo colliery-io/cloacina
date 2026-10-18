@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Snowflake connector** (COLLIERY-I-0633, CLOACINA-T-0986):
+  `connectors/snowflake`, weir's Snowflake source and destination over the SQL
+  API, on cloacina's contract. The host signs a key-pair JWT and adds it to
+  each request, so the private key never enters the sandbox. `check` now runs
+  `SELECT 1`, so a wrong key fails it, and the cursor is a JSON string.
+  `cloacina_testing::connectors::snowflake_mock` is an in-memory SQL API for
+  tests: it runs the statements the connector builds, answers 202 and splits
+  results into partitions when asked, and checks the JWT against the key's
+  fingerprint. The conformance file and a Postgres to Snowflake and a
+  Snowflake to Postgres sync run against it in the Postgres integration lane.
+  A conformance run can pass variables for the file's `${NAME}`s.
 - **The S3 connector** (COLLIERY-I-0633, CLOACINA-T-0985): `connectors/s3`,
   weir's source of NDJSON objects from an S3-compatible store (full refresh,
   incremental by object key), on cloacina's contract. Requests leave the guest

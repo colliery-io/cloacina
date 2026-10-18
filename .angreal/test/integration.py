@@ -326,6 +326,11 @@ def integration(
                     subprocess.run(s3_cmd, check=True)
                 finally:
                     subprocess.run(minio + ["rm", "-sfv", "minio"], check=False)
+                # CLOACINA-T-0986: the Snowflake connector against the mock SQL
+                # API: the conformance run, and the two syncs with Postgres.
+                sf_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "snowflake_connector", "--", "--include-ignored", "--test-threads=1"]
+                print(f"Running: {' '.join(sf_cmd)}")
+                subprocess.run(sf_cmd, check=True)
             if backend_name == "postgres" and not skip_rust:
                 print_section_header("Running cloacina-server lib tests (Postgres)")
                 server_cmd = ["cargo", "test", "-p", "cloacina-server", "--lib"]
