@@ -37,7 +37,12 @@ feature set it absorbs (COLLIERY-S-0002, CLOACINA-A-0013).
 ## How a sync runs
 
 Every sync runs on an [execution agent](../../service/execution-agent-fleet/),
-never in the server process. One pass of a sync is a series of segments:
+never in the server process. An agent only gets tasks in the tenant its API
+key is scoped to, so the agents for a tenant's syncs need a key minted for that
+tenant (`POST /v1/tenants/<tenant>/keys`). The server's bootstrap admin key
+is in no tenant: an agent started with it gets no tasks, and syncs wait.
+
+One pass of a sync is a series of segments:
 
 1. The **dispatcher** on the server reads the committed cursor of the stream
    and creates an execution of the Sync workflow with the sync's parameters
@@ -98,15 +103,26 @@ A connector is a WASM component loaded as a
 [constructor provider](../constructors/) with the consumer's capability grants.
 Inside the sandbox there is no filesystem and no ambient network; the only
 reach outward is the egress the grants allow. Credentials come from cloacina's
-tenant-scoped [secrets](../../service/secrets/), resolved on the server and
-delivered to the agent as for any task.
+tenant-scoped [secrets](../../service/secrets/), resolved for the task on the
+agent. A database connector takes its password in its config. A connector that
+calls an authenticated API never sees its key: the host adds the credential to
+each request the grants allow. See [Credential Injection](credentials/).
 
 The contract every connector implements is in the
 [Connector Contract reference](../../../reference/connector-contract/).
 
+## Connectors
+
+Cloacina ships Postgres, MSSQL, S3 and Snowflake connectors. Their config,
+modes, grants and credentials are in the
+[Sync Connectors reference](../../../reference/connectors/). Each passes a
+conformance file through the real connector host; a connector author writes
+one the same way ([Test a Connector](../../../how-to/sync/test-a-connector/)).
+
 ## What is not yet here
 
-Sync lands in order (COLLIERY-I-0632 to COLLIERY-I-0636): the contract and a
-Postgres to Postgres sync first, then the other compiled connectors, then the
-declarative connectors and their corpus, then authoring in the web UI, then
-continuous sources. This page describes the design the first of those builds.
+Sync lands in order (COLLIERY-I-0632 to COLLIERY-I-0636). The contract, the
+Postgres to Postgres sync, the compiled connectors, credential injection and
+the conformance kit are here. The declarative connectors and their corpus,
+OAuth2 and Google credentials, authoring in the web UI, and continuous sources
+come next.

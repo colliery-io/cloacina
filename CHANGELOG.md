@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sync docs** (COLLIERY-I-0633, CLOACINA-T-0987): a Sync Connectors
+  reference with a page each for Postgres, MSSQL, S3 and Snowflake (config,
+  modes, grant, credential); a Credential Injection page; a how-to for testing
+  a connector with the conformance kit; the kit and the Snowflake mock in the
+  `cloacina-testing` reference. The Sync and fleet pages now say that an
+  agent's key must be scoped to the tenant whose syncs it runs: the bootstrap
+  admin key is in no tenant, so an agent started with it gets no tasks.
 - **The Snowflake connector** (COLLIERY-I-0633, CLOACINA-T-0986):
   `connectors/snowflake`, weir's Snowflake source and destination over the SQL
   API, on cloacina's contract. The host signs a key-pair JWT and adds it to

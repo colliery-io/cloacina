@@ -17,7 +17,9 @@ explanation; this is the operational path.
   server has `.cloacina` cdylibs for agents to fetch (see [Running the Compiler](../running-the-compiler/)).
 - An API key for the tenant whose work the fleet will run. **The agent's API key
   tenant scope decides which tenants' tasks it may receive** — scope it
-  deliberately.
+  deliberately. The server's bootstrap admin key is in no tenant, so an agent
+  started with it receives no tasks at all; mint a tenant key with
+  `POST /v1/tenants/<tenant>/keys`.
 - Network reachability: agents must reach the server over HTTP/WebSocket.
 - On each agent host: the shared libraries the compiled workflow cdylibs link
   (`libpq`, `libpython`, `libssl`, `libsasl2`, …). The published agent image
@@ -143,7 +145,8 @@ CLOACINA_AGENT_HEARTBEAT_INTERVAL_S=5 CLOACINA_AGENT_LIVENESS_MISSES=2 cloacina-
   tasks run on the fleet should be idempotent.
 - **Watch these signals:**
   - `cloacina_delivery_outbox_open` climbing → delivery is wedged (often no live
-    agent for a tenant's work, or agents can't connect).
+    agent for a tenant's work, an agent whose key is in another tenant or in
+    none, or agents can't connect).
   - `cloacina_fleet_agents_evicted_total` rising → agents dying / flapping.
   - `cloacina_fleet_work_reassigned_total` → how much work crashed agents are
     shedding onto survivors.

@@ -35,6 +35,7 @@ if you need the concepts behind a symbol.
 - [FFI Vtable Reference](ffi-vtable/)
 - [Computation Graph Reference](computation-graphs/)
 - [Connector Contract](connector-contract/)
+- [Sync Connectors](connectors/)
 - [SDKs](sdks/)
   - [Rust SDK](sdks/rust/)
   - [Python SDK](sdks/python/)
