@@ -26,11 +26,13 @@ use cloacina_constructor_contract::sync::{
     CheckResult, Config, ConnectorSpec, DiscoverOutcome, ReadContext, RecordBatch, WriteContext,
     WriteOutcome,
 };
+use cloacina_sync::credential::CredentialSpec;
 use cloacina_sync::workflow::grant_spec_from_json;
-use cloacina_testing::connectors::conformance::{Connector, Host, ReadIter, Service};
+use cloacina_testing::connectors::conformance::{Connector, Credential, Host, ReadIter, Service};
 use cloacina_testing::connectors::{crate_name, stage_connector};
 use serde_json::{Map, Value};
 
+pub mod minio;
 pub mod mssql;
 
 /// A path in the repository.
@@ -67,11 +69,24 @@ impl Host for ConnectorHost {
         member: &str,
         config: &Config,
         grants: Option<&Value>,
+        credential: Option<&Credential>,
     ) -> Result<Box<dyn Connector>, String> {
-        let grants = match grants {
+        let mut grants = match grants {
             None => ResolvedGrants::deny_all(),
             Some(v) => translate(&grant_spec_from_json(v)?).map_err(|e| e.to_string())?,
         };
+        // The credential rides on the egress, as the Sync tasks put it there.
+        if let Some(c) = credential {
+            let side = if member == "destination" {
+                "destination"
+            } else {
+                "source"
+            };
+            let spec: CredentialSpec = serde_json::from_value(c.spec.clone())
+                .map_err(|e| format!("credential spec: {e}"))?;
+            grants =
+                grants.with_credential(spec.build(side, &c.secret).map_err(|e| e.to_string())?);
+        }
         load_connector(&self.root, package, member, config, &grants)
             .map(|h| Box::new(Handle(h)) as Box<dyn Connector>)
             .map_err(|e| e.to_string())

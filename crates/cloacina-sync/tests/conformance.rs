@@ -30,7 +30,9 @@ use cloacina_constructor_contract::sync::{
     CheckResult, Config, ConnectorSpec, DiscoverOutcome, ReadContext, ReadMessage, RecordBatch,
     WriteContext, WriteOutcome,
 };
-use cloacina_testing::connectors::conformance::{self, Connector, Host, ReadIter, Report, Service};
+use cloacina_testing::connectors::conformance::{
+    self, Connector, Credential, Host, ReadIter, Report, Service,
+};
 use serde_json::{Map, Value};
 
 mod support;
@@ -64,9 +66,10 @@ impl Host for BrokenHost {
         member: &str,
         config: &Config,
         grants: Option<&Value>,
+        credential: Option<&Credential>,
     ) -> Result<Box<dyn Connector>, String> {
         Ok(Box::new(Broken(
-            self.0.load(package, member, config, grants)?,
+            self.0.load(package, member, config, grants, credential)?,
         )))
     }
 }

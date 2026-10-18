@@ -49,6 +49,12 @@
 //!
 //! [destination]
 //! config = {}
+//! credential = { kind = "aws_sigv4", secret = "store", region = "us-east-1" }
+//!                             # optional; a credential spec as a sync names it
+//!
+//! [secrets.store]             # the secrets credentials name; test values only
+//! access_key_id = "minioadmin"
+//! secret_access_key = "${MINIO_SECRET:-minioadmin}"
 //!
 //! [[setup]]                   # steps run once, before every case
 //! sql = "CREATE TABLE ..."
@@ -59,6 +65,7 @@
 //! [[check]]
 //! case = "not json"
 //! side = "source"             # default: source, else destination
+//! secret = "wrong"            # optional; another [secrets] entry for the credential
 //! config_text = "{not json"   # or `config = {...}`, merged over the side's
 //! success = false
 //! message_contains = "JSON"   # optional
@@ -90,6 +97,7 @@
 //! environment before it is parsed, so a file can name its test service's
 //! address.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 
@@ -114,19 +122,39 @@ pub trait Connector {
     fn write(&self, ctx: &WriteContext, batches: Vec<RecordBatch>) -> Result<WriteOutcome, String>;
 }
 
+/// A side's credential with its secret resolved: the spec as a sync names it,
+/// and the secret's fields from the file's `[secrets]`.
+#[derive(Clone)]
+pub struct Credential {
+    pub spec: Value,
+    pub secret: BTreeMap<String, String>,
+}
+
+// Test secrets still stay out of failure messages.
+impl fmt::Debug for Credential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Credential")
+            .field("spec", &self.spec)
+            .field("fields", &self.secret.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
 /// Stages and loads connectors.
 pub trait Host {
     /// Build and stage the connector crate at `crate_dir`; return the package
     /// name [`Host::load`] takes.
     fn prepare(&self, crate_dir: &Path) -> Result<String, String>;
-    /// Load `member` of `package` with `config` bound and `grants` (a JSON
-    /// `GrantSpec`, or none for deny-all).
+    /// Load `member` of `package` with `config` bound, `grants` (a JSON
+    /// `GrantSpec`, or none for deny-all), and the credential the host applies
+    /// to the connector's requests, if any.
     fn load(
         &self,
         package: &str,
         member: &str,
         config: &Config,
         grants: Option<&Value>,
+        credential: Option<&Credential>,
     ) -> Result<Box<dyn Connector>, String>;
 }
 
@@ -147,6 +175,9 @@ pub struct ConformanceFile {
     pub crate_dir: String,
     pub source: Option<Side>,
     pub destination: Option<Side>,
+    /// The secrets the sides' credentials name, by name.
+    #[serde(default)]
+    pub secrets: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(default)]
     pub setup: Vec<Step>,
     pub spec: Option<Value>,
@@ -179,6 +210,9 @@ pub struct Side {
     #[serde(default = "empty_object")]
     pub config: Value,
     pub grants: Option<Value>,
+    /// A credential spec, as a sync's `source_credential` names it; its
+    /// `secret` is an entry of the file's `[secrets]`.
+    pub credential: Option<Value>,
 }
 
 /// A setup or verify step. With `rows`, the step's output must match them.
@@ -198,6 +232,8 @@ pub struct CheckCase {
     pub side: Option<String>,
     pub config: Option<Value>,
     pub config_text: Option<String>,
+    /// Another `[secrets]` entry for the side's credential.
+    pub secret: Option<String>,
     pub success: bool,
     pub message_contains: Option<String>,
 }
@@ -480,6 +516,30 @@ impl Runner<'_> {
         base
     }
 
+    /// The side's credential with its secret, or with `secret` in its place.
+    fn credential(&self, role: Role, secret: Option<&str>) -> Result<Option<Credential>, String> {
+        let Some(spec) = self.side(role).and_then(|s| s.credential.as_ref()) else {
+            return Ok(None);
+        };
+        let name = match secret {
+            Some(n) => n.to_string(),
+            None => spec
+                .get("secret")
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("the {} credential names no `secret`", role.name()))?
+                .to_string(),
+        };
+        let fields = self
+            .file
+            .secrets
+            .get(&name)
+            .ok_or_else(|| format!("[secrets] has no `{name}`"))?;
+        Ok(Some(Credential {
+            spec: spec.clone(),
+            secret: fields.clone(),
+        }))
+    }
+
     fn load(
         &mut self,
         package: &str,
@@ -488,8 +548,33 @@ impl Runner<'_> {
         method: &'static str,
         case: &str,
     ) -> Option<Box<dyn Connector>> {
+        self.load_with(package, role, config, None, method, case)
+    }
+
+    fn load_with(
+        &mut self,
+        package: &str,
+        role: Role,
+        config: &Config,
+        secret: Option<&str>,
+        method: &'static str,
+        case: &str,
+    ) -> Option<Box<dyn Connector>> {
+        let credential = match self.credential(role, secret) {
+            Ok(c) => c,
+            Err(e) => {
+                self.report.fail("file", case, e);
+                return None;
+            }
+        };
         let grants = self.side(role).and_then(|s| s.grants.as_ref());
-        match self.host.load(package, &self.member(role), config, grants) {
+        match self.host.load(
+            package,
+            &self.member(role),
+            config,
+            grants,
+            credential.as_ref(),
+        ) {
             Ok(c) => Some(c),
             Err(e) => {
                 self.report.fail(
@@ -629,7 +714,14 @@ impl Runner<'_> {
         let config = Config { json };
         // A connector binds its config at load, so a bad config is checked on a
         // handle loaded with it.
-        let Some(conn) = self.load(package, role, &config, "check", &case.case) else {
+        let Some(conn) = self.load_with(
+            package,
+            role,
+            &config,
+            case.secret.as_deref(),
+            "check",
+            &case.case,
+        ) else {
             return;
         };
         let result = match conn.check(&config) {
@@ -1165,6 +1257,7 @@ mod tests {
             _member: &str,
             config: &Config,
             _grants: Option<&Value>,
+            _credential: Option<&Credential>,
         ) -> Result<Box<dyn Connector>, String> {
             let rows = serde_json::from_str::<Value>(&config.json)
                 .ok()
@@ -1298,6 +1391,108 @@ verify = [{ sql = "SELECT id FROM t", answer = [{ id = 1 }, { id = 2 }], rows = 
         assert!(!matches(&json!([1, 2]), &json!([1, 2, 3])));
         assert!(multiset_diff(&[json!(1)], &[json!(1), json!(2)], false).is_none());
         assert!(ordered_diff(&[json!(1), json!(2)], &[json!(2), json!(1)]).is_some());
+    }
+
+    /// Hands out the fake, and checks pass only with the `good` token.
+    struct CredentialHost;
+
+    impl Host for CredentialHost {
+        fn prepare(&self, _crate_dir: &Path) -> Result<String, String> {
+            Ok("fake".into())
+        }
+        fn load(
+            &self,
+            _package: &str,
+            _member: &str,
+            _config: &Config,
+            _grants: Option<&Value>,
+            credential: Option<&Credential>,
+        ) -> Result<Box<dyn Connector>, String> {
+            let c = credential.ok_or("no credential")?;
+            assert_eq!(c.spec["kind"], json!("header"));
+            Ok(Box::new(TokenChecked(
+                c.secret.get("token").cloned().unwrap_or_default(),
+            )))
+        }
+    }
+
+    struct TokenChecked(String);
+
+    impl Connector for TokenChecked {
+        fn spec(&self) -> Result<ConnectorSpec, String> {
+            Fake {
+                rows: Vec::new(),
+                drop_row: false,
+            }
+            .spec()
+        }
+        fn check(&self, _config: &Config) -> Result<CheckResult, String> {
+            let ok = self.0 == "good";
+            Ok(CheckResult {
+                success: ok,
+                message: (!ok).then(|| "403".to_string()),
+            })
+        }
+        fn discover(&self, _config: &Config) -> Result<DiscoverOutcome, String> {
+            Err("unused".into())
+        }
+        fn read(&self, _ctx: &ReadContext) -> Result<ReadIter<'_>, String> {
+            Err("unused".into())
+        }
+        fn write(
+            &self,
+            _ctx: &WriteContext,
+            _batches: Vec<RecordBatch>,
+        ) -> Result<WriteOutcome, String> {
+            Err("unused".into())
+        }
+    }
+
+    const CREDENTIAL_FILE: &str = r#"
+connector = "fake"
+
+[source]
+credential = { kind = "header", secret = "api", name = "Authorization", field = "token" }
+
+[secrets.api]
+token = "good"
+
+[secrets.wrong]
+token = "bad"
+
+[[check]]
+case = "the named secret"
+success = true
+
+[[check]]
+case = "another secret"
+secret = "wrong"
+success = false
+message_contains = "403"
+"#;
+
+    #[test]
+    fn a_credential_reaches_the_host_with_its_secret() {
+        let report = run_text(CREDENTIAL_FILE, Path::new("."), &CredentialHost, None);
+        report.assert_passed();
+        assert_eq!(report.passed.len(), 3, "{:?}", report.passed);
+    }
+
+    #[test]
+    fn a_missing_secret_is_a_file_failure() {
+        let text = CREDENTIAL_FILE.replace("secret = \"wrong\"", "secret = \"absent\"");
+        let report = run_text(&text, Path::new("."), &CredentialHost, None);
+        assert_eq!(report.failures.len(), 1, "{report}");
+        assert_eq!(report.failures[0].method, "file");
+        assert!(report.failures[0].difference.contains("absent"), "{report}");
+        let shown = format!(
+            "{:?}",
+            Credential {
+                spec: json!({}),
+                secret: BTreeMap::from([("token".to_string(), "s3cr3t".to_string())]),
+            }
+        );
+        assert!(!shown.contains("s3cr3t"), "{shown}");
     }
 
     #[test]

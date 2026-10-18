@@ -93,6 +93,26 @@ services:
       retries: 30
       start_period: 20s
 
+  # MinIO for the S3 connector tests (CLOACINA-T-0985), under the `minio`
+  # profile; the Postgres integration lane starts it. MinIO stopped publishing
+  # community images in 2025, so this is Bitnami's frozen build of the same
+  # release, pinned by digest. AGPL-3.0, pulled as a test service only. No
+  # volume: the tests seed the bucket they read.
+  minio:
+    profiles: ["minio"]
+    image: bitnamilegacy/minio:2024.9.13@sha256:8a92f71856f4b4b5755fa6afe4e7f9d0db7e18c889318f6772cb342d9b13470d
+    container_name: cloacina-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "127.0.0.1:19000:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
 volumes:
   postgres_data:
     name: cloacina_postgres_data

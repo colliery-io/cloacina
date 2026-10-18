@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The S3 connector** (COLLIERY-I-0633, CLOACINA-T-0985): `connectors/s3`,
+  weir's source of NDJSON objects from an S3-compatible store (full refresh,
+  incremental by object key), on cloacina's contract. Requests leave the guest
+  unsigned and the host signs them with a SigV4 credential, so the keys never
+  enter the sandbox. `check` now lists one key, so a wrong key fails it, and
+  the cursor is the key as a JSON string. A conformance file can name a side's
+  credential and hold its test secrets under `[secrets]`. MinIO runs under the
+  compose profile `minio`, and the Postgres integration lane runs the S3
+  conformance file and one S3 to Postgres sync with the keys in cloacina's
+  secret store.
 - **The MSSQL connector** (COLLIERY-I-0633, CLOACINA-T-0984):
   `connectors/mssql`, weir's SQL Server source (full refresh, incremental by
   cursor) on cloacina's contract, with TLS through rustls. Its TDS driver is
