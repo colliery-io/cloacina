@@ -81,6 +81,8 @@
 //!                                 # Append and none
 //! state = { cursor = "2" }        # optional; the cursor as a JSON value
 //! max_checkpoints = 1             # optional; stop the read after this many
+//! resume_after = 2                # optional; read to this checkpoint, then
+//!                                 # expect what a read from its state gives
 //! records = [{ id = 1 }]
 //! checkpoints = [{ cursor = "2" }]
 //! dead_letters = [{ record = { id = "x" }, reason_contains = "not" }]
@@ -257,6 +259,9 @@ pub struct ReadCase {
     pub partition: Option<Value>,
     pub state: Option<Value>,
     pub max_checkpoints: Option<usize>,
+    /// Read up to this checkpoint first, then read again from its state; the
+    /// expected values are for the second read. Tests a resume mid-stream.
+    pub resume_after: Option<usize>,
     pub records: Option<Vec<Value>>,
     #[serde(default)]
     pub ordered: bool,
@@ -829,7 +834,7 @@ impl Runner<'_> {
         if !self.steps("setup", &case.case, &case.setup) {
             return;
         }
-        let ctx = match read_context(case) {
+        let mut ctx = match read_context(case) {
             Ok(c) => c,
             Err(e) => return self.report.fail("file", &case.case, e),
         };
@@ -839,6 +844,12 @@ impl Runner<'_> {
         let Some(conn) = self.load(package, Role::Source, &config, "read", &case.case) else {
             return;
         };
+        if let Some(n) = case.resume_after {
+            match checkpoint_at(conn.as_ref(), &ctx, n) {
+                Ok(state) => ctx.state = state,
+                Err(e) => return self.report.fail("read", &case.case, e),
+            }
+        }
         let iter = match conn.read(&ctx) {
             Ok(i) => i,
             Err(e) => {
@@ -1013,6 +1024,35 @@ impl Runner<'_> {
             self.report.pass("write", &case.case);
         }
     }
+}
+
+/// The state of the `n`th checkpoint of a read (from 1).
+fn checkpoint_at(conn: &dyn Connector, ctx: &ReadContext, n: usize) -> Result<StreamState, String> {
+    let mut seen = 0;
+    for msg in conn
+        .read(ctx)
+        .map_err(|e| format!("the first read failed: {e}"))?
+    {
+        match msg {
+            Ok(ReadMessage::Checkpoint(state)) => {
+                seen += 1;
+                if seen == n {
+                    return Ok(state);
+                }
+            }
+            Ok(ReadMessage::Fatal(e)) => {
+                return Err(format!(
+                    "the first read ended with a fatal error: {}",
+                    e.message
+                ));
+            }
+            Ok(_) => {}
+            Err(e) => return Err(format!("the first read failed: {e}")),
+        }
+    }
+    Err(format!(
+        "the first read ended after {seen} checkpoints, before checkpoint {n}"
+    ))
 }
 
 /// A `ConfiguredStream` from the file, with `sync_mode`, `write_mode` and
@@ -1395,6 +1435,33 @@ verify = [{ sql = "SELECT id FROM t", answer = [{ id = 1 }, { id = 2 }], rows = 
         assert!(f.difference.contains("records differ"), "{f}");
         assert!(f.difference.contains(r#"missing [{"id":2}]"#), "{f}");
         assert!(report.to_string().contains("read `fresh`"), "{report}");
+    }
+
+    #[test]
+    fn resume_after_reads_to_a_checkpoint_first() {
+        let file = r#"
+connector = "fake"
+[source]
+config = { rows = ['{"id":1}'] }
+[[read]]
+case = "resume"
+stream = { stream = "fake" }
+resume_after = 1
+records = [{ id = 1 }]
+[[read]]
+case = "too far"
+stream = { stream = "fake" }
+resume_after = 3
+"#;
+        let report = run_text(file, Path::new("."), &FakeHost { drop_row: false }, None);
+        assert_eq!(report.failures.len(), 1, "{report}");
+        assert_eq!(report.failures[0].case, "too far");
+        assert!(
+            report.failures[0]
+                .difference
+                .contains("ended after 1 checkpoints"),
+            "{report}"
+        );
     }
 
     #[test]
