@@ -571,6 +571,19 @@ Metadata responses carry `id`, `name`, `field_names`, `created_at`, and
 `updated_at`. Managing secrets is documented in
 [Manage Secrets](../../how-to/service/manage-secrets/).
 
+## Sync connectors
+
+The catalog of Sync's connectors (COLLIERY-I-0634): the compiled connector
+providers in the server's provider search path, and the declarative connector
+definitions (the corpus and `CLOACINA_SYNC_DEFINITIONS_DIR`).
+
+| Route | Description |
+|---|---|
+| `GET /v1/tenants/{tenant_id}/connectors` | `{ "items": [...], "total": n }` of `{ name, kind, provider, version, roles, sync_modes, streams }`. `kind` is `compiled` or `declarative`; a sync names a compiled connector by `*_provider` and a declarative one by `*_definition`. `500` if the definitions directory does not load. |
+
+Creating a `sync` workflow instance (`POST /v1/tenants/{tenant_id}/workflows/sync/instances`)
+also checks the sync's params, and lowers a side that names a connector
+definition: a failure is `400 sync_params_invalid` naming the problem.
 ## Workflow Packages
 
 Workflow packages are `.cloacina` archives uploaded via multipart form data, scoped to a tenant.

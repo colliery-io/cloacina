@@ -35,13 +35,32 @@ never written to the execution's context.
 | `query` | A query parameter, percent-encoded once | `param`, `field` | the one `field` names |
 | `aws_sigv4` | An AWS Signature Version 4: `Authorization`, `x-amz-date`, `x-amz-content-sha256` | `region`, `service` (default `s3`) | `access_key_id`, `secret_access_key` |
 | `snowflake_keypair_jwt` | A Snowflake key-pair JWT as a bearer, and `X-Snowflake-Authorization-Token-Type: KEYPAIR_JWT` | `account`, `user` | `private_key` (PKCS#8 PEM) |
+| `basic` | `Authorization: Basic` of the pair | `username_field`, `password_field` (default `username`, `password`) | those two |
+| `oauth2` | A bearer from an OAuth2 grant at `token_url` | `token_url`, `grant` (`client_credentials` or `refresh_token`), `scopes` | `client_id`, `client_secret`, and `refresh_token` for that grant |
+| `session` | A token from a login, sent as `inject_header` with `prefix` | `login_url`, `method` (default `POST`), `login_fields` (body key to secret field), `token_path`, `inject_header`, `prefix`, `ttl_secs` (default 900) | the values of `login_fields` |
+| `google_service_account` | A bearer from Google's JWT-bearer grant | `scopes` | `service_account_key` (the account's JSON key) |
 
 A bearer token is a `header` with `name = "Authorization"` and
 `prefix = "Bearer "`. The Snowflake JWT is signed on the host with RS256, is
 valid for an hour, and is signed again a minute before it expires.
 
-OAuth2 client credentials and Google service accounts are not here yet; they
-come with the declarative connectors (COLLIERY-I-0634).
+## Minted tokens
+
+For `oauth2`, `session` and `google_service_account` the host makes the grant
+or login request itself, on its own thread, and keeps the token for the
+process (CLOACINA-T-0989). On an agent, every load of a connector with the
+same credential shares it, so a sync does not mint a token per segment. A
+token is minted again a minute before it expires, or when the secret changes:
+the cache is keyed by a digest of who the token is for and checked against a
+digest of the whole credential. A session token is kept for `ttl_secs`.
+
+A provider that answers a refresh grant with a **new refresh token** retires
+the old one. Cloacina does not store the new one yet, so that grant fails with
+a message saying the refresh token was rotated; a provider that rotates
+refresh tokens cannot be used with the `refresh_token` grant for now.
+
+A declarative connector's definition names its auth kind, and the sync names
+the secret (see [Declarative Connectors](../declarative/)).
 
 ## Naming a credential in a sync
 
@@ -89,6 +108,10 @@ cloacinactl secret create orders-prod-aws \
 - A wrong key is the remote service's answer: S3 answers `403`, Snowflake
   `401`. A connector's `check` makes one cheap call, so a wrong key fails
   `check` before a sync runs.
+- A credential that cannot be applied, such as a refused grant or a rotated
+  refresh token, denies the request. The guest sees only "request denied";
+  the reason is in the host's log, as a warning naming the credential and
+  the URL, never a value.
 
 ## Related
 

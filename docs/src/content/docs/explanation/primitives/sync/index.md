@@ -113,8 +113,10 @@ The contract every connector implements is in the
 
 ## Connectors
 
-Cloacina ships Postgres, MSSQL, S3 and Snowflake connectors. Their config,
-modes, grants and credentials are in the
+Cloacina ships Postgres, MSSQL, S3 and Snowflake connectors, and the REST
+runtime that runs **declarative connectors**: YAML connector definitions, 38 of
+which ship as the corpus. See [Declarative Connectors](declarative/). The
+config, modes, grants and credentials of each are in the
 [Sync Connectors reference](../../../reference/connectors/). Each passes a
 conformance file through the real connector host; a connector author writes
 one the same way ([Test a Connector](../../../how-to/sync/test-a-connector/)).
@@ -122,7 +124,7 @@ one the same way ([Test a Connector](../../../how-to/sync/test-a-connector/)).
 ## What is not yet here
 
 Sync lands in order (COLLIERY-I-0632 to COLLIERY-I-0636). The contract, the
-Postgres to Postgres sync, the compiled connectors, credential injection and
-the conformance kit are here. The declarative connectors and their corpus,
-OAuth2 and Google credentials, authoring in the web UI, and continuous sources
-come next.
+Postgres to Postgres sync, the compiled connectors, credential injection, the
+conformance kit, and the declarative connectors with their corpus, importer
+and catalog are here. Authoring in the web UI and continuous sources come
+next.
