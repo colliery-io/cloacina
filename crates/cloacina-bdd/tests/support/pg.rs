@@ -157,3 +157,31 @@ pub async fn drop_schema(schema: &str) {
     let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", ident(schema));
     let _ = client().await.batch_execute(&sql).await;
 }
+
+/// The number of rows of `table`.
+pub async fn count(table: &str) -> i64 {
+    client()
+        .await
+        .query_one(&format!("SELECT count(*) FROM {}", ident(table)), &[])
+        .await
+        .unwrap_or_else(|e| panic!("count {table}: {e}"))
+        .get(0)
+}
+
+/// The number of rows of `table`, or 0 while it does not exist yet.
+pub async fn count_if_exists(table: &str) -> i64 {
+    let client = client().await;
+    let exists: bool = client
+        .query_one("SELECT to_regclass($1) IS NOT NULL", &[&ident(table)])
+        .await
+        .expect("look up the table")
+        .get(0);
+    if !exists {
+        return 0;
+    }
+    client
+        .query_one(&format!("SELECT count(*) FROM {}", ident(table)), &[])
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0)
+}

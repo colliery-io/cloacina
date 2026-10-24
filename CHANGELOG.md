@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BDD features for the cursor and resume** (COLLIERY-I-0655,
+  CLOACINA-T-0996): `features/sync/cursor.feature` and `resume.feature`. A
+  destination that refuses connections fails the pass and leaves the cursor
+  where it was; the records arrive once it is back. A write task that dies
+  before its commit is retried, and a runner that dies mid-write is replaced
+  by a new one on the same database, which reclaims the task and finishes the
+  segment. Each scenario's runner now keeps its state in a SQLite file, or its
+  own Postgres schema, so a second runner can take over. The test-only
+  `fail_after_write_once` fault now fires once per sync, not once per process.
 - **BDD features** (COLLIERY-I-0655, CLOACINA-T-0995, CLOACINA-A-0015): a
   test crate, `cloacina-bdd`, runs Gherkin features in process with
   `cucumber`. Each scenario gets a fresh World: its own runner, on SQLite or

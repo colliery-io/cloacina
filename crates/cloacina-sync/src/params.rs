@@ -62,7 +62,7 @@ pub mod keys {
     /// How many connector checkpoints one segment may span. Default 1.
     pub const SEGMENT_CHECKPOINTS: &str = "segment_checkpoints";
     /// Test-only (feature `fault-injection`): a fault the write task injects.
-    /// `fail_after_write_once` fails the task once per process after the
+    /// `fail_after_write_once` fails the task once per sync after the
     /// destination accepted the segment, before the completion writes, so the
     /// retry writes the segment again; `slow_write_ms:<n>` holds the write
     /// task for n milliseconds after the write, so a harness can kill the
