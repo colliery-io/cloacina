@@ -23,6 +23,7 @@ cloacina = { workspace = true, features = ["postgres", "sqlite", "macros", "cons
 cloacina-constructor-contract = { workspace = true }
 cloacina-sync = { workspace = true, features = ["fault-injection"] }
 cloacina-testing = { workspace = true }
+cloacina-workflow = { workspace = true }
 cucumber = { version = "0.23", features = ["output-junit"] }
 futures = "0.3"
 serde_json.workspace = true

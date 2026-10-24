@@ -17,4 +17,7 @@
 //! sees, so a later driver against a running server can take the same
 //! features (CLOACINA-A-0015).
 
+mod credentials;
+mod dead_letters;
+mod declarative;
 mod sync;

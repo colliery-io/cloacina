@@ -24,6 +24,8 @@ use cloacina::registry::loader::set_provider_search_path;
 
 /// The provider package of the Postgres connector.
 pub const POSTGRES: &str = "cloacina-connector-postgres";
+/// The provider package of the REST source.
+pub const REST: &str = "cloacina-connector-rest";
 
 /// Stage the connectors and point the provider search path at them.
 pub fn staged() -> &'static Path {
@@ -33,7 +35,9 @@ pub fn staged() -> &'static Path {
             std::env::temp_dir().join(format!("cloacina-bdd-providers-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("providers dir");
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        cloacina_testing::connectors::stage_connector(&dir, &root.join("connectors/postgres"));
+        for connector in ["connectors/postgres", "connectors/rest"] {
+            cloacina_testing::connectors::stage_connector(&dir, &root.join(connector));
+        }
         set_provider_search_path(dir.clone());
         dir
     })

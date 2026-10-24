@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A guide to the behaviour specs** (COLLIERY-I-0655, CLOACINA-T-0999): a
+  Contributing page on where the features live, how to run one, what each
+  scenario gets, how to add a step at the user's level, and the test-only
+  faults. The repository structure page now lists `cloacina-bdd`,
+  `cloacina-sync`, `cloacina-declarative` and `connectors/`.
+- **A BDD feature for declarative syncs** (COLLIERY-I-0655,
+  CLOACINA-T-0998): `features/sync/declarative.feature`. The corpus `github`
+  source syncs its repositories to Postgres against a mock GitHub API, with the
+  token from the secret store, and its second pass asks only for what is new.
+  A missing definition, or a stream the definition lacks, is refused when the
+  sync is created, with the name. A definition from the definitions directory
+  (`features/definitions/`, set by the runner) syncs like one of the corpus.
+- **BDD features for dead-letters and credentials** (COLLIERY-I-0655,
+  CLOACINA-T-0997): `features/sync/dead_letters.feature` and
+  `credentials.feature`. A record that breaks the stream's schema is set aside
+  with its reason while the rest arrive and the cursor moves on. Against a mock
+  API with the REST source, a stored secret reaches the API as a header or a
+  query parameter and lands in no saved context or record. A request the
+  grants refuse never reaches the API, and an OAuth2 token is minted once for
+  two passes. When a segment fails, the pass error now carries each failed
+  task's error, so a missing secret is named in it.
+- **BDD features for the cursor and resume** (COLLIERY-I-0655,
+  CLOACINA-T-0996): `features/sync/cursor.feature` and `resume.feature`. A
+  destination that refuses connections fails the pass and leaves the cursor
+  where it was; the records arrive once it is back. A write task that dies
+  before its commit is retried, and a runner that dies mid-write is replaced
+  by a new one on the same database, which reclaims the task and finishes the
+  segment. Each scenario's runner now keeps its state in a SQLite file, or its
+  own Postgres schema, so a second runner can take over. The test-only
+  `fail_after_write_once` fault now fires once per sync, not once per process.
 - **BDD features** (COLLIERY-I-0655, CLOACINA-T-0995, CLOACINA-A-0015): a
   test crate, `cloacina-bdd`, runs Gherkin features in process with
   `cucumber`. Each scenario gets a fresh World: its own runner, on SQLite or

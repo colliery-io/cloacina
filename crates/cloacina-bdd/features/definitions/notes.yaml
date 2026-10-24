@@ -1,0 +1,13 @@
+# A connector definition from the definitions directory
+# (CLOACINA_SYNC_DEFINITIONS_DIR), which the BDD runner points here. Used by
+# features/sync/declarative.feature.
+spec: { name: notes }
+base_url: "{{ config['base_url'] }}"
+auth: { kind: bearer, field: api_token }
+streams:
+  - name: notes
+    path: /notes
+    primary_key: [id]
+    schema:
+      - { name: id, type: int64, nullable: false }
+      - { name: body, type: utf8 }

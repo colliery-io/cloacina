@@ -308,3 +308,6 @@ mock.load_table("ORDERS", &["ID", "NAME"], rows);
 let written = mock.rows("SF_DST");
 let refused = mock.rejected();
 ```
+
+The [behaviour specs](../../contributing/behaviour-specs/) use `RestMock` and
+the connector staging helpers in their scenarios.

@@ -49,14 +49,26 @@ pub async fn after_write(context: &Context<Value>) -> Result<(), String> {
 /// Apply the requested fault after the write.
 #[cfg(feature = "fault-injection")]
 pub async fn after_write(context: &Context<Value>) -> Result<(), String> {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static FAILED_ONCE: AtomicBool = AtomicBool::new(false);
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    // Once per sync per process, so each scenario of a suite sees its fault.
+    static FAILED_ONCE: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
     let Some(fault) = requested(context) else {
         return Ok(());
     };
     if fault == "fail_after_write_once" {
-        if !FAILED_ONCE.swap(true, Ordering::SeqCst) {
+        let sync = context
+            .get(keys::SYNC)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let first = FAILED_ONCE
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(sync);
+        if first {
             tracing::warn!(
                 "sync: injected fault, failing the write task once after the destination accepted the segment"
             );

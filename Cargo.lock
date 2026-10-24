@@ -875,6 +875,7 @@ dependencies = [
  "cloacina-constructor-contract",
  "cloacina-sync",
  "cloacina-testing",
+ "cloacina-workflow",
  "cucumber",
  "futures",
  "serde_json",

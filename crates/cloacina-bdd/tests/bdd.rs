@@ -23,6 +23,9 @@
 //!   the runner's schema). Default: the dev Postgres on 15432.
 //! - `CLOACINA_BDD_JUNIT`: a path; when set, a JUnit report is written there.
 //!
+//! The runner sets `CLOACINA_SYNC_DEFINITIONS_DIR` to `features/definitions`,
+//! so the connector definitions there sit next to the corpus.
+//!
 //! Filter with cucumber's own flags after `--`, e.g. `--name "cursor"` or
 //! `--tags @wip`.
 
@@ -34,8 +37,22 @@ use futures::FutureExt as _;
 
 use support::world::SyncWorld;
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // SAFETY: set before the runtime starts, while this is the only thread.
+    unsafe {
+        std::env::set_var(
+            cloacina_sync::declarative::DEFINITIONS_DIR_ENV,
+            concat!(env!("CARGO_MANIFEST_DIR"), "/features/definitions"),
+        );
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("the runtime")
+        .block_on(run());
+}
+
+async fn run() {
     let features = concat!(env!("CARGO_MANIFEST_DIR"), "/features");
     let cucumber = SyncWorld::cucumber()
         // The provider search path is process-wide and each runner polls its
