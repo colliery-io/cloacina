@@ -336,6 +336,11 @@ def integration(
                 rest_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "rest_connector", "--test", "rest_dest_connector", "--", "--test-threads=1"]
                 print(f"Running: {' '.join(rest_cmd)}")
                 subprocess.run(rest_cmd, check=True)
+                # CLOACINA-T-0993: a corpus definition synced to Postgres against
+                # the mock API, with its token in the secret store.
+                decl_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "declarative_sync", "--", "--include-ignored", "--test-threads=1"]
+                print(f"Running: {' '.join(decl_cmd)}")
+                subprocess.run(decl_cmd, check=True)
             if backend_name == "postgres" and not skip_rust:
                 print_section_header("Running cloacina-server lib tests (Postgres)")
                 server_cmd = ["cargo", "test", "-p", "cloacina-server", "--lib"]

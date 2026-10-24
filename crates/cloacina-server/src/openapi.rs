@@ -29,11 +29,11 @@
 //! OpenAPI cannot describe WS message flows.
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, CompilerStatus, CreateInstanceRequest, CreateKeyRequest,
-    CreateTenantRequest, DeclaredSurface, DeleteInstanceResponse, ErrorBody, ExecuteRequest,
-    ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse, ExecutionSummary,
-    ExecutionTasksResponse, FireMode, FireReactorRequest, FireReactorResponse, GraphStatus,
-    GraphTopology, GraphTopologyEdge, GraphTopologyNode, InjectAccumulatorRequest,
+    AccumulatorStatus, AgentInfo, CompilerStatus, ConnectorSummary, CreateInstanceRequest,
+    CreateKeyRequest, CreateTenantRequest, DeclaredSurface, DeleteInstanceResponse, ErrorBody,
+    ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
+    ExecutionSummary, ExecutionTasksResponse, FireMode, FireReactorRequest, FireReactorResponse,
+    GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode, InjectAccumulatorRequest,
     InjectAccumulatorResponse, InputSlot, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
     ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus, SecretDeletedResponse,
     SecretMetadataResponse, TaskExecutionDetail, TenantCreatedResponse, TenantListResponse,
@@ -108,6 +108,7 @@ impl Modify for SecurityAddon {
         crate::routes::secrets::create_secret,
         crate::routes::secrets::rotate_secret,
         crate::routes::secrets::list_secrets,
+        crate::routes::connectors::list_connectors,
         crate::routes::secrets::get_secret,
         crate::routes::secrets::delete_secret,
         crate::routes::session::refresh,
@@ -167,6 +168,8 @@ impl Modify for SecurityAddon {
         SecretMetadataResponse,
         SecretDeletedResponse,
         ListResponse<SecretMetadataResponse>,
+        ConnectorSummary,
+        ListResponse<ConnectorSummary>,
         crate::routes::session::LogoutResponse,
         crate::routes::session::WhoamiResponse,
         KeyInfo,
@@ -241,6 +244,7 @@ impl Modify for SecurityAddon {
         (name = "fleet", description = "Execution-agent fleet roster (admin)"),
         (name = "compiler", description = "Compiler / build-pipeline status (admin)"),
         (name = "graph-health", description = "Computation-graph health"),
+        (name = "connectors", description = "Sync connector catalog"),
     )
 )]
 pub struct ApiDoc;

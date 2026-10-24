@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Declarative syncs and the connector catalog** (COLLIERY-I-0634,
+  CLOACINA-T-0993): a sync side can name a connector definition
+  (`source_definition`, `destination_definition`) instead of a provider. Its
+  `*_config` is the user's config for the definition and `*_secret` the secret
+  its auth reads (default: the binding `source_secret`); the side is lowered
+  onto the REST runtime wherever the params are read, with grants to the
+  definition's host unless the side gives its own. The server refuses a sync
+  definition whose side does not lower, by name. A user config's `base_url`
+  replaces the definition's. Extra definitions load from
+  `CLOACINA_SYNC_DEFINITIONS_DIR`. `GET /v1/tenants/{tenant_id}/connectors` and
+  `cloacinactl connector list` show the catalog: the compiled connector
+  providers and the declarative definitions.
 - **The importer and the declarative corpus** (COLLIERY-I-0634,
   CLOACINA-T-0992): a new crate, `cloacina-declarative`, holds connector
   definitions and their compiler (moved from `cloacina-sync`, which re-exports
