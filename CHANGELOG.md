@@ -30,16 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dead-letter. `RestDestConfig` gains `delete_path` and `delete_method`, takes
   an optional method, and drops `batch_size`, which weir never used. The mock
   API takes writes, and a conformance write case can send CDC changes.
-- **The REST source** (COLLIERY-I-0634, CLOACINA-T-0990): `connectors/rest`,
-  weir's REST guest on the Sync contract, the runtime of every declarative
-  source. It reads the `RestConfig` the host compiles from a connector
-  definition: pagination by page, offset, cursor token or `Link` header;
-  incremental reads by a cursor field; list and substream partitions;
-  header-row sheets; POST bodies with parameters injected into them. The read
-  streams a page at a time with a checkpoint per page, so a failure loses one
-  page. `check` now fetches the first page. Auth is the host's.
-  `cloacina_testing::connectors::rest_mock` is a mock JSON API for its tests,
-  and a conformance read case can now `resume_after` a checkpoint.
 - **OAuth2, session, Basic and Google service-account credentials**
   (COLLIERY-I-0634, CLOACINA-T-0989): four more credential kinds the host
   applies to a connector's requests. For `oauth2` (client credentials or
@@ -51,6 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clear message: cloacina does not store a rotated refresh token yet. A
   credential that cannot be applied is logged with its reason, since the
   guest only sees a denied request.
+- **The REST source** (COLLIERY-I-0634, CLOACINA-T-0990): `connectors/rest`,
+  weir's REST guest on the Sync contract, the runtime of every declarative
+  source. It reads the `RestConfig` the host compiles from a connector
+  definition: pagination by page, offset, cursor token or `Link` header;
+  incremental reads by a cursor field; list and substream partitions;
+  header-row sheets; POST bodies with parameters injected into them. The read
+  streams a page at a time with a checkpoint per page, so a failure loses one
+  page. `check` now fetches the first page. Auth is the host's.
+  `cloacina_testing::connectors::rest_mock` is a mock JSON API for its tests,
+  and a conformance read case can now `resume_after` a checkpoint.
 - **Connector definitions** (COLLIERY-I-0634, CLOACINA-T-0988):
   `cloacina_sync::definition` holds the model of a declarative connector,
   weir's declarative manifest moved and named a connector definition, and its
