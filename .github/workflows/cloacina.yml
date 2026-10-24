@@ -470,3 +470,57 @@ jobs:
 
       - name: Validate /metrics exposition format
         run: angreal test metrics-format
+
+  # Behaviour specs (COLLIERY-I-0655 / CLOACINA-A-0015): the Gherkin features
+  # of crates/cloacina-bdd, once on a SQLite runner and once on a Postgres
+  # one. The lane starts its own Postgres and nothing else, so a failure here
+  # reads as a changed behaviour, apart from the integration lanes.
+  bdd:
+    name: BDD Features
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: ./.github/actions/free-disk-space
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          # The features stage connector guests built to wasm32-wasip2.
+          targets: wasm32-wasip2
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-ubuntu-latest"
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Run the BDD features
+        run: angreal test bdd --start-postgres --junit bdd-report
+
+      - name: Upload the BDD reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bdd-reports
+          path: bdd-report-*.xml
+          if-no-files-found: ignore

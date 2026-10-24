@@ -73,6 +73,11 @@ jobs:
               - 'crates/cloacina-constructor-contract/**'
               - 'crates/cloacina-python/**'
               - 'crates/cloacina-server/**'
+              # Sync (COLLIERY-S-0002) and the BDD features (COLLIERY-I-0655).
+              - 'crates/cloacina-sync/**'
+              - 'crates/cloacina-declarative/**'
+              - 'crates/cloacina-bdd/**'
+              - 'connectors/**'
               - 'tests/python/**'
               - 'clients/python/**'
               - 'Cargo.*'

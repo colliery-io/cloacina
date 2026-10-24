@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BDD features** (COLLIERY-I-0655, CLOACINA-T-0995, CLOACINA-A-0015): a
+  test crate, `cloacina-bdd`, runs Gherkin features in process with
+  `cucumber`. Each scenario gets a fresh World: its own runner, on SQLite or
+  in a Postgres schema of its own, and its own tables in the scenario
+  Postgres. The first feature covers a Sync pass, Postgres to Postgres, and
+  the cursor it commits. `angreal test bdd` runs the features on both runner
+  databases; the new BDD Features CI lane runs them against its own Postgres
+  and keeps a JUnit report. The CI change filter now covers `cloacina-sync`,
+  `cloacina-declarative` and `connectors/`, which ran no test lane on their
+  own before.
 - **Declarative connector docs** (COLLIERY-I-0634, CLOACINA-T-0994): a
   Declarative Connectors page; references for the connector definition
   format, the REST source and destination, and the corpus with each entry's
