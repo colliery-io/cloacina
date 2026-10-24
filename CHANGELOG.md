@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A guide to the behaviour specs** (COLLIERY-I-0655, CLOACINA-T-0999): a
+  Contributing page on where the features live, how to run one, what each
+  scenario gets, how to add a step at the user's level, and the test-only
+  faults. The repository structure page now lists `cloacina-bdd`,
+  `cloacina-sync`, `cloacina-declarative` and `connectors/`.
 - **A BDD feature for declarative syncs** (COLLIERY-I-0655,
   CLOACINA-T-0998): `features/sync/declarative.feature`. The corpus `github`
   source syncs its repositories to Postgres against a mock GitHub API, with the

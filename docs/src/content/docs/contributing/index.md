@@ -44,7 +44,8 @@ Cloacina provides several tools and resources to help you get started and mainta
    - Fork the repository
    - Create a new branch for your feature or fix
    - Make your changes
-   - Write or update tests as needed
+   - Write or update tests as needed. A change to what cloacina promises a
+     user also gets a scenario in the [behaviour specs](behaviour-specs/)
    - Ensure all tests pass
    - Update documentation as necessary
 
