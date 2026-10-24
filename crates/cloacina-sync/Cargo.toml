@@ -30,6 +30,8 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 tracing = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
+# Connector definitions are YAML (CLOACINA-T-0988).
+serde_yaml = "0.9"
 uuid = { version = "1.0", features = ["v4"] }
 
 [features]
