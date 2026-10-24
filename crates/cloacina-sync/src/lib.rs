@@ -37,6 +37,7 @@
 #![allow(unexpected_cfgs)]
 
 pub mod credential;
+pub mod definition;
 pub mod dispatcher;
 pub mod fault;
 pub mod hook;

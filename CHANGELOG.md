@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clear message: cloacina does not store a rotated refresh token yet. A
   credential that cannot be applied is logged with its reason, since the
   guest only sees a denied request.
+- **Connector definitions** (COLLIERY-I-0634, CLOACINA-T-0988):
+  `cloacina_sync::definition` holds the model of a declarative connector,
+  weir's declarative manifest moved and named a connector definition, and its
+  compiler. `compile_source` and `compile_destination` turn a definition, a
+  stream or object, and the user's config into the REST runtime's config, the
+  stream's mapping and typed schema, and the credential the host adds. The
+  runtime's config is one serde type read on both sides,
+  `cloacina_constructor_contract::sync::rest::RestConfig` (and
+  `RestDestConfig`), so weir's string keys and its `__mapping` side channel
+  are gone (COLLIERY-I-0604), and a misspelled field fails by name.
+  `{{ config['key'] }}` templates render at compile time; a key the config
+  lacks is named in the error. Auth maps onto the Sync credential spec; the
+  OAuth2, session, Basic and Google kinds arrive with CLOACINA-T-0989.
 - **Sync docs** (COLLIERY-I-0633, CLOACINA-T-0987): a Sync Connectors
   reference with a page each for Postgres, MSSQL, S3 and Snowflake (config,
   modes, grant, credential); a Credential Injection page; a how-to for testing
