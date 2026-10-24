@@ -36,11 +36,13 @@
 // crate does not declare.
 #![allow(unexpected_cfgs)]
 
+pub mod corpus;
 pub mod credential;
 pub mod definition;
 pub mod dispatcher;
 pub mod fault;
 pub mod hook;
+pub mod importer;
 pub mod mapping;
 pub mod params;
 pub mod workflow;

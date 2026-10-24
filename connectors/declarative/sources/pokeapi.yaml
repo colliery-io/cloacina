@@ -1,0 +1,110 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from PokéAPI's official API documentation
+# (https://pokeapi.co/docs/v2); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ── pokemon ──────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: pokemon
+    primary_key: name          # list stubs have no integer id; "name" is unique
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://pokeapi.co/api/v2"
+        path: "/pokemon/"
+        # no authenticator — API is fully open
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]   # NamedAPIResourceList envelope
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"       # docs: ?limit=N
+        page_token_option:
+          type: RequestOption
+          field_name: "offset"      # docs: ?offset=N
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 20             # API default; no documented maximum
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          name: { type: string }
+          url:  { type: string }
+
+  # ── ability ───────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: ability
+    primary_key: name
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://pokeapi.co/api/v2"
+        path: "/ability/"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"
+        page_token_option:
+          type: RequestOption
+          field_name: "offset"
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 20
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          name: { type: string }
+          url:  { type: string }
+
+  # ── type ──────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: type
+    primary_key: name
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://pokeapi.co/api/v2"
+        path: "/type/"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"
+        page_token_option:
+          type: RequestOption
+          field_name: "offset"
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 20
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          name: { type: string }
+          url:  { type: string }

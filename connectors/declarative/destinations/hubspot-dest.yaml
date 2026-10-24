@@ -1,0 +1,25 @@
+# HubSpot CRM as a destination, moved from weir (CLOACINA-T-0992).
+# Authored from HubSpot's public CRM v3 API docs (developers.hubspot.com/docs/api/crm),
+# Apache-2.0, no third-party connector code. Runs on the shared `rest-dest` runtime: this
+# is a definition, not a compiled connector.
+#
+# Contacts are upserted by the unique `email` property: PATCH the object addressed by email
+# with `idProperty=email` (create or update), so a replay changes nothing. Auth is a
+# private-app token in the sync's secret (field `token`), added on the host; it is never in
+# this definition.
+spec:
+  name: hubspot-dest
+base_url: https://api.hubapi.com
+auth:
+  kind: bearer
+  field: token
+objects:
+  - name: contacts
+    path: "/crm/v3/objects/contacts/{{ record.email }}?idProperty=email"
+    method: PATCH
+    upsert_key: email
+    field_map:
+      - [email, email]
+      - [first_name, firstname]
+      - [last_name, lastname]
+    body_wrap: properties

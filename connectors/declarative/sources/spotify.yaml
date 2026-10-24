@@ -1,0 +1,113 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Spotify Web API's official API documentation
+# (https://developer.spotify.com/documentation/web-api); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ── Stream 1: new-releases ──────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: new_releases
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.spotify.com/v1"
+        path: "/browse/new-releases"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["albums", "items"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"
+        page_token_option:
+          type: RequestOption
+          field_name: "offset"
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 50
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+          name:
+            type: ["null", "string"]
+          album_type:
+            type: ["null", "string"]
+          total_tracks:
+            type: ["null", "integer"]
+          release_date:
+            type: ["null", "string"]
+          release_date_precision:
+            type: ["null", "string"]
+          type:
+            type: ["null", "string"]
+          uri:
+            type: ["null", "string"]
+          href:
+            type: ["null", "string"]
+          available_markets:
+            type: ["null", "array"]
+          external_urls:
+            type: ["null", "object"]
+          images:
+            type: ["null", "array"]
+          artists:
+            type: ["null", "array"]
+          restrictions:
+            type: ["null", "object"]
+
+  # ── Stream 2: categories ────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: categories
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.spotify.com/v1"
+        path: "/browse/categories"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["categories", "items"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"
+        page_token_option:
+          type: RequestOption
+          field_name: "offset"
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 50
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+          name:
+            type: ["null", "string"]
+          href:
+            type: ["null", "string"]
+          icons:
+            type: ["null", "array"]

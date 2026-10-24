@@ -1,0 +1,146 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Rick and Morty API's official API documentation
+# (https://rickandmortyapi.com/documentation); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ──────────────────────────────────────────
+  # Stream: character
+  # Endpoint: GET /api/character
+  # ──────────────────────────────────────────
+  - type: DeclarativeStream
+    name: character
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://rickandmortyapi.com/api"
+        path: "/character"
+        # No authenticator: API requires no authentication
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]   # records live under the "results" key
+      paginator:
+        type: DefaultPaginator
+        # Page size is fixed at 20 by the API; no per_page param exists → omit page_size_option
+        page_token_option:
+          type: RequestOption
+          field_name: "page"        # query param: ?page=N (starts at 1)
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 20             # API returns exactly 20 records per page
+    # No incremental_sync: no time-filter query param documented for /character
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:       { type: integer }
+          name:     { type: ["null", "string"] }
+          status:   { type: ["null", "string"] }
+          species:  { type: ["null", "string"] }
+          type:     { type: ["null", "string"] }
+          gender:   { type: ["null", "string"] }
+          origin:
+            type: ["null", "object"]
+            properties:
+              name: { type: ["null", "string"] }
+              url:  { type: ["null", "string"] }
+          location:
+            type: ["null", "object"]
+            properties:
+              name: { type: ["null", "string"] }
+              url:  { type: ["null", "string"] }
+          image:    { type: ["null", "string"] }
+          episode:
+            type: ["null", "array"]
+            items: { type: string }
+          url:      { type: ["null", "string"] }
+          created:  { type: ["null", "string"], format: date-time }
+
+  # ──────────────────────────────────────────
+  # Stream: location
+  # Endpoint: GET /api/location
+  # ──────────────────────────────────────────
+  - type: DeclarativeStream
+    name: location
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://rickandmortyapi.com/api"
+        path: "/location"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]
+      paginator:
+        type: DefaultPaginator
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 20
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:        { type: integer }
+          name:      { type: ["null", "string"] }
+          type:      { type: ["null", "string"] }
+          dimension: { type: ["null", "string"] }
+          residents:
+            type: ["null", "array"]
+            items: { type: string }
+          url:       { type: ["null", "string"] }
+          created:   { type: ["null", "string"], format: date-time }
+
+  # ──────────────────────────────────────────
+  # Stream: episode
+  # Endpoint: GET /api/episode
+  # ──────────────────────────────────────────
+  - type: DeclarativeStream
+    name: episode
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://rickandmortyapi.com/api"
+        path: "/episode"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]
+      paginator:
+        type: DefaultPaginator
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 20
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:         { type: integer }
+          name:       { type: ["null", "string"] }
+          air_date:   { type: ["null", "string"] }   # human-readable, NOT ISO 8601
+          episode:    { type: ["null", "string"] }   # e.g. "S01E01"
+          characters:
+            type: ["null", "array"]
+            items: { type: string }
+          url:        { type: ["null", "string"] }
+          created:    { type: ["null", "string"], format: date-time }

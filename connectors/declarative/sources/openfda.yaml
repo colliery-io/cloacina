@@ -1,0 +1,111 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from openFDA's official API documentation
+# (https://open.fda.gov/apis/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  - type: DeclarativeStream
+    name: drug_event
+    primary_key: safetyreportid
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://api.fda.gov"
+        path: "/drug/event.json"
+        # Auth omitted — see Open Questions #1.
+        # The API accepts an optional query parameter named `api_key`;
+        # neither BearerAuthenticator nor ApiKeyAuthenticator (header-only)
+        # in the target schema can express query-parameter injection.
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]
+
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"
+        page_token_option:
+          type: RequestOption
+          field_name: "skip"
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 100
+
+    # incremental_sync omitted — see Open Questions #2.
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          # --- report-level identifiers ---
+          safetyreportid:
+            type: ["null", "string"]       # unique 8-digit case identifier
+          safetyreportversion:
+            type: ["null", "string"]       # int32 in FAERS; stored as string in JSON
+
+          # --- dates (YYYYMMDD strings in FAERS, not ISO 8601) ---
+          receivedate:
+            type: ["null", "string"]       # date report first received by FDA
+          receivedateformat:
+            type: ["null", "string"]
+          receiptdate:
+            type: ["null", "string"]       # date most-recent info received by FDA
+          receiptdateformat:
+            type: ["null", "string"]
+          transmissiondate:
+            type: ["null", "string"]       # record-creation date
+          transmissiondateformat:
+            type: ["null", "string"]
+
+          # --- report metadata ---
+          reporttype:
+            type: ["null", "string"]       # int32 code for report-generation circumstances
+          companynumb:
+            type: ["null", "string"]       # company self-assigned identifier
+          authoritynumb:
+            type: ["null", "string"]       # regulatory authority case number
+          duplicate:
+            type: ["null", "string"]       # flag: earlier version submitted to FDA
+          fulfillexpeditecriteria:
+            type: ["null", "string"]       # int32 flag: expedited (15-day) processing
+          occurcountry:
+            type: ["null", "string"]       # ISO 2-letter country where event occurred
+          primarysourcecountry:
+            type: ["null", "string"]       # country of event reporter
+
+          # --- seriousness flags (each "1" = yes, per FAERS encoding) ---
+          serious:
+            type: ["null", "string"]
+          seriousnessdeath:
+            type: ["null", "string"]
+          seriousnesshospitalization:
+            type: ["null", "string"]
+          seriousnesslifethreatening:
+            type: ["null", "string"]
+          seriousnessdisabling:
+            type: ["null", "string"]
+          seriousnesscongenitalanomali:
+            type: ["null", "string"]
+          seriousnessother:
+            type: ["null", "string"]
+
+          # --- nested objects (schema not expanded — see Open Questions #3) ---
+          patient:
+            type: ["null", "object"]
+          primarysource:
+            type: ["null", "object"]
+          receiver:
+            type: ["null", "object"]
+          sender:
+            type: ["null", "object"]
+          reportduplicate:
+            type: ["null", "object"]

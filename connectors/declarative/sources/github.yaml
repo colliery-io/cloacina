@@ -1,0 +1,152 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from GitHub REST API's official API documentation
+# (https://docs.github.com/en/rest); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Stream: repositories
+  # Endpoint: GET /user/repos
+  # Docs: https://docs.github.com/en/rest/repos/repos
+  # ────────────────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: repositories
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.github.com"
+        path: "/user/repos"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []          # endpoint returns a bare JSON array
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "per_page"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 100          # docs: max 100, default 30
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: updated_at
+      start_time_option:
+        type: RequestOption
+        field_name: "since"       # docs: "Only show repositories updated after the given time"
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                    { type: integer }
+          node_id:               { type: string }
+          name:                  { type: string }
+          full_name:             { type: string }
+          private:               { type: boolean }
+          fork:                  { type: boolean }
+          archived:              { type: boolean }
+          disabled:              { type: boolean }
+          allow_forking:         { type: boolean }
+          web_commit_signoff_required: { type: boolean }
+          size:                  { type: integer }
+          stargazers_count:      { type: integer }
+          watchers_count:        { type: integer }
+          forks_count:           { type: integer }
+          open_issues_count:     { type: integer }
+          visibility:            { type: string }
+          default_branch:        { type: string }
+          description:           { type: ["null", "string"] }
+          language:              { type: ["null", "string"] }
+          homepage:              { type: ["null", "string"] }
+          url:                   { type: string }
+          html_url:              { type: string }
+          created_at:            { type: ["null", "string"], format: date-time }
+          updated_at:            { type: ["null", "string"], format: date-time }
+          pushed_at:             { type: ["null", "string"], format: date-time }
+          owner:                 { type: object }   # Simple User object
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Stream: issues
+  # Endpoint: GET /issues  (authenticated user's issues across all repos)
+  # Docs: https://docs.github.com/en/rest/issues/issues
+  # ────────────────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: issues
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.github.com"
+        path: "/issues"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []          # endpoint returns a bare JSON array
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "per_page"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 100          # docs: max 100, default 30
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: updated_at
+      start_time_option:
+        type: RequestOption
+        field_name: "since"       # docs: ISO 8601 timestamp, filters by last update
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                    { type: integer }
+          node_id:               { type: string }
+          number:                { type: integer }
+          title:                 { type: string }
+          state:                 { type: string }
+          locked:                { type: boolean }
+          comments:              { type: integer }
+          url:                   { type: string }
+          html_url:              { type: string }
+          repository_url:        { type: string }
+          comments_url:          { type: string }
+          events_url:            { type: string }
+          labels_url:            { type: string }
+          author_association:    { type: string }
+          draft:                 { type: ["null", "boolean"] }
+          body:                  { type: ["null", "string"] }
+          state_reason:          { type: ["null", "string"] }
+          active_lock_reason:    { type: ["null", "string"] }
+          created_at:            { type: string, format: date-time }
+          updated_at:            { type: string, format: date-time }
+          closed_at:             { type: ["null", "string"], format: date-time }
+          user:                  { type: ["null", "object"] }   # Simple User
+          closed_by:             { type: ["null", "object"] }   # Simple User
+          milestone:             { type: ["null", "object"] }   # Milestone object
+          pull_request:          { type: ["null", "object"] }   # present if issue is a PR
+          labels:                { type: array }
+          assignees:             { type: array }
+          reactions:             { type: ["null", "object"] }   # Reaction Rollup
+          repository:            { type: ["null", "object"] }   # Repository object

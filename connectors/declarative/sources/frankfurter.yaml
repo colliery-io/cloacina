@@ -1,0 +1,163 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Frankfurter (ECB FX rates)'s official API documentation
+# (https://www.frankfurter.app/docs/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  # ── suggested stream 1: latest rates (no date filter → current snapshot) ──
+  - type: DeclarativeStream
+    name: latest
+    primary_key:
+      - date
+      - base
+      - quote
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.frankfurter.dev"
+        path: "/v2/rates"
+        # no authenticator: docs state "free, requires no API key"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []   # response is a top-level JSON array
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          date:
+            type: string
+            format: date          # YYYY-MM-DD, confirmed from live response
+          base:
+            type: string          # ISO 4217 currency code (e.g. "EUR")
+          quote:
+            type: string          # ISO 4217 currency code (e.g. "USD")
+          rate:
+            type: number          # exchange rate, can be float of any magnitude
+
+  # ── suggested stream 2: historical rates (incremental by date via ?from=) ──
+  - type: DeclarativeStream
+    name: historical
+    primary_key:
+      - date
+      - base
+      - quote
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.frankfurter.dev"
+        path: "/v2/rates"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: date          # "date" field in each record (YYYY-MM-DD)
+      start_time_option:
+        type: RequestOption
+        field_name: "from"        # ?from=YYYY-MM-DD — docs: "Start date for time series"
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          date:
+            type: string
+            format: date
+          base:
+            type: string
+          quote:
+            type: string
+          rate:
+            type: number
+
+  # ── additional stream: currency metadata ──
+  - type: DeclarativeStream
+    name: currencies
+    primary_key: iso_code
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.frankfurter.dev"
+        path: "/v2/currencies"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          iso_code:
+            type: string          # e.g. "EUR"
+          iso_numeric:
+            type: string          # e.g. "978"; empty string "" for non-standard codes
+          name:
+            type: string          # e.g. "Euro"
+          symbol:
+            type: string          # e.g. "€"
+          start_date:
+            type: string
+            format: date          # earliest available data date
+          end_date:
+            type: string
+            format: date          # most recent available data date
+
+  # ── additional stream: data provider metadata ──
+  - type: DeclarativeStream
+    name: providers
+    primary_key: key
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.frankfurter.dev"
+        path: "/v2/providers"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          key:
+            type: string          # e.g. "ECB"
+          name:
+            type: string          # e.g. "European Central Bank"
+          country_code:
+            type: ["null", "string"]   # ISO 3166-1 alpha-2, null for supranational bodies
+          rate_type:
+            type: ["null", "string"]   # e.g. "reference rate", null when not specified
+          pivot_currency:
+            type: string          # base currency this provider publishes against
+          data_url:
+            type: string          # source data URL
+          terms_url:
+            type: ["null", "string"]   # terms of use URL, null when absent
+          start_date:
+            type: string
+            format: date          # earliest date available from this provider
+          end_date:
+            type: string
+            format: date          # latest date available from this provider
+          publish_cadence:
+            type: ["null", "string"]   # e.g. "daily", "weekly", "monthly", null for historical-only
+          publishes_missed:
+            type: ["null", "integer"]  # count of missed publishes; null for historical-only providers
+          currencies:
+            type: array
+            items:
+              type: string        # ISO 4217 codes this provider covers

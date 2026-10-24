@@ -1,0 +1,26 @@
+# Salesforce as a destination, moved from weir (CLOACINA-T-0992).
+# Authored from Salesforce's public REST API docs (developer.salesforce.com), Apache-2.0.
+# Runs on the shared `rest-dest` runtime: a definition, not a compiled connector.
+#
+# Contacts are upserted by an External Id field: PATCH the sObject addressed by the
+# external id (create or update), so a replay changes nothing. Auth is OAuth2 with client
+# credentials: the host mints and refreshes the access token from the sync's secret
+# (`client_id`, `client_secret`) and adds it as a bearer; the client secret never reaches
+# the guest. The org's address is the `instance` config value
+# (https://<instance>.my.salesforce.com). Bulk API 2.0 is out of scope.
+spec:
+  name: salesforce-dest
+base_url: "https://{{ config['instance'] }}.my.salesforce.com"
+auth:
+  kind: oauth2
+  token_url: "https://login.salesforce.com/services/oauth2/token"
+  grant: client_credentials
+objects:
+  - name: contacts
+    path: "/services/data/v59.0/sobjects/Contact/ExternalId__c/{{ record.ext_id }}"
+    method: PATCH
+    upsert_key: ext_id
+    field_map:
+      - [first_name, FirstName]
+      - [last_name, LastName]
+      - [email, Email]
