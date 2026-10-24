@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Declarative connector docs** (COLLIERY-I-0634, CLOACINA-T-0994): a
+  Declarative Connectors page; references for the connector definition
+  format, the REST source and destination, and the corpus with each entry's
+  auth, config and streams; how-tos for importing an Airbyte connector and for
+  adding definitions to a server; the OAuth2, session, Basic and Google kinds
+  and how minted tokens are kept on the Credential Injection page; the catalog
+  route and the `connector` CLI commands. The corpus's `omdb` definition now
+  sends its key as the `apikey` query parameter, as OMDb documents; weir left a
+  placeholder header there.
 - **Declarative syncs and the connector catalog** (COLLIERY-I-0634,
   CLOACINA-T-0993): a sync side can name a connector definition
   (`source_definition`, `destination_definition`) instead of a provider. Its

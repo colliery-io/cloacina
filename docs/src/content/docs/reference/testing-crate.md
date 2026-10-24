@@ -261,6 +261,33 @@ pub trait Service {
 them, each with its `method`, `case` and `difference`. The kit does not
 depend on the engine, so it publishes before `cloacina`.
 
+### The mock JSON API
+
+`connectors::rest_mock::RestMock` is a mock JSON API on a free local port, for
+the REST runtime's tests (CLOACINA-T-0990). An endpoint serves records paged by
+page number, offset, next-page token or `Link` header; it can wrap them under a
+key, filter them by an incremental parameter, require a header, answer `429`
+first, or answer a fixed body. A sink takes writes under a path prefix and can
+refuse one by a body field. Every request is kept, with its parameters
+(query and POST body), headers and body.
+
+It is also a `Service`: `endpoint` steps configure an endpoint, `sink` steps
+add a sink, and `requests_to` and `requests_under` steps return what was sent.
+
+```rust
+let mock = RestMock::start();
+mock.serve("/user/repos", Endpoint {
+    records,
+    paging: Paging::Page { page_param: "page".into(), size_param: "per_page".into() },
+    require_header: Some(("Authorization".into(), "Bearer t".into())),
+    ..Default::default()
+});
+let sent = mock.requests_to("/user/repos");
+```
+
+A conformance read case can also `resume_after` a checkpoint, and a write case
+can send CDC `change_batches`.
+
 ### The mock Snowflake SQL API
 
 `connectors::snowflake_mock::SnowflakeMock` is an in-memory SQL API on a free
