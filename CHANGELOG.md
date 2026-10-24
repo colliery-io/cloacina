@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OAuth2, session, Basic and Google service-account credentials**
+  (COLLIERY-I-0634, CLOACINA-T-0989): four more credential kinds the host
+  applies to a connector's requests. For `oauth2` (client credentials or
+  refresh token), `session` (a login whose token is sent as a header) and
+  `google_service_account` (a signed JWT-bearer grant), the host makes the
+  grant request itself and keeps the token for the process, keyed by who it is
+  for, so a sync does not mint one per segment and a changed secret mints
+  afresh. A provider that rotates its refresh token fails the grant with a
+  clear message: cloacina does not store a rotated refresh token yet. A
+  credential that cannot be applied is logged with its reason, since the
+  guest only sees a denied request.
 - **The REST source** (COLLIERY-I-0634, CLOACINA-T-0990): `connectors/rest`,
   weir's REST guest on the Sync contract, the runtime of every declarative
   source. It reads the `RestConfig` the host compiles from a connector

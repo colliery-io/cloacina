@@ -49,6 +49,17 @@ pub enum Credential {
     /// Snowflake key-pair JWT: a self-issued RS256 JWT injected as a bearer plus
     /// `X-Snowflake-Authorization-Token-Type: KEYPAIR_JWT`.
     SnowflakeKeypairJwt(SnowflakeKeypairProvider),
+    /// HTTP Basic: `Authorization: Basic base64(username:password)`.
+    Basic { username: String, password: String },
+    /// OAuth2: the host runs the grant, caches the access token and adds it as a
+    /// bearer (CLOACINA-T-0989).
+    OAuth2(OAuth2Provider),
+    /// A session token: the host logs in, reads the token from the answer, and
+    /// adds it as a header.
+    Session(SessionProvider),
+    /// A Google service account: the host signs a JWT-bearer grant with the
+    /// account's key and adds the access token as a bearer.
+    GoogleServiceAccount(GoogleServiceAccountProvider),
 }
 
 impl std::fmt::Debug for Credential {
@@ -62,6 +73,12 @@ impl std::fmt::Debug for Credential {
             } => format!("AwsSigV4({region}/{service})"),
             Credential::SnowflakeKeypairJwt(p) => {
                 format!("SnowflakeKeypairJwt({}.{})", p.account, p.user)
+            }
+            Credential::Basic { username, .. } => format!("Basic({username})"),
+            Credential::OAuth2(p) => format!("OAuth2({})", p.token_url),
+            Credential::Session(p) => format!("Session({})", p.login_url),
+            Credential::GoogleServiceAccount(p) => {
+                format!("GoogleServiceAccount({})", p.client_email)
             }
         };
         f.write_str(&kind)
@@ -127,6 +144,24 @@ impl Credential {
                 );
                 inject_header(parts, "Authorization", &auth)
             }
+            Credential::Basic { username, password } => {
+                use base64::Engine;
+                let encoded = base64::engine::general_purpose::STANDARD
+                    .encode(format!("{username}:{password}"));
+                inject_header(parts, "Authorization", &format!("Basic {encoded}"))
+            }
+            Credential::OAuth2(p) => {
+                let token = p.bearer()?;
+                inject_header(parts, "Authorization", &format!("Bearer {token}"))
+            }
+            Credential::Session(p) => {
+                let token = p.token()?;
+                inject_header(parts, &p.inject_header, &format!("{}{token}", p.prefix))
+            }
+            Credential::GoogleServiceAccount(p) => {
+                let token = p.bearer()?;
+                inject_header(parts, "Authorization", &format!("Bearer {token}"))
+            }
         }
     }
 }
@@ -158,7 +193,12 @@ impl EgressPolicy for CredentialEgress {
             Some(inner) => inner.authorize(parts)?,
             None => return Err(EgressDenied::new("no http egress granted")),
         }
-        self.credential.apply(parts)
+        // The guest only sees "request denied", so the reason goes to the log:
+        // a refused grant or a rotated refresh token is the operator's to fix.
+        // Reasons name URLs and fields, never secret values.
+        self.credential.apply(parts).inspect_err(|e| {
+            tracing::warn!(credential = ?self.credential, reason = %e.reason, "credential not applied; request denied");
+        })
     }
 
     fn authorize_tcp(&self, addr: &SocketAddr) -> Result<(), EgressDenied> {
@@ -348,6 +388,395 @@ impl SnowflakeKeypairProvider {
         *slot = Some((jwt.clone(), now + 3600));
         Ok(jwt)
     }
+}
+
+// ---- minted tokens: OAuth2, sessions, Google service accounts ----
+//
+// A token the host mints is kept for the process: on an agent, every load of
+// a connector with the same credential shares it, so a sync does not mint a
+// token per segment. An entry is keyed by a digest of who the token is for
+// (`slot`) and holds a digest of the whole credential (`credential`); a
+// lookup with another credential, a rotated secret, mints afresh and replaces
+// the entry. Neither digest is secret text.
+
+/// Mint again this long before a token expires.
+const REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(60);
+
+struct Minted {
+    credential: String,
+    token: String,
+    expires_at: std::time::Instant,
+}
+
+static MINTED: std::sync::OnceLock<Mutex<std::collections::HashMap<String, Minted>>> =
+    std::sync::OnceLock::new();
+
+/// Where a provider's token lives in [`MINTED`].
+struct TokenIds {
+    slot: String,
+    credential: String,
+}
+
+impl TokenIds {
+    fn new(identity: &[&str], secret: &[&str]) -> Self {
+        let digest = |parts: &[&str]| {
+            use sha2::Digest;
+            let mut h = sha2::Sha256::new();
+            h.update(b"cloacina-minted-token-v1");
+            for p in parts {
+                h.update((p.len() as u64).to_le_bytes());
+                h.update(p.as_bytes());
+            }
+            hex::encode(h.finalize())
+        };
+        let all: Vec<&str> = identity.iter().chain(secret).copied().collect();
+        Self {
+            slot: digest(identity),
+            credential: digest(&all),
+        }
+    }
+}
+
+/// A cached token for `ids`, or one from `mint` (a token and its lifetime).
+/// The lock is not held while minting; two racers both minting is harmless.
+fn cached_token(
+    ids: &TokenIds,
+    mint: impl FnOnce() -> Result<(String, std::time::Duration), EgressDenied>,
+) -> Result<String, EgressDenied> {
+    let cache = MINTED.get_or_init(Default::default);
+    {
+        let map = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(m) = map.get(&ids.slot)
+            && m.credential == ids.credential
+            && std::time::Instant::now() + REFRESH_MARGIN < m.expires_at
+        {
+            return Ok(m.token.clone());
+        }
+    }
+    let (token, ttl) = mint()?;
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(
+        ids.slot.clone(),
+        Minted {
+            credential: ids.credential.clone(),
+            token: token.clone(),
+            expires_at: std::time::Instant::now() + ttl,
+        },
+    );
+    Ok(token)
+}
+
+/// Run a blocking request on its own thread: the egress hook can fire on an
+/// async executor's thread, where a blocking client must not run.
+fn on_own_thread<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, EgressDenied> {
+    std::thread::spawn(f)
+        .join()
+        .map_err(|_| EgressDenied::new("the credential request thread panicked"))?
+        .map_err(EgressDenied::new)
+}
+
+/// POST a form and read a JSON answer. Errors carry the status and the
+/// answer's `error` field, never the form.
+fn post_form(url: &str, form: Vec<(String, String)>) -> Result<serde_json::Value, String> {
+    let resp = reqwest::blocking::Client::new()
+        .post(url)
+        .form(&form)
+        .send()
+        .map_err(|e| format!("{url}: {e}"))?;
+    json_answer(url, resp)
+}
+
+fn json_answer(url: &str, resp: reqwest::blocking::Response) -> Result<serde_json::Value, String> {
+    let status = resp.status();
+    let body: serde_json::Value = resp
+        .json()
+        .map_err(|e| format!("{url}: the answer is not JSON: {e}"))?;
+    if !status.is_success() {
+        let why = body
+            .get("error_description")
+            .or_else(|| body.get("error"))
+            .and_then(|e| e.as_str())
+            .unwrap_or("no reason given");
+        return Err(format!("{url}: HTTP {}: {why}", status.as_u16()));
+    }
+    Ok(body)
+}
+
+/// `access_token` and `expires_in` (default an hour) of a token answer.
+fn access_token(
+    url: &str,
+    body: &serde_json::Value,
+) -> Result<(String, std::time::Duration), String> {
+    let token = body
+        .get("access_token")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| format!("{url}: the answer has no `access_token`"))?
+        .to_string();
+    let ttl = body
+        .get("expires_in")
+        .and_then(|e| e.as_u64())
+        .unwrap_or(3600);
+    Ok((token, std::time::Duration::from_secs(ttl)))
+}
+
+/// The OAuth2 grant the host runs.
+#[derive(Clone)]
+pub enum OAuthGrant {
+    /// `grant_type=refresh_token`.
+    RefreshToken { refresh_token: String },
+    /// `grant_type=client_credentials`.
+    ClientCredentials,
+}
+
+/// Mints and caches an OAuth2 access token on the host.
+pub struct OAuth2Provider {
+    token_url: String,
+    grant: OAuthGrant,
+    client_id: String,
+    client_secret: String,
+    scopes: Vec<String>,
+    ids: TokenIds,
+}
+
+impl OAuth2Provider {
+    pub fn new(
+        token_url: String,
+        grant: OAuthGrant,
+        client_id: String,
+        client_secret: String,
+        scopes: Vec<String>,
+    ) -> Self {
+        let scope = scopes.join(" ");
+        let refresh = match &grant {
+            OAuthGrant::RefreshToken { refresh_token } => refresh_token.as_str(),
+            OAuthGrant::ClientCredentials => "",
+        };
+        let ids = TokenIds::new(
+            &["oauth2", &token_url, &client_id, &scope],
+            &[&client_secret, refresh],
+        );
+        Self {
+            token_url,
+            grant,
+            client_id,
+            client_secret,
+            scopes,
+            ids,
+        }
+    }
+
+    fn bearer(&self) -> Result<String, EgressDenied> {
+        cached_token(&self.ids, || self.mint())
+    }
+
+    fn mint(&self) -> Result<(String, std::time::Duration), EgressDenied> {
+        let url = self.token_url.clone();
+        let mut form = vec![
+            ("client_id".to_string(), self.client_id.clone()),
+            ("client_secret".to_string(), self.client_secret.clone()),
+        ];
+        let ours = match &self.grant {
+            OAuthGrant::RefreshToken { refresh_token } => {
+                form.push(("grant_type".into(), "refresh_token".into()));
+                form.push(("refresh_token".into(), refresh_token.clone()));
+                Some(refresh_token.clone())
+            }
+            OAuthGrant::ClientCredentials => {
+                form.push(("grant_type".into(), "client_credentials".into()));
+                None
+            }
+        };
+        if !self.scopes.is_empty() {
+            form.push(("scope".into(), self.scopes.join(" ")));
+        }
+        on_own_thread(move || {
+            let body = post_form(&url, form).map_err(|e| format!("oauth2 grant: {e}"))?;
+            // A provider that rotates refresh tokens answers with a new one and
+            // retires ours. Cloacina does not store the new one yet, so the next
+            // grant would fail: say so now.
+            if let (Some(ours), Some(new)) =
+                (ours, body.get("refresh_token").and_then(|t| t.as_str()))
+                && new != ours
+            {
+                return Err(format!(
+                    "oauth2 grant: {url} rotated the refresh token; cloacina does not store a rotated refresh token yet, so this credential cannot be refreshed again"
+                ));
+            }
+            access_token(&url, &body).map_err(|e| format!("oauth2 grant: {e}"))
+        })
+    }
+}
+
+/// Logs in on the host and adds the returned session token as a header.
+pub struct SessionProvider {
+    login_url: String,
+    method: String,
+    /// The JSON login body, built on the host from the secret's fields.
+    body: Option<String>,
+    token_path: Vec<String>,
+    inject_header: String,
+    prefix: String,
+    ttl: std::time::Duration,
+    ids: TokenIds,
+}
+
+impl SessionProvider {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        login_url: String,
+        method: String,
+        body: Option<String>,
+        token_path: Vec<String>,
+        inject_header: String,
+        prefix: String,
+        ttl: std::time::Duration,
+    ) -> Self {
+        let path = token_path.join(".");
+        let ids = TokenIds::new(
+            &["session", &login_url, &method, &path, &inject_header],
+            &[body.as_deref().unwrap_or("")],
+        );
+        Self {
+            login_url,
+            method,
+            body,
+            token_path,
+            inject_header,
+            prefix,
+            ttl,
+            ids,
+        }
+    }
+
+    fn token(&self) -> Result<String, EgressDenied> {
+        cached_token(&self.ids, || {
+            let (url, method, body, path) = (
+                self.login_url.clone(),
+                self.method.clone(),
+                self.body.clone(),
+                self.token_path.clone(),
+            );
+            let ttl = self.ttl;
+            on_own_thread(move || {
+                let method = reqwest::Method::from_bytes(method.as_bytes())
+                    .map_err(|_| format!("session login: `{method}` is not an HTTP method"))?;
+                let mut req = reqwest::blocking::Client::new().request(method, &url);
+                if let Some(body) = body {
+                    req = req.header("content-type", "application/json").body(body);
+                }
+                let resp = req
+                    .send()
+                    .map_err(|e| format!("session login: {url}: {e}"))?;
+                let answer = json_answer(&url, resp).map_err(|e| format!("session login: {e}"))?;
+                let mut at = &answer;
+                for seg in &path {
+                    at = at.get(seg).ok_or_else(|| {
+                        format!(
+                            "session login: {url}: the answer has no `{}`",
+                            path.join(".")
+                        )
+                    })?;
+                }
+                let token = at
+                    .as_str()
+                    .ok_or_else(|| format!("session login: `{}` is not a string", path.join(".")))?
+                    .to_string();
+                Ok((token, ttl))
+            })
+        })
+    }
+}
+
+/// Mints and caches a Google service account's access token on the host.
+pub struct GoogleServiceAccountProvider {
+    client_email: String,
+    private_key_pem: String,
+    token_uri: String,
+    scopes: Vec<String>,
+    ids: TokenIds,
+}
+
+impl GoogleServiceAccountProvider {
+    /// From the account's JSON key: `client_email`, `private_key` and
+    /// `token_uri` (default Google's).
+    pub fn from_key_json(key_json: &str, scopes: Vec<String>) -> Result<Self, String> {
+        let key: serde_json::Value = serde_json::from_str(key_json)
+            .map_err(|e| format!("the service account key is not JSON: {e}"))?;
+        let field = |k: &str| {
+            key.get(k)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .filter(|v| !v.is_empty())
+        };
+        let client_email =
+            field("client_email").ok_or("the service account key has no `client_email`")?;
+        let private_key_pem =
+            field("private_key").ok_or("the service account key has no `private_key`")?;
+        let token_uri =
+            field("token_uri").unwrap_or_else(|| "https://oauth2.googleapis.com/token".to_string());
+        let scope = scopes.join(" ");
+        let ids = TokenIds::new(
+            &["google", &client_email, &scope, &token_uri],
+            &[&private_key_pem],
+        );
+        Ok(Self {
+            client_email,
+            private_key_pem,
+            token_uri,
+            scopes,
+            ids,
+        })
+    }
+
+    fn bearer(&self) -> Result<String, EgressDenied> {
+        cached_token(&self.ids, || {
+            let assertion = google_assertion(
+                &self.client_email,
+                &self.scopes.join(" "),
+                &self.token_uri,
+                unix_now_secs(),
+                &self.private_key_pem,
+            )
+            .map_err(EgressDenied::new)?;
+            let url = self.token_uri.clone();
+            on_own_thread(move || {
+                let form = vec![
+                    (
+                        "grant_type".to_string(),
+                        "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
+                    ),
+                    ("assertion".to_string(), assertion),
+                ];
+                let body = post_form(&url, form)
+                    .map_err(|e| format!("google service account grant: {e}"))?;
+                access_token(&url, &body).map_err(|e| format!("google service account grant: {e}"))
+            })
+        })
+    }
+}
+
+/// The signed RS256 JWT-bearer assertion of Google's server-to-server flow.
+/// Pure: tests fix `iat`.
+fn google_assertion(
+    client_email: &str,
+    scope: &str,
+    aud: &str,
+    iat: u64,
+    private_key_pem: &str,
+) -> Result<String, String> {
+    let key = parse_pkcs8_keypair(private_key_pem)?;
+    rs256_sign_jwt(
+        &key,
+        &serde_json::json!({
+            "iss": client_email,
+            "scope": scope,
+            "aud": aud,
+            "iat": iat,
+            "exp": iat + 3600,
+        })
+        .to_string(),
+    )
 }
 
 /// Build Snowflake's self-signed key-pair JWT. Pure — tests fix `iat`.
@@ -797,5 +1226,300 @@ mod tests {
             service: "s3".into(),
         };
         assert!(!format!("{c:?}").contains("SECRETKEY"));
+    }
+}
+
+/// The minted-token credentials against a local token server (CLOACINA-T-0989).
+#[cfg(test)]
+mod minted_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    const TEST_KEY: &str = include_str!("../../../tests/fixtures/test_rsa_key.pem");
+
+    type Handler = dyn Fn(&str, &str) -> (u16, String) + Send + Sync;
+
+    /// A local server: `handler(path, body)` answers each request; each
+    /// request's path and body are kept.
+    struct TokenServer {
+        port: u16,
+        seen: Arc<Mutex<Vec<(String, String)>>>,
+    }
+
+    impl TokenServer {
+        fn start(handler: impl Fn(&str, &str) -> (u16, String) + Send + Sync + 'static) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let (log, handler): (_, Arc<Handler>) = (seen.clone(), Arc::new(handler));
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { continue };
+                    let mut data = Vec::new();
+                    let mut buf = [0u8; 4096];
+                    let end = loop {
+                        let n = stream.read(&mut buf).unwrap_or(0);
+                        if n == 0 {
+                            break None;
+                        }
+                        data.extend_from_slice(&buf[..n]);
+                        if let Some(e) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break Some(e);
+                        }
+                    };
+                    let Some(end) = end else { continue };
+                    let head = String::from_utf8_lossy(&data[..end]).to_string();
+                    let len = head
+                        .lines()
+                        .find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            k.eq_ignore_ascii_case("content-length")
+                                .then(|| v.trim().parse::<usize>().ok())?
+                        })
+                        .unwrap_or(0);
+                    while data.len() < end + 4 + len {
+                        let n = stream.read(&mut buf).unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        data.extend_from_slice(&buf[..n]);
+                    }
+                    let body = String::from_utf8_lossy(&data[end + 4..]).to_string();
+                    let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let (status, answer) = handler(&path, &body);
+                    log.lock().unwrap().push((path, body));
+                    let _ = stream.write_all(
+                        format!(
+                            "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                            answer.len()
+                        )
+                        .as_bytes(),
+                    );
+                }
+            });
+            Self { port, seen }
+        }
+
+        fn url(&self, path: &str) -> String {
+            format!("http://127.0.0.1:{}{path}", self.port)
+        }
+
+        fn requests(&self) -> Vec<(String, String)> {
+            self.seen.lock().unwrap().clone()
+        }
+    }
+
+    fn parts() -> HttpParts {
+        fidius_host::http_types::Request::builder()
+            .uri("https://api.example.com/v1/items")
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0
+    }
+
+    fn header(c: &Credential, name: &str) -> Result<String, EgressDenied> {
+        let mut p = parts();
+        c.apply(&mut p)?;
+        Ok(p.headers[name].to_str().unwrap().to_string())
+    }
+
+    /// Counts grants and answers with token `tok-<n>`.
+    fn counting(expires_in: u64) -> TokenServer {
+        let n = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        TokenServer::start(move |_, _| {
+            let i = n.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            (
+                200,
+                format!(r#"{{"access_token":"tok-{i}","expires_in":{expires_in}}}"#),
+            )
+        })
+    }
+
+    fn client_credentials(server: &TokenServer, secret: &str) -> Credential {
+        Credential::OAuth2(OAuth2Provider::new(
+            server.url("/token"),
+            OAuthGrant::ClientCredentials,
+            "client-1".into(),
+            secret.into(),
+            vec!["read".into(), "write".into()],
+        ))
+    }
+
+    #[test]
+    fn a_client_credentials_token_is_minted_once_and_shared() {
+        let server = counting(3600);
+        let first = client_credentials(&server, "s3cr3t");
+        assert_eq!(header(&first, "authorization").unwrap(), "Bearer tok-1");
+        // Another load of the same credential reuses the token.
+        let second = client_credentials(&server, "s3cr3t");
+        assert_eq!(header(&second, "authorization").unwrap(), "Bearer tok-1");
+        let reqs = server.requests();
+        assert_eq!(reqs.len(), 1, "{reqs:?}");
+        let form = &reqs[0].1;
+        assert!(form.contains("grant_type=client_credentials"), "{form}");
+        assert!(form.contains("client_id=client-1"), "{form}");
+        assert!(form.contains("scope=read+write"), "{form}");
+        // A changed secret is another credential: it mints afresh.
+        let rotated = client_credentials(&server, "n3w-s3cr3t");
+        assert_eq!(header(&rotated, "authorization").unwrap(), "Bearer tok-2");
+    }
+
+    #[test]
+    fn a_token_near_its_expiry_is_minted_again() {
+        // 30 seconds is inside the one-minute margin, so every use mints.
+        let server = counting(30);
+        let c = client_credentials(&server, "s");
+        assert_eq!(header(&c, "authorization").unwrap(), "Bearer tok-1");
+        assert_eq!(header(&c, "authorization").unwrap(), "Bearer tok-2");
+    }
+
+    #[test]
+    fn a_refresh_token_grant_and_a_rotated_refresh_token() {
+        let server = TokenServer::start(|_, body| {
+            if body.contains("refresh_token=rotating") {
+                (
+                    200,
+                    r#"{"access_token":"a","refresh_token":"brand-new"}"#.to_string(),
+                )
+            } else {
+                (
+                    200,
+                    r#"{"access_token":"refreshed","refresh_token":"keeps"}"#.to_string(),
+                )
+            }
+        });
+        let grant = |rt: &str| {
+            Credential::OAuth2(OAuth2Provider::new(
+                server.url("/oauth/token"),
+                OAuthGrant::RefreshToken {
+                    refresh_token: rt.into(),
+                },
+                "c".into(),
+                "s".into(),
+                vec![],
+            ))
+        };
+        assert_eq!(
+            header(&grant("keeps"), "authorization").unwrap(),
+            "Bearer refreshed"
+        );
+        let form = &server.requests()[0].1;
+        assert!(form.contains("grant_type=refresh_token"), "{form}");
+        let err = header(&grant("rotating"), "authorization")
+            .unwrap_err()
+            .reason;
+        assert!(err.contains("rotated the refresh token"), "{err}");
+        assert!(
+            !err.contains("brand-new") && !err.contains("rotating"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_refused_grant_names_the_reason_not_the_secret() {
+        let server = TokenServer::start(|_, _| {
+            (
+                401,
+                r#"{"error":"invalid_client","error_description":"bad client"}"#.to_string(),
+            )
+        });
+        let err = header(&client_credentials(&server, "top-s3cr3t"), "authorization")
+            .unwrap_err()
+            .reason;
+        assert!(
+            err.contains("HTTP 401") && err.contains("bad client"),
+            "{err}"
+        );
+        assert!(!err.contains("top-s3cr3t"), "{err}");
+    }
+
+    #[test]
+    fn a_session_login_token_is_sent_as_a_header() {
+        let server = TokenServer::start(|path, body| {
+            assert_eq!(path, "/login");
+            assert!(body.contains("\"username\":\"robin\""), "{body}");
+            (200, r#"{"data":{"token":"sess-1"}}"#.to_string())
+        });
+        let c = Credential::Session(SessionProvider::new(
+            server.url("/login"),
+            "POST".into(),
+            Some(r#"{"username":"robin","password":"pw"}"#.into()),
+            vec!["data".into(), "token".into()],
+            "X-Session".into(),
+            "Token ".into(),
+            std::time::Duration::from_secs(900),
+        ));
+        assert_eq!(header(&c, "x-session").unwrap(), "Token sess-1");
+        assert_eq!(header(&c, "x-session").unwrap(), "Token sess-1");
+        assert_eq!(server.requests().len(), 1, "the session is reused");
+    }
+
+    #[test]
+    fn a_google_service_account_runs_the_jwt_bearer_grant() {
+        let server = TokenServer::start(|_, body| {
+            assert!(
+                body.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer"),
+                "{body}"
+            );
+            let assertion = body.split("assertion=").nth(1).unwrap_or("");
+            assert_eq!(assertion.split('.').count(), 3, "{assertion}");
+            (
+                200,
+                r#"{"access_token":"ya29.test","expires_in":3600}"#.to_string(),
+            )
+        });
+        let key = serde_json::json!({
+            "client_email": "sync@project.iam.gserviceaccount.com",
+            "private_key": TEST_KEY,
+            "token_uri": server.url("/token"),
+        })
+        .to_string();
+        let c = Credential::GoogleServiceAccount(
+            GoogleServiceAccountProvider::from_key_json(
+                &key,
+                vec!["https://www.googleapis.com/auth/analytics.readonly".into()],
+            )
+            .unwrap(),
+        );
+        assert_eq!(header(&c, "authorization").unwrap(), "Bearer ya29.test");
+        assert!(format!("{c:?}").contains("sync@project"));
+        assert!(!format!("{c:?}").contains("PRIVATE KEY"));
+        assert!(GoogleServiceAccountProvider::from_key_json("{}", vec![]).is_err());
+    }
+
+    #[test]
+    fn the_google_assertion_claims() {
+        use base64::Engine;
+        let jwt = google_assertion(
+            "a@b.iam",
+            "s1 s2",
+            "https://t/token",
+            1_700_000_000,
+            TEST_KEY,
+        )
+        .unwrap();
+        let claims = jwt.split('.').nth(1).unwrap();
+        let claims: serde_json::Value = serde_json::from_slice(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(claims)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(claims["iss"], "a@b.iam");
+        assert_eq!(claims["scope"], "s1 s2");
+        assert_eq!(claims["aud"], "https://t/token");
+        assert_eq!(claims["exp"], 1_700_003_600u64);
+    }
+
+    #[test]
+    fn basic_auth_encodes_the_pair() {
+        let c = Credential::Basic {
+            username: "robin".into(),
+            password: "pw".into(),
+        };
+        assert_eq!(header(&c, "authorization").unwrap(), "Basic cm9iaW46cHc=");
+        assert_eq!(format!("{c:?}"), "Basic(robin)");
     }
 }
