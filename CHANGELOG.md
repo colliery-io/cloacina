@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The importer and the declarative corpus** (COLLIERY-I-0634,
+  CLOACINA-T-0992): a new crate, `cloacina-declarative`, holds connector
+  definitions and their compiler (moved from `cloacina-sync`, which re-exports
+  them), weir's Airbyte low-code importer, and the corpus: 36 sources and the
+  HubSpot and Salesforce destinations, embedded. Every corpus file imports and
+  every stream compiles in the unit lane. A server can add definitions from a
+  directory. The crate needs nothing of the engine, so `cloacinactl connector
+  import <file>` turns an Airbyte source into a definition without a WASM
+  runtime. The credential spec's data type moved into
+  `cloacina_constructor_contract::sync::credential`, and the compiler now maps
+  the OAuth2, session, Basic and Google service-account kinds.
 - **The REST destination** (COLLIERY-I-0634, CLOACINA-T-0991):
   `connectors/rest-dest`, weir's REST destination guest on the Sync contract,
   the runtime of every declarative destination. It writes each record of one

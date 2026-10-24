@@ -128,6 +128,10 @@ jobs:
           # with "no matching package named cloacina-constructor-contract".
           publish cloacina-constructor-contract
           sleep 30
+          # Declarative connectors (COLLIERY-I-0634; depends on the contract
+          # crate only). cloacina-sync and cloacinactl consume it.
+          publish cloacina-declarative
+          sleep 30
 
           # Tier 2: engine.
           publish cloacina

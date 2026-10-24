@@ -26,7 +26,7 @@ use cloacina_constructor_contract::sync::{
     CheckResult, Config, ConnectorSpec, DiscoverOutcome, ReadContext, RecordBatch, WriteContext,
     WriteOutcome,
 };
-use cloacina_sync::credential::CredentialSpec;
+use cloacina_sync::credential::{BuildCredential, CredentialSpec};
 use cloacina_sync::workflow::grant_spec_from_json;
 use cloacina_testing::connectors::conformance::{Connector, Credential, Host, ReadIter, Service};
 use cloacina_testing::connectors::{crate_name, stage_connector};

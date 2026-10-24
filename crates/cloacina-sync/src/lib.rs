@@ -36,13 +36,12 @@
 // crate does not declare.
 #![allow(unexpected_cfgs)]
 
-pub mod corpus;
 pub mod credential;
-pub mod definition;
+// Declarative connectors live in their own crate, free of the engine.
+pub use cloacina_declarative::{corpus, definition, importer};
 pub mod dispatcher;
 pub mod fault;
 pub mod hook;
-pub mod importer;
 pub mod mapping;
 pub mod params;
 pub mod workflow;

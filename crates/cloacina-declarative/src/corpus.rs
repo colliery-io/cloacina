@@ -18,9 +18,9 @@
 //! connector definitions that ship with cloacina, embedded in this crate so a
 //! server and an agent always agree on them.
 //!
-//! Sources are Airbyte low-code files in `connectors/declarative/sources/`,
+//! Sources are Airbyte low-code files in `corpus/sources/`,
 //! imported when they are loaded. Destinations are cloacina destination
-//! definitions in `connectors/declarative/destinations/`. Every file was
+//! definitions in `corpus/destinations/`. Every file was
 //! written from its API's own documentation (Apache-2.0); see the folder's
 //! README.
 //!
@@ -38,161 +38,92 @@ use crate::importer::{ImportError, import_yaml};
 
 /// The embedded sources: (name, Airbyte low-code YAML).
 pub const SOURCES: &[(&str, &str)] = &[
-    (
-        "airtable",
-        include_str!("../../../connectors/declarative/sources/airtable.yaml"),
-    ),
-    (
-        "asana",
-        include_str!("../../../connectors/declarative/sources/asana.yaml"),
-    ),
+    ("airtable", include_str!("../corpus/sources/airtable.yaml")),
+    ("asana", include_str!("../corpus/sources/asana.yaml")),
     (
         "coingecko",
-        include_str!("../../../connectors/declarative/sources/coingecko.yaml"),
+        include_str!("../corpus/sources/coingecko.yaml"),
     ),
     (
         "coinpaprika",
-        include_str!("../../../connectors/declarative/sources/coinpaprika.yaml"),
+        include_str!("../corpus/sources/coinpaprika.yaml"),
     ),
     (
         "exchangerate",
-        include_str!("../../../connectors/declarative/sources/exchangerate.yaml"),
+        include_str!("../corpus/sources/exchangerate.yaml"),
     ),
     (
         "frankfurter",
-        include_str!("../../../connectors/declarative/sources/frankfurter.yaml"),
+        include_str!("../corpus/sources/frankfurter.yaml"),
     ),
-    (
-        "github",
-        include_str!("../../../connectors/declarative/sources/github.yaml"),
-    ),
-    (
-        "gitlab",
-        include_str!("../../../connectors/declarative/sources/gitlab.yaml"),
-    ),
+    ("github", include_str!("../corpus/sources/github.yaml")),
+    ("gitlab", include_str!("../corpus/sources/gitlab.yaml")),
     (
         "google-analytics",
-        include_str!("../../../connectors/declarative/sources/google-analytics.yaml"),
+        include_str!("../corpus/sources/google-analytics.yaml"),
     ),
     (
         "google-sheets",
-        include_str!("../../../connectors/declarative/sources/google-sheets.yaml"),
+        include_str!("../corpus/sources/google-sheets.yaml"),
     ),
-    (
-        "hubspot",
-        include_str!("../../../connectors/declarative/sources/hubspot.yaml"),
-    ),
-    (
-        "intercom",
-        include_str!("../../../connectors/declarative/sources/intercom.yaml"),
-    ),
-    (
-        "jira",
-        include_str!("../../../connectors/declarative/sources/jira.yaml"),
-    ),
+    ("hubspot", include_str!("../corpus/sources/hubspot.yaml")),
+    ("intercom", include_str!("../corpus/sources/intercom.yaml")),
+    ("jira", include_str!("../corpus/sources/jira.yaml")),
     (
         "jsonplaceholder",
-        include_str!("../../../connectors/declarative/sources/jsonplaceholder.yaml"),
+        include_str!("../corpus/sources/jsonplaceholder.yaml"),
     ),
     (
         "mediawiki",
-        include_str!("../../../connectors/declarative/sources/mediawiki.yaml"),
+        include_str!("../corpus/sources/mediawiki.yaml"),
     ),
-    (
-        "nasa",
-        include_str!("../../../connectors/declarative/sources/nasa.yaml"),
-    ),
-    (
-        "newsapi",
-        include_str!("../../../connectors/declarative/sources/newsapi.yaml"),
-    ),
-    (
-        "notion",
-        include_str!("../../../connectors/declarative/sources/notion.yaml"),
-    ),
-    (
-        "nps",
-        include_str!("../../../connectors/declarative/sources/nps.yaml"),
-    ),
-    (
-        "omdb",
-        include_str!("../../../connectors/declarative/sources/omdb.yaml"),
-    ),
-    (
-        "openaq",
-        include_str!("../../../connectors/declarative/sources/openaq.yaml"),
-    ),
-    (
-        "openfda",
-        include_str!("../../../connectors/declarative/sources/openfda.yaml"),
-    ),
+    ("nasa", include_str!("../corpus/sources/nasa.yaml")),
+    ("newsapi", include_str!("../corpus/sources/newsapi.yaml")),
+    ("notion", include_str!("../corpus/sources/notion.yaml")),
+    ("nps", include_str!("../corpus/sources/nps.yaml")),
+    ("omdb", include_str!("../corpus/sources/omdb.yaml")),
+    ("openaq", include_str!("../corpus/sources/openaq.yaml")),
+    ("openfda", include_str!("../corpus/sources/openfda.yaml")),
     (
         "openlibrary",
-        include_str!("../../../connectors/declarative/sources/openlibrary.yaml"),
+        include_str!("../corpus/sources/openlibrary.yaml"),
     ),
     (
         "openweather",
-        include_str!("../../../connectors/declarative/sources/openweather.yaml"),
+        include_str!("../corpus/sources/openweather.yaml"),
     ),
     (
         "pagerduty",
-        include_str!("../../../connectors/declarative/sources/pagerduty.yaml"),
+        include_str!("../corpus/sources/pagerduty.yaml"),
     ),
-    (
-        "pokeapi",
-        include_str!("../../../connectors/declarative/sources/pokeapi.yaml"),
-    ),
+    ("pokeapi", include_str!("../corpus/sources/pokeapi.yaml")),
     (
         "rickandmorty",
-        include_str!("../../../connectors/declarative/sources/rickandmorty.yaml"),
+        include_str!("../corpus/sources/rickandmorty.yaml"),
     ),
-    (
-        "slack",
-        include_str!("../../../connectors/declarative/sources/slack.yaml"),
-    ),
-    (
-        "spotify",
-        include_str!("../../../connectors/declarative/sources/spotify.yaml"),
-    ),
-    (
-        "square",
-        include_str!("../../../connectors/declarative/sources/square.yaml"),
-    ),
-    (
-        "stripe",
-        include_str!("../../../connectors/declarative/sources/stripe.yaml"),
-    ),
+    ("slack", include_str!("../corpus/sources/slack.yaml")),
+    ("spotify", include_str!("../corpus/sources/spotify.yaml")),
+    ("square", include_str!("../corpus/sources/square.yaml")),
+    ("stripe", include_str!("../corpus/sources/stripe.yaml")),
     (
         "ticketmaster",
-        include_str!("../../../connectors/declarative/sources/ticketmaster.yaml"),
+        include_str!("../corpus/sources/ticketmaster.yaml"),
     ),
-    (
-        "tmdb",
-        include_str!("../../../connectors/declarative/sources/tmdb.yaml"),
-    ),
-    (
-        "todoist",
-        include_str!("../../../connectors/declarative/sources/todoist.yaml"),
-    ),
-    (
-        "xkcd",
-        include_str!("../../../connectors/declarative/sources/xkcd.yaml"),
-    ),
-    (
-        "zendesk",
-        include_str!("../../../connectors/declarative/sources/zendesk.yaml"),
-    ),
+    ("tmdb", include_str!("../corpus/sources/tmdb.yaml")),
+    ("todoist", include_str!("../corpus/sources/todoist.yaml")),
+    ("xkcd", include_str!("../corpus/sources/xkcd.yaml")),
+    ("zendesk", include_str!("../corpus/sources/zendesk.yaml")),
 ];
 
 /// The embedded destinations: (name, destination definition YAML).
 pub const DESTINATIONS: &[(&str, &str)] = &[
     (
         "hubspot-dest",
-        include_str!("../../../connectors/declarative/destinations/hubspot-dest.yaml"),
+        include_str!("../corpus/destinations/hubspot-dest.yaml"),
     ),
     (
         "salesforce-dest",
-        include_str!("../../../connectors/declarative/destinations/salesforce-dest.yaml"),
+        include_str!("../corpus/destinations/salesforce-dest.yaml"),
     ),
 ];
 
@@ -339,9 +270,7 @@ mod tests {
     use serde_json::{Map, Value};
 
     fn names(dir: &str) -> Vec<String> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(dir);
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(dir);
         let mut out: Vec<String> = std::fs::read_dir(path)
             .unwrap()
             .filter_map(|e| e.ok())
@@ -356,11 +285,8 @@ mod tests {
     fn the_embedded_lists_match_the_folders() {
         let embedded =
             |t: &[(&str, &str)]| t.iter().map(|(n, _)| n.to_string()).collect::<Vec<_>>();
-        assert_eq!(embedded(SOURCES), names("connectors/declarative/sources"));
-        assert_eq!(
-            embedded(DESTINATIONS),
-            names("connectors/declarative/destinations")
-        );
+        assert_eq!(embedded(SOURCES), names("corpus/sources"));
+        assert_eq!(embedded(DESTINATIONS), names("corpus/destinations"));
         assert_eq!(SOURCES.len(), 36);
     }
 
