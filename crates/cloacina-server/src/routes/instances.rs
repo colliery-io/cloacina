@@ -228,6 +228,23 @@ pub async fn create_instance(
         }
     }
 
+    // A sync definition (COLLIERY-I-0634 / CLOACINA-T-0993): its params must
+    // parse, and a side that names a connector definition must lower onto the
+    // REST runtime, so a misspelled definition or a missing config key is a
+    // 400 now, not a failed segment later.
+    if name == cloacina_sync::WORKFLOW_NAME {
+        let empty = serde_json::Map::new();
+        if let Err(e) =
+            cloacina_sync::params::validate(&body.instance_name, provided.unwrap_or(&empty))
+        {
+            return ApiError::bad_request(
+                "sync_params_invalid",
+                format!("invalid sync definition: {e}"),
+            )
+            .into_response();
+        }
+    }
+
     let timezone = body.timezone.clone().unwrap_or_else(|| "UTC".to_string());
 
     // Build the row. A cron expression is validated and its first fire computed

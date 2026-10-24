@@ -33,6 +33,7 @@
 
 pub mod common;
 pub mod compiler;
+pub mod connectors;
 pub mod delivery;
 pub mod error;
 pub mod executions;
@@ -50,6 +51,7 @@ pub mod workflows;
 
 pub use common::{ListResponse, TenantListResponse};
 pub use compiler::CompilerStatus;
+pub use connectors::ConnectorSummary;
 pub use delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, ServerMessage};
 pub use error::ErrorBody;
 pub use executions::{

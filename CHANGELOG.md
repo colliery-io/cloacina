@@ -19,6 +19,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and keeps a JUnit report. The CI change filter now covers `cloacina-sync`,
   `cloacina-declarative` and `connectors/`, which ran no test lane on their
   own before.
+- **Declarative connector docs** (COLLIERY-I-0634, CLOACINA-T-0994): a
+  Declarative Connectors page; references for the connector definition
+  format, the REST source and destination, and the corpus with each entry's
+  auth, config and streams; how-tos for importing an Airbyte connector and for
+  adding definitions to a server; the OAuth2, session, Basic and Google kinds
+  and how minted tokens are kept on the Credential Injection page; the catalog
+  route and the `connector` CLI commands. The corpus's `omdb` definition now
+  sends its key as the `apikey` query parameter, as OMDb documents; weir left a
+  placeholder header there.
+- **Declarative syncs and the connector catalog** (COLLIERY-I-0634,
+  CLOACINA-T-0993): a sync side can name a connector definition
+  (`source_definition`, `destination_definition`) instead of a provider. Its
+  `*_config` is the user's config for the definition and `*_secret` the secret
+  its auth reads (default: the binding `source_secret`); the side is lowered
+  onto the REST runtime wherever the params are read, with grants to the
+  definition's host unless the side gives its own. The server refuses a sync
+  definition whose side does not lower, by name. A user config's `base_url`
+  replaces the definition's. Extra definitions load from
+  `CLOACINA_SYNC_DEFINITIONS_DIR`. `GET /v1/tenants/{tenant_id}/connectors` and
+  `cloacinactl connector list` show the catalog: the compiled connector
+  providers and the declarative definitions.
 - **The importer and the declarative corpus** (COLLIERY-I-0634,
   CLOACINA-T-0992): a new crate, `cloacina-declarative`, holds connector
   definitions and their compiler (moved from `cloacina-sync`, which re-exports
