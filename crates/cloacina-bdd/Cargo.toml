@@ -1,0 +1,34 @@
+[package]
+name = "cloacina-bdd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "Behaviour specs for cloacina: Gherkin features run in process with cucumber (CLOACINA-A-0015)."
+publish = false
+# The step modules under tests/ belong to the one `bdd` runner, not to test
+# targets of their own.
+autotests = false
+
+[dependencies]
+
+[dev-dependencies]
+# The engine with both backends: a scenario's runner sits on SQLite or, with
+# CLOACINA_BDD_RUNNER=postgres, in its own Postgres schema.
+cloacina = { workspace = true, features = ["postgres", "sqlite", "macros", "constructors-wasm"] }
+cloacina-constructor-contract = { workspace = true }
+cloacina-sync = { workspace = true, features = ["fault-injection"] }
+cloacina-testing = { workspace = true }
+cucumber = { version = "0.23", features = ["output-junit"] }
+futures = "0.3"
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio-postgres = "0.7"
+
+[[test]]
+name = "bdd"
+harness = false

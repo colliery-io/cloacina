@@ -2,6 +2,7 @@
 from . import (
     all,  # noqa: F401
     auth,  # noqa: F401
+    bdd,  # noqa: F401
     coverage,  # noqa: F401
     integration,  # noqa: F401
     macros,  # noqa: F401

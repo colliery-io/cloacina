@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-client", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-constructor-contract", "crates/cloacina-python", "crates/cloacina-sync", "crates/cloacina-declarative"]
+members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-client", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-constructor-contract", "crates/cloacina-python", "crates/cloacina-sync", "crates/cloacina-declarative", "crates/cloacina-bdd"]
 exclude = ["examples/*", "providers/*"]
 resolver = "2"
 
