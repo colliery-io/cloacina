@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A BDD feature for declarative syncs** (COLLIERY-I-0655,
+  CLOACINA-T-0998): `features/sync/declarative.feature`. The corpus `github`
+  source syncs its repositories to Postgres against a mock GitHub API, with the
+  token from the secret store, and its second pass asks only for what is new.
+  A missing definition, or a stream the definition lacks, is refused when the
+  sync is created, with the name. A definition from the definitions directory
+  (`features/definitions/`, set by the runner) syncs like one of the corpus.
 - **BDD features for dead-letters and credentials** (COLLIERY-I-0655,
   CLOACINA-T-0997): `features/sync/dead_letters.feature` and
   `credentials.feature`. A record that breaks the stream's schema is set aside

@@ -19,4 +19,5 @@
 
 mod credentials;
 mod dead_letters;
+mod declarative;
 mod sync;

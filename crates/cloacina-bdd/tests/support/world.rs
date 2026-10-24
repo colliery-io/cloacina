@@ -49,6 +49,10 @@ pub struct Side {
     pub table: Option<String>,
     /// The credential the host applies, a `CredentialSpec` as JSON.
     pub credential: Option<Value>,
+    /// A connector definition the side names instead of a provider; `config`
+    /// is then its user config, and `secret` the stored secret its auth reads.
+    pub definition: Option<String>,
+    pub secret: Option<String>,
 }
 
 impl Side {
@@ -60,6 +64,21 @@ impl Side {
             grants: Some(json!({ "tcp": [format!("*:{}", pg::port())] })),
             table: Some(table.into()),
             credential: None,
+            definition: None,
+            secret: None,
+        }
+    }
+
+    /// A connector definition, with its user config and its secret.
+    pub fn definition(name: &str, config: Value, secret: &str) -> Self {
+        Self {
+            provider: String::new(),
+            config,
+            grants: None,
+            table: None,
+            credential: None,
+            definition: Some(name.into()),
+            secret: Some(secret.into()),
         }
     }
 
@@ -72,6 +91,8 @@ impl Side {
             grants: Some(json!({ "http": [api.grant()] })),
             table: None,
             credential,
+            definition: None,
+            secret: None,
         }
     }
 
@@ -86,6 +107,8 @@ impl Side {
             grants: Some(json!({ "tcp": [format!("*:{REFUSING_PORT}")] })),
             table: Some(table.into()),
             credential: None,
+            definition: None,
+            secret: None,
         }
     }
 }
@@ -152,6 +175,12 @@ pub struct SyncWorld {
     pub secrets: Secrets,
     /// The scenario's mock JSON API, started on first use.
     api: Option<RestMock>,
+    /// The mock's token endpoints, whose requests carry no credential.
+    pub token_paths: Vec<String>,
+    /// The records the mock's GitHub repositories endpoint serves.
+    pub repositories: Vec<Value>,
+    /// What the server said when the sync was created.
+    pub created: Option<Result<(), String>>,
     /// A test-only fault of the write task (`cloacina_sync::fault`).
     pub fault: Option<String>,
     pub outcome: Option<Result<PassOutcome, String>>,
@@ -202,6 +231,9 @@ impl SyncWorld {
             schema: None,
             secrets: Secrets::new(),
             api: None,
+            token_paths: Vec::new(),
+            repositories: Vec::new(),
+            created: None,
             fault: None,
             outcome: None,
             tables: Vec::new(),
@@ -222,6 +254,20 @@ impl SyncWorld {
         let table = self.table(table);
         self.stream = Some(ConfiguredStream {
             stream: table,
+            sync_mode: SyncMode::Incremental,
+            cursor_field: Some(cursor.into()),
+            primary_key: Some(vec![key.into()]),
+            write_mode: WriteMode::Upsert {
+                business_keys: vec![key.into()],
+            },
+            mapping: MappingSpec::default(),
+        });
+    }
+
+    /// An incremental stream named as the source names it, upserted on `key`.
+    pub fn incremental_stream(&mut self, name: &str, cursor: &str, key: &str) {
+        self.stream = Some(ConfiguredStream {
+            stream: name.into(),
             sync_mode: SyncMode::Incremental,
             cursor_field: Some(cursor.into()),
             primary_key: Some(vec![key.into()]),
@@ -266,6 +312,21 @@ impl SyncWorld {
     }
 
     fn definition(&self) -> SyncDefinition {
+        SyncDefinition::new(self.params())
+    }
+
+    /// Create the sync: the check the server runs on a new sync definition.
+    pub fn create(&mut self) {
+        let params: serde_json::Map<String, Value> = self.params().into_iter().collect();
+        self.created = Some(
+            cloacina_sync::params::validate(&self.scope, &params)
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+        );
+    }
+
+    /// The sync definition's params.
+    fn params(&self) -> HashMap<String, Value> {
         let source = self.source.as_ref().expect("the scenario names a source");
         let destination = self
             .destination
@@ -274,9 +335,18 @@ impl SyncWorld {
         let stream = self.stream.as_ref().expect("the scenario names a stream");
         let mut p: HashMap<String, Value> = HashMap::new();
         p.insert(keys::SYNC.into(), json!(self.scope));
-        p.insert(keys::SOURCE_PROVIDER.into(), json!(source.provider));
-        p.insert(keys::SOURCE_MEMBER.into(), json!("source"));
-        p.insert(keys::SOURCE_CONFIG.into(), json!(source.config.to_string()));
+        if let Some(def) = &source.definition {
+            // The definition supplies the provider, the grants and the auth.
+            p.insert(keys::SOURCE_DEFINITION.into(), json!(def));
+            p.insert(keys::SOURCE_CONFIG.into(), source.config.clone());
+            if let Some(secret) = &source.secret {
+                p.insert(keys::SOURCE_SECRET.into(), json!(secret));
+            }
+        } else {
+            p.insert(keys::SOURCE_PROVIDER.into(), json!(source.provider));
+            p.insert(keys::SOURCE_MEMBER.into(), json!("source"));
+            p.insert(keys::SOURCE_CONFIG.into(), json!(source.config.to_string()));
+        }
         if let Some(g) = &source.grants {
             p.insert(keys::SOURCE_GRANTS.into(), g.clone());
         }
@@ -308,7 +378,7 @@ impl SyncWorld {
         if let Some(f) = &self.fault {
             p.insert(keys::FAULT.into(), json!(f));
         }
-        SyncDefinition::new(p)
+        p
     }
 
     /// Run one pass of the sync to its end.

@@ -29,7 +29,7 @@ use crate::support::world::{Side, SyncWorld};
 const ITEMS: &str = "/items";
 
 /// The records of a Gherkin table, a column of integers as numbers.
-fn records(step: &Step) -> Vec<Value> {
+pub(super) fn records(step: &Step) -> Vec<Value> {
     let rows = &step.table.as_ref().expect("a records table").rows;
     let (header, rows) = rows.split_first().expect("a header row");
     rows.iter()
@@ -64,6 +64,7 @@ async fn api_serves(w: &mut SyncWorld, step: &Step, path: String) {
 
 #[given(expr = "the API grants the token {string} at {string}")]
 async fn api_grants(w: &mut SyncWorld, token: String, path: String) {
+    w.token_paths.push(path.clone());
     w.api().serve(
         &path,
         Endpoint {
@@ -132,9 +133,16 @@ async fn other_port(w: &mut SyncWorld) {
     source.grants = Some(json!({ "http": ["127.0.0.1:9"] }));
 }
 
+/// Every request but those to a token endpoint.
 #[then(expr = "the API saw the header {string} set to {string} on every request")]
 async fn saw_header(w: &mut SyncWorld, name: String, value: String) {
-    let seen = w.api().requests_to(ITEMS);
+    let token_paths = w.token_paths.clone();
+    let seen: Vec<_> = w
+        .api()
+        .requests_under("/")
+        .into_iter()
+        .filter(|s| !token_paths.contains(&s.path))
+        .collect();
     assert!(!seen.is_empty(), "the API received no request");
     for s in &seen {
         assert_eq!(
