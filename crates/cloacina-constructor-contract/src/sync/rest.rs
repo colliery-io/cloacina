@@ -182,20 +182,18 @@ pub struct RestConfig {
     pub max_pages: u64,
 }
 
-fn default_post() -> String {
-    "POST".to_string()
-}
-
 /// What the `rest-dest` guest reads: one object of a destination definition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RestDestConfig {
     pub base_url: String,
-    /// The object's path; `{{ record.<field> }}` is replaced per record.
+    /// The object's path; `{{ record.<field> }}` is replaced per record, its
+    /// value percent-encoded.
     pub path: String,
-    /// `POST` to create, `PATCH` to update by a keyed path. Default `POST`.
-    #[serde(default = "default_post")]
-    pub method: String,
+    /// The write method. `None` takes it from the stream's write mode: `PATCH`
+    /// for upsert (create or update the keyed path), `POST` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
     /// The business key templated into `path`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upsert_key: Option<String>,
@@ -205,9 +203,13 @@ pub struct RestDestConfig {
     /// Nest the fields under this key (HubSpot's `properties`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_wrap: Option<String>,
-    /// Records per request where the API takes a batch; `None` means one.
+    /// The path a CDC delete goes to, templated like `path`. Without it, a
+    /// delete is a dead-letter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub batch_size: Option<u32>,
+    pub delete_path: Option<String>,
+    /// The delete method. Default `DELETE`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delete_method: Option<String>,
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
 }
@@ -243,10 +245,17 @@ mod tests {
     }
 
     #[test]
-    fn a_dest_config_defaults_to_post() {
+    fn a_dest_config_leaves_the_method_to_the_write_mode() {
         let c: RestDestConfig =
             serde_json::from_str(r#"{"base_url": "x", "path": "/contacts"}"#).unwrap();
-        assert_eq!(c.method, "POST");
+        assert_eq!(c.method, None);
+        assert_eq!(c.delete_path, None);
         assert_eq!(c.max_retries, 4);
+        assert!(
+            serde_json::from_str::<RestDestConfig>(
+                r#"{"base_url": "x", "path": "/c", "batch_size": 10}"#
+            )
+            .is_err()
+        );
     }
 }

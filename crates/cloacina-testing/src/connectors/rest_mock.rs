@@ -24,9 +24,15 @@
 //! and, for a POST, from the JSON body (flattened to dot-paths). Every request
 //! is kept, so a test can see what the guest sent.
 //!
+//! A **sink** takes writes: any request under its path prefix is kept with
+//! its JSON body and answered `200`, unless the body's field at a dot-path
+//! holds a refused value (`400`).
+//!
 //! It is also a conformance [`Service`]: a step with `endpoint` configures one
-//! (the fields of [`Endpoint`]); a step with `requests_to` returns the
-//! requests made to a path, as `{method, path, params, headers}` objects.
+//! (the fields of [`Endpoint`]); `sink` adds a sink, with an optional
+//! `refuse_when = [dot-path, value]`; `requests_to` returns the requests made
+//! to a path, as `{method, path, params, headers}` objects; `requests_under`
+//! returns the requests under a prefix as `{method, path, body, headers}`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
@@ -117,11 +123,21 @@ pub struct Seen {
     /// Query parameters, and a POST body's fields as dot-paths.
     pub params: BTreeMap<String, String>,
     pub headers: BTreeMap<String, String>,
+    /// The JSON body, when there was one.
+    pub body: Option<Value>,
+}
+
+/// A path prefix that takes writes.
+#[derive(Debug, Clone)]
+struct Sink {
+    prefix: String,
+    refuse_when: Option<(String, Value)>,
 }
 
 #[derive(Default)]
 struct State {
     endpoints: HashMap<String, Endpoint>,
+    sinks: Vec<Sink>,
     throttled: HashMap<String, usize>,
     seen: Vec<Seen>,
 }
@@ -174,6 +190,27 @@ impl RestMock {
             .insert(path.to_string(), endpoint);
     }
 
+    /// Take writes under `prefix`, refusing a body whose `field` (a dot-path)
+    /// is `value`.
+    pub fn sink(&self, prefix: &str, refuse_when: Option<(String, Value)>) {
+        self.state.lock().unwrap().sinks.push(Sink {
+            prefix: prefix.to_string(),
+            refuse_when,
+        });
+    }
+
+    /// The requests under `prefix`, in order.
+    pub fn requests_under(&self, prefix: &str) -> Vec<Seen> {
+        self.state
+            .lock()
+            .unwrap()
+            .seen
+            .iter()
+            .filter(|s| s.path.starts_with(prefix))
+            .cloned()
+            .collect()
+    }
+
     /// The requests made to `path`, in order.
     pub fn requests_to(&self, path: &str) -> Vec<Seen> {
         self.state
@@ -202,6 +239,28 @@ impl Service for RestMock {
                     })
                 })
                 .collect());
+        }
+        if let Some(prefix) = step.get("requests_under").and_then(Value::as_str) {
+            return Ok(self
+                .requests_under(prefix)
+                .into_iter()
+                .map(|s| json!({ "method": s.method, "path": s.path, "body": s.body, "headers": s.headers }))
+                .collect());
+        }
+        if let Some(prefix) = step.get("sink").and_then(Value::as_str) {
+            let refuse = match step.get("refuse_when") {
+                None => None,
+                Some(Value::Array(a)) if a.len() == 2 && a[0].is_string() => {
+                    Some((a[0].as_str().unwrap().to_string(), a[1].clone()))
+                }
+                Some(other) => {
+                    return Err(format!(
+                        "refuse_when must be [dot-path, value], got {other}"
+                    ));
+                }
+            };
+            self.sink(prefix, refuse);
+            return Ok(Vec::new());
         }
         let mut fields = step.clone();
         let path = fields
@@ -381,10 +440,11 @@ fn answer(
         let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
         params.insert(percent_decode(k), percent_decode(v));
     }
-    if !body.trim().is_empty()
-        && let Ok(v) = serde_json::from_str::<Value>(body)
-    {
-        flatten("", &v, &mut params);
+    let json_body = serde_json::from_str::<Value>(body)
+        .ok()
+        .filter(|_| !body.trim().is_empty());
+    if let Some(v) = &json_body {
+        flatten("", v, &mut params);
     }
     let headers: BTreeMap<String, String> = head
         .lines()
@@ -400,7 +460,22 @@ fn answer(
         path: path.to_string(),
         params: params.clone(),
         headers: headers.clone(),
+        body: json_body.clone(),
     });
+    if !st.endpoints.contains_key(path)
+        && let Some(sink) = st.sinks.iter().find(|k| path.starts_with(&k.prefix))
+    {
+        if let (Some((field, value)), Some(b)) = (&sink.refuse_when, &json_body)
+            && get_path(b, field) == Some(value)
+        {
+            return (
+                400,
+                vec![],
+                json!({ "error": format!("{field} is refused") }),
+            );
+        }
+        return (200, vec![], json!({ "ok": true }));
+    }
     let Some(ep) = st.endpoints.get(path).cloned() else {
         return (
             404,
@@ -508,6 +583,10 @@ fn answer(
         }
     }
     (200, extra, answer)
+}
+
+fn get_path<'a>(v: &'a Value, path: &str) -> Option<&'a Value> {
+    path.split('.').try_fold(v, |cur, seg| cur.get(seg))
 }
 
 fn set_path(v: &mut Value, path: &str, val: Value) {

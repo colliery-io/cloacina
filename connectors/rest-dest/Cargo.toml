@@ -1,0 +1,42 @@
+# The REST destination (COLLIERY-I-0634 / CLOACINA-T-0991): the shared runtime
+# of every declarative destination, as a wasm32-wasip2 component. It writes one
+# object of a destination definition, compiled by the host into a
+# RestDestConfig. Requests leave the guest without auth; the host's egress adds
+# the credential. Moved from weir. Own [workspace] so the parent workspace does
+# not build this wasm-only crate natively.
+[workspace]
+
+[package]
+name = "cloacina-connector-rest-dest"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "cloacina Sync runtime for declarative REST destinations (WASM component): record-by-record create, upsert and delete against JSON APIs."
+license = "Apache-2.0"
+repository = "https://github.com/colliery-io/cloacina"
+publish = false
+
+[package.metadata.cargo-machete]
+ignored = ["wit-bindgen", "serde"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fidius-guest = "0.5.9"
+fidius-macro = "0.5.9"
+wit-bindgen = "0.44"
+# `config = sync::Config`, the RestConfig it holds, and `cursor_cmp` are the
+# serde contract; the typed method types are the local WitType copies in
+# src/sync_guest_types.rs.
+cloacina-constructor-contract = { path = "../../crates/cloacina-constructor-contract" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+fidius-build = "0.5.9"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

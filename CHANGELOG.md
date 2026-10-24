@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The REST destination** (COLLIERY-I-0634, CLOACINA-T-0991):
+  `connectors/rest-dest`, weir's REST destination guest on the Sync contract,
+  the runtime of every declarative destination. It writes each record of one
+  object: shaped by a field map and an optional body wrap, sent to a path
+  templated with the record's values, percent-encoded now. The method is the
+  config's, or the write mode's (`PATCH` to upsert, `POST` otherwise), and a
+  CDC delete goes to a `delete_path`. A record the API refuses is a
+  dead-letter. `RestDestConfig` gains `delete_path` and `delete_method`, takes
+  an optional method, and drops `batch_size`, which weir never used. The mock
+  API takes writes, and a conformance write case can send CDC changes.
 - **The REST source** (COLLIERY-I-0634, CLOACINA-T-0990): `connectors/rest`,
   weir's REST guest on the Sync contract, the runtime of every declarative
   source. It reads the `RestConfig` the host compiles from a connector

@@ -91,6 +91,7 @@
 //! case = "two rows"
 //! stream = { stream = "echo" }
 //! batches = [[{ id = 1 }, { id = 2 }]]
+//! change_batches = [[{ op = "Delete", data = { id = 1 } }]]   # optional, CDC
 //! accepted = 2
 //! verify = [{ sql = "SELECT id FROM t", rows = [{ id = 1 }, { id = 2 }] }]
 //! ```
@@ -105,9 +106,9 @@ use std::fmt;
 use std::path::Path;
 
 use cloacina_constructor_contract::sync::{
-    CheckResult, Config, ConfiguredStream, ConnectorRole, ConnectorSpec, DiscoverOutcome,
-    Partition, ReadContext, ReadMessage, RecordBatch, StreamState, WriteContext, WriteOutcome,
-    WriteResult,
+    ChangeOp, ChangeRecord, CheckResult, Config, ConfiguredStream, ConnectorRole, ConnectorSpec,
+    DiscoverOutcome, Partition, ReadContext, ReadMessage, RecordBatch, StreamState, WriteContext,
+    WriteOutcome, WriteResult,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -283,6 +284,10 @@ pub struct WriteCase {
     pub stream: Value,
     #[serde(default)]
     pub batches: Vec<Vec<Value>>,
+    /// CDC batches, each a list of `{op = "Insert" | "Update" | "Delete",
+    /// data = {...}}`, written after `batches`.
+    #[serde(default)]
+    pub change_batches: Vec<Vec<Value>>,
     pub accepted: Option<u64>,
     pub dead_letters: Option<Vec<Value>>,
     pub error: Option<Value>,
@@ -969,11 +974,34 @@ impl Runner<'_> {
         let Some(conn) = self.load(package, Role::Destination, &config, "write", &case.case) else {
             return;
         };
-        let batches = case
+        let mut batches: Vec<RecordBatch> = case
             .batches
             .iter()
             .map(|rows| RecordBatch::Rows(rows.iter().map(row_text).collect()))
             .collect();
+        for changes in &case.change_batches {
+            let mut out = Vec::with_capacity(changes.len());
+            for c in changes {
+                let op = match c
+                    .get("op")
+                    .map(|o| serde_json::from_value::<ChangeOp>(o.clone()))
+                {
+                    Some(Ok(op)) => op,
+                    _ => {
+                        return self.report.fail(
+                            "file",
+                            &case.case,
+                            format!("a change needs `op` (Insert, Update or Delete): {c}"),
+                        );
+                    }
+                };
+                out.push(ChangeRecord {
+                    op,
+                    data: row_text(c.get("data").unwrap_or(&Value::Null)),
+                });
+            }
+            batches.push(RecordBatch::Changes(out));
+        }
         let outcome = match conn.write(&WriteContext { stream }, batches) {
             Ok(o) => o,
             Err(e) => {
