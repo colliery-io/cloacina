@@ -17,10 +17,11 @@
 //! `cloacinactl connector` — Sync's declarative connectors
 //! (COLLIERY-I-0634 / CLOACINA-T-0992).
 //!
-//! `import` turns an Airbyte low-code source into a cloacina connector
-//! definition, offline, and reports what the REST runtime supports of it and
-//! what it does not. The result is the YAML a server loads from its
-//! definitions directory.
+//! `list` shows the catalog: the connectors a server can run, compiled and
+//! declarative (CLOACINA-T-0993). `import` turns an Airbyte low-code source
+//! into a cloacina connector definition, offline, and reports what the REST
+//! runtime supports of it and what it does not. The result is the YAML a
+//! server loads from its definitions directory.
 
 use std::path::PathBuf;
 
@@ -28,6 +29,10 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use cloacina_declarative::importer::{analyze, import_yaml};
 
+use crate::commands::config::CloacinaConfig;
+use crate::shared::client::CliClient;
+use crate::shared::client_ctx::ClientContext;
+use crate::shared::render;
 use crate::{GlobalOpts, OutputFormat};
 
 #[derive(Args)]
@@ -38,6 +43,9 @@ pub struct ConnectorCmd {
 
 #[derive(Subcommand)]
 enum ConnectorVerb {
+    /// The connectors the server can run: compiled providers and declarative
+    /// definitions, with their roles and streams.
+    List,
     /// Import an Airbyte low-code source (`type: DeclarativeSource`) as a
     /// connector definition. The definition goes to stdout (or `--out`); the
     /// report of what the runtime supports goes to stderr.
@@ -57,6 +65,18 @@ impl ConnectorCmd {
     pub async fn run(self, globals: &GlobalOpts) -> Result<()> {
         match self.verb {
             ConnectorVerb::Import { file, name, out } => import(globals, file, name, out),
+            ConnectorVerb::List => {
+                let config = CloacinaConfig::load(&globals.home.join("config.toml"));
+                let ctx = ClientContext::resolve(globals, &config)?;
+                let output = ctx.output;
+                let client = CliClient::new(ctx).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let tenant = client.ctx().tenant_segment().to_string();
+                let body: serde_json::Value = client
+                    .get(&format!("/v1/tenants/{tenant}/connectors"))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                render::list(&body, output).map_err(|e| anyhow::anyhow!("{e}"))
+            }
         }
     }
 }

@@ -32,7 +32,8 @@
 //! Compiling renders `{{ config['key'] }}` against the user's config, so the
 //! guest gets concrete values and a key the config lacks fails here, by name.
 //! `max_pages` and `max_retries` in the user's config override the runtime's
-//! defaults; every other key is a template value.
+//! defaults, and `base_url` replaces the definition's (a self-hosted API, a
+//! proxy, a test mock); every other key is a template value.
 
 use cloacina_constructor_contract::sync::rest::{
     HttpMethod, Incremental, InjectInto, Pagination, PartitionRouter, RestConfig, RestDestConfig,
@@ -473,7 +474,7 @@ pub fn compile_source(
     };
     let (max_retries, max_pages) = overrides(name, user)?;
     let config = RestConfig {
-        base_url: r.render(&def.base_url, "base_url")?,
+        base_url: r.render(base_url(&def.base_url, user), "base_url")?,
         path: r.render(&s.path, &at("path"))?,
         record_selector: s.record_selector.clone(),
         http_method: s.http_method,
@@ -533,7 +534,7 @@ pub fn compile_destination(
     let (max_retries, _) = overrides(name, user)?;
     Ok(CompiledDestination {
         config: RestDestConfig {
-            base_url: r.render(&def.base_url, "base_url")?,
+            base_url: r.render(base_url(&def.base_url, user), "base_url")?,
             path: r.render(&o.path, &format!("object `{}` path", o.name))?,
             method: o.method.clone(),
             upsert_key: o.upsert_key.clone(),
@@ -549,6 +550,14 @@ pub fn compile_destination(
         },
         credential: credential(name, &def.auth, user, secret)?,
     })
+}
+
+/// The user's `base_url` when given, else the definition's.
+fn base_url<'a>(definition: &'a str, user: &'a Map<String, Value>) -> &'a str {
+    match user.get("base_url") {
+        Some(Value::String(s)) if !s.is_empty() => s,
+        _ => definition,
+    }
 }
 
 fn overrides(
@@ -893,6 +902,15 @@ streams:
                 .contains("[\"posts\", \"comments\", \"search\"]"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn a_user_base_url_replaces_the_definitions() {
+        let u = user(
+            json!({"subdomain": "a", "start_date": "x", "base_url": "http://127.0.0.1:9/api"}),
+        );
+        let c = compile_source(&def(), "posts", &u, Some("s")).unwrap();
+        assert_eq!(c.config.base_url, "http://127.0.0.1:9/api");
     }
 
     #[test]
