@@ -579,6 +579,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /v1/tenants/{tenant_id}/connectors` — the connectors a sync can name. */
+        get: operations["list_connectors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/executions": {
         parameters: {
             query?: never;
@@ -1207,6 +1224,30 @@ export interface components {
              */
             status: string;
         };
+        /**
+         * @description One connector a server can run: compiled (a provider package) or
+         *     declarative (a connector definition on the REST runtime).
+         */
+        ConnectorSummary: {
+            /** @description `compiled` or `declarative`. */
+            kind: string;
+            /**
+             * @description The name a sync names it by: `*_provider` for a compiled connector,
+             *     `*_definition` for a declarative one.
+             */
+            name: string;
+            /** @description The provider package that runs it. */
+            provider: string;
+            /** @description `Source`, `Destination`. */
+            roles: string[];
+            /**
+             * @description A definition's streams, or a destination's objects. Empty for a
+             *     compiled connector, whose streams are what `discover` finds.
+             */
+            streams: string[];
+            sync_modes: string[];
+            version?: string | null;
+        };
         /** @description Create a local account in a tenant. */
         CreateAccountRequest: {
             password: string;
@@ -1705,6 +1746,34 @@ export interface components {
                 target_triple: string;
                 /** @description Tenant scope the agent registered under, if any. */
                 tenant_id?: string | null;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
+        ListResponse_ConnectorSummary: {
+            items: {
+                /** @description `compiled` or `declarative`. */
+                kind: string;
+                /**
+                 * @description The name a sync names it by: `*_provider` for a compiled connector,
+                 *     `*_definition` for a declarative one.
+                 */
+                name: string;
+                /** @description The provider package that runs it. */
+                provider: string;
+                /** @description `Source`, `Destination`. */
+                roles: string[];
+                /**
+                 * @description A definition's streams, or a destination's objects. Empty for a
+                 *     compiled connector, whose streams are what `discover` finds.
+                 */
+                streams: string[];
+                sync_modes: string[];
+                version?: string | null;
             }[];
             total: number;
         };
@@ -3711,6 +3780,56 @@ export interface operations {
             };
             /** @description Account not found in this tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_connectors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Compiled and declarative Sync connectors */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_ConnectorSummary"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The connector definitions could not be loaded */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
