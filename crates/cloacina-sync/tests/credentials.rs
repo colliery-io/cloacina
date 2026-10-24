@@ -417,3 +417,85 @@ async fn the_read_task_resolves_the_named_secret() {
 
     runner.shutdown().await.unwrap();
 }
+
+/// An OAuth2 token endpoint that counts its grants and answers `tok-<n>`.
+fn token_server() -> (String, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!(
+        "http://127.0.0.1:{}/oauth/token",
+        listener.local_addr().unwrap().port()
+    );
+    let forms = Arc::new(Mutex::new(Vec::new()));
+    let seen = forms.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut len = 0usize;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    len = v.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body = vec![0u8; len];
+            std::io::Read::read_exact(&mut reader, &mut body).unwrap();
+            let n = {
+                let mut f = seen.lock().unwrap();
+                f.push(String::from_utf8_lossy(&body).to_string());
+                f.len()
+            };
+            let answer = format!(r#"{{"access_token":"tok-{n}","expires_in":3600}}"#);
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                    answer.len()
+                )
+                .as_bytes(),
+            );
+        }
+    });
+    (url, forms)
+}
+
+/// OAuth2 (CLOACINA-T-0989): the host runs the grant, adds the bearer, and
+/// keeps the token for the process, so a second load of the connector does
+/// not grant again. Neither the client secret nor the token reaches the guest.
+#[tokio::test]
+async fn an_oauth2_token_is_minted_on_the_host_once() {
+    providers();
+    let rec = Recorder::start();
+    let (token_url, grants) = token_server();
+    let spec: cloacina_sync::credential::CredentialSpec = serde_json::from_value(json!({
+        "kind": "oauth2", "secret": "crm", "token_url": token_url, "grant": "client_credentials"
+    }))
+    .unwrap();
+    let secret = BTreeMap::from([
+        ("client_id".to_string(), "client-1".to_string()),
+        ("client_secret".to_string(), "SECRET-client".to_string()),
+    ]);
+    let grant = format!("127.0.0.1:{}", rec.port);
+    for _ in 0..2 {
+        let cred = spec.build("source", &secret).unwrap();
+        let rows = read_rows(sync_params(&rec, "/items", &grant), Some(cred)).await;
+        assert!(
+            !rows[0].contains("SECRET") && !rows[0].contains("tok-"),
+            "{rows:?}"
+        );
+    }
+    let heads = rec.heads();
+    assert_eq!(heads.len(), 2, "{heads:?}");
+    for h in &heads {
+        assert_eq!(header(h, "authorization"), Some("Bearer tok-1"), "{h}");
+    }
+    let forms = grants.lock().unwrap().clone();
+    assert_eq!(forms.len(), 1, "one grant for both loads: {forms:?}");
+    assert!(
+        forms[0].contains("grant_type=client_credentials"),
+        "{}",
+        forms[0]
+    );
+}
