@@ -1603,6 +1603,73 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/connectors": {
+      "get": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/connectors` — the connectors a sync can name.",
+        "operationId": "list_connectors",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compiled and declarative Sync connectors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_ConnectorSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The connector definitions could not be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/executions": {
       "get": {
         "tags": [
@@ -4444,6 +4511,58 @@
           }
         }
       },
+      "ConnectorSummary": {
+        "type": "object",
+        "description": "One connector a server can run: compiled (a provider package) or\ndeclarative (a connector definition on the REST runtime).",
+        "required": [
+          "name",
+          "kind",
+          "provider",
+          "roles",
+          "sync_modes",
+          "streams"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "`compiled` or `declarative`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name a sync names it by: `*_provider` for a compiled connector,\n`*_definition` for a declarative one."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The provider package that runs it."
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`Source`, `Destination`."
+          },
+          "streams": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A definition's streams, or a destination's objects. Empty for a\ncompiled connector, whose streams are what `discover` finds."
+          },
+          "sync_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CreateAccountRequest": {
         "type": "object",
         "description": "Create a local account in a tenant.",
@@ -5461,6 +5580,75 @@
                     "null"
                   ],
                   "description": "Tenant scope the agent registered under, if any."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListResponse_ConnectorSummary": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One connector a server can run: compiled (a provider package) or\ndeclarative (a connector definition on the REST runtime).",
+              "required": [
+                "name",
+                "kind",
+                "provider",
+                "roles",
+                "sync_modes",
+                "streams"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "description": "`compiled` or `declarative`."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The name a sync names it by: `*_provider` for a compiled connector,\n`*_definition` for a declarative one."
+                },
+                "provider": {
+                  "type": "string",
+                  "description": "The provider package that runs it."
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "`Source`, `Destination`."
+                },
+                "streams": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "A definition's streams, or a destination's objects. Empty for a\ncompiled connector, whose streams are what `discover` finds."
+                },
+                "sync_modes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               }
             }
@@ -7290,6 +7478,10 @@
     {
       "name": "graph-health",
       "description": "Computation-graph health"
+    },
+    {
+      "name": "connectors",
+      "description": "Sync connector catalog"
     }
   ]
 }

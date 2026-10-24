@@ -1886,6 +1886,11 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/accounts/{account_id}/password",
             post(crate::routes::local_auth::reset_password),
         )
+        // COLLIERY-I-0634 / CLOACINA-T-0993: the Sync connector catalog.
+        .route(
+            "/tenants/{tenant_id}/connectors",
+            get(crate::routes::connectors::list_connectors),
+        )
         // CLOACI-T-0862: tenant secrets CRUD (metadata-only reads). Values are
         // write-only (create/rotate body); list/get never return a value.
         .route(
