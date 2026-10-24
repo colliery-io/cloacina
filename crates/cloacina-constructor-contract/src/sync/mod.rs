@@ -55,6 +55,7 @@
 pub mod codec;
 pub mod cursor;
 pub mod error;
+pub mod rest;
 pub mod schema;
 pub mod types;
 
