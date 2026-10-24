@@ -54,6 +54,7 @@ constructors-wasm = [
     "fidius-host/wasm",
     "dep:hmac",
     "dep:ring",
+    "dep:reqwest",
     # CLOACI-T-0904: server-streaming dispatch (`PluginHandle::call_streaming` /
     # `ChunkStream`) for a native provider-supplied STREAM accumulator. Gates the
     # loader's stream-accumulator path + the fidius stream module.
@@ -125,6 +126,10 @@ hex = { version = "0.4" }
 # Snowflake key-pair RS256 JWT. Only with `constructors-wasm`.
 hmac = { version = "0.13", optional = true }
 ring = { version = "0.17", optional = true }
+# The host side of OAuth2, session and Google service-account credentials:
+# token grants and logins, made on the host so no secret reaches a guest
+# (CLOACINA-T-0989). Same version and TLS as the agent's client.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "form", "rustls"], optional = true }
 pem = { version = "4" }
 toml = { version = "1" }
 anyhow = { version = "1.0" }
