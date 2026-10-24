@@ -16,7 +16,7 @@
 //! The World of a Sync scenario: the two sides of one sync, its stream, the
 //! scenario's runner, and what the last pass did.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,9 +25,13 @@ use std::time::{Duration, Instant};
 
 use cloacina::dal::DAL;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina_constructor_contract::sync::{ConfiguredStream, MappingSpec, SyncMode, WriteMode};
+use cloacina_constructor_contract::sync::{
+    ConfiguredStream, MappingSpec, StreamSchema, SyncMode, WriteMode,
+};
 use cloacina_sync::dispatcher::{Dispatcher, PassOutcome, SyncDefinition};
 use cloacina_sync::params::keys;
+use cloacina_testing::connectors::rest_mock::RestMock;
+use cloacina_workflow::secret::MapSecretResolver;
 use serde_json::{Value, json};
 
 use super::{pg, providers};
@@ -43,6 +47,8 @@ pub struct Side {
     pub grants: Option<Value>,
     /// The scenario table, for a Postgres side.
     pub table: Option<String>,
+    /// The credential the host applies, a `CredentialSpec` as JSON.
+    pub credential: Option<Value>,
 }
 
 impl Side {
@@ -53,6 +59,19 @@ impl Side {
             config: json!({ "url": pg::connector_url(), "table": table }),
             grants: Some(json!({ "tcp": [format!("*:{}", pg::port())] })),
             table: Some(table.into()),
+            credential: None,
+        }
+    }
+
+    /// The REST connector on `path` of the scenario's API. It does not retry,
+    /// so a refused request fails the read at once.
+    pub fn rest(api: &RestMock, path: &str, credential: Option<Value>) -> Self {
+        Self {
+            provider: providers::REST.into(),
+            config: json!({ "base_url": api.base_url(), "path": path, "max_retries": 0 }),
+            grants: Some(json!({ "http": [api.grant()] })),
+            table: None,
+            credential,
         }
     }
 
@@ -66,6 +85,7 @@ impl Side {
             }),
             grants: Some(json!({ "tcp": [format!("*:{REFUSING_PORT}")] })),
             table: Some(table.into()),
+            credential: None,
         }
     }
 }
@@ -87,9 +107,13 @@ fn runner_on_postgres() -> bool {
     }
 }
 
-/// A runner on `db`. Claims go stale after three seconds without a heartbeat,
-/// so a runner that takes over from a dead one does so within a scenario.
-async fn start_runner(db: &RunnerDb) -> DefaultRunner {
+/// The scenario's stored secrets: name, then field, then value.
+type Secrets = BTreeMap<String, BTreeMap<String, String>>;
+
+/// A runner on `db`, resolving `secrets`. Claims go stale after three seconds
+/// without a heartbeat, so a runner that takes over from a dead one does so
+/// within a scenario.
+async fn start_runner(db: &RunnerDb, secrets: &Secrets) -> DefaultRunner {
     cloacina_sync::ensure_linked();
     providers::staged();
     let config = DefaultRunnerConfig::builder()
@@ -99,19 +123,15 @@ async fn start_runner(db: &RunnerDb) -> DefaultRunner {
         .stale_claim_sweep_interval(Duration::from_secs(1))
         .build()
         .expect("runner config");
+    let builder = DefaultRunner::builder()
+        .with_config(config)
+        .secret_resolver(Arc::new(MapSecretResolver::new(secrets.clone())));
     match db {
-        RunnerDb::Sqlite(path) => {
-            DefaultRunner::with_config(&format!("sqlite://{}", path.display()), config).await
-        }
-        RunnerDb::Postgres { schema } => {
-            DefaultRunner::builder()
-                .database_url(&pg::url())
-                .schema(schema)
-                .with_config(config)
-                .build()
-                .await
-        }
+        RunnerDb::Sqlite(path) => builder.database_url(&format!("sqlite://{}", path.display())),
+        RunnerDb::Postgres { schema } => builder.database_url(&pg::url()).schema(schema),
     }
+    .build()
+    .await
     .expect("the scenario's runner")
 }
 
@@ -126,6 +146,12 @@ pub struct SyncWorld {
     pub source: Option<Side>,
     pub destination: Option<Side>,
     pub stream: Option<ConfiguredStream>,
+    /// The stream's schema, which records must meet or become dead-letters.
+    pub schema: Option<StreamSchema>,
+    /// The secrets the scenario's runner resolves.
+    pub secrets: Secrets,
+    /// The scenario's mock JSON API, started on first use.
+    api: Option<RestMock>,
     /// A test-only fault of the write task (`cloacina_sync::fault`).
     pub fault: Option<String>,
     pub outcome: Option<Result<PassOutcome, String>>,
@@ -141,6 +167,8 @@ impl fmt::Debug for SyncWorld {
             .field("source", &self.source)
             .field("destination", &self.destination)
             .field("stream", &self.stream)
+            .field("schema", &self.schema)
+            .field("secrets", &self.secrets.keys().collect::<Vec<_>>())
             .field("fault", &self.fault)
             .field("outcome", &self.outcome)
             .finish_non_exhaustive()
@@ -171,6 +199,9 @@ impl SyncWorld {
             source: None,
             destination: None,
             stream: None,
+            schema: None,
+            secrets: Secrets::new(),
+            api: None,
             fault: None,
             outcome: None,
             tables: Vec::new(),
@@ -201,12 +232,31 @@ impl SyncWorld {
         });
     }
 
+    /// A full-refresh stream of the source, upserted on `key`.
+    pub fn refresh_stream(&mut self, name: &str, key: &str) {
+        self.stream = Some(ConfiguredStream {
+            stream: name.into(),
+            sync_mode: SyncMode::FullRefresh,
+            cursor_field: None,
+            primary_key: Some(vec![key.into()]),
+            write_mode: WriteMode::Upsert {
+                business_keys: vec![key.into()],
+            },
+            mapping: MappingSpec::default(),
+        });
+    }
+
+    /// The scenario's mock JSON API, started on first use.
+    pub fn api(&mut self) -> &RestMock {
+        self.api.get_or_insert_with(RestMock::start)
+    }
+
     /// The scenario's runner, started on first use.
     pub async fn runner(&mut self) -> DefaultRunner {
         if let Some(runner) = &self.runner {
             return runner.clone();
         }
-        let runner = start_runner(&self.db).await;
+        let runner = start_runner(&self.db, &self.secrets).await;
         self.runner = Some(runner.clone());
         runner
     }
@@ -230,6 +280,9 @@ impl SyncWorld {
         if let Some(g) = &source.grants {
             p.insert(keys::SOURCE_GRANTS.into(), g.clone());
         }
+        if let Some(c) = &source.credential {
+            p.insert(keys::SOURCE_CREDENTIAL.into(), json!(c.to_string()));
+        }
         p.insert(
             keys::DESTINATION_PROVIDER.into(),
             json!(destination.provider),
@@ -246,6 +299,12 @@ impl SyncWorld {
             keys::STREAM.into(),
             json!(serde_json::to_string(stream).expect("stream json")),
         );
+        if let Some(s) = &self.schema {
+            p.insert(
+                keys::SCHEMA.into(),
+                json!(serde_json::to_string(s).expect("schema json")),
+            );
+        }
         if let Some(f) = &self.fault {
             p.insert(keys::FAULT.into(), json!(f));
         }
@@ -279,6 +338,7 @@ impl SyncWorld {
         self.fault = Some(format!("slow_write_ms:{}", hold.as_millis()));
         let def = self.definition();
         let db = self.db.clone();
+        let secrets = self.secrets.clone();
         let source = self.side_table(true);
         let destination = self.side_table(false);
         let expected = pg::count(&source).await;
@@ -290,7 +350,7 @@ impl SyncWorld {
                 .build()
                 .expect("the doomed runner's runtime");
             rt.spawn(async move {
-                let runner = start_runner(&db).await;
+                let runner = start_runner(&db, &secrets).await;
                 let dal = Arc::new(DAL::new(runner.database().clone()));
                 let (_stop_tx, stop) = tokio::sync::watch::channel(false);
                 let _ = Dispatcher::new(Arc::new(runner.clone()), dal)
@@ -340,6 +400,44 @@ impl SyncWorld {
             .await
             .expect("read the stream state")
             .and_then(|s| s.cursor)
+    }
+
+    /// The dead-letters of the sync: each record (as JSON) and its reason.
+    pub async fn dead_letters(&mut self) -> Vec<(Value, String)> {
+        let sync = self.scope.clone();
+        self.dal()
+            .await
+            .sync_dead_letters()
+            .list_for_sync(&sync, 1000)
+            .await
+            .expect("list the dead-letters")
+            .into_iter()
+            .map(|d| {
+                let record = serde_json::from_str(&d.record).unwrap_or(Value::String(d.record));
+                (record, d.reason)
+            })
+            .collect()
+    }
+
+    /// The saved context of every Sync execution, as JSON text.
+    pub async fn saved_contexts(&mut self) -> Vec<String> {
+        let dal = self.dal().await;
+        let mut saved = Vec::new();
+        for run in dal
+            .workflow_execution()
+            .list_recent(100)
+            .await
+            .expect("list executions")
+            .into_iter()
+            .filter(|e| e.workflow_name == cloacina_sync::WORKFLOW_NAME)
+        {
+            if let Some(id) = run.context_id
+                && let Ok(ctx) = dal.context().read::<Value>(id).await
+            {
+                saved.push(ctx.to_json().expect("context json"));
+            }
+        }
+        saved
     }
 
     /// The attempt numbers of the write task of each Sync execution, sorted.

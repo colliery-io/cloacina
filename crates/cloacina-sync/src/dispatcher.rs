@@ -382,6 +382,34 @@ impl Dispatcher {
 
     /// Wait for one execution to reach a terminal status, polling the executor
     /// the way the engine's own execution handle does.
+    /// Why an execution failed: its own summary, then each failed task's
+    /// error, so the pass error says what went wrong.
+    async fn failure(&self, execution_id: uuid::Uuid) -> String {
+        let id = UniversalUuid(execution_id);
+        let mut parts: Vec<String> = self
+            .dal
+            .workflow_execution()
+            .get_by_id(id)
+            .await
+            .ok()
+            .and_then(|r| r.error_details)
+            .into_iter()
+            .collect();
+        if let Ok(tasks) = self
+            .dal
+            .task_execution()
+            .get_all_tasks_for_workflow(id)
+            .await
+        {
+            for t in tasks.iter().filter(|t| t.status == "Failed") {
+                if let Some(e) = t.error_details.as_ref().or(t.last_error.as_ref()) {
+                    parts.push(format!("{}: {e}", t.task_name));
+                }
+            }
+        }
+        parts.join("; ")
+    }
+
     async fn wait(&self, sync: &str, execution_id: uuid::Uuid) -> Result<(), DispatchError> {
         let started = std::time::Instant::now();
         loop {
@@ -406,14 +434,7 @@ impl Dispatcher {
             match status {
                 WorkflowStatus::Completed => return Ok(()),
                 WorkflowStatus::Failed | WorkflowStatus::Cancelled => {
-                    let error = self
-                        .dal
-                        .workflow_execution()
-                        .get_by_id(UniversalUuid(execution_id))
-                        .await
-                        .ok()
-                        .and_then(|r| r.error_details)
-                        .unwrap_or_default();
+                    let error = self.failure(execution_id).await;
                     return Err(DispatchError::SegmentFailed {
                         sync: sync.to_string(),
                         execution_id: UniversalUuid(execution_id),

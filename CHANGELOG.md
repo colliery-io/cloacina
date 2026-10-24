@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BDD features for dead-letters and credentials** (COLLIERY-I-0655,
+  CLOACINA-T-0997): `features/sync/dead_letters.feature` and
+  `credentials.feature`. A record that breaks the stream's schema is set aside
+  with its reason while the rest arrive and the cursor moves on. Against a mock
+  API with the REST source, a stored secret reaches the API as a header or a
+  query parameter and lands in no saved context or record. A request the
+  grants refuse never reaches the API, and an OAuth2 token is minted once for
+  two passes. When a segment fails, the pass error now carries each failed
+  task's error, so a missing secret is named in it.
 - **BDD features for the cursor and resume** (COLLIERY-I-0655,
   CLOACINA-T-0996): `features/sync/cursor.feature` and `resume.feature`. A
   destination that refuses connections fails the pass and leaves the cursor

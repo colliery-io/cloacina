@@ -185,3 +185,21 @@ pub async fn count_if_exists(table: &str) -> i64 {
         .map(|r| r.get(0))
         .unwrap_or(0)
 }
+
+/// Every row of `table` as JSON text, or none while it does not exist yet.
+pub async fn dump(table: &str) -> Vec<String> {
+    if count_if_exists(table).await == 0 {
+        return Vec::new();
+    }
+    client()
+        .await
+        .query(
+            &format!("SELECT to_jsonb(t)::text FROM {} t", ident(table)),
+            &[],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("dump {table}: {e}"))
+        .iter()
+        .map(|r| r.get(0))
+        .collect()
+}
