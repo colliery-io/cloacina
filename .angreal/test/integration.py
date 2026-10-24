@@ -331,6 +331,10 @@ def integration(
                 sf_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "snowflake_connector", "--", "--include-ignored", "--test-threads=1"]
                 print(f"Running: {' '.join(sf_cmd)}")
                 subprocess.run(sf_cmd, check=True)
+                # CLOACINA-T-0990: the REST source against the mock JSON API.
+                rest_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "rest_connector", "--", "--test-threads=1"]
+                print(f"Running: {' '.join(rest_cmd)}")
+                subprocess.run(rest_cmd, check=True)
             if backend_name == "postgres" and not skip_rust:
                 print_section_header("Running cloacina-server lib tests (Postgres)")
                 server_cmd = ["cargo", "test", "-p", "cloacina-server", "--lib"]
