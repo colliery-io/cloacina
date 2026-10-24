@@ -1,0 +1,121 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from CoinPaprika's official API documentation
+# (https://api.coinpaprika.com/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ── coins ─────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: coins
+    primary_key: "id"
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.coinpaprika.com/v1"
+        path: "/coins"
+        # no authenticator: docs state "Authentication: Not required" for this endpoint
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []          # endpoint returns a bare top-level JSON array
+      # no paginator: docs list no page/offset params for GET /coins
+    # no incremental_sync: no time-filter query param documented for GET /coins
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string           # unique identifier, e.g. "btc-bitcoin"
+          name:
+            type: ["null", "string"]
+          symbol:
+            type: ["null", "string"]
+          rank:
+            type: ["null", "integer"]
+          is_new:
+            type: ["null", "boolean"]
+          is_active:
+            type: ["null", "boolean"]
+          type:
+            type: ["null", "string"]   # "coin" | "token"
+
+  # ── tickers ───────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: tickers
+    primary_key: "id"
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.coinpaprika.com/v1"
+        path: "/tickers"
+        # no authenticator: docs state "Authentication: Not required" for this endpoint
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []          # endpoint returns a bare top-level JSON array
+      # no paginator: docs list no page/offset params for GET /tickers
+    # no incremental_sync: no time-filter query param documented for GET /tickers
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+          name:
+            type: ["null", "string"]
+          symbol:
+            type: ["null", "string"]
+          rank:
+            type: ["null", "integer"]
+          circulating_supply:
+            type: ["null", "number"]   # absent on Free plan (see open questions)
+          total_supply:
+            type: ["null", "number"]
+          max_supply:
+            type: ["null", "number"]
+          beta_value:
+            type: ["null", "number"]
+          first_data_at:
+            type: ["null", "string"]
+            format: date-time
+          last_updated:
+            type: ["null", "string"]
+            format: date-time
+          quotes:
+            type: ["null", "object"]
+            additionalProperties:      # keys are currency codes, e.g. "USD", "BTC"
+              type: object
+              properties:
+                price:
+                  type: ["null", "number"]
+                volume_24h:
+                  type: ["null", "number"]
+                volume_24h_change_24h:
+                  type: ["null", "number"]
+                market_cap:
+                  type: ["null", "number"]
+                market_cap_change_24h:
+                  type: ["null", "number"]
+                percent_change_15m:
+                  type: ["null", "number"]
+                percent_change_30m:
+                  type: ["null", "number"]
+                percent_change_1h:
+                  type: ["null", "number"]
+                percent_change_24h:
+                  type: ["null", "number"]
+                ath_price:
+                  type: ["null", "number"]
+                ath_date:
+                  type: ["null", "string"]
+                  format: date-time
+                percent_from_price_ath:
+                  type: ["null", "number"]

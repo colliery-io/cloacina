@@ -43,7 +43,7 @@ use cloacina_constructor_contract::sync::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::credential::CredentialSpec;
+use cloacina_constructor_contract::sync::credential::{CredentialSpec, GrantKind};
 
 /// A definition does not parse, or does not hold together.
 #[derive(Debug, thiserror::Error)]
@@ -77,8 +77,6 @@ pub enum CompileError {
     },
     #[error("`{definition}` authenticates with `{kind}`, so the sync must name a secret for it")]
     NoSecret { definition: String, kind: String },
-    #[error("`{definition}`: auth kind `{kind}` is not supported yet")]
-    UnsupportedAuth { definition: String, kind: String },
     #[error("`{definition}`: config `{key}` must be a non-negative integer")]
     BadOverride { definition: String, key: String },
 }
@@ -623,12 +621,47 @@ fn credential(
             account: r.key(account_key, "auth.account_key")?,
             user: r.key(user_key, "auth.user_key")?,
         },
-        other => {
-            return Err(CompileError::UnsupportedAuth {
-                definition: name.to_string(),
-                kind: other.kind().to_string(),
-            });
-        }
+        Auth::Basic {
+            username_field,
+            password_field,
+        } => CredentialSpec::Basic {
+            secret,
+            username_field: username_field.clone(),
+            password_field: password_field.clone(),
+        },
+        Auth::OAuth2 {
+            token_url,
+            grant,
+            scopes,
+        } => CredentialSpec::OAuth2 {
+            secret,
+            token_url: r.render(token_url, "auth.token_url")?,
+            grant: match grant {
+                OAuthGrant::ClientCredentials => GrantKind::ClientCredentials,
+                OAuthGrant::RefreshToken => GrantKind::RefreshToken,
+            },
+            scopes: scopes.clone(),
+        },
+        // A bare login: a definition does not yet say how to build a login
+        // body from the secret.
+        Auth::SessionToken {
+            login_url,
+            token_path,
+            inject_header,
+        } => CredentialSpec::Session {
+            secret,
+            login_url: r.render(login_url, "auth.login_url")?,
+            method: "POST".to_string(),
+            login_fields: Default::default(),
+            token_path: token_path.clone(),
+            inject_header: inject_header.clone(),
+            prefix: String::new(),
+            ttl_secs: 900,
+        },
+        Auth::GoogleServiceAccount { scopes } => CredentialSpec::GoogleServiceAccount {
+            secret,
+            scopes: scopes.clone(),
+        },
     }))
 }
 
@@ -942,15 +975,44 @@ streams:
                 .credential,
             None
         );
-        // The kinds the host cannot add yet say so.
-        let err = compile_source(
-            &with("{ kind: oauth2, token_url: 'https://x/token', grant: client_credentials }"),
+        // The minted kinds (CLOACINA-T-0989).
+        let c = compile_source(
+            &with("{ kind: oauth2, token_url: 'https://x/token', grant: client_credentials, scopes: [api] }"),
             "s",
             &none,
             Some("k"),
         )
-        .unwrap_err();
-        assert!(matches!(err, CompileError::UnsupportedAuth { .. }), "{err}");
+        .unwrap();
+        assert_eq!(
+            c.credential,
+            Some(CredentialSpec::OAuth2 {
+                secret: "k".into(),
+                token_url: "https://x/token".into(),
+                grant: GrantKind::ClientCredentials,
+                scopes: vec!["api".into()],
+            })
+        );
+        let c = compile_source(&with("{ kind: basic }"), "s", &none, Some("k")).unwrap();
+        assert!(matches!(c.credential, Some(CredentialSpec::Basic { .. })));
+        let c = compile_source(
+            &with("{ kind: google_service_account, scopes: [s] }"),
+            "s",
+            &none,
+            Some("k"),
+        )
+        .unwrap();
+        assert!(matches!(
+            c.credential,
+            Some(CredentialSpec::GoogleServiceAccount { .. })
+        ));
+        let c = compile_source(
+            &with("{ kind: session_token, login_url: 'https://x/login', token_path: data.token }"),
+            "s",
+            &none,
+            Some("k"),
+        )
+        .unwrap();
+        assert!(matches!(c.credential, Some(CredentialSpec::Session { .. })));
     }
 
     #[test]

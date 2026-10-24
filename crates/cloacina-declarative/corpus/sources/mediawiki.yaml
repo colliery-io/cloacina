@@ -1,0 +1,143 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from MediaWiki Action API's official API documentation
+# (https://www.mediawiki.org/wiki/API:Main_page); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # -----------------------------------------------------------------------
+  # Stream 1: search
+  # Endpoint: GET /w/api.php?action=query&list=search
+  # Source: https://www.mediawiki.org/wiki/API:Search
+  # -----------------------------------------------------------------------
+  - type: DeclarativeStream
+    name: search
+    primary_key: pageid
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        # wiki_base_url must be supplied in config, e.g. "https://en.wikipedia.org"
+        # The path /w/api.php is MediaWiki's default install path.
+        # Source: https://www.mediawiki.org/wiki/API:Main_page ("https://www.example.org/w/api.php")
+        url_base: "{{ config['wiki_base_url'] }}"
+        # action, list, format are required static params; srsearch is required by the search module.
+        # format=json is mandatory — omitting it yields PHP serialization output.
+        # srsearch is required; without it the API returns an error.
+        # Source: https://www.mediawiki.org/wiki/API:Search
+        # NOTE: request_parameters is not in the target schema, so static query
+        # params are embedded directly in the path field.
+        path: "/w/api.php?action=query&list=search&format=json&srsearch={{ config['search_query'] }}"
+        # No authenticator: read operations are public.
+        # Source: https://www.mediawiki.org/wiki/API:Main_page (no token needed for reads)
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          # Response envelope: {"query": {"search": [ ... ]}}
+          # Source: https://www.mediawiki.org/wiki/API:Search (response JSON structure)
+          field_path: ["query", "search"]
+
+      paginator:
+        type: DefaultPaginator
+        # srlimit controls results per page (1–500, default 10)
+        # Source: https://www.mediawiki.org/wiki/API:Search ("srlimit")
+        page_size_option:
+          type: RequestOption
+          field_name: "srlimit"
+        # sroffset is the numeric offset for subsequent pages; the continue
+        # object in the response also carries {"sroffset": N}.
+        # Source: https://www.mediawiki.org/wiki/API:Search ("sroffset")
+        page_token_option:
+          type: RequestOption
+          field_name: "sroffset"
+        pagination_strategy:
+          # sroffset is a plain integer offset (0, 50, 100 …), not an opaque token.
+          # Source: https://www.mediawiki.org/wiki/API:Search ("sroffset - Pagination offset (default: 0)")
+          type: OffsetIncrement
+          page_size: 50
+
+    # No incremental_sync: list=search has no documented time-based filter parameter.
+    # Source: https://www.mediawiki.org/wiki/API:Search (no "since" or date-range param listed)
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        # Fields source: https://www.mediawiki.org/wiki/API:Search
+        # ("Per-Result Fields: ns, title, pageid, size, wordcount, snippet, timestamp")
+        # Default srprop returns all of these; source confirms default = "size|wordcount|timestamp|snippet"
+        # plus ns, title, pageid which are always present.
+        properties:
+          pageid:
+            type: integer
+          ns:
+            type: integer
+          title:
+            type: ["null", "string"]
+          size:
+            type: ["null", "integer"]
+          wordcount:
+            type: ["null", "integer"]
+          snippet:
+            type: ["null", "string"]
+          timestamp:
+            type: ["null", "string"]
+            format: date-time
+
+  # -----------------------------------------------------------------------
+  # Stream 2: pages
+  # Endpoint: GET /w/api.php?action=query&list=allpages
+  # Source: https://www.mediawiki.org/wiki/API:Allpages
+  # -----------------------------------------------------------------------
+  - type: DeclarativeStream
+    name: pages
+    primary_key: pageid
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "{{ config['wiki_base_url'] }}"
+        # aplimit=50 is embedded to increase the default (10) toward a reasonable batch size.
+        # Max documented is 500; 50 chosen conservatively pending auth-level verification.
+        # Source: https://www.mediawiki.org/wiki/API:Allpages ("aplimit: 1-500, default 10")
+        path: "/w/api.php?action=query&list=allpages&format=json&aplimit=50"
+        # No authenticator: read operations are public.
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          # Response envelope: {"query": {"allpages": [ ... ]}}
+          # Source: https://www.mediawiki.org/wiki/API:Allpages (response structure)
+          field_path: ["query", "allpages"]
+
+      # paginator OMITTED: list=allpages uses apcontinue, an opaque title-cursor string.
+      # Source: https://www.mediawiki.org/wiki/API:Allpages ("apcontinue" continue token)
+      #         https://www.mediawiki.org/wiki/API:Continue (all continue values are opaque cursors)
+      # The target schema supports only PageIncrement and OffsetIncrement — neither
+      # can express an opaque string cursor. See Open questions #2.
+
+    # No incremental_sync: list=allpages has no documented time-based filter parameter.
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        # Fields source: https://www.mediawiki.org/wiki/API:Allpages
+        # ("pageid, ns, title" — these are the only fields documented for this list module)
+        # Additional metadata (contentmodel, touched, lastrevid, length) requires prop=info,
+        # which cannot be used as an enumeration source; see Open questions #3.
+        properties:
+          pageid:
+            type: integer
+          ns:
+            type: integer
+          title:
+            type: ["null", "string"]

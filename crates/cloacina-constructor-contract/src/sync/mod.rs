@@ -53,6 +53,7 @@
 //! The cursor advances only after the durable write.
 
 pub mod codec;
+pub mod credential;
 pub mod cursor;
 pub mod error;
 pub mod rest;

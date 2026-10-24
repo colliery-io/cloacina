@@ -1,0 +1,78 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from OMDb API's official API documentation
+# (https://www.omdbapi.com/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  - type: DeclarativeStream
+    name: search
+    # primary_key: omitted — no primary key documented for search result items
+    # in official static docs or swagger spec.
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://www.omdbapi.com"
+        # Path is "/" — all parameters including auth are query params on the root.
+        # Example from docs: http://www.omdbapi.com/?s=Batman&page=2
+        path: "/"
+
+        # ── AUTH NOTE (see Open Question #1) ──────────────────────────────────
+        # OMDb passes the key as the query parameter `apikey`, NOT as a header.
+        # The target schema's ApiKeyAuthenticator only models a header field.
+        # The construct below is the closest available fit; the `header` key
+        # DOES NOT apply here and must be replaced with a query-param mechanism
+        # before this connector can work correctly.
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "INVALID_PLACEHOLDER_SEE_OPEN_QUESTION_1"
+          api_token: "{{ config['api_key'] }}"
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          # ── FIELD PATH NOTE (see Open Question #2) ────────────────────────
+          # The official static documentation and swagger spec do not name the
+          # JSON field that wraps the search result array. `[]` here is a
+          # placeholder only; the actual field_path must be verified against a
+          # live response before this connector is used.
+          field_path: []
+
+      paginator:
+        type: DefaultPaginator
+        # page_size_option: omitted intentionally.
+        # The OMDb search endpoint has NO documented query parameter for
+        # controlling results-per-page; page size is server-determined.
+        page_token_option:
+          type: RequestOption
+          field_name: "page"    # documented: "Page number to return", range 1–100
+        pagination_strategy:
+          type: PageIncrement
+          # page_size here is used only by the paginator's stop condition.
+          # The actual server page size is NOT documented; this value is a
+          # placeholder (see Open Question #3).
+          page_size: 10
+
+    # incremental_sync: omitted — the search endpoint has no date/time filter
+    # parameter; no cursor-based incremental sync is possible.
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        # ── SCHEMA NOTE (see Open Question #2 and #4) ─────────────────────────
+        # The official docs and swagger spec define NO response body schemas for
+        # the search endpoint. The only root-level response field explicitly
+        # mentioned in the docs is `totalResults`. Individual search result item
+        # fields (title, year, identifier, media type, poster URL, etc.) are not
+        # described in any official static document fetched. Properties below are
+        # limited to what the docs state.
+        properties:
+          totalResults:
+            # Docs: "Returned at the root level" of the search response.
+            # Type is undocumented; modelled as nullable string as a safe default.
+            type: ["null", "string"]

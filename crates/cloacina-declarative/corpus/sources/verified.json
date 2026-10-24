@@ -1,0 +1,22 @@
+{
+  "coinpaprika": {
+    "ref": "live read coins: 61216 rows",
+    "verified_at": "2026-08-30"
+  },
+  "frankfurter": {
+    "ref": "live read latest: 165 rows",
+    "verified_at": "2026-08-30"
+  },
+  "jsonplaceholder": {
+    "ref": "live read posts: 100 rows",
+    "verified_at": "2026-08-30"
+  },
+  "rickandmorty": {
+    "ref": "live read character: 826 rows",
+    "verified_at": "2026-08-30"
+  },
+  "xkcd": {
+    "ref": "live read comics: 1 rows",
+    "verified_at": "2026-08-30"
+  }
+}

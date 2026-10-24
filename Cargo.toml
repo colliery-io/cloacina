@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-client", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-constructor-contract", "crates/cloacina-python", "crates/cloacina-sync"]
+members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-client", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-constructor-contract", "crates/cloacina-python", "crates/cloacina-sync", "crates/cloacina-declarative"]
 exclude = ["examples/*", "providers/*"]
 resolver = "2"
 
@@ -36,6 +36,7 @@ cloacina-python = { version = "0.12.0", path = "crates/cloacina-python", default
 cloacina-workflow = { version = "0.12.0", path = "crates/cloacina-workflow" }
 cloacina-workflow-plugin = { version = "0.12.0", path = "crates/cloacina-workflow-plugin" }
 cloacina-sync = { version = "0.12.0", path = "crates/cloacina-sync" }
+cloacina-declarative = { version = "0.12.0", path = "crates/cloacina-declarative" }
 cloacina-testing = { version = "0.12.0", path = "crates/cloacina-testing" }
 cloacina-constructor-contract = { version = "0.12.0", path = "crates/cloacina-constructor-contract" }
 clap = { version = "4.0", features = ["derive", "env"] }

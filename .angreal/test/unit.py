@@ -73,6 +73,17 @@ def unit(filter=None, backend=None):
         raise RuntimeError(f"Unit tests failed with return code {e.returncode}")
     # The testing crate, which holds the connector conformance kit
     # (CLOACINA-T-0983). Before it, no lane ran this crate's tests.
+    # Declarative connectors: the compiler, the importer, and the corpus, every
+    # stream of which must compile (CLOACINA-T-0992).
+    print("Running cloacina-declarative unit tests...")
+    decl_cmd = ["cargo", "test", "-p", "cloacina-declarative", "--lib"]
+    if filter:
+        decl_cmd.append(filter)
+    try:
+        subprocess.run(decl_cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"cloacina-declarative unit tests failed with error: {e}", file=sys.stderr)
+        raise RuntimeError(f"Unit tests failed with return code {e.returncode}")
     print("Running cloacina-testing unit tests...")
     testing_cmd = ["cargo", "test", "-p", "cloacina-testing", "--lib"]
     if filter:

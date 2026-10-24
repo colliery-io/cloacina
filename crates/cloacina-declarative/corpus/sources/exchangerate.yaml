@@ -1,0 +1,106 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from exchangerate.host's official API documentation
+# (https://exchangerate.host/documentation); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # -----------------------------------------------------------------------
+  # Stream: latest
+  # GET https://api.apilayer.com/exchangerates_data/latest
+  # Returns a SINGLE JSON object (not an array) with real-time rates.
+  # NOTE: field_path: [] is used here because the response root IS the record,
+  # but it is an object, not an array. This will only work if the runtime
+  # wraps single-object responses; see Open questions #1.
+  # -----------------------------------------------------------------------
+  - type: DeclarativeStream
+    name: latest
+    # No primary_key: the endpoint returns one snapshot object with no unique ID.
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.apilayer.com/exchangerates_data"
+        path: "/latest"
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "apikey"
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []    # entire response body is the one record
+      # No paginator: endpoint returns a single object, no pagination documented.
+    # No incremental_sync: /latest always returns current rates; no time-filter param.
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          success:
+            type: boolean
+          timestamp:
+            # Mentioned as a "time marker" in marketplace docs; exact type unconfirmed.
+            type: ["null", "integer"]
+          date:
+            # Mentioned as "date identifier" in marketplace docs.
+            type: ["null", "string"]
+          base:
+            # Base currency code; mirrors the optional `base` request param.
+            type: ["null", "string"]
+          rates:
+            # Object map of currency-code → exchange rate.
+            # Not an array; cannot be modelled as individual records in this schema.
+            type: ["null", "object"]
+
+  # -----------------------------------------------------------------------
+  # Stream: historical
+  # GET https://api.apilayer.com/exchangerates_data/{date}
+  # Returns a SINGLE JSON object for the requested date.
+  # CRITICAL LIMITATION: the date is a PATH PARAMETER, not a query param.
+  # The target schema's DatetimeBasedCursor can only inject dates via
+  # RequestOption (query params / headers), so true incremental sync
+  # cannot be expressed here. See Open questions #2 and #3.
+  # -----------------------------------------------------------------------
+  - type: DeclarativeStream
+    name: historical
+    # No primary_key: single-object response; no unique record ID documented.
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.apilayer.com/exchangerates_data"
+        path: "/{{ stream_slice.date }}"   # date is a path segment (see Open question #2)
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "apikey"
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []    # entire response body is the one record
+      # No paginator: single-object response, no pagination documented.
+    # incremental_sync OMITTED: DatetimeBasedCursor emits RequestOption (query params),
+    # but this endpoint needs the date in the URL path. Cannot be expressed in this
+    # schema. See Open questions #2 and #3.
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          success:
+            type: boolean
+          historical:
+            # Marketplace docs distinguish historical vs. live responses.
+            type: ["null", "boolean"]
+          timestamp:
+            type: ["null", "integer"]
+          date:
+            type: ["null", "string"]
+          base:
+            type: ["null", "string"]
+          rates:
+            type: ["null", "object"]

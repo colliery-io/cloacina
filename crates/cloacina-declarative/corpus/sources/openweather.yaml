@@ -1,0 +1,186 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from OpenWeather's official API documentation
+# (https://openweathermap.org/api); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ---------------------------------------------------------------------------
+  # Stream 1: weather
+  # Endpoint: GET https://api.openweathermap.org/data/2.5/weather
+  # Source: https://openweathermap.org/current
+  #
+  # ⚠ KNOWN SCHEMA LIMITATION (auth): OpenWeather authenticates via the `appid`
+  #   query parameter, not an HTTP header. The target schema's ApiKeyAuthenticator
+  #   only supports header injection (the `header` field). The placeholder value
+  #   "X-Api-Key" below is INCORRECT for this API and will not work as written.
+  #   See "Open questions / assumptions" #1.
+  #
+  # ⚠ KNOWN SCHEMA LIMITATION (record_selector): This endpoint returns a single
+  #   JSON object (one city's snapshot), not an array. DpathExtractor with
+  #   field_path: [] is defined for top-level arrays and will not correctly yield
+  #   a one-record list from a bare object. See "Open questions / assumptions" #2.
+  # ---------------------------------------------------------------------------
+  - type: DeclarativeStream
+    name: weather
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.openweathermap.org"
+        path: "/data/2.5/weather"
+        # Auth note: real injection is ?appid={{config['api_key']}} (query param).
+        # Header-based ApiKeyAuthenticator is the closest construct available.
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "X-Api-Key"            # ⚠ placeholder — real param name is "appid" passed as a query parameter, not a header
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []                 # ⚠ response is a single object, not an array — see Open Questions #2
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:          { type: integer }                           # city ID; designated primary_key
+          name:        { type: ["null", "string"] }               # city name
+          base:        { type: ["null", "string"] }               # internal parameter (appears in response JSON; not in typed field table — see Open Questions #6)
+          cod:         { type: ["null", "string"] }               # internal parameter; field table says String
+          visibility:  { type: ["null", "integer"] }              # metres, max 10 000
+          timezone:    { type: ["null", "integer"] }              # shift from UTC in seconds
+          dt:          { type: ["null", "integer"] }              # unix UTC timestamp of calculation
+          coord:
+            type: ["null", "object"]
+            properties:
+              lon: { type: ["null", "number"] }
+              lat: { type: ["null", "number"] }
+          weather:
+            type: ["null", "array"]
+            items:
+              type: object
+              properties:
+                id:          { type: ["null", "integer"] }
+                main:        { type: ["null", "string"] }
+                description: { type: ["null", "string"] }
+                icon:        { type: ["null", "string"] }
+          main:
+            type: ["null", "object"]
+            properties:
+              temp:       { type: ["null", "number"] }
+              feels_like: { type: ["null", "number"] }
+              temp_min:   { type: ["null", "number"] }
+              temp_max:   { type: ["null", "number"] }
+              pressure:   { type: ["null", "integer"] }
+              humidity:   { type: ["null", "integer"] }
+              sea_level:  { type: ["null", "integer"] }
+              grnd_level: { type: ["null", "integer"] }
+          wind:
+            type: ["null", "object"]
+            properties:
+              speed: { type: ["null", "number"] }
+              deg:   { type: ["null", "integer"] }
+              gust:  { type: ["null", "number"] }
+          clouds:
+            type: ["null", "object"]
+            properties:
+              all: { type: ["null", "integer"] }
+          rain:
+            type: ["null", "object"]
+            properties:
+              "1h": { type: ["null", "number"] }                  # precipitation mm/h; key quoted — starts with digit
+          snow:
+            type: ["null", "object"]
+            properties:
+              "1h": { type: ["null", "number"] }                  # precipitation mm/h
+          sys:
+            type: ["null", "object"]
+            properties:
+              type:    { type: ["null", "integer"] }
+              id:      { type: ["null", "integer"] }
+              country: { type: ["null", "string"] }
+              sunrise: { type: ["null", "integer"] }              # unix UTC
+              sunset:  { type: ["null", "integer"] }              # unix UTC
+
+  # ---------------------------------------------------------------------------
+  # Stream 2: forecast
+  # Endpoint: GET https://api.openweathermap.org/data/2.5/forecast
+  # Source: https://openweathermap.org/forecast5
+  # Records are in response.list[] (40 timestamps × 3h = 5 days).
+  # field_path: ["list"] correctly targets this array.
+  # Same auth limitation as the weather stream applies (see Open Questions #1).
+  # ---------------------------------------------------------------------------
+  - type: DeclarativeStream
+    name: forecast
+    primary_key: dt
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.openweathermap.org"
+        path: "/data/2.5/forecast"
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "X-Api-Key"            # ⚠ placeholder — real param is ?appid=… (query parameter)
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["list"]           # records live at response.list[]
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          dt:         { type: integer }                           # unix UTC; used as primary_key
+          dt_txt:     { type: ["null", "string"] }               # ISO UTC timestamp string e.g. "2024-01-01 12:00:00"
+          visibility: { type: ["null", "integer"] }              # metres, max 10 000
+          pop:        { type: ["null", "number"] }               # probability of precipitation 0–1
+          main:
+            type: ["null", "object"]
+            properties:
+              temp:       { type: ["null", "number"] }
+              feels_like: { type: ["null", "number"] }
+              temp_min:   { type: ["null", "number"] }
+              temp_max:   { type: ["null", "number"] }
+              pressure:   { type: ["null", "integer"] }
+              humidity:   { type: ["null", "integer"] }
+              sea_level:  { type: ["null", "integer"] }
+              grnd_level: { type: ["null", "integer"] }
+              temp_kf:    { type: ["null", "number"] }           # internal parameter
+          weather:
+            type: ["null", "array"]
+            items:
+              type: object
+              properties:
+                id:          { type: ["null", "integer"] }
+                main:        { type: ["null", "string"] }
+                description: { type: ["null", "string"] }
+                icon:        { type: ["null", "string"] }
+          clouds:
+            type: ["null", "object"]
+            properties:
+              all: { type: ["null", "integer"] }
+          wind:
+            type: ["null", "object"]
+            properties:
+              speed: { type: ["null", "number"] }
+              deg:   { type: ["null", "integer"] }
+              gust:  { type: ["null", "number"] }
+          rain:
+            type: ["null", "object"]
+            properties:
+              "3h": { type: ["null", "number"] }                 # 3-hour rain volume mm; key quoted — starts with digit
+          snow:
+            type: ["null", "object"]
+            properties:
+              "3h": { type: ["null", "number"] }                 # 3-hour snow volume mm
+          sys:
+            type: ["null", "object"]
+            properties:
+              pod: { type: ["null", "string"] }                  # part of day: "d" or "n"

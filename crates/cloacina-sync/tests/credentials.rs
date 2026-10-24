@@ -41,6 +41,7 @@ use cloacina_constructor_contract::{
     CONNECTOR_INTERFACE, CONNECTOR_INTERFACE_VERSION, ConfigField, ConnectorMeta,
     ConstructorManifest, PrimitiveKind, ProviderManifest, ProviderRuntime,
 };
+use cloacina_sync::credential::BuildCredential;
 use cloacina_sync::params::{Endpoint, SegmentInput, SyncParams, keys};
 use cloacina_sync::workflow::read_segment_blocking;
 use cloacina_workflow::secret::MapSecretResolver;

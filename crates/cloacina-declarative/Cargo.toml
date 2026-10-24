@@ -1,0 +1,23 @@
+[package]
+name = "cloacina-declarative"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "Declarative connectors for cloacina's Sync: connector definitions, their compiler, the Airbyte low-code importer, and the embedded corpus (COLLIERY-I-0634)."
+readme = "README.md"
+
+[dependencies]
+cloacina-constructor-contract = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json.workspace = true
+# Connector definitions and Airbyte files are YAML.
+serde_yaml = "0.9"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3.2"
