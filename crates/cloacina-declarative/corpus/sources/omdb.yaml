@@ -20,16 +20,17 @@ streams:
         # Example from docs: http://www.omdbapi.com/?s=Batman&page=2
         path: "/"
 
-        # ── AUTH NOTE (see Open Question #1) ──────────────────────────────────
-        # OMDb passes the key as the query parameter `apikey`, NOT as a header.
-        # The target schema's ApiKeyAuthenticator only models a header field.
-        # The construct below is the closest available fit; the `header` key
-        # DOES NOT apply here and must be replaced with a query-param mechanism
-        # before this connector can work correctly.
+        # ── AUTH NOTE ─────────────────────────────────────────────────────────
+        # OMDb passes the key as the query parameter `apikey`, not a header.
+        # (Open Question #1, resolved in cloacina: the key is injected into the
+        # query string below.)
         authenticator:
           type: ApiKeyAuthenticator
-          header: "INVALID_PLACEHOLDER_SEE_OPEN_QUESTION_1"
           api_token: "{{ config['api_key'] }}"
+          inject_into:
+            type: RequestOption
+            field_name: "apikey"
+            inject_into: request_parameter
 
       record_selector:
         type: RecordSelector
