@@ -279,21 +279,23 @@ pub struct ConnectorDefinition {
 #[serde(deny_unknown_fields)]
 pub struct ObjectDefinition {
     pub name: String,
+    /// Templated with `{{ record.<field> }}`.
     pub path: String,
-    #[serde(default = "default_post")]
-    pub method: String,
+    /// `None` takes the method from the write mode: `PATCH` for upsert,
+    /// `POST` otherwise.
+    #[serde(default)]
+    pub method: Option<String>,
     #[serde(default)]
     pub upsert_key: Option<String>,
     #[serde(default)]
     pub field_map: Vec<(String, String)>,
     #[serde(default)]
     pub body_wrap: Option<String>,
+    /// Where a CDC delete goes, templated like `path`.
     #[serde(default)]
-    pub batch_size: Option<u32>,
-}
-
-fn default_post() -> String {
-    "POST".to_string()
+    pub delete_path: Option<String>,
+    #[serde(default)]
+    pub delete_method: Option<String>,
 }
 
 /// A destination connector definition.
@@ -539,7 +541,12 @@ pub fn compile_destination(
             upsert_key: o.upsert_key.clone(),
             field_map: o.field_map.clone(),
             body_wrap: o.body_wrap.clone(),
-            batch_size: o.batch_size,
+            delete_path: o
+                .delete_path
+                .as_deref()
+                .map(|p| r.render(p, &format!("object `{}` delete_path", o.name)))
+                .transpose()?,
+            delete_method: o.delete_method.clone(),
             max_retries: max_retries.unwrap_or(4),
         },
         credential: credential(name, &def.auth, user, secret)?,
@@ -997,7 +1004,7 @@ objects:
     upsert_key: email
     field_map: [[email, email], [full_name, name]]
     body_wrap: properties
-    batch_size: 100
+    delete_path: "/crm/contacts/{{ record.email }}"
 "#,
         )
         .unwrap();
@@ -1005,8 +1012,11 @@ objects:
             .unwrap();
         assert_eq!(c.config.base_url, "https://eu.acme.com");
         assert_eq!(c.config.path, "/crm/contacts/{{ record.email }}");
-        assert_eq!(c.config.method, "PATCH");
-        assert_eq!(c.config.batch_size, Some(100));
+        assert_eq!(c.config.method.as_deref(), Some("PATCH"));
+        assert_eq!(
+            c.config.delete_path.as_deref(),
+            Some("/crm/contacts/{{ record.email }}")
+        );
         assert!(matches!(c.credential, Some(CredentialSpec::Header { .. })));
         assert!(matches!(
             compile_destination(&d, "deals", &Map::new(), Some("crm")),
