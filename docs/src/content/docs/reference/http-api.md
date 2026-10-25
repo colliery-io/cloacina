@@ -584,6 +584,9 @@ definitions (the corpus and `CLOACINA_SYNC_DEFINITIONS_DIR`).
 Creating a `sync` workflow instance (`POST /v1/tenants/{tenant_id}/workflows/sync/instances`)
 also checks the sync's params, and lowers a side that names a connector
 definition: a failure is `400 sync_params_invalid` naming the problem.
+Updating one (`PUT .../instances/{instance}`) checks them again. Its `sync`
+name cannot change, because the committed cursor and the dead-letters are
+kept under it: a rename is `400 sync_params_invalid`.
 ## Workflow Packages
 
 Workflow packages are `.cloacina` archives uploaded via multipart form data, scoped to a tenant.
@@ -828,6 +831,7 @@ detail page and `cloacinactl instance` drives the same endpoints.
 | `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true}` — `params`, `cron`, `timezone`, and `enabled` are optional (no `cron` = unscheduled binding). Returns `201` with the instance summary. |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances` | List instances (`{items, total}` envelope; `limit`/`offset` paging). |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | One instance's summary. |
+| `PUT /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Replace the instance's params, cron and timezone. Body: `{"params": {...}, "cron": "...", "timezone": "UTC", "enabled": true}`, each optional: no `params` means none, no `cron` makes the instance unscheduled, and no `enabled` keeps it. The params are validated as on create. Returns the instance summary; `404 instance_not_found` if there is none. |
 | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Delete the instance (and its schedule). Returns `{"deleted": true, ...}`. |
 
 Instance summary shape: `id`, `workflow_name`, `instance_name`, `params`,
@@ -886,6 +890,8 @@ were silently discarded).
 |---|---|---|---|
 | `status` | string | (none) | Filter by execution status (e.g., `Pending`, `Running`, `Completed`, `Failed`). |
 | `workflow` | string | (none) | Filter by workflow name (exact match). |
+| `instance` | string | (none) | Only the runs a fire of this workflow instance started. |
+| `pass` | UUID | (none) | Only the runs of this Sync pass: its segments. |
 | `limit` | integer | `100` | Page size. Min `1`, max `1000`. |
 | `offset` | integer | `0` | Page offset. Must be ≥ 0. |
 
@@ -894,6 +900,7 @@ were silently discarded).
 | Status | `code` | Cause |
 |---|---|---|
 | `400` | `invalid_pagination` | `limit` outside `[1, 1000]` or `offset` negative. |
+| `400` | `invalid_pass` | `pass` is not a UUID. |
 
 **Response:** `200 OK`
 
@@ -903,15 +910,22 @@ were silently discarded).
   "items": [
     {
       "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-      "pipeline_name": "etl_pipeline",
-      "status": "running",
+      "workflow_name": "sync",
+      "status": "Running",
       "started_at": "2026-04-02T14:35:00+00:00",
-      "completed_at": null
+      "completed_at": null,
+      "trigger_origin": null,
+      "instance_name": "orders",
+      "pass_id": "0b6e2c1d-6a4f-4c1e-9d8a-3f2b1c0d9e8f"
     }
   ],
   "total": 1
 }
 ```
+
+`instance_name` names the workflow instance whose fire started the run, and
+`pass_id` the Sync pass the run is a segment of. Each is `null` when it does
+not apply.
 
 ### GET /v1/tenants/{tenant_id}/executions/{exec_id}
 

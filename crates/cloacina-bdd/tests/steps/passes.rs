@@ -69,3 +69,38 @@ async fn passes(w: &mut SyncWorld, name: String, sizes: String) {
         .collect();
     assert_eq!(actual, expected, "executions per pass, in order");
 }
+
+#[when(expr = "the sync definition {string} is changed to read {int} segments")]
+async fn changed(w: &mut SyncWorld, name: String, segments: u64) {
+    w.change_echo_sync(&name, &name, segments).await;
+}
+
+#[when(expr = "the sync definition {string} is changed to the sync name {string}")]
+async fn renamed(w: &mut SyncWorld, name: String, sync: String) {
+    w.change_echo_sync(&name, &sync, 3).await;
+}
+
+#[then("the change is accepted")]
+async fn change_accepted(w: &mut SyncWorld) {
+    let change = w.created.as_ref().expect("a change was made");
+    assert!(change.is_ok(), "the change was refused: {change:?}");
+}
+
+#[then(expr = "the change is refused, saying {string}")]
+async fn change_refused(w: &mut SyncWorld, words: String) {
+    match w.created.as_ref().expect("a change was made") {
+        Err(e) => assert!(e.contains(&words), "the refusal says `{words}`: {e}"),
+        Ok(()) => panic!("the change was accepted"),
+    }
+}
+
+#[then(expr = "the sync {string} has read up to segment {int}")]
+async fn read_up_to(w: &mut SyncWorld, sync: String, segment: u64) {
+    let cursor = w.sync_cursor(&sync).await;
+    let expected = serde_json::json!(segment.to_string()).to_string();
+    assert_eq!(
+        cursor.as_deref(),
+        Some(expected.as_str()),
+        "the committed cursor"
+    );
+}

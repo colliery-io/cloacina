@@ -104,6 +104,10 @@ pub enum ParamError {
     Malformed { key: &'static str, error: String },
     #[error("the {side} connector definition: {error}")]
     Definition { side: &'static str, error: String },
+    #[error(
+        "the sync `{from}` cannot be renamed `{to}`: its cursor and dead-letters are kept under its name"
+    )]
+    Renamed { from: String, to: String },
 }
 
 /// One side of a sync: which connector member, with what config and grants.
@@ -305,6 +309,29 @@ pub fn validate(instance: &str, params: &serde_json::Map<String, Value>) -> Resu
         let _ = ctx.insert(keys::SYNC, Value::String(instance.to_string()));
     }
     SyncParams::from_context(&ctx).map(|_| ())
+}
+
+/// The checks on an update of the sync definition `instance` (CLOACINA-T-1001):
+/// the new params validate, and the sync keeps its name, so its committed
+/// cursor still applies.
+pub fn validate_update(
+    instance: &str,
+    old: &serde_json::Map<String, Value>,
+    new: &serde_json::Map<String, Value>,
+) -> Result<(), ParamError> {
+    validate(instance, new)?;
+    let name = |params: &serde_json::Map<String, Value>| {
+        params
+            .get(keys::SYNC)
+            .and_then(Value::as_str)
+            .unwrap_or(instance)
+            .to_string()
+    };
+    let (from, to) = (name(old), name(new));
+    if from != to {
+        return Err(ParamError::Renamed { from, to });
+    }
+    Ok(())
 }
 
 impl SegmentInput {

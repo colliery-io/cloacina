@@ -996,7 +996,15 @@ export interface paths {
         };
         /** GET /tenants/:tenant_id/workflows/:name/instances/:instance — one instance. */
         get: operations["get_instance"];
-        put?: never;
+        /**
+         * PUT /tenants/:tenant_id/workflows/:name/instances/:instance — replace an
+         *     instance's params, cron and timezone (CLOACINA-T-1001).
+         * @description The params are validated as on create. A sync definition's params are
+         *     checked again, and its `sync` name may not change: its committed cursor
+         *     and dead-letters are kept under that name, so an update keeps them. A new
+         *     cron re-arms the scheduler; no cron makes the instance unscheduled.
+         */
+        put: operations["update_instance"];
         post?: never;
         /**
          * DELETE /tenants/:tenant_id/workflows/:name/instances/:instance — remove a
@@ -2371,6 +2379,21 @@ export interface components {
             schedule_type: string;
             trigger_name?: string | null;
             workflow_name: string;
+        };
+        /**
+         * @description Body for `PUT /tenants/{tenant_id}/workflows/{name}/instances/{instance}`
+         *     (CLOACINA-T-1001): the instance's new params, cron and timezone, which
+         *     replace the old ones.
+         */
+        UpdateInstanceRequest: {
+            /** @description The cron expression. Omitted makes the instance unscheduled. */
+            cron?: string | null;
+            /** @description Whether the schedule is enabled. Omitted keeps it as it is. */
+            enabled?: boolean | null;
+            /** @description The params, validated as on create. Omitted means none. */
+            params?: unknown;
+            /** @description IANA timezone for `cron`. Defaults to `UTC`. */
+            timezone?: string | null;
         };
         /**
          * @description The caller's own identity + role (CLOACI-T-0803) — lets the UI gate
@@ -5329,6 +5352,82 @@ export interface operations {
                 };
             };
             /** @description Instance not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_instance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+                /** @description Instance name */
+                instance: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateInstanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Instance updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowInstanceSummary"];
+                };
+            };
+            /** @description Invalid params, cron expression, or timezone */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such instance */
             404: {
                 headers: {
                     [name: string]: unknown;

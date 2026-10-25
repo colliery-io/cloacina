@@ -3840,6 +3840,120 @@
           }
         ]
       },
+      "put": {
+        "tags": [
+          "instances"
+        ],
+        "summary": "PUT /tenants/:tenant_id/workflows/:name/instances/:instance — replace an\ninstance's params, cron and timezone (CLOACINA-T-1001).",
+        "description": "The params are validated as on create. A sync definition's params are\nchecked again, and its `sync` name may not change: its committed cursor\nand dead-letters are kept under that name, so an update keeps them. A new\ncron re-arms the scheduler; no cron makes the instance unscheduled.",
+        "operationId": "update_instance",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instance",
+            "in": "path",
+            "description": "Instance name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateInstanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Instance updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowInstanceSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid params, cron expression, or timezone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
       "delete": {
         "tags": [
           "instances"
@@ -7064,6 +7178,36 @@
           },
           "workflow_name": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateInstanceRequest": {
+        "type": "object",
+        "description": "Body for `PUT /tenants/{tenant_id}/workflows/{name}/instances/{instance}`\n(CLOACINA-T-1001): the instance's new params, cron and timezone, which\nreplace the old ones.",
+        "properties": {
+          "cron": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cron expression. Omitted makes the instance unscheduled."
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the schedule is enabled. Omitted keeps it as it is."
+          },
+          "params": {
+            "description": "The params, validated as on create. Omitted means none."
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IANA timezone for `cron`. Defaults to `UTC`."
           }
         }
       },

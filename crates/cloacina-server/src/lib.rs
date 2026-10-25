@@ -1985,6 +1985,10 @@ fn build_router(state: AppState) -> Router {
             delete(crate::routes::instances::delete_instance),
         )
         .route(
+            "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+            put(crate::routes::instances::update_instance),
+        )
+        .route(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             delete(crate::routes::workflows::delete_workflow),
         )
@@ -5615,6 +5619,185 @@ mod tests {
 
         let (status, _) = send_request(app, req).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    // ── Instance update (CLOACINA-T-1001) ────────────────────────────
+
+    /// Send a JSON request with the key and return (status, body).
+    async fn send_json(
+        state: &AppState,
+        token: &str,
+        method: &str,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let req = axum::http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        send_request(build_router(state.clone()), req).await
+    }
+
+    /// Params a sync definition validates with.
+    fn sync_params(sync: &str) -> serde_json::Value {
+        let stream = serde_json::json!({
+            "stream": "orders", "sync_mode": "FullRefresh", "cursor_field": null,
+            "primary_key": null, "write_mode": "Append", "mapping": {"ops": []}
+        });
+        serde_json::json!({
+            "sync": sync,
+            "source_provider": "p", "source_member": "source",
+            "destination_provider": "p", "destination_member": "destination",
+            "stream": stream.to_string(),
+        })
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_update_instance_replaces_params_and_cron() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let instance = format!("upd-{}", uuid::Uuid::new_v4());
+        let (status, _) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/upd_wf/instances",
+            serde_json::json!({"instance_name": instance, "params": {"a": 1}, "cron": "0 * * * *"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let uri = format!("/v1/tenants/public/workflows/upd_wf/instances/{instance}");
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": {"a": 2}, "cron": "30 * * * *"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["params"]["a"], 2);
+        assert_eq!(body["cron_expression"], "30 * * * *");
+        assert!(body["next_run_at"].is_string(), "{body}");
+
+        // No cron: the instance is unscheduled.
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": {"a": 3}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["cron_expression"].is_null(), "{body}");
+        assert!(body["next_run_at"].is_null(), "{body}");
+        assert_eq!(body["enabled"], true, "enabled is kept when omitted");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_update_instance_refuses_a_bad_cron_and_an_unknown_instance() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let instance = format!("upd-{}", uuid::Uuid::new_v4());
+        send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/upd_wf/instances",
+            serde_json::json!({"instance_name": instance}),
+        )
+        .await;
+        let uri = format!("/v1/tenants/public/workflows/upd_wf/instances/{instance}");
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"cron": "not a cron"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "invalid_cron", "{body}");
+
+        let (status, _) = send_json(
+            &state,
+            &token,
+            "PUT",
+            "/v1/tenants/public/workflows/upd_wf/instances/no-such-instance",
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_update_sync_definition_is_validated_and_keeps_its_name() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let instance = format!("sync-{}", uuid::Uuid::new_v4());
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/sync/instances",
+            serde_json::json!({"instance_name": instance, "params": sync_params(&instance)}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let uri = format!("/v1/tenants/public/workflows/sync/instances/{instance}");
+
+        // A valid change.
+        let mut params = sync_params(&instance);
+        params["source_member"] = serde_json::json!("source");
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": params}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        // An invalid one: no stream.
+        let mut bad = sync_params(&instance);
+        bad.as_object_mut().unwrap().remove("stream");
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": bad}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "sync_params_invalid", "{body}");
+
+        // A rename: its cursor is kept under the old name, so it is refused.
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": sync_params("another-name")}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("cannot be renamed"),
+            "{body}"
+        );
     }
 
     // ── Fallback / 404 ──────────────────────────────────────────────

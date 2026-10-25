@@ -65,7 +65,8 @@ pub use health::{
 };
 pub use input_interface::{DeclaredSurface, InputSlot};
 pub use instances::{
-    CreateInstanceRequest, DeleteInstanceResponse, ListInstancesQuery, WorkflowInstanceSummary,
+    CreateInstanceRequest, DeleteInstanceResponse, ListInstancesQuery, UpdateInstanceRequest,
+    WorkflowInstanceSummary,
 };
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,

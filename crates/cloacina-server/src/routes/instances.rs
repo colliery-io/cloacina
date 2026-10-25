@@ -42,7 +42,7 @@ use tracing::warn;
 
 use cloacina_api_types::{
     CreateInstanceRequest, DeleteInstanceResponse, ListInstancesQuery, TenantListResponse,
-    WorkflowInstanceSummary,
+    UpdateInstanceRequest, WorkflowInstanceSummary,
 };
 
 use cloacina::CronEvaluator;
@@ -208,24 +208,8 @@ pub async fn create_instance(
     // lookup failure fails OPEN (matching execute_workflow) so an instance can
     // still be created for a workflow whose metadata is unavailable.
     let provided = body.params.as_ref().and_then(|v| v.as_object());
-    {
-        let storage = UnifiedRegistryStorage::new(tenant_db.clone());
-        if let Ok(registry) = WorkflowRegistryImpl::new(storage, tenant_db.clone()) {
-            match registry.get_workflow_declared_params(&name).await {
-                Ok(slots) if !slots.is_empty() => {
-                    let errors = validate_declared_params(&slots, provided);
-                    if !errors.is_empty() {
-                        return ApiError::bad_request(
-                            "instance_params_invalid",
-                            format!("invalid instance params: {}", errors.join("; ")),
-                        )
-                        .into_response();
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => warn!("declared-params lookup failed for '{}': {}", name, e),
-            }
-        }
+    if let Err(e) = check_declared_params(&tenant_db, &name, provided).await {
+        return e.into_response();
     }
 
     // A sync definition (COLLIERY-I-0634 / CLOACINA-T-0993): its params must
@@ -250,40 +234,17 @@ pub async fn create_instance(
     // Build the row. A cron expression is validated and its first fire computed
     // now, so a bad expression is a 400 rather than a schedule that silently
     // never runs.
-    let mut new_schedule = match body.cron.as_deref() {
-        Some(cron) => {
-            if let Err(e) = CronEvaluator::validate(cron, &timezone) {
-                return ApiError::bad_request(
-                    "invalid_cron",
-                    format!("invalid cron expression or timezone: {}", e),
-                )
-                .into_response();
-            }
-            let evaluator = match CronEvaluator::new(cron, &timezone) {
-                Ok(ev) => ev,
-                Err(e) => {
-                    return ApiError::bad_request(
-                        "invalid_cron",
-                        format!("invalid cron expression or timezone: {}", e),
-                    )
-                    .into_response();
-                }
-            };
-            let next_run = match evaluator.next_execution(chrono::Utc::now()) {
-                Ok(t) => t,
-                Err(e) => {
-                    return ApiError::bad_request(
-                        "invalid_cron",
-                        format!("could not compute next execution: {}", e),
-                    )
-                    .into_response();
-                }
-            };
+    let next_run = match next_fire(body.cron.as_deref(), &timezone) {
+        Ok(next) => next,
+        Err(e) => return e.into_response(),
+    };
+    let mut new_schedule = match (body.cron.as_deref(), next_run) {
+        (Some(cron), Some(next_run)) => {
             let mut s = NewSchedule::cron(&name, cron, UniversalTimestamp(next_run));
             s.timezone = Some(timezone.clone());
             s
         }
-        None => {
+        _ => {
             // Unscheduled: a durable named binding. `next_run_at` stays NULL so
             // the due-query can never select it.
             let mut s = NewSchedule::cron(&name, "", UniversalTimestamp(chrono::Utc::now()));
@@ -347,6 +308,190 @@ pub async fn create_instance(
             );
             ApiError::internal(msg).into_response()
         }
+    }
+}
+
+/// Validate bound params against the workflow's declared slots, the same check
+/// the execute route performs on a per-run context. A registry lookup failure
+/// fails OPEN (matching execute_workflow), so an instance can still be made for
+/// a workflow whose metadata is unavailable.
+async fn check_declared_params(
+    tenant_db: &cloacina::Database,
+    name: &str,
+    provided: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Result<(), ApiError> {
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    if let Ok(registry) = WorkflowRegistryImpl::new(storage, tenant_db.clone()) {
+        match registry.get_workflow_declared_params(name).await {
+            Ok(slots) if !slots.is_empty() => {
+                let errors = validate_declared_params(&slots, provided);
+                if !errors.is_empty() {
+                    return Err(ApiError::bad_request(
+                        "instance_params_invalid",
+                        format!("invalid instance params: {}", errors.join("; ")),
+                    ));
+                }
+            }
+            Ok(_) => {}
+            Err(e) => warn!("declared-params lookup failed for '{}': {}", name, e),
+        }
+    }
+    Ok(())
+}
+
+/// The next fire of `cron` in `timezone`, or `None` without a cron. A bad
+/// expression is a 400, not a schedule that silently never runs.
+fn next_fire(
+    cron: Option<&str>,
+    timezone: &str,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, ApiError> {
+    let Some(cron) = cron else {
+        return Ok(None);
+    };
+    let invalid = |e: String| {
+        ApiError::bad_request(
+            "invalid_cron",
+            format!("invalid cron expression or timezone: {}", e),
+        )
+    };
+    CronEvaluator::validate(cron, timezone).map_err(|e| invalid(e.to_string()))?;
+    let evaluator = CronEvaluator::new(cron, timezone).map_err(|e| invalid(e.to_string()))?;
+    let next = evaluator.next_execution(chrono::Utc::now()).map_err(|e| {
+        ApiError::bad_request(
+            "invalid_cron",
+            format!("could not compute next execution: {}", e),
+        )
+    })?;
+    Ok(Some(next))
+}
+
+/// PUT /tenants/:tenant_id/workflows/:name/instances/:instance — replace an
+/// instance's params, cron and timezone (CLOACINA-T-1001).
+///
+/// The params are validated as on create. A sync definition's params are
+/// checked again, and its `sync` name may not change: its committed cursor
+/// and dead-letters are kept under that name, so an update keeps them. A new
+/// cron re-arms the scheduler; no cron makes the instance unscheduled.
+#[utoipa::path(
+    put,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+    tag = "instances",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Workflow name"),
+        ("instance" = String, Path, description = "Instance name"),
+    ),
+    request_body = UpdateInstanceRequest,
+    responses(
+        (status = 200, description = "Instance updated", body = WorkflowInstanceSummary),
+        (status = 400, description = "Invalid params, cron expression, or timezone", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "No such instance", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn update_instance(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name, instance)): Path<(String, String, String)>,
+    Json(body): Json<UpdateInstanceRequest>,
+) -> impl IntoResponse {
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response();
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db.clone());
+
+    let existing = match dal.schedule().find_by_instance_name(&name, &instance).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return ApiError::not_found(
+                "instance_not_found",
+                format!("instance '{}' of workflow '{}' not found", instance, name),
+            )
+            .into_response();
+        }
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+    };
+
+    let provided = body.params.as_ref().and_then(|v| v.as_object());
+    if let Err(e) = check_declared_params(&tenant_db, &name, provided).await {
+        return e.into_response();
+    }
+
+    if name == cloacina_sync::WORKFLOW_NAME {
+        let empty = serde_json::Map::new();
+        let old: serde_json::Map<String, serde_json::Value> = existing
+            .params
+            .as_deref()
+            .and_then(|p| serde_json::from_str(p).ok())
+            .unwrap_or_default();
+        if let Err(e) =
+            cloacina_sync::params::validate_update(&instance, &old, provided.unwrap_or(&empty))
+        {
+            return ApiError::bad_request(
+                "sync_params_invalid",
+                format!("invalid sync definition: {e}"),
+            )
+            .into_response();
+        }
+    }
+
+    let timezone = body.timezone.clone().unwrap_or_else(|| "UTC".to_string());
+    let next_run = match next_fire(body.cron.as_deref(), &timezone) {
+        Ok(next) => next,
+        Err(e) => return e.into_response(),
+    };
+    let params = match &body.params {
+        Some(v) => match serde_json::to_string(v) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                return ApiError::bad_request(
+                    "instance_params_invalid",
+                    format!("params are not serializable: {}", e),
+                )
+                .into_response();
+            }
+        },
+        None => None,
+    };
+    let enabled = body.enabled.unwrap_or_else(|| existing.enabled.is_true());
+
+    if let Err(e) = dal
+        .schedule()
+        .update_instance(
+            existing.id,
+            params,
+            body.cron.clone(),
+            Some(timezone),
+            next_run.map(UniversalTimestamp),
+            enabled,
+        )
+        .await
+    {
+        return ApiError::internal(format!("{}", e)).into_response();
+    }
+    tracing::info!(
+        "Updated workflow instance '{}' of '{}' for tenant '{}'",
+        instance,
+        name,
+        tenant_id
+    );
+    // A new cron must be picked up now, not at the next backstop.
+    wake_cron_scheduler(&state, &tenant_id, tenant_db).await;
+
+    match dal.schedule().get_by_id(existing.id).await {
+        Ok(schedule) => Json(to_summary(schedule)).into_response(),
+        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
     }
 }
 
