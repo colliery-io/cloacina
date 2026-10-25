@@ -109,6 +109,8 @@ impl Modify for SecurityAddon {
         crate::routes::secrets::rotate_secret,
         crate::routes::secrets::list_secrets,
         crate::routes::connectors::list_connectors,
+        crate::routes::connectors::check_connector,
+        crate::routes::connectors::discover_connector,
         crate::routes::secrets::get_secret,
         crate::routes::secrets::delete_secret,
         crate::routes::session::refresh,
@@ -171,6 +173,11 @@ impl Modify for SecurityAddon {
         ListResponse<SecretMetadataResponse>,
         ConnectorSummary,
         ListResponse<ConnectorSummary>,
+        cloacina_api_types::ConnectorProbeRequest,
+        cloacina_api_types::ConnectorCheckResponse,
+        cloacina_api_types::ConnectorDiscoverResponse,
+        cloacina_api_types::DiscoveredStream,
+        cloacina_api_types::DiscoveredField,
         crate::routes::session::LogoutResponse,
         crate::routes::session::WhoamiResponse,
         KeyInfo,
@@ -246,7 +253,7 @@ impl Modify for SecurityAddon {
         (name = "fleet", description = "Execution-agent fleet roster (admin)"),
         (name = "compiler", description = "Compiler / build-pipeline status (admin)"),
         (name = "graph-health", description = "Computation-graph health"),
-        (name = "connectors", description = "Sync connector catalog"),
+        (name = "connectors", description = "Sync connector catalog, check and discover"),
     )
 )]
 pub struct ApiDoc;

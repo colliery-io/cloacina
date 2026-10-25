@@ -5,6 +5,9 @@ from .account_info import AccountInfo
 from .accumulator_status import AccumulatorStatus
 from .agent_info import AgentInfo
 from .compiler_status import CompilerStatus
+from .connector_check_response import ConnectorCheckResponse
+from .connector_discover_response import ConnectorDiscoverResponse
+from .connector_probe_request import ConnectorProbeRequest
 from .connector_summary import ConnectorSummary
 from .create_account_request import CreateAccountRequest
 from .create_instance_request import CreateInstanceRequest
@@ -14,6 +17,8 @@ from .create_secret_request_fields import CreateSecretRequestFields
 from .create_tenant_request import CreateTenantRequest
 from .declared_surface import DeclaredSurface
 from .delete_instance_response import DeleteInstanceResponse
+from .discovered_field import DiscoveredField
+from .discovered_stream import DiscoveredStream
 from .error_body import ErrorBody
 from .execute_request import ExecuteRequest
 from .execute_response import ExecuteResponse
@@ -132,6 +137,9 @@ __all__ = (
     "AccumulatorStatus",
     "AgentInfo",
     "CompilerStatus",
+    "ConnectorCheckResponse",
+    "ConnectorDiscoverResponse",
+    "ConnectorProbeRequest",
     "ConnectorSummary",
     "CreateAccountRequest",
     "CreateInstanceRequest",
@@ -141,6 +149,8 @@ __all__ = (
     "CreateTenantRequest",
     "DeclaredSurface",
     "DeleteInstanceResponse",
+    "DiscoveredField",
+    "DiscoveredStream",
     "ErrorBody",
     "ExecuteRequest",
     "ExecuteResponse",

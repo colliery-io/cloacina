@@ -185,6 +185,8 @@ pub struct SyncWorld {
     pub repositories: Vec<Value>,
     /// What the server said when the sync was created.
     pub created: Option<Result<(), String>>,
+    /// The answer of the last check or discover.
+    pub probed: Option<Result<Value, String>>,
     /// A test-only fault of the write task (`cloacina_sync::fault`).
     pub fault: Option<String>,
     pub outcome: Option<Result<PassOutcome, String>>,
@@ -238,6 +240,7 @@ impl SyncWorld {
             token_paths: Vec::new(),
             repositories: Vec::new(),
             created: None,
+            probed: None,
             fault: None,
             outcome: None,
             tables: Vec::new(),
@@ -646,6 +649,34 @@ impl SyncWorld {
             .expect("list the instance's executions");
         runs.reverse();
         runs
+    }
+
+    /// Run a check or a discover of one side through the probe workflow, as
+    /// the server's routes do: the answer, or why it could not run.
+    pub async fn probe(
+        &mut self,
+        action: &str,
+        request: &cloacina_api_types::ConnectorProbeRequest,
+    ) -> Result<Value, String> {
+        use cloacina::executor::{WorkflowExecutor, WorkflowStatus};
+        cloacina_sync::probe::validate(action, request).map_err(|e| e.to_string())?;
+        let runner = self.runner().await;
+        let result = runner
+            .execute(
+                cloacina_sync::probe::PROBE_WORKFLOW,
+                cloacina_sync::probe::context(action, request),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        if result.status != WorkflowStatus::Completed {
+            let dal = self.dal().await;
+            return Err(cloacina_sync::dispatcher::failure(&dal, result.execution_id).await);
+        }
+        Ok(result
+            .final_context
+            .get(cloacina_sync::probe::keys::RESULT)
+            .cloned()
+            .unwrap_or_default())
     }
 
     /// The attempt numbers of the write task of each Sync execution, sorted.
