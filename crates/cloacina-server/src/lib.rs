@@ -1891,6 +1891,31 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/connectors",
             get(crate::routes::connectors::list_connectors),
         )
+        // CLOACINA-T-1004: the Sync read resource.
+        .route(
+            "/tenants/{tenant_id}/syncs",
+            get(crate::routes::syncs::list_syncs),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}",
+            get(crate::routes::syncs::get_sync),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/passes",
+            get(crate::routes::syncs::list_passes),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/dead-letters",
+            get(crate::routes::syncs::list_dead_letters),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/streams",
+            get(crate::routes::syncs::list_streams),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/schema/accept",
+            post(crate::routes::syncs::accept_schema),
+        )
         // CLOACINA-T-1002: check and discover, where connectors run.
         .route(
             "/tenants/{tenant_id}/connectors/check",
@@ -5911,6 +5936,89 @@ mod tests {
             "{body}"
         );
         let _ = runner.shutdown().await;
+    }
+
+    // ── The Sync read resource (CLOACINA-T-1004) ─────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_syncs_routes_show_a_sync_by_its_name() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let name = format!("view-{}", uuid::Uuid::new_v4());
+        let (status, body) = send_json(
+            &state, &token, "POST", "/v1/tenants/public/workflows/sync/instances",
+            serde_json::json!({"instance_name": name, "params": sync_params(&name), "cron": "0 3 * * *"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        let get = |uri: String| {
+            let state = state.clone();
+            let token = token.clone();
+            async move { send_json(&state, &token, "GET", &uri, serde_json::json!({})).await }
+        };
+        let (status, body) = get("/v1/tenants/public/syncs".into()).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let listed = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == name.as_str())
+            .unwrap_or_else(|| panic!("{name} not listed: {body}"))
+            .clone();
+        assert_eq!(listed["source"]["provider"], "p", "{listed}");
+        assert_eq!(listed["stream"], "orders", "{listed}");
+        assert_eq!(listed["write_mode"], "Append", "{listed}");
+        assert_eq!(listed["cron"], "0 3 * * *", "{listed}");
+        assert!(listed["last_pass"].is_null(), "{listed}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["params"]["sync"], name.as_str(), "{body}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}/passes")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"], serde_json::json!([]), "{body}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}/dead-letters")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["total"], 0, "{body}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}/streams")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"][0]["stream"], "orders", "{body}");
+        assert!(body["items"][0]["cursor"].is_null(), "{body}");
+
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            &format!("/v1/tenants/public/syncs/{name}/schema/accept"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["stream"], "orders", "{body}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}/passes?limit=0")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_syncs_routes_name_a_sync_that_does_not_exist() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        for uri in [
+            "/v1/tenants/public/syncs/no-such-sync",
+            "/v1/tenants/public/syncs/no-such-sync/passes",
+            "/v1/tenants/public/syncs/no-such-sync/streams",
+        ] {
+            let (status, body) = send_json(&state, &token, "GET", uri, serde_json::json!({})).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}: {body}");
+            assert_eq!(body["code"], "sync_not_found", "{body}");
+        }
     }
 
     // ── Fallback / 404 ──────────────────────────────────────────────

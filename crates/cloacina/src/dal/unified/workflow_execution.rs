@@ -460,6 +460,33 @@ impl<'a> WorkflowExecutionDAL<'a> {
         Ok(executions.into_iter().map(Into::into).collect())
     }
 
+    /// The passes of the instance `instance_name`, newest first by their
+    /// latest execution's start (CLOACINA-T-1004): a page of their ids.
+    pub async fn list_passes(
+        &self,
+        instance_name: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<UniversalUuid>, ValidationError> {
+        let instance = instance_name.to_string();
+        let rows: Vec<Option<UniversalUuid>> = crate::interact_on_backend!(self.dal, |conn| {
+            workflow_executions::table
+                .filter(workflow_executions::instance_name.eq(&instance))
+                .filter(workflow_executions::pass_id.is_not_null())
+                .order(workflow_executions::started_at.desc())
+                .select(workflow_executions::pass_id)
+                .load(conn)
+        })?;
+        let mut seen = std::collections::HashSet::new();
+        Ok(rows
+            .into_iter()
+            .flatten()
+            .filter(|p| seen.insert(*p))
+            .skip(offset.max(0) as usize)
+            .take(limit.max(0) as usize)
+            .collect())
+    }
+
     /// CLOACI-T-0594 / API-02: filtered list endpoint. Supports
     /// `status` (e.g. "Failed", "Running") and `workflow_name`
     /// filters with bounded pagination. Replaces the old route-level

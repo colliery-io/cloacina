@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Sync read API** (COLLIERY-I-0635, CLOACINA-T-1004):
+  `/v1/tenants/{tenant_id}/syncs` reads syncs by name, without naming the
+  workflow: the list and one sync, a sync's passes (newest first, each with
+  its segments' executions, its status and the cursor it ended on), its
+  dead-letters, and its streams with cursor, captured schema and `broken`.
+  `POST .../syncs/{name}/schema/accept` accepts a stream's new shape. Writes
+  stay on the instances route. The read model is `cloacina_sync::views`;
+  `WorkflowExecutionDAL::list_passes` and `SyncDeadLettersDAL::page` back it.
+  The client gains the matching methods. A new BDD feature,
+  `sync/views.feature`.
 - **Schema capture and evolution** (COLLIERY-I-0635, CLOACINA-T-1003): each
   sync stream keeps a captured schema, as weir did; migration 053 adds
   `sync_stream_schemas`. The map task samples up to 200 mapped records a

@@ -339,6 +339,22 @@ pub fn build_authz_table() -> AuthzTable {
         "/tenants/{tenant_id}/connectors",
         Access::tenant(Level::Read),
     );
+    // CLOACINA-T-1004: the Sync read resource. Reads are a tenant read: the
+    // params name secrets, never hold them. Accepting a schema is a write.
+    for p in [
+        "/tenants/{tenant_id}/syncs",
+        "/tenants/{tenant_id}/syncs/{name}",
+        "/tenants/{tenant_id}/syncs/{name}/passes",
+        "/tenants/{tenant_id}/syncs/{name}/dead-letters",
+        "/tenants/{tenant_id}/syncs/{name}/streams",
+    ] {
+        add(Method::GET, p, Access::tenant(Level::Read));
+    }
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/syncs/{name}/schema/accept",
+        Access::tenant(Level::Write),
+    );
     // CLOACINA-T-1002: check and discover run a connector with the tenant's
     // secrets: a tenant write.
     add(
@@ -975,7 +991,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            72,
+            78,
             "authz table size changed — a route was added/removed without updating the table"
         );
 

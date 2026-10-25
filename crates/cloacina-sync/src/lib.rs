@@ -48,6 +48,7 @@ pub mod mapping;
 pub mod params;
 pub mod probe;
 pub mod schema;
+pub mod views;
 pub mod workflow;
 
 // The MSSQL and Snowflake connectors' statements are pure, but the connectors
