@@ -21,6 +21,9 @@ class TenantListResponseExecutionSummaryItemsItem:
         status (str):
         workflow_name (str):
         completed_at (None | str | Unset): RFC 3339 timestamp; `null` while still running.
+        instance_name (None | str | Unset): The workflow instance whose fire started the run; `null` for a run
+            that no instance fired (CLOACINA-T-1000).
+        pass_id (None | str | Unset): The Sync pass the run is a segment of, a UUID; `null` otherwise.
         trigger_origin (None | str | Unset): How the run was triggered (CLOACI-T-0776): `"manual"` for an operator run
             via the REST execute endpoint; `null` for cron/trigger/reactor-driven runs.
             The UI marks manual runs with a "manual" pill.
@@ -31,6 +34,8 @@ class TenantListResponseExecutionSummaryItemsItem:
     status: str
     workflow_name: str
     completed_at: None | str | Unset = UNSET
+    instance_name: None | str | Unset = UNSET
+    pass_id: None | str | Unset = UNSET
     trigger_origin: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -48,6 +53,18 @@ class TenantListResponseExecutionSummaryItemsItem:
             completed_at = UNSET
         else:
             completed_at = self.completed_at
+
+        instance_name: None | str | Unset
+        if isinstance(self.instance_name, Unset):
+            instance_name = UNSET
+        else:
+            instance_name = self.instance_name
+
+        pass_id: None | str | Unset
+        if isinstance(self.pass_id, Unset):
+            pass_id = UNSET
+        else:
+            pass_id = self.pass_id
 
         trigger_origin: None | str | Unset
         if isinstance(self.trigger_origin, Unset):
@@ -67,6 +84,10 @@ class TenantListResponseExecutionSummaryItemsItem:
         )
         if completed_at is not UNSET:
             field_dict["completed_at"] = completed_at
+        if instance_name is not UNSET:
+            field_dict["instance_name"] = instance_name
+        if pass_id is not UNSET:
+            field_dict["pass_id"] = pass_id
         if trigger_origin is not UNSET:
             field_dict["trigger_origin"] = trigger_origin
 
@@ -92,6 +113,24 @@ class TenantListResponseExecutionSummaryItemsItem:
 
         completed_at = _parse_completed_at(d.pop("completed_at", UNSET))
 
+        def _parse_instance_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        instance_name = _parse_instance_name(d.pop("instance_name", UNSET))
+
+        def _parse_pass_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        pass_id = _parse_pass_id(d.pop("pass_id", UNSET))
+
         def _parse_trigger_origin(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -107,6 +146,8 @@ class TenantListResponseExecutionSummaryItemsItem:
             status=status,
             workflow_name=workflow_name,
             completed_at=completed_at,
+            instance_name=instance_name,
+            pass_id=pass_id,
             trigger_origin=trigger_origin,
         )
 

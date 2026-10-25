@@ -1,0 +1,71 @@
+/*
+ *  Copyright 2025-2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+//! Pass steps: a stored sync definition run by name, and its executions
+//! grouped into passes.
+
+use std::collections::BTreeMap;
+
+use cucumber::{given, then, when};
+
+use crate::support::world::SyncWorld;
+
+#[given(expr = "a sync definition {string} that reads {int} segments from an echo source")]
+async fn definition(w: &mut SyncWorld, name: String, segments: u64) {
+    w.define_echo_sync(&name, segments).await;
+}
+
+#[given(expr = "the sync definition {string} runs a pass")]
+#[when(expr = "the sync definition {string} runs a pass")]
+async fn runs(w: &mut SyncWorld, name: String) {
+    w.run_definition_pass(&name).await;
+    let outcome = w.outcome.as_ref().expect("a pass ran");
+    assert!(outcome.is_ok(), "the pass failed: {outcome:?}");
+}
+
+#[then(expr = "the sync definition {string} has {int} executions, each naming it")]
+async fn executions(w: &mut SyncWorld, name: String, n: usize) {
+    let runs = w.instance_executions(&name).await;
+    assert_eq!(runs.len(), n, "executions of {name}: {runs:?}");
+    for r in &runs {
+        assert_eq!(r.instance_name.as_deref(), Some(name.as_str()));
+        assert_eq!(r.workflow_name, cloacina_sync::WORKFLOW_NAME);
+    }
+}
+
+/// `sizes` lists each pass's executions, in the order the passes ran: "3, 1".
+#[then(expr = "the passes of {string} have {string} executions")]
+async fn passes(w: &mut SyncWorld, name: String, sizes: String) {
+    let runs = w.instance_executions(&name).await;
+    let mut order: Vec<String> = Vec::new();
+    let mut by_pass: BTreeMap<String, usize> = BTreeMap::new();
+    for r in &runs {
+        let pass = r
+            .pass_id
+            .unwrap_or_else(|| panic!("execution {} has no pass", r.id.0))
+            .0
+            .to_string();
+        if !by_pass.contains_key(&pass) {
+            order.push(pass.clone());
+        }
+        *by_pass.entry(pass).or_default() += 1;
+    }
+    let actual: Vec<usize> = order.iter().map(|p| by_pass[p]).collect();
+    let expected: Vec<usize> = sizes
+        .split(',')
+        .map(|n| n.trim().parse().expect("a number of executions"))
+        .collect();
+    assert_eq!(actual, expected, "executions per pass, in order");
+}

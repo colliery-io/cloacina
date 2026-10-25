@@ -1397,6 +1397,13 @@ export interface components {
             completed_at?: string | null;
             /** @description Execution UUID. */
             id: string;
+            /**
+             * @description The workflow instance whose fire started the run; `null` for a run
+             *     that no instance fired (CLOACINA-T-1000).
+             */
+            instance_name?: string | null;
+            /** @description The Sync pass the run is a segment of, a UUID; `null` otherwise. */
+            pass_id?: string | null;
             /** @description RFC 3339 timestamp. */
             started_at: string;
             status: string;
@@ -2144,6 +2151,13 @@ export interface components {
                 completed_at?: string | null;
                 /** @description Execution UUID. */
                 id: string;
+                /**
+                 * @description The workflow instance whose fire started the run; `null` for a run
+                 *     that no instance fired (CLOACINA-T-1000).
+                 */
+                instance_name?: string | null;
+                /** @description The Sync pass the run is a segment of, a UUID; `null` otherwise. */
+                pass_id?: string | null;
                 /** @description RFC 3339 timestamp. */
                 started_at: string;
                 status: string;
@@ -3844,6 +3858,13 @@ export interface operations {
             query?: {
                 status?: string;
                 workflow?: string;
+                /**
+                 * @description Only the runs started by a fire of this workflow instance
+                 *     (CLOACINA-T-1000).
+                 */
+                instance?: string;
+                /** @description Only the runs of this Sync pass, a UUID (CLOACINA-T-1000). */
+                pass?: string;
                 limit?: number;
                 offset?: number;
             };

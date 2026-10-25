@@ -109,6 +109,8 @@ pub async fn run_pass(
         cloacina::workflow_instance::merge_instance_params(&mut context, params)
             .map_err(|e| DispatchError::Params(e.to_string()))?;
     }
+    // CLOACINA-T-1000: the pass's executions name the instance.
+    cloacina::workflow_instance::stamp_instance(&mut context, Some(instance));
     let def = dispatcher::SyncDefinition::new(context.data().clone().into_iter().collect());
     let executor: std::sync::Arc<dyn cloacina::executor::WorkflowExecutor> =
         std::sync::Arc::new(runner.clone());

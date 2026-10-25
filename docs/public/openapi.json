@@ -1705,6 +1705,24 @@
             }
           },
           {
+            "name": "instance",
+            "in": "query",
+            "description": "Only the runs started by a fire of this workflow instance\n(CLOACINA-T-1000).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pass",
+            "in": "query",
+            "description": "Only the runs of this Sync pass, a UUID (CLOACINA-T-1000).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -4894,6 +4912,20 @@
             "type": "string",
             "description": "Execution UUID."
           },
+          "instance_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The workflow instance whose fire started the run; `null` for a run\nthat no instance fired (CLOACINA-T-1000)."
+          },
+          "pass_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Sync pass the run is a segment of, a UUID; `null` otherwise."
+          },
           "started_at": {
             "type": "string",
             "description": "RFC 3339 timestamp."
@@ -6465,6 +6497,20 @@
                 "id": {
                   "type": "string",
                   "description": "Execution UUID."
+                },
+                "instance_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The workflow instance whose fire started the run; `null` for a run\nthat no instance fired (CLOACINA-T-1000)."
+                },
+                "pass_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The Sync pass the run is a segment of, a UUID; `null` otherwise."
                 },
                 "started_at": {
                   "type": "string",

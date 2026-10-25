@@ -24,6 +24,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use cloacina::dal::DAL;
+use cloacina::dal::unified::workflow_execution::ExecutionListFilter;
+use cloacina::database::universal_types::UniversalBool;
+use cloacina::models::schedule::NewSchedule;
+use cloacina::models::workflow_execution::WorkflowExecutionRecord;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina_constructor_contract::sync::{
     ConfiguredStream, MappingSpec, StreamSchema, SyncMode, WriteMode,
@@ -508,6 +512,81 @@ impl SyncWorld {
             }
         }
         saved
+    }
+
+    /// Store a sync definition named `name`, as the server does: an instance
+    /// of the Sync workflow. Its source is the echo connector with `segments`
+    /// segments; its destination counts the records.
+    pub async fn define_echo_sync(&mut self, name: &str, segments: u64) {
+        let stream = ConfiguredStream {
+            stream: "echo".into(),
+            sync_mode: SyncMode::Incremental,
+            cursor_field: Some("n".into()),
+            primary_key: Some(vec!["id".into()]),
+            write_mode: WriteMode::Upsert {
+                business_keys: vec!["id".into()],
+            },
+            mapping: MappingSpec::default(),
+        };
+        let params = json!({
+            keys::SYNC: name,
+            keys::SOURCE_PROVIDER: providers::ECHO,
+            keys::SOURCE_MEMBER: "source",
+            keys::SOURCE_CONFIG: json!({ "segments": segments, "rows": ["{\"id\":1}"] }).to_string(),
+            keys::DESTINATION_PROVIDER: providers::ECHO,
+            keys::DESTINATION_MEMBER: "destination",
+            keys::DESTINATION_CONFIG: "{}",
+            keys::STREAM: serde_json::to_string(&stream).expect("stream json"),
+        });
+        self.dal()
+            .await
+            .schedule()
+            .create(NewSchedule {
+                schedule_type: "cron".into(),
+                workflow_name: cloacina_sync::WORKFLOW_NAME.into(),
+                enabled: Some(UniversalBool(true)),
+                cron_expression: None,
+                timezone: None,
+                catchup_policy: None,
+                start_date: None,
+                end_date: None,
+                trigger_name: None,
+                poll_interval_ms: None,
+                allow_concurrent: None,
+                next_run_at: None,
+                params: Some(params.to_string()),
+                instance_name: Some(name.to_string()),
+            })
+            .await
+            .expect("store the sync definition");
+    }
+
+    /// Run one pass of the stored sync definition `name`, by its name.
+    pub async fn run_definition_pass(&mut self, name: &str) {
+        let runner = self.runner().await;
+        let (_stop_tx, stop) = tokio::sync::watch::channel(false);
+        self.outcome = Some(
+            cloacina_sync::run_pass(&runner, name, stop)
+                .await
+                .map_err(|e| e.to_string()),
+        );
+    }
+
+    /// The executions a fire of the instance `name` started, oldest first.
+    pub async fn instance_executions(&mut self, name: &str) -> Vec<WorkflowExecutionRecord> {
+        let mut runs = self
+            .dal()
+            .await
+            .workflow_execution()
+            .list_filtered(ExecutionListFilter {
+                instance_name: Some(name.to_string()),
+                limit: 1000,
+                ..Default::default()
+            })
+            .await
+            .expect("list the instance's executions");
+        runs.reverse();
+        runs
     }
 
     /// The attempt numbers of the write task of each Sync execution, sorted.

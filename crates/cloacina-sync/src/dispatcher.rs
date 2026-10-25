@@ -45,6 +45,7 @@ use cloacina::computation_graph::reactor_ownership::{ReactorId, ReactorOwnership
 use cloacina::dal::DAL;
 use cloacina::database::universal_types::UniversalUuid;
 use cloacina::executor::{WorkflowExecution, WorkflowExecutor, WorkflowStatus};
+use cloacina::workflow_instance::PASS_ID_KEY;
 use cloacina_constructor_contract::sync::StreamState;
 use serde_json::Value;
 
@@ -218,6 +219,7 @@ impl Dispatcher {
             params,
             template,
             id,
+            pass_id: uuid::Uuid::new_v4(),
         })
     }
 
@@ -278,6 +280,9 @@ impl Dispatcher {
             serde_json::to_string(&state).map_err(|e| DispatchError::Params(e.to_string()))?;
         ctx.remove(keys::STATE);
         ctx.insert(keys::STATE, Value::String(state_json))
+            .map_err(|e| DispatchError::Params(e.to_string()))?;
+        ctx.remove(PASS_ID_KEY);
+        ctx.insert(PASS_ID_KEY, Value::String(prepared.pass_id.to_string()))
             .map_err(|e| DispatchError::Params(e.to_string()))?;
         let handle = self
             .executor
@@ -457,4 +462,7 @@ pub struct PreparedPass {
     pub params: SyncParams,
     template: Context<Value>,
     id: ReactorId,
+    /// Stamped on every execution of the pass (CLOACINA-T-1000), so its
+    /// segments can be shown as one.
+    pub pass_id: uuid::Uuid,
 }

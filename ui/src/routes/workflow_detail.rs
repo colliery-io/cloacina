@@ -186,6 +186,8 @@ pub fn WorkflowDetail() -> impl IntoView {
                 &cloacina_api_types::ListExecutionsQuery {
                     status: None,
                     workflow: Some(wf).filter(|w| !w.is_empty()),
+                    instance: None,
+                    pass: None,
                     limit: Some(40),
                     offset: Some(0),
                 },

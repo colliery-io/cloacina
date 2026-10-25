@@ -40,6 +40,11 @@ pub struct ExecutionListFilter {
     pub status: Option<String>,
     /// Filter by exact workflow name. `None` means no name filter.
     pub workflow_name: Option<String>,
+    /// Filter by the workflow instance whose fire started the run
+    /// (CLOACINA-T-1000).
+    pub instance_name: Option<String>,
+    /// Filter by Sync pass (CLOACINA-T-1000).
+    pub pass_id: Option<UniversalUuid>,
     /// SQL `LIMIT`. Caller is responsible for bounding (route validates
     /// `limit <= 1000`); the DAL trusts whatever is passed.
     pub limit: i64,
@@ -82,6 +87,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     started_at: now,
                     created_at: now,
                     updated_at: now,
+                    instance_name: None,
+                    pass_id: None,
                 };
 
                 // Insert workflow record
@@ -470,6 +477,12 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 }
                 if let Some(ref name) = filter.workflow_name {
                     query = query.filter(workflow_executions::workflow_name.eq(name.clone()));
+                }
+                if let Some(ref instance) = filter.instance_name {
+                    query = query.filter(workflow_executions::instance_name.eq(instance.clone()));
+                }
+                if let Some(pass) = filter.pass_id {
+                    query = query.filter(workflow_executions::pass_id.eq(pass));
                 }
                 query
                     .order(workflow_executions::started_at.desc())
