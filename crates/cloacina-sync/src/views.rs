@@ -108,11 +108,21 @@ async fn definition(dal: &DAL, name: &str) -> Result<Schedule, ViewError> {
         .ok_or_else(|| ViewError::NotFound(name.to_string()))
 }
 
-/// The cursor a pass's last segment left, from its saved context.
-async fn cursor_after(dal: &DAL, last: &WorkflowExecutionRecord) -> Option<String> {
-    let ctx = dal.context().read::<Value>(last.context_id?).await.ok()?;
-    let state: StreamState = crate::params::handoff(&ctx, keys::NEXT_STATE).ok()??;
-    state.cursor
+/// What a pass's last segment left in its saved context: the cursor, and
+/// whether the source reported its end.
+async fn last_segment(dal: &DAL, last: &WorkflowExecutionRecord) -> (Option<String>, bool) {
+    let Some(id) = last.context_id else {
+        return (None, false);
+    };
+    let Ok(ctx) = dal.context().read::<Value>(id).await else {
+        return (None, false);
+    };
+    let cursor = crate::params::handoff::<StreamState>(&ctx, keys::NEXT_STATE)
+        .ok()
+        .flatten()
+        .and_then(|s| s.cursor);
+    let exhausted = matches!(ctx.get(keys::EXHAUSTED), Some(Value::Bool(true)));
+    (cursor, exhausted)
 }
 
 async fn pass(
@@ -129,12 +139,18 @@ async fn pass(
         .await
         .map_err(db)?;
     runs.reverse();
+    let (cursor, exhausted) = match runs.last() {
+        Some(last) if last.status == "Completed" => last_segment(dal, last).await,
+        _ => (None, false),
+    };
+    // A pass is done when a segment failed, or when its last segment saw the
+    // source end; between segments it is still running.
     let status = if runs
         .iter()
         .any(|r| r.status == "Failed" || r.status == "Cancelled")
     {
         "Failed"
-    } else if runs.iter().all(|r| r.status == "Completed") {
+    } else if exhausted && runs.iter().all(|r| r.status == "Completed") {
         "Completed"
     } else {
         "Running"
@@ -145,10 +161,6 @@ async fn pass(
                 .and_then(|r| r.completed_at.map(|t| t.0.to_rfc3339()))
         })
         .flatten();
-    let cursor = match runs.last() {
-        Some(last) => cursor_after(dal, last).await,
-        None => None,
-    };
     Ok(SyncPass {
         pass_id: pass_id.0.to_string(),
         status: status.to_string(),
@@ -372,4 +384,17 @@ pub async fn accept_schema(dal: &DAL, name: &str) -> Result<String, ViewError> {
         .await
         .map_err(db)?;
     Ok(stream)
+}
+
+/// The context a fire of the sync `name` starts with, as its cron fire does:
+/// its stored params, and the instance it belongs to (CLOACINA-T-1005).
+pub async fn fire_context(dal: &DAL, name: &str) -> Result<cloacina::Context<Value>, ViewError> {
+    let s = definition(dal, name).await?;
+    let mut ctx = cloacina::Context::new();
+    if let Some(params) = s.params.as_deref() {
+        cloacina::workflow_instance::merge_instance_params(&mut ctx, params)
+            .map_err(ViewError::Database)?;
+    }
+    cloacina::workflow_instance::stamp_instance(&mut ctx, Some(name));
+    Ok(ctx)
 }

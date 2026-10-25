@@ -23,8 +23,8 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use cloacina_api_types::{
-    ListResponse, SchemaAcceptedResponse, SyncDeadLetter, SyncDetail, SyncPageQuery, SyncPass,
-    SyncStream, SyncSummary, TenantListResponse,
+    ExecuteResponse, ListResponse, SchemaAcceptedResponse, SyncDeadLetter, SyncDetail,
+    SyncPageQuery, SyncPass, SyncStream, SyncSummary, TenantListResponse,
 };
 use cloacina_sync::views::{self, ViewError};
 
@@ -272,5 +272,77 @@ pub async fn accept_schema(
         })
         .into_response(),
         Err(e) => view_error(e).into_response(),
+    }
+}
+
+/// `POST /v1/tenants/{tenant_id}/syncs/{name}/run` — run a pass of the sync
+/// now, as its cron fire does (CLOACINA-T-1005). Returns its first segment's
+/// execution; the pass goes on.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/syncs/{name}/run",
+    tag = "syncs",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Sync definition name"),
+    ),
+    responses(
+        (status = 200, description = "The pass started", body = ExecuteResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "No such sync", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "The pass could not start", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn run_sync(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let dal = match tenant_dal(&state, &tenant_id).await {
+        Ok(d) => d,
+        Err(e) => return e.into_response(),
+    };
+    let ctx = match views::fire_context(&dal, &name).await {
+        Ok(c) => c,
+        Err(e) => return view_error(e).into_response(),
+    };
+    // As the execute route: "public" is the global runner.
+    let runner = if tenant_id == "public" {
+        state.runner.clone()
+    } else {
+        match state
+            .tenant_runners
+            .get_or_create(&tenant_id, dal.database().clone())
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return ApiError::internal(format!("tenant runner unavailable: {e}"))
+                    .into_response();
+            }
+        }
+    };
+    match runner
+        .fire_instance(cloacina_sync::WORKFLOW_NAME, ctx)
+        .await
+    {
+        Ok(execution) => {
+            let id =
+                cloacina::database::universal_types::UniversalUuid::from(execution.execution_id);
+            let _ = dal
+                .workflow_execution()
+                .set_trigger_origin(id, "manual")
+                .await;
+            Json(ExecuteResponse {
+                execution_id: execution.execution_id.to_string(),
+                workflow_name: cloacina_sync::WORKFLOW_NAME.to_string(),
+                tenant_id,
+                status: "scheduled".to_string(),
+            })
+            .into_response()
+        }
+        Err(e) => ApiError::internal(format!("the pass could not start: {e}")).into_response(),
     }
 }
