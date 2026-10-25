@@ -22,8 +22,8 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use cloacina_api_types::{
-    ConnectorCheckResponse, ConnectorDiscoverResponse, ConnectorProbeRequest, ConnectorSummary,
-    ListResponse,
+    ConnectorCheckResponse, ConnectorDiscoverResponse, ConnectorProbeRequest,
+    ConnectorSpecResponse, ConnectorSummary, ListResponse,
 };
 
 use super::error::ApiError;
@@ -57,6 +57,8 @@ pub async fn list_connectors(Path(_tenant_id): Path<String>) -> impl IntoRespons
                     roles: e.roles,
                     sync_modes: e.sync_modes,
                     streams: e.streams,
+                    config_schema: e.config_schema,
+                    secret_fields: e.secret_fields,
                 })
                 .collect();
             Json(ListResponse::new(items)).into_response()
@@ -191,6 +193,35 @@ pub async fn discover_connector(
     Json(body): Json<ConnectorProbeRequest>,
 ) -> impl IntoResponse {
     match probe::<ConnectorDiscoverResponse>(&state, &tenant_id, "discover", &body).await {
+        Ok(answer) => Json(answer).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// `POST /v1/tenants/{tenant_id}/connectors/spec` — what a compiled connector
+/// says about itself: its config schema, roles and sync modes (CLOACINA-T-1006).
+/// It runs where connectors run, as check and discover do.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/connectors/spec",
+    tag = "connectors",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    request_body = ConnectorProbeRequest,
+    responses(
+        (status = 200, description = "The connector's spec", body = ConnectorSpecResponse),
+        (status = 400, description = "The side is not a compiled connector", body = cloacina_api_types::ErrorBody),
+        (status = 422, description = "The connector does not load, with the reason", body = cloacina_api_types::ErrorBody),
+        (status = 504, description = "No answer in time", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn spec_connector(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path(tenant_id): Path<String>,
+    Json(body): Json<ConnectorProbeRequest>,
+) -> impl IntoResponse {
+    match probe::<ConnectorSpecResponse>(&state, &tenant_id, "spec", &body).await {
         Ok(answer) => Json(answer).into_response(),
         Err(e) => e.into_response(),
     }

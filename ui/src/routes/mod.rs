@@ -32,6 +32,7 @@ pub mod secrets;
 pub mod settings;
 pub mod stubs;
 pub mod sync_detail;
+pub mod sync_form;
 pub mod syncs;
 pub mod trigger_detail;
 pub mod triggers;

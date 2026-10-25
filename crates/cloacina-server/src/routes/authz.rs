@@ -373,6 +373,11 @@ pub fn build_authz_table() -> AuthzTable {
         "/tenants/{tenant_id}/connectors/discover",
         Access::tenant(Level::Write),
     );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/connectors/spec",
+        Access::tenant(Level::Write),
+    );
 
     // CLOACI-T-0808: agent-capacity limits. Setting/clearing a tenant's exception
     // is god-only (platform + admin); reading the effective limit is tenant-scoped
@@ -997,7 +1002,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            79,
+            80,
             "authz table size changed — a route was added/removed without updating the table"
         );
 

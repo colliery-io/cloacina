@@ -37,6 +37,13 @@ pub struct ConnectorSummary {
     /// A definition's streams, or a destination's objects. Empty for a
     /// compiled connector, whose streams are what `discover` finds.
     pub streams: Vec<String>,
+    /// The JSON Schema of the connector's config (CLOACINA-T-1006): a compiled
+    /// connector's own, or the user config a definition reads.
+    #[serde(default)]
+    pub config_schema: Option<serde_json::Value>,
+    /// The fields the side's stored secret must hold, for a definition.
+    #[serde(default)]
+    pub secret_fields: Vec<String>,
 }
 
 /// Body for `POST /tenants/{tenant_id}/connectors/check` and
@@ -114,4 +121,17 @@ pub struct DiscoveredStream {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ConnectorDiscoverResponse {
     pub streams: Vec<DiscoveredStream>,
+}
+
+/// What a compiled connector says about itself (CLOACINA-T-1006): its config
+/// schema, roles and sync modes, from its `spec()`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConnectorSpecResponse {
+    pub name: String,
+    pub connector_version: String,
+    /// The JSON Schema of the connector's config.
+    pub config_schema: serde_json::Value,
+    pub roles: Vec<String>,
+    pub sync_modes: Vec<String>,
 }

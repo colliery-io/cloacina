@@ -27,8 +27,8 @@
 use chrono::Utc;
 use cloacina::{Context, TaskError, task, workflow};
 use cloacina_api_types::{
-    ConnectorCheckResponse, ConnectorDiscoverResponse, ConnectorProbeRequest, DiscoveredField,
-    DiscoveredStream,
+    ConnectorCheckResponse, ConnectorDiscoverResponse, ConnectorProbeRequest,
+    ConnectorSpecResponse, DiscoveredField, DiscoveredStream,
 };
 use cloacina_constructor_contract::sync::{Config, DiscoverOutcome};
 use cloacina_declarative::definition::FieldKind;
@@ -76,7 +76,12 @@ pub fn validate(action: &str, request: &ConnectorProbeRequest) -> Result<(), Pro
     let bad = |m: &str| Err(ProbeError::Request(m.to_string()));
     match action {
         "check" | "discover" => {}
-        _ => return bad("the action is `check` or `discover`"),
+        // CLOACINA-T-1006: a compiled connector's own description.
+        "spec" if request.definition.is_some() => {
+            return bad("a definition's config is in the catalog; spec reads a compiled connector");
+        }
+        "spec" => {}
+        _ => return bad("the action is `check`, `discover` or `spec`"),
     }
     match request.side.as_str() {
         "source" => {}
@@ -259,6 +264,24 @@ pub async fn run(
         let config = Config {
             json: ep.config.clone(),
         };
+        if action == "spec" {
+            let s = handle
+                .spec()
+                .map_err(|e| ProbeError::Connector(e.to_string()))?;
+            return serde_json::to_value(ConnectorSpecResponse {
+                name: s.name,
+                connector_version: s.connector_version,
+                config_schema: serde_json::from_str(&s.config_schema)
+                    .unwrap_or_else(|_| json!({ "type": "object" })),
+                roles: s.roles.iter().map(|r| format!("{r:?}")).collect(),
+                sync_modes: s
+                    .supported_sync_modes
+                    .iter()
+                    .map(|m| format!("{m:?}"))
+                    .collect(),
+            })
+            .map_err(|e| ProbeError::Connector(e.to_string()));
+        }
         if action == "check" {
             let r = handle
                 .check(&config)
