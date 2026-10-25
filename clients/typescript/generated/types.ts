@@ -596,6 +596,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/connectors/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `POST /v1/tenants/{tenant_id}/connectors/check` — check one side of a sync
+         *     where connectors run: its config, its secret, and that it can reach its
+         *     service.
+         */
+        post: operations["check_connector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/connectors/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `POST /v1/tenants/{tenant_id}/connectors/discover` — the streams a source
+         *     offers, with their sync modes, keys and fields.
+         */
+        post: operations["discover_connector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/executions": {
         parameters: {
             query?: never;
@@ -1232,6 +1273,38 @@ export interface components {
              */
             status: string;
         };
+        /** @description What a connector's `check` said. */
+        ConnectorCheckResponse: {
+            /** @description The connector's message, when it gives one. */
+            message?: string | null;
+            ok: boolean;
+        };
+        /** @description What a source's `discover` found. */
+        ConnectorDiscoverResponse: {
+            streams: components["schemas"]["DiscoveredStream"][];
+        };
+        /**
+         * @description Body for `POST /tenants/{tenant_id}/connectors/check` and
+         *     `POST /tenants/{tenant_id}/connectors/discover` (CLOACINA-T-1002): one side
+         *     of a sync, as a sync definition gives it. A side names a compiled
+         *     connector by `provider` and `member`, or a connector definition by
+         *     `definition`.
+         */
+        ConnectorProbeRequest: {
+            /** @description The connector's config, or a definition's user config. */
+            config?: unknown;
+            /** @description The side's credential, a credential spec. A definition supplies its own. */
+            credential?: unknown;
+            definition?: string | null;
+            /** @description The side's capability grants. A definition supplies its own. */
+            grants?: unknown;
+            member?: string | null;
+            provider?: string | null;
+            /** @description The stored secret a definition's auth reads. */
+            secret?: string | null;
+            /** @description `source` or `destination`. Discover reads a source. */
+            side: string;
+        };
         /**
          * @description One connector a server can run: compiled (a provider package) or
          *     declarative (a connector definition on the REST runtime).
@@ -1339,6 +1412,27 @@ export interface components {
             instance_name: string;
             tenant_id: string;
             workflow_name: string;
+        };
+        /** @description A field of a discovered stream. */
+        DiscoveredField: {
+            name: string;
+            nullable: boolean;
+            /** @description `Str`, `Integer`, `Float`, `Boolean`, `Timestamp` or `Json`. */
+            type: string;
+        };
+        /** @description A stream a source offers. */
+        DiscoveredStream: {
+            default_cursor_field?: string | null;
+            /**
+             * @description The stream's typed fields, when the source declares them. A compiled
+             *     connector's are empty for now.
+             */
+            fields?: components["schemas"]["DiscoveredField"][];
+            name: string;
+            namespace?: string | null;
+            primary_key?: string[] | null;
+            /** @description `FullRefresh`, `Incremental` or `Cdc`. */
+            sync_modes: string[];
         };
         /**
          * @description Standardized error response body. Every non-2xx response from
@@ -3867,6 +3961,150 @@ export interface operations {
             };
             /** @description The connector definitions could not be loaded */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    check_connector: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorProbeRequest"];
+            };
+        };
+        responses: {
+            /** @description What the connector's check said */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorCheckResponse"];
+                };
+            };
+            /** @description The side is not one the probe can run */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The check could not run, with the reason: a missing secret, a connector that does not load */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The check did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    discover_connector: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorProbeRequest"];
+            };
+        };
+        responses: {
+            /** @description The source's streams */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorDiscoverResponse"];
+                };
+            };
+            /** @description The side is not a source the probe can run */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The discover could not run, with the reason */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The discover did not answer in time */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };

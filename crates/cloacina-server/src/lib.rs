@@ -1891,6 +1891,15 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/connectors",
             get(crate::routes::connectors::list_connectors),
         )
+        // CLOACINA-T-1002: check and discover, where connectors run.
+        .route(
+            "/tenants/{tenant_id}/connectors/check",
+            post(crate::routes::connectors::check_connector),
+        )
+        .route(
+            "/tenants/{tenant_id}/connectors/discover",
+            post(crate::routes::connectors::discover_connector),
+        )
         // CLOACI-T-0862: tenant secrets CRUD (metadata-only reads). Values are
         // write-only (create/rotate body); list/get never return a value.
         .route(
@@ -5798,6 +5807,110 @@ mod tests {
                 .contains("cannot be renamed"),
             "{body}"
         );
+    }
+
+    // ── Check and discover (CLOACINA-T-1002) ─────────────────────────
+
+    /// A test state whose runner lives on this test's runtime, for a test that
+    /// waits for an execution. The shared runner's loops run on the runtime of
+    /// the test that made it, and stop with it.
+    async fn test_state_with_live_runner() -> (AppState, Arc<cloacina::runner::DefaultRunner>) {
+        let mut state = test_state().await;
+        let config = cloacina::runner::DefaultRunnerConfig::builder()
+            .registry_storage_backend("database")
+            .build()
+            .expect("test config must be valid");
+        let runner = Arc::new(
+            cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, config)
+                .await
+                .expect("a runner on the test database"),
+        );
+        state.runner = runner.clone();
+        (state, runner)
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_discover_a_definition_lists_its_streams_and_fields() {
+        let (state, runner) = test_state_with_live_runner().await;
+        let token = create_test_api_key(&state).await;
+        let (status, body) = send_json(
+            &state, &token, "POST", "/v1/tenants/public/connectors/discover",
+            serde_json::json!({"side": "source", "definition": "github", "config": {"base_url": "http://x"}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let streams = body["streams"].as_array().expect("streams");
+        let repos = streams
+            .iter()
+            .find(|s| s["name"] == "repositories")
+            .unwrap_or_else(|| panic!("no repositories stream: {body}"));
+        assert_eq!(repos["default_cursor_field"], "updated_at", "{repos}");
+        assert!(
+            repos["sync_modes"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("Incremental")),
+            "{repos}"
+        );
+        assert!(
+            repos["fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["name"] == "id" && f["type"] == "Integer"),
+            "{repos}"
+        );
+        let _ = runner.shutdown().await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_check_and_discover_refuse_a_side_they_cannot_run() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/connectors/discover",
+            serde_json::json!({"side": "destination", "definition": "hubspot-dest"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "probe_invalid", "{body}");
+
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/connectors/check",
+            serde_json::json!({"side": "source"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_check_of_a_connector_that_does_not_load_names_it() {
+        let (state, runner) = test_state_with_live_runner().await;
+        let token = create_test_api_key(&state).await;
+        let (status, body) = send_json(
+            &state, &token, "POST", "/v1/tenants/public/connectors/check",
+            serde_json::json!({"side": "source", "provider": "no-such-provider", "member": "source"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(body["code"], "probe_failed", "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("no-such-provider"),
+            "{body}"
+        );
+        let _ = runner.shutdown().await;
     }
 
     // ── Fallback / 404 ──────────────────────────────────────────────

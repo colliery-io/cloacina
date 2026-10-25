@@ -580,6 +580,16 @@ definitions (the corpus and `CLOACINA_SYNC_DEFINITIONS_DIR`).
 | Route | Description |
 |---|---|
 | `GET /v1/tenants/{tenant_id}/connectors` | `{ "items": [...], "total": n }` of `{ name, kind, provider, version, roles, sync_modes, streams }`. `kind` is `compiled` or `declarative`; a sync names a compiled connector by `*_provider` and a declarative one by `*_definition`. `500` if the definitions directory does not load. |
+| `POST /v1/tenants/{tenant_id}/connectors/check` | Check one side of a sync: its config, its secret, and that it reaches its service. Body: `{ "side": "source" \| "destination", "provider", "member" }` for a compiled connector, or `{ "side", "definition", "config", "secret" }` for a connector definition; `grants` and `credential` are optional. Answers `{ "ok": bool, "message" }`. |
+| `POST /v1/tenants/{tenant_id}/connectors/discover` | The streams a source offers: `{ "streams": [{ name, namespace, sync_modes, default_cursor_field, primary_key, fields }] }`. Same body as check, with `side` `source`. A definition's streams carry their typed fields; a compiled connector's `fields` are empty for now. |
+
+Check and discover run the connector where Sync's tasks run, as the
+built-in workflow `sync_probe`, never in the server process; the route
+waits up to 60 seconds. A side the probe cannot run is `400 probe_invalid`.
+A probe that cannot run, for a missing secret or a connector that does not
+load, is `422 probe_failed` with the reason. No answer in time is
+`504 probe_timeout`. Both routes need a tenant write key: they use the
+tenant's secrets.
 
 Creating a `sync` workflow instance (`POST /v1/tenants/{tenant_id}/workflows/sync/instances`)
 also checks the sync's params, and lowers a side that names a connector

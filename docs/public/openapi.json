@@ -1670,6 +1670,200 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/connectors/check": {
+      "post": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "`POST /v1/tenants/{tenant_id}/connectors/check` — check one side of a sync\nwhere connectors run: its config, its secret, and that it can reach its\nservice.",
+        "operationId": "check_connector",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the connector's check said",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorCheckResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The side is not one the probe can run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The check could not run, with the reason: a missing secret, a connector that does not load",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The check did not answer in time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/connectors/discover": {
+      "post": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "`POST /v1/tenants/{tenant_id}/connectors/discover` — the streams a source\noffers, with their sync modes, keys and fields.",
+        "operationId": "discover_connector",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The source's streams",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDiscoverResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The side is not a source the probe can run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The discover could not run, with the reason",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The discover did not answer in time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/executions": {
       "get": {
         "tags": [
@@ -4643,6 +4837,87 @@
           }
         }
       },
+      "ConnectorCheckResponse": {
+        "type": "object",
+        "description": "What a connector's `check` said.",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The connector's message, when it gives one."
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ConnectorDiscoverResponse": {
+        "type": "object",
+        "description": "What a source's `discover` found.",
+        "required": [
+          "streams"
+        ],
+        "properties": {
+          "streams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredStream"
+            }
+          }
+        }
+      },
+      "ConnectorProbeRequest": {
+        "type": "object",
+        "description": "Body for `POST /tenants/{tenant_id}/connectors/check` and\n`POST /tenants/{tenant_id}/connectors/discover` (CLOACINA-T-1002): one side\nof a sync, as a sync definition gives it. A side names a compiled\nconnector by `provider` and `member`, or a connector definition by\n`definition`.",
+        "required": [
+          "side"
+        ],
+        "properties": {
+          "config": {
+            "description": "The connector's config, or a definition's user config."
+          },
+          "credential": {
+            "description": "The side's credential, a credential spec. A definition supplies its own."
+          },
+          "definition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grants": {
+            "description": "The side's capability grants. A definition supplies its own."
+          },
+          "member": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "secret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored secret a definition's auth reads."
+          },
+          "side": {
+            "type": "string",
+            "description": "`source` or `destination`. Discover reads a source."
+          }
+        }
+      },
       "ConnectorSummary": {
         "type": "object",
         "description": "One connector a server can run: compiled (a provider package) or\ndeclarative (a connector definition on the REST runtime).",
@@ -4865,6 +5140,75 @@
           },
           "workflow_name": {
             "type": "string"
+          }
+        }
+      },
+      "DiscoveredField": {
+        "type": "object",
+        "description": "A field of a discovered stream.",
+        "required": [
+          "name",
+          "type",
+          "nullable"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "nullable": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "description": "`Str`, `Integer`, `Float`, `Boolean`, `Timestamp` or `Json`."
+          }
+        }
+      },
+      "DiscoveredStream": {
+        "type": "object",
+        "description": "A stream a source offers.",
+        "required": [
+          "name",
+          "sync_modes"
+        ],
+        "properties": {
+          "default_cursor_field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredField"
+            },
+            "description": "The stream's typed fields, when the source declares them. A compiled\nconnector's are empty for now."
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "primary_key": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "sync_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`FullRefresh`, `Incremental` or `Cdc`."
           }
         }
       },
@@ -7671,7 +8015,7 @@
     },
     {
       "name": "connectors",
-      "description": "Sync connector catalog"
+      "description": "Sync connector catalog, check and discover"
     }
   ]
 }

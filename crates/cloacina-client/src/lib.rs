@@ -60,17 +60,19 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, CompilerStatus, CreateInstanceRequest, CreateKeyRequest,
-    CreateSecretRequest, CreateTenantRequest, DeclaredSurface, ExecuteRequest, ExecuteResponse,
-    ExecutionDetail, ExecutionEventsResponse, ExecutionSummary, ExecutionTasksResponse,
-    FireReactorRequest, FireReactorResponse, FireTriggerRequest, FireTriggerResponse, GraphStatus,
-    InjectAccumulatorRequest, InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo,
-    KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
-    RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse,
-    TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
-    TriggerPauseResponse, TriggerScheduleSummary, UpdateInstanceRequest, WorkflowDeletedResponse,
-    WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse,
-    WorkflowSummary, WorkflowUploadedResponse, WsTicketResponse,
+    AccumulatorStatus, AgentInfo, CompilerStatus, ConnectorCheckResponse,
+    ConnectorDiscoverResponse, ConnectorProbeRequest, ConnectorSummary, CreateInstanceRequest,
+    CreateKeyRequest, CreateSecretRequest, CreateTenantRequest, DeclaredSurface, ExecuteRequest,
+    ExecuteResponse, ExecutionDetail, ExecutionEventsResponse, ExecutionSummary,
+    ExecutionTasksResponse, FireReactorRequest, FireReactorResponse, FireTriggerRequest,
+    FireTriggerResponse, GraphStatus, InjectAccumulatorRequest, InjectAccumulatorResponse,
+    KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, ReactorFire,
+    ReactorFireTimeseries, ReactorStatus, RotateSecretRequest, SecretDeletedResponse,
+    SecretMetadataResponse, TenantCreatedResponse, TenantListResponse, TenantRemovedResponse,
+    TenantSummary, TriggerDetailResponse, TriggerPauseResponse, TriggerScheduleSummary,
+    UpdateInstanceRequest, WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary,
+    WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
+    WsTicketResponse,
 };
 
 /// Builder for [`Client`].
@@ -709,6 +711,37 @@ impl Client {
             request,
         )
         .await
+    }
+
+    /// The Sync connectors a sync can name: compiled and declarative.
+    pub async fn list_connectors(
+        &self,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<ConnectorSummary>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/connectors")).await
+    }
+
+    /// Check one side of a sync, where connectors run (CLOACINA-T-1002).
+    pub async fn check_connector(
+        &self,
+        request: &ConnectorProbeRequest,
+        tenant: Option<&str>,
+    ) -> Result<ConnectorCheckResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(&format!("/v1/tenants/{t}/connectors/check"), request)
+            .await
+    }
+
+    /// Discover a source's streams, where connectors run (CLOACINA-T-1002).
+    pub async fn discover_connector(
+        &self,
+        request: &ConnectorProbeRequest,
+        tenant: Option<&str>,
+    ) -> Result<ConnectorDiscoverResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(&format!("/v1/tenants/{t}/connectors/discover"), request)
+            .await
     }
 
     pub async fn delete_instance(
