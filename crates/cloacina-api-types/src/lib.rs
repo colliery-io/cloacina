@@ -53,8 +53,8 @@ pub mod workflows;
 pub use common::{ListResponse, TenantListResponse};
 pub use compiler::CompilerStatus;
 pub use connectors::{
-    ConnectorCheckResponse, ConnectorDiscoverResponse, ConnectorProbeRequest, ConnectorSummary,
-    DiscoveredField, DiscoveredStream,
+    ConnectorCheckResponse, ConnectorDiscoverResponse, ConnectorProbeRequest,
+    ConnectorSpecResponse, ConnectorSummary, DiscoveredField, DiscoveredStream,
 };
 pub use delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, ServerMessage};
 pub use error::ErrorBody;

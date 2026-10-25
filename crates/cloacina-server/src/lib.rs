@@ -1929,6 +1929,10 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/connectors/discover",
             post(crate::routes::connectors::discover_connector),
         )
+        .route(
+            "/tenants/{tenant_id}/connectors/spec",
+            post(crate::routes::connectors::spec_connector),
+        )
         // CLOACI-T-0862: tenant secrets CRUD (metadata-only reads). Values are
         // write-only (create/rotate body); list/get never return a value.
         .route(
@@ -5918,6 +5922,18 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+        // Spec reads a compiled connector; a definition's config is in the catalog.
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/connectors/spec",
+            serde_json::json!({"side": "source", "definition": "github"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "probe_invalid", "{body}");
     }
 
     #[tokio::test]

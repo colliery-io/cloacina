@@ -25,6 +25,9 @@ class ConnectorSummary:
             streams (list[str]): A definition's streams, or a destination's objects. Empty for a
                 compiled connector, whose streams are what `discover` finds.
             sync_modes (list[str]):
+            config_schema (Any | Unset): The JSON Schema of the connector's config (CLOACINA-T-1006): a compiled
+                connector's own, or the user config a definition reads.
+            secret_fields (list[str] | Unset): The fields the side's stored secret must hold, for a definition.
             version (None | str | Unset):
     """
 
@@ -34,6 +37,8 @@ class ConnectorSummary:
     roles: list[str]
     streams: list[str]
     sync_modes: list[str]
+    config_schema: Any | Unset = UNSET
+    secret_fields: list[str] | Unset = UNSET
     version: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -49,6 +54,12 @@ class ConnectorSummary:
         streams = self.streams
 
         sync_modes = self.sync_modes
+
+        config_schema = self.config_schema
+
+        secret_fields: list[str] | Unset = UNSET
+        if not isinstance(self.secret_fields, Unset):
+            secret_fields = self.secret_fields
 
         version: None | str | Unset
         if isinstance(self.version, Unset):
@@ -68,6 +79,10 @@ class ConnectorSummary:
                 "sync_modes": sync_modes,
             }
         )
+        if config_schema is not UNSET:
+            field_dict["config_schema"] = config_schema
+        if secret_fields is not UNSET:
+            field_dict["secret_fields"] = secret_fields
         if version is not UNSET:
             field_dict["version"] = version
 
@@ -88,6 +103,10 @@ class ConnectorSummary:
 
         sync_modes = cast(list[str], d.pop("sync_modes"))
 
+        config_schema = d.pop("config_schema", UNSET)
+
+        secret_fields = cast(list[str], d.pop("secret_fields", UNSET))
+
         def _parse_version(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -104,6 +123,8 @@ class ConnectorSummary:
             roles=roles,
             streams=streams,
             sync_modes=sync_modes,
+            config_schema=config_schema,
+            secret_fields=secret_fields,
             version=version,
         )
 

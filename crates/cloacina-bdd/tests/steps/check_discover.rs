@@ -147,3 +147,22 @@ async fn table_offered(w: &mut SyncWorld, name: String) {
     let table = w.table(&name);
     stream(answer(w), &table);
 }
+
+#[when("the Postgres connector is asked to describe itself")]
+async fn spec_postgres(w: &mut SyncWorld) {
+    let request = ConnectorProbeRequest {
+        side: "source".into(),
+        provider: Some(providers::POSTGRES.into()),
+        member: Some("source".into()),
+        ..Default::default()
+    };
+    w.probed = Some(w.probe("spec", &request).await);
+}
+
+#[then(expr = "its config has the field {string}, and {string} is secret")]
+async fn spec_fields(w: &mut SyncWorld, field: String, secret: String) {
+    let a = answer(w);
+    let props = &a["config_schema"]["properties"];
+    assert!(props.get(&field).is_some(), "{a}");
+    assert_eq!(props[&secret]["airbyte_secret"], true, "{a}");
+}

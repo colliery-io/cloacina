@@ -1864,6 +1864,83 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/connectors/spec": {
+      "post": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "`POST /v1/tenants/{tenant_id}/connectors/spec` — what a compiled connector\nsays about itself: its config schema, roles and sync modes (CLOACINA-T-1006).\nIt runs where connectors run, as check and discover do.",
+        "operationId": "spec_connector",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The connector's spec",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorSpecResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The side is not a compiled connector",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The connector does not load, with the reason",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "No answer in time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/executions": {
       "get": {
         "tags": [
@@ -5447,6 +5524,40 @@
           }
         }
       },
+      "ConnectorSpecResponse": {
+        "type": "object",
+        "description": "What a compiled connector says about itself (CLOACINA-T-1006): its config\nschema, roles and sync modes, from its `spec()`.",
+        "required": [
+          "name",
+          "connector_version",
+          "config_schema",
+          "roles",
+          "sync_modes"
+        ],
+        "properties": {
+          "config_schema": {
+            "description": "The JSON Schema of the connector's config."
+          },
+          "connector_version": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sync_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ConnectorSummary": {
         "type": "object",
         "description": "One connector a server can run: compiled (a provider package) or\ndeclarative (a connector definition on the REST runtime).",
@@ -5459,6 +5570,9 @@
           "streams"
         ],
         "properties": {
+          "config_schema": {
+            "description": "The JSON Schema of the connector's config (CLOACINA-T-1006): a compiled\nconnector's own, or the user config a definition reads."
+          },
           "kind": {
             "type": "string",
             "description": "`compiled` or `declarative`."
@@ -5477,6 +5591,13 @@
               "type": "string"
             },
             "description": "`Source`, `Destination`."
+          },
+          "secret_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The fields the side's stored secret must hold, for a definition."
           },
           "streams": {
             "type": "array",
@@ -6631,6 +6752,9 @@
                 "streams"
               ],
               "properties": {
+                "config_schema": {
+                  "description": "The JSON Schema of the connector's config (CLOACINA-T-1006): a compiled\nconnector's own, or the user config a definition reads."
+                },
                 "kind": {
                   "type": "string",
                   "description": "`compiled` or `declarative`."
@@ -6649,6 +6773,13 @@
                     "type": "string"
                   },
                   "description": "`Source`, `Destination`."
+                },
+                "secret_fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The fields the side's stored secret must hold, for a definition."
                 },
                 "streams": {
                   "type": "array",

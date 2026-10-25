@@ -47,6 +47,61 @@ pub struct CatalogEntry {
     /// A definition's streams (a destination's objects); empty for a compiled
     /// connector, whose streams are what `discover` finds.
     pub streams: Vec<String>,
+    /// The JSON Schema of the connector's config (CLOACINA-T-1006): a compiled
+    /// connector's own, or the user config a definition's templates read.
+    pub config_schema: Option<serde_json::Value>,
+    /// The fields the side's stored secret must hold, for a definition.
+    pub secret_fields: Vec<String>,
+}
+
+/// The fields of the secret a definition's auth reads.
+fn secret_fields(auth: &cloacina_declarative::definition::Auth) -> Vec<String> {
+    use cloacina_declarative::definition::{Auth, OAuthGrant};
+    match auth {
+        Auth::None | Auth::SessionToken { .. } => Vec::new(),
+        Auth::Bearer { field } | Auth::ApiKey { field, .. } | Auth::ApiKeyQuery { field, .. } => {
+            vec![field.clone()]
+        }
+        Auth::Basic {
+            username_field,
+            password_field,
+        } => vec![username_field.clone(), password_field.clone()],
+        Auth::OAuth2 { grant, .. } => {
+            let mut f = vec!["client_id".to_string(), "client_secret".to_string()];
+            if matches!(grant, OAuthGrant::RefreshToken) {
+                f.push("refresh_token".to_string());
+            }
+            f
+        }
+        Auth::GoogleServiceAccount { .. } => vec!["service_account_key".to_string()],
+        Auth::SnowflakeKeypairJwt { .. } => vec!["private_key".to_string()],
+    }
+}
+
+/// The user config a definition reads: each `config['name']` its templates
+/// name, as a JSON Schema of required strings. `base_url` may always be
+/// given, to point the definition at another host.
+fn user_config_schema<T: serde::Serialize>(def: &T) -> serde_json::Value {
+    let text = serde_json::to_string(def).unwrap_or_default();
+    let mut names: Vec<String> = Vec::new();
+    for (i, _) in text.match_indices("config[") {
+        let name: String = text[i + "config[".len()..]
+            .chars()
+            .skip_while(|c| matches!(c, '\\' | '\'' | '"' | ' '))
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        if !name.is_empty() && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    let mut props = serde_json::Map::new();
+    for n in &names {
+        props.insert(n.clone(), serde_json::json!({ "type": "string" }));
+    }
+    props.entry("base_url").or_insert_with(
+        || serde_json::json!({ "type": "string", "description": "Another host for the API" }),
+    );
+    serde_json::json!({ "type": "object", "properties": props, "required": names })
 }
 
 /// The catalog: the compiled connectors in the provider search path, then the
@@ -68,6 +123,8 @@ pub fn catalog() -> Result<Vec<CatalogEntry>, String> {
                 vec!["FullRefresh".to_string()]
             },
             streams: def.stream_names(),
+            config_schema: Some(user_config_schema(def)),
+            secret_fields: secret_fields(&def.auth),
         });
     }
     for (name, def) in defs.destinations() {
@@ -79,6 +136,8 @@ pub fn catalog() -> Result<Vec<CatalogEntry>, String> {
             roles: vec!["Destination".to_string()],
             sync_modes: vec!["FullRefresh".to_string(), "Incremental".to_string()],
             streams: def.objects.iter().map(|o| o.name.clone()).collect(),
+            config_schema: Some(user_config_schema(def)),
+            secret_fields: secret_fields(&def.auth),
         });
     }
     Ok(out)
@@ -117,6 +176,9 @@ pub fn compiled(root: &Path) -> Vec<CatalogEntry> {
                 .collect();
             modes.sort();
             modes.dedup();
+            let config_schema = members
+                .iter()
+                .find_map(|c| serde_json::from_str::<serde_json::Value>(&c.config_schema).ok());
             Some(CatalogEntry {
                 name: m.name.clone(),
                 kind: "compiled",
@@ -125,6 +187,8 @@ pub fn compiled(root: &Path) -> Vec<CatalogEntry> {
                 roles,
                 sync_modes: modes,
                 streams: Vec::new(),
+                config_schema,
+                secret_fields: Vec::new(),
             })
         })
         .collect();
@@ -150,6 +214,12 @@ mod tests {
             .expect("hubspot-dest");
         assert_eq!(hubspot.roles, vec!["Destination"]);
         assert_eq!(hubspot.streams, vec!["contacts"]);
+        // CLOACINA-T-1006: what the form asks for.
+        assert_eq!(github.secret_fields, vec!["api_key"]);
+        let props = github.config_schema.as_ref().unwrap()["properties"]
+            .as_object()
+            .unwrap();
+        assert!(props.contains_key("base_url"), "{props:?}");
     }
 
     #[test]

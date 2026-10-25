@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The sync form** (COLLIERY-I-0635, CLOACINA-T-1006): create and edit a
+  sync in the UI. Each side picks a connector from the catalog and fills the
+  config its schema asks for, or an advanced JSON override, with a check
+  button; a definition side names a stored secret, or creates one in place.
+  The stream comes from discovery, which re-runs when the source's config
+  settles; then sync mode, cursor, write mode and keys, and the schedule. The
+  server's refusals are shown on the form. The catalog now carries each
+  connector's `config_schema` and a definition's `secret_fields`, and
+  `POST /v1/tenants/{tenant_id}/connectors/spec` reads a compiled connector's
+  own config schema where connectors run. A database connector's password is
+  still stored in the sync's params; the form says so, until connectors read
+  secrets (COLLIERY-I-0651).
 - **Syncs in the UI** (COLLIERY-I-0635, CLOACINA-T-1005): a Syncs section.
   The list shows each sync's source and destination, schedule, last pass and
   what needs attention (schema drift, dead-letters), with run, edit and

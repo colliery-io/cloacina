@@ -637,6 +637,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/connectors/spec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `POST /v1/tenants/{tenant_id}/connectors/spec` — what a compiled connector
+         *     says about itself: its config schema, roles and sync modes (CLOACINA-T-1006).
+         *     It runs where connectors run, as check and discover do.
+         */
+        post: operations["spec_connector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/executions": {
         parameters: {
             query?: never;
@@ -1442,10 +1463,27 @@ export interface components {
             side: string;
         };
         /**
+         * @description What a compiled connector says about itself (CLOACINA-T-1006): its config
+         *     schema, roles and sync modes, from its `spec()`.
+         */
+        ConnectorSpecResponse: {
+            /** @description The JSON Schema of the connector's config. */
+            config_schema: unknown;
+            connector_version: string;
+            name: string;
+            roles: string[];
+            sync_modes: string[];
+        };
+        /**
          * @description One connector a server can run: compiled (a provider package) or
          *     declarative (a connector definition on the REST runtime).
          */
         ConnectorSummary: {
+            /**
+             * @description The JSON Schema of the connector's config (CLOACINA-T-1006): a compiled
+             *     connector's own, or the user config a definition reads.
+             */
+            config_schema?: unknown;
             /** @description `compiled` or `declarative`. */
             kind: string;
             /**
@@ -1457,6 +1495,8 @@ export interface components {
             provider: string;
             /** @description `Source`, `Destination`. */
             roles: string[];
+            /** @description The fields the side's stored secret must hold, for a definition. */
+            secret_fields?: string[];
             /**
              * @description A definition's streams, or a destination's objects. Empty for a
              *     compiled connector, whose streams are what `discover` finds.
@@ -2001,6 +2041,11 @@ export interface components {
          */
         ListResponse_ConnectorSummary: {
             items: {
+                /**
+                 * @description The JSON Schema of the connector's config (CLOACINA-T-1006): a compiled
+                 *     connector's own, or the user config a definition reads.
+                 */
+                config_schema?: unknown;
                 /** @description `compiled` or `declarative`. */
                 kind: string;
                 /**
@@ -2012,6 +2057,8 @@ export interface components {
                 provider: string;
                 /** @description `Source`, `Destination`. */
                 roles: string[];
+                /** @description The fields the side's stored secret must hold, for a definition. */
+                secret_fields?: string[];
                 /**
                  * @description A definition's streams, or a destination's objects. Empty for a
                  *     compiled connector, whose streams are what `discover` finds.
@@ -4417,6 +4464,60 @@ export interface operations {
                 };
             };
             /** @description The discover did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    spec_connector: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorProbeRequest"];
+            };
+        };
+        responses: {
+            /** @description The connector's spec */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSpecResponse"];
+                };
+            };
+            /** @description The side is not a compiled connector */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The connector does not load, with the reason */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No answer in time */
             504: {
                 headers: {
                     [name: string]: unknown;

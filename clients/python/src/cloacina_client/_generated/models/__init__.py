@@ -8,6 +8,7 @@ from .compiler_status import CompilerStatus
 from .connector_check_response import ConnectorCheckResponse
 from .connector_discover_response import ConnectorDiscoverResponse
 from .connector_probe_request import ConnectorProbeRequest
+from .connector_spec_response import ConnectorSpecResponse
 from .connector_summary import ConnectorSummary
 from .create_account_request import CreateAccountRequest
 from .create_instance_request import CreateInstanceRequest
@@ -158,6 +159,7 @@ __all__ = (
     "ConnectorCheckResponse",
     "ConnectorDiscoverResponse",
     "ConnectorProbeRequest",
+    "ConnectorSpecResponse",
     "ConnectorSummary",
     "CreateAccountRequest",
     "CreateInstanceRequest",

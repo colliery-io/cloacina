@@ -32,3 +32,7 @@ Feature: Check and discover run where connectors run
       | 1  | Robin |
     When the Postgres source is discovered
     Then the source table "orders" is offered as a stream
+
+  Scenario: A compiled connector describes its config
+    When the Postgres connector is asked to describe itself
+    Then its config has the field "table", and "password" is secret
