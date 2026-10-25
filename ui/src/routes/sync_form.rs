@@ -42,6 +42,10 @@ use cloacina_api_types::{
 use crate::auth::{client_for, use_auth};
 use crate::data::once_resource;
 
+/// What a read shows for a stored secret, and what keeps it on save
+/// (CLOACINA-T-1008).
+const SECRET_PLACEHOLDER: &str = "__cloacina_secret_unchanged__";
+
 /// One config field the connector's schema asks for.
 #[derive(Clone)]
 struct ConfigField {
@@ -114,6 +118,8 @@ struct Side {
     checking: RwSignal<bool>,
     /// A stored config waiting for the connector's fields, when editing.
     pending: RwSignal<Option<Map<String, Value>>>,
+    /// The connector's fields are on their way (its spec is being read).
+    loading: RwSignal<bool>,
 }
 
 impl Side {
@@ -129,6 +135,7 @@ impl Side {
             checked: RwSignal::new(None),
             checking: RwSignal::new(false),
             pending: RwSignal::new(None),
+            loading: RwSignal::new(false),
         }
     }
 
@@ -181,7 +188,11 @@ impl Side {
     }
 
     /// The side as a check or discover request.
-    fn probe(&self, catalog: &[ConnectorSummary]) -> Result<ConnectorProbeRequest, String> {
+    fn probe(
+        &self,
+        catalog: &[ConnectorSummary],
+        sync: Option<String>,
+    ) -> Result<ConnectorProbeRequest, String> {
         let entry = self
             .entry(catalog)
             .ok_or_else(|| format!("choose a {}", self.role))?;
@@ -192,6 +203,7 @@ impl Side {
                 definition: Some(entry.name),
                 config: Some(config),
                 secret: Some(self.secret.get()).filter(|s| !s.is_empty()),
+                sync,
                 ..Default::default()
             }
         } else {
@@ -202,6 +214,7 @@ impl Side {
                 config: Some(config),
                 grants: self.json(self.grants, "grants")?,
                 credential: self.json(self.credential, "credential")?,
+                sync,
                 ..Default::default()
             }
         })
@@ -285,6 +298,7 @@ impl Side {
             self.pending.set(None);
         }
         self.fields.set(fields);
+        self.loading.set(false);
     }
 }
 
@@ -347,6 +361,7 @@ pub fn SyncForm() -> impl IntoView {
             let from_catalog = fields_of(entry.as_ref().and_then(|e| e.config_schema.as_ref()));
             match entry {
                 Some(e) if from_catalog.is_empty() && e.kind == "compiled" => {
+                    side.loading.set(true);
                     if let Some(conn) = auth.connection() {
                         let request = ConnectorProbeRequest {
                             side: side.role.into(),
@@ -384,7 +399,11 @@ pub fn SyncForm() -> impl IntoView {
         let Some(conn) = auth.connection() else {
             return;
         };
-        let request = match source.probe(&catalog_items.get_untracked()) {
+        // Not until the source's fields are in and filled.
+        if source.loading.get_untracked() || source.pending.get_untracked().is_some() {
+            return;
+        }
+        let request = match source.probe(&catalog_items.get_untracked(), editing.get_untracked()) {
             Ok(r) => r,
             Err(_) => return,
         };
@@ -419,7 +438,10 @@ pub fn SyncForm() -> impl IntoView {
     Effect::new(move |_| {
         // Track the source's choice and every config value.
         source.connector.track();
+        source.loading.track();
         source.advanced.track();
+        source.grants.track();
+        source.credential.track();
         source.secret.track();
         for f in source.fields.get() {
             f.value.track();
@@ -527,7 +549,7 @@ pub fn SyncForm() -> impl IntoView {
         let Some(conn) = auth.connection() else {
             return;
         };
-        let request = match side.probe(&catalog_items.get_untracked()) {
+        let request = match side.probe(&catalog_items.get_untracked(), editing.get_untracked()) {
             Ok(r) => r,
             Err(e) => {
                 side.checked.set(Some(Err(e)));
@@ -773,9 +795,16 @@ pub fn SyncForm() -> impl IntoView {
                                     view! { <Select label=label option_pairs=pairs value=f.value description=desc /> }.into_any()
                                 } else if f.secret {
                                     view! {
-                                        <PasswordInput label=label value=f.value description=Signal::derive(move || {
-                                            "Stored in the sync's params until connectors read secrets (COLLIERY-I-0651).".to_string()
-                                        }) />
+                                        <PasswordInput label=label value=f.value description={
+                                            let value = f.value;
+                                            Signal::derive(move || {
+                                                if value.get() == SECRET_PLACEHOLDER {
+                                                    "Stored and masked. Leave it to keep it, or type a new value.".to_string()
+                                                } else {
+                                                    "Masked when read. It is kept in the sync's params until connectors read secrets (COLLIERY-I-0651).".to_string()
+                                                }
+                                            })
+                                        } />
                                     }.into_any()
                                 } else {
                                     view! { <TextInput label=label value=f.value mono=true description=desc /> }.into_any()

@@ -37,6 +37,7 @@
 #![allow(unexpected_cfgs)]
 
 pub mod catalog;
+pub mod config_secrets;
 pub mod credential;
 pub mod declarative;
 // Declarative connectors live in their own crate, free of the engine.

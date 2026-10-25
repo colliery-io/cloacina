@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A sync's connector secrets are masked** (COLLIERY-I-0635,
+  CLOACINA-T-1008): weir's convention, until connectors read secrets
+  (COLLIERY-I-0651). Every read of a sync shows the secret fields of its
+  connector config (a database password, a URL holding one) as
+  `__cloacina_secret_unchanged__`. An update that sends the placeholder back
+  keeps the stored value, and a create that sends one is refused. A check or
+  discover made while editing names the sync, and runs with its stored values.
+  The form shows a stored secret as unchanged until it is retyped.
+  `cloacina_sync::config_secrets`.
 - **The sync form** (COLLIERY-I-0635, CLOACINA-T-1006): create and edit a
   sync in the UI. Each side picks a connector from the catalog and fills the
   config its schema asks for, or an advanced JSON override, with a check

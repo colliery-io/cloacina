@@ -115,6 +115,10 @@ pub enum ParamError {
         "the sync `{from}` cannot be renamed `{to}`: its cursor and dead-letters are kept under its name"
     )]
     Renamed { from: String, to: String },
+    #[error(
+        "the {side} config's `{key}` holds the placeholder for a stored secret, and nothing is stored: type the value"
+    )]
+    Placeholder { side: &'static str, key: String },
 }
 
 /// One side of a sync: which connector member, with what config and grants.

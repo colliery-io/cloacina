@@ -103,14 +103,21 @@ async fn wake_cron_scheduler(state: &AppState, tenant_id: &str, tenant_db: cloac
 /// surfaced as `None` rather than failing the whole listing — the binding is
 /// still visible to an operator who needs to delete it.
 fn to_summary(s: Schedule) -> WorkflowInstanceSummary {
+    let mut params = s
+        .params
+        .as_deref()
+        .and_then(|p| serde_json::from_str::<serde_json::Value>(p).ok());
+    // CLOACINA-T-1008: a read never shows a sync connector's secret.
+    if s.workflow_name == cloacina_sync::WORKFLOW_NAME
+        && let Some(serde_json::Value::Object(p)) = params.as_mut()
+    {
+        cloacina_sync::config_secrets::mask(p);
+    }
     WorkflowInstanceSummary {
         id: s.id.0.to_string(),
         workflow_name: s.workflow_name,
         instance_name: s.instance_name.unwrap_or_default(),
-        params: s
-            .params
-            .as_deref()
-            .and_then(|p| serde_json::from_str::<serde_json::Value>(p).ok()),
+        params,
         cron_expression: s.cron_expression,
         timezone: s.timezone,
         enabled: s.enabled.is_true(),
@@ -218,9 +225,12 @@ pub async fn create_instance(
     // 400 now, not a failed segment later.
     if name == cloacina_sync::WORKFLOW_NAME {
         let empty = serde_json::Map::new();
-        if let Err(e) =
+        if let Err(e) = cloacina_sync::config_secrets::refuse_placeholders(
+            provided.unwrap_or(&empty),
+        )
+        .and_then(|_| {
             cloacina_sync::params::validate(&body.instance_name, provided.unwrap_or(&empty))
-        {
+        }) {
             return ApiError::bad_request(
                 "sync_params_invalid",
                 format!("invalid sync definition: {e}"),
@@ -423,6 +433,25 @@ pub async fn update_instance(
         Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };
 
+    let mut body = body;
+    // CLOACINA-T-1008: a sync's config may send the placeholder for a stored
+    // secret; it keeps the stored value.
+    if name == cloacina_sync::WORKFLOW_NAME
+        && let Some(serde_json::Value::Object(new)) = body.params.as_mut()
+    {
+        let old: serde_json::Map<String, serde_json::Value> = existing
+            .params
+            .as_deref()
+            .and_then(|p| serde_json::from_str(p).ok())
+            .unwrap_or_default();
+        if let Err(e) = cloacina_sync::config_secrets::keep(&old, new) {
+            return ApiError::bad_request(
+                "sync_params_invalid",
+                format!("invalid sync definition: {e}"),
+            )
+            .into_response();
+        }
+    }
     let provided = body.params.as_ref().and_then(|v| v.as_object());
     if let Err(e) = check_declared_params(&tenant_db, &name, provided).await {
         return e.into_response();

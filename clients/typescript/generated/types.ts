@@ -1461,6 +1461,11 @@ export interface components {
             secret?: string | null;
             /** @description `source` or `destination`. Discover reads a source. */
             side: string;
+            /**
+             * @description The sync being edited, if any: a config value that is the placeholder
+             *     for a stored secret takes that sync's stored value (CLOACINA-T-1008).
+             */
+            sync?: string | null;
         };
         /**
          * @description What a compiled connector says about itself (CLOACINA-T-1006): its config

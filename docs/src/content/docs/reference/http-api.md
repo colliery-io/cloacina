@@ -599,6 +599,18 @@ Updating one (`PUT .../instances/{instance}`) checks them again. Its `sync`
 name cannot change, because the committed cursor and the dead-letters are
 kept under it: a rename is `400 sync_params_invalid`.
 
+A sync's connector config can hold a secret: a database connector takes its
+password, or a URL holding one, in its config. Every read of a sync (the
+instance routes and `/syncs/{name}`) shows such a field as the placeholder
+`__cloacina_secret_unchanged__`. A field counts as secret when its name holds
+`password`, `secret`, `token`, `api_key`, `private_key` or `credential`, or is
+a connection `url`, `uri` or `dsn`. An update that sends the placeholder back
+keeps the stored value; a create that sends it, or an update with nothing
+stored behind it, is `400 sync_params_invalid`. A check or discover made while
+editing names the sync in `sync`, and the placeholders take its stored
+values. Connectors reading secrets from the store replaces this
+(COLLIERY-I-0651).
+
 ## Syncs
 
 A sync is created, changed and deleted on the instances route, as an instance

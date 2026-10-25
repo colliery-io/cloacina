@@ -98,7 +98,26 @@ async fn probe<T: serde::de::DeserializeOwned>(
             .await
             .map_err(|e| ApiError::internal(format!("tenant runner unavailable: {e}")))?
     };
-    let ctx = cloacina_sync::probe::context(action, request);
+    // CLOACINA-T-1008: while a sync is edited its config holds placeholders
+    // for the stored secrets; the probe runs with the stored values.
+    let mut filled = request.clone();
+    if let (Some(sync), Some(serde_json::Value::Object(config))) =
+        (request.sync.as_deref(), filled.config.as_mut())
+    {
+        let stored: serde_json::Map<String, serde_json::Value> =
+            cloacina::dal::DAL::new(tenant_db.clone())
+                .schedule()
+                .find_by_instance_name(cloacina_sync::WORKFLOW_NAME, sync)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|s| s.params)
+                .and_then(|p| serde_json::from_str(&p).ok())
+                .unwrap_or_default();
+        cloacina_sync::config_secrets::keep_side(&stored, &request.side, config)
+            .map_err(|e| ApiError::bad_request("probe_invalid", e.to_string()))?;
+    }
+    let ctx = cloacina_sync::probe::context(action, &filled);
     let result = match tokio::time::timeout(
         PROBE_TIMEOUT,
         runner.execute(cloacina_sync::probe::PROBE_WORKFLOW, ctx),

@@ -27,3 +27,22 @@ Feature: What a sync shows
 
   Scenario: A sync that does not exist is named
     Then reading the sync "nope" says there is no such sync
+
+  Scenario: A sync's password is masked when read, and kept when saved unchanged
+    Given a Postgres source table "people" with the records
+      | id | name  |
+      | 1  | Robin |
+    And a sync definition "people" that copies the Postgres table "people" to an echo destination
+    Then reading the sync "people" shows its "url" masked, and never the password
+    When the sync definition "people" is saved again as it was read
+    Then the change is accepted
+    When the sync definition "people" runs a pass
+    Then the passes of "people" are listed newest first with "1" segments
+
+  Scenario: A masked secret with nothing stored behind it is refused
+    Given a Postgres source table "people" with the records
+      | id | name  |
+      | 1  | Robin |
+    And a sync definition "people" that copies the Postgres table "people" to an echo destination
+    When a sync "copy" is created from what a read of "people" showed
+    Then the change is refused, saying "nothing is stored"
