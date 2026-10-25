@@ -535,6 +535,24 @@ impl SyncWorld {
     /// segments; its destination counts the records.
     pub async fn define_echo_sync(&mut self, name: &str, segments: u64) {
         let params = echo_sync_params(name, segments);
+        self.store_sync_definition(name, params).await;
+    }
+
+    /// A sync definition `name` whose echo source sends `rows` once, under
+    /// `schema`.
+    pub async fn define_echo_sync_rows(
+        &mut self,
+        name: &str,
+        rows: Vec<String>,
+        schema: cloacina_constructor_contract::sync::StreamSchema,
+    ) {
+        let mut params = echo_sync_params(name, 1);
+        params[keys::SOURCE_CONFIG] = json!(json!({ "rows": rows }).to_string());
+        params[keys::SCHEMA] = json!(serde_json::to_string(&schema).expect("schema json"));
+        self.store_sync_definition(name, params).await;
+    }
+
+    async fn store_sync_definition(&mut self, name: &str, params: Value) {
         self.dal()
             .await
             .schedule()

@@ -24,3 +24,4 @@ mod declarative;
 mod passes;
 mod schema;
 mod sync;
+mod views;

@@ -45,6 +45,7 @@ pub mod keys;
 pub mod operations;
 pub mod reactor;
 pub mod secrets;
+pub mod syncs;
 pub mod tenants;
 pub mod triggers;
 pub mod workflows;
@@ -81,6 +82,10 @@ pub use reactor::{
 };
 pub use secrets::{
     CreateSecretRequest, RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse,
+};
+pub use syncs::{
+    SchemaAcceptedResponse, SyncDeadLetter, SyncDetail, SyncPageQuery, SyncPass, SyncSide,
+    SyncStream, SyncSummary,
 };
 pub use tenants::{
     CreateTenantRequest, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,

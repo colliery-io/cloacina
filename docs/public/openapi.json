@@ -2896,6 +2896,449 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/syncs": {
+      "get": {
+        "tags": [
+          "syncs"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/syncs` — every sync, by name.",
+        "operationId": "list_syncs",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's syncs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_SyncSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/syncs/{name}": {
+      "get": {
+        "tags": [
+          "syncs"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/syncs/{name}` — one sync, with its params.",
+        "operationId": "get_sync",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Sync definition name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sync",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such sync",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/syncs/{name}/dead-letters": {
+      "get": {
+        "tags": [
+          "syncs"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/syncs/{name}/dead-letters` — a page of the\nrecords the sync set aside, newest first; `total` is how many it holds.",
+        "operationId": "list_dead_letters",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Sync definition name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sync's dead-letters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantListResponse_SyncDeadLetter"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such sync",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/syncs/{name}/passes": {
+      "get": {
+        "tags": [
+          "syncs"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/syncs/{name}/passes` — a page of the sync's\npasses, newest first, each with its segments' executions.",
+        "operationId": "list_passes",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Sync definition name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sync's passes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_SyncPass"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such sync",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/syncs/{name}/schema/accept": {
+      "post": {
+        "tags": [
+          "syncs"
+        ],
+        "summary": "`POST /v1/tenants/{tenant_id}/syncs/{name}/schema/accept` — accept the\nstream's new shape: its stored schema empties and `broken` clears, and the\nnext write captures the shape it sees.",
+        "operationId": "accept_schema",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Sync definition name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new shape is accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaAcceptedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such sync",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/syncs/{name}/streams": {
+      "get": {
+        "tags": [
+          "syncs"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/syncs/{name}/streams` — the sync's streams,\neach with its committed cursor and captured schema.",
+        "operationId": "list_streams",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Sync definition name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sync's streams",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_SyncStream"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such sync",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/triggers": {
       "get": {
         "tags": [
@@ -6505,6 +6948,236 @@
           }
         }
       },
+      "ListResponse_SyncPass": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One pass of a sync: its segments' executions, shown as one.",
+              "required": [
+                "pass_id",
+                "status",
+                "started_at",
+                "segments",
+                "executions"
+              ],
+              "properties": {
+                "completed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339: the last segment's end; `null` while running."
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The cursor the pass's last segment ended on."
+                },
+                "executions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExecutionSummary"
+                  },
+                  "description": "The segments, oldest first."
+                },
+                "pass_id": {
+                  "type": "string"
+                },
+                "segments": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "started_at": {
+                  "type": "string",
+                  "description": "RFC 3339: the first segment's start."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "`Running`, `Completed` or `Failed`."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListResponse_SyncStream": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A stream of a sync: its committed cursor and its captured schema.",
+              "required": [
+                "stream",
+                "exhausted",
+                "fields"
+              ],
+              "properties": {
+                "broken": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Why the schema is broken; `null` when it stands."
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "exhausted": {
+                  "type": "boolean"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DiscoveredField"
+                  },
+                  "description": "The captured schema's fields; empty before the first write, or after\nan accept."
+                },
+                "partition": {
+                  "type": "string"
+                },
+                "stream": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339: when the cursor last moved."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListResponse_SyncSummary": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One sync in the list, and the head of its detail.",
+              "required": [
+                "name",
+                "sync_name",
+                "source",
+                "destination",
+                "stream",
+                "sync_mode",
+                "write_mode",
+                "enabled",
+                "schema_broken",
+                "dead_letters"
+              ],
+              "properties": {
+                "cron": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dead_letters": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "destination": {
+                  "$ref": "#/components/schemas/SyncSide"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "last_pass": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SyncPass",
+                      "description": "The latest pass, if any has run."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The sync definition's name: the workflow instance's."
+                },
+                "next_run_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "schema_broken": {
+                  "type": "boolean",
+                  "description": "Whether a stream's schema is broken."
+                },
+                "source": {
+                  "$ref": "#/components/schemas/SyncSide"
+                },
+                "stream": {
+                  "type": "string"
+                },
+                "sync_mode": {
+                  "type": "string",
+                  "description": "`FullRefresh`, `Incremental` or `Cdc`."
+                },
+                "sync_name": {
+                  "type": "string",
+                  "description": "The name its cursor and dead-letters are kept under."
+                },
+                "timezone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "write_mode": {
+                  "type": "string",
+                  "description": "`Append`, `Upsert` or `Overwrite`."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "ListResponse_TenantSummary": {
         "type": "object",
         "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
@@ -6771,6 +7444,26 @@
           }
         }
       },
+      "SchemaAcceptedResponse": {
+        "type": "object",
+        "description": "`POST /tenants/{tenant_id}/syncs/{name}/schema/accept` response.",
+        "required": [
+          "name",
+          "stream",
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "string"
+          }
+        }
+      },
       "SecretDeletedResponse": {
         "type": "object",
         "description": "`DELETE /v1/tenants/{tenant_id}/secrets/{name}` response.",
@@ -6822,6 +7515,271 @@
           "updated_at": {
             "type": "string",
             "description": "RFC 3339 timestamp."
+          }
+        }
+      },
+      "SyncDeadLetter": {
+        "type": "object",
+        "description": "A record a sync set aside, with the reason.",
+        "required": [
+          "id",
+          "stream",
+          "record",
+          "reason",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "record": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "string"
+          }
+        }
+      },
+      "SyncDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SyncSummary"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "params": {}
+            }
+          }
+        ],
+        "description": "A sync and its params, as stored: the params name secrets, never hold them."
+      },
+      "SyncPageQuery": {
+        "type": "object",
+        "description": "Query string for the pass and dead-letter lists.",
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "SyncPass": {
+        "type": "object",
+        "description": "One pass of a sync: its segments' executions, shown as one.",
+        "required": [
+          "pass_id",
+          "status",
+          "started_at",
+          "segments",
+          "executions"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339: the last segment's end; `null` while running."
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cursor the pass's last segment ended on."
+          },
+          "executions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExecutionSummary"
+            },
+            "description": "The segments, oldest first."
+          },
+          "pass_id": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "started_at": {
+            "type": "string",
+            "description": "RFC 3339: the first segment's start."
+          },
+          "status": {
+            "type": "string",
+            "description": "`Running`, `Completed` or `Failed`."
+          }
+        }
+      },
+      "SyncSide": {
+        "type": "object",
+        "description": "One side of a sync: a compiled connector, or a connector definition.",
+        "properties": {
+          "definition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SyncStream": {
+        "type": "object",
+        "description": "A stream of a sync: its committed cursor and its captured schema.",
+        "required": [
+          "stream",
+          "exhausted",
+          "fields"
+        ],
+        "properties": {
+          "broken": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the schema is broken; `null` when it stands."
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exhausted": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredField"
+            },
+            "description": "The captured schema's fields; empty before the first write, or after\nan accept."
+          },
+          "partition": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339: when the cursor last moved."
+          }
+        }
+      },
+      "SyncSummary": {
+        "type": "object",
+        "description": "One sync in the list, and the head of its detail.",
+        "required": [
+          "name",
+          "sync_name",
+          "source",
+          "destination",
+          "stream",
+          "sync_mode",
+          "write_mode",
+          "enabled",
+          "schema_broken",
+          "dead_letters"
+        ],
+        "properties": {
+          "cron": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dead_letters": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/SyncSide"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "last_pass": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SyncPass",
+                "description": "The latest pass, if any has run."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "The sync definition's name: the workflow instance's."
+          },
+          "next_run_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_broken": {
+            "type": "boolean",
+            "description": "Whether a stream's schema is broken."
+          },
+          "source": {
+            "$ref": "#/components/schemas/SyncSide"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "sync_mode": {
+            "type": "string",
+            "description": "`FullRefresh`, `Incremental` or `Cdc`."
+          },
+          "sync_name": {
+            "type": "string",
+            "description": "The name its cursor and dead-letters are kept under."
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "write_mode": {
+            "type": "string",
+            "description": "`Append`, `Upsert` or `Overwrite`."
           }
         }
       },
@@ -6985,6 +7943,61 @@
                   "description": "How the run was triggered (CLOACI-T-0776): `\"manual\"` for an operator run\nvia the REST execute endpoint; `null` for cron/trigger/reactor-driven runs.\nThe UI marks manual runs with a \"manual\" pill."
                 },
                 "workflow_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "TenantListResponse_SyncDeadLetter": {
+        "type": "object",
+        "description": "List envelope variant that retains a top-level `tenant_id`, used by\ntenant-scoped list endpoints for backward compatibility with operator\ndashboards that key off it.",
+        "required": [
+          "tenant_id",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A record a sync set aside, with the reason.",
+              "required": [
+                "id",
+                "stream",
+                "record",
+                "reason",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string"
+                },
+                "execution_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "record": {
+                  "type": "string"
+                },
+                "stream": {
                   "type": "string"
                 }
               }
@@ -8016,6 +9029,10 @@
     {
       "name": "connectors",
       "description": "Sync connector catalog, check and discover"
+    },
+    {
+      "name": "syncs",
+      "description": "Syncs: their passes, dead-letters and streams"
     }
   ]
 }

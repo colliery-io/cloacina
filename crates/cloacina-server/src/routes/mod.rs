@@ -33,6 +33,7 @@ pub mod local_auth;
 pub mod oidc_auth;
 pub mod secrets;
 pub mod session;
+pub mod syncs;
 pub mod tenants;
 pub mod triggers;
 pub mod workflows;

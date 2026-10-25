@@ -801,6 +801,121 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/syncs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /v1/tenants/{tenant_id}/syncs` — every sync, by name. */
+        get: operations["list_syncs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/syncs/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /v1/tenants/{tenant_id}/syncs/{name}` — one sync, with its params. */
+        get: operations["get_sync"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/syncs/{name}/dead-letters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/tenants/{tenant_id}/syncs/{name}/dead-letters` — a page of the
+         *     records the sync set aside, newest first; `total` is how many it holds.
+         */
+        get: operations["list_dead_letters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/syncs/{name}/passes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/tenants/{tenant_id}/syncs/{name}/passes` — a page of the sync's
+         *     passes, newest first, each with its segments' executions.
+         */
+        get: operations["list_passes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/syncs/{name}/schema/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `POST /v1/tenants/{tenant_id}/syncs/{name}/schema/accept` — accept the
+         *     stream's new shape: its stored schema empties and `broken` clears, and the
+         *     next write captures the shape it sees.
+         */
+        post: operations["accept_schema"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/syncs/{name}/streams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/tenants/{tenant_id}/syncs/{name}/streams` — the sync's streams,
+         *     each with its committed cursor and captured schema.
+         */
+        get: operations["list_streams"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/triggers": {
         parameters: {
             query?: never;
@@ -2050,6 +2165,81 @@ export interface components {
          *     returns `{items, total}`. `total` is best-effort — it equals the
          *     returned page size when the server doesn't run a separate COUNT.
          */
+        ListResponse_SyncPass: {
+            items: {
+                /** @description RFC 3339: the last segment's end; `null` while running. */
+                completed_at?: string | null;
+                /** @description The cursor the pass's last segment ended on. */
+                cursor?: string | null;
+                /** @description The segments, oldest first. */
+                executions: components["schemas"]["ExecutionSummary"][];
+                pass_id: string;
+                segments: number;
+                /** @description RFC 3339: the first segment's start. */
+                started_at: string;
+                /** @description `Running`, `Completed` or `Failed`. */
+                status: string;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
+        ListResponse_SyncStream: {
+            items: {
+                /** @description Why the schema is broken; `null` when it stands. */
+                broken?: string | null;
+                cursor?: string | null;
+                exhausted: boolean;
+                /**
+                 * @description The captured schema's fields; empty before the first write, or after
+                 *     an accept.
+                 */
+                fields: components["schemas"]["DiscoveredField"][];
+                partition?: string;
+                stream: string;
+                /** @description RFC 3339: when the cursor last moved. */
+                updated_at?: string | null;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
+        ListResponse_SyncSummary: {
+            items: {
+                cron?: string | null;
+                /** Format: int64 */
+                dead_letters: number;
+                destination: components["schemas"]["SyncSide"];
+                enabled: boolean;
+                last_pass?: components["schemas"]["SyncPass"] | null;
+                /** @description The sync definition's name: the workflow instance's. */
+                name: string;
+                next_run_at?: string | null;
+                /** @description Whether a stream's schema is broken. */
+                schema_broken: boolean;
+                source: components["schemas"]["SyncSide"];
+                stream: string;
+                /** @description `FullRefresh`, `Incremental` or `Cdc`. */
+                sync_mode: string;
+                /** @description The name its cursor and dead-letters are kept under. */
+                sync_name: string;
+                timezone?: string | null;
+                /** @description `Append`, `Upsert` or `Overwrite`. */
+                write_mode: string;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
         ListResponse_TenantSummary: {
             items: {
                 name: string;
@@ -2181,6 +2371,12 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** @description `POST /tenants/{tenant_id}/syncs/{name}/schema/accept` response. */
+        SchemaAcceptedResponse: {
+            accepted: boolean;
+            name: string;
+            stream: string;
+        };
         /** @description `DELETE /v1/tenants/{tenant_id}/secrets/{name}` response. */
         SecretDeletedResponse: {
             /** @description The deleted secret's name. */
@@ -2203,6 +2399,85 @@ export interface components {
             name: string;
             /** @description RFC 3339 timestamp. */
             updated_at: string;
+        };
+        /** @description A record a sync set aside, with the reason. */
+        SyncDeadLetter: {
+            created_at: string;
+            execution_id?: string | null;
+            id: string;
+            reason: string;
+            record: string;
+            stream: string;
+        };
+        /** @description A sync and its params, as stored: the params name secrets, never hold them. */
+        SyncDetail: components["schemas"]["SyncSummary"] & {
+            params?: unknown;
+        };
+        /** @description Query string for the pass and dead-letter lists. */
+        SyncPageQuery: {
+            /** Format: int64 */
+            limit?: number | null;
+            /** Format: int64 */
+            offset?: number | null;
+        };
+        /** @description One pass of a sync: its segments' executions, shown as one. */
+        SyncPass: {
+            /** @description RFC 3339: the last segment's end; `null` while running. */
+            completed_at?: string | null;
+            /** @description The cursor the pass's last segment ended on. */
+            cursor?: string | null;
+            /** @description The segments, oldest first. */
+            executions: components["schemas"]["ExecutionSummary"][];
+            pass_id: string;
+            segments: number;
+            /** @description RFC 3339: the first segment's start. */
+            started_at: string;
+            /** @description `Running`, `Completed` or `Failed`. */
+            status: string;
+        };
+        /** @description One side of a sync: a compiled connector, or a connector definition. */
+        SyncSide: {
+            definition?: string | null;
+            provider?: string | null;
+        };
+        /** @description A stream of a sync: its committed cursor and its captured schema. */
+        SyncStream: {
+            /** @description Why the schema is broken; `null` when it stands. */
+            broken?: string | null;
+            cursor?: string | null;
+            exhausted: boolean;
+            /**
+             * @description The captured schema's fields; empty before the first write, or after
+             *     an accept.
+             */
+            fields: components["schemas"]["DiscoveredField"][];
+            partition?: string;
+            stream: string;
+            /** @description RFC 3339: when the cursor last moved. */
+            updated_at?: string | null;
+        };
+        /** @description One sync in the list, and the head of its detail. */
+        SyncSummary: {
+            cron?: string | null;
+            /** Format: int64 */
+            dead_letters: number;
+            destination: components["schemas"]["SyncSide"];
+            enabled: boolean;
+            last_pass?: components["schemas"]["SyncPass"] | null;
+            /** @description The sync definition's name: the workflow instance's. */
+            name: string;
+            next_run_at?: string | null;
+            /** @description Whether a stream's schema is broken. */
+            schema_broken: boolean;
+            source: components["schemas"]["SyncSide"];
+            stream: string;
+            /** @description `FullRefresh`, `Incremental` or `Cdc`. */
+            sync_mode: string;
+            /** @description The name its cursor and dead-letters are kept under. */
+            sync_name: string;
+            timezone?: string | null;
+            /** @description `Append`, `Upsert` or `Overwrite`. */
+            write_mode: string;
         };
         /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
         TaskExecutionDetail: {
@@ -2270,6 +2545,23 @@ export interface components {
                  */
                 trigger_origin?: string | null;
                 workflow_name: string;
+            }[];
+            tenant_id: string;
+            total: number;
+        };
+        /**
+         * @description List envelope variant that retains a top-level `tenant_id`, used by
+         *     tenant-scoped list endpoints for backward compatibility with operator
+         *     dashboards that key off it.
+         */
+        TenantListResponse_SyncDeadLetter: {
+            items: {
+                created_at: string;
+                execution_id?: string | null;
+                id: string;
+                reason: string;
+                record: string;
+                stream: string;
             }[];
             tenant_id: string;
             total: number;
@@ -4824,6 +5116,286 @@ export interface operations {
             };
             /** @description Secrets not configured on this server */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_syncs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's syncs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_SyncSummary"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_sync: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Sync definition name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sync */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncDetail"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such sync */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_dead_letters: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Sync definition name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sync's dead-letters */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantListResponse_SyncDeadLetter"];
+                };
+            };
+            /** @description Invalid pagination */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such sync */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_passes: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Sync definition name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sync's passes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_SyncPass"];
+                };
+            };
+            /** @description Invalid pagination */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such sync */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    accept_schema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Sync definition name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new shape is accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaAcceptedResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such sync */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_streams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Sync definition name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sync's streams */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_SyncStream"];
+                };
+            };
+            /** @description No such sync */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

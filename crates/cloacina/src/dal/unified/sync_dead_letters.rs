@@ -52,6 +52,26 @@ impl<'a> SyncDeadLettersDAL<'a> {
         Ok(rows)
     }
 
+    /// A page of one sync's dead-letters, newest first (CLOACINA-T-1004).
+    pub async fn page(
+        &self,
+        sync_name: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<UnifiedSyncDeadLetter>, ValidationError> {
+        let sync_owned = sync_name.to_string();
+        let rows = crate::interact_on_backend!(self.dal, |conn| {
+            sync_dead_letters::table
+                .filter(sync_dead_letters::sync_name.eq(&sync_owned))
+                .order(sync_dead_letters::created_at.desc())
+                .limit(limit)
+                .offset(offset)
+                .select(UnifiedSyncDeadLetter::as_select())
+                .load(conn)
+        })?;
+        Ok(rows)
+    }
+
     /// How many dead-letters one sync holds.
     pub async fn count_for_sync(&self, sync_name: &str) -> Result<i64, ValidationError> {
         let sync_owned = sync_name.to_string();
