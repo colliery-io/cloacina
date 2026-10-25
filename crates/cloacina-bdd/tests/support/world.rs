@@ -616,6 +616,95 @@ impl SyncWorld {
         self.created = Some(Ok(()));
     }
 
+    /// A stored sync definition `name` from the scenario's Postgres table
+    /// `table` (its URL holds the database's password) to the echo
+    /// destination, incremental by `id`.
+    pub async fn define_pg_sync(&mut self, name: &str, table: &str) {
+        let table = self.table(table);
+        let source = Side::postgres(&table);
+        let stream = ConfiguredStream {
+            stream: table,
+            sync_mode: SyncMode::Incremental,
+            cursor_field: Some("id".into()),
+            primary_key: Some(vec!["id".into()]),
+            write_mode: WriteMode::Upsert {
+                business_keys: vec!["id".into()],
+            },
+            mapping: MappingSpec::default(),
+        };
+        let params = json!({
+            keys::SYNC: name,
+            keys::SOURCE_PROVIDER: source.provider,
+            keys::SOURCE_MEMBER: "source",
+            keys::SOURCE_CONFIG: source.config.to_string(),
+            keys::SOURCE_GRANTS: source.grants.expect("grants").to_string(),
+            keys::DESTINATION_PROVIDER: providers::ECHO,
+            keys::DESTINATION_MEMBER: "destination",
+            keys::DESTINATION_CONFIG: "{}",
+            keys::STREAM: serde_json::to_string(&stream).expect("stream json"),
+        });
+        self.store_sync_definition(name, params).await;
+    }
+
+    /// The sync's params as a read shows them.
+    pub async fn read_params(&mut self, name: &str) -> serde_json::Map<String, Value> {
+        let dal = self.dal().await;
+        cloacina_sync::views::get(&dal, name)
+            .await
+            .expect("read the sync")
+            .params
+            .and_then(|p| p.as_object().cloned())
+            .unwrap_or_default()
+    }
+
+    /// Change the sync `name` by sending back what a read showed, as the form
+    /// does when no field is retyped: the server's update checks.
+    pub async fn change_from_read(&mut self, name: &str) {
+        let mut new = self.read_params(name).await;
+        let dal = self.dal().await;
+        let existing = dal
+            .schedule()
+            .find_by_instance_name(cloacina_sync::WORKFLOW_NAME, name)
+            .await
+            .expect("look up the sync")
+            .expect("the sync exists");
+        let old: serde_json::Map<String, Value> = existing
+            .params
+            .as_deref()
+            .and_then(|p| serde_json::from_str(p).ok())
+            .unwrap_or_default();
+        let checked = cloacina_sync::config_secrets::keep(&old, &mut new)
+            .and_then(|_| cloacina_sync::params::validate_update(name, &old, &new));
+        if let Err(e) = checked {
+            self.created = Some(Err(e.to_string()));
+            return;
+        }
+        dal.schedule()
+            .update_instance(
+                existing.id,
+                Some(Value::Object(new).to_string()),
+                None,
+                Some("UTC".into()),
+                None,
+                true,
+            )
+            .await
+            .expect("update the sync");
+        self.created = Some(Ok(()));
+    }
+
+    /// Create a sync from what a read of `from` showed, under a new name:
+    /// its masked secrets have nothing stored behind them.
+    pub async fn create_from_read(&mut self, from: &str, name: &str) {
+        let mut params = self.read_params(from).await;
+        params.insert(keys::SYNC.into(), json!(name));
+        self.created = Some(
+            cloacina_sync::config_secrets::refuse_placeholders(&params)
+                .and_then(|_| cloacina_sync::params::validate(name, &params))
+                .map_err(|e| e.to_string()),
+        );
+    }
+
     /// The cursor committed for the echo stream of the sync `sync`.
     pub async fn sync_cursor(&mut self, sync: &str) -> Option<String> {
         self.dal()

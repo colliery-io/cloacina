@@ -74,6 +74,10 @@ pub struct ConnectorProbeRequest {
     /// The stored secret a definition's auth reads.
     #[serde(default)]
     pub secret: Option<String>,
+    /// The sync being edited, if any: a config value that is the placeholder
+    /// for a stored secret takes that sync's stored value (CLOACINA-T-1008).
+    #[serde(default)]
+    pub sync: Option<String>,
 }
 
 /// What a connector's `check` said.

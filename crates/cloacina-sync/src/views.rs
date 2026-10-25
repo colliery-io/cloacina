@@ -258,7 +258,12 @@ pub async fn get(dal: &DAL, name: &str) -> Result<SyncDetail, ViewError> {
     let s = definition(dal, name).await?;
     Ok(SyncDetail {
         summary: summary(dal, &s).await?,
-        params: Some(Value::Object(params_of(&s))),
+        params: Some(Value::Object({
+            // CLOACINA-T-1008: a read never shows a connector's secret.
+            let mut p = params_of(&s);
+            crate::config_secrets::mask(&mut p);
+            p
+        })),
     })
 }
 

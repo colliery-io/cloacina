@@ -153,3 +153,38 @@ async fn no_such(w: &mut SyncWorld, name: String) {
 async fn run_by_hand(w: &mut SyncWorld, name: String) {
     w.run_by_hand(&name).await;
 }
+
+#[given(
+    expr = "a sync definition {string} that copies the Postgres table {string} to an echo destination"
+)]
+async fn pg_definition(w: &mut SyncWorld, name: String, table: String) {
+    w.define_pg_sync(&name, &table).await;
+}
+
+#[then(expr = "reading the sync {string} shows its {string} masked, and never the password")]
+async fn masked(w: &mut SyncWorld, name: String, field: String) {
+    let params = w.read_params(&name).await;
+    let config: serde_json::Value =
+        serde_json::from_str(params["source_config"].as_str().expect("source_config"))
+            .expect("config json");
+    assert_eq!(
+        config[&field],
+        cloacina_sync::config_secrets::SECRET_PLACEHOLDER,
+        "{config}"
+    );
+    let text = serde_json::to_string(&params).unwrap();
+    assert!(
+        !text.contains(":cloacina@"),
+        "a read holds the password: {text}"
+    );
+}
+
+#[when(expr = "the sync definition {string} is saved again as it was read")]
+async fn saved_as_read(w: &mut SyncWorld, name: String) {
+    w.change_from_read(&name).await;
+}
+
+#[when(expr = "a sync {string} is created from what a read of {string} showed")]
+async fn created_from_read(w: &mut SyncWorld, name: String, from: String) {
+    w.create_from_read(&from, &name).await;
+}

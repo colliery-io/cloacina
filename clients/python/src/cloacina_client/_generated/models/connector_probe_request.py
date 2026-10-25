@@ -28,6 +28,8 @@ class ConnectorProbeRequest:
             member (None | str | Unset):
             provider (None | str | Unset):
             secret (None | str | Unset): The stored secret a definition's auth reads.
+            sync (None | str | Unset): The sync being edited, if any: a config value that is the placeholder
+                for a stored secret takes that sync's stored value (CLOACINA-T-1008).
     """
 
     side: str
@@ -38,6 +40,7 @@ class ConnectorProbeRequest:
     member: None | str | Unset = UNSET
     provider: None | str | Unset = UNSET
     secret: None | str | Unset = UNSET
+    sync: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -73,6 +76,12 @@ class ConnectorProbeRequest:
         else:
             secret = self.secret
 
+        sync: None | str | Unset
+        if isinstance(self.sync, Unset):
+            sync = UNSET
+        else:
+            sync = self.sync
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -94,6 +103,8 @@ class ConnectorProbeRequest:
             field_dict["provider"] = provider
         if secret is not UNSET:
             field_dict["secret"] = secret
+        if sync is not UNSET:
+            field_dict["sync"] = sync
 
         return field_dict
 
@@ -144,6 +155,15 @@ class ConnectorProbeRequest:
 
         secret = _parse_secret(d.pop("secret", UNSET))
 
+        def _parse_sync(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        sync = _parse_sync(d.pop("sync", UNSET))
+
         connector_probe_request = cls(
             side=side,
             config=config,
@@ -153,6 +173,7 @@ class ConnectorProbeRequest:
             member=member,
             provider=provider,
             secret=secret,
+            sync=sync,
         )
 
         connector_probe_request.additional_properties = d

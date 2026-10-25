@@ -6050,6 +6050,87 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     }
 
+    // ── A sync's connector secrets (CLOACINA-T-1008) ─────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_sync_reads_mask_the_password_and_an_update_keeps_it() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let name = format!("mask-{}", uuid::Uuid::new_v4());
+        let mut params = sync_params(&name);
+        params["source_config"] = serde_json::json!(
+            serde_json::json!({"url": "postgres://u:hunter2@h/db", "table": "t"}).to_string()
+        );
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/sync/instances",
+            serde_json::json!({"instance_name": name, "params": params}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            !body.to_string().contains("hunter2"),
+            "create echoed the password: {body}"
+        );
+
+        let uri = format!("/v1/tenants/public/workflows/sync/instances/{name}");
+        let (_, read) = send_json(&state, &token, "GET", &uri, serde_json::json!({})).await;
+        assert!(!read.to_string().contains("hunter2"), "{read}");
+        let (_, detail) = send_json(
+            &state,
+            &token,
+            "GET",
+            &format!("/v1/tenants/public/syncs/{name}"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert!(!detail.to_string().contains("hunter2"), "{detail}");
+        assert!(
+            detail.to_string().contains("__cloacina_secret_unchanged__"),
+            "{detail}"
+        );
+
+        // Save it back as read: the stored password stays.
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": read["params"].clone()}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        let stored = dal
+            .schedule()
+            .find_by_instance_name("sync", &name)
+            .await
+            .unwrap()
+            .unwrap()
+            .params
+            .unwrap();
+        assert!(
+            stored.contains("hunter2"),
+            "the stored password was lost: {stored}"
+        );
+
+        // A new sync cannot send the placeholder.
+        let mut copy = read["params"].clone();
+        copy["sync"] = serde_json::json!(format!("{name}-copy"));
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/sync/instances",
+            serde_json::json!({"instance_name": format!("{name}-copy"), "params": copy}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+
     // ── Fallback / 404 ──────────────────────────────────────────────
 
     #[tokio::test]

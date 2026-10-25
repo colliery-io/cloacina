@@ -5521,6 +5521,13 @@
           "side": {
             "type": "string",
             "description": "`source` or `destination`. Discover reads a source."
+          },
+          "sync": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The sync being edited, if any: a config value that is the placeholder\nfor a stored secret takes that sync's stored value (CLOACINA-T-1008)."
           }
         }
       },
