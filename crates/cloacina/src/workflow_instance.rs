@@ -76,7 +76,51 @@ pub const RESERVED_FIRE_KEYS: &[&str] = &[
     "schedule_expression",
     "trigger_name",
     "triggered_at",
+    INSTANCE_NAME_KEY,
+    PASS_ID_KEY,
 ];
+
+/// The reserved context key naming the workflow instance whose fire started
+/// an execution (CLOACINA-T-1000). The planner moves it into the execution's
+/// `instance_name` column; it never lands in the saved context.
+pub const INSTANCE_NAME_KEY: &str = "__cloacina_instance_name__";
+
+/// The reserved context key carrying the Sync pass an execution is a segment
+/// of, as a UUID string. The planner moves it into the `pass_id` column.
+pub const PASS_ID_KEY: &str = "__cloacina_pass_id__";
+
+/// Stamp the instance a fire belongs to on its context.
+pub fn stamp_instance(context: &mut crate::Context<serde_json::Value>, instance: Option<&str>) {
+    context.remove(INSTANCE_NAME_KEY);
+    if let Some(name) = instance {
+        let _ = context.insert(INSTANCE_NAME_KEY, serde_json::json!(name));
+    }
+}
+
+/// Drop the execution-origin keys from a context a caller supplied, so a
+/// request body cannot claim an instance or a pass.
+pub fn strip_execution_origin(context: &mut crate::Context<serde_json::Value>) {
+    context.remove(INSTANCE_NAME_KEY);
+    context.remove(PASS_ID_KEY);
+}
+
+/// Take the instance name and the pass id out of a context about to become
+/// an execution. A pass id that is not a UUID is dropped.
+pub fn take_execution_origin(
+    context: &mut crate::Context<serde_json::Value>,
+) -> (
+    Option<String>,
+    Option<crate::database::universal_types::UniversalUuid>,
+) {
+    let instance = context
+        .remove(INSTANCE_NAME_KEY)
+        .and_then(|v| v.as_str().map(str::to_string));
+    let pass = context
+        .remove(PASS_ID_KEY)
+        .and_then(|v| v.as_str().and_then(|s| uuid::Uuid::parse_str(s).ok()))
+        .map(crate::database::universal_types::UniversalUuid);
+    (instance, pass)
+}
 
 /// Errors from building or using a workflow instance.
 #[derive(Debug, thiserror::Error)]
@@ -522,5 +566,56 @@ mod tests {
             .build(&declared)
             .unwrap_err();
         assert!(matches!(err, WorkflowInstanceError::UnexpectedSecretRef(_)));
+    }
+
+    // CLOACINA-T-1000: the execution-origin keys.
+    #[test]
+    fn the_origin_keys_are_taken_out_of_the_context() {
+        let mut ctx = crate::Context::new();
+        stamp_instance(&mut ctx, Some("orders"));
+        let pass = uuid::Uuid::new_v4();
+        ctx.insert(PASS_ID_KEY, serde_json::json!(pass.to_string()))
+            .unwrap();
+        ctx.insert("kept", serde_json::json!(1)).unwrap();
+        let (instance, taken) = take_execution_origin(&mut ctx);
+        assert_eq!(instance.as_deref(), Some("orders"));
+        assert_eq!(taken.map(|p| p.0), Some(pass));
+        assert!(ctx.get(INSTANCE_NAME_KEY).is_none());
+        assert!(ctx.get(PASS_ID_KEY).is_none());
+        assert_eq!(ctx.get("kept"), Some(&serde_json::json!(1)));
+    }
+
+    #[test]
+    fn a_pass_id_that_is_not_a_uuid_is_dropped() {
+        let mut ctx = crate::Context::new();
+        ctx.insert(PASS_ID_KEY, serde_json::json!("not-a-uuid"))
+            .unwrap();
+        assert_eq!(take_execution_origin(&mut ctx), (None, None));
+    }
+
+    #[test]
+    fn stamping_replaces_a_claimed_instance_and_strip_drops_both() {
+        let mut ctx = crate::Context::new();
+        ctx.insert(INSTANCE_NAME_KEY, serde_json::json!("forged"))
+            .unwrap();
+        stamp_instance(&mut ctx, Some("real"));
+        assert_eq!(ctx.get(INSTANCE_NAME_KEY), Some(&serde_json::json!("real")));
+        stamp_instance(&mut ctx, None);
+        assert!(ctx.get(INSTANCE_NAME_KEY).is_none());
+        ctx.insert(INSTANCE_NAME_KEY, serde_json::json!("x"))
+            .unwrap();
+        ctx.insert(PASS_ID_KEY, serde_json::json!("y")).unwrap();
+        strip_execution_origin(&mut ctx);
+        assert!(ctx.data().is_empty());
+    }
+
+    #[test]
+    fn a_param_cannot_claim_an_origin_key() {
+        let mut ctx = crate::Context::new();
+        let params = serde_json::json!({ INSTANCE_NAME_KEY: "forged", PASS_ID_KEY: "x", "ok": 1 });
+        merge_instance_params(&mut ctx, &params.to_string()).unwrap();
+        assert!(ctx.get(INSTANCE_NAME_KEY).is_none());
+        assert!(ctx.get(PASS_ID_KEY).is_none());
+        assert_eq!(ctx.get("ok"), Some(&serde_json::json!(1)));
     }
 }

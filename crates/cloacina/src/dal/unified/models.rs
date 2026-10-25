@@ -81,6 +81,10 @@ pub struct UnifiedWorkflowExecution {
     /// How this run was triggered (CLOACI-T-0776); `Some("manual")` for an
     /// operator REST run, `None` otherwise.
     pub trigger_origin: Option<String>,
+    /// The workflow instance whose fire started this run (CLOACINA-T-1000).
+    pub instance_name: Option<String>,
+    /// The Sync pass this run is a segment of (CLOACINA-T-1000).
+    pub pass_id: Option<UniversalUuid>,
 }
 
 #[derive(Debug, Insertable)]
@@ -94,6 +98,8 @@ pub struct NewUnifiedWorkflowExecution {
     pub started_at: UniversalTimestamp,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub instance_name: Option<String>,
+    pub pass_id: Option<UniversalUuid>,
 }
 
 // ============================================================================
@@ -829,6 +835,8 @@ impl From<UnifiedWorkflowExecution> for WorkflowExecutionRecord {
             created_at: u.created_at,
             updated_at: u.updated_at,
             trigger_origin: u.trigger_origin,
+            instance_name: u.instance_name,
+            pass_id: u.pass_id,
         }
     }
 }

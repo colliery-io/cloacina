@@ -726,6 +726,8 @@ impl Scheduler {
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
+        // CLOACINA-T-1000: the execution names the instance that fired it.
+        crate::workflow_instance::stamp_instance(&mut context, schedule.instance_name.as_deref());
 
         info!(
             "Executing workflow '{}' for cron schedule {} (scheduled time: {})",
@@ -1025,6 +1027,10 @@ impl Scheduler {
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
+        // CLOACINA-T-1000: a trigger's payload cannot claim an instance or a
+        // pass; the execution names the instance that fired it.
+        crate::workflow_instance::strip_execution_origin(&mut context);
+        crate::workflow_instance::stamp_instance(&mut context, schedule.instance_name.as_deref());
         context
             .insert("triggered_at", serde_json::json!(Utc::now().to_rfc3339()))
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {

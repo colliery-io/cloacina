@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Executions name their instance and pass** (COLLIERY-I-0635,
+  CLOACINA-T-1000): a workflow execution now records the workflow instance
+  whose fire started it (`instance_name`), and a Sync segment records the pass
+  it belongs to (`pass_id`); migration 052 adds both columns. Every cron and
+  trigger fire of an instance, and a Sync pass run by name, stamps them. The
+  values travel in two reserved context keys that the planner moves into the
+  row, so they never land in the saved context, and a param or a request body
+  cannot claim them. `GET /executions` filters on `instance` and `pass`, and
+  each summary carries both. A new BDD feature, `sync/passes.feature`, shows a
+  pass's executions sharing its id.
 - **A guide to the behaviour specs** (COLLIERY-I-0655, CLOACINA-T-0999): a
   Contributing page on where the features live, how to run one, what each
   scenario gets, how to add a step at the user's level, and the test-only

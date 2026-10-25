@@ -55,6 +55,8 @@ mod unified_schema {
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
             trigger_origin -> Nullable<Text>,
+            instance_name -> Nullable<Text>,
+            pass_id -> Nullable<DbUuid>,
         }
     }
 
@@ -715,6 +717,8 @@ mod postgres_schema {
             created_at -> Timestamp,
             updated_at -> Timestamp,
             trigger_origin -> Nullable<Text>,
+            instance_name -> Nullable<Text>,
+            pass_id -> Nullable<Uuid>,
         }
     }
 
@@ -1159,6 +1163,8 @@ mod sqlite_schema {
             pause_reason -> Nullable<Text>,
             created_at -> Text,
             updated_at -> Text,
+            instance_name -> Nullable<Text>,
+            pass_id -> Nullable<Binary>,
         }
     }
 
