@@ -113,6 +113,7 @@ from .trigger_execution import TriggerExecution
 from .trigger_pause_response import TriggerPauseResponse
 from .trigger_schedule_info import TriggerScheduleInfo
 from .trigger_schedule_summary import TriggerScheduleSummary
+from .update_instance_request import UpdateInstanceRequest
 from .whoami_response import WhoamiResponse
 from .workflow_deleted_response import WorkflowDeletedResponse
 from .workflow_detail import WorkflowDetail
@@ -219,6 +220,7 @@ __all__ = (
     "TriggerPauseResponse",
     "TriggerScheduleInfo",
     "TriggerScheduleSummary",
+    "UpdateInstanceRequest",
     "WhoamiResponse",
     "WorkflowDeletedResponse",
     "WorkflowDetail",

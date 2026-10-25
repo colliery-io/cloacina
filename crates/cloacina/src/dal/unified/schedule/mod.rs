@@ -571,6 +571,35 @@ impl<'a> ScheduleDAL<'a> {
         Ok(results.into_iter().map(|r| r.into()).collect())
     }
 
+    /// Replace a workflow instance's params, cron and timezone, and set
+    /// whether it is enabled (CLOACINA-T-1001). `next_run_at` is the next
+    /// fire of the new cron, or `None` for an unscheduled instance.
+    pub async fn update_instance(
+        &self,
+        id: UniversalUuid,
+        params: Option<String>,
+        cron_expression: Option<String>,
+        timezone: Option<String>,
+        next_run_at: Option<UniversalTimestamp>,
+        enabled: bool,
+    ) -> Result<(), ValidationError> {
+        let now = UniversalTimestamp::now();
+        let enabled = crate::database::universal_types::UniversalBool::new(enabled);
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::params.eq(params),
+                    schedules::cron_expression.eq(cron_expression),
+                    schedules::timezone.eq(timezone),
+                    schedules::next_run_at.eq(next_run_at),
+                    schedules::enabled.eq(enabled),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
     /// Updates the cron expression and timezone for a cron schedule.
     pub async fn update_cron_expression_and_timezone(
         &self,

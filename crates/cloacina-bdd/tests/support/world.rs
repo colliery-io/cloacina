@@ -518,26 +518,7 @@ impl SyncWorld {
     /// of the Sync workflow. Its source is the echo connector with `segments`
     /// segments; its destination counts the records.
     pub async fn define_echo_sync(&mut self, name: &str, segments: u64) {
-        let stream = ConfiguredStream {
-            stream: "echo".into(),
-            sync_mode: SyncMode::Incremental,
-            cursor_field: Some("n".into()),
-            primary_key: Some(vec!["id".into()]),
-            write_mode: WriteMode::Upsert {
-                business_keys: vec!["id".into()],
-            },
-            mapping: MappingSpec::default(),
-        };
-        let params = json!({
-            keys::SYNC: name,
-            keys::SOURCE_PROVIDER: providers::ECHO,
-            keys::SOURCE_MEMBER: "source",
-            keys::SOURCE_CONFIG: json!({ "segments": segments, "rows": ["{\"id\":1}"] }).to_string(),
-            keys::DESTINATION_PROVIDER: providers::ECHO,
-            keys::DESTINATION_MEMBER: "destination",
-            keys::DESTINATION_CONFIG: "{}",
-            keys::STREAM: serde_json::to_string(&stream).expect("stream json"),
-        });
+        let params = echo_sync_params(name, segments);
         self.dal()
             .await
             .schedule()
@@ -561,6 +542,84 @@ impl SyncWorld {
             .expect("store the sync definition");
     }
 
+    /// Change the stored sync definition `name`, with the checks the server
+    /// runs on an update: its source now has `segments` segments, under the
+    /// sync name `sync`. The outcome is kept in `created`.
+    pub async fn change_echo_sync(&mut self, name: &str, sync: &str, segments: u64) {
+        let dal = self.dal().await;
+        let existing = dal
+            .schedule()
+            .find_by_instance_name(cloacina_sync::WORKFLOW_NAME, name)
+            .await
+            .expect("look up the sync definition")
+            .expect("the sync definition exists");
+        let old: serde_json::Map<String, Value> = existing
+            .params
+            .as_deref()
+            .and_then(|p| serde_json::from_str(p).ok())
+            .unwrap_or_default();
+        let new = echo_sync_params(sync, segments);
+        let checked = cloacina_sync::params::validate_update(
+            name,
+            &old,
+            new.as_object().expect("params are an object"),
+        );
+        if let Err(e) = checked {
+            self.created = Some(Err(e.to_string()));
+            return;
+        }
+        dal.schedule()
+            .update_instance(
+                existing.id,
+                Some(new.to_string()),
+                None,
+                Some("UTC".into()),
+                None,
+                true,
+            )
+            .await
+            .expect("update the sync definition");
+        self.created = Some(Ok(()));
+    }
+
+    /// The cursor committed for the echo stream of the sync `sync`.
+    pub async fn sync_cursor(&mut self, sync: &str) -> Option<String> {
+        self.dal()
+            .await
+            .sync_stream_state()
+            .get(sync, "echo", "")
+            .await
+            .expect("read the stream state")
+            .and_then(|s| s.cursor)
+    }
+}
+
+/// The params of a sync named `sync` from the echo source, with `segments`
+/// segments, to the echo destination.
+fn echo_sync_params(sync: &str, segments: u64) -> Value {
+    let stream = ConfiguredStream {
+        stream: "echo".into(),
+        sync_mode: SyncMode::Incremental,
+        cursor_field: Some("n".into()),
+        primary_key: Some(vec!["id".into()]),
+        write_mode: WriteMode::Upsert {
+            business_keys: vec!["id".into()],
+        },
+        mapping: MappingSpec::default(),
+    };
+    json!({
+        keys::SYNC: sync,
+        keys::SOURCE_PROVIDER: providers::ECHO,
+        keys::SOURCE_MEMBER: "source",
+        keys::SOURCE_CONFIG: json!({ "segments": segments, "rows": ["{\"id\":1}"] }).to_string(),
+        keys::DESTINATION_PROVIDER: providers::ECHO,
+        keys::DESTINATION_MEMBER: "destination",
+        keys::DESTINATION_CONFIG: "{}",
+        keys::STREAM: serde_json::to_string(&stream).expect("stream json"),
+    })
+}
+
+impl SyncWorld {
     /// Run one pass of the stored sync definition `name`, by its name.
     pub async fn run_definition_pass(&mut self, name: &str) {
         let runner = self.runner().await;

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Update a workflow instance** (COLLIERY-I-0635, CLOACINA-T-1001):
+  `PUT /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` replaces
+  an instance's params, cron and timezone, with the checks create runs; a new
+  cron re-arms the scheduler, and no cron makes the instance unscheduled. A
+  sync definition's params are checked again
+  (`cloacina_sync::params::validate_update`), and its `sync` name cannot
+  change, because its cursor and dead-letters are kept under that name; an
+  update keeps both. `ScheduleDAL::update_instance`, the client's
+  `update_instance`, and the regenerated spec and SDKs. A new BDD feature,
+  `sync/changes.feature`. The HTTP reference now lists the route and the
+  executions list's `instance` and `pass` filters, and its example response
+  is current.
 - **Executions name their instance and pass** (COLLIERY-I-0635,
   CLOACINA-T-1000): a workflow execution now records the workflow instance
   whose fire started it (`instance_name`), and a Sync segment records the pass

@@ -68,9 +68,9 @@ use cloacina_api_types::{
     KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
     RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse,
     TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
-    TriggerPauseResponse, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
-    WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary,
-    WorkflowUploadedResponse, WsTicketResponse,
+    TriggerPauseResponse, TriggerScheduleSummary, UpdateInstanceRequest, WorkflowDeletedResponse,
+    WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse,
+    WorkflowSummary, WorkflowUploadedResponse, WsTicketResponse,
 };
 
 /// Builder for [`Client`].
@@ -692,6 +692,22 @@ impl Client {
         self.get_json(&format!(
             "/v1/tenants/{t}/workflows/{workflow}/instances/{instance}"
         ))
+        .await
+    }
+
+    /// Replace an instance's params, cron and timezone (CLOACINA-T-1001).
+    pub async fn update_instance(
+        &self,
+        workflow: &str,
+        instance: &str,
+        request: &UpdateInstanceRequest,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowInstanceSummary, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.put_json(
+            &format!("/v1/tenants/{t}/workflows/{workflow}/instances/{instance}"),
+            request,
+        )
         .await
     }
 

@@ -495,6 +495,12 @@ pub fn build_authz_table() -> AuthzTable {
         "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
         Access::tenant(Level::Write),
     );
+    // CLOACINA-T-1001: replace an instance's params, cron and timezone.
+    add(
+        Method::PUT,
+        "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+        Access::tenant(Level::Write),
+    );
     add(
         Method::POST,
         "/tenants/{tenant_id}/triggers/{name}/pause",
@@ -957,7 +963,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            69,
+            70,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
