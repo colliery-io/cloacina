@@ -281,6 +281,24 @@ impl Dispatcher {
         ctx.remove(keys::STATE);
         ctx.insert(keys::STATE, Value::String(state_json))
             .map_err(|e| DispatchError::Params(e.to_string()))?;
+        // CLOACINA-T-1003: the segment enforces and evolves the stored schema.
+        ctx.remove(keys::STORED_SCHEMA);
+        let stored = self
+            .dal
+            .sync_stream_schemas()
+            .get(&prepared.sync, &prepared.params.stream.stream)
+            .await
+            .map_err(|e| DispatchError::Database(e.to_string()))?;
+        if let Some(row) = stored {
+            let stored = crate::schema::StoredSchema {
+                schema: serde_json::from_str(&row.schema).unwrap_or_default(),
+                broken: row.broken,
+            };
+            let json =
+                serde_json::to_string(&stored).map_err(|e| DispatchError::Params(e.to_string()))?;
+            ctx.insert(keys::STORED_SCHEMA, Value::String(json))
+                .map_err(|e| DispatchError::Params(e.to_string()))?;
+        }
         ctx.remove(PASS_ID_KEY);
         ctx.insert(PASS_ID_KEY, Value::String(prepared.pass_id.to_string()))
             .map_err(|e| DispatchError::Params(e.to_string()))?;

@@ -53,11 +53,12 @@ One pass of a sync is a series of segments:
    execution's context.
 3. The **map and enforce** task applies the mapping and the stream's typed
    schema. A record that cannot be mapped or coerced becomes a dead-letter;
-   the segment goes on.
+   the segment goes on. It also works out the schema the stream holds after
+   this segment (see [The schema evolves](#the-schema-evolves)).
 4. The **write** task streams the records into the destination. When the
    destination has accepted them, the task returns the new cursor and the
-   dead-letters as **completion writes**: rows the server writes in the same
-   transaction that marks the task completed.
+   dead-letters and the stream's schema as **completion writes**: rows the
+   server writes in the same transaction that marks the task completed.
 5. The dispatcher waits for the execution, reads the committed cursor, and
    creates the next execution. When the source reports its end, the pass is
    done.
@@ -96,6 +97,27 @@ carry the plain at-least-once guarantee.
 Dead-letters never stop a run. A record that fails mapping, schema
 enforcement or the destination's write is kept with its reason, visible per
 sync, and the segment completes without it.
+
+## The schema evolves
+
+Each stream keeps a captured schema, as weir did. The first write stores the
+stream's declared schema (from the sync or its connector definition), or the
+shape of the records it sees. After that, each segment samples up to 200 of
+its mapped records, before enforcement, and compares them with the stored
+schema:
+
+- A field the schema lacks is new: it joins the schema.
+- A field whose values no longer fit its type marks the schema **broken**,
+  with the reasons, and the schema stays as it was. Those records go to the
+  dead-letters; the sync does not pause.
+- A dropped field, or a field that turns nullable, changes nothing.
+
+A field fits when its value coerces to the type: the text `"30"` fits an
+integer, `"unknown"` does not. Enforcement uses the stored schema once there
+is one.
+
+**Accepting** a broken stream's new shape empties its stored schema. The next
+write then enforces nothing and captures the shape its records have.
 
 ## Connectors are sandboxed
 

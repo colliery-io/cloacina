@@ -168,7 +168,7 @@ pub fn enforce(schema: &StreamSchema, mut rec: Value) -> Mapped {
 
 /// Coerce a non-null value to a `FieldType`. `Ok(Some(v))` = coerced value to store; `Ok(None)` =
 /// accept as-is (json); `Err` = uncoercible.
-fn coerce_field(v: &Value, to: FieldType) -> Result<Option<Value>, String> {
+pub(crate) fn coerce_field(v: &Value, to: FieldType) -> Result<Option<Value>, String> {
     let ct = match to {
         FieldType::Str => CastType::Str,
         FieldType::Integer => CastType::Integer,

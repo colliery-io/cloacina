@@ -24,9 +24,9 @@ use crate::database::schema::unified::{
     fleet_agents, key_trust_acls, login_throttle, package_artifacts, package_providers,
     package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
     schedule_executions, schedules, secrets, signing_keys, state_accumulator_buffers,
-    sync_dead_letters, sync_stream_state, task_execution_metadata, task_executions,
-    tenant_data_keys, trusted_keys, workflow_executions, workflow_packages, workflow_registry,
-    ws_tickets,
+    sync_dead_letters, sync_stream_schemas, sync_stream_state, task_execution_metadata,
+    task_executions, tenant_data_keys, trusted_keys, workflow_executions, workflow_packages,
+    workflow_registry, ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -1207,6 +1207,32 @@ pub struct NewUnifiedSyncStreamState {
     pub cursor: Option<String>,
     pub opaque: UniversalBinary,
     pub exhausted: UniversalBool,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+/// The captured schema of a sync stream (CLOACINA-T-1003): a `StreamSchema`
+/// as JSON, and the reasons it is broken, if it is.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = sync_stream_schemas)]
+pub struct UnifiedSyncStreamSchema {
+    pub id: UniversalUuid,
+    pub sync_name: String,
+    pub stream: String,
+    pub schema: String,
+    pub broken: Option<String>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = sync_stream_schemas)]
+pub struct NewUnifiedSyncStreamSchema {
+    pub id: UniversalUuid,
+    pub sync_name: String,
+    pub stream: String,
+    pub schema: String,
+    pub broken: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }

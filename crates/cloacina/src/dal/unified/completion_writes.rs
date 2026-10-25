@@ -40,6 +40,11 @@ pub fn validate(writes: &CompletionWrites) -> Result<(), String> {
             return Err("dead-letter write with an empty sync or stream name".into());
         }
     }
+    for s in &writes.stream_schemas {
+        if s.sync.is_empty() || s.stream.is_empty() {
+            return Err("stream schema write with an empty sync or stream name".into());
+        }
+    }
     Ok(())
 }
 
@@ -51,7 +56,9 @@ pub fn validate(writes: &CompletionWrites) -> Result<(), String> {
 macro_rules! apply_completion_writes {
     ($conn:expr, $writes:expr, $task_id:expr, $workflow_id:expr, $now:expr) => {{
         use diesel::prelude::*;
-        use $crate::database::schema::unified::{sync_dead_letters, sync_stream_state};
+        use $crate::database::schema::unified::{
+            sync_dead_letters, sync_stream_schemas, sync_stream_state,
+        };
         use $crate::database::universal_types::{UniversalBinary, UniversalBool, UniversalUuid};
 
         if let Err(msg) = $crate::dal::unified::completion_writes::validate(&$writes) {
@@ -98,6 +105,27 @@ macro_rules! apply_completion_writes {
             };
             diesel::insert_into(sync_dead_letters::table)
                 .values(&row)
+                .execute($conn)?;
+        }
+        for s in &$writes.stream_schemas {
+            let row = $crate::dal::unified::models::NewUnifiedSyncStreamSchema {
+                id: UniversalUuid::new_v4(),
+                sync_name: s.sync.clone(),
+                stream: s.stream.clone(),
+                schema: s.schema.clone(),
+                broken: s.broken.clone(),
+                created_at: $now,
+                updated_at: $now,
+            };
+            diesel::insert_into(sync_stream_schemas::table)
+                .values(&row)
+                .on_conflict((sync_stream_schemas::sync_name, sync_stream_schemas::stream))
+                .do_update()
+                .set((
+                    sync_stream_schemas::schema.eq(s.schema.clone()),
+                    sync_stream_schemas::broken.eq(s.broken.clone()),
+                    sync_stream_schemas::updated_at.eq($now),
+                ))
                 .execute($conn)?;
         }
     }};

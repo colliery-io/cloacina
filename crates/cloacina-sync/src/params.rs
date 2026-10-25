@@ -93,6 +93,13 @@ pub mod keys {
     pub const DEAD_LETTERS: &str = "sync.dead_letters";
     /// Written by the write task: rows the destination accepted.
     pub const ACCEPTED: &str = "sync.accepted";
+    /// Per execution, set by the dispatcher: the stream's stored schema, a
+    /// JSON `schema::StoredSchema` (CLOACINA-T-1003). Absent before the
+    /// stream's first write.
+    pub const STORED_SCHEMA: &str = "sync.stored_schema";
+    /// Between the tasks: the schema the stream holds after this segment, a
+    /// JSON `Option<schema::StoredSchema>`, committed by the write task.
+    pub const SCHEMA_WRITE: &str = "sync.schema_write";
 }
 
 /// A param was missing or malformed.

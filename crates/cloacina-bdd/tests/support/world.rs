@@ -100,6 +100,19 @@ impl Side {
         }
     }
 
+    /// The echo connector as a destination: it takes every record.
+    pub fn echo() -> Self {
+        Self {
+            provider: providers::ECHO.into(),
+            config: json!({}),
+            grants: None,
+            table: None,
+            credential: None,
+            definition: None,
+            secret: None,
+        }
+    }
+
     /// The same table, behind a database that refuses connections.
     pub fn refusing(table: &str) -> Self {
         Self {
@@ -646,6 +659,41 @@ impl SyncWorld {
             .expect("list the instance's executions");
         runs.reverse();
         runs
+    }
+
+    /// The stream's stored schema and why it is broken, if it is.
+    pub async fn stream_schema(
+        &mut self,
+    ) -> Option<(
+        cloacina_constructor_contract::sync::StreamSchema,
+        Option<String>,
+    )> {
+        let stream = self.stream.as_ref().expect("a stream").stream.clone();
+        let sync = self.scope.clone();
+        self.dal()
+            .await
+            .sync_stream_schemas()
+            .get(&sync, &stream)
+            .await
+            .expect("read the stream schema")
+            .map(|r| {
+                (
+                    serde_json::from_str(&r.schema).expect("schema json"),
+                    r.broken,
+                )
+            })
+    }
+
+    /// Accept the stream's new shape, as an operator does.
+    pub async fn accept_schema(&mut self) {
+        let stream = self.stream.as_ref().expect("a stream").stream.clone();
+        let sync = self.scope.clone();
+        self.dal()
+            .await
+            .sync_stream_schemas()
+            .accept(&sync, &stream)
+            .await
+            .expect("accept the schema");
     }
 
     /// The attempt numbers of the write task of each Sync execution, sorted.

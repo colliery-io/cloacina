@@ -46,7 +46,9 @@ use cloacina_constructor_contract::sync::{
     Config, ConnectorError, DeadLetter, ErrorKind, LogLevel, ReadContext, ReadMessage, RecordBatch,
     StreamState, WriteContext, WriteResult,
 };
-use cloacina_workflow::completion_writes::{CompletionWrites, DeadLetterWrite, StreamStateWrite};
+use cloacina_workflow::completion_writes::{
+    CompletionWrites, DeadLetterWrite, StreamSchemaWrite, StreamStateWrite,
+};
 use serde_json::Value;
 
 use crate::credential;
@@ -216,13 +218,19 @@ pub fn read_segment_blocking(
 
 /// Apply the mapping, then the schema, to every record of every batch.
 /// Records that fail either are returned as dead-letters.
+///
+/// Records are enforced against `schema`. Up to [`crate::schema::SAMPLE`]
+/// mapped records are also returned before enforcement, so a schema's drift
+/// shows even in the records it rejects.
 pub fn map_and_enforce(
     p: &SyncParams,
+    schema: Option<&cloacina_constructor_contract::sync::StreamSchema>,
     batches: Vec<RecordBatch>,
-) -> (Vec<RecordBatch>, Vec<DeadLetter>) {
+) -> (Vec<RecordBatch>, Vec<DeadLetter>, Vec<String>) {
     let mut dead = Vec::new();
     let mut out = Vec::with_capacity(batches.len());
-    let one = |row: String, dead: &mut Vec<DeadLetter>| -> Option<String> {
+    let mut sample: Vec<String> = Vec::new();
+    let mut one = |row: String, dead: &mut Vec<DeadLetter>| -> Option<String> {
         let rec: Value = match serde_json::from_str(&row) {
             Ok(v) => v,
             Err(e) => {
@@ -244,7 +252,10 @@ pub fn map_and_enforce(
                 return None;
             }
         };
-        let enforced = match &p.schema {
+        if sample.len() < crate::schema::SAMPLE {
+            sample.push(mapped.to_string());
+        }
+        let enforced = match schema {
             None => mapped,
             Some(schema) => match mapping::enforce(schema, mapped) {
                 Mapped::Keep(v) => v,
@@ -285,7 +296,8 @@ pub fn map_and_enforce(
             arrow @ RecordBatch::Arrow(_) => out.push(arrow),
         }
     }
-    (out, dead)
+    drop(one);
+    (out, dead, sample)
 }
 
 /// Write the batches to the destination. Blocking. Returns rows accepted and
@@ -390,10 +402,22 @@ pub mod sync {
         let p = SyncParams::from_context(context).map_err(|e| task_err("map_enforce", e))?;
         let batches = params::batches(context).map_err(|e| task_err("map_enforce", e))?;
         let mut dead = params::dead_letters(context).map_err(|e| task_err("map_enforce", e))?;
-        let (mapped, more_dead) = map_and_enforce(&p, batches);
+        // CLOACINA-T-1003: enforce the stored schema, or the declared one
+        // before the stream has one, and evolve it from this segment.
+        let stored: Option<crate::schema::StoredSchema> =
+            params::handoff(context, keys::STORED_SCHEMA)
+                .map_err(|e| task_err("map_enforce", e))?;
+        let enforce_with = stored.as_ref().map(|s| &s.schema).or(p.schema.as_ref());
+        let (mapped, more_dead, sample) = map_and_enforce(&p, enforce_with, batches);
         dead.extend(more_dead);
+        let evolved = crate::schema::evolve(
+            stored.as_ref().map(|s| &s.schema),
+            p.schema.as_ref(),
+            &sample,
+        );
         params::set_handoff(context, keys::BATCHES, &mapped)?;
         params::set_handoff(context, keys::DEAD_LETTERS, &dead)?;
+        params::set_handoff(context, keys::SCHEMA_WRITE, &evolved)?;
         Ok(())
     }
 
@@ -446,6 +470,12 @@ pub mod sync {
             .await
             .map_err(|e| task_err("write", e))?;
 
+        // CLOACINA-T-1003: the schema this segment leaves, from the map task.
+        let evolved: Option<crate::schema::StoredSchema> =
+            params::handoff::<Option<crate::schema::StoredSchema>>(context, keys::SCHEMA_WRITE)
+                .map_err(|e| task_err("write", e))?
+                .flatten();
+
         // The durable write is done. The cursor and the dead-letters go to the
         // transaction that marks this task completed.
         let writes = CompletionWrites {
@@ -465,6 +495,19 @@ pub mod sync {
                     record: d.record.clone(),
                     reason: d.reason.clone(),
                 })
+                .collect(),
+            stream_schemas: evolved
+                .map(|e| {
+                    Ok::<_, TaskError>(StreamSchemaWrite {
+                        sync: p.sync.clone(),
+                        stream: p.stream.stream.clone(),
+                        schema: serde_json::to_string(&e.schema)
+                            .map_err(|err| task_err("write", err))?,
+                        broken: e.broken,
+                    })
+                })
+                .transpose()?
+                .into_iter()
                 .collect(),
         };
         writes.attach(context)?;

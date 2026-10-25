@@ -69,6 +69,7 @@ pub mod recovery_event;
 pub mod schedule;
 pub mod schedule_execution;
 pub mod sync_dead_letters;
+pub mod sync_stream_schemas;
 pub mod sync_stream_state;
 pub mod task_execution;
 pub mod task_execution_metadata;
@@ -213,6 +214,11 @@ impl DAL {
 
     /// Sync dead-letters (COLLIERY-I-0632 / CLOACINA-T-0974). Reads only: the
     /// rows are written in a task's completion transaction.
+    /// The captured schemas of sync streams (CLOACINA-T-1003).
+    pub fn sync_stream_schemas(&self) -> sync_stream_schemas::SyncStreamSchemasDAL<'_> {
+        sync_stream_schemas::SyncStreamSchemasDAL::new(self)
+    }
+
     pub fn sync_dead_letters(&self) -> sync_dead_letters::SyncDeadLettersDAL<'_> {
         sync_dead_letters::SyncDeadLettersDAL::new(self)
     }
