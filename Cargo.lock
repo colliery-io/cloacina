@@ -872,6 +872,7 @@ name = "cloacina-bdd"
 version = "0.12.0"
 dependencies = [
  "cloacina",
+ "cloacina-api-types",
  "cloacina-constructor-contract",
  "cloacina-sync",
  "cloacina-testing",
@@ -1062,6 +1063,7 @@ version = "0.12.0"
 dependencies = [
  "chrono",
  "cloacina",
+ "cloacina-api-types",
  "cloacina-constructor-contract",
  "cloacina-declarative",
  "cloacina-sync",

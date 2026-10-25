@@ -21,6 +21,7 @@ autotests = false
 # CLOACINA_BDD_RUNNER=postgres, in its own Postgres schema.
 cloacina = { workspace = true, features = ["postgres", "sqlite", "macros", "constructors-wasm"] }
 cloacina-constructor-contract = { workspace = true }
+cloacina-api-types = { workspace = true }
 cloacina-sync = { workspace = true, features = ["fault-injection"] }
 cloacina-testing = { workspace = true }
 cloacina-workflow = { workspace = true }

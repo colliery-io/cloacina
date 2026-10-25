@@ -18,12 +18,17 @@
 //! (COLLIERY-I-0634 / CLOACINA-T-0993): the compiled connectors in the
 //! provider search path and the declarative connector definitions.
 
-use axum::Json;
-use axum::extract::Path;
+use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use cloacina_api_types::{ConnectorSummary, ListResponse};
+use axum::{Extension, Json};
+use cloacina_api_types::{
+    ConnectorCheckResponse, ConnectorDiscoverResponse, ConnectorProbeRequest, ConnectorSummary,
+    ListResponse,
+};
 
 use super::error::ApiError;
+use crate::AppState;
+use crate::routes::auth::AuthenticatedKey;
 
 /// `GET /v1/tenants/{tenant_id}/connectors` — the connectors a sync can name.
 #[utoipa::path(
@@ -57,5 +62,136 @@ pub async fn list_connectors(Path(_tenant_id): Path<String>) -> impl IntoRespons
             Json(ListResponse::new(items)).into_response()
         }
         Err(e) => ApiError::internal(format!("connector definitions: {e}")).into_response(),
+    }
+}
+
+/// How long a check or discover may take before the route gives up.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Run the probe workflow for `action` on the tenant's runner, where Sync's
+/// tasks run, and wait for its answer (CLOACINA-T-1002).
+async fn probe<T: serde::de::DeserializeOwned>(
+    state: &AppState,
+    tenant_id: &str,
+    action: &str,
+    request: &ConnectorProbeRequest,
+) -> Result<T, ApiError> {
+    use cloacina::executor::{WorkflowExecutor, WorkflowStatus};
+
+    if let Err(e) = cloacina_sync::probe::validate(action, request) {
+        return Err(ApiError::bad_request("probe_invalid", e.to_string()));
+    }
+    let tenant_db = state
+        .tenant_databases
+        .resolve(tenant_id, &state.database)
+        .await
+        .map_err(|e| ApiError::internal(format!("tenant database error: {e}")))?;
+    // As the execute route: "public" is the global runner.
+    let runner = if tenant_id == "public" {
+        state.runner.clone()
+    } else {
+        state
+            .tenant_runners
+            .get_or_create(tenant_id, tenant_db.clone())
+            .await
+            .map_err(|e| ApiError::internal(format!("tenant runner unavailable: {e}")))?
+    };
+    let ctx = cloacina_sync::probe::context(action, request);
+    let result = match tokio::time::timeout(
+        PROBE_TIMEOUT,
+        runner.execute(cloacina_sync::probe::PROBE_WORKFLOW, ctx),
+    )
+    .await
+    {
+        Err(_) => {
+            return Err(ApiError::new(
+                axum::http::StatusCode::GATEWAY_TIMEOUT,
+                "probe_timeout",
+                format!(
+                    "the {action} did not answer in {}s",
+                    PROBE_TIMEOUT.as_secs()
+                ),
+            ));
+        }
+        Ok(Err(e)) => {
+            return Err(ApiError::internal(format!("{action}: {e}")));
+        }
+        Ok(Ok(r)) => r,
+    };
+    if result.status != WorkflowStatus::Completed {
+        let dal = cloacina::dal::DAL::new(tenant_db);
+        let why = cloacina_sync::dispatcher::failure(&dal, result.execution_id).await;
+        return Err(ApiError::new(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "probe_failed",
+            format!("the {action} failed: {why}"),
+        ));
+    }
+    let answer = result
+        .final_context
+        .get(cloacina_sync::probe::keys::RESULT)
+        .cloned()
+        .unwrap_or_default();
+    serde_json::from_value(answer).map_err(|e| ApiError::internal(format!("{action} answer: {e}")))
+}
+
+/// `POST /v1/tenants/{tenant_id}/connectors/check` — check one side of a sync
+/// where connectors run: its config, its secret, and that it can reach its
+/// service.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/connectors/check",
+    tag = "connectors",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    request_body = ConnectorProbeRequest,
+    responses(
+        (status = 200, description = "What the connector's check said", body = ConnectorCheckResponse),
+        (status = 400, description = "The side is not one the probe can run", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 422, description = "The check could not run, with the reason: a missing secret, a connector that does not load", body = cloacina_api_types::ErrorBody),
+        (status = 504, description = "The check did not answer in time", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn check_connector(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path(tenant_id): Path<String>,
+    Json(body): Json<ConnectorProbeRequest>,
+) -> impl IntoResponse {
+    match probe::<ConnectorCheckResponse>(&state, &tenant_id, "check", &body).await {
+        Ok(answer) => Json(answer).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// `POST /v1/tenants/{tenant_id}/connectors/discover` — the streams a source
+/// offers, with their sync modes, keys and fields.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/connectors/discover",
+    tag = "connectors",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    request_body = ConnectorProbeRequest,
+    responses(
+        (status = 200, description = "The source's streams", body = ConnectorDiscoverResponse),
+        (status = 400, description = "The side is not a source the probe can run", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 422, description = "The discover could not run, with the reason", body = cloacina_api_types::ErrorBody),
+        (status = 504, description = "The discover did not answer in time", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn discover_connector(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path(tenant_id): Path<String>,
+    Json(body): Json<ConnectorProbeRequest>,
+) -> impl IntoResponse {
+    match probe::<ConnectorDiscoverResponse>(&state, &tenant_id, "discover", &body).await {
+        Ok(answer) => Json(answer).into_response(),
+        Err(e) => e.into_response(),
     }
 }

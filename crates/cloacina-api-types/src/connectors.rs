@@ -38,3 +38,80 @@ pub struct ConnectorSummary {
     /// compiled connector, whose streams are what `discover` finds.
     pub streams: Vec<String>,
 }
+
+/// Body for `POST /tenants/{tenant_id}/connectors/check` and
+/// `POST /tenants/{tenant_id}/connectors/discover` (CLOACINA-T-1002): one side
+/// of a sync, as a sync definition gives it. A side names a compiled
+/// connector by `provider` and `member`, or a connector definition by
+/// `definition`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConnectorProbeRequest {
+    /// `source` or `destination`. Discover reads a source.
+    pub side: String,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub member: Option<String>,
+    #[serde(default)]
+    pub definition: Option<String>,
+    /// The connector's config, or a definition's user config.
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    /// The side's capability grants. A definition supplies its own.
+    #[serde(default)]
+    pub grants: Option<serde_json::Value>,
+    /// The side's credential, a credential spec. A definition supplies its own.
+    #[serde(default)]
+    pub credential: Option<serde_json::Value>,
+    /// The stored secret a definition's auth reads.
+    #[serde(default)]
+    pub secret: Option<String>,
+}
+
+/// What a connector's `check` said.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConnectorCheckResponse {
+    pub ok: bool,
+    /// The connector's message, when it gives one.
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// A field of a discovered stream.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DiscoveredField {
+    pub name: String,
+    /// `Str`, `Integer`, `Float`, `Boolean`, `Timestamp` or `Json`.
+    #[serde(rename = "type")]
+    pub field_type: String,
+    pub nullable: bool,
+}
+
+/// A stream a source offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DiscoveredStream {
+    pub name: String,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    /// `FullRefresh`, `Incremental` or `Cdc`.
+    pub sync_modes: Vec<String>,
+    #[serde(default)]
+    pub default_cursor_field: Option<String>,
+    #[serde(default)]
+    pub primary_key: Option<Vec<String>>,
+    /// The stream's typed fields, when the source declares them. A compiled
+    /// connector's are empty for now.
+    #[serde(default)]
+    pub fields: Vec<DiscoveredField>,
+}
+
+/// What a source's `discover` found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConnectorDiscoverResponse {
+    pub streams: Vec<DiscoveredStream>,
+}

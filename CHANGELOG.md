@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before; nothing pauses on a broken schema. `SyncStreamSchemasDAL::accept`
   empties a stream's schema so the next write captures the new shape. A new
   BDD feature, `sync/schema.feature`, and a section on the Sync page.
+- **Check and discover where connectors run** (COLLIERY-I-0635,
+  CLOACINA-T-1002): `POST /v1/tenants/{tenant_id}/connectors/check` checks one
+  side of a sync, and `.../connectors/discover` lists a source's streams with
+  their sync modes, keys and fields. Both run the built-in workflow
+  `sync_probe` (`cloacina_sync::probe`), so the connector runs where Sync's
+  tasks run, with the stored secret, never in the server; the route waits up
+  to 60 seconds. A connector definition is discovered from its own streams and
+  checked by lowering it on its first stream. The request and answers are in
+  `cloacina-api-types`; the client gains `list_connectors`, `check_connector`
+  and `discover_connector`. `cloacina_sync::dispatcher::failure` is now public.
+  A new BDD feature, `sync/check_discover.feature`.
 - **Update a workflow instance** (COLLIERY-I-0635, CLOACINA-T-1001):
   `PUT /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` replaces
   an instance's params, cron and timezone, with the checks create runs; a new

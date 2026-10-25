@@ -46,6 +46,7 @@ pub mod fault;
 pub mod hook;
 pub mod mapping;
 pub mod params;
+pub mod probe;
 pub mod schema;
 pub mod workflow;
 
