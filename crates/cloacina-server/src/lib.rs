@@ -1916,6 +1916,10 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/syncs/{name}/schema/accept",
             post(crate::routes::syncs::accept_schema),
         )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/run",
+            post(crate::routes::syncs::run_sync),
+        )
         // CLOACINA-T-1002: check and discover, where connectors run.
         .route(
             "/tenants/{tenant_id}/connectors/check",
@@ -6019,6 +6023,15 @@ mod tests {
             assert_eq!(status, StatusCode::NOT_FOUND, "{uri}: {body}");
             assert_eq!(body["code"], "sync_not_found", "{body}");
         }
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/syncs/no-such-sync/run",
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     }
 
     // ── Fallback / 404 ──────────────────────────────────────────────

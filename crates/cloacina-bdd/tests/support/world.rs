@@ -654,6 +654,35 @@ fn echo_sync_params(sync: &str, segments: u64) -> Value {
 }
 
 impl SyncWorld {
+    /// Run the sync `name` by hand, as `POST /syncs/{name}/run` does: fire
+    /// its instance, then wait for the pass to finish.
+    pub async fn run_by_hand(&mut self, name: &str) {
+        let runner = self.runner().await;
+        cloacina_sync::install(&runner, None, None);
+        let dal = self.dal().await;
+        let ctx = cloacina_sync::views::fire_context(&dal, name)
+            .await
+            .expect("the sync's fire context");
+        runner
+            .fire_instance(cloacina_sync::WORKFLOW_NAME, ctx)
+            .await
+            .expect("fire the sync");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            let passes = cloacina_sync::views::passes(&dal, name, 1, 0)
+                .await
+                .expect("list the passes");
+            if passes.first().is_some_and(|p| p.status != "Running") {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the pass never finished"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    }
+
     /// Run one pass of the stored sync definition `name`, by its name.
     pub async fn run_definition_pass(&mut self, name: &str) {
         let runner = self.runner().await;

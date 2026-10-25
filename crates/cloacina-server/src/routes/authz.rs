@@ -355,6 +355,12 @@ pub fn build_authz_table() -> AuthzTable {
         "/tenants/{tenant_id}/syncs/{name}/schema/accept",
         Access::tenant(Level::Write),
     );
+    // CLOACINA-T-1005: run a pass now.
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/syncs/{name}/run",
+        Access::tenant(Level::Write),
+    );
     // CLOACINA-T-1002: check and discover run a connector with the tenant's
     // secrets: a tenant write.
     add(
@@ -991,7 +997,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            78,
+            79,
             "authz table size changed — a route was added/removed without updating the table"
         );
 

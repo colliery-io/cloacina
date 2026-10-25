@@ -117,6 +117,7 @@ impl Modify for SecurityAddon {
         crate::routes::syncs::list_dead_letters,
         crate::routes::syncs::list_streams,
         crate::routes::syncs::accept_schema,
+        crate::routes::syncs::run_sync,
         crate::routes::secrets::get_secret,
         crate::routes::secrets::delete_secret,
         crate::routes::session::refresh,

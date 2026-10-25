@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Syncs in the UI** (COLLIERY-I-0635, CLOACINA-T-1005): a Syncs section.
+  The list shows each sync's source and destination, schedule, last pass and
+  what needs attention (schema drift, dead-letters), with run, edit and
+  delete. A sync's page shows its passes, one entry each with its segments'
+  executions linked to their logs; its stream's cursor and captured schema,
+  with "Accept new schema" on drift; and its dead-letters. A new route,
+  `POST /v1/tenants/{tenant_id}/syncs/{name}/run`, runs a pass by name, as
+  the cron fire does, so a run by hand shows as a pass of the sync. A pass
+  now reads `Completed` only once its last segment saw the source end;
+  between segments it is `Running`.
 - **The Sync read API** (COLLIERY-I-0635, CLOACINA-T-1004):
   `/v1/tenants/{tenant_id}/syncs` reads syncs by name, without naming the
   workflow: the list and one sync, a sync's passes (newest first, each with

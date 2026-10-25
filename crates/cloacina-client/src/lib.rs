@@ -806,6 +806,20 @@ impl Client {
             .await
     }
 
+    /// Run a pass of the sync now; the first segment's execution.
+    pub async fn run_sync(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<ExecuteResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/syncs/{name}/run"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
     /// Accept the new shape of a sync's stream.
     pub async fn accept_sync_schema(
         &self,

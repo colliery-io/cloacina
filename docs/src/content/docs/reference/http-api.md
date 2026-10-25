@@ -612,6 +612,7 @@ unknown sync is `404 sync_not_found`.
 | `GET /v1/tenants/{tenant_id}/syncs/{name}/passes` | A page of the sync's passes, newest first (`limit` 1 to 1000, default 50; `offset`). Each is `{ pass_id, status, started_at, completed_at, segments, cursor, executions }`: `status` is `Running`, `Completed` or `Failed`, `cursor` is the cursor the last segment ended on, and `executions` are its segments, oldest first. |
 | `GET /v1/tenants/{tenant_id}/syncs/{name}/dead-letters` | A page of the records the sync set aside, newest first: `{ id, stream, record, reason, created_at, execution_id }`. `total` is how many it holds. |
 | `GET /v1/tenants/{tenant_id}/syncs/{name}/streams` | Each stream with its committed `cursor`, `exhausted`, `updated_at`, the captured schema's `fields`, and `broken`, the reasons its schema no longer fits. |
+| `POST /v1/tenants/{tenant_id}/syncs/{name}/run` | Run a pass now, as the sync's cron fire does. Returns the first segment's execution (`{ execution_id, workflow_name, tenant_id, status }`); the pass goes on, and shows in `/passes`. |
 | `POST /v1/tenants/{tenant_id}/syncs/{name}/schema/accept` | Accept the stream's new shape: its stored schema empties and `broken` clears. The next write captures the shape it sees. Returns `{ name, stream, accepted }`. |
 
 ## Workflow Packages

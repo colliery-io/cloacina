@@ -18,7 +18,7 @@
 
 use cloacina_constructor_contract::sync::{Field, FieldType, StreamSchema};
 use cucumber::gherkin::Step;
-use cucumber::{given, then};
+use cucumber::{given, then, when};
 use serde_json::json;
 
 use crate::support::world::SyncWorld;
@@ -147,4 +147,9 @@ async fn no_such(w: &mut SyncWorld, name: String) {
         .await
         .expect_err("no such sync");
     assert!(err.to_string().contains(&name), "{err}");
+}
+
+#[when(expr = "the sync {string} is run by hand")]
+async fn run_by_hand(w: &mut SyncWorld, name: String) {
+    w.run_by_hand(&name).await;
 }

@@ -125,6 +125,7 @@ pub fn Shell() -> impl IntoView {
                     <NavItem to="/workflows" label="Workflows" marker=token::ICE />
                     <NavItem to="/triggers" label="Triggers" marker=token::VIOLET />
                     <NavItem to="/graphs" label="Graphs" marker=token::TEAL />
+                    <NavItem to="/syncs" label="Syncs" marker=token::GOLD />
                 </SideNavGroup>
                 <SideNavGroup label="System">
                     <NavItem to="/operations" label="Operations" />

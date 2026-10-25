@@ -19,5 +19,11 @@ Feature: What a sync shows
     And the sync definition "people" runs a pass
     Then the dead-letters of "people" list 1 record, for its field "id"
 
+  Scenario: A run by hand shows as a pass of its sync
+    Given a sync definition "orders" that reads 2 segments from an echo source
+    When the sync "orders" is run by hand
+    Then the passes of "orders" are listed newest first with "2" segments
+    And the newest pass of "orders" ended on segment 2
+
   Scenario: A sync that does not exist is named
     Then reading the sync "nope" says there is no such sync
