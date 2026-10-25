@@ -203,3 +203,17 @@ pub async fn dump(table: &str) -> Vec<String> {
         .map(|r| r.get(0))
         .collect()
 }
+
+/// Run one statement on the scenario's Postgres.
+pub async fn execute(sql: &str) {
+    client()
+        .await
+        .batch_execute(sql)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
+}
+
+/// A quoted identifier, for steps that build their own statements.
+pub fn quoted(name: &str) -> String {
+    ident(name)
+}

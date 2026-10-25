@@ -38,6 +38,7 @@ pub mod completion_writes_test_workflow {
                 record: r#"{"id":"x"}"#.into(),
                 reason: "id is not an integer".into(),
             }],
+            stream_schemas: vec![],
         };
         writes
             .attach(context)
@@ -69,6 +70,7 @@ pub mod completion_writes_bad_payload_workflow {
                 ..Default::default()
             }],
             dead_letters: vec![],
+            stream_schemas: vec![],
         };
         writes
             .attach(context)

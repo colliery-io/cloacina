@@ -51,6 +51,21 @@ pub struct CompletionWrites {
     /// Dead-letter inserts.
     #[serde(default)]
     pub dead_letters: Vec<DeadLetterWrite>,
+    /// The streams' evolved schemas (CLOACINA-T-1003), replacing what is
+    /// stored.
+    #[serde(default)]
+    pub stream_schemas: Vec<StreamSchemaWrite>,
+}
+
+/// The schema a sync stream holds after a write, as JSON, and the reasons it
+/// is broken, if it is.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct StreamSchemaWrite {
+    pub sync: String,
+    pub stream: String,
+    pub schema: String,
+    #[serde(default)]
+    pub broken: Option<String>,
 }
 
 /// Upsert of a sync stream's state: the committed cursor and the connector's
@@ -89,7 +104,9 @@ pub struct DeadLetterWrite {
 impl CompletionWrites {
     /// No rows to write.
     pub fn is_empty(&self) -> bool {
-        self.stream_state.is_empty() && self.dead_letters.is_empty()
+        self.stream_state.is_empty()
+            && self.dead_letters.is_empty()
+            && self.stream_schemas.is_empty()
     }
 
     /// Attach these writes to `context` under [`COMPLETION_WRITES_KEY`],
@@ -134,6 +151,7 @@ mod tests {
                 record: "{}".into(),
                 reason: "empty".into(),
             }],
+            stream_schemas: vec![],
         };
         let mut ctx = Context::new();
         ctx.insert("kept", serde_json::json!(1)).unwrap();

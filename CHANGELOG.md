@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Schema capture and evolution** (COLLIERY-I-0635, CLOACINA-T-1003): each
+  sync stream keeps a captured schema, as weir did; migration 053 adds
+  `sync_stream_schemas`. The map task samples up to 200 mapped records a
+  segment, before enforcement: a new field joins the schema, a field whose
+  values no longer coerce to its type marks the schema broken with the
+  reasons and keeps it, and a dropped field or a nullability change is
+  ignored (`cloacina_sync::schema::evolve`). The write task commits the
+  result as a completion write, with the cursor (`StreamSchemaWrite`).
+  Enforcement uses the stored schema once there is one, the declared one
+  before; nothing pauses on a broken schema. `SyncStreamSchemasDAL::accept`
+  empties a stream's schema so the next write captures the new shape. A new
+  BDD feature, `sync/schema.feature`, and a section on the Sync page.
 - **Check and discover where connectors run** (COLLIERY-I-0635,
   CLOACINA-T-1002): `POST /v1/tenants/{tenant_id}/connectors/check` checks one
   side of a sync, and `.../connectors/discover` lists a source's streams with
