@@ -12,3 +12,6 @@ sidebar:
 - [Add Connector Definitions to a Server](add-connector-definitions/)
 
 For what Sync is and how a sync runs, see [Sync](../../explanation/primitives/sync/).
+
+To make a first sync from the web UI, follow the tutorial
+[Your First Sync](../../tutorials/service/08-your-first-sync/).

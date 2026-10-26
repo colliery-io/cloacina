@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A tutorial: Your First Sync** (COLLIERY-I-0635, CLOACINA-T-1007): from a
+  fresh compose server and the web UI only, copy Frankfurter's latest exchange
+  rates into Postgres, run the sync by hand and read its passes. A Playwright
+  journey test makes the same sync in the `ui-e2e` lane, against a local stand-in
+  for Frankfurter, and checks the pass completes and the table lands. The lane
+  stages the Postgres and REST connectors for its server.
 - **The connectors ship in the images** (COLLIERY-I-0635, CLOACINA-T-1009):
   the server and agent images build the first-party Sync connectors
   (postgres, mssql, s3, snowflake, rest, rest-dest) in a stage of their own
