@@ -253,7 +253,13 @@ pub async fn run(
             .map_err(|e| ProbeError::Connector(e.to_string()));
     }
     let side = side_name(request);
-    let ep = endpoint(request)?;
+    let mut ep = endpoint(request)?;
+    // A connector that imports wasi:http loads only with an http grant. Spec
+    // reads metadata and makes no request: an unresolvable `.invalid` host
+    // satisfies the import and reaches nothing (CLOACINA-T-1009).
+    if action == "spec" && ep.grants.is_none() {
+        ep.grants = Some(json!({ "http": ["spec.invalid:1"] }));
+    }
     let cred = credential::resolve(ctx, side, ep.credential.as_ref())
         .await
         .map_err(|e| ProbeError::Connector(e.to_string()))?;

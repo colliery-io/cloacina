@@ -166,3 +166,20 @@ async fn spec_fields(w: &mut SyncWorld, field: String, secret: String) {
     assert!(props.get(&field).is_some(), "{a}");
     assert_eq!(props[&secret]["airbyte_secret"], true, "{a}");
 }
+
+#[when(expr = "the connector {string} is asked to describe itself, with no grants")]
+async fn spec_any(w: &mut SyncWorld, provider: String) {
+    let request = ConnectorProbeRequest {
+        side: "source".into(),
+        provider: Some(provider),
+        member: Some("source".into()),
+        ..Default::default()
+    };
+    w.probed = Some(w.probe("spec", &request).await);
+}
+
+#[then(expr = "it describes itself as {string}")]
+async fn described_as(w: &mut SyncWorld, name: String) {
+    let a = answer(w);
+    assert_eq!(a["name"], name, "{a}");
+}

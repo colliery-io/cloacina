@@ -4,6 +4,8 @@
 #
 # Multi-stage build:
 #   Stage 1 (builder): rust:1.99-slim — compiles cloacina-server in release.
+#   Stage (connectors): the first-party Sync connectors, built to wasm and
+#     staged as provider packages (CLOACINA-T-1009).
 #   Stage 2 (runtime): debian:bookworm-slim — minimal Debian + libpq5.
 #
 # Why debian:bookworm-slim instead of distroless?
@@ -93,6 +95,21 @@ ENV CLOACINA_EMBEDDED_UI_SKIP_NPM=1
 RUN cargo build --release --locked --features embedded-ui --bin cloacina-server
 
 # ---------------------------------------------------------------------------
+# Stage: the first-party Sync connectors (COLLIERY-I-0635 decision 14 /
+# CLOACINA-T-1009). Each connector in connectors/ is built to a wasm32-wasip2
+# component and staged as a provider package. Built apart from the binary, so
+# a connector change rebuilds only this stage.
+# ---------------------------------------------------------------------------
+FROM rust:${RUST_VERSION}-slim-bookworm AS connectors
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup target add wasm32-wasip2
+WORKDIR /build
+COPY . .
+RUN python3 scripts/stage_connectors.py /opt/cloacina/providers
+
+# ---------------------------------------------------------------------------
 # Stage 2: runtime
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
@@ -120,6 +137,12 @@ RUN groupadd --system --gid 10001 cloacina \
 
 COPY --from=builder /build/target/release/cloacina-server /usr/local/bin/cloacina-server
 RUN chmod +x /usr/local/bin/cloacina-server
+
+# The first-party Sync connectors, where the provider loader looks
+# (CLOACINA-T-1009). Add your own provider packages to the same directory, or
+# point CLOACINA_PROVIDER_PATH elsewhere.
+COPY --from=connectors /opt/cloacina/providers /opt/cloacina/providers
+ENV CLOACINA_PROVIDER_PATH=/opt/cloacina/providers
 
 USER cloacina
 WORKDIR /home/cloacina
