@@ -40,3 +40,8 @@ export async function seedConnection(page: Page): Promise<void> {
     ],
   );
 }
+
+// The Sync journey's destination: the lane's Postgres, and the tcp grant
+// that reaches it (CLOACINA-T-1007). Empty → the journey skips.
+export const SYNC_PG_URL = process.env.E2E_SYNC_PG_URL ?? "";
+export const SYNC_PG_GRANT = process.env.E2E_SYNC_PG_GRANT ?? "*:15432";

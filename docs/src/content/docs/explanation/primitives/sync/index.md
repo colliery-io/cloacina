@@ -14,6 +14,8 @@ each segment is a workflow execution, and connectors are constructor providers.
 Sync came to cloacina from [weir](https://github.com/colliery-io/weir), whose
 feature set it absorbs (COLLIERY-S-0002, CLOACINA-A-0013).
 
+To make one, follow the tutorial [Your First Sync](../../../tutorials/service/08-your-first-sync/).
+
 ## The words
 
 | Word | Meaning |
@@ -148,5 +150,5 @@ one the same way ([Test a Connector](../../../how-to/sync/test-a-connector/)).
 Sync lands in order (COLLIERY-I-0632 to COLLIERY-I-0636). The contract, the
 Postgres to Postgres sync, the compiled connectors, credential injection, the
 conformance kit, and the declarative connectors with their corpus, importer
-and catalog are here. Authoring in the web UI and continuous sources come
-next.
+and catalog are here, and so are the API and the web UI that make, run and
+show syncs. Continuous sources come next.
