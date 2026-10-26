@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The connectors ship in the images** (COLLIERY-I-0635, CLOACINA-T-1009):
+  the server and agent images build the first-party Sync connectors
+  (postgres, mssql, s3, snowflake, rest, rest-dest) in a stage of their own
+  and carry them in `/opt/cloacina/providers`, with `CLOACINA_PROVIDER_PATH`
+  set, so a fresh server lists them and runs a sync with no other setup.
+  `angreal connectors stage` (`scripts/stage_connectors.py`) builds and stages
+  them for a local server. A connector's spec now loads with a placeholder
+  http grant when none is given, so the HTTP connectors describe themselves
+  too. A how-to: Put the Connectors on a Server.
 - **A sync's connector secrets are masked** (COLLIERY-I-0635,
   CLOACINA-T-1008): weir's convention, until connectors read secrets
   (COLLIERY-I-0651). Every read of a sync shows the secret fields of its

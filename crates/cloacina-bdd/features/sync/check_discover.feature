@@ -36,3 +36,7 @@ Feature: Check and discover run where connectors run
   Scenario: A compiled connector describes its config
     When the Postgres connector is asked to describe itself
     Then its config has the field "table", and "password" is secret
+
+  Scenario: An HTTP connector describes itself without grants of its own
+    When the connector "cloacina-connector-rest" is asked to describe itself, with no grants
+    Then it describes itself as "rest"
