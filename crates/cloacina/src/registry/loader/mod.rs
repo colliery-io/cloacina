@@ -20,10 +20,19 @@
 //! extract metadata, validate package integrity, and register tasks with the
 //! global task registry.
 
+/// The Sync connector host (COLLIERY-I-0632 / CLOACINA-T-0973): load a source
+/// or destination member under grants and drive spec, check, discover, the
+/// streaming read and the client-streaming write.
+#[cfg(feature = "constructors-wasm")]
+pub mod connector_host;
 /// WASM task-constructor loader + executor adapter (CLOACI-I-0132 / T-0823).
 /// Default-OFF behind the `constructors-wasm` feature.
 #[cfg(feature = "constructors-wasm")]
 pub mod constructor_loader;
+/// Host-side credential injection into egress (COLLIERY-I-0633 / CLOACINA-T-0982).
+/// Default-OFF behind the `constructors-wasm` feature.
+#[cfg(feature = "constructors-wasm")]
+pub mod credentials;
 pub mod ffi_trigger;
 pub mod ffi_triggerless_graph;
 /// Constructor capability grants → fidius enforcement (CLOACI-T-0834).
@@ -36,6 +45,10 @@ pub mod task_registrar;
 pub use package_loader::PackageLoader;
 pub use task_registrar::TaskRegistrar;
 
+#[cfg(feature = "constructors-wasm")]
+pub use connector_host::{
+    ConnectorHandle, ConnectorHostError, ReadIter, ReadStream, load_connector,
+};
 #[cfg(feature = "constructors-wasm")]
 pub use constructor_loader::{
     ConstructorBinding, ConstructorNode, DEFAULT_PROVIDER_DIR, PROVIDER_PATH_ENV, ProviderScope,

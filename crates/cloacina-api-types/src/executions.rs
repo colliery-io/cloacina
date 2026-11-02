@@ -47,6 +47,11 @@ pub struct ExecuteResponse {
 pub struct ListExecutionsQuery {
     pub status: Option<String>,
     pub workflow: Option<String>,
+    /// Only the runs started by a fire of this workflow instance
+    /// (CLOACINA-T-1000).
+    pub instance: Option<String>,
+    /// Only the runs of this Sync pass, a UUID (CLOACINA-T-1000).
+    pub pass: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -68,6 +73,13 @@ pub struct ExecutionSummary {
     /// The UI marks manual runs with a "manual" pill.
     #[serde(default)]
     pub trigger_origin: Option<String>,
+    /// The workflow instance whose fire started the run; `null` for a run
+    /// that no instance fired (CLOACINA-T-1000).
+    #[serde(default)]
+    pub instance_name: Option<String>,
+    /// The Sync pass the run is a segment of, a UUID; `null` otherwise.
+    #[serde(default)]
+    pub pass_id: Option<String>,
 }
 
 /// `GET /tenants/{tenant_id}/executions/{id}` response.

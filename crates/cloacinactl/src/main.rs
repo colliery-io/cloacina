@@ -33,8 +33,8 @@ mod shared;
 use shared::error::CliError;
 
 use nouns::{
-    accumulator, compiler, constructor, daemon, execution, graph, instance, key, package, reactor,
-    secret, server, tenant, trigger, workflow,
+    accumulator, compiler, connector, constructor, daemon, execution, graph, instance, key,
+    package, reactor, secret, server, tenant, trigger, workflow,
 };
 
 /// cloacinactl — Cloacina task orchestration engine
@@ -124,6 +124,9 @@ enum Commands {
 
     /// Constructor — package a #[constructor] crate into a signed provider archive
     Constructor(constructor::ConstructorCmd),
+
+    /// Connector — Sync's declarative connectors (import an Airbyte source)
+    Connector(connector::ConnectorCmd),
 
     /// Workflow — named task DAGs registered in packages
     Workflow(workflow::WorkflowCmd),
@@ -278,6 +281,7 @@ async fn run() -> std::result::Result<(), CliError> {
         Commands::Accumulator(cmd) => return cmd.run(&cli.globals).await,
         Commands::Package(cmd) => return cmd.run(&cli.globals).await,
         Commands::Constructor(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Connector(cmd) => cmd.run(&cli.globals).await,
         Commands::Workflow(cmd) => return cmd.run(&cli.globals).await,
         Commands::Execution(cmd) => return cmd.run(&cli.globals).await,
         Commands::Tenant(cmd) => return cmd.run(&cli.globals).await,

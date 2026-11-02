@@ -1,0 +1,121 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Todoist REST API v2's official API documentation
+# (https://developer.todoist.com/rest/v2/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ────────────────────────────────────────────────────────────────
+  # Stream: tasks
+  # Source: https://developer.todoist.com/rest/v2/#tasks
+  # Path confirmed: GET /api/v1/tasks
+  # Response shape: bare JSON array of task objects (no wrapper key)
+  # Pagination: omitted — Todoist uses cursor-based pagination
+  #   (cursor + next_cursor), which the target schema cannot express;
+  #   the primary list endpoint appears to return all active tasks
+  #   in a single response for typical user volumes.
+  # Incremental sync: omitted — no time-based filter query parameter
+  #   is documented for GET /api/v1/tasks.
+  # ────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: tasks
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.todoist.com/api/v1"
+        path: "/tasks"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+          content:
+            type: string
+          description:
+            type: ["null", "string"]
+          project_id:
+            type: ["null", "string"]
+          section_id:
+            type: ["null", "string"]
+          parent_id:
+            type: ["null", "string"]
+          order:
+            type: ["null", "integer"]
+          priority:
+            type: integer
+          due:
+            type: ["null", "object"]
+          duration:
+            type: ["null", "object"]
+          is_completed:
+            type: boolean
+          labels:
+            type: array
+          assignee_id:
+            type: ["null", "string"]
+          creator_id:
+            type: ["null", "string"]
+          url:
+            type: ["null", "string"]
+          created_at:
+            type: string
+            format: date-time
+          updated_at:
+            type: ["null", "string"]
+            format: date-time
+
+  # ────────────────────────────────────────────────────────────────
+  # Stream: projects
+  # Source: https://developer.todoist.com/rest/v2/#projects
+  # Path confirmed: GET /api/v1/projects
+  # Response shape: bare JSON array of project objects (no wrapper key)
+  # Pagination: omitted — same cursor-based reason as tasks.
+  # Incremental sync: omitted — no time-based filter documented.
+  # ────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: projects
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.todoist.com/api/v1"
+        path: "/projects"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+          name:
+            type: string
+          color:
+            type: ["null", "string"]
+          view_style:
+            type: ["null", "string"]
+          is_shared:
+            type: ["null", "boolean"]
+          is_favorite:
+            type: ["null", "boolean"]

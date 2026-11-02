@@ -1,0 +1,131 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from NASA Open APIs's official API documentation
+# (https://api.nasa.gov/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+streams:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stream: apod  (Astronomy Picture of the Day)
+  # Endpoint: GET https://api.nasa.gov/planetary/apod
+  #
+  # Auth note: NASA requires api_key as a QUERY PARAMETER, not an HTTP header.
+  # ApiKeyAuthenticator (header mode) is the closest construct in this schema.
+  # A real implementation must use inject_into: request_parameter — see Open
+  # Questions #1.
+  #
+  # Pagination note: the endpoint has no page/offset params. When start_date
+  # is provided (as incremental_sync does here), it returns a bare JSON array
+  # covering start_date through today. Full-refresh without start_date returns
+  # a single JSON object, not an array — see Open Questions #3.
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: apod
+    primary_key: date
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.nasa.gov"
+        path: "/planetary/apod"
+        authenticator:
+          type: ApiKeyAuthenticator
+          # NASA requires the key as a query param (?api_key=…), not a header — injected below.
+          api_token: "{{ config['api_key'] }}"
+          inject_into:
+            type: RequestOption
+            field_name: "api_key"
+            inject_into: request_parameter
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []                # start_date mode returns a bare JSON array
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: date               # YYYY-MM-DD string in every APOD record
+      start_time_option:
+        type: RequestOption
+        field_name: "start_date"       # query param documented in github.com/nasa/apod-api README
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          date:             { type: string, format: date }
+          title:            { type: ["null", "string"] }
+          explanation:      { type: ["null", "string"] }
+          url:              { type: ["null", "string"] }
+          hdurl:            { type: ["null", "string"] }
+          media_type:       { type: ["null", "string"] }   # "image" | "video"
+          service_version:  { type: ["null", "string"] }
+          copyright:        { type: ["null", "string"] }
+          thumbnail_url:    { type: ["null", "string"] }   # present for video entries when thumbs=true
+          concept_tags:     { type: ["null", "boolean"] }
+          concepts:         { type: ["null", "object"] }   # returned only when concept_tags param=true
+          resource:         { type: ["null", "object"] }
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stream: neo  (Near Earth Objects — full browse catalogue)
+  # Endpoint: GET https://api.nasa.gov/neo/rest/v1/neo/browse
+  #
+  # Why browse and not /neo/rest/v1/feed? The feed endpoint's near_earth_objects
+  # value is a date-keyed dict, not a flat array, so DpathExtractor cannot
+  # yield individual records from it. The browse endpoint returns a proper flat
+  # array suitable for this schema. See Open Questions #4.
+  #
+  # Page index: browse uses 0-based page numbers (page.number: 0 on first call).
+  # See Open Questions #2.
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: neo
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.nasa.gov"
+        path: "/neo/rest/v1/neo/browse"
+        authenticator:
+          type: ApiKeyAuthenticator
+          # NASA requires the key as a query param (?api_key=…), not a header — injected below.
+          api_token: "{{ config['api_key'] }}"
+          inject_into:
+            type: RequestOption
+            field_name: "api_key"
+            inject_into: request_parameter
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["near_earth_objects"]    # confirmed flat array in browse response
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "size"            # confirmed query param from live browse call
+        page_token_option:
+          type: RequestOption
+          field_name: "page"            # confirmed query param; 0-indexed — see Open Questions #2
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 20                 # default observed in live response (page.size)
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                                { type: string }
+          neo_reference_id:                  { type: ["null", "string"] }
+          name:                              { type: ["null", "string"] }
+          name_limited:                      { type: ["null", "string"] }
+          designation:                       { type: ["null", "string"] }
+          nasa_jpl_url:                      { type: ["null", "string"] }
+          absolute_magnitude_h:              { type: ["null", "number"] }
+          estimated_diameter:                { type: ["null", "object"] }
+          is_potentially_hazardous_asteroid: { type: ["null", "boolean"] }
+          is_sentry_object:                  { type: ["null", "boolean"] }
+          sentry_data:                       { type: ["null", "string"] }
+          close_approach_data:               { type: ["null", "array"] }
+          orbital_data:                      { type: ["null", "object"] }
+          links:                             { type: ["null", "object"] }

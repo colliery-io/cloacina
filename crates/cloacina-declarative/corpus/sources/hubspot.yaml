@@ -1,0 +1,136 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from HubSpot CRM's official API documentation
+# (https://developers.hubspot.com/docs/api/crm/contacts); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  # ─── contacts ───────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: contacts
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.hubapi.com"
+        path: "/crm/v3/objects/contacts"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]       # ⚠ unconfirmed — see Open questions
+      # Opaque-cursor pagination: ?after=<paging.next.after>, limit=100 —
+      # developers.hubspot.com/docs/api/crm/contacts (paging section).
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: limit
+        page_token_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: after
+        pagination_strategy:
+          type: CursorPagination
+          page_size: 100
+          cursor_value: "{{ response['paging']['next']['after'] }}"
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: ["null", "string"]
+          properties:
+            type: ["null", "object"]
+
+  # ─── companies ──────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: companies
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.hubapi.com"
+        path: "/crm/v3/objects/companies"   # ⚠ inferred — see Open questions #2
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]            # ⚠ unconfirmed — see Open questions #3
+      # Opaque-cursor pagination — same after/limit model as contacts.
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: limit
+        page_token_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: after
+        pagination_strategy:
+          type: CursorPagination
+          page_size: 100
+          cursor_value: "{{ response['paging']['next']['after'] }}"
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: ["null", "string"]
+          properties:
+            type: ["null", "object"]
+
+  # ─── deals ──────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: deals
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.hubapi.com"
+        path: "/crm/v3/objects/deals"       # ⚠ inferred — see Open questions #2
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]            # ⚠ unconfirmed — see Open questions #3
+      # Opaque-cursor pagination — same after/limit model as contacts.
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: limit
+        page_token_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: after
+        pagination_strategy:
+          type: CursorPagination
+          page_size: 100
+          cursor_value: "{{ response['paging']['next']['after'] }}"
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: ["null", "string"]
+          properties:
+            type: ["null", "object"]

@@ -1,0 +1,137 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Square API's official API documentation
+# (https://developer.squareup.com/reference/square); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ──────────────────────────────────────────────
+  # Stream 1 – payments
+  # Source: https://developer.squareup.com/reference/square/payments-api/list-payments
+  # ──────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: payments
+    primary_key: id
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://connect.squareup.com"
+        path: "/v2/payments"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["payments"]
+
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: CursorPagination
+          # Square returns a top-level `cursor` string, echoed back as the next request's param.
+          cursor_value: "{{ response['cursor'] }}"
+        page_token_option:
+          type: RequestOption
+          field_name: "cursor"
+          inject_into: request_parameter
+
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: updated_at
+      start_time_option:
+        type: RequestOption
+        field_name: "updated_at_begin_time"   # documented query param; RFC 3339 string
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                   { type: string }
+          created_at:           { type: string, format: date-time }
+          updated_at:           { type: string, format: date-time }
+          status:               { type: ["null", "string"] }
+          source_type:          { type: ["null", "string"] }
+          location_id:          { type: ["null", "string"] }
+          order_id:             { type: ["null", "string"] }
+          employee_id:          { type: ["null", "string"] }
+          team_member_id:       { type: ["null", "string"] }
+          note:                 { type: ["null", "string"] }
+          receipt_number:       { type: ["null", "string"] }
+          receipt_url:          { type: ["null", "string"] }
+          delay_duration:       { type: ["null", "string"] }
+          delay_action:         { type: ["null", "string"] }
+          delayed_until:        { type: ["null", "string"], format: date-time }
+          version_token:        { type: ["null", "string"] }
+          amount_money:         { type: ["null", "object"] }
+          total_money:          { type: ["null", "object"] }
+          approved_money:       { type: ["null", "object"] }
+          processing_fee:       { type: ["null", "array"] }
+          card_details:         { type: ["null", "object"] }
+          application_details:  { type: ["null", "object"] }
+
+  # ──────────────────────────────────────────────
+  # Stream 2 – customers
+  # Source: https://developer.squareup.com/reference/square/customers-api/list-customers
+  # ──────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: customers
+    primary_key: id
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://connect.squareup.com"
+        path: "/v2/customers"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["customers"]
+
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: CursorPagination
+          cursor_value: "{{ response['cursor'] }}"
+        page_token_option:
+          type: RequestOption
+          field_name: "cursor"
+          inject_into: request_parameter
+
+    # NOTE: GET /v2/customers documents NO date/time filter query parameters.
+    # incremental_sync is therefore omitted entirely for this stream.
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:               { type: string }
+          created_at:       { type: string, format: date-time }
+          updated_at:       { type: string, format: date-time }
+          given_name:       { type: ["null", "string"] }
+          family_name:      { type: ["null", "string"] }
+          email_address:    { type: ["null", "string"] }
+          phone_number:     { type: ["null", "string"] }
+          reference_id:     { type: ["null", "string"] }
+          note:             { type: ["null", "string"] }
+          creation_source:  { type: ["null", "string"] }
+          version:          { type: ["null", "integer"] }
+          address:          { type: ["null", "object"] }
+          preferences:      { type: ["null", "object"] }
+          group_ids:        { type: ["null", "array"] }
+          segment_ids:      { type: ["null", "array"] }

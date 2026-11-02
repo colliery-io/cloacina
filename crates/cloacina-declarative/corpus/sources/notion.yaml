@@ -1,0 +1,164 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Notion API's official API documentation
+# (https://developers.notion.com/reference); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+# Both streams read POST /v1/search: the stream filter + page size ride the static
+# request body (`request_body_json`), and the opaque cursor (start_cursor → next_cursor)
+# is body-injected per page (`inject_into: body_json`).
+# incremental_sync is omitted — the search API has no time-range filter parameter.
+
+type: DeclarativeSource
+
+streams:
+
+  # ── Stream 1: databases ─────────────────────────────────────────────────────
+  # POST /v1/search with body { "filter": { "property": "object", "value": "data_source" },
+  # "page_size": 100 }; the opaque cursor is body-injected as `start_cursor` and the next
+  # token read from the response's `next_cursor`. Records live in the "results" array.
+  - type: DeclarativeStream
+    name: databases
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.notion.com"
+        path: "/v1/search"
+        http_method: POST
+        request_body_json:
+          filter: { property: object, value: data_source }
+          page_size: 100
+        request_headers:
+          Notion-Version: "2022-06-28"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]   # API returns { "results": [...], "has_more": bool, "next_cursor": str }
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: CursorPagination
+          cursor_value: "{{ response['next_cursor'] }}"
+        page_token_option:
+          type: RequestOption
+          inject_into: body_json
+          field_name: start_cursor
+    # incremental_sync intentionally omitted — the search API has no time-range
+    # filter parameter.
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          object:
+            type: ["null", "string"]          # always "database"
+          id:
+            type: string                       # UUID; primary key
+          created_time:
+            type: string
+            format: date-time                  # ISO 8601
+          created_by:
+            type: ["null", "object"]           # Partial User object
+          last_edited_time:
+            type: string
+            format: date-time                  # ISO 8601
+          last_edited_by:
+            type: ["null", "object"]           # Partial User object
+          title:
+            type: ["null", "array"]            # array of rich-text objects
+          description:
+            type: ["null", "array"]            # array of rich-text objects
+          icon:
+            type: ["null", "object"]           # Emoji / Icon / File object
+          cover:
+            type: ["null", "object"]           # File object
+          parent:
+            type: ["null", "object"]           # parent reference
+          url:
+            type: ["null", "string"]
+          archived:
+            type: ["null", "boolean"]          # deprecated; use in_trash
+          in_trash:
+            type: ["null", "boolean"]
+          is_inline:
+            type: ["null", "boolean"]
+          public_url:
+            type: ["null", "string"]
+          data_sources:
+            type: ["null", "array"]            # list of child data-source refs
+
+  # ── Stream 2: pages ─────────────────────────────────────────────────────────
+  # POST /v1/search with body { "filter": { "property": "object", "value": "page" },
+  # "page_size": 100 }; cursor body-injected as `start_cursor` (as above).
+  - type: DeclarativeStream
+    name: pages
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.notion.com"
+        path: "/v1/search"
+        http_method: POST
+        request_body_json:
+          filter: { property: object, value: page }
+          page_size: 100
+        request_headers:
+          Notion-Version: "2022-06-28"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: CursorPagination
+          cursor_value: "{{ response['next_cursor'] }}"
+        page_token_option:
+          type: RequestOption
+          inject_into: body_json
+          field_name: start_cursor
+    # incremental_sync intentionally omitted; see stream 1 note.
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          object:
+            type: ["null", "string"]          # always "page"
+          id:
+            type: string                       # UUIDv4; primary key
+          created_time:
+            type: string
+            format: date-time                  # ISO 8601
+          created_by:
+            type: ["null", "object"]           # Partial User object
+          last_edited_time:
+            type: string
+            format: date-time                  # ISO 8601
+          last_edited_by:
+            type: ["null", "object"]           # Partial User object
+          archived:
+            type: ["null", "boolean"]          # deprecated; use in_trash
+          in_trash:
+            type: ["null", "boolean"]
+          icon:
+            type: ["null", "object"]           # Emoji / Icon / File object
+          cover:
+            type: ["null", "object"]           # File object
+          properties:
+            type: ["null", "object"]           # property-value map; shape varies by parent schema
+          parent:
+            type: ["null", "object"]           # parent reference
+          url:
+            type: ["null", "string"]
+          public_url:
+            type: ["null", "string"]

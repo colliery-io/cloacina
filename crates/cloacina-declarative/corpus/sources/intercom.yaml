@@ -1,0 +1,122 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Intercom REST API's official API documentation
+# (https://developers.intercom.com/docs/references/rest-api/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ──────────────────────────────────────────────────────────────
+  # Stream: contacts
+  # Endpoint: GET https://api.intercom.io/contacts
+  # ──────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: contacts
+    primary_key: "id"
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.intercom.io"
+        path: "/contacts"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["data"]
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: CursorPagination
+          # Intercom returns the next cursor at pages.next.starting_after.
+          cursor_value: "{{ response['pages']['next']['starting_after'] }}"
+        page_token_option:
+          type: RequestOption
+          field_name: "starting_after"
+          inject_into: request_parameter
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                      { type: string }
+          role:                    { type: ["null", "string"] }
+          name:                    { type: ["null", "string"] }
+          email:                   { type: ["null", "string"] }
+          phone:                   { type: ["null", "string"] }
+          external_id:             { type: ["null", "string"] }
+          avatar:                  { type: ["null", "string"] }
+          owner_id:                { type: ["null", "integer"] }
+          created_at:              { type: ["null", "integer"] }
+          updated_at:              { type: ["null", "integer"] }
+          signed_up_at:            { type: ["null", "integer"] }
+          last_seen_at:            { type: ["null", "integer"] }
+          last_contacted_at:       { type: ["null", "integer"] }
+          last_replied_at:         { type: ["null", "integer"] }
+          last_email_opened_at:    { type: ["null", "integer"] }
+          last_email_clicked_at:   { type: ["null", "integer"] }
+          browser:                 { type: ["null", "string"] }
+          browser_language:        { type: ["null", "string"] }
+          os:                      { type: ["null", "string"] }
+          unsubscribed_from_emails: { type: ["null", "boolean"] }
+          marked_email_as_spam:    { type: ["null", "boolean"] }
+          has_hard_bounced:        { type: ["null", "boolean"] }
+
+  # ──────────────────────────────────────────────────────────────
+  # Stream: conversations
+  # Endpoint: GET https://api.intercom.io/conversations
+  # ──────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: conversations
+    primary_key: "id"
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.intercom.io"
+        path: "/conversations"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["data"]
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: CursorPagination
+          cursor_value: "{{ response['pages']['next']['starting_after'] }}"
+        page_token_option:
+          type: RequestOption
+          field_name: "starting_after"
+          inject_into: request_parameter
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                     { type: string }
+          created_at:             { type: ["null", "integer"] }
+          updated_at:             { type: ["null", "integer"] }
+          open:                   { type: ["null", "boolean"] }
+          read:                   { type: ["null", "boolean"] }
+          state:                  { type: ["null", "string"] }
+          channel_initiated:      { type: ["null", "string"] }
+          waiting_since:          { type: ["null", "integer"] }
+          snoozed_until:          { type: ["null", "integer"] }
+          priority:               { type: ["null", "string"] }
+          admin_assignee_id:      { type: ["null", "integer"] }
+          team_assignee_id:       { type: ["null", "integer"] }
+          ai_agent_participated:  { type: ["null", "boolean"] }
+          source:                 { type: ["null", "object"] }
+          contact_ids:            { type: ["null", "array"] }
+          teammate_ids:           { type: ["null", "array"] }
+          tag_ids:                { type: ["null", "array"] }
+          statistics:             { type: ["null", "object"] }
+          conversation_rating:    { type: ["null", "object"] }
+          ai_agent:               { type: ["null", "object"] }

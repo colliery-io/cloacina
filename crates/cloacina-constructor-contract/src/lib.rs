@@ -65,6 +65,12 @@
 //! ([`AccumulatorInvocation`] / [`AccumulatorOutcome`]) and REACTOR
 //! ([`ReactorInvocation`] / [`ReactorOutcome`]) wire types whose full host
 //! bridge/fixture is a noted continuation.
+//!
+//! 3. **The Sync connector contract** ([`sync`], COLLIERY-I-0632): the SOURCE and
+//!    DESTINATION kinds, one five-method `connector` interface with typed and
+//!    streaming methods, and the boundary types that cross it. Unlike the other
+//!    primitives its wire is typed bincode, not a JSON string, because records
+//!    stream through it.
 
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +79,10 @@ use serde::{Deserialize, Serialize};
 /// constructor's injectable runtime surface is described with the same
 /// JSON-Schema-typed slots the rest of cloacina uses.
 pub use cloacina_api_types::InputSlot;
+
+/// The Sync connector contract: source and destination kinds, their boundary
+/// types and the envelope codec (COLLIERY-I-0632).
+pub mod sync;
 
 /// The error an `#[constructor]`-authored body returns (`Result<(), ConstructorError>`,
 /// CLOACI-T-0826). Deliberately tiny + serde/wasm-safe: it carries a message the
@@ -162,6 +172,28 @@ pub const STREAM_ACCUMULATOR_CONSTRUCTOR_INTERFACE_VERSION: u32 = 1;
 /// of the per-event `ingest` path (CLOACI-T-0904).
 pub const STREAM_ACCUMULATOR_INTERFACE: &str = "stream-accumulator-constructor";
 
+/// The fidius interface version of the CONNECTOR contract (Sync, COLLIERY-I-0632).
+/// One interface serves both the SOURCE and the DESTINATION kinds; a member's
+/// `primitive_kind` says which methods the host will dispatch to it.
+pub const CONNECTOR_INTERFACE_VERSION: u32 = 1;
+
+/// The `interface` string a source or destination member's `ConstructorManifest`
+/// carries. The loader switches on the member's kind for the read path (source)
+/// or the write path (destination).
+pub const CONNECTOR_INTERFACE: &str = "connector";
+
+/// Vtable method indices of the CONNECTOR interface, in declaration order:
+/// `spec`, `check`, `discover`, `read`, `write` ([`sync`]).
+pub const METHOD_SPEC: usize = 0;
+/// See [`METHOD_SPEC`].
+pub const METHOD_CHECK: usize = 1;
+/// See [`METHOD_SPEC`].
+pub const METHOD_DISCOVER: usize = 2;
+/// See [`METHOD_SPEC`]. Server streaming.
+pub const METHOD_READ: usize = 3;
+/// See [`METHOD_SPEC`]. Client streaming.
+pub const METHOD_WRITE: usize = 4;
+
 /// Which cloacina runtime primitive a WASM constructor implements. The loader
 /// (CLOACI-T-0823 for `Task`; the rest land in T-0824) switches on this to pick
 /// the matching fidius interface descriptor and register the component against
@@ -177,6 +209,12 @@ pub enum PrimitiveKind {
     Accumulator,
     /// `evaluate(criteria) -> fire?` — fires a computation graph (T-0824).
     Reactor,
+    /// A Sync source: `discover` and a streaming `read` of records and
+    /// checkpoints, under the [`CONNECTOR_INTERFACE`] (COLLIERY-I-0632).
+    Source,
+    /// A Sync destination: a client-streaming `write` of record batches, under
+    /// the [`CONNECTOR_INTERFACE`] (COLLIERY-I-0632).
+    Destination,
 }
 
 /// One `#[config]` field of a constructor, recorded in DECLARATION order — the
@@ -196,6 +234,18 @@ pub struct ConfigField {
     /// `bool`, `f64`. Used by the consumer to bincode-encode the kwarg value as
     /// the concrete type the guest's config struct decodes.
     pub ty: String,
+}
+
+/// Static facts about a SOURCE or DESTINATION member, recorded in the manifest
+/// so a catalog lists connectors without loading a component: the roles the
+/// member serves, the sync modes it supports, and the JSON Schema of its config
+/// (COLLIERY-I-0632). The same facts come back at runtime from `spec()`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectorMeta {
+    pub roles: Vec<sync::ConnectorRole>,
+    pub supported_sync_modes: Vec<sync::SyncMode>,
+    /// JSON Schema, as JSON text, of the member's [`sync::Config`] document.
+    pub config_schema: sync::JsonText,
 }
 
 /// The cloacina constructor manifest — emitted by the macros (the same seam that
@@ -239,6 +289,11 @@ pub struct ConstructorManifest {
     /// Optional author.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+    /// For a SOURCE or DESTINATION member, the static connector facts a catalog
+    /// shows without loading the component (COLLIERY-I-0632). `None` for the
+    /// other kinds, and absent from their JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector: Option<ConnectorMeta>,
 }
 
 impl ConstructorManifest {
@@ -408,6 +463,58 @@ pub trait ReactorObject: Send + Sync {
     /// Run the configured reactor member. `JSON(ReactorInvocation)` in,
     /// `JSON(ReactorOutcome)` out.
     fn evaluate(&self, invocation_json: String) -> String;
+}
+
+/// Object-safe form of a SOURCE or DESTINATION member (Sync, COLLIERY-I-0632):
+/// the five methods of the [`CONNECTOR_INTERFACE`] over the [`sync`] boundary
+/// types, in vtable order. Streams are plain iterators here: the suite shell
+/// wraps `read`'s iterator in a `fidius::Stream<ReadMessage>` and drains
+/// `write`'s `fidius::Stream<RecordBatch>` into an iterator. A pure source
+/// leaves `write` at its default and a pure destination leaves `discover` and
+/// `read` at theirs; the defaults fail closed with a `Config` error that names
+/// the missing role. The iterators are `Send + 'static` because they cross to
+/// the host stream bridge and outlive the borrow of `&self`.
+pub trait ConnectorObject: Send + Sync {
+    /// The static descriptor: name, version, roles, sync modes, config schema.
+    fn spec(&self) -> sync::ConnectorSpec;
+
+    /// Validate configuration and connectivity. Moves no data.
+    fn check(&self, config: sync::Config) -> sync::CheckResult;
+
+    /// The streams this connector exposes (SOURCE).
+    fn discover(&self, config: sync::Config) -> sync::DiscoverOutcome {
+        let _ = config;
+        sync::DiscoverOutcome::Error(sync::ConnectorError::config(
+            "this connector is not a source",
+        ))
+    }
+
+    /// Stream records, checkpoints, logs and dead-letters for one stream and
+    /// partition from a resume point (SOURCE).
+    fn read(&self, ctx: sync::ReadContext) -> Box<dyn Iterator<Item = sync::ReadMessage> + Send> {
+        let _ = ctx;
+        Box::new(std::iter::once(sync::ReadMessage::Fatal(
+            sync::ConnectorError::config("this connector is not a source"),
+        )))
+    }
+
+    /// Write a stream of batches to the destination at its own pace and return
+    /// one outcome (DESTINATION).
+    fn write(
+        &self,
+        ctx: sync::WriteContext,
+        batches: Box<dyn Iterator<Item = sync::RecordBatch> + Send>,
+    ) -> sync::WriteOutcome {
+        let _ = (ctx, batches);
+        sync::WriteOutcome {
+            state: sync::StreamState::default(),
+            diagnostics: Vec::new(),
+            dead_letters: Vec::new(),
+            result: sync::WriteResult::Err(sync::ConnectorError::config(
+                "this connector is not a destination",
+            )),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -598,13 +705,90 @@ mod tests {
             dependencies: vec![],
             description: Some("prefixes a name".into()),
             author: None,
+            connector: None,
         };
         let json = m.to_json().unwrap();
+        assert!(!json.contains("\"connector\""));
         let back = ConstructorManifest::from_json(&json).unwrap();
         assert_eq!(m, back);
         assert_eq!(back.primitive_kind, PrimitiveKind::Task);
         assert_eq!(back.params[0].name, "name");
         assert_eq!(back.config_fields[0].name, "prefix");
+    }
+
+    #[test]
+    fn source_manifest_round_trips_with_connector_meta() {
+        let m = ConstructorManifest {
+            name: "postgres_source".into(),
+            version: "0.1.0".into(),
+            primitive_kind: PrimitiveKind::Source,
+            interface: CONNECTOR_INTERFACE.into(),
+            interface_version: CONNECTOR_INTERFACE_VERSION,
+            params: vec![],
+            // One `#[config]` field: the JSON config document (`sync::Config`).
+            config_fields: vec![ConfigField {
+                name: "json".into(),
+                ty: "String".into(),
+            }],
+            dependencies: vec![],
+            description: None,
+            author: None,
+            connector: Some(ConnectorMeta {
+                roles: vec![sync::ConnectorRole::Source],
+                supported_sync_modes: vec![sync::SyncMode::FullRefresh, sync::SyncMode::Cdc],
+                config_schema: r#"{"type":"object"}"#.into(),
+            }),
+        };
+        let json = m.to_json().unwrap();
+        assert!(json.contains("\"primitive_kind\": \"source\""));
+        let back = ConstructorManifest::from_json(&json).unwrap();
+        assert_eq!(m, back);
+        assert_eq!(
+            back.connector.unwrap().roles,
+            vec![sync::ConnectorRole::Source]
+        );
+        let d: PrimitiveKind = serde_json::from_str("\"destination\"").unwrap();
+        assert_eq!(d, PrimitiveKind::Destination);
+    }
+
+    #[test]
+    fn connector_object_defaults_fail_closed() {
+        struct SourceOnly;
+        impl ConnectorObject for SourceOnly {
+            fn spec(&self) -> sync::ConnectorSpec {
+                sync::ConnectorSpec {
+                    name: "s".into(),
+                    connector_version: "0".into(),
+                    contract_version: CONNECTOR_INTERFACE_VERSION,
+                    config_schema: "{}".into(),
+                    roles: vec![sync::ConnectorRole::Source],
+                    supported_sync_modes: vec![sync::SyncMode::FullRefresh],
+                }
+            }
+            fn check(&self, _config: sync::Config) -> sync::CheckResult {
+                sync::CheckResult {
+                    success: true,
+                    message: None,
+                }
+            }
+        }
+        let out = SourceOnly.write(
+            sync::WriteContext {
+                stream: sync::ConfiguredStream {
+                    stream: "x".into(),
+                    sync_mode: sync::SyncMode::FullRefresh,
+                    cursor_field: None,
+                    primary_key: None,
+                    write_mode: sync::WriteMode::Append,
+                    mapping: sync::MappingSpec::default(),
+                },
+            },
+            Box::new(std::iter::empty()),
+        );
+        match out.result {
+            sync::WriteResult::Err(e) => assert_eq!(e.kind, sync::ErrorKind::Config),
+            sync::WriteResult::Ok(_) => panic!("a source must not accept writes"),
+        }
     }
 
     #[test]

@@ -1,6 +1,8 @@
 ---
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
+# vendor/ holds third-party code kept as upstream wrote it (CLOACINA-T-0984).
+exclude: ^vendor/
 repos:
   - repo: https://github.com/Lucas-C/pre-commit-hooks
     rev: v1.5.6

@@ -1,0 +1,247 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Asana API's official API documentation
+# (https://developers.asana.com/reference/rest-api-reference); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Stream: tasks
+  # Endpoint: GET https://app.asana.com/api/1.0/tasks
+  # Docs: https://developers.asana.com/reference/gettasks
+  #
+  # IMPORTANT CONSTRAINT (see Open questions #1):
+  #   The endpoint REQUIRES at least one of: project=, section=, or
+  #   assignee= + workspace=. Without it the API returns an error.
+  #   A `workspace` query param must be injected via config.
+  #
+  # PAGINATION NOTE (see Open questions #2):
+  #   Asana uses opaque-token cursor pagination (next_page.offset in response).
+  #   Neither PageIncrement nor OffsetIncrement can express this; paginator omitted.
+  # ──────────────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: tasks
+    primary_key: "gid"
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://app.asana.com/api/1.0"
+        path: "/tasks"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["data"]
+      # paginator intentionally omitted — cursor-based pagination not expressible
+      # in this schema (see Open questions #2)
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: modified_at
+      start_time_option:
+        type: RequestOption
+        field_name: "modified_since"
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          gid:
+            type: string
+          resource_type:
+            type: ["null", "string"]
+          resource_subtype:
+            type: ["null", "string"]
+          name:
+            type: ["null", "string"]
+          notes:
+            type: ["null", "string"]
+          completed:
+            type: ["null", "boolean"]
+          completed_at:
+            type: ["null", "string"]
+            format: date-time
+          completed_by:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          created_at:
+            type: ["null", "string"]
+            format: date-time
+          modified_at:
+            type: ["null", "string"]
+            format: date-time
+          due_on:
+            type: ["null", "string"]
+          due_at:
+            type: ["null", "string"]
+            format: date-time
+          start_on:
+            type: ["null", "string"]
+          start_at:
+            type: ["null", "string"]
+            format: date-time
+          approval_status:
+            type: ["null", "string"]
+          assignee_status:
+            type: ["null", "string"]
+          assignee:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          assigned_by:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          created_by:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          parent:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          workspace:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          assignee_section:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          memberships:
+            type: ["null", "array"]
+            items: { type: object }
+          projects:
+            type: ["null", "array"]
+            items: { type: object }
+          followers:
+            type: ["null", "array"]
+            items: { type: object }
+          tags:
+            type: ["null", "array"]
+            items: { type: object }
+          custom_fields:
+            type: ["null", "array"]
+            items: { type: object }
+          liked:
+            type: ["null", "boolean"]
+          num_likes:
+            type: ["null", "integer"]
+          likes:
+            type: ["null", "array"]
+            items: { type: object }
+          hearted:
+            type: ["null", "boolean"]
+          num_hearts:
+            type: ["null", "integer"]
+          hearts:
+            type: ["null", "array"]
+            items: { type: object }
+          permalink_url:
+            type: ["null", "string"]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Stream: projects
+  # Endpoint: GET https://app.asana.com/api/1.0/projects
+  # Docs: https://developers.asana.com/reference/getprojects
+  #
+  # PAGINATION NOTE (see Open questions #2):
+  #   Same cursor-based pagination as tasks; paginator omitted.
+  #
+  # INCREMENTAL NOTE (see Open questions #3):
+  #   No modified_since / updated_after parameter documented for GET /projects.
+  #   incremental_sync omitted.
+  # ──────────────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: projects
+    primary_key: "gid"
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://app.asana.com/api/1.0"
+        path: "/projects"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["data"]
+      # paginator intentionally omitted — cursor-based pagination not expressible
+      # in this schema (see Open questions #2)
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          gid:
+            type: string
+          resource_type:
+            type: ["null", "string"]
+          name:
+            type: ["null", "string"]
+          archived:
+            type: ["null", "boolean"]
+          color:
+            type: ["null", "string"]
+          icon:
+            type: ["null", "string"]
+          created_at:
+            type: ["null", "string"]
+            format: date-time
+          modified_at:
+            type: ["null", "string"]
+            format: date-time
+          notes:
+            type: ["null", "string"]
+          workspace:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          team:
+            type: ["null", "object"]
+            properties:
+              gid: { type: ["null", "string"] }
+              resource_type: { type: ["null", "string"] }
+              name: { type: ["null", "string"] }
+          members:
+            type: ["null", "array"]
+            items: { type: object }
+          followers:
+            type: ["null", "array"]
+            items: { type: object }
+          current_status:
+            type: ["null", "object"]
+            properties:
+              title: { type: ["null", "string"] }
+              text: { type: ["null", "string"] }
+              color: { type: ["null", "string"] }
+              author:
+                type: ["null", "object"]
+                properties:
+                  gid: { type: ["null", "string"] }
+                  resource_type: { type: ["null", "string"] }
+                  name: { type: ["null", "string"] }

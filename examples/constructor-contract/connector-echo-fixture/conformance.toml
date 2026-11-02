@@ -1,0 +1,61 @@
+# Conformance file for the echo fixture (CLOACINA-A-0014, CLOACINA-T-0983).
+# Run by `cargo test -p cloacina-sync --test conformance`. The format is
+# documented in `cloacina_testing::connectors::conformance`.
+
+connector = "echo"
+crate = "."
+
+[source]
+config = { rows = ['{"id":1}', '{"id":2,"name":"b"}'], cursor = '"2"' }
+
+[destination]
+config = {}
+
+[spec]
+name = "echo"
+contract_version = 1
+roles = ["Source", "Destination"]
+supported_sync_modes = ["FullRefresh"]
+
+[[check]]
+case = "good config"
+success = true
+
+[[check]]
+case = "config that is not JSON"
+config_text = "{not json"
+success = false
+message_contains = "not JSON"
+
+[discover]
+streams = [{ name = "echo", supported_sync_modes = ["FullRefresh"], partitioning = "Unpartitioned" }]
+
+[[read]]
+case = "fresh read"
+stream = { stream = "echo" }
+records = [{ id = 1 }, { id = 2, name = "b" }]
+checkpoints = [{ cursor = "2" }]
+dead_letters = []
+
+[[read]]
+case = "resume after the first of three segments"
+config = { segments = 3, rows = ['{"id":1}'] }
+stream = { stream = "echo" }
+state = { cursor = "1" }
+records = [{ id = 1 }, { id = 1 }]
+checkpoints = [{ cursor = "2" }, { cursor = "3" }]
+
+[[read]]
+case = "stop after one checkpoint"
+config = { segments = 3, rows = ['{"id":1}'] }
+stream = { stream = "echo" }
+max_checkpoints = 1
+records = [{ id = 1 }]
+checkpoints = [{ cursor = "1" }]
+
+[[write]]
+case = "two batches"
+stream = { stream = "echo" }
+batches = [[{ id = 1 }, { id = 2 }], [{ id = 3 }]]
+accepted = 3
+dead_letters = []

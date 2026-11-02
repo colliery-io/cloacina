@@ -33,6 +33,7 @@
 
 pub mod common;
 pub mod compiler;
+pub mod connectors;
 pub mod delivery;
 pub mod error;
 pub mod executions;
@@ -44,12 +45,17 @@ pub mod keys;
 pub mod operations;
 pub mod reactor;
 pub mod secrets;
+pub mod syncs;
 pub mod tenants;
 pub mod triggers;
 pub mod workflows;
 
 pub use common::{ListResponse, TenantListResponse};
 pub use compiler::CompilerStatus;
+pub use connectors::{
+    ConnectorCheckResponse, ConnectorDiscoverResponse, ConnectorProbeRequest,
+    ConnectorSpecResponse, ConnectorSummary, DiscoveredField, DiscoveredStream,
+};
 pub use delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, ServerMessage};
 pub use error::ErrorBody;
 pub use executions::{
@@ -63,7 +69,8 @@ pub use health::{
 };
 pub use input_interface::{DeclaredSurface, InputSlot};
 pub use instances::{
-    CreateInstanceRequest, DeleteInstanceResponse, ListInstancesQuery, WorkflowInstanceSummary,
+    CreateInstanceRequest, DeleteInstanceResponse, ListInstancesQuery, UpdateInstanceRequest,
+    WorkflowInstanceSummary,
 };
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
@@ -75,6 +82,10 @@ pub use reactor::{
 };
 pub use secrets::{
     CreateSecretRequest, RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse,
+};
+pub use syncs::{
+    SchemaAcceptedResponse, SyncDeadLetter, SyncDetail, SyncPageQuery, SyncPass, SyncSide,
+    SyncStream, SyncSummary,
 };
 pub use tenants::{
     CreateTenantRequest, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,

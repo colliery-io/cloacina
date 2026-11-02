@@ -30,6 +30,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -255,6 +256,9 @@ def _run_playwright(
         "E2E_FAILED_EXECUTION_ID": summary["failed"]["execution_id"],
         "E2E_VALID_PACKAGE": str(FIXTURES_DIST / "demo-slow-rust.cloacina"),
         "E2E_BAD_PACKAGE": str(bad_pkg),
+        # CLOACINA-T-1007: the Sync journey writes into the lane's Postgres.
+        "E2E_SYNC_PG_URL": DB_URL + "?sslmode=disable",
+        "E2E_SYNC_PG_GRANT": "*:" + DB_URL.rsplit(":", 1)[1].split("/")[0],
         "CI": os.environ.get("CI", ""),
     }
     # The @visual suite (CLOACI-T-0771) is a pixel gate with its own committed
@@ -338,6 +342,13 @@ def _ui_e2e(smoke: bool, visual: bool = False, update_baselines: bool = False) -
     with tempfile.TemporaryDirectory(prefix="cloacina-ui-e2e-") as tmp:
         home = Path(tmp)
         _pack_fixtures(home)
+        # CLOACINA-T-1007: the Sync journey runs the REST runtime (for the
+        # frankfurter definition) and the Postgres connector.
+        providers_dir = home / "providers"
+        _run(
+            [sys.executable, "scripts/stage_connectors.py", str(providers_dir), "--only", "postgres,rest"],
+            cwd=PROJECT_ROOT,
+        )
 
         server_cmd = [
             "target/debug/cloacina-server",
@@ -375,6 +386,7 @@ def _ui_e2e(smoke: bool, visual: bool = False, update_baselines: bool = False) -
             # create/rotate/delete) — the lane's server must have a KEK, same
             # value as the demo stack.
             "CLOACINA_SECRET_KEK": "ZGVtby1rZWstZGVtby1rZWstZGVtby1rZWstMDAwMSE=",
+            "CLOACINA_PROVIDER_PATH": str(providers_dir),
         }
 
         with _process(server_cmd, home / "server.log", env=server_env) as server:

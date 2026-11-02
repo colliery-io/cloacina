@@ -1,0 +1,212 @@
+# Conformance file for the REST source (CLOACINA-A-0014, CLOACINA-T-0990).
+# Runs against the mock JSON API in `cloacina_testing::connectors::rest_mock`,
+# which passes ${MOCK_URL} and ${MOCK_GRANT}: `cargo test -p cloacina-sync
+# --test rest_connector`. The config is a RestConfig, what the host compiles
+# from a connector definition; each case merges its own fields over it.
+# Steps: `endpoint` serves records at a path (see `rest_mock::Endpoint`);
+# `requests_to` returns the requests made to a path.
+
+connector = "rest"
+crate = "."
+
+[source]
+config = { base_url = "${MOCK_URL}", path = "/pages" }
+grants = { http = ["${MOCK_GRANT}"] }
+credential = { kind = "header", secret = "api", name = "Authorization", field = "token", prefix = "Bearer " }
+
+[secrets.api]
+token = "t0k"
+
+[secrets.wrong]
+token = "nope"
+
+[[setup]]
+endpoint = "/pages"
+records = [
+  { id = 1, name = "a" }, { id = 2, name = "b" }, { id = 3, name = "c" }, { id = 4, name = "d" },
+  { id = 5, name = "e" }, { id = 6, name = "f" }, { id = 7, name = "g" },
+]
+paging = { kind = "page", page_param = "page", size_param = "per_page" }
+require_header = ["Authorization", "Bearer t0k"]
+
+[[setup]]
+endpoint = "/offset"
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }]
+paging = { kind = "offset", offset_param = "offset", limit_param = "limit" }
+wrap = "data"
+
+[[setup]]
+endpoint = "/cursor"
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }]
+paging = { kind = "cursor", token_param = "after", next_path = "meta.next", size_param = "limit" }
+wrap = "data"
+
+[[setup]]
+endpoint = "/link"
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }]
+paging = { kind = "link", page_param = "page", size_param = "per_page" }
+
+[[setup]]
+endpoint = "/events"
+records = [
+  { id = 1, updated_at = "2026-01-01" }, { id = 2, updated_at = "2026-01-02" },
+  { id = 3, updated_at = "2026-01-03" }, { id = 4, updated_at = "2026-01-04" },
+  { id = 5, updated_at = "2026-01-05" }, { id = 6, updated_at = "2026-01-06" },
+]
+paging = { kind = "page", page_param = "page", size_param = "per_page" }
+filter = { param = "since", field = "updated_at" }
+
+[[setup]]
+endpoint = "/rates/usd"
+records = [{ currency = "usd", rate = 1.0 }]
+
+[[setup]]
+endpoint = "/rates/eur"
+records = [{ currency = "eur", rate = 0.9 }]
+
+[[setup]]
+endpoint = "/posts"
+records = [{ id = 1 }, { id = 2 }]
+
+[[setup]]
+endpoint = "/posts/1/comments"
+records = [{ id = 11 }]
+
+[[setup]]
+endpoint = "/posts/2/comments"
+records = [{ id = 21 }, { id = 22 }]
+
+[[setup]]
+endpoint = "/sheet"
+records = []
+body = { values = [["Name", "Age"], ["a", 1], ["b", 2]] }
+
+[[setup]]
+endpoint = "/search"
+records = [{ id = 1 }, { id = 2 }, { id = 3 }]
+paging = { kind = "cursor", token_param = "start_cursor", next_path = "next_cursor", size_param = "page_size" }
+
+[[setup]]
+endpoint = "/throttled"
+records = [{ id = 1 }]
+throttle_first = 1
+
+[spec]
+name = "rest"
+contract_version = 1
+roles = ["Source"]
+supported_sync_modes = ["FullRefresh", "Incremental"]
+
+[[check]]
+case = "good config"
+success = true
+
+[[check]]
+case = "the wrong token"
+secret = "wrong"
+success = false
+message_contains = "401"
+
+[[check]]
+case = "a config that is not a RestConfig"
+config_text = '{"base_url": "http://x"}'
+success = false
+message_contains = "does not parse"
+
+[discover]
+streams = [{ name = "records" }]
+
+[[read]]
+case = "page pagination"
+config = { pagination = { kind = "page", page_param = "page", size_param = "per_page", size = 3 } }
+stream = { stream = "records" }
+records = [
+  { id = 1, name = "a" }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }, { id = 6 }, { id = 7 },
+]
+# One checkpoint per page; the third page is short, so it ends the read.
+checkpoints = [{}, {}, {}]
+dead_letters = []
+
+[[read]]
+case = "resume after the first page"
+config = { pagination = { kind = "page", page_param = "page", size_param = "per_page", size = 3 } }
+stream = { stream = "records" }
+resume_after = 1
+records = [{ id = 4 }, { id = 5 }, { id = 6 }, { id = 7 }]
+
+[[read]]
+case = "max_pages stops at a checkpoint"
+config = { max_pages = 2, pagination = { kind = "page", page_param = "page", size_param = "per_page", size = 3 } }
+stream = { stream = "records" }
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }, { id = 6 }]
+checkpoints = [{}, {}]
+
+[[read]]
+case = "offset pagination"
+config = { path = "/offset", record_selector = "data", pagination = { kind = "offset", offset_param = "offset", limit_param = "limit", size = 2 } }
+stream = { stream = "records" }
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }]
+
+[[read]]
+case = "cursor token pagination"
+config = { path = "/cursor", record_selector = "data", pagination = { kind = "cursor", cursor_path = "meta.next", token_param = "after", size_param = "limit", size = 2 } }
+stream = { stream = "records" }
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }]
+
+[[read]]
+case = "link header pagination"
+config = { path = "/link?per_page=2", pagination = { kind = "link_header" } }
+stream = { stream = "records" }
+records = [{ id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }]
+
+[[read]]
+case = "incremental resumes past the cursor"
+config = { path = "/events", incremental = { cursor_field = "updated_at", cursor_param = "since" }, pagination = { kind = "page", page_param = "page", size_param = "per_page", size = 10 } }
+stream = { stream = "records", sync_mode = "Incremental", cursor_field = "updated_at" }
+state = { cursor = "2026-01-03" }
+records = [{ id = 4 }, { id = 5 }, { id = 6 }]
+checkpoints = [{ cursor = "2026-01-06" }]
+
+[[read]]
+case = "incremental from a start value"
+config = { path = "/events", incremental = { cursor_field = "updated_at", cursor_param = "since", start_value = "2026-01-04" }, pagination = { kind = "page", page_param = "page", size_param = "per_page", size = 10 } }
+stream = { stream = "records", sync_mode = "Incremental", cursor_field = "updated_at" }
+records = [{ id = 5 }, { id = 6 }]
+checkpoints = [{ cursor = "2026-01-06" }]
+
+[[read]]
+case = "a list partition"
+config = { path = "/rates/{{ stream_partition.currency }}", partition = { kind = "list", field = "currency", values = ["usd", "eur"] } }
+stream = { stream = "records" }
+records = [{ currency = "usd", rate = 1.0 }, { currency = "eur", rate = 0.9 }]
+
+[[read]]
+case = "a substream partition"
+config = { path = "/posts/{{ stream_partition.post }}/comments", partition = { kind = "substream", field = "post", parent_path = "/posts", parent_key = "id" } }
+stream = { stream = "records" }
+records = [{ id = 11 }, { id = 21 }, { id = 22 }]
+
+[[read]]
+case = "a header-row sheet"
+config = { path = "/sheet", record_selector = "values", header_row = true }
+stream = { stream = "records" }
+records = [{ _row = 1, name = "a", age = 1 }, { _row = 2, name = "b", age = 2 }]
+
+[[read]]
+case = "a POST with the page token in the body"
+config = { path = "/search", http_method = "POST", request_body = '{"query": "x"}', record_selector = "records", pagination = { kind = "cursor", cursor_path = "next_cursor", token_param = "start_cursor", size_param = "page_size", size = 2, inject_into = "body" } }
+stream = { stream = "records" }
+records = [{ id = 1 }, { id = 2 }, { id = 3 }]
+
+[[read.verify]]
+requests_to = "/search"
+rows = [
+  { method = "POST", params = { query = "x", page_size = "2", start_cursor = "tok-2" } },
+  { method = "POST", params = { query = "x", page_size = "2" } },
+]
+
+[[read]]
+case = "a 429 is retried"
+config = { path = "/throttled" }
+stream = { stream = "records" }
+records = [{ id = 1 }]

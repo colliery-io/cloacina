@@ -43,6 +43,11 @@ pub struct WorkflowExecutionRecord {
     /// operator run via the REST execute endpoint; `None` for cron/trigger/
     /// reactor-driven runs (and rows created before the column existed).
     pub trigger_origin: Option<String>,
+    /// The workflow instance whose fire started this run, if any
+    /// (CLOACINA-T-1000).
+    pub instance_name: Option<String>,
+    /// The Sync pass this run is a segment of, if any (CLOACINA-T-1000).
+    pub pass_id: Option<UniversalUuid>,
 }
 
 /// Structure for creating new workflow executions (domain type).

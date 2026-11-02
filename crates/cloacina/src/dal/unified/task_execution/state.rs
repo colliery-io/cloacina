@@ -25,6 +25,7 @@ use crate::database::schema::unified::{execution_events, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
+use cloacina_workflow::completion_writes::CompletionWrites;
 use diesel::prelude::*;
 
 impl<'a> TaskExecutionDAL<'a> {
@@ -40,6 +41,24 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
         runner_id: Option<UniversalUuid>,
+    ) -> Result<bool, ValidationError> {
+        self.mark_completed_with(task_id, runner_id, None).await
+    }
+
+    /// Marks a task execution as completed and applies the task's
+    /// [`CompletionWrites`] in the same transaction (COLLIERY-I-0632 /
+    /// CLOACINA-T-0974).
+    ///
+    /// The writes run after the status update and only if it applied: a lost
+    /// claim writes nothing, and a write that fails rolls the status update
+    /// back, so the task stays Running for the sweeper and is driven through
+    /// completion again. This is how a sync's cursor advances only together
+    /// with the completion of the task that wrote the segment.
+    pub async fn mark_completed_with(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: Option<UniversalUuid>,
+        writes: Option<CompletionWrites>,
     ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
@@ -88,6 +107,16 @@ impl<'a> TaskExecutionDAL<'a> {
                     diesel::insert_into(execution_events::table)
                         .values(&event)
                         .execute(conn)?;
+
+                    if let Some(writes) = &writes {
+                        crate::apply_completion_writes!(
+                            conn,
+                            writes,
+                            task_id,
+                            task.workflow_execution_id,
+                            now
+                        );
+                    }
                 }
 
                 Ok(rows > 0)

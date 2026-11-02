@@ -1,0 +1,132 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Zendesk Support API's official API documentation
+# (https://developer.zendesk.com/api-reference/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  # ─────────────────────────────────────────────
+  # Stream 1: tickets
+  # Source: GET /api/v2/tickets
+  # ─────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: tickets
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://{{ config['subdomain'] }}.zendesk.com/api/v2"
+        path: "/tickets"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["tickets"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "per_page"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 100
+    # incremental_sync OMITTED — see Open Questions #1
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                   { type: integer }
+          url:                  { type: ["null", "string"] }
+          created_at:           { type: string, format: date-time }
+          updated_at:           { type: string, format: date-time }
+          type:                 { type: ["null", "string"] }
+          status:               { type: ["null", "string"] }
+          priority:             { type: ["null", "string"] }
+          subject:              { type: ["null", "string"] }
+          description:          { type: ["null", "string"] }
+          requester_id:         { type: ["null", "integer"] }
+          submitter_id:         { type: ["null", "integer"] }
+          assignee_id:          { type: ["null", "integer"] }
+          group_id:             { type: ["null", "integer"] }
+          organization_id:      { type: ["null", "integer"] }
+          external_id:          { type: ["null", "string"] }
+          brand_id:             { type: ["null", "integer"] }
+          ticket_form_id:       { type: ["null", "integer"] }
+          tags:                 { type: ["null", "array"] }
+          custom_fields:        { type: ["null", "array"] }
+          custom_status_id:     { type: ["null", "integer"] }
+          due_at:               { type: ["null", "string"], format: date-time }
+          collaborator_ids:     { type: ["null", "array"] }
+          follower_ids:         { type: ["null", "array"] }
+          email_cc_ids:         { type: ["null", "array"] }
+          sharing_agreement_ids: { type: ["null", "array"] }
+          problem_id:           { type: ["null", "integer"] }
+          is_public:            { type: ["null", "boolean"] }
+          has_incidents:        { type: ["null", "boolean"] }
+          satisfaction_rating:  { type: ["null", "object"] }
+
+  # ─────────────────────────────────────────────
+  # Stream 2: users
+  # Source: GET /api/v2/users
+  # ─────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: users
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://{{ config['subdomain'] }}.zendesk.com/api/v2"
+        path: "/users"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["users"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "per_page"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 100
+    # incremental_sync OMITTED — see Open Questions #2
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                  { type: integer }
+          name:                { type: ["null", "string"] }
+          email:               { type: ["null", "string"] }
+          role:                { type: ["null", "string"] }
+          active:              { type: ["null", "boolean"] }
+          created_at:          { type: string, format: date-time }
+          updated_at:          { type: string, format: date-time }
+          organization_id:     { type: ["null", "integer"] }
+          default_group_id:    { type: ["null", "integer"] }
+          phone:               { type: ["null", "string"] }
+          shared_phone_number: { type: ["null", "boolean"] }
+          locale:              { type: ["null", "string"] }
+          time_zone:           { type: ["null", "string"] }
+          tags:                { type: ["null", "array"] }
+          user_fields:         { type: ["null", "object"] }
+          verified:            { type: ["null", "boolean"] }
+          suspended:           { type: ["null", "boolean"] }
+          custom_role_id:      { type: ["null", "integer"] }
+          agent_brand_ids:     { type: ["null", "array"] }

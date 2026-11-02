@@ -173,7 +173,7 @@ pub fn read_provider_manifest(package_dir: &Path) -> Result<ProviderManifest, Lo
 
 /// Read a provider's `provider.json` and select the named member, failing closed
 /// (naming the available members) if the suite has no such constructor.
-fn read_member_manifest(
+pub(super) fn read_member_manifest(
     package_dir: &Path,
     constructor_name: &str,
 ) -> Result<ConstructorManifest, LoaderError> {

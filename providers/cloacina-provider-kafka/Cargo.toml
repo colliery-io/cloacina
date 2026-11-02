@@ -64,8 +64,8 @@ serde_json = "1"
 cloacina-constructor-contract = "0.10"
 
 # fidius HOST SDK — the native suite shell is emitted with `crate = fidius_core`.
-fidius-core = "0.5.6"
-fidius-macro = "0.5.6"
+fidius-core = "0.5.9"
+fidius-macro = "0.5.9"
 
 # The whole point of this provider: the Kafka consumer lives HERE, not in core.
 # Plain (non-tokio) rdkafka — `source()` is a synchronous poll-loop iterator on

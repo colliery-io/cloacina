@@ -26,6 +26,7 @@
 
 pub mod agent_desired;
 pub mod agent_limits;
+pub mod completion_writes;
 pub mod computation_graph;
 pub mod context;
 pub mod dal;

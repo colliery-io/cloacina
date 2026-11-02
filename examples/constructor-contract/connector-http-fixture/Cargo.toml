@@ -1,0 +1,38 @@
+# A Sync connector fixture (COLLIERY-I-0633 / CLOACINA-T-0982): a source whose
+# read GETs a URL through the guest HTTP client, so a test can watch the
+# credential the host's egress adds to the request. Apart from the echo fixture
+# because importing wasi:http makes a load without an http grant fail. Own
+# [workspace] so the parent workspace does not build this wasm-only crate
+# natively. Built by the `credentials` test of cloacina-sync to wasm32-wasip2.
+[workspace]
+
+[package]
+name = "connector-http-fixture"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[package.metadata.cargo-machete]
+ignored = ["wit-bindgen", "serde"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fidius-guest = "0.5.9"
+fidius-macro = "0.5.9"
+wit-bindgen = "0.44"
+# `config = sync::Config` is the serde type the host binds at load; the typed
+# method types are the local WitType copies in src/sync_guest_types.rs.
+cloacina-constructor-contract = { path = "../../../crates/cloacina-constructor-contract" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+fidius-build = "0.5.9"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

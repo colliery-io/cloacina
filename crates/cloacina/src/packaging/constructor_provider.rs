@@ -349,6 +349,8 @@ fn primitive_kind_str(kind: PrimitiveKind) -> &'static str {
         PrimitiveKind::Trigger => "trigger",
         PrimitiveKind::Accumulator => "accumulator",
         PrimitiveKind::Reactor => "reactor",
+        PrimitiveKind::Source => "source",
+        PrimitiveKind::Destination => "destination",
     }
 }
 
@@ -588,6 +590,7 @@ mod tests {
             dependencies: vec![],
             description: None,
             author: None,
+            connector: None,
         }
     }
 

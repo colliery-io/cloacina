@@ -1,0 +1,122 @@
+# Conformance file for the REST destination (CLOACINA-A-0014, CLOACINA-T-0991).
+# Runs against the mock JSON API in `cloacina_testing::connectors::rest_mock`,
+# which passes ${MOCK_URL} and ${MOCK_GRANT}: `cargo test -p cloacina-sync
+# --test rest_dest_connector`. The config is a RestDestConfig, what the host
+# compiles from a destination definition; each case merges its own fields over
+# it and writes under its own path. Steps: `sink` takes writes under a prefix;
+# `requests_under` returns them as {method, path, body, headers}.
+
+connector = "rest-dest"
+crate = "."
+
+[destination]
+config = { base_url = "${MOCK_URL}", path = "/check" }
+grants = { http = ["${MOCK_GRANT}"] }
+credential = { kind = "header", secret = "crm", name = "Authorization", field = "token", prefix = "Bearer " }
+
+[secrets.crm]
+token = "crm-t0k"
+
+[[setup]]
+sink = "/append"
+
+[[setup]]
+sink = "/upsert"
+
+[[setup]]
+sink = "/pinned"
+
+[[setup]]
+sink = "/refuse"
+refuse_when = ["email", "bad@example.test"]
+
+[[setup]]
+sink = "/cdc"
+
+[spec]
+name = "rest-dest"
+contract_version = 1
+roles = ["Destination"]
+supported_sync_modes = ["FullRefresh", "Incremental"]
+
+[[check]]
+case = "good config"
+success = true
+
+[[check]]
+case = "a config that is not a RestDestConfig"
+config_text = '{"path": "/x"}'
+success = false
+message_contains = "does not parse"
+
+[[write]]
+case = "append posts each record"
+config = { path = "/append" }
+stream = { stream = "contacts" }
+batches = [[{ email = "a@example.test", first_name = "A" }], [{ email = "b@example.test", first_name = "B" }]]
+accepted = 2
+dead_letters = []
+
+[[write.verify]]
+requests_under = "/append"
+rows = [
+  { method = "POST", path = "/append", body = { email = "a@example.test", first_name = "A" }, headers = { authorization = "Bearer crm-t0k" } },
+  { method = "POST", path = "/append", body = { email = "b@example.test" } },
+]
+
+[[write]]
+case = "upsert patches the keyed path, the key encoded"
+config = { path = "/upsert/{{ record.email }}", field_map = [["email", "email"], ["first_name", "firstname"]], body_wrap = "properties" }
+stream = { stream = "contacts", write_mode = { Upsert = { business_keys = ["email"] } } }
+batches = [[{ email = "a+b/c@example.test", first_name = "A", ignored = "x" }]]
+accepted = 1
+
+[[write.verify]]
+requests_under = "/upsert"
+rows = [
+  { method = "PATCH", path = "/upsert/a%2Bb%2Fc@example.test", body = { properties = { email = "a+b/c@example.test", firstname = "A" } } },
+]
+
+[[write]]
+case = "a pinned method wins over the write mode"
+config = { path = "/pinned", method = "PUT" }
+stream = { stream = "contacts", write_mode = { Upsert = { business_keys = ["email"] } } }
+batches = [[{ email = "a@example.test" }]]
+accepted = 1
+
+[[write.verify]]
+requests_under = "/pinned"
+rows = [{ method = "PUT", path = "/pinned" }]
+
+[[write]]
+case = "a refused record is a dead-letter"
+config = { path = "/refuse" }
+stream = { stream = "contacts" }
+batches = [[{ email = "good@example.test" }, { email = "bad@example.test" }]]
+accepted = 1
+dead_letters = [{ record = { email = "bad@example.test" }, reason_contains = "HTTP 400" }]
+
+[[write]]
+case = "CDC: inserts post, deletes go to the delete path"
+config = { path = "/cdc", delete_path = "/cdc/{{ record.id }}" }
+stream = { stream = "contacts" }
+change_batches = [[
+  { op = "Insert", data = { id = 1, name = "a" } },
+  { op = "Delete", data = { id = 2 } },
+]]
+accepted = 2
+
+[[write.verify]]
+requests_under = "/cdc"
+rows = [
+  { method = "POST", path = "/cdc", body = { id = 1 } },
+  { method = "DELETE", path = "/cdc/2" },
+]
+
+[[write]]
+case = "a delete without a delete path is a dead-letter"
+config = { path = "/cdc" }
+stream = { stream = "contacts" }
+change_batches = [[{ op = "Delete", data = { id = 3 } }]]
+accepted = 0
+dead_letters = [{ record = { id = 3 }, reason_contains = "delete_path" }]

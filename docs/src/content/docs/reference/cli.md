@@ -491,6 +491,26 @@ verb for that surface today.
 | `trigger list [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/triggers?limit=…&offset=…` | Combined cron + custom-poll trigger schedules. Default limit: 100, max 1000 (CLOACI-T-0596 / API-10). |
 | `trigger inspect <NAME>` | `GET /v1/tenants/<tenant>/triggers/<name>` | Single trigger metadata + recent executions. |
 
+## `connector`
+
+Sync's connectors (COLLIERY-I-0634). See [Declarative
+Connectors](../../explanation/primitives/sync/declarative/).
+
+### `connector list`
+
+The catalog of the target server's tenant: each compiled connector provider
+and each declarative connector definition, with its kind, the provider that
+runs it, its roles, sync modes and streams.
+
+### `connector import <FILE> [--name <NAME>] [--out <PATH>]`
+
+Turn an Airbyte low-code source (`type: DeclarativeSource`) into a cloacina
+connector definition, offline. The definition goes to `--out` or stdout; a
+report of what the REST runtime supports (tier, confidence, gaps) goes to
+stderr. `--name` defaults to the file's stem. With `--json`, the report, the
+definition and any error print as one object. See [Import an Airbyte
+Connector](../../how-to/sync/import-an-airbyte-connector/).
+
 ## `secret`
 
 Tenant-scoped encrypted [secrets](../../explanation/service/secrets/).

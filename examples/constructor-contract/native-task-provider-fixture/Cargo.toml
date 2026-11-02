@@ -51,8 +51,8 @@ cloacina-constructor-contract = { path = "../../../crates/cloacina-constructor-c
 
 # fidius HOST SDK — the native suite shell is emitted with `crate = fidius_core`
 # under `cfg(not(wasm32))`, so these are plain (non-target-gated) host deps.
-fidius-core = "0.5.6"
-fidius-macro = "0.5.6"
+fidius-core = "0.5.9"
+fidius-macro = "0.5.9"
 
 [profile.release]
 opt-level = "s"

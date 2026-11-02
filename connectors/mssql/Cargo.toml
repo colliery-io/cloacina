@@ -1,0 +1,45 @@
+# The MSSQL connector (COLLIERY-I-0633 / CLOACINA-T-0984): a Sync source as a
+# wasm32-wasip2 component. A sync TDS client over fidius's TCP egress, through
+# tiberius-wasm (vendor/), with TLS through rustls. Moved from weir. Own
+# [workspace] so the parent workspace does not build this wasm-only crate
+# natively; built by the tests and staged as a provider package.
+[workspace]
+
+[package]
+name = "cloacina-connector-mssql"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "cloacina Sync connector for Microsoft SQL Server (WASM component): full-refresh and incremental-by-cursor reads."
+license = "Apache-2.0"
+repository = "https://github.com/colliery-io/cloacina"
+publish = false
+
+[package.metadata.cargo-machete]
+ignored = ["wit-bindgen", "serde"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fidius-guest = "0.5.9"
+fidius-macro = "0.5.9"
+wit-bindgen = "0.44"
+# `config = sync::Config` and `cursor_cmp` are the serde contract; the typed
+# method types are the local WitType copies in src/sync_guest_types.rs.
+cloacina-constructor-contract = { path = "../../crates/cloacina-constructor-contract" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The TDS codec and row typing. Runtime-free: its async client runs over a
+# poll-always-Ready adapter around the blocking socket, driven by
+# futures::executor::block_on. The lib target is named `tiberius`.
+tiberius-wasm = { path = "../../vendor/tiberius-wasm", default-features = false, features = ["tds73", "rustls"] }
+futures = { version = "0.3", default-features = false, features = ["executor"] }
+
+[build-dependencies]
+fidius-build = "0.5.9"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

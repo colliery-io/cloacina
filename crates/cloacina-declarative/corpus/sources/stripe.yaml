@@ -1,0 +1,220 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Stripe API's official API documentation
+# (https://stripe.com/docs/api); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # -----------------------------------------------------------------------
+  # Stream: customers
+  # Source: https://docs.stripe.com/api/customers/list
+  # -----------------------------------------------------------------------
+  - type: DeclarativeStream
+    name: customers
+    primary_key: id          # docs: "Unique identifier for the object"
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://api.stripe.com"   # docs.stripe.com/api → base URL
+        path: "/v1/customers"                 # docs.stripe.com/api/customers/list
+        http_method: GET
+
+        # Auth: Bearer token confirmed at docs.stripe.com/api/authentication
+        # ("Authorization: Bearer [api_key]" listed as explicit supported form)
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          # Response envelope: { "object": "list", "url": "...", "has_more": bool, "data": [...] }
+          # Source: docs.stripe.com/api/customers/list → Response section
+          field_path: ["data"]
+
+      # Cursor pagination: starting_after = the LAST record's id,
+      # stop when has_more is false, limit=100 (max) — docs.stripe.com/api/pagination.
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: limit
+        page_token_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: starting_after
+        pagination_strategy:
+          type: CursorPagination
+          page_size: 100
+          cursor_value: "{{ last_record['id'] }}"
+          stop_condition: "{{ not response['has_more'] }}"
+
+    # INCREMENTAL SYNC OMITTED — see Open questions #2
+    # The "created" filter uses nested params (created[gte]) with Unix integer
+    # timestamps; incompatible with DatetimeBasedCursor (ISO datetimes, simple param).
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        # Fields sourced from: docs.stripe.com/api/customers/object
+        type: object
+        properties:
+          id:
+            type: string
+          object:
+            type: string
+          address:
+            type: ["null", "object"]
+          balance:
+            type: integer
+          business_name:
+            type: ["null", "string"]
+          cash_balance:
+            type: ["null", "object"]
+          created:
+            # Unix epoch seconds (integer) — NOT an ISO datetime string
+            type: integer
+          currency:
+            type: ["null", "string"]
+          customer_account:
+            type: ["null", "string"]
+          default_source:
+            type: ["null", "string"]
+          delinquent:
+            type: ["null", "boolean"]
+          description:
+            type: ["null", "string"]
+          discount:
+            type: ["null", "object"]
+          email:
+            type: ["null", "string"]
+          individual_name:
+            type: ["null", "string"]
+          invoice_credit_balance:
+            type: ["null", "object"]
+          invoice_prefix:
+            type: ["null", "string"]
+          invoice_settings:
+            type: ["null", "object"]
+          livemode:
+            type: boolean
+          metadata:
+            type: object
+          name:
+            type: ["null", "string"]
+          next_invoice_sequence:
+            type: ["null", "integer"]
+          phone:
+            type: ["null", "string"]
+          preferred_locales:
+            type: ["null", "array"]
+          shipping:
+            type: ["null", "object"]
+          sources:
+            type: ["null", "object"]
+          subscriptions:
+            type: ["null", "object"]
+          tax_exempt:
+            # values: "none" | "exempt" | "reverse" — docs never list null
+            type: ["null", "string"]
+          test_clock:
+            # docs/list says string/null; docs/object lists type as just "null" — see Open questions #3
+            type: ["null", "string"]
+
+  # -----------------------------------------------------------------------
+  # Stream: charges
+  # Source: https://docs.stripe.com/api/charges/list
+  # -----------------------------------------------------------------------
+  - type: DeclarativeStream
+    name: charges
+    primary_key: id          # docs: unique charge identifier (e.g. ch_3Mml…)
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://api.stripe.com"
+        path: "/v1/charges"                   # docs.stripe.com/api/charges/list
+        http_method: GET
+
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          # Response envelope identical shape to customers: { object, url, has_more, data[] }
+          # Source: docs.stripe.com/api/charges/list → Response section
+          field_path: ["data"]
+
+      # Cursor pagination — same starting_after/has_more model as customers.
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: limit
+        page_token_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: starting_after
+        pagination_strategy:
+          type: CursorPagination
+          page_size: 100
+          cursor_value: "{{ last_record['id'] }}"
+          stop_condition: "{{ not response['has_more'] }}"
+
+    # INCREMENTAL SYNC OMITTED — same created[gte] / Unix-timestamp mismatch (Open questions #2)
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        # Fields sourced from: docs.stripe.com/api/charges/list → Charge object section
+        type: object
+        properties:
+          id:
+            type: string
+          object:
+            type: string
+          amount:
+            # smallest currency unit (e.g. cents); integer
+            type: integer
+          currency:
+            type: string
+          status:
+            type: string
+          created:
+            type: integer
+          paid:
+            type: boolean
+          captured:
+            type: boolean
+          refunded:
+            type: boolean
+          customer:
+            type: ["null", "string"]
+          payment_method:
+            type: ["null", "string"]
+          payment_method_details:
+            type: ["null", "object"]
+          balance_transaction:
+            type: ["null", "string"]
+          outcome:
+            type: ["null", "object"]
+          receipt_url:
+            type: ["null", "string"]
+          description:
+            type: ["null", "string"]
+          metadata:
+            type: object
+          livemode:
+            type: boolean

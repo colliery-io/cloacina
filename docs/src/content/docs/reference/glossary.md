@@ -25,6 +25,18 @@ The algorithm that determines the delay between retry attempts for a failed task
 
 A data change event emitted by a detector, representing new data available for processing. Boundaries are recorded in the ledger and signal the reactor that fresh input is ready for a computation graph to consume.
 
+### Catalog
+
+The connectors a server has loaded, compiled and declarative alike: what an operator picks a source or destination from. See [Sync](../../explanation/primitives/sync/).
+
+### CEL predicate
+
+A [CEL](https://github.com/google/cel-spec) expression attached to a workflow's reactor subscription. Evaluated against each reactor firing's payload; firings where the predicate returns `true` dispatch a workflow execution, the rest advance the watermark with no dispatch. Compiled at subscribe time, evaluated per firing, fail-closed on errors. Per CLOACI-T-0602. See [Filter Reactor Firings with CEL](../../how-to/computation-graphs/filter-reactor-firings-with-cel/).
+
+### Checkpoint (Sync)
+
+A connector's signal, in a source's read stream, that the records before it may be committed as a unit. A checkpoint closes a segment. Not the accumulator checkpoint of a computation graph. See [Connector Contract](../connector-contract/).
+
 ### Claim
 
 A database-level lock mechanism that prevents multiple runners from executing the same task simultaneously. When a runner picks up a task, it writes a claim row with its identity and a heartbeat timestamp. Stale claims from crashed runners are swept by the scheduler. See [Guaranteed Cron Scheduling](../../explanation/engine/guaranteed-execution-architecture/).
@@ -37,41 +49,49 @@ The Python bindings package for Cloacina. Cloaca exposes Cloacina's workflow orc
 
 The core Rust workflow orchestration and computation graph engine. Cloacina provides DAG-based workflow execution, computation graphs, cron scheduling, multi-tenancy, and a packaging system for distributable workflows. See [Architecture Overview](../../explanation/engine/architecture-overview/).
 
-### `cloacinactl`
-
-The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Installed via `scripts/install.sh` (served at `get.cloacina.dev`) or from GitHub Releases. See [CLI Reference](../cli/) and [Installing cloacinactl](../../how-to/install/).
-
 ### `cloacina-compiler`
 
 The server-side build service that compiles uploaded `.cloacina` source archives into cdylib artifacts. It polls the shared database for packages with `build_status = pending` (there is no HTTP coordination with the server), builds them with timeouts, offline-mode two-phase dependency resolution, and `setrlimit`-based sandboxing per CLOACI-I-0104, and writes results back to the database. Exposes its own health listener with `/health`, `/v1/status`, and `/metrics` (`cloacina_compiler_*` namespace) — which is what `cloacinactl compiler status|health` probe. See [Compiler Deployment Runbook](../../how-to/service/compiler-deployment-runbook/).
-
-### `cloacina-server`
-
-The HTTP + WebSocket service that hosts loaded packaged workflows, tenants, and computation graphs. Implements the `/v1/...` API, the WebSocket force-fire and accumulator-push paths, and `/metrics` exposition. Distributed as a binary, a container image (`ghcr.io/colliery-io/cloacina-server`), and a Helm chart. See [Deploying the API Server](../../how-to/service/deploying-the-api-server/).
 
 ### `cloacina-python` / Cloaca
 
 The Rust crate (`cloacina-python`) that produces the Python `cloaca` PyPI wheel. Per CLOACI-T-0529 / CLOACI-T-0532, the Python bindings live in a dedicated crate so the core `cloacina` library does not depend on PyO3. The Python surface tracks the Rust surface 1:1 (`@cloaca.task` ↔ `#[task]`, etc.). See [Python · Workflows · Explanation · Python Runtime Architecture](../../explanation/embed/python-runtime-architecture/).
 
+### `cloacina-server`
+
+The HTTP + WebSocket service that hosts loaded packaged workflows, tenants, and computation graphs. Implements the `/v1/...` API, the WebSocket force-fire and accumulator-push paths, and `/metrics` exposition. Distributed as a binary, a container image (`ghcr.io/colliery-io/cloacina-server`), and a Helm chart. See [Deploying the API Server](../../how-to/service/deploying-the-api-server/).
+
+### `cloacinactl`
+
+The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Installed via `scripts/install.sh` (served at `get.cloacina.dev`) or from GitHub Releases. See [CLI Reference](../cli/) and [Installing cloacinactl](../../how-to/install/).
+
 ### `complete_task_transaction`
 
 The atomic DAL operation that commits a task's terminal state, its output context, and the dependent-task wake-ups in a single transaction. Per CLOACI-I-0110, this replaces the earlier multi-step commit path that could leave inconsistencies if interrupted between writes. The operation is idempotent and exposes typed JSON-parse / context-merge errors for diagnosis.
-
-### CEL predicate
-
-A [CEL](https://github.com/google/cel-spec) expression attached to a workflow's reactor subscription. Evaluated against each reactor firing's payload; firings where the predicate returns `true` dispatch a workflow execution, the rest advance the watermark with no dispatch. Compiled at subscribe time, evaluated per firing, fail-closed on errors. Per CLOACI-T-0602. See [Filter Reactor Firings with CEL](../../how-to/computation-graphs/filter-reactor-firings-with-cel/).
 
 ### Computation Graph
 
 An event-driven, streaming computation model where nodes process data flowing through directed edges. Unlike workflows, computation graphs are in-process and compiled, firing as a single traversal when reaction criteria are met, processing correlated data from multiple sources in a single execution. See [Computation Graph Architecture](../../explanation/engine/architecture/).
 
+### Connector
+
+A constructor provider whose members are sources and destinations under the connector contract. Connectors are WASM components and run sandboxed under capability grants. See [Connector Contract](../connector-contract/).
+
 ### Context
 
 A key-value data container that flows between tasks in a workflow, accumulating results as tasks complete. Each task receives the context from its predecessors and can insert new values for downstream tasks. Context is persisted to the database between task executions. See [Context System](../../explanation/engine/context-management/).
 
+### Continuous source
+
+A source that stays open, tailing a change log or polling at a cadence, as against a scheduled one. See [Sync](../../explanation/primitives/sync/).
+
 ### Cron Schedule
 
 A time-based trigger using cron expressions to execute workflows on a recurring basis. Cloacina's cron system supports guaranteed execution semantics, ensuring missed schedules are caught up after outages. See [Cron Scheduling Architecture](../../explanation/engine/cron-scheduling/).
+
+### Cursor
+
+The committed position in a sync stream: the cursor value as JSON text plus the connector's opaque resume bytes, one per sync, stream and partition. Written only in the transaction that completes the write task, after the destination has accepted the segment. See [Sync](../../explanation/primitives/sync/).
 
 ### DAG
 
@@ -81,6 +101,14 @@ Directed Acyclic Graph. The dependency structure of tasks in a workflow, where e
 
 Data Access Layer. The abstraction over database backends that allows Cloacina to operate against either PostgreSQL or SQLite without changing application code. The DAL handles differences in UUID representation, schema management, and query syntax. See [Database Backends](../../explanation/service/database-backends/).
 
+### Dead-letter
+
+A record a sync could not process, kept with the reason so the run continues and an operator can see what was skipped. Produced by mapping, schema enforcement or the destination. See [Sync](../../explanation/primitives/sync/).
+
+### Declarative connector
+
+A connector defined by a YAML connector definition and run on a shared REST runtime, with nothing compiled. See [Sync](../../explanation/primitives/sync/).
+
 ### DefaultRunner
 
 The primary implementation of the WorkflowExecutor trait. DefaultRunner manages background services (scheduler, dispatcher, executor, reconciler) and provides the main entry point for executing workflows. It handles recovery of orphaned executions on startup and supports graceful shutdown.
@@ -88,6 +116,10 @@ The primary implementation of the WorkflowExecutor trait. DefaultRunner manages 
 ### DefaultRunnerConfig
 
 The configuration struct for DefaultRunner, using a builder pattern for construction. It specifies the database URL, concurrency limits, heartbeat intervals, stale claim thresholds, and other operational parameters. See [Configuration Reference](../configuration/).
+
+### Destination
+
+A connector member of kind `destination`: it accepts a client stream of record batches with `write` and reports the outcome. Implemented as a task in the Sync workflow. See [Connector Contract](../connector-contract/).
 
 ### Detector
 
@@ -113,13 +145,13 @@ The background service that spawns async tasks and manages concurrency limits us
 
 Foreign Function Interface. The mechanism for loading packaged workflows as dynamic libraries at runtime. Cloacina uses a C ABI (Application Binary Interface) boundary via fidius to call into compiled workflow packages without requiring the host and plugin to share the same Rust compiler version. See [FFI System](../../explanation/engine/ffi-system/).
 
-### Filtered subscription
-
-A reactor → workflow subscription with an attached CEL predicate. Only firings where the predicate evaluates to `true` cause a workflow dispatch; filtered-out firings advance the subscription's watermark and are not re-evaluated. See [Filter Reactor Firings with CEL](../../how-to/computation-graphs/filter-reactor-firings-with-cel/) and [Subscription Fan-out](../../explanation/engine/subscription-fan-out/).
-
 ### fidius
 
 The binary serialization and packaging library used internally by Cloacina. fidius transforms Rust traits into stable C ABI plugins, handling serialization across the FFI boundary. The wire format is **bincode** (a compact binary format) in all build profiles — debug and release encode identically. See [FFI System](../../explanation/engine/ffi-system/).
+
+### Filtered subscription
+
+A reactor → workflow subscription with an attached CEL predicate. Only firings where the predicate evaluates to `true` cause a workflow dispatch; filtered-out firings advance the subscription's watermark and are not re-evaluated. See [Filter Reactor Firings with CEL](../../how-to/computation-graphs/filter-reactor-firings-with-cel/) and [Subscription Fan-out](../../explanation/engine/subscription-fan-out/).
 
 ### GraphResult
 
@@ -157,10 +189,6 @@ Running isolated workflow environments within a single Cloacina deployment. Impl
 
 A function within a computation graph that transforms data from its inputs to an output. Nodes are connected by directed edges forming a topology. Each node executes once per graph firing, receiving the outputs of its predecessors as input parameters.
 
-### Pipeline
-
-In some code paths and internal APIs, "pipeline" is used as a synonym for a workflow execution. The documentation uses "workflow" as the standard term, and the live metric names use it too (`cloacina_workflows_total`, not the retired `cloacina_pipelines_*` family — see the [Metrics Catalog](../metrics-catalog/)). If you encounter "pipeline" in logs or internal identifiers, read it as "workflow execution."
-
 ### Package (.cloacina)
 
 A distributable workflow artifact: a tar + bzip2 **source** archive containing `package.toml` plus the Rust crate source (`Cargo.toml`, `src/`) or Python `workflow/` tree, and an optional `package.sig`. A `.cloacina` archive never contains a compiled library — the platform-specific cdylib is compiled server-side by `cloacina-compiler` and stored in the database. Packages are uploaded to the registry and loaded at runtime by the reconciler, enabling shipping workflows independently of the host application. See [Package Format](../../explanation/engine/package-format/).
@@ -169,9 +197,17 @@ A distributable workflow artifact: a tar + bzip2 **source** archive containing `
 
 The unified plugin shell macro `cloacina_workflow_plugin::package!()` that goes at the crate root of a packaged cdylib (its expansion is gated on `feature = "packaged"`, which the compiler injects). It emits the full `CloacinaPlugin` trait implementation — all eleven FFI methods (indices 0–10) — by walking the cdylib's local `inventory::iter::<TaskEntry>`, `<TriggerEntry>`, `<ReactorEntry>`, `<ComputationGraphEntry>`, `<TriggerlessGraphEntry>`, `<WorkflowDescriptorEntry>`, and `<ConstructorEntry>` sections at FFI call time. Invoke it by the `cloacina_workflow_plugin::` path — `cloacina::package!()` does not resolve. Replaces the per-macro `_ffi` emission path that pre-I-0102 packages used. A duplicate-invocation guard prevents accidentally calling `package!()` twice in the same crate. See [Package Shell Macro Reference](../package-shell-macro/).
 
+### Pipeline
+
+In some code paths and internal APIs, "pipeline" is used as a synonym for a workflow execution. The documentation uses "workflow" as the standard term, and the live metric names use it too (`cloacina_workflows_total`, not the retired `cloacina_pipelines_*` family — see the [Metrics Catalog](../metrics-catalog/)). If you encounter "pipeline" in logs or internal identifiers, read it as "workflow execution."
+
 ### Reactor
 
 A specialized trigger that consumes accumulator boundary events and fires the computation graph bound to it. Each reactor is declared standalone (`#[reactor(name = ..., accumulators = [...], criteria = ...)]`); it owns the InputCache for its declared accumulators, re-evaluates its firing criteria (`when_any` / `when_all`) after each boundary arrives, and fires the bound graph function as a single traversal when the criteria are met. A reactor is one node in the system, not a subsystem: computation-graph lifecycle is managed by the graph scheduler, and workflows can subscribe to a reactor's firings (see [Filtered subscription](#filtered-subscription)). Per CLOACI-S-0011.
+
+### Reactor Unload
+
+The teardown half of a reactor's lifecycle. It runs at two layers: (1) scheduler-side, where the running reactor task is stopped, accumulators are torn down, and endpoint-registry keys are deregistered (`ComputationGraphScheduler::unload_reactor`); and (2) runtime-side, where the reactor *constructor* is removed from the host `Runtime` registry (`Runtime::unregister_reactor`). Without the second arm, hot-reloading the same package leaves a stale constructor entry. The bound-subscriber guard rejects unload if any cross-package CG is still subscribed, so subscribers must be unloaded first. See [Reactor Lifecycle](../../explanation/engine/reactor-lifecycle/).
 
 ### Reconciler
 
@@ -181,10 +217,6 @@ A background service that periodically scans the package registry, loads newly r
 
 The six-step ordered load sequence the reconciler executes per package:
 (1) cron triggers, (2) custom-poll triggers, (3) reactors, (4) trigger-less computation graphs, (5) reactor-bound computation graphs, (6) workflows. Unload runs the same six steps in reverse. The ordering matters: workflows reference triggers, computation graphs reference reactors, and reactor-bound CGs require their reactor to be present in the scheduler before binding. Failures are isolated per step — a partially-loaded package can still be cleanly unwound. See [Reconciler Pipeline](../../explanation/service/reconciler-pipeline/).
-
-### Reactor Unload
-
-The teardown half of a reactor's lifecycle. It runs at two layers: (1) scheduler-side, where the running reactor task is stopped, accumulators are torn down, and endpoint-registry keys are deregistered (`ComputationGraphScheduler::unload_reactor`); and (2) runtime-side, where the reactor *constructor* is removed from the host `Runtime` registry (`Runtime::unregister_reactor`). Without the second arm, hot-reloading the same package leaves a stale constructor entry. The bound-subscriber guard rejects unload if any cross-package CG is still subscribed, so subscribers must be unloaded first. See [Reactor Lifecycle](../../explanation/engine/reactor-lifecycle/).
 
 ### Recovery
 
@@ -206,9 +238,17 @@ The background service that evaluates task readiness and transitions tasks from 
 
 The PostgreSQL multi-tenancy strategy where each tenant uses a separate database schema. All tables (workflows, executions, tasks, contexts) are duplicated per schema, providing strong data isolation while sharing a single database connection pool. See [Multi-Tenancy Architecture](../../explanation/service/multi-tenancy/).
 
+### Segment
+
+The records between two checkpoints in a source's read stream. One segment is one execution of the Sync workflow. See [Sync](../../explanation/primitives/sync/).
+
 ### Slot
 
 A concurrency permit managed by the executor's semaphore. Tasks consume a slot when they begin execution and release it on completion (or failure). The total number of slots bounds the maximum concurrent task count for a runner.
+
+### Source
+
+A connector member of kind `source`: it offers `discover` for its streams and a streaming `read` of records and checkpoints from a resume point. See [Connector Contract](../connector-contract/).
 
 ### SourceName
 
@@ -217,6 +257,18 @@ A string identifier for a data source feeding a computation graph's InputCache. 
 ### Stale Claim
 
 A task claim that was not properly released, typically because the owning runner crashed or lost connectivity. The scheduler periodically sweeps for claims whose heartbeat timestamp exceeds a configurable threshold and releases them, allowing another runner to pick up the task.
+
+### Stream (Sync)
+
+A table, endpoint or object within a source: the unit of configuration, cursor and schema in a sync. See [Sync](../../explanation/primitives/sync/).
+
+### Sync
+
+Cloacina's data movement feature, and the capability of a server or runner to run syncs. A sync, lower case, is one configured movement from a source to a destination: an instance of the built-in Sync workflow, run on the agent fleet one segment per execution, with a cursor that advances only after each segment is durably written. See [Sync](../../explanation/primitives/sync/).
+
+### Sync definition
+
+What an operator writes to create a sync: the parameters of its workflow instance, naming the source and destination connectors, their configuration, the streams, the mapping, the write mode and the schedule. See [Sync](../../explanation/primitives/sync/).
 
 ### Task
 

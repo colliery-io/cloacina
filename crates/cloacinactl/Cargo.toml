@@ -26,6 +26,8 @@ sqlite = ["cloacina/sqlite"]
 # contract crate) — it does NOT pull `constructors-wasm`, so the CLI stays light.
 cloacina = { workspace = true, default-features = false, features = ["constructor-packaging"] }
 cloacina-client = { workspace = true }
+# Declarative connectors, without the engine's WASM runtime (CLOACINA-T-0992).
+cloacina-declarative = { workspace = true }
 cloacina-workflow-plugin = { workspace = true }
 clap.workspace = true
 clap_complete = "4"

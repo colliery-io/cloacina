@@ -1,0 +1,141 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from CoinGecko's official API documentation
+# (https://docs.coingecko.com/reference/introduction); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ── Stream 1: coins_list ─────────────────────────────────────────────────────
+  # Endpoint: GET /coins/list
+  # Returns a bare JSON array; full list in one response — no pagination needed.
+  # Source: https://docs.coingecko.com/reference/coins-list
+  - type: DeclarativeStream
+    name: coins_list
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://pro-api.coingecko.com/api/v3"
+        path: "/coins/list"
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "x-cg-pro-api-key"
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []          # response is a top-level JSON array
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+          symbol:
+            type: string
+          name:
+            type: string
+          platforms:
+            type: ["null", "object"]
+
+  # ── Stream 2: coins_markets ───────────────────────────────────────────────────
+  # Endpoint: GET /coins/markets
+  # Returns a bare JSON array; paginated via per_page + page (1-based).
+  # Source: https://docs.coingecko.com/reference/coins-markets
+  - type: DeclarativeStream
+    name: coins_markets
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://pro-api.coingecko.com/api/v3"
+        path: "/coins/markets"
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "x-cg-pro-api-key"
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []          # response is a top-level JSON array
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "per_page"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 100          # docs default; max 250
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+          symbol:
+            type: string
+          name:
+            type: string
+          image:
+            type: ["null", "string"]
+          current_price:
+            type: ["null", "number"]
+          market_cap:
+            type: ["null", "number"]
+          market_cap_rank:
+            type: ["null", "integer"]
+          fully_diluted_valuation:
+            type: ["null", "number"]
+          total_volume:
+            type: ["null", "number"]
+          high_24h:
+            type: ["null", "number"]
+          low_24h:
+            type: ["null", "number"]
+          price_change_24h:
+            type: ["null", "number"]
+          price_change_percentage_24h:
+            type: ["null", "number"]
+          market_cap_change_24h:
+            type: ["null", "number"]
+          market_cap_change_percentage_24h:
+            type: ["null", "number"]
+          circulating_supply:
+            type: ["null", "number"]
+          total_supply:
+            type: ["null", "number"]
+          max_supply:
+            type: ["null", "number"]
+          ath:
+            type: ["null", "number"]
+          ath_change_percentage:
+            type: ["null", "number"]
+          ath_date:
+            type: ["null", "string"]
+            format: date-time
+          atl:
+            type: ["null", "number"]
+          atl_change_percentage:
+            type: ["null", "number"]
+          atl_date:
+            type: ["null", "string"]
+            format: date-time
+          roi:
+            type: ["null", "object"]
+          last_updated:
+            type: ["null", "string"]
+            format: date-time
+          sparkline_in_7d:
+            type: ["null", "object"]
+          market_cap_rank_with_rehypothecated:
+            type: ["null", "integer"]

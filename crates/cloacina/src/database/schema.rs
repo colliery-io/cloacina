@@ -55,6 +55,8 @@ mod unified_schema {
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
             trigger_origin -> Nullable<Text>,
+            instance_name -> Nullable<Text>,
+            pass_id -> Nullable<DbUuid>,
         }
     }
 
@@ -213,6 +215,63 @@ mod unified_schema {
             reactor_name -> Text,
             address -> Text,
             claimed_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        /// The committed state of a sync stream (COLLIERY-I-0632 /
+        /// CLOACINA-T-0974): the cursor and opaque resume bytes the last
+        /// completed write task committed, per (sync, stream, partition).
+        /// Written only inside a task's completion transaction.
+        sync_stream_state (id) {
+            id -> DbUuid,
+            sync_name -> Text,
+            stream -> Text,
+            partition_id -> Text,
+            cursor -> Nullable<Text>,
+            opaque -> DbBinary,
+            exhausted -> DbBool,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp};
+
+        /// The captured schema of a sync stream and why it is broken, if it
+        /// is (COLLIERY-I-0635 / CLOACINA-T-1003).
+        sync_stream_schemas (id) {
+            id -> DbUuid,
+            sync_name -> Text,
+            stream -> Text,
+            schema -> Text,
+            broken -> Nullable<Text>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp};
+
+        /// Records a sync could not process, with the reason, stamped with
+        /// the task and workflow execution that produced them
+        /// (COLLIERY-I-0632 / CLOACINA-T-0974).
+        sync_dead_letters (id) {
+            id -> DbUuid,
+            sync_name -> Text,
+            stream -> Text,
+            task_execution_id -> Nullable<DbUuid>,
+            workflow_execution_id -> Nullable<DbUuid>,
+            record -> Text,
+            reason -> Text,
+            created_at -> DbTimestamp,
         }
     }
 
@@ -675,6 +734,8 @@ mod postgres_schema {
             created_at -> Timestamp,
             updated_at -> Timestamp,
             trigger_origin -> Nullable<Text>,
+            instance_name -> Nullable<Text>,
+            pass_id -> Nullable<Uuid>,
         }
     }
 
@@ -1119,6 +1180,8 @@ mod sqlite_schema {
             pause_reason -> Nullable<Text>,
             created_at -> Text,
             updated_at -> Text,
+            instance_name -> Nullable<Text>,
+            pass_id -> Nullable<Binary>,
         }
     }
 

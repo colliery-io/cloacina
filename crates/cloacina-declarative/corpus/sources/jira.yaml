@@ -1,0 +1,165 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Jira Cloud REST API's official API documentation
+# (https://developer.atlassian.com/cloud/jira/platform/rest/v3/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ─────────────────────────────────────────
+  # Stream 1: issues
+  # Endpoint: GET /rest/api/3/search (JQL search)
+  # Pagination: offset-based (startAt / maxResults)
+  # ─────────────────────────────────────────
+  - type: DeclarativeStream
+    name: issues
+    primary_key: id
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        # url_base: scheme + host only; customer subdomain supplied via config
+        url_base: "https://{{ config['domain'] }}.atlassian.net"
+        path: "/rest/api/3/search"
+        authenticator:
+          # OAuth 2.0 Bearer token (3LO); pre-obtained access token in config
+          type: BearerAuthenticator
+          api_token: "{{ config['api_token'] }}"
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          # /rest/api/3/search wraps results in "issues", not the generic "values"
+          field_path: ["issues"]
+
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "maxResults"     # Jira query param for page size
+        page_token_option:
+          type: RequestOption
+          field_name: "startAt"        # Jira query param for absolute item offset
+        pagination_strategy:
+          # startAt is an absolute item index (0, 50, 100 …) → OffsetIncrement
+          type: OffsetIncrement
+          page_size: 50
+
+    # incremental_sync intentionally omitted — see Open Questions #1
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          # Top-level fields present on every issue object
+          id:   { type: string }          # numeric string, e.g. "10230"
+          key:  { type: string }          # project-scoped key, e.g. "PROJ-42"
+          self: { type: ["null", "string"] }
+
+          # Most issue data is nested inside "fields"
+          fields:
+            type: ["null", "object"]
+            properties:
+              summary:     { type: ["null", "string"] }
+              description: { type: ["null", "string"] }
+              created:     { type: ["null", "string"], format: date-time }
+              updated:     { type: ["null", "string"], format: date-time }
+              dueDate:     { type: ["null", "string"] }  # date only, no time component documented
+              status:
+                type: ["null", "object"]
+                properties:
+                  name: { type: ["null", "string"] }
+                  id:   { type: ["null", "string"] }
+              priority:
+                type: ["null", "object"]
+                properties:
+                  name: { type: ["null", "string"] }
+                  id:   { type: ["null", "string"] }
+              issuetype:
+                type: ["null", "object"]
+                properties:
+                  name: { type: ["null", "string"] }
+                  id:   { type: ["null", "string"] }
+              assignee:
+                type: ["null", "object"]
+                properties:
+                  accountId:   { type: ["null", "string"] }
+                  displayName: { type: ["null", "string"] }
+              reporter:
+                type: ["null", "object"]
+                properties:
+                  accountId:   { type: ["null", "string"] }
+                  displayName: { type: ["null", "string"] }
+              resolution:
+                type: ["null", "object"]
+                properties:
+                  name: { type: ["null", "string"] }
+              labels:
+                type: ["null", "array"]
+                items: { type: string }
+              project:
+                type: ["null", "object"]
+                properties:
+                  id:   { type: ["null", "string"] }
+                  key:  { type: ["null", "string"] }
+                  name: { type: ["null", "string"] }
+              parent:
+                type: ["null", "object"]
+                properties:
+                  id:  { type: ["null", "string"] }
+                  key: { type: ["null", "string"] }
+
+
+  # ─────────────────────────────────────────
+  # Stream 2: projects
+  # Endpoint: GET /rest/api/3/project
+  # Pagination: none documented for bare-array form (see Open Questions #2)
+  # ─────────────────────────────────────────
+  - type: DeclarativeStream
+    name: projects
+    primary_key: id
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://{{ config['domain'] }}.atlassian.net"
+        path: "/rest/api/3/project"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_token'] }}"
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          # Jira Server v2 examples show GET /rest/api/2/project returns a
+          # bare top-level JSON array; field_path: [] selects it directly.
+          # Cloud v3 behaviour not independently confirmed — see Open Questions #2.
+          field_path: []
+
+      # paginator intentionally omitted — see Open Questions #2
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:             { type: string }           # numeric string, e.g. "10000"
+          key:            { type: string }           # e.g. "TEST"
+          name:           { type: ["null", "string"] }
+          self:           { type: ["null", "string"] }
+          projectTypeKey: { type: ["null", "string"] }  # e.g. "business", "software"
+          expand:         { type: ["null", "string"] }
+          avatarUrls:
+            type: ["null", "object"]
+            properties:
+              "48x48": { type: ["null", "string"] }
+              "32x32": { type: ["null", "string"] }
+              "24x24": { type: ["null", "string"] }
+              "16x16": { type: ["null", "string"] }

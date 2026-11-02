@@ -1,0 +1,47 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from XKCD JSON's official API documentation
+# (https://xkcd.com/json.html); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  - type: DeclarativeStream
+    name: comics
+    primary_key: num
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://xkcd.com"
+        path: "/info.0.json"
+        # No authenticator block — docs document no auth requirement
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []   # response is a single bare JSON object, not a nested array
+
+      # No paginator — the endpoint returns one object; no list/page parameter documented
+
+    # No incremental_sync — no time-filter query parameter documented;
+    # date fields (year/month/day) are discrete string fields, not a cursor-compatible timestamp
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          num:        { type: integer }
+          title:      { type: ["null", "string"] }
+          safe_title: { type: ["null", "string"] }
+          img:        { type: ["null", "string"] }
+          alt:        { type: ["null", "string"] }
+          transcript: { type: ["null", "string"] }
+          link:       { type: ["null", "string"] }
+          news:       { type: ["null", "string"] }
+          year:       { type: ["null", "string"] }
+          month:      { type: ["null", "string"] }
+          day:        { type: ["null", "string"] }

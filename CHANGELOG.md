@@ -5,6 +5,367 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A tutorial: Your First Sync** (COLLIERY-I-0635, CLOACINA-T-1007): from a
+  fresh compose server and the web UI only, copy Frankfurter's latest exchange
+  rates into Postgres, run the sync by hand and read its passes. A Playwright
+  journey test makes the same sync in the `ui-e2e` lane, against a local stand-in
+  for Frankfurter, and checks the pass completes and the table lands. The lane
+  stages the Postgres and REST connectors for its server.
+- **The connectors ship in the images** (COLLIERY-I-0635, CLOACINA-T-1009):
+  the server and agent images build the first-party Sync connectors
+  (postgres, mssql, s3, snowflake, rest, rest-dest) in a stage of their own
+  and carry them in `/opt/cloacina/providers`, with `CLOACINA_PROVIDER_PATH`
+  set, so a fresh server lists them and runs a sync with no other setup.
+  `angreal connectors stage` (`scripts/stage_connectors.py`) builds and stages
+  them for a local server. A connector's spec now loads with a placeholder
+  http grant when none is given, so the HTTP connectors describe themselves
+  too. A how-to: Put the Connectors on a Server.
+- **A sync's connector secrets are masked** (COLLIERY-I-0635,
+  CLOACINA-T-1008): weir's convention, until connectors read secrets
+  (COLLIERY-I-0651). Every read of a sync shows the secret fields of its
+  connector config (a database password, a URL holding one) as
+  `__cloacina_secret_unchanged__`. An update that sends the placeholder back
+  keeps the stored value, and a create that sends one is refused. A check or
+  discover made while editing names the sync, and runs with its stored values.
+  The form shows a stored secret as unchanged until it is retyped.
+  `cloacina_sync::config_secrets`.
+- **The sync form** (COLLIERY-I-0635, CLOACINA-T-1006): create and edit a
+  sync in the UI. Each side picks a connector from the catalog and fills the
+  config its schema asks for, or an advanced JSON override, with a check
+  button; a definition side names a stored secret, or creates one in place.
+  The stream comes from discovery, which re-runs when the source's config
+  settles; then sync mode, cursor, write mode and keys, and the schedule. The
+  server's refusals are shown on the form. The catalog now carries each
+  connector's `config_schema` and a definition's `secret_fields`, and
+  `POST /v1/tenants/{tenant_id}/connectors/spec` reads a compiled connector's
+  own config schema where connectors run. A database connector's password is
+  still stored in the sync's params; the form says so, until connectors read
+  secrets (COLLIERY-I-0651).
+- **Syncs in the UI** (COLLIERY-I-0635, CLOACINA-T-1005): a Syncs section.
+  The list shows each sync's source and destination, schedule, last pass and
+  what needs attention (schema drift, dead-letters), with run, edit and
+  delete. A sync's page shows its passes, one entry each with its segments'
+  executions linked to their logs; its stream's cursor and captured schema,
+  with "Accept new schema" on drift; and its dead-letters. A new route,
+  `POST /v1/tenants/{tenant_id}/syncs/{name}/run`, runs a pass by name, as
+  the cron fire does, so a run by hand shows as a pass of the sync. A pass
+  now reads `Completed` only once its last segment saw the source end;
+  between segments it is `Running`.
+- **The Sync read API** (COLLIERY-I-0635, CLOACINA-T-1004):
+  `/v1/tenants/{tenant_id}/syncs` reads syncs by name, without naming the
+  workflow: the list and one sync, a sync's passes (newest first, each with
+  its segments' executions, its status and the cursor it ended on), its
+  dead-letters, and its streams with cursor, captured schema and `broken`.
+  `POST .../syncs/{name}/schema/accept` accepts a stream's new shape. Writes
+  stay on the instances route. The read model is `cloacina_sync::views`;
+  `WorkflowExecutionDAL::list_passes` and `SyncDeadLettersDAL::page` back it.
+  The client gains the matching methods. A new BDD feature,
+  `sync/views.feature`.
+- **Schema capture and evolution** (COLLIERY-I-0635, CLOACINA-T-1003): each
+  sync stream keeps a captured schema, as weir did; migration 053 adds
+  `sync_stream_schemas`. The map task samples up to 200 mapped records a
+  segment, before enforcement: a new field joins the schema, a field whose
+  values no longer coerce to its type marks the schema broken with the
+  reasons and keeps it, and a dropped field or a nullability change is
+  ignored (`cloacina_sync::schema::evolve`). The write task commits the
+  result as a completion write, with the cursor (`StreamSchemaWrite`).
+  Enforcement uses the stored schema once there is one, the declared one
+  before; nothing pauses on a broken schema. `SyncStreamSchemasDAL::accept`
+  empties a stream's schema so the next write captures the new shape. A new
+  BDD feature, `sync/schema.feature`, and a section on the Sync page.
+- **Check and discover where connectors run** (COLLIERY-I-0635,
+  CLOACINA-T-1002): `POST /v1/tenants/{tenant_id}/connectors/check` checks one
+  side of a sync, and `.../connectors/discover` lists a source's streams with
+  their sync modes, keys and fields. Both run the built-in workflow
+  `sync_probe` (`cloacina_sync::probe`), so the connector runs where Sync's
+  tasks run, with the stored secret, never in the server; the route waits up
+  to 60 seconds. A connector definition is discovered from its own streams and
+  checked by lowering it on its first stream. The request and answers are in
+  `cloacina-api-types`; the client gains `list_connectors`, `check_connector`
+  and `discover_connector`. `cloacina_sync::dispatcher::failure` is now public.
+  A new BDD feature, `sync/check_discover.feature`.
+- **Update a workflow instance** (COLLIERY-I-0635, CLOACINA-T-1001):
+  `PUT /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` replaces
+  an instance's params, cron and timezone, with the checks create runs; a new
+  cron re-arms the scheduler, and no cron makes the instance unscheduled. A
+  sync definition's params are checked again
+  (`cloacina_sync::params::validate_update`), and its `sync` name cannot
+  change, because its cursor and dead-letters are kept under that name; an
+  update keeps both. `ScheduleDAL::update_instance`, the client's
+  `update_instance`, and the regenerated spec and SDKs. A new BDD feature,
+  `sync/changes.feature`. The HTTP reference now lists the route and the
+  executions list's `instance` and `pass` filters, and its example response
+  is current.
+- **Executions name their instance and pass** (COLLIERY-I-0635,
+  CLOACINA-T-1000): a workflow execution now records the workflow instance
+  whose fire started it (`instance_name`), and a Sync segment records the pass
+  it belongs to (`pass_id`); migration 052 adds both columns. Every cron and
+  trigger fire of an instance, and a Sync pass run by name, stamps them. The
+  values travel in two reserved context keys that the planner moves into the
+  row, so they never land in the saved context, and a param or a request body
+  cannot claim them. `GET /executions` filters on `instance` and `pass`, and
+  each summary carries both. A new BDD feature, `sync/passes.feature`, shows a
+  pass's executions sharing its id.
+- **A guide to the behaviour specs** (COLLIERY-I-0655, CLOACINA-T-0999): a
+  Contributing page on where the features live, how to run one, what each
+  scenario gets, how to add a step at the user's level, and the test-only
+  faults. The repository structure page now lists `cloacina-bdd`,
+  `cloacina-sync`, `cloacina-declarative` and `connectors/`.
+- **A BDD feature for declarative syncs** (COLLIERY-I-0655,
+  CLOACINA-T-0998): `features/sync/declarative.feature`. The corpus `github`
+  source syncs its repositories to Postgres against a mock GitHub API, with the
+  token from the secret store, and its second pass asks only for what is new.
+  A missing definition, or a stream the definition lacks, is refused when the
+  sync is created, with the name. A definition from the definitions directory
+  (`features/definitions/`, set by the runner) syncs like one of the corpus.
+- **BDD features for dead-letters and credentials** (COLLIERY-I-0655,
+  CLOACINA-T-0997): `features/sync/dead_letters.feature` and
+  `credentials.feature`. A record that breaks the stream's schema is set aside
+  with its reason while the rest arrive and the cursor moves on. Against a mock
+  API with the REST source, a stored secret reaches the API as a header or a
+  query parameter and lands in no saved context or record. A request the
+  grants refuse never reaches the API, and an OAuth2 token is minted once for
+  two passes. When a segment fails, the pass error now carries each failed
+  task's error, so a missing secret is named in it.
+- **BDD features for the cursor and resume** (COLLIERY-I-0655,
+  CLOACINA-T-0996): `features/sync/cursor.feature` and `resume.feature`. A
+  destination that refuses connections fails the pass and leaves the cursor
+  where it was; the records arrive once it is back. A write task that dies
+  before its commit is retried, and a runner that dies mid-write is replaced
+  by a new one on the same database, which reclaims the task and finishes the
+  segment. Each scenario's runner now keeps its state in a SQLite file, or its
+  own Postgres schema, so a second runner can take over. The test-only
+  `fail_after_write_once` fault now fires once per sync, not once per process.
+- **BDD features** (COLLIERY-I-0655, CLOACINA-T-0995, CLOACINA-A-0015): a
+  test crate, `cloacina-bdd`, runs Gherkin features in process with
+  `cucumber`. Each scenario gets a fresh World: its own runner, on SQLite or
+  in a Postgres schema of its own, and its own tables in the scenario
+  Postgres. The first feature covers a Sync pass, Postgres to Postgres, and
+  the cursor it commits. `angreal test bdd` runs the features on both runner
+  databases; the new BDD Features CI lane runs them against its own Postgres
+  and keeps a JUnit report. The CI change filter now covers `cloacina-sync`,
+  `cloacina-declarative` and `connectors/`, which ran no test lane on their
+  own before.
+- **Declarative connector docs** (COLLIERY-I-0634, CLOACINA-T-0994): a
+  Declarative Connectors page; references for the connector definition
+  format, the REST source and destination, and the corpus with each entry's
+  auth, config and streams; how-tos for importing an Airbyte connector and for
+  adding definitions to a server; the OAuth2, session, Basic and Google kinds
+  and how minted tokens are kept on the Credential Injection page; the catalog
+  route and the `connector` CLI commands. The corpus's `omdb` definition now
+  sends its key as the `apikey` query parameter, as OMDb documents; weir left a
+  placeholder header there.
+- **Declarative syncs and the connector catalog** (COLLIERY-I-0634,
+  CLOACINA-T-0993): a sync side can name a connector definition
+  (`source_definition`, `destination_definition`) instead of a provider. Its
+  `*_config` is the user's config for the definition and `*_secret` the secret
+  its auth reads (default: the binding `source_secret`); the side is lowered
+  onto the REST runtime wherever the params are read, with grants to the
+  definition's host unless the side gives its own. The server refuses a sync
+  definition whose side does not lower, by name. A user config's `base_url`
+  replaces the definition's. Extra definitions load from
+  `CLOACINA_SYNC_DEFINITIONS_DIR`. `GET /v1/tenants/{tenant_id}/connectors` and
+  `cloacinactl connector list` show the catalog: the compiled connector
+  providers and the declarative definitions.
+- **The importer and the declarative corpus** (COLLIERY-I-0634,
+  CLOACINA-T-0992): a new crate, `cloacina-declarative`, holds connector
+  definitions and their compiler (moved from `cloacina-sync`, which re-exports
+  them), weir's Airbyte low-code importer, and the corpus: 36 sources and the
+  HubSpot and Salesforce destinations, embedded. Every corpus file imports and
+  every stream compiles in the unit lane. A server can add definitions from a
+  directory. The crate needs nothing of the engine, so `cloacinactl connector
+  import <file>` turns an Airbyte source into a definition without a WASM
+  runtime. The credential spec's data type moved into
+  `cloacina_constructor_contract::sync::credential`, and the compiler now maps
+  the OAuth2, session, Basic and Google service-account kinds.
+- **The REST destination** (COLLIERY-I-0634, CLOACINA-T-0991):
+  `connectors/rest-dest`, weir's REST destination guest on the Sync contract,
+  the runtime of every declarative destination. It writes each record of one
+  object: shaped by a field map and an optional body wrap, sent to a path
+  templated with the record's values, percent-encoded now. The method is the
+  config's, or the write mode's (`PATCH` to upsert, `POST` otherwise), and a
+  CDC delete goes to a `delete_path`. A record the API refuses is a
+  dead-letter. `RestDestConfig` gains `delete_path` and `delete_method`, takes
+  an optional method, and drops `batch_size`, which weir never used. The mock
+  API takes writes, and a conformance write case can send CDC changes.
+- **OAuth2, session, Basic and Google service-account credentials**
+  (COLLIERY-I-0634, CLOACINA-T-0989): four more credential kinds the host
+  applies to a connector's requests. For `oauth2` (client credentials or
+  refresh token), `session` (a login whose token is sent as a header) and
+  `google_service_account` (a signed JWT-bearer grant), the host makes the
+  grant request itself and keeps the token for the process, keyed by who it is
+  for, so a sync does not mint one per segment and a changed secret mints
+  afresh. A provider that rotates its refresh token fails the grant with a
+  clear message: cloacina does not store a rotated refresh token yet. A
+  credential that cannot be applied is logged with its reason, since the
+  guest only sees a denied request.
+- **The REST source** (COLLIERY-I-0634, CLOACINA-T-0990): `connectors/rest`,
+  weir's REST guest on the Sync contract, the runtime of every declarative
+  source. It reads the `RestConfig` the host compiles from a connector
+  definition: pagination by page, offset, cursor token or `Link` header;
+  incremental reads by a cursor field; list and substream partitions;
+  header-row sheets; POST bodies with parameters injected into them. The read
+  streams a page at a time with a checkpoint per page, so a failure loses one
+  page. `check` now fetches the first page. Auth is the host's.
+  `cloacina_testing::connectors::rest_mock` is a mock JSON API for its tests,
+  and a conformance read case can now `resume_after` a checkpoint.
+- **Connector definitions** (COLLIERY-I-0634, CLOACINA-T-0988):
+  `cloacina_sync::definition` holds the model of a declarative connector,
+  weir's declarative manifest moved and named a connector definition, and its
+  compiler. `compile_source` and `compile_destination` turn a definition, a
+  stream or object, and the user's config into the REST runtime's config, the
+  stream's mapping and typed schema, and the credential the host adds. The
+  runtime's config is one serde type read on both sides,
+  `cloacina_constructor_contract::sync::rest::RestConfig` (and
+  `RestDestConfig`), so weir's string keys and its `__mapping` side channel
+  are gone (COLLIERY-I-0604), and a misspelled field fails by name.
+  `{{ config['key'] }}` templates render at compile time; a key the config
+  lacks is named in the error. Auth maps onto the Sync credential spec; the
+  OAuth2, session, Basic and Google kinds arrive with CLOACINA-T-0989.
+- **Sync docs** (COLLIERY-I-0633, CLOACINA-T-0987): a Sync Connectors
+  reference with a page each for Postgres, MSSQL, S3 and Snowflake (config,
+  modes, grant, credential); a Credential Injection page; a how-to for testing
+  a connector with the conformance kit; the kit and the Snowflake mock in the
+  `cloacina-testing` reference. The Sync and fleet pages now say that an
+  agent's key must be scoped to the tenant whose syncs it runs: the bootstrap
+  admin key is in no tenant, so an agent started with it gets no tasks.
+- **The Snowflake connector** (COLLIERY-I-0633, CLOACINA-T-0986):
+  `connectors/snowflake`, weir's Snowflake source and destination over the SQL
+  API, on cloacina's contract. The host signs a key-pair JWT and adds it to
+  each request, so the private key never enters the sandbox. `check` now runs
+  `SELECT 1`, so a wrong key fails it, and the cursor is a JSON string.
+  `cloacina_testing::connectors::snowflake_mock` is an in-memory SQL API for
+  tests: it runs the statements the connector builds, answers 202 and splits
+  results into partitions when asked, and checks the JWT against the key's
+  fingerprint. The conformance file and a Postgres to Snowflake and a
+  Snowflake to Postgres sync run against it in the Postgres integration lane.
+  A conformance run can pass variables for the file's `${NAME}`s.
+- **The S3 connector** (COLLIERY-I-0633, CLOACINA-T-0985): `connectors/s3`,
+  weir's source of NDJSON objects from an S3-compatible store (full refresh,
+  incremental by object key), on cloacina's contract. Requests leave the guest
+  unsigned and the host signs them with a SigV4 credential, so the keys never
+  enter the sandbox. `check` now lists one key, so a wrong key fails it, and
+  the cursor is the key as a JSON string. A conformance file can name a side's
+  credential and hold its test secrets under `[secrets]`. MinIO runs under the
+  compose profile `minio`, and the Postgres integration lane runs the S3
+  conformance file and one S3 to Postgres sync with the keys in cloacina's
+  secret store.
+- **The MSSQL connector** (COLLIERY-I-0633, CLOACINA-T-0984):
+  `connectors/mssql`, weir's SQL Server source (full refresh, incremental by
+  cursor) on cloacina's contract, with TLS through rustls. Its TDS driver is
+  `vendor/tiberius-wasm`, weir's fork of tiberius 0.12.3 (MIT or Apache-2.0)
+  that builds for `wasm32-wasip2`. An incremental read now compares the
+  cursor in the column's own type: weir compared it as text, so an integer
+  cursor at 9 skipped 10 and later rows. SQL Server runs under the compose
+  profile `mssql`, and the Postgres integration lane runs the MSSQL
+  conformance file and one MSSQL to Postgres sync against it.
+- **The connector conformance kit** (COLLIERY-I-0633, CLOACINA-T-0983,
+  CLOACINA-A-0014): `cloacina_testing::connectors::conformance` runs a
+  connector's conformance file, TOML beside the connector, through a host:
+  spec, check with good and bad configs, discover, read from a state, and
+  write, with optional setup and verify steps against the test service. A
+  failure names the method, the case and the difference. The echo fixture and
+  the Postgres connector have conformance files, and
+  `cargo test -p cloacina-sync --test conformance` runs them through the real
+  connector host; the Postgres run joins the Postgres integration lane. The
+  unit lane now runs `cloacina-testing`'s tests.
+- **Sync credentials** (COLLIERY-I-0633, CLOACINA-T-0982): a sync side names
+  its credential in `source_credential` or `destination_credential`, a JSON
+  object with a `kind` (`header`, `query`, `aws_sigv4`,
+  `snowflake_keypair_jwt`), the `secret` to read, and the kind's non-secret
+  fields. The read and write tasks resolve the secret on the agent and the
+  host applies the credential to each request the grants allow: the guest
+  never holds it, and a credential never widens the grants.
+  `cloacina::registry::loader::credentials` holds the credentials, ported from
+  weir, and `ResolvedGrants::with_credential` puts one on a connector's
+  egress. OAuth2 and Google service accounts stay in Sync 3.
+- **Sync resume tests** (COLLIERY-I-0632, CLOACINA-T-0980): a write task that
+  dies after the destination accepted its segment is retried and the cursor
+  advances once, on SQLite and on Postgres where upsert absorbs the second
+  write; and `angreal test e2e sync` proves it on a live server and agent,
+  killing the agent mid-write and the server before the completion commit.
+  The faults are deterministic and compiled in only with the
+  `fault-injection` feature of `cloacina`, `cloacina-sync`, `cloacina-server`
+  and `cloacina-agent`.
+- **The Postgres connector** (COLLIERY-I-0632, CLOACINA-T-0979):
+  `connectors/postgres`, weir's Postgres guest on cloacina's contract, a Sync
+  source (full refresh, incremental by cursor, CDC) and destination (append,
+  overwrite, upsert) as one `wasm32-wasip2` component, with the CDC helpers
+  that moved with it. The canonical guest copy of the Sync types lives at
+  `crates/cloacina-constructor-contract/guest/sync_guest_types.rs`, with a
+  drift test over every guest. `cloacina_testing::connectors` builds a guest
+  and stages it as a provider package for tests. The Postgres connector tests
+  run in the Postgres integration lane; the Sync crate's unit tests join the
+  unit lane and its wasm tests the nightly constructor suite.
+- **Sync definitions** (COLLIERY-I-0632, CLOACINA-T-0978): a sync definition
+  is a workflow instance of the built-in `sync` workflow, created through the
+  existing instances route. A fire of it, on its cron or by hand, runs a pass
+  instead of one execution: the runner gains an instance fire hook
+  (`cloacina::workflow_instance::InstanceFireHook`, `set_instance_fire_hook`,
+  `fire_instance`) that the cron scheduler and the manual-run route consult,
+  and `cloacina_sync::install` puts Sync's hook on a runner. The server
+  installs it on every tenant runner with the ownership session; an embedded
+  runner calls `install` and `cloacina_sync::run_pass` by instance name.
+- **The Sync dispatcher** (COLLIERY-I-0632, CLOACINA-T-0977):
+  `cloacina_sync::dispatcher::Dispatcher` runs one pass of a sync as a series
+  of segments, one execution of the Sync workflow at a time, reading the
+  committed cursor before each and stopping when the source reports its end.
+  It waits for any outstanding execution of the sync first, and on a server
+  claims the sync on the ownership session in a new `Sync` domain
+  (`OwnershipDomain`, `ReactorId::sync`), so a sync and a reactor with one
+  name never share a lock. The read task now looks one message past its
+  checkpoint budget, so a source that ends there reports exhausted.
+- **The Sync workflow** (COLLIERY-I-0632, CLOACINA-T-0976): new crate
+  `cloacina-sync`, linked into the server and the agent, with the built-in
+  workflow `sync` (read a segment, map and enforce, write), the mapping and
+  schema-enforcement engine moved from weir, and the params a sync definition
+  binds. The write task returns the cursor and the dead-letters as completion
+  writes, so the cursor advances only after the destination has accepted the
+  segment.
+- **Connector host** (COLLIERY-I-0632, CLOACINA-T-0973): `load_connector`
+  loads a Sync source or destination member from a provider package under the
+  consumer's grants and drives spec, check, discover, the streaming read and
+  the client-streaming write (`cloacina::registry::loader::connector_host`,
+  behind `constructors-wasm`). Two WASM fixtures, an echo connector and a
+  faulty one, under `examples/constructor-contract/`, with the canonical guest
+  copy of the Sync types a connector guest carries.
+- **Sync connector contract** (COLLIERY-I-0632, CLOACINA-A-0013): the
+  constructor contract gains two primitive kinds, `source` and `destination`,
+  one five-method `connector` interface (spec, check, discover, streaming
+  read, client-streaming write), and a `sync` module with the boundary types,
+  the typed stream schema, the error taxonomy, cursor comparison and the
+  bincode envelope codec, moved from weir with their wire shape unchanged. A
+  manifest may carry `connector` metadata (roles, sync modes, config schema)
+  for the catalog. The `wit` feature adds `WitType` derives for guests
+  (CLOACINA-T-0972).
+- **Sync docs** (COLLIERY-I-0632, CLOACINA-T-0981): an explanation page for
+  Sync with its vocabulary and the segment-by-segment shape, a Connector
+  Contract reference, Sync in the concepts page, the features catalog, the
+  glossary and the README.
+- **Completion writes** (COLLIERY-I-0632, CLOACINA-T-0974): a task can attach
+  rows under the reserved context key `__cloacina_completion_writes__`
+  (`cloacina_workflow::completion_writes`). The result handler strips the key
+  before the context is saved and writes the rows inside the transaction that
+  marks the task completed, on both backends and from the agent path. A lost
+  claim writes nothing; a failed write leaves the task not completed. New
+  tables `sync_stream_state` (the committed cursor of a sync stream) and
+  `sync_dead_letters`, with read-only DAL accessors; migration 051.
+- **Built-in workflows on the fleet** (COLLIERY-I-0632, CLOACINA-T-0975): a
+  task compiled into the server and the agent and seeded from inventory, with
+  no package artifact, dispatches to any agent in its tenant. The server marks
+  it built in when no artifact exists yet its own runtime knows the task. The
+  work packet's `language` is `"builtin"` (`cloacina::fleet::BUILTIN_LANGUAGE`);
+  the agent resolves the task from its own inventory and fetches nothing.
+
+### Fixed
+
+- `cloacina_constructor_contract::sync::ConnectorError` implements `Display`
+  and `Error` again (lost when thiserror was dropped in CLOACINA-T-0972).
+
 ## [0.12.0] - 2026-10-13
 
 ### Changed
