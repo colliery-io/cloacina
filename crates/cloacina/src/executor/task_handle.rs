@@ -324,7 +324,7 @@ impl TaskHandle {
     /// `tokio::select!` racing on the same channel.
     ///
     /// Always returns `false` for handles created without a cancellation
-    /// channel (e.g. in tests via [`TaskHandle::new`]).
+    /// channel (e.g. in tests via `TaskHandle::new`).
     pub fn is_cancelled(&self) -> bool {
         self.cancel_rx
             .as_ref()

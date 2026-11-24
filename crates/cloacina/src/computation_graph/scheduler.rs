@@ -621,12 +621,12 @@ impl ComputationGraphScheduler {
     ///
     /// `register_aliases` lets the caller register additional endpoint-registry
     /// keys pointing at this reactor's manual command channel — used by
-    /// [`load_graph`] to alias the first graph's name for back-compat with
+    /// [`load_graph`](Self::load_graph) to alias the first graph's name for back-compat with
     /// today's `cloacinactl reactor force-fire <graph>` operator surface.
     /// Direct callers (e.g. T-0545's reconciler routing for reactor-only
     /// packages) typically pass `&[]` and address the reactor by its name.
     ///
-    /// Subscribers are bound separately via [`bind_graph_to_reactor`].
+    /// Subscribers are bound separately via [`bind_graph_to_reactor`](Self::bind_graph_to_reactor).
     /// Swap the graph executor firings run through (CLOACI-T-0722). Takes
     /// effect for reactors spawned/restarted AFTER the call — the server sets
     /// this once at startup, before any packages load.
@@ -1089,8 +1089,8 @@ impl ComputationGraphScheduler {
 
     /// Bind a graph as an additional subscriber on an already-loaded reactor.
     ///
-    /// The reactor must have been loaded first (via [`load_reactor`] or
-    /// transitively via [`load_graph`]); this entry point doesn't spawn
+    /// The reactor must have been loaded first (via [`load_reactor`](Self::load_reactor) or
+    /// transitively via [`load_graph`](Self::load_graph)); this entry point doesn't spawn
     /// reactors. Returns an error if the reactor isn't loaded or if a graph
     /// with the same name is already bound somewhere.
     ///
@@ -1155,8 +1155,8 @@ impl ComputationGraphScheduler {
 
     /// Load and start a computation graph.
     ///
-    /// After T-0545 M1 this is a thin wrapper over [`load_reactor`] +
-    /// [`bind_graph_to_reactor`]. It exists so today's bundled-form callers
+    /// After T-0545 M1 this is a thin wrapper over [`load_reactor`](Self::load_reactor) +
+    /// [`bind_graph_to_reactor`](Self::bind_graph_to_reactor). It exists so today's bundled-form callers
     /// (every existing test, every package built before reactor-only
     /// packages) keep their contract: one call resolves both the reactor's
     /// lifecycle and the graph's subscription. Independent-reactor consumers
@@ -1731,7 +1731,7 @@ impl ComputationGraphScheduler {
     /// preserves today's 1:1 reactor-per-graph callers (a single
     /// `unload_graph(name)` removes everything the matching `load_graph`
     /// brought in). For independent reactor lifecycles, prefer
-    /// [`unbind_graph_from_reactor`] + explicit [`unload_reactor`].
+    /// [`unbind_graph_from_reactor`](Self::unbind_graph_from_reactor) + explicit [`unload_reactor`](Self::unload_reactor).
     pub async fn unload_graph(&self, name: &str, scope: TenantScope<'_>) -> Result<(), String> {
         let reactor_key = self.unbind_graph_from_reactor(name, scope).await?;
 
@@ -1761,7 +1761,7 @@ impl ComputationGraphScheduler {
     /// Snapshot the accumulator names of a loaded reactor, in declaration
     /// order. Returns `None` if the reactor isn't loaded. Used by the
     /// reconciler to pre-validate cross-package subscriber bindings against
-    /// the upstream reactor's contract before calling [`load_graph`].
+    /// the upstream reactor's contract before calling [`load_graph`](Self::load_graph).
     pub async fn reactor_accumulator_names(
         &self,
         reactor_name: &str,

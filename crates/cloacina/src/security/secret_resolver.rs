@@ -139,7 +139,7 @@ impl SecretStoreResolver {
     /// is trusted, so the resolver may resolve any secret in `org_id`
     /// ([`SecretAllow::All`]). Untrusted packaged/WASM code must NOT be handed a
     /// resolver built this way — use [`new_gated`](Self::new_gated) /
-    /// [`from_grants`](Self::from_grants) so its granted allow-list is enforced.
+    /// `from_grants` (feature `constructors-wasm`) so its granted allow-list is enforced.
     ///
     /// `kek` must be 32 bytes; a wrong length surfaces later as a backend error at
     /// resolve time (mirroring the store's own contract).

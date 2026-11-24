@@ -1210,7 +1210,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     }
 }
 
-/// Build-queue telemetry over a raw [`Database`] handle, independent of the
+/// Build-queue telemetry over a raw [`Database`](crate::database::Database) handle, independent of the
 /// registry's package loader. Powers both the compiler's `/v1/status` (via
 /// [`WorkflowRegistryImpl::build_queue_stats`]) and the server's operator
 /// compiler-status endpoint (CLOACI-I-0124), which has a `Database` but no
@@ -1282,7 +1282,7 @@ pub struct ReconcilerStats {
     pub last_built_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// Compute [`ReconcilerStats`] over a raw [`Database`] handle.
+/// Compute [`ReconcilerStats`] over a raw [`Database`](crate::database::Database) handle.
 pub async fn reconciler_stats(
     database: &crate::database::Database,
 ) -> Result<ReconcilerStats, RegistryError> {

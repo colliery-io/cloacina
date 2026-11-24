@@ -21,7 +21,7 @@
 //! foundation task of I-0133: the store, the DAL, and metadata-only CRUD. It
 //! deliberately does NOT implement the resolution side channel (the `ctx.secret()`
 //! accessor, D-1), grants (D-3), instance-param `$secret` references (D-4), or the
-//! fleet per-execution envelope wrap (D-2) — those are later tasks. [`resolve_secret`]
+//! fleet per-execution envelope wrap (D-2) — those are later tasks. [`resolve_secret`](SecretStore::resolve_secret)
 //! exists here as the INTERNAL decrypt primitive those tasks will call.
 //!
 //! ## Envelope encryption (D-7)
@@ -39,7 +39,7 @@
 //!
 //! [`SecretMetadata`] (returned by list/get) carries names, field names, and
 //! timestamps — NEVER a plaintext or ciphertext value. Plaintext field values are
-//! returned ONLY by [`resolve_secret`], the internal resolve path.
+//! returned ONLY by [`resolve_secret`](SecretStore::resolve_secret), the internal resolve path.
 
 use crate::crypto::{decrypt_bytes, encrypt_bytes};
 use crate::dal::unified::DAL;

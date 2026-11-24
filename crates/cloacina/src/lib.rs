@@ -397,13 +397,13 @@
 //! ## Documentation Navigation
 //!
 //! ### Learn Cloacina (Tutorials)
-//! - [Your First Workflow](crate::task) - Start here for macro-based task creation
-//! - [Multi-Task Workflows](crate::workflow) - Building complex dependency chains
+//! - [Your First Workflow](mod@crate::task) - Start here for macro-based task creation
+//! - [Multi-Task Workflows](mod@crate::workflow) - Building complex dependency chains
 //! - [Working with Data](crate::context) - Context management and serialization
 //! - [Error Handling](crate::retry) - Retry policies and failure recovery
 //!
 //! ### Solve Problems (How-To Guides)
-//! - [Task Patterns](crate::task) - Common task implementation patterns
+//! - [Task Patterns](mod@crate::task) - Common task implementation patterns
 //! - [Testing Strategies] - Unit and integration testing approaches
 //! - [Database Operations](crate::dal) - Working with execution history
 //! - [Error Recovery](crate::error) - Handling partial failures and recovery
@@ -418,14 +418,14 @@
 //! ### Understand the Design (Explanations)
 //! - [Architecture Decisions](crate) - Why Cloacina works the way it does
 //! - [Execution Model](crate::executor) - How tasks are scheduled and run
-//! - [Versioning Strategy](crate::workflow) - Content-based workflow versioning
+//! - [Versioning Strategy](mod@crate::workflow) - Content-based workflow versioning
 //! - [Recovery Mechanisms](crate::execution_planner) - Checkpoint and restart concepts
 //!
 //! ## Modules
 //!
 //! - [`context`]: Context management for sharing data between tasks
-//! - [`task`]: Core task trait and registry functionality
-//! - [`workflow`]: Workflow construction and dependency management
+//! - [`task`](mod@task): Core task trait and registry functionality
+//! - [`workflow`](mod@workflow): Workflow construction and dependency management
 //! - [`registry`]: Dynamic workflow package loading and storage
 //! - [`database`]: Database connection and persistence
 //! - [`error`]: Comprehensive error types
