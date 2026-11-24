@@ -131,7 +131,7 @@ impl<'a> WsTicketDAL<'a> {
     }
 
     /// Delete all tickets whose `expires_at` has passed. Returns the count.
-    /// (Also runs opportunistically inside [`issue`].)
+    /// (Also runs opportunistically inside [`issue`](Self::issue).)
     pub async fn prune_expired(&self) -> Result<usize, ValidationError> {
         let now = UniversalTimestamp::now();
         crate::interact_on_backend!(self.dal, |conn| {

@@ -179,7 +179,7 @@ pub(super) struct PackageState {
 pub trait CronWorkflowRegistrar: Send + Sync {
     /// Create a cron schedule for a workflow. Returns an opaque
     /// schedule ID the reconciler hands back to
-    /// [`unregister_cron_workflow`] on unload.
+    /// [`unregister_cron_workflow`](Self::unregister_cron_workflow) on unload.
     async fn register_cron_workflow(
         &self,
         workflow_name: &str,
@@ -188,7 +188,7 @@ pub trait CronWorkflowRegistrar: Send + Sync {
     ) -> Result<String, String>;
 
     /// Drop a cron schedule by the ID returned from
-    /// [`register_cron_workflow`].
+    /// [`register_cron_workflow`](Self::register_cron_workflow).
     async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String>;
 
     /// Create a `trigger`-type schedule row for a custom-poll (non-cron)
@@ -196,7 +196,7 @@ pub trait CronWorkflowRegistrar: Send + Sync {
     /// the reconciler's runtime step; this persists the row the trigger
     /// scheduler polls (`get_enabled_triggers`) and the read API surfaces
     /// in the Triggers view (CLOACI-I-0124 / WS-6). Returns an opaque
-    /// schedule ID dropped via [`unregister_cron_workflow`] on unload
+    /// schedule ID dropped via [`unregister_cron_workflow`](Self::unregister_cron_workflow) on unload
     /// (both schedule kinds are deleted by id). The default impl degrades
     /// loudly so a registrar without trigger support fails visibly rather
     /// than silently dropping poll triggers.

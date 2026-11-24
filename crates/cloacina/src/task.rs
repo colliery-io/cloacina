@@ -219,7 +219,7 @@
 //!
 //! ## How-To Guide: Working with Context Data
 //!
-//! The [`Context`] is your primary way to share data between tasks:
+//! The [`Context`](crate::Context) is your primary way to share data between tasks:
 //!
 //! ```rust,ignore
 //! use cloacina::*;
