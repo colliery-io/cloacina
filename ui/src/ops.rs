@@ -72,7 +72,9 @@ pub fn provide_ops_metrics() {
         let my_gen = generation.with_value(|g| g + 1);
         generation.set_value(my_gen);
         latest.set(None); // new tenant → don't show the old tenant's snapshot
-        leptos::task::spawn_local(async move {
+        // Aborted on effect cleanup (CLOACINA-T-0952): a connection change
+        // or logout closes the socket at once, not at the next frame.
+        crate::live::spawn_until_cleanup(async move {
             let Ok(client) = client_for(&conn) else {
                 return;
             };

@@ -278,3 +278,14 @@ async fn gather(state: &AppState, view: Option<&str>) -> OpsMetricsEvent {
         ts: chrono::Utc::now().to_rfc3339(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::OPS_RECIPIENT;
+
+    // CLOACINA-T-0952: the ops stream must fan out to every tab on a tenant.
+    #[test]
+    fn ops_recipient_is_broadcast() {
+        assert!(crate::delivery_sink::is_broadcast_recipient(OPS_RECIPIENT));
+    }
+}
