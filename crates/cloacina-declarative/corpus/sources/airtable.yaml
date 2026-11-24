@@ -1,0 +1,64 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Airtable Web API's official API documentation
+# (https://airtable.com/developers/web/api/introduction); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  - type: DeclarativeStream
+    name: records
+    primary_key: id
+
+    retriever:
+      type: SimpleRetriever
+
+      requester:
+        type: HttpRequester
+        url_base: "https://api.airtable.com/v0"
+        # Both path segments are user-supplied configuration — see Open Questions #1
+        path: "/{{ config['base_id'] }}/{{ config['table_name'] }}"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['api_key'] }}"
+
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["records"]
+
+      # Opaque-cursor pagination: the response's `offset` token is passed
+      # back as `?offset=<token>` until absent; pageSize=100 (max) —
+      # airtable.com/developers/web/api/list-records.
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: pageSize
+        page_token_option:
+          type: RequestOption
+          inject_into: request_parameter
+          field_name: offset
+        pagination_strategy:
+          type: CursorPagination
+          page_size: 100
+          cursor_value: "{{ response['offset'] }}"
+
+    # incremental_sync OMITTED — no time-based query parameter exists. See Open Questions #3.
+
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+          createdTime:
+            type: string
+            format: date-time
+          fields:
+            # Shape is entirely table-specific; unknowable at connector-build time.
+            type: object
+          commentCount:
+            type: ["null", "integer"]

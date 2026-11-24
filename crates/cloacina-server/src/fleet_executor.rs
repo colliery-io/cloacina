@@ -45,7 +45,7 @@ use cloacina::executor::types::ClaimedTask;
 use cloacina::executor::{TaskContextBuilder, TaskResultHandler};
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentOutcome, AgentResultRequest, ArtifactRef,
-    WORK_PACKET_KIND, WorkPacket, WrappedSecret, host_target_triple,
+    BUILTIN_LANGUAGE, WORK_PACKET_KIND, WorkPacket, WrappedSecret, host_target_triple,
 };
 use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::retry::RetryPolicy;
@@ -388,13 +388,31 @@ impl TaskExecutor for FleetExecutor {
             // the language decides arch eligibility. CLOACI-T-0781: `self.dal` is
             // schema-scoped and tenant-schema packages carry tenant_id = NULL, so
             // look up by None (IS NULL).
-            let (primary_digest, language) = match self
+            // CLOACINA-T-0975: a task with NO package artifact that the server's own
+            // runtime nevertheless knows is BUILT IN — compiled into the server (and
+            // the agent) and seeded from inventory; its package segment is the crate
+            // that defines it. Nothing to fetch, and any agent in the task's tenant
+            // can run it from its own binary. A task the runtime does not know keeps
+            // the "no active artifact" error below.
+            let (primary_digest, language, builtin) = match self
                 .dal
                 .workflow_packages()
                 .get_active_dispatch_for_package(&namespace.package_name, None)
                 .await
             {
-                Ok(Some(info)) => info,
+                Ok(Some((digest, language))) => (digest, language, false),
+                Ok(None) if self.runtime.get_task(&namespace).is_some() => {
+                    debug!(
+                        task_id = %event.task_execution_id,
+                        task_name = %event.task_name,
+                        "fleet: built-in task, no artifact to dispatch"
+                    );
+                    (
+                        BUILTIN_LANGUAGE.to_string(),
+                        BUILTIN_LANGUAGE.to_string(),
+                        true,
+                    )
+                }
                 Ok(None) => {
                     return Ok(self
                         .reconcile_error(
@@ -427,7 +445,9 @@ impl TaskExecutor for FleetExecutor {
             // cdylib — it runs from its source on ANY agent. A COMPILED package runs
             // only where a cdylib exists for that arch: the host primary ∪ its
             // per-target builds. `None` = "any arch is fine" (interpreted).
-            let interpreted = language.eq_ignore_ascii_case("python");
+            // A built-in task is arch-free like an interpreted one: it runs on any
+            // agent in its tenant, from the agent's own binary (CLOACINA-T-0975).
+            let interpreted = builtin || language.eq_ignore_ascii_case("python");
             let runnable_triples: Option<Vec<String>> = if interpreted {
                 None
             } else {

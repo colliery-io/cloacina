@@ -101,6 +101,8 @@ pub fn Executions() -> impl IntoView {
         let q = ListExecutionsQuery {
             status: Some(status.get()).filter(|s| !s.is_empty()),
             workflow: Some(workflow.get()).filter(|w| !w.is_empty()),
+            instance: None,
+            pass: None,
             limit: Some(PAGE_SIZE),
             offset: Some(offset.get()),
         };

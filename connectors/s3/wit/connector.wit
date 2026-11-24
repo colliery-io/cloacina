@@ -1,0 +1,239 @@
+package fidius:connector@0.1.0;
+
+interface connector {
+    record plugin-error {
+        code: string,
+        message: string,
+        details: option<string>,
+    }
+    record config {
+        json: string,
+    }
+    record arrow-schema-ipc {
+        ipc: list<u8>,
+    }
+    record arrow-ipc {
+        ipc: list<u8>,
+    }
+    record connector-spec {
+        name: string,
+        connector-version: string,
+        contract-version: u32,
+        config-schema: string,
+        roles: list<connector-role>,
+        supported-sync-modes: list<sync-mode>,
+    }
+    record check-result {
+        success: bool,
+        message: option<string>,
+    }
+    record stream-info {
+        name: string,
+        namespace: option<string>,
+        schema: arrow-schema-ipc,
+        supported-sync-modes: list<sync-mode>,
+        source-defined-cursor: bool,
+        default-cursor-field: option<string>,
+        source-defined-primary-key: option<list<string>>,
+        partitioning: partition-scheme,
+    }
+    record catalog {
+        streams: list<stream-info>,
+    }
+    record context-pair {
+        key: string,
+        value: string,
+    }
+    record connector-error {
+        kind: error-kind,
+        message: string,
+        retryable: bool,
+        context: list<context-pair>,
+    }
+    record mapping-spec {
+        ops: list<mapping-op>,
+    }
+    record configured-stream {
+        %stream: string,
+        sync-mode: sync-mode,
+        cursor-field: option<string>,
+        primary-key: option<list<string>>,
+        write-mode: write-mode,
+        mapping: mapping-spec,
+    }
+    record partition {
+        id: string,
+        bounds: option<string>,
+    }
+    record stream-state {
+        cursor: option<string>,
+        opaque: list<u8>,
+    }
+    record change-record {
+        op: change-op,
+        data: string,
+    }
+    record log-entry {
+        level: log-level,
+        message: string,
+    }
+    record dead-letter {
+        %record: string,
+        reason: string,
+    }
+    record read-context {
+        %stream: configured-stream,
+        partition: partition,
+        state: stream-state,
+    }
+    record write-context {
+        %stream: configured-stream,
+    }
+    record write-receipt {
+        accepted: u64,
+    }
+    record write-outcome {
+        state: stream-state,
+        diagnostics: list<log-entry>,
+        dead-letters: list<dead-letter>,
+        %result: write-result,
+    }
+    record partition-scheme-by-cursor-range {
+        granularity: string,
+    }
+    record partition-scheme-by-key-shards {
+        key: string,
+        count: u32,
+    }
+    record partition-scheme-by-parent {
+        parent-stream: string,
+        key: string,
+    }
+    record write-mode-upsert {
+        business-keys: list<string>,
+    }
+    record mapping-op-select {
+        fields: list<string>,
+    }
+    record mapping-op-drop {
+        fields: list<string>,
+    }
+    record mapping-op-rename {
+        %from: string,
+        to: string,
+    }
+    record mapping-op-cast {
+        field: string,
+        to: cast-type,
+    }
+    record mapping-op-filter {
+        field: string,
+        op: compare-op,
+        value: string,
+    }
+    record mapping-op-compute {
+        field: string,
+        value: compute-expr,
+    }
+    variant sync-mode {
+        full-refresh,
+        incremental,
+        cdc,
+    }
+    variant connector-role {
+        source,
+        destination,
+        reverse-etl,
+    }
+    variant partition-scheme {
+        unpartitioned,
+        by-cursor-range(partition-scheme-by-cursor-range),
+        by-key-shards(partition-scheme-by-key-shards),
+        by-parent(partition-scheme-by-parent),
+    }
+    variant error-kind {
+        config,
+        transient,
+        record-level,
+        fatal,
+    }
+    variant discover-outcome {
+        catalog(catalog),
+        error(connector-error),
+    }
+    variant write-mode {
+        append,
+        upsert(write-mode-upsert),
+        overwrite,
+    }
+    variant mapping-op {
+        select(mapping-op-select),
+        drop(mapping-op-drop),
+        rename(mapping-op-rename),
+        cast(mapping-op-cast),
+        filter(mapping-op-filter),
+        compute(mapping-op-compute),
+    }
+    variant cast-type {
+        str,
+        integer,
+        float,
+        boolean,
+    }
+    variant compare-op {
+        eq,
+        ne,
+        lt,
+        le,
+        gt,
+        ge,
+    }
+    variant compute-expr {
+        const(string),
+        field(string),
+        concat(list<string>),
+        lower(string),
+        upper(string),
+    }
+    variant record-batch {
+        rows(list<string>),
+        arrow(arrow-ipc),
+        changes(list<change-record>),
+    }
+    variant change-op {
+        insert,
+        update,
+        delete,
+    }
+    variant log-level {
+        debug,
+        info,
+        warn,
+        error,
+    }
+    variant read-message {
+        records(record-batch),
+        checkpoint(stream-state),
+        log(log-entry),
+        dead-lettered(dead-letter),
+        fatal(connector-error),
+    }
+    variant write-result {
+        ok(write-receipt),
+        err(connector-error),
+    }
+    resource read-stream {
+        next: func() -> result<option<read-message>, plugin-error>;
+    }
+    spec: func() -> connector-spec;
+    check: func(config: config) -> check-result;
+    discover: func(config: config) -> discover-outcome;
+    read: func(ctx: read-context) -> read-stream;
+    write: func(ctx: write-context) -> write-outcome;
+    fidius-interface-hash: func() -> u64;
+    fidius-configure: func(config: list<u8>);
+}
+
+world connector-plugin {
+    export connector;
+}

@@ -36,6 +36,7 @@ mod workflow_result;
 
 pub use config::{DefaultRunnerBuilder, DefaultRunnerConfig, DefaultRunnerConfigBuilder};
 
+use crate::context::Context;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -79,6 +80,8 @@ pub struct DefaultRunner {
     /// mutating schedules so the scheduler re-arms its sleep immediately
     /// instead of waiting for the backstop.
     pub(super) cron_change: Arc<tokio::sync::Notify>,
+    /// The instance fire hook, shared with the unified scheduler (CLOACINA-T-0978).
+    pub(super) instance_fire_hook: crate::workflow_instance::InstanceFireHookSlot,
 }
 
 impl DefaultRunner {
@@ -209,6 +212,7 @@ impl DefaultRunner {
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
             cron_change: Arc::new(tokio::sync::Notify::new()),
+            instance_fire_hook: Arc::new(std::sync::RwLock::new(None)),
         };
 
         // Start the background services immediately
@@ -288,6 +292,34 @@ impl DefaultRunner {
         *slot.write().await = Some(scheduler);
     }
 
+    /// Install the hook that takes over instance fires (COLLIERY-I-0632 /
+    /// CLOACINA-T-0978): the cron scheduler and [`Self::fire_instance`] consult
+    /// it before executing a workflow once. Shared across clones of this runner.
+    pub fn set_instance_fire_hook(
+        &self,
+        hook: Arc<dyn crate::workflow_instance::InstanceFireHook>,
+    ) {
+        *self.instance_fire_hook.write().unwrap() = Some(hook);
+    }
+
+    /// Fire a workflow instance by hand: the hook decides, else one execution.
+    /// `context` carries the instance's params already merged.
+    pub async fn fire_instance(
+        &self,
+        workflow_name: &str,
+        context: Context<serde_json::Value>,
+    ) -> Result<crate::executor::WorkflowExecution, WorkflowExecutionError> {
+        let hook = self.instance_fire_hook.read().unwrap().clone();
+        if let Some(hook) = hook {
+            let executor: Arc<dyn crate::executor::WorkflowExecutor> = Arc::new(self.clone());
+            let dal = Arc::new(crate::dal::DAL::new(self.database.clone()));
+            if let Some(fut) = hook.fire(executor, dal, workflow_name, context.clone_data()) {
+                return fut.await;
+            }
+        }
+        crate::executor::WorkflowExecutor::execute_async(self, workflow_name, context).await
+    }
+
     /// Gracefully shuts down the executor and its background services.
     pub async fn shutdown(&self) -> Result<(), WorkflowExecutionError> {
         self.service_manager.write().await.shutdown_all().await?;
@@ -308,6 +340,7 @@ impl Clone for DefaultRunner {
             // Share the SAME Notify across clones so a cron-change signal from
             // any runner handle reaches the one scheduler loop (CLOACI-T-0743).
             cron_change: self.cron_change.clone(),
+            instance_fire_hook: self.instance_fire_hook.clone(),
         }
     }
 }

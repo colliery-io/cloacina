@@ -36,6 +36,9 @@ use crate::routes::overview::Overview;
 use crate::routes::secrets::Secrets;
 use crate::routes::settings::Settings;
 use crate::routes::stubs::*;
+use crate::routes::sync_detail::SyncDetail;
+use crate::routes::sync_form::SyncForm;
+use crate::routes::syncs::Syncs;
 use crate::routes::trigger_detail::TriggerDetail;
 use crate::routes::triggers::Triggers;
 use crate::routes::workflow_detail::WorkflowDetail;
@@ -81,6 +84,10 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("executions/:id") view=ExecutionDetail />
                     <Route path=path!("triggers") view=Triggers />
                     <Route path=path!("triggers/:name") view=TriggerDetail />
+                    <Route path=path!("syncs") view=Syncs />
+                    <Route path=path!("syncs/new") view=SyncForm />
+                    <Route path=path!("syncs/:name/edit") view=SyncForm />
+                    <Route path=path!("syncs/:name") view=SyncDetail />
                     <Route path=path!("graphs") view=Graphs />
                     <Route path=path!("graphs/:name") view=GraphDetail />
                     <Route path=path!("operations") view=Operations />

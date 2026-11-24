@@ -1,0 +1,92 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Open Library's official API documentation
+# (https://openlibrary.org/developers/api); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  # ── Stream 1: search ─────────────────────────────────────────────────────
+  # Models GET /search.json — the only documented endpoint that returns a
+  # pageable list of work records.  The "works" stream is addressed in
+  # Open Questions below.
+  - type: DeclarativeStream
+    name: search
+    primary_key: "key"
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://openlibrary.org"
+        path: "/search.json"
+        # No authenticator — Open Library requires no auth token.
+        # Identified usage (higher rate limit) is accomplished via
+        # User-Agent header, which the target schema cannot express;
+        # see Open Questions.
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["docs"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"
+        page_token_option:
+          type: RequestOption
+          field_name: "offset"
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 100
+    # No incremental_sync: the Search API has no date-range filter parameter.
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          key:
+            type: string                       # e.g. "OL27448W" — the work key
+          title:
+            type: ["null", "string"]
+          author_key:
+            type: ["null", "array"]
+            items: { type: string }
+          author_name:
+            type: ["null", "array"]
+            items: { type: string }
+          first_publish_year:
+            type: ["null", "integer"]
+          edition_count:
+            type: ["null", "integer"]
+          cover_edition_key:
+            type: ["null", "string"]
+          cover_i:
+            type: ["null", "integer"]
+          lending_edition_s:
+            type: ["null", "string"]
+          lending_identifier_s:
+            type: ["null", "string"]
+          ebook_access:
+            type: ["null", "string"]
+          has_fulltext:
+            type: ["null", "boolean"]
+          public_scan_b:
+            type: ["null", "boolean"]
+          ia:
+            type: ["null", "array"]
+            items: { type: string }
+          ia_collection:
+            type: ["null", "array"]
+            items: { type: string }
+          language:
+            type: ["null", "array"]
+            items: { type: string }
+          series_key:
+            type: ["null", "array"]
+            items: { type: string }
+          series_name:
+            type: ["null", "array"]
+            items: { type: string }
+          series_position:
+            type: ["null", "array"]
+            items: { type: string }

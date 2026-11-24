@@ -18,6 +18,8 @@ def _get_kwargs(
     *,
     status: str | Unset = UNSET,
     workflow: str | Unset = UNSET,
+    instance: str | Unset = UNSET,
+    pass_: str | Unset = UNSET,
     limit: int | Unset = UNSET,
     offset: int | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -27,6 +29,10 @@ def _get_kwargs(
     params["status"] = status
 
     params["workflow"] = workflow
+
+    params["instance"] = instance
+
+    params["pass"] = pass_
 
     params["limit"] = limit
 
@@ -96,6 +102,8 @@ def sync_detailed(
     client: AuthenticatedClient,
     status: str | Unset = UNSET,
     workflow: str | Unset = UNSET,
+    instance: str | Unset = UNSET,
+    pass_: str | Unset = UNSET,
     limit: int | Unset = UNSET,
     offset: int | Unset = UNSET,
 ) -> Response[ErrorBody | TenantListResponseExecutionSummary]:
@@ -109,6 +117,8 @@ def sync_detailed(
         tenant_id (str):
         status (str | Unset):
         workflow (str | Unset):
+        instance (str | Unset):
+        pass_ (str | Unset):
         limit (int | Unset):
         offset (int | Unset):
 
@@ -124,6 +134,8 @@ def sync_detailed(
         tenant_id=tenant_id,
         status=status,
         workflow=workflow,
+        instance=instance,
+        pass_=pass_,
         limit=limit,
         offset=offset,
     )
@@ -141,6 +153,8 @@ def sync(
     client: AuthenticatedClient,
     status: str | Unset = UNSET,
     workflow: str | Unset = UNSET,
+    instance: str | Unset = UNSET,
+    pass_: str | Unset = UNSET,
     limit: int | Unset = UNSET,
     offset: int | Unset = UNSET,
 ) -> ErrorBody | TenantListResponseExecutionSummary | None:
@@ -154,6 +168,8 @@ def sync(
         tenant_id (str):
         status (str | Unset):
         workflow (str | Unset):
+        instance (str | Unset):
+        pass_ (str | Unset):
         limit (int | Unset):
         offset (int | Unset):
 
@@ -170,6 +186,8 @@ def sync(
         client=client,
         status=status,
         workflow=workflow,
+        instance=instance,
+        pass_=pass_,
         limit=limit,
         offset=offset,
     ).parsed
@@ -181,6 +199,8 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     status: str | Unset = UNSET,
     workflow: str | Unset = UNSET,
+    instance: str | Unset = UNSET,
+    pass_: str | Unset = UNSET,
     limit: int | Unset = UNSET,
     offset: int | Unset = UNSET,
 ) -> Response[ErrorBody | TenantListResponseExecutionSummary]:
@@ -194,6 +214,8 @@ async def asyncio_detailed(
         tenant_id (str):
         status (str | Unset):
         workflow (str | Unset):
+        instance (str | Unset):
+        pass_ (str | Unset):
         limit (int | Unset):
         offset (int | Unset):
 
@@ -209,6 +231,8 @@ async def asyncio_detailed(
         tenant_id=tenant_id,
         status=status,
         workflow=workflow,
+        instance=instance,
+        pass_=pass_,
         limit=limit,
         offset=offset,
     )
@@ -224,6 +248,8 @@ async def asyncio(
     client: AuthenticatedClient,
     status: str | Unset = UNSET,
     workflow: str | Unset = UNSET,
+    instance: str | Unset = UNSET,
+    pass_: str | Unset = UNSET,
     limit: int | Unset = UNSET,
     offset: int | Unset = UNSET,
 ) -> ErrorBody | TenantListResponseExecutionSummary | None:
@@ -237,6 +263,8 @@ async def asyncio(
         tenant_id (str):
         status (str | Unset):
         workflow (str | Unset):
+        instance (str | Unset):
+        pass_ (str | Unset):
         limit (int | Unset):
         offset (int | Unset):
 
@@ -254,6 +282,8 @@ async def asyncio(
             client=client,
             status=status,
             workflow=workflow,
+            instance=instance,
+            pass_=pass_,
             limit=limit,
             offset=offset,
         )

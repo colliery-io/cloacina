@@ -161,6 +161,17 @@ impl ResolvedGrants {
     /// egress policy, and no granted secrets. A constructor loaded with this
     /// reaches nothing. Used at every load site that isn't handed explicit tenant
     /// grants.
+    /// These grants with a credential applied to every outbound HTTP request
+    /// the allow-list admits (COLLIERY-I-0633 / CLOACINA-T-0982). The secret
+    /// stays on the host; the guest sends a plain request.
+    pub fn with_credential(mut self, credential: super::credentials::Credential) -> Self {
+        let inner = self.egress.take();
+        self.egress = Some(Arc::new(super::credentials::CredentialEgress::new(
+            inner, credential,
+        )));
+        self
+    }
+
     pub fn deny_all() -> Self {
         Self {
             capabilities: Vec::new(),

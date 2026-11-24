@@ -22,6 +22,11 @@ name = "cloacina"
 crate-type = ["lib", "cdylib"]
 
 [features]
+# Test-only (COLLIERY-I-0632 / CLOACINA-T-0980): honour
+# CLOACINA_FAULT_EXIT_BEFORE_COMPLETION_WRITES, which exits the process after a
+# task's result arrived and before its completion transaction, the window a
+# server crash must not lose a sync's segment in. Never on in a shipped binary.
+fault-injection = []
 # CLOACI-T-0898: no `kafka` feature — event-source backends live in constructor
 # PROVIDERS (e.g. cloacina-provider-kafka ships rdkafka), not in core.
 default = ["macros", "postgres", "sqlite"]
@@ -47,6 +52,9 @@ constructors-wasm = [
     "dep:fidius-macro",
     "dep:cloacina-constructor-contract",
     "fidius-host/wasm",
+    "dep:hmac",
+    "dep:ring",
+    "dep:reqwest",
     # CLOACI-T-0904: server-streaming dispatch (`PluginHandle::call_streaming` /
     # `ChunkStream`) for a native provider-supplied STREAM accumulator. Gates the
     # loader's stream-accumulator path + the fidius stream module.
@@ -114,6 +122,14 @@ argon2 = { version = "0.6" }
 # (CLOACINA-T-0963).
 ed25519-dalek = { version = "2.1" }
 hex = { version = "0.4" }
+# Host-side credential injection (CLOACINA-T-0982): SigV4 HMAC and the
+# Snowflake key-pair RS256 JWT. Only with `constructors-wasm`.
+hmac = { version = "0.13", optional = true }
+ring = { version = "0.17", optional = true }
+# The host side of OAuth2, session and Google service-account credentials:
+# token grants and logins, made on the host so no secret reaches a guest
+# (CLOACINA-T-0989). Same version and TLS as the agent's client.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "form", "rustls"], optional = true }
 pem = { version = "4" }
 toml = { version = "1" }
 anyhow = { version = "1.0" }

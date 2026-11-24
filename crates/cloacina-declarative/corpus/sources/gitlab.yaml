@@ -1,0 +1,151 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from GitLab REST API's official API documentation
+# (https://docs.gitlab.com/ee/api/rest/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ── Stream 1: projects ───────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: projects
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "{{ config['base_url'] }}"
+        path: "/projects"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []          # GET /projects returns a bare JSON array
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "per_page"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 100          # docs max is 100
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: updated_at
+      start_time_option:
+        type: RequestOption
+        field_name: "updated_after"
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                        { type: integer }
+          description:               { type: ["null", "string"] }
+          name:                      { type: string }
+          name_with_namespace:       { type: string }
+          path:                      { type: string }
+          path_with_namespace:       { type: string }
+          created_at:                { type: string, format: date-time }
+          updated_at:                { type: string, format: date-time }
+          last_activity_at:          { type: string, format: date-time }
+          default_branch:            { type: ["null", "string"] }
+          ssh_url_to_repo:           { type: ["null", "string"] }
+          http_url_to_repo:          { type: string }
+          web_url:                   { type: string }
+          readme_url:                { type: ["null", "string"] }
+          avatar_url:                { type: ["null", "string"] }
+          visibility:                { type: string }
+          star_count:                { type: integer }
+          forks_count:               { type: integer }
+          open_issues_count:         { type: ["null", "integer"] }
+          archived:                  { type: boolean }
+          empty_repo:                { type: boolean }
+          creator_id:                { type: ["null", "integer"] }
+          topics:
+            type: array
+            items: { type: string }
+          namespace:                 { type: ["null", "object"] }
+          marked_for_deletion_on:    { type: ["null", "string"] }
+          packages_enabled:          { type: ["null", "boolean"] }
+          lfs_enabled:               { type: ["null", "boolean"] }
+          shared_runners_enabled:    { type: ["null", "boolean"] }
+          public_jobs:               { type: ["null", "boolean"] }
+
+  # ── Stream 2: issues ─────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: issues
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "{{ config['base_url'] }}"
+        path: "/issues"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []          # GET /issues returns a bare JSON array
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "per_page"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 100
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: updated_at
+      start_time_option:
+        type: RequestOption
+        field_name: "updated_after"
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                    { type: integer }
+          iid:                   { type: integer }
+          project_id:            { type: integer }
+          title:                 { type: string }
+          description:           { type: ["null", "string"] }
+          state:                 { type: string }
+          created_at:            { type: string, format: date-time }
+          updated_at:            { type: string, format: date-time }
+          closed_at:
+            type: ["null", "string"]
+            format: date-time
+          web_url:               { type: string }
+          due_date:              { type: ["null", "string"] }
+          issue_type:            { type: ["null", "string"] }
+          confidential:          { type: boolean }
+          upvotes:               { type: integer }
+          downvotes:             { type: integer }
+          merge_requests_count:  { type: integer }
+          user_notes_count:      { type: integer }
+          labels:
+            type: array
+            items: { type: string }
+          assignees:
+            type: array
+            items: { type: object }
+          author:                { type: ["null", "object"] }
+          closed_by:             { type: ["null", "object"] }
+          milestone:             { type: ["null", "object"] }
+          references:            { type: ["null", "object"] }
+          time_stats:            { type: ["null", "object"] }
+          task_completion_status: { type: ["null", "object"] }

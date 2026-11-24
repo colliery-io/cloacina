@@ -25,9 +25,17 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
-description = "WASM constructor contract for cloacina — constructor manifest schema + per-primitive sync wire types (CLOACI-I-0132)."
+description = "WASM constructor contract for cloacina — constructor manifest schema, per-primitive sync wire types (CLOACI-I-0132), and the Sync connector contract (COLLIERY-I-0632)."
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json.workspace = true
 cloacina-api-types = { workspace = true }
+bincode = { workspace = true }
+# WitType derive for guests that project the Sync boundary types to WIT
+# (`sync` module). Optional so the host path does not pull the proc-macro.
+fidius-macro = { workspace = true, optional = true }
+
+[features]
+# `#[derive(WitType)]` on the Sync boundary types (wasm32-wasip2 guests).
+wit = ["dep:fidius-macro"]

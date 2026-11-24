@@ -1,0 +1,101 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from JSONPlaceholder's official API documentation
+# (https://jsonplaceholder.typicode.com/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  - type: DeclarativeStream
+    name: posts
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://jsonplaceholder.typicode.com"
+        path: "/posts"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []   # endpoint returns a bare JSON array
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: integer
+          userId:
+            type: integer
+          title:
+            type: ["null", "string"]
+          body:
+            type: ["null", "string"]
+
+  - type: DeclarativeStream
+    name: comments
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://jsonplaceholder.typicode.com"
+        path: "/comments"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []   # endpoint returns a bare JSON array
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: integer
+          postId:
+            type: integer
+          name:
+            type: ["null", "string"]
+          email:
+            type: ["null", "string"]
+          body:
+            type: ["null", "string"]
+
+  - type: DeclarativeStream
+    name: users
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://jsonplaceholder.typicode.com"
+        path: "/users"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: []   # endpoint returns a bare JSON array
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: integer
+          name:
+            type: ["null", "string"]
+          username:
+            type: ["null", "string"]
+          email:
+            type: ["null", "string"]
+          address:
+            type: ["null", "object"]
+          phone:
+            type: ["null", "string"]
+          website:
+            type: ["null", "string"]
+          company:
+            type: ["null", "object"]

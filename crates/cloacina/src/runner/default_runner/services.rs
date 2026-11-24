@@ -136,7 +136,8 @@ impl DefaultRunner {
             inner_rx,
             self.runtime.clone(),
             self.cron_change.clone(),
-        );
+        )
+        .with_instance_fire_hook(self.instance_fire_hook.clone());
         let unified_scheduler = Arc::new(unified_scheduler);
 
         manager.unified_scheduler = Some(unified_scheduler.clone());

@@ -136,6 +136,8 @@ pub fn Overview() -> impl IntoView {
             &ListExecutionsQuery {
                 status: None,
                 workflow: None,
+                instance: None,
+                pass: None,
                 limit: Some(200),
                 offset: Some(0),
             },

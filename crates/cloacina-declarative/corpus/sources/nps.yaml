@@ -1,0 +1,89 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from National Park Service's official API documentation
+# (https://www.nps.gov/subjects/developer/api-documentation.htm); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ── parks ──────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: parks
+    primary_key: "id"           # changelog: every record has a GUID id field
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://developer.nps.gov/api/v1"
+        path: "/parks"
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "X-Api-Key"
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["data"]    # UNCONFIRMED – see open questions
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"
+        page_token_option:
+          type: RequestOption
+          field_name: "start"
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 50
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: ["null", "string"]    # GUID per changelog
+          parkCode:
+            type: ["null", "string"]    # referenced in get-started.htm, guides.htm
+          stateCode:
+            type: ["null", "string"]    # referenced as filter param in faqs.htm
+
+  # ── alerts ─────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: alerts
+    primary_key: "id"           # changelog: every record has a GUID id field
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://developer.nps.gov/api/v1"
+        path: "/alerts"
+        authenticator:
+          type: ApiKeyAuthenticator
+          header: "X-Api-Key"
+          api_token: "{{ config['api_key'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["data"]    # UNCONFIRMED – see open questions
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "limit"
+        page_token_option:
+          type: RequestOption
+          field_name: "start"
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 50
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: ["null", "string"]    # GUID per changelog
+          parkCode:
+            type: ["null", "string"]    # referenced in get-started.htm

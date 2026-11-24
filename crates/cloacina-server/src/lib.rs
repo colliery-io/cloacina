@@ -752,6 +752,11 @@ pub async fn run(
 
     let endpoint_registry = EndpointRegistry::new();
     let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
+    // COLLIERY-I-0632 / CLOACINA-T-0978: the Sync dispatchers claim syncs on the
+    // same ownership session the reactors use, when there is one.
+    let mut sync_ownership: Option<
+        Arc<dyn cloacina::computation_graph::reactor_ownership::ReactorOwnership>,
+    > = None;
     let mut graph_scheduler_inner =
         ComputationGraphScheduler::with_dal(endpoint_registry.clone(), unified_dal.clone());
 
@@ -812,7 +817,10 @@ pub async fn run(
                 PostgresOwnership::new(session)
             }
         };
-        graph_scheduler_inner.set_ownership(Arc::new(ownership));
+        let ownership: Arc<dyn cloacina::computation_graph::reactor_ownership::ReactorOwnership> =
+            Arc::new(ownership);
+        sync_ownership = Some(ownership.clone());
+        graph_scheduler_inner.set_ownership(ownership);
         info!("reactor ownership session established (one pooled connection reserved)");
     }
 
@@ -905,6 +913,8 @@ pub async fn run(
 
     // Wire graph scheduler into the runner so the reconciler can route CG packages
     runner.set_graph_scheduler(graph_scheduler.clone()).await;
+    // The public runner runs the public tenant's syncs (CLOACINA-T-0978).
+    cloacina_sync::install(&runner, sync_ownership.clone(), Some("public".to_string()));
 
     // Fleet (CLOACI-I-0114 / T-0633): shared roster + result-rendezvous so the
     // FleetExecutor (registered on the runner's dispatcher below) and the agent
@@ -955,7 +965,8 @@ pub async fn run(
         // scheduler so their reconcilers can route packaged CGs. The scheduler
         // stores tenant_id per graph (T-0579), so health-endpoint filtering
         // still works.
-        .with_graph_scheduler(graph_scheduler.clone());
+        .with_graph_scheduler(graph_scheduler.clone())
+        .with_sync_ownership(sync_ownership.clone());
         if use_fleet {
             let reg_registry = agent_registry.clone();
             let reg_coordinator = fleet_coordinator.clone();
@@ -1875,6 +1886,53 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/accounts/{account_id}/password",
             post(crate::routes::local_auth::reset_password),
         )
+        // COLLIERY-I-0634 / CLOACINA-T-0993: the Sync connector catalog.
+        .route(
+            "/tenants/{tenant_id}/connectors",
+            get(crate::routes::connectors::list_connectors),
+        )
+        // CLOACINA-T-1004: the Sync read resource.
+        .route(
+            "/tenants/{tenant_id}/syncs",
+            get(crate::routes::syncs::list_syncs),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}",
+            get(crate::routes::syncs::get_sync),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/passes",
+            get(crate::routes::syncs::list_passes),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/dead-letters",
+            get(crate::routes::syncs::list_dead_letters),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/streams",
+            get(crate::routes::syncs::list_streams),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/schema/accept",
+            post(crate::routes::syncs::accept_schema),
+        )
+        .route(
+            "/tenants/{tenant_id}/syncs/{name}/run",
+            post(crate::routes::syncs::run_sync),
+        )
+        // CLOACINA-T-1002: check and discover, where connectors run.
+        .route(
+            "/tenants/{tenant_id}/connectors/check",
+            post(crate::routes::connectors::check_connector),
+        )
+        .route(
+            "/tenants/{tenant_id}/connectors/discover",
+            post(crate::routes::connectors::discover_connector),
+        )
+        .route(
+            "/tenants/{tenant_id}/connectors/spec",
+            post(crate::routes::connectors::spec_connector),
+        )
         // CLOACI-T-0862: tenant secrets CRUD (metadata-only reads). Values are
         // write-only (create/rotate body); list/get never return a value.
         .route(
@@ -1967,6 +2025,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
             delete(crate::routes::instances::delete_instance),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+            put(crate::routes::instances::update_instance),
         )
         .route(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
@@ -5599,6 +5661,474 @@ mod tests {
 
         let (status, _) = send_request(app, req).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    // ── Instance update (CLOACINA-T-1001) ────────────────────────────
+
+    /// Send a JSON request with the key and return (status, body).
+    async fn send_json(
+        state: &AppState,
+        token: &str,
+        method: &str,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let req = axum::http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        send_request(build_router(state.clone()), req).await
+    }
+
+    /// Params a sync definition validates with.
+    fn sync_params(sync: &str) -> serde_json::Value {
+        let stream = serde_json::json!({
+            "stream": "orders", "sync_mode": "FullRefresh", "cursor_field": null,
+            "primary_key": null, "write_mode": "Append", "mapping": {"ops": []}
+        });
+        serde_json::json!({
+            "sync": sync,
+            "source_provider": "p", "source_member": "source",
+            "destination_provider": "p", "destination_member": "destination",
+            "stream": stream.to_string(),
+        })
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_update_instance_replaces_params_and_cron() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let instance = format!("upd-{}", uuid::Uuid::new_v4());
+        let (status, _) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/upd_wf/instances",
+            serde_json::json!({"instance_name": instance, "params": {"a": 1}, "cron": "0 * * * *"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let uri = format!("/v1/tenants/public/workflows/upd_wf/instances/{instance}");
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": {"a": 2}, "cron": "30 * * * *"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["params"]["a"], 2);
+        assert_eq!(body["cron_expression"], "30 * * * *");
+        assert!(body["next_run_at"].is_string(), "{body}");
+
+        // No cron: the instance is unscheduled.
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": {"a": 3}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["cron_expression"].is_null(), "{body}");
+        assert!(body["next_run_at"].is_null(), "{body}");
+        assert_eq!(body["enabled"], true, "enabled is kept when omitted");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_update_instance_refuses_a_bad_cron_and_an_unknown_instance() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let instance = format!("upd-{}", uuid::Uuid::new_v4());
+        send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/upd_wf/instances",
+            serde_json::json!({"instance_name": instance}),
+        )
+        .await;
+        let uri = format!("/v1/tenants/public/workflows/upd_wf/instances/{instance}");
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"cron": "not a cron"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "invalid_cron", "{body}");
+
+        let (status, _) = send_json(
+            &state,
+            &token,
+            "PUT",
+            "/v1/tenants/public/workflows/upd_wf/instances/no-such-instance",
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_update_sync_definition_is_validated_and_keeps_its_name() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let instance = format!("sync-{}", uuid::Uuid::new_v4());
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/sync/instances",
+            serde_json::json!({"instance_name": instance, "params": sync_params(&instance)}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let uri = format!("/v1/tenants/public/workflows/sync/instances/{instance}");
+
+        // A valid change.
+        let mut params = sync_params(&instance);
+        params["source_member"] = serde_json::json!("source");
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": params}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        // An invalid one: no stream.
+        let mut bad = sync_params(&instance);
+        bad.as_object_mut().unwrap().remove("stream");
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": bad}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "sync_params_invalid", "{body}");
+
+        // A rename: its cursor is kept under the old name, so it is refused.
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": sync_params("another-name")}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("cannot be renamed"),
+            "{body}"
+        );
+    }
+
+    // ── Check and discover (CLOACINA-T-1002) ─────────────────────────
+
+    /// A test state whose runner lives on this test's runtime, for a test that
+    /// waits for an execution. The shared runner's loops run on the runtime of
+    /// the test that made it, and stop with it.
+    async fn test_state_with_live_runner() -> (AppState, Arc<cloacina::runner::DefaultRunner>) {
+        let mut state = test_state().await;
+        let config = cloacina::runner::DefaultRunnerConfig::builder()
+            .registry_storage_backend("database")
+            .build()
+            .expect("test config must be valid");
+        let runner = Arc::new(
+            cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, config)
+                .await
+                .expect("a runner on the test database"),
+        );
+        state.runner = runner.clone();
+        (state, runner)
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_discover_a_definition_lists_its_streams_and_fields() {
+        let (state, runner) = test_state_with_live_runner().await;
+        let token = create_test_api_key(&state).await;
+        let (status, body) = send_json(
+            &state, &token, "POST", "/v1/tenants/public/connectors/discover",
+            serde_json::json!({"side": "source", "definition": "github", "config": {"base_url": "http://x"}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let streams = body["streams"].as_array().expect("streams");
+        let repos = streams
+            .iter()
+            .find(|s| s["name"] == "repositories")
+            .unwrap_or_else(|| panic!("no repositories stream: {body}"));
+        assert_eq!(repos["default_cursor_field"], "updated_at", "{repos}");
+        assert!(
+            repos["sync_modes"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("Incremental")),
+            "{repos}"
+        );
+        assert!(
+            repos["fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["name"] == "id" && f["type"] == "Integer"),
+            "{repos}"
+        );
+        let _ = runner.shutdown().await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_check_and_discover_refuse_a_side_they_cannot_run() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/connectors/discover",
+            serde_json::json!({"side": "destination", "definition": "hubspot-dest"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "probe_invalid", "{body}");
+
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/connectors/check",
+            serde_json::json!({"side": "source"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+        // Spec reads a compiled connector; a definition's config is in the catalog.
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/connectors/spec",
+            serde_json::json!({"side": "source", "definition": "github"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "probe_invalid", "{body}");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_check_of_a_connector_that_does_not_load_names_it() {
+        let (state, runner) = test_state_with_live_runner().await;
+        let token = create_test_api_key(&state).await;
+        let (status, body) = send_json(
+            &state, &token, "POST", "/v1/tenants/public/connectors/check",
+            serde_json::json!({"side": "source", "provider": "no-such-provider", "member": "source"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(body["code"], "probe_failed", "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("no-such-provider"),
+            "{body}"
+        );
+        let _ = runner.shutdown().await;
+    }
+
+    // ── The Sync read resource (CLOACINA-T-1004) ─────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_syncs_routes_show_a_sync_by_its_name() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let name = format!("view-{}", uuid::Uuid::new_v4());
+        let (status, body) = send_json(
+            &state, &token, "POST", "/v1/tenants/public/workflows/sync/instances",
+            serde_json::json!({"instance_name": name, "params": sync_params(&name), "cron": "0 3 * * *"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        let get = |uri: String| {
+            let state = state.clone();
+            let token = token.clone();
+            async move { send_json(&state, &token, "GET", &uri, serde_json::json!({})).await }
+        };
+        let (status, body) = get("/v1/tenants/public/syncs".into()).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let listed = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == name.as_str())
+            .unwrap_or_else(|| panic!("{name} not listed: {body}"))
+            .clone();
+        assert_eq!(listed["source"]["provider"], "p", "{listed}");
+        assert_eq!(listed["stream"], "orders", "{listed}");
+        assert_eq!(listed["write_mode"], "Append", "{listed}");
+        assert_eq!(listed["cron"], "0 3 * * *", "{listed}");
+        assert!(listed["last_pass"].is_null(), "{listed}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["params"]["sync"], name.as_str(), "{body}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}/passes")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"], serde_json::json!([]), "{body}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}/dead-letters")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["total"], 0, "{body}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}/streams")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"][0]["stream"], "orders", "{body}");
+        assert!(body["items"][0]["cursor"].is_null(), "{body}");
+
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            &format!("/v1/tenants/public/syncs/{name}/schema/accept"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["stream"], "orders", "{body}");
+
+        let (status, body) = get(format!("/v1/tenants/public/syncs/{name}/passes?limit=0")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_syncs_routes_name_a_sync_that_does_not_exist() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        for uri in [
+            "/v1/tenants/public/syncs/no-such-sync",
+            "/v1/tenants/public/syncs/no-such-sync/passes",
+            "/v1/tenants/public/syncs/no-such-sync/streams",
+        ] {
+            let (status, body) = send_json(&state, &token, "GET", uri, serde_json::json!({})).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}: {body}");
+            assert_eq!(body["code"], "sync_not_found", "{body}");
+        }
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/syncs/no-such-sync/run",
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    }
+
+    // ── A sync's connector secrets (CLOACINA-T-1008) ─────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_sync_reads_mask_the_password_and_an_update_keeps_it() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let name = format!("mask-{}", uuid::Uuid::new_v4());
+        let mut params = sync_params(&name);
+        params["source_config"] = serde_json::json!(
+            serde_json::json!({"url": "postgres://u:hunter2@h/db", "table": "t"}).to_string()
+        );
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/sync/instances",
+            serde_json::json!({"instance_name": name, "params": params}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            !body.to_string().contains("hunter2"),
+            "create echoed the password: {body}"
+        );
+
+        let uri = format!("/v1/tenants/public/workflows/sync/instances/{name}");
+        let (_, read) = send_json(&state, &token, "GET", &uri, serde_json::json!({})).await;
+        assert!(!read.to_string().contains("hunter2"), "{read}");
+        let (_, detail) = send_json(
+            &state,
+            &token,
+            "GET",
+            &format!("/v1/tenants/public/syncs/{name}"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert!(!detail.to_string().contains("hunter2"), "{detail}");
+        assert!(
+            detail.to_string().contains("__cloacina_secret_unchanged__"),
+            "{detail}"
+        );
+
+        // Save it back as read: the stored password stays.
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "PUT",
+            &uri,
+            serde_json::json!({"params": read["params"].clone()}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        let stored = dal
+            .schedule()
+            .find_by_instance_name("sync", &name)
+            .await
+            .unwrap()
+            .unwrap()
+            .params
+            .unwrap();
+        assert!(
+            stored.contains("hunter2"),
+            "the stored password was lost: {stored}"
+        );
+
+        // A new sync cannot send the placeholder.
+        let mut copy = read["params"].clone();
+        copy["sync"] = serde_json::json!(format!("{name}-copy"));
+        let (status, body) = send_json(
+            &state,
+            &token,
+            "POST",
+            "/v1/tenants/public/workflows/sync/instances",
+            serde_json::json!({"instance_name": format!("{name}-copy"), "params": copy}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     }
 
     // ── Fallback / 404 ──────────────────────────────────────────────

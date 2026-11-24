@@ -85,10 +85,39 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// Plain concatenation with a separator is not enough either, since a tenant or
 /// reactor name may itself contain the separator.
 pub fn reactor_lock_key(tenant: Option<&str>, reactor_name: &str) -> i64 {
+    ownership_lock_key(OwnershipDomain::Reactor, tenant, reactor_name)
+}
+
+/// What kind of thing an ownership lock guards. Each domain has its own hash
+/// space, so a sync and a reactor that share a name in one tenant take
+/// different locks (COLLIERY-I-0632 / CLOACINA-T-0977).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OwnershipDomain {
+    /// A computation-graph reactor (CLOACINA-A-0012).
+    Reactor,
+    /// A sync's dispatcher: one replica runs a sync's segment loop.
+    Sync,
+}
+
+impl OwnershipDomain {
+    fn tag(self) -> &'static [u8] {
+        match self {
+            // The reactor tag is the original one; changing it would move every
+            // reactor lock and let two replicas own one reactor across a rollout.
+            OwnershipDomain::Reactor => b"cloacina.reactor.ownership.v1\0",
+            OwnershipDomain::Sync => b"cloacina.sync.ownership.v1\0",
+        }
+    }
+}
+
+/// The database-wide advisory-lock key for one owned thing in one domain. See
+/// [`reactor_lock_key`] for the encoding and why it is length-delimited.
+pub fn ownership_lock_key(domain: OwnershipDomain, tenant: Option<&str>, name: &str) -> i64 {
+    let reactor_name = name;
     let mut buf = Vec::with_capacity(reactor_name.len() + 32);
 
     // Domain tag: keeps this hash space distinct from any other FNV use.
-    buf.extend_from_slice(b"cloacina.reactor.ownership.v1\0");
+    buf.extend_from_slice(domain.tag());
 
     match tenant {
         // A named tenant is encoded with its length; `None` uses a marker that
@@ -112,6 +141,20 @@ pub fn reactor_lock_key(tenant: Option<&str>, reactor_name: &str) -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_sync_and_a_reactor_with_one_name_take_different_locks() {
+        use super::{OwnershipDomain, ownership_lock_key, reactor_lock_key};
+        let r = reactor_lock_key(Some("acme"), "orders");
+        let s = ownership_lock_key(OwnershipDomain::Sync, Some("acme"), "orders");
+        assert_ne!(r, s);
+        assert_eq!(
+            r,
+            ownership_lock_key(OwnershipDomain::Reactor, Some("acme"), "orders"),
+            "the reactor key is unchanged by the generalisation"
+        );
+        assert!(s < 0, "sync keys live in the negative half too");
+    }
+
     use super::*;
 
     /// The whole point of the module: two tenants running a same-named reactor

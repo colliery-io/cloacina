@@ -60,17 +60,20 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, CompilerStatus, CreateInstanceRequest, CreateKeyRequest,
-    CreateSecretRequest, CreateTenantRequest, DeclaredSurface, ExecuteRequest, ExecuteResponse,
-    ExecutionDetail, ExecutionEventsResponse, ExecutionSummary, ExecutionTasksResponse,
-    FireReactorRequest, FireReactorResponse, FireTriggerRequest, FireTriggerResponse, GraphStatus,
-    InjectAccumulatorRequest, InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo,
-    KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
-    RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse,
+    AccumulatorStatus, AgentInfo, CompilerStatus, ConnectorCheckResponse,
+    ConnectorDiscoverResponse, ConnectorProbeRequest, ConnectorSpecResponse, ConnectorSummary,
+    CreateInstanceRequest, CreateKeyRequest, CreateSecretRequest, CreateTenantRequest,
+    DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
+    ExecutionSummary, ExecutionTasksResponse, FireReactorRequest, FireReactorResponse,
+    FireTriggerRequest, FireTriggerResponse, GraphStatus, InjectAccumulatorRequest,
+    InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
+    ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus, RotateSecretRequest,
+    SchemaAcceptedResponse, SecretDeletedResponse, SecretMetadataResponse, SyncDeadLetter,
+    SyncDetail, SyncPageQuery, SyncPass, SyncStream, SyncSummary, TenantCreatedResponse,
     TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
-    TriggerPauseResponse, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
-    WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary,
-    WorkflowUploadedResponse, WsTicketResponse,
+    TriggerPauseResponse, TriggerScheduleSummary, UpdateInstanceRequest, WorkflowDeletedResponse,
+    WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse,
+    WorkflowSummary, WorkflowUploadedResponse, WsTicketResponse,
 };
 
 /// Builder for [`Client`].
@@ -695,6 +698,153 @@ impl Client {
         .await
     }
 
+    /// Replace an instance's params, cron and timezone (CLOACINA-T-1001).
+    pub async fn update_instance(
+        &self,
+        workflow: &str,
+        instance: &str,
+        request: &UpdateInstanceRequest,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowInstanceSummary, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.put_json(
+            &format!("/v1/tenants/{t}/workflows/{workflow}/instances/{instance}"),
+            request,
+        )
+        .await
+    }
+
+    /// The Sync connectors a sync can name: compiled and declarative.
+    pub async fn list_connectors(
+        &self,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<ConnectorSummary>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/connectors")).await
+    }
+
+    /// Check one side of a sync, where connectors run (CLOACINA-T-1002).
+    pub async fn check_connector(
+        &self,
+        request: &ConnectorProbeRequest,
+        tenant: Option<&str>,
+    ) -> Result<ConnectorCheckResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(&format!("/v1/tenants/{t}/connectors/check"), request)
+            .await
+    }
+
+    /// A compiled connector's spec: its config schema (CLOACINA-T-1006).
+    pub async fn spec_connector(
+        &self,
+        request: &ConnectorProbeRequest,
+        tenant: Option<&str>,
+    ) -> Result<ConnectorSpecResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(&format!("/v1/tenants/{t}/connectors/spec"), request)
+            .await
+    }
+
+    /// Discover a source's streams, where connectors run (CLOACINA-T-1002).
+    pub async fn discover_connector(
+        &self,
+        request: &ConnectorProbeRequest,
+        tenant: Option<&str>,
+    ) -> Result<ConnectorDiscoverResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(&format!("/v1/tenants/{t}/connectors/discover"), request)
+            .await
+    }
+
+    /// The tenant's syncs (CLOACINA-T-1004).
+    pub async fn list_syncs(
+        &self,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<SyncSummary>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/syncs")).await
+    }
+
+    /// One sync, with its params.
+    pub async fn get_sync(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<SyncDetail, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/syncs/{name}"))
+            .await
+    }
+
+    /// A page of a sync's passes, newest first.
+    pub async fn list_sync_passes(
+        &self,
+        name: &str,
+        query: &SyncPageQuery,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<SyncPass>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!(
+            "/v1/tenants/{t}/syncs/{name}/passes?{}",
+            page_query(query)
+        ))
+        .await
+    }
+
+    /// A page of a sync's dead-letters, newest first.
+    pub async fn list_sync_dead_letters(
+        &self,
+        name: &str,
+        query: &SyncPageQuery,
+        tenant: Option<&str>,
+    ) -> Result<TenantListResponse<SyncDeadLetter>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!(
+            "/v1/tenants/{t}/syncs/{name}/dead-letters?{}",
+            page_query(query)
+        ))
+        .await
+    }
+
+    /// A sync's streams, with cursor and schema.
+    pub async fn list_sync_streams(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<SyncStream>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/syncs/{name}/streams"))
+            .await
+    }
+
+    /// Run a pass of the sync now; the first segment's execution.
+    pub async fn run_sync(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<ExecuteResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/syncs/{name}/run"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Accept the new shape of a sync's stream.
+    pub async fn accept_sync_schema(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<SchemaAcceptedResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/syncs/{name}/schema/accept"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
     pub async fn delete_instance(
         &self,
         workflow: &str,
@@ -978,4 +1128,16 @@ impl Client {
     ) -> impl futures_util::Stream<Item = Result<Value, ClientError>> + '_ + use<'_> {
         ws::follow_execution_events(self.clone(), execution_id.to_string(), options)
     }
+}
+
+/// `limit=..&offset=..` for a page query, the given parts only.
+fn page_query(q: &SyncPageQuery) -> String {
+    let mut parts = Vec::new();
+    if let Some(l) = q.limit {
+        parts.push(format!("limit={l}"));
+    }
+    if let Some(o) = q.offset {
+        parts.push(format!("offset={o}"));
+    }
+    parts.join("&")
 }

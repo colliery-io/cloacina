@@ -48,6 +48,26 @@ pub struct CreateInstanceRequest {
     pub enabled: Option<bool>,
 }
 
+/// Body for `PUT /tenants/{tenant_id}/workflows/{name}/instances/{instance}`
+/// (CLOACINA-T-1001): the instance's new params, cron and timezone, which
+/// replace the old ones.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UpdateInstanceRequest {
+    /// The params, validated as on create. Omitted means none.
+    #[serde(default)]
+    pub params: Option<serde_json::Value>,
+    /// The cron expression. Omitted makes the instance unscheduled.
+    #[serde(default)]
+    pub cron: Option<String>,
+    /// IANA timezone for `cron`. Defaults to `UTC`.
+    #[serde(default)]
+    pub timezone: Option<String>,
+    /// Whether the schedule is enabled. Omitted keeps it as it is.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+}
+
 /// One row in the instance list, and the body of a single-instance GET.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -1,0 +1,221 @@
+# Conformance file for the Snowflake connector (CLOACINA-A-0014, CLOACINA-T-0986).
+# Runs against the mock SQL API in `cloacina_testing::connectors::snowflake_mock`,
+# which passes ${MOCK_URL} and ${MOCK_GRANT}: `cargo test -p cloacina-sync
+# --test snowflake_connector`. The mock checks the JWT the host injects, answers
+# each statement 202 first, and splits results into partitions of five rows.
+# Steps: `table` with `columns` and `data` loads a mock table; `rows_of`
+# returns one. The format is documented in `cloacina_testing::connectors::conformance`.
+
+connector = "snowflake"
+crate = "."
+
+[source]
+config = { account = "testorg-sync", database = "SYNC_DB", schema = "PUBLIC", warehouse = "SYNC_WH", base_url = "${MOCK_URL}", table = "ORDERS" }
+grants = { http = ["${MOCK_GRANT}"] }
+credential = { kind = "snowflake_keypair_jwt", secret = "snowflake", account = "testorg-sync", user = "sync_test" }
+
+[destination]
+config = { account = "testorg-sync", database = "SYNC_DB", schema = "PUBLIC", warehouse = "SYNC_WH", base_url = "${MOCK_URL}", batch_rows = 2 }
+grants = { http = ["${MOCK_GRANT}"] }
+credential = { kind = "snowflake_keypair_jwt", secret = "snowflake", account = "testorg-sync", user = "sync_test" }
+
+# Throwaway RSA keys made for these tests; the mock knows the first one's
+# fingerprint.
+[secrets.snowflake]
+private_key = """
+-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCsb4mPwxrw9pq1
+El0dGWbujto3hT64pA6rdDt8/Qn/W3vlxqJH+88NhCKwoOdiNCd4+FuJo6H4BP4F
+uFaoDa+P5ZIGYajGXTkPztBbRvYT3duaYRznMa4e+xitg9j1NP+Qc+QQDDWvAk7l
+lqVzhuvZSFEk8eRBAeBIbejjmdjR3FKFvygSbbcjVGc2GawSGWJ93MgyMvf+cX/h
+nk81lYCKBZb5Sge9D2gFixlPg0ukXa0jZF3fYJz4mg98q9ZvoOD1+ndrrW3ZatOD
+pP3ijuszQgf0iB19qCgBVMSpy3Tf/ZGpxsnxErReDQgbFSO3IK5mc5xiWVPi67VZ
+wqbtOm33AgMBAAECggEAB8PrcU/wp1KpBj0neFIBMqkNkVvXcT/iG+fbbfYvPGgF
+nQQO9tLo23ZMjEu9X8zIIkh88XvZpW5ZdNnSUosbPDhdv8UncUIYJGrEiKJvc9bq
+jCSSGqSVb3ZmAW+4liz8J/3avWZEsfbr+qbdbeXGOpNpJBLInAIrntdkRNZUJKSG
+Sd1EosbUnLXZIQDbYl4IxqYVKnzQihLhjDETheoNWY7SWJV163ILXV+uKWydOZnE
+XI1v5X8IokjBMcLwkfqT98Tm9F5hiditQkUaCNkAd+nOq2RLKHHQ/gRTw92WFlxY
+PokEvU/+K/IiqCDfNsIzbagAO7wD70zfpo0kUgXdQQKBgQDvnMMb5/HDfRWZIEwh
++VLhG8eFFe7xOgcX4pt0gEVMtBPdHSQvBEJsAUFX+KA113GA2pINH8gkJH3xRWBC
+h1oO9J2T1WDiV6gWWb/z61sviEq8tjVqRsxx3hoY98iZEjpArH5uqzfe2HGNyPzM
+P+61eGNOUIaXnj6lTBqxny1pZwKBgQC4Op3rbpfC/7i33RNrKzb+zvRf6qbhGkf5
+ZU+OwNuSTQ2Mkz6rIiohmNAR2rkasnenqNTvv9yjgZYBMy2JazaEi35seA4oXylX
+//8meo2KNEf4Rf0CuF0tVV3KYn9dOaFvY0uoYqWew9w/5H7714ciorTyqwsHnkuo
+TcZ5G2+s8QKBgQDFyT+gfGArPsgiQu+1J4oLORQDviwjQQPz6mDp1KvfedHfthtV
+GA3/+zVF+Xu9ld4iP8lJPg/GDb1L+DlSEUn8iFy+V+cGTtb3xBPXs1HstXMDvN/w
+nwpJf81JCNezysD8+6XNklWnBEEPiXVq3+caMoq+bWf8JWqOpXhvX/ZrRwKBgQCe
+xlYH6/57nqzyOWRc/pedL3vJlpBQfLf/JuNUIr6Z7jJ5LwXZs84funXIjXrumVUq
+eAVcwzxC5pIDYroiLvaDcT15+lYpUSpun0ClRwXpUHmebaNKzt3vDh2RKSafj+Wj
+/C3eZ3ZZyG9v2VvfbLcYkKXmZqdQ34pQ+QbOpWiv4QKBgB5PcANjoRDoPfmFOlmB
+grtY3kRShyDLESODs7AqNRcoj/Hi40tdDZePrczXB/zhcw49ml0IUojwRYyZcaNU
+vsC3Z1XfUSGQIWbjt/7Zg23q+DD4t/5OYF412HmrsR1XhnvfuOHTu30sVxtiqTWF
+z8nwsawCYJvLd+eZl2IqxmMK
+-----END PRIVATE KEY-----
+"""
+
+[secrets.other_key]
+private_key = """
+-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCYl90mYGfACLr2
+0nDHU1T6pGN+lCYCTZUZgP1ID+ZOx2y/uuY0Xmq1K8m2DmHl2Uhtbo8c+2JEFt+m
+RHVe1O4yMlRSMILg6epUISgmpdHGNF5+vTs1rColcIFFqH7cgUHGkflj0KpikJf9
+jJnSuHn191bOk/BA+JPIcvMQJEwCqAlBjrbcfDpsUNd3pFPG4wPpWY8tYWF0OmGx
+FGCYmqPCof+kpaIxFtwyoJ+cI/tH05SgEJAe4t7bSIMn6Q8hd6A51yIH7sjZ9Stx
+veHcZvjEwDueR3FYyPglrEji2pzCWilf/d7YMjaGBzmK9p3cLFXJ9tjxfhbVR5mb
+RZ67Yf2BAgMBAAECggEALcG8KvnVopv7lG/eKacvYElTHG3ISACDqTYovScnZJAg
+aA3fYey+Cr2qqtD9QjM5qLbyazpmaQyC3BTDLUCkfKDi8BJj7JW4EqoupAgtM0YY
+3+BWlO2fZcKqwPyZrf2Ef8reAbRco1nAeeNjbPCsgbk9aoyqCpF/nyf5AuofcNwD
++NjzDfsWPWp49AnN0QcYrezrYM6+qMVHDvU+bHTZ97f0FBVgnxpNx7JYSUyHAc1w
+NBX1X99ZcZRXoBHZw3fgJDKSh0ky9SenYLBEmpV/+6fcVYjaTlAZPMP7nZ5U8tZM
+FIz7teNwz7odaWPewTnmGJegi+LPZ8LZoGJRAHvcUQKBgQDKfDRQxDhUgZzc8AjX
+3B8u7oQy2MlAp2DXaemCAkBCqw/zY6KY2Z1Z/amGGImm1OuDqHPdjPBj2gT1vXs9
+VzgMEqaqP0qwpeGPDsFNmStLHb8lPIiG5lGneumGMF5KQe7GROoqCUl1M5rQXHTw
+P3mSHw//S1tTq0xir2mjYTmWSwKBgQDA7A5tt179nmjcsScNugiJ1CZD7Apnq+tP
+jPyHVrAq13RMMDbs7/PlSaZi/TWNNvphtnNboeHkt50pADdlcW/wVCyTlaHTIaYg
+u61BiD89gPfqssGTSJfV5Hqj1EcJLB7onjcwAMlMt9ZG2Y5WlGeiptCjTt2S7ozi
+/MtyK8WL4wKBgFXZNy0PJHrfwSwDMRykHSx+v9n3A8y/qlVqeDBA2BHsCQU+Nw/r
+I8WlwJw0BxiOqZPWddl3Ceyr4PJ3daraMc8ckUEZOIeQrQNEVDycNjjQ0dvtwEzB
+ldkWSbA1DaUaMywox8cuzNA+IuM4b/P0VYzYUqYAwyXEOMyWZol4jTvlAoGBAIxV
+Kcm1cWubJzwhwP7DLCLWJ1+Q+6Cd9fVP4QGxlUQUpYwmJk4D3a4T/OxUs/ec3lTl
+mtQ01VTCG5gPiDxKX9q54BMa7TPfbjCxVD4vFZFvlucqUJUKYSg9otg5OdL6PSGI
+tSw95i/gKgYvitJ/8ULnhSzF2Xdf/yu+J19NZ81xAoGBAMP+qz/khrgRJF1wY2QR
+GQ8YvnLRgrMf2KIRyl9SFBWlvmqZu4zszQCkVdt/FjqKARM81t5mTY4d3Lfmh7/R
+pFXXCGkV0qmU20aYHA+tLAKLpWGPbaB08qLop7MtjfcoGdCO/vsZO9aCa4/cIp1c
+0bbG0g+fVOEWUl8h0qYn2zc4
+-----END PRIVATE KEY-----
+"""
+
+[[setup]]
+table = "ORDERS"
+columns = ["ID", "NAME", "UPDATED_AT"]
+data = [
+  [1, "order 1", "2026-01-01"],
+  [2, "order 2", "2026-01-02"],
+  [3, "order 3", "2026-01-03"],
+  [4, "order 4", "2026-01-04"],
+  [5, "order 5", "2026-01-05"],
+  [6, "order 6", "2026-01-06"],
+  [7, "order 7", "2026-01-07"],
+  [8, "order 8", "2026-01-08"],
+  [9, "order 9", "2026-01-09"],
+  [10, "order 10", "2026-01-10"],
+  [11, "order 11", "2026-01-11"],
+  [12, "order 12", "2026-01-12"],
+]
+
+[spec]
+name = "snowflake"
+contract_version = 1
+roles = ["Source", "Destination"]
+supported_sync_modes = ["FullRefresh", "Incremental"]
+
+[[check]]
+case = "good config"
+success = true
+
+[[check]]
+case = "good config, destination"
+side = "destination"
+success = true
+
+[[check]]
+case = "a JWT from another key"
+secret = "other_key"
+success = false
+message_contains = "401"
+
+[[check]]
+case = "no warehouse"
+config_text = '{"account": "testorg-sync", "database": "SYNC_DB", "schema": "PUBLIC"}'
+success = false
+message_contains = "missing `warehouse`"
+
+[discover]
+streams = [{ name = "records", supported_sync_modes = ["FullRefresh", "Incremental"] }]
+
+# The SQL API answers every value as a string.
+[[read]]
+case = "full refresh across partitions"
+stream = { stream = "orders" }
+records = [
+  { id = "1", name = "order 1", updated_at = "2026-01-01" },
+  { id = "2" }, { id = "3" }, { id = "4" }, { id = "5" }, { id = "6" },
+  { id = "7" }, { id = "8" }, { id = "9" }, { id = "10" }, { id = "11" }, { id = "12" },
+]
+dead_letters = []
+
+[[read]]
+case = "incremental from the start"
+stream = { stream = "orders", sync_mode = "Incremental", cursor_field = "id" }
+records = [
+  { id = "1" }, { id = "2" }, { id = "3" }, { id = "4" }, { id = "5" }, { id = "6" },
+  { id = "7" }, { id = "8" }, { id = "9" }, { id = "10" }, { id = "11" }, { id = "12" },
+]
+ordered = true
+checkpoints = [{ cursor = "12" }]
+
+# A numeric cursor at "9" must still read "10".
+[[read]]
+case = "incremental resumes past 9"
+stream = { stream = "orders", sync_mode = "Incremental", cursor_field = "id" }
+state = { cursor = "9" }
+records = [{ id = "10" }, { id = "11" }, { id = "12" }]
+ordered = true
+checkpoints = [{ cursor = "12" }]
+
+[[read]]
+case = "a configured query"
+config = { query = "SELECT * FROM \"SYNC_DB\".\"PUBLIC\".\"ORDERS\"" }
+stream = { stream = "orders", sync_mode = "Incremental", cursor_field = "id" }
+state = { cursor = "11" }
+records = [{ id = "12" }]
+
+[[write]]
+case = "append in chunks"
+config = { table = "APPENDED" }
+stream = { stream = "appended" }
+batches = [[{ id = 1, name = "a" }, { id = 2, name = "b" }, { id = 3, name = "c" }], [{ id = 4, name = "d" }]]
+accepted = 4
+dead_letters = []
+
+[[write.verify]]
+rows_of = "APPENDED"
+rows = [{ id = 1, name = "a" }, { id = 2, name = "b" }, { id = 3, name = "c" }, { id = 4, name = "d" }]
+
+[[write]]
+case = "upsert"
+config = { table = "UPSERTED" }
+stream = { stream = "upserted", write_mode = { Upsert = { business_keys = ["id"] } } }
+batches = [[{ id = 1, name = "a" }, { id = 2, name = "b" }]]
+accepted = 2
+
+# Two rows per statement: both id 3 rows share one MERGE, which keeps the last.
+[[write]]
+case = "upsert again, a key twice in one statement"
+config = { table = "UPSERTED" }
+stream = { stream = "upserted", write_mode = { Upsert = { business_keys = ["id"] } } }
+batches = [[{ id = 3, name = "c" }, { id = 3, name = "c2" }, { id = 2, name = "b2" }]]
+accepted = 2
+
+[[write.verify]]
+rows_of = "UPSERTED"
+rows = [{ id = 1, name = "a" }, { id = 2, name = "b2" }, { id = 3, name = "c2" }]
+
+[[write]]
+case = "overwrite"
+config = { table = "APPENDED" }
+stream = { stream = "appended", write_mode = "Overwrite" }
+batches = [[{ id = 9, name = "z" }]]
+accepted = 1
+
+[[write.verify]]
+rows_of = "APPENDED"
+rows = [{ id = 9, name = "z" }]
+
+[[write]]
+case = "a record that is not an object"
+config = { table = "APPENDED" }
+stream = { stream = "appended" }
+batches = [[{ id = 10, name = "y" }, "[1, 2]"]]
+accepted = 1
+dead_letters = [{ record = [1, 2], reason_contains = "not a JSON object" }]

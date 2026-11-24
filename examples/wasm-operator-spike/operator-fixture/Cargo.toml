@@ -26,8 +26,8 @@ ignored = ["fidius-guest", "wit-bindgen"]
 crate-type = ["cdylib"]
 
 [dependencies]
-fidius-guest = "0.5.4"
-fidius-macro = "0.5.4"
+fidius-guest = "0.5.9"
+fidius-macro = "0.5.9"
 wit-bindgen = "0.44"
 serde = { version = "1", features = ["derive"] }
 

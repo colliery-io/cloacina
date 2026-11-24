@@ -571,6 +571,63 @@ Metadata responses carry `id`, `name`, `field_names`, `created_at`, and
 `updated_at`. Managing secrets is documented in
 [Manage Secrets](../../how-to/service/manage-secrets/).
 
+## Sync connectors
+
+The catalog of Sync's connectors (COLLIERY-I-0634): the compiled connector
+providers in the server's provider search path, and the declarative connector
+definitions (the corpus and `CLOACINA_SYNC_DEFINITIONS_DIR`).
+
+| Route | Description |
+|---|---|
+| `GET /v1/tenants/{tenant_id}/connectors` | `{ "items": [...], "total": n }` of `{ name, kind, provider, version, roles, sync_modes, streams, config_schema, secret_fields }`. `config_schema` is the JSON Schema of the config a definition reads (`config['...']`), or a compiled connector's packaged one; `secret_fields` are the fields a definition's secret must hold. `kind` is `compiled` or `declarative`; a sync names a compiled connector by `*_provider` and a declarative one by `*_definition`. `500` if the definitions directory does not load. |
+| `POST /v1/tenants/{tenant_id}/connectors/check` | Check one side of a sync: its config, its secret, and that it reaches its service. Body: `{ "side": "source" \| "destination", "provider", "member" }` for a compiled connector, or `{ "side", "definition", "config", "secret" }` for a connector definition; `grants` and `credential` are optional. Answers `{ "ok": bool, "message" }`. |
+| `POST /v1/tenants/{tenant_id}/connectors/spec` | What a compiled connector says about itself, from its `spec()`: `{ name, connector_version, config_schema, roles, sync_modes }`. Same body as check, naming a `provider` and `member`; a definition is `400`, its config is in the catalog. |
+| `POST /v1/tenants/{tenant_id}/connectors/discover` | The streams a source offers: `{ "streams": [{ name, namespace, sync_modes, default_cursor_field, primary_key, fields }] }`. Same body as check, with `side` `source`. A definition's streams carry their typed fields; a compiled connector's `fields` are empty for now. |
+
+Check and discover run the connector where Sync's tasks run, as the
+built-in workflow `sync_probe`, never in the server process; the route
+waits up to 60 seconds. A side the probe cannot run is `400 probe_invalid`.
+A probe that cannot run, for a missing secret or a connector that does not
+load, is `422 probe_failed` with the reason. No answer in time is
+`504 probe_timeout`. Both routes need a tenant write key: they use the
+tenant's secrets.
+
+Creating a `sync` workflow instance (`POST /v1/tenants/{tenant_id}/workflows/sync/instances`)
+also checks the sync's params, and lowers a side that names a connector
+definition: a failure is `400 sync_params_invalid` naming the problem.
+Updating one (`PUT .../instances/{instance}`) checks them again. Its `sync`
+name cannot change, because the committed cursor and the dead-letters are
+kept under it: a rename is `400 sync_params_invalid`.
+
+A sync's connector config can hold a secret: a database connector takes its
+password, or a URL holding one, in its config. Every read of a sync (the
+instance routes and `/syncs/{name}`) shows such a field as the placeholder
+`__cloacina_secret_unchanged__`. A field counts as secret when its name holds
+`password`, `secret`, `token`, `api_key`, `private_key` or `credential`, or is
+a connection `url`, `uri` or `dsn`. An update that sends the placeholder back
+keeps the stored value; a create that sends it, or an update with nothing
+stored behind it, is `400 sync_params_invalid`. A check or discover made while
+editing names the sync in `sync`, and the placeholders take its stored
+values. Connectors reading secrets from the store replaces this
+(COLLIERY-I-0651).
+
+## Syncs
+
+A sync is created, changed and deleted on the instances route, as an instance
+of the `sync` workflow. These routes read it by its name, without naming the
+workflow. Reads need a tenant read key; accepting a schema, a write key. An
+unknown sync is `404 sync_not_found`.
+
+| Route | Description |
+|---|---|
+| `GET /v1/tenants/{tenant_id}/syncs` | `{ "items": [...], "total": n }` of `{ name, sync_name, source, destination, stream, sync_mode, write_mode, cron, timezone, enabled, next_run_at, last_pass, schema_broken, dead_letters }`. `source` and `destination` are `{ provider, definition }`. `sync_name` is the name its cursor and dead-letters are kept under. |
+| `GET /v1/tenants/{tenant_id}/syncs/{name}` | The same summary, with the stored `params`. They name secrets, never hold them. |
+| `GET /v1/tenants/{tenant_id}/syncs/{name}/passes` | A page of the sync's passes, newest first (`limit` 1 to 1000, default 50; `offset`). Each is `{ pass_id, status, started_at, completed_at, segments, cursor, executions }`: `status` is `Running`, `Completed` or `Failed`, `cursor` is the cursor the last segment ended on, and `executions` are its segments, oldest first. |
+| `GET /v1/tenants/{tenant_id}/syncs/{name}/dead-letters` | A page of the records the sync set aside, newest first: `{ id, stream, record, reason, created_at, execution_id }`. `total` is how many it holds. |
+| `GET /v1/tenants/{tenant_id}/syncs/{name}/streams` | Each stream with its committed `cursor`, `exhausted`, `updated_at`, the captured schema's `fields`, and `broken`, the reasons its schema no longer fits. |
+| `POST /v1/tenants/{tenant_id}/syncs/{name}/run` | Run a pass now, as the sync's cron fire does. Returns the first segment's execution (`{ execution_id, workflow_name, tenant_id, status }`); the pass goes on, and shows in `/passes`. |
+| `POST /v1/tenants/{tenant_id}/syncs/{name}/schema/accept` | Accept the stream's new shape: its stored schema empties and `broken` clears. The next write captures the shape it sees. Returns `{ name, stream, accepted }`. |
+
 ## Workflow Packages
 
 Workflow packages are `.cloacina` archives uploaded via multipart form data, scoped to a tenant.
@@ -815,6 +872,7 @@ detail page and `cloacinactl instance` drives the same endpoints.
 | `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true}` — `params`, `cron`, `timezone`, and `enabled` are optional (no `cron` = unscheduled binding). Returns `201` with the instance summary. |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances` | List instances (`{items, total}` envelope; `limit`/`offset` paging). |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | One instance's summary. |
+| `PUT /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Replace the instance's params, cron and timezone. Body: `{"params": {...}, "cron": "...", "timezone": "UTC", "enabled": true}`, each optional: no `params` means none, no `cron` makes the instance unscheduled, and no `enabled` keeps it. The params are validated as on create. Returns the instance summary; `404 instance_not_found` if there is none. |
 | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Delete the instance (and its schedule). Returns `{"deleted": true, ...}`. |
 
 Instance summary shape: `id`, `workflow_name`, `instance_name`, `params`,
@@ -873,6 +931,8 @@ were silently discarded).
 |---|---|---|---|
 | `status` | string | (none) | Filter by execution status (e.g., `Pending`, `Running`, `Completed`, `Failed`). |
 | `workflow` | string | (none) | Filter by workflow name (exact match). |
+| `instance` | string | (none) | Only the runs a fire of this workflow instance started. |
+| `pass` | UUID | (none) | Only the runs of this Sync pass: its segments. |
 | `limit` | integer | `100` | Page size. Min `1`, max `1000`. |
 | `offset` | integer | `0` | Page offset. Must be ≥ 0. |
 
@@ -881,6 +941,7 @@ were silently discarded).
 | Status | `code` | Cause |
 |---|---|---|
 | `400` | `invalid_pagination` | `limit` outside `[1, 1000]` or `offset` negative. |
+| `400` | `invalid_pass` | `pass` is not a UUID. |
 
 **Response:** `200 OK`
 
@@ -890,15 +951,22 @@ were silently discarded).
   "items": [
     {
       "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-      "pipeline_name": "etl_pipeline",
-      "status": "running",
+      "workflow_name": "sync",
+      "status": "Running",
       "started_at": "2026-04-02T14:35:00+00:00",
-      "completed_at": null
+      "completed_at": null,
+      "trigger_origin": null,
+      "instance_name": "orders",
+      "pass_id": "0b6e2c1d-6a4f-4c1e-9d8a-3f2b1c0d9e8f"
     }
   ],
   "total": 1
 }
 ```
+
+`instance_name` names the workflow instance whose fire started the run, and
+`pass_id` the Sync pass the run is a segment of. Each is `null` when it does
+not apply.
 
 ### GET /v1/tenants/{tenant_id}/executions/{exec_id}
 

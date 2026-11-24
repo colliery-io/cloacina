@@ -1,0 +1,134 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from The Movie Database (TMDB)'s official API documentation
+# (https://developer.themoviedb.org/reference/intro/getting-started); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Stream 1: movie_popular  →  GET /3/movie/popular
+  # ──────────────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: movie_popular
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.themoviedb.org"
+        path: "/3/movie/popular"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]
+      paginator:
+        type: DefaultPaginator
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 20
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: integer
+          title:
+            type: ["null", "string"]
+          original_title:
+            type: ["null", "string"]
+          original_language:
+            type: ["null", "string"]
+          overview:
+            type: ["null", "string"]
+          release_date:
+            type: ["null", "string"]
+          popularity:
+            type: ["null", "number"]
+          vote_average:
+            type: ["null", "number"]
+          vote_count:
+            type: ["null", "integer"]
+          adult:
+            type: ["null", "boolean"]
+          video:
+            type: ["null", "boolean"]
+          backdrop_path:
+            type: ["null", "string"]
+          poster_path:
+            type: ["null", "string"]
+          genre_ids:
+            type: ["null", "array"]
+            items:
+              type: integer
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Stream 2: tv_popular  →  GET /3/tv/popular
+  # ──────────────────────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: tv_popular
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://api.themoviedb.org"
+        path: "/3/tv/popular"
+        authenticator:
+          type: BearerAuthenticator
+          api_token: "{{ config['access_token'] }}"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["results"]
+      paginator:
+        type: DefaultPaginator
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 20
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:
+            type: integer
+          name:
+            type: ["null", "string"]
+          original_name:
+            type: ["null", "string"]
+          original_language:
+            type: ["null", "string"]
+          overview:
+            type: ["null", "string"]
+          first_air_date:
+            type: ["null", "string"]
+          popularity:
+            type: ["null", "number"]
+          vote_average:
+            type: ["null", "number"]
+          vote_count:
+            type: ["null", "integer"]
+          backdrop_path:
+            type: ["null", "string"]
+          poster_path:
+            type: ["null", "string"]
+          genre_ids:
+            type: ["null", "array"]
+            items:
+              type: integer
+          origin_country:
+            type: ["null", "array"]
+            items:
+              type: string

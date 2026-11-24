@@ -332,6 +332,53 @@ pub fn build_authz_table() -> AuthzTable {
         Access::tenant(Level::Admin),
     );
 
+    // COLLIERY-I-0634 / CLOACINA-T-0993: the Sync connector catalog. Names,
+    // roles and streams of connectors, nothing secret: a tenant read.
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/connectors",
+        Access::tenant(Level::Read),
+    );
+    // CLOACINA-T-1004: the Sync read resource. Reads are a tenant read: the
+    // params name secrets, never hold them. Accepting a schema is a write.
+    for p in [
+        "/tenants/{tenant_id}/syncs",
+        "/tenants/{tenant_id}/syncs/{name}",
+        "/tenants/{tenant_id}/syncs/{name}/passes",
+        "/tenants/{tenant_id}/syncs/{name}/dead-letters",
+        "/tenants/{tenant_id}/syncs/{name}/streams",
+    ] {
+        add(Method::GET, p, Access::tenant(Level::Read));
+    }
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/syncs/{name}/schema/accept",
+        Access::tenant(Level::Write),
+    );
+    // CLOACINA-T-1005: run a pass now.
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/syncs/{name}/run",
+        Access::tenant(Level::Write),
+    );
+    // CLOACINA-T-1002: check and discover run a connector with the tenant's
+    // secrets: a tenant write.
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/connectors/check",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/connectors/discover",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/connectors/spec",
+        Access::tenant(Level::Write),
+    );
+
     // CLOACI-T-0808: agent-capacity limits. Setting/clearing a tenant's exception
     // is god-only (platform + admin); reading the effective limit is tenant-scoped
     // (a caller may read only its own tenant's limit — cross-tenant is denied).
@@ -484,6 +531,12 @@ pub fn build_authz_table() -> AuthzTable {
     );
     add(
         Method::DELETE,
+        "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+        Access::tenant(Level::Write),
+    );
+    // CLOACINA-T-1001: replace an instance's params, cron and timezone.
+    add(
+        Method::PUT,
         "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
         Access::tenant(Level::Write),
     );
@@ -949,7 +1002,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            68,
+            80,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
@@ -1028,6 +1081,10 @@ mod tests {
         assert_eq!(
             get(Method::DELETE, "/tenants/{tenant_id}/secrets/{name}"),
             Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/connectors"),
+            Some(Access::tenant(Level::Read))
         );
         assert_eq!(
             get(Method::POST, "/tenants"),

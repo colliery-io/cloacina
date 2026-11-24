@@ -207,7 +207,8 @@ pub async fn execute_workflow(
         }
     };
 
-    match tenant_runner.execute_async(&name, context).await {
+    // CLOACINA-T-0978: a sync definition's fire runs a pass; the hook decides.
+    match tenant_runner.fire_instance(&name, context).await {
         Ok(execution) => {
             info!(
                 "Executed workflow '{}' for tenant '{}': {}",
@@ -320,9 +321,19 @@ pub async fn list_executions(
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
 
+    let pass_id = match q.pass.as_deref().map(uuid::Uuid::parse_str) {
+        None => None,
+        Some(Ok(id)) => Some(cloacina::database::universal_types::UniversalUuid(id)),
+        Some(Err(_)) => {
+            return ApiError::bad_request("invalid_pass", "pass must be a UUID".to_string())
+                .into_response();
+        }
+    };
     let filter = cloacina::dal::unified::workflow_execution::ExecutionListFilter {
         status: q.status,
         workflow_name: q.workflow,
+        instance_name: q.instance,
+        pass_id,
         limit,
         offset,
     };
@@ -338,6 +349,8 @@ pub async fn list_executions(
                     started_at: e.started_at.0.to_rfc3339(),
                     completed_at: e.completed_at.map(|t| t.0.to_rfc3339()),
                     trigger_origin: e.trigger_origin,
+                    instance_name: e.instance_name,
+                    pass_id: e.pass_id.map(|p| p.0.to_string()),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.

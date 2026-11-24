@@ -340,9 +340,14 @@ impl TaskScheduler {
     pub async fn schedule_workflow_execution(
         &self,
         workflow_name: &str,
-        input_context: Context<serde_json::Value>,
+        mut input_context: Context<serde_json::Value>,
     ) -> Result<Uuid, ValidationError> {
         info!("Scheduling workflow execution: {}", workflow_name);
+
+        // CLOACINA-T-1000: the instance and the pass travel in reserved
+        // context keys; they become columns of the row, not context.
+        let (instance_name, pass_id) =
+            crate::workflow_instance::take_execution_origin(&mut input_context);
 
         // Look up workflow in scoped runtime registry
         let workflow = match self.runtime.get_workflow(workflow_name) {
@@ -395,28 +400,27 @@ impl TaskScheduler {
         let wf_name = workflow_name.to_string();
         let wf_version = current_version.clone();
 
+        let new_execution = || NewUnifiedWorkflowExecution {
+            id: workflow_execution_id,
+            workflow_name: wf_name.clone(),
+            workflow_version: wf_version.clone(),
+            status: "Pending".to_string(),
+            context_id: stored_context,
+            started_at: now,
+            created_at: now,
+            updated_at: now,
+            instance_name: instance_name.clone(),
+            pass_id,
+        };
+
         // Create workflow execution AND tasks in a single atomic transaction
         // This prevents the race condition where the scheduler sees a workflow execution before tasks exist
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.create_workflow_execution_postgres(
-                workflow_execution_id,
-                now,
-                wf_name,
-                wf_version,
-                stored_context,
-                task_data,
-            )
-            .await?,
-            self.create_workflow_execution_sqlite(
-                workflow_execution_id,
-                now,
-                wf_name,
-                wf_version,
-                stored_context,
-                task_data,
-            )
-            .await?
+            self.create_workflow_execution_postgres(new_execution(), task_data)
+                .await?,
+            self.create_workflow_execution_sqlite(new_execution(), task_data)
+                .await?
         );
 
         // NOTE: cloacina_active_workflows gauge is SQL-derived — re-seeded
@@ -432,13 +436,11 @@ impl TaskScheduler {
     #[cfg(feature = "postgres")]
     async fn create_workflow_execution_postgres(
         &self,
-        workflow_execution_id: UniversalUuid,
-        now: UniversalTimestamp,
-        workflow_name: String,
-        workflow_version: String,
-        stored_context: Option<UniversalUuid>,
+        execution: NewUnifiedWorkflowExecution,
         task_data: Vec<(String, String, String, i32)>,
     ) -> Result<(), ValidationError> {
+        let workflow_execution_id = execution.id;
+        let now = execution.created_at;
         let conn = self
             .dal
             .database()
@@ -450,16 +452,7 @@ impl TaskScheduler {
             conn.transaction(|conn| {
                 // Insert workflow execution
                 diesel::insert_into(workflow_executions::table)
-                    .values(&NewUnifiedWorkflowExecution {
-                        id: workflow_execution_id,
-                        workflow_name,
-                        workflow_version,
-                        status: "Pending".to_string(),
-                        context_id: stored_context,
-                        started_at: now,
-                        created_at: now,
-                        updated_at: now,
-                    })
+                    .values(&execution)
                     .execute(conn)?;
 
                 // Insert all tasks
@@ -493,13 +486,11 @@ impl TaskScheduler {
     #[cfg(feature = "sqlite")]
     async fn create_workflow_execution_sqlite(
         &self,
-        workflow_execution_id: UniversalUuid,
-        now: UniversalTimestamp,
-        workflow_name: String,
-        workflow_version: String,
-        stored_context: Option<UniversalUuid>,
+        execution: NewUnifiedWorkflowExecution,
         task_data: Vec<(String, String, String, i32)>,
     ) -> Result<(), ValidationError> {
+        let workflow_execution_id = execution.id;
+        let now = execution.created_at;
         let conn = self
             .dal
             .database()
@@ -511,16 +502,7 @@ impl TaskScheduler {
             conn.transaction(|conn| {
                 // Insert workflow execution
                 diesel::insert_into(workflow_executions::table)
-                    .values(&NewUnifiedWorkflowExecution {
-                        id: workflow_execution_id,
-                        workflow_name,
-                        workflow_version,
-                        status: "Pending".to_string(),
-                        context_id: stored_context,
-                        started_at: now,
-                        created_at: now,
-                        updated_at: now,
-                    })
+                    .values(&execution)
                     .execute(conn)?;
 
                 // Insert all tasks

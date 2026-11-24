@@ -5,6 +5,11 @@ from .account_info import AccountInfo
 from .accumulator_status import AccumulatorStatus
 from .agent_info import AgentInfo
 from .compiler_status import CompilerStatus
+from .connector_check_response import ConnectorCheckResponse
+from .connector_discover_response import ConnectorDiscoverResponse
+from .connector_probe_request import ConnectorProbeRequest
+from .connector_spec_response import ConnectorSpecResponse
+from .connector_summary import ConnectorSummary
 from .create_account_request import CreateAccountRequest
 from .create_instance_request import CreateInstanceRequest
 from .create_key_request import CreateKeyRequest
@@ -13,6 +18,8 @@ from .create_secret_request_fields import CreateSecretRequestFields
 from .create_tenant_request import CreateTenantRequest
 from .declared_surface import DeclaredSurface
 from .delete_instance_response import DeleteInstanceResponse
+from .discovered_field import DiscoveredField
+from .discovered_stream import DiscoveredStream
 from .error_body import ErrorBody
 from .execute_request import ExecuteRequest
 from .execute_response import ExecuteResponse
@@ -49,6 +56,10 @@ from .list_response_accumulator_status_items_item import (
 )
 from .list_response_agent_info import ListResponseAgentInfo
 from .list_response_agent_info_items_item import ListResponseAgentInfoItemsItem
+from .list_response_connector_summary import ListResponseConnectorSummary
+from .list_response_connector_summary_items_item import (
+    ListResponseConnectorSummaryItemsItem,
+)
 from .list_response_graph_status import ListResponseGraphStatus
 from .list_response_graph_status_items_item import ListResponseGraphStatusItemsItem
 from .list_response_key_info import ListResponseKeyInfo
@@ -64,6 +75,12 @@ from .list_response_secret_metadata_response import ListResponseSecretMetadataRe
 from .list_response_secret_metadata_response_items_item import (
     ListResponseSecretMetadataResponseItemsItem,
 )
+from .list_response_sync_pass import ListResponseSyncPass
+from .list_response_sync_pass_items_item import ListResponseSyncPassItemsItem
+from .list_response_sync_stream import ListResponseSyncStream
+from .list_response_sync_stream_items_item import ListResponseSyncStreamItemsItem
+from .list_response_sync_summary import ListResponseSyncSummary
+from .list_response_sync_summary_items_item import ListResponseSyncSummaryItemsItem
 from .list_response_tenant_summary import ListResponseTenantSummary
 from .list_response_tenant_summary_items_item import ListResponseTenantSummaryItemsItem
 from .local_login_request import LocalLoginRequest
@@ -77,13 +94,25 @@ from .reactor_status import ReactorStatus
 from .reset_password_request import ResetPasswordRequest
 from .rotate_secret_request import RotateSecretRequest
 from .rotate_secret_request_fields import RotateSecretRequestFields
+from .schema_accepted_response import SchemaAcceptedResponse
 from .secret_deleted_response import SecretDeletedResponse
 from .secret_metadata_response import SecretMetadataResponse
+from .sync_dead_letter import SyncDeadLetter
+from .sync_detail import SyncDetail
+from .sync_page_query import SyncPageQuery
+from .sync_pass import SyncPass
+from .sync_side import SyncSide
+from .sync_stream import SyncStream
+from .sync_summary import SyncSummary
 from .task_execution_detail import TaskExecutionDetail
 from .tenant_created_response import TenantCreatedResponse
 from .tenant_list_response_execution_summary import TenantListResponseExecutionSummary
 from .tenant_list_response_execution_summary_items_item import (
     TenantListResponseExecutionSummaryItemsItem,
+)
+from .tenant_list_response_sync_dead_letter import TenantListResponseSyncDeadLetter
+from .tenant_list_response_sync_dead_letter_items_item import (
+    TenantListResponseSyncDeadLetterItemsItem,
 )
 from .tenant_list_response_trigger_schedule_summary import (
     TenantListResponseTriggerScheduleSummary,
@@ -108,6 +137,7 @@ from .trigger_execution import TriggerExecution
 from .trigger_pause_response import TriggerPauseResponse
 from .trigger_schedule_info import TriggerScheduleInfo
 from .trigger_schedule_summary import TriggerScheduleSummary
+from .update_instance_request import UpdateInstanceRequest
 from .whoami_response import WhoamiResponse
 from .workflow_deleted_response import WorkflowDeletedResponse
 from .workflow_detail import WorkflowDetail
@@ -126,6 +156,11 @@ __all__ = (
     "AccumulatorStatus",
     "AgentInfo",
     "CompilerStatus",
+    "ConnectorCheckResponse",
+    "ConnectorDiscoverResponse",
+    "ConnectorProbeRequest",
+    "ConnectorSpecResponse",
+    "ConnectorSummary",
     "CreateAccountRequest",
     "CreateInstanceRequest",
     "CreateKeyRequest",
@@ -134,6 +169,8 @@ __all__ = (
     "CreateTenantRequest",
     "DeclaredSurface",
     "DeleteInstanceResponse",
+    "DiscoveredField",
+    "DiscoveredStream",
     "ErrorBody",
     "ExecuteRequest",
     "ExecuteResponse",
@@ -168,6 +205,8 @@ __all__ = (
     "ListResponseAccumulatorStatusItemsItem",
     "ListResponseAgentInfo",
     "ListResponseAgentInfoItemsItem",
+    "ListResponseConnectorSummary",
+    "ListResponseConnectorSummaryItemsItem",
     "ListResponseGraphStatus",
     "ListResponseGraphStatusItemsItem",
     "ListResponseKeyInfo",
@@ -179,6 +218,12 @@ __all__ = (
     "ListResponseReactorStatusItemsItem",
     "ListResponseSecretMetadataResponse",
     "ListResponseSecretMetadataResponseItemsItem",
+    "ListResponseSyncPass",
+    "ListResponseSyncPassItemsItem",
+    "ListResponseSyncStream",
+    "ListResponseSyncStreamItemsItem",
+    "ListResponseSyncSummary",
+    "ListResponseSyncSummaryItemsItem",
     "ListResponseTenantSummary",
     "ListResponseTenantSummaryItemsItem",
     "LocalLoginRequest",
@@ -192,12 +237,22 @@ __all__ = (
     "ResetPasswordRequest",
     "RotateSecretRequest",
     "RotateSecretRequestFields",
+    "SchemaAcceptedResponse",
     "SecretDeletedResponse",
     "SecretMetadataResponse",
+    "SyncDeadLetter",
+    "SyncDetail",
+    "SyncPageQuery",
+    "SyncPass",
+    "SyncSide",
+    "SyncStream",
+    "SyncSummary",
     "TaskExecutionDetail",
     "TenantCreatedResponse",
     "TenantListResponseExecutionSummary",
     "TenantListResponseExecutionSummaryItemsItem",
+    "TenantListResponseSyncDeadLetter",
+    "TenantListResponseSyncDeadLetterItemsItem",
     "TenantListResponseTriggerScheduleSummary",
     "TenantListResponseTriggerScheduleSummaryItemsItem",
     "TenantListResponseWorkflowInstanceSummary",
@@ -211,6 +266,7 @@ __all__ = (
     "TriggerPauseResponse",
     "TriggerScheduleInfo",
     "TriggerScheduleSummary",
+    "UpdateInstanceRequest",
     "WhoamiResponse",
     "WorkflowDeletedResponse",
     "WorkflowDetail",

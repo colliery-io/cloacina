@@ -24,8 +24,9 @@ use crate::database::schema::unified::{
     fleet_agents, key_trust_acls, login_throttle, package_artifacts, package_providers,
     package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
     schedule_executions, schedules, secrets, signing_keys, state_accumulator_buffers,
-    task_execution_metadata, task_executions, tenant_data_keys, trusted_keys, workflow_executions,
-    workflow_packages, workflow_registry, ws_tickets,
+    sync_dead_letters, sync_stream_schemas, sync_stream_state, task_execution_metadata,
+    task_executions, tenant_data_keys, trusted_keys, workflow_executions, workflow_packages,
+    workflow_registry, ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -80,6 +81,10 @@ pub struct UnifiedWorkflowExecution {
     /// How this run was triggered (CLOACI-T-0776); `Some("manual")` for an
     /// operator REST run, `None` otherwise.
     pub trigger_origin: Option<String>,
+    /// The workflow instance whose fire started this run (CLOACINA-T-1000).
+    pub instance_name: Option<String>,
+    /// The Sync pass this run is a segment of (CLOACINA-T-1000).
+    pub pass_id: Option<UniversalUuid>,
 }
 
 #[derive(Debug, Insertable)]
@@ -93,6 +98,8 @@ pub struct NewUnifiedWorkflowExecution {
     pub started_at: UniversalTimestamp,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub instance_name: Option<String>,
+    pub pass_id: Option<UniversalUuid>,
 }
 
 // ============================================================================
@@ -828,6 +835,8 @@ impl From<UnifiedWorkflowExecution> for WorkflowExecutionRecord {
             created_at: u.created_at,
             updated_at: u.updated_at,
             trigger_origin: u.trigger_origin,
+            instance_name: u.instance_name,
+            pass_id: u.pass_id,
         }
     }
 }
@@ -1165,4 +1174,93 @@ pub struct NewUnifiedReactorOwnerAddress {
     pub reactor_name: String,
     pub address: String,
     pub claimed_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Sync Models (COLLIERY-I-0632 / CLOACINA-T-0974)
+// ============================================================================
+
+/// The committed state of one sync stream: the cursor and opaque resume bytes
+/// the last completed write task committed. `exhausted` means the source
+/// reported its end at this state.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = sync_stream_state)]
+pub struct UnifiedSyncStreamState {
+    pub id: UniversalUuid,
+    pub sync_name: String,
+    pub stream: String,
+    pub partition_id: String,
+    pub cursor: Option<String>,
+    pub opaque: UniversalBinary,
+    pub exhausted: UniversalBool,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = sync_stream_state)]
+pub struct NewUnifiedSyncStreamState {
+    pub id: UniversalUuid,
+    pub sync_name: String,
+    pub stream: String,
+    pub partition_id: String,
+    pub cursor: Option<String>,
+    pub opaque: UniversalBinary,
+    pub exhausted: UniversalBool,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+/// The captured schema of a sync stream (CLOACINA-T-1003): a `StreamSchema`
+/// as JSON, and the reasons it is broken, if it is.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = sync_stream_schemas)]
+pub struct UnifiedSyncStreamSchema {
+    pub id: UniversalUuid,
+    pub sync_name: String,
+    pub stream: String,
+    pub schema: String,
+    pub broken: Option<String>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = sync_stream_schemas)]
+pub struct NewUnifiedSyncStreamSchema {
+    pub id: UniversalUuid,
+    pub sync_name: String,
+    pub stream: String,
+    pub schema: String,
+    pub broken: Option<String>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+/// One record a sync could not process, with the reason, and the task and
+/// workflow execution that produced it.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = sync_dead_letters)]
+pub struct UnifiedSyncDeadLetter {
+    pub id: UniversalUuid,
+    pub sync_name: String,
+    pub stream: String,
+    pub task_execution_id: Option<UniversalUuid>,
+    pub workflow_execution_id: Option<UniversalUuid>,
+    pub record: String,
+    pub reason: String,
+    pub created_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = sync_dead_letters)]
+pub struct NewUnifiedSyncDeadLetter {
+    pub id: UniversalUuid,
+    pub sync_name: String,
+    pub stream: String,
+    pub task_execution_id: Option<UniversalUuid>,
+    pub workflow_execution_id: Option<UniversalUuid>,
+    pub record: String,
+    pub reason: String,
+    pub created_at: UniversalTimestamp,
 }

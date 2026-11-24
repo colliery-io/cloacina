@@ -11,22 +11,27 @@ The Cloacina workspace ships fifteen Rust crates plus a Python wheel built on to
 
 ```
 cloacina/
-  crates/                          # Rust workspace members (15)
+  crates/                          # Rust workspace members (18)
     cloacina/                      # Core engine: tasks, workflows, runner, DAL, executor, registry
     cloacina-agent/                # DB-less fleet execution agent binary (cloacina-agent)
     cloacina-api-types/            # Shared HTTP/WS wire types (list envelopes, health, delivery, reactor)
+    cloacina-bdd/                  # Behaviour specs: Gherkin features run in process (not published)
     cloacina-build/                # build-script helper for binaries linking cloacina/PyO3 (rpath fixups)
     cloacina-client/               # Published Rust client SDK (REST + WS follow)
     cloacina-compiler/             # Standalone build worker (cargo build for .cloacina packages)
     cloacina-computation-graph/    # Computation-graph runtime: reactors, accumulators, scheduler
     cloacina-constructor-contract/ # Provider/constructor contract types (host + wasm32-wasip2)
+    cloacina-declarative/          # Connector definitions, their compiler, the Airbyte importer, the corpus
     cloacina-macros/               # Proc macros: #[task], #[workflow], #[trigger], #[reactor], #[computation_graph], accumulator + constructor macros
     cloacina-python/               # PyO3 wheel runtime (the `cloaca` Python module)
     cloacina-server/               # HTTP API binary (cloacina-server)
+    cloacina-sync/                 # Sync: the built-in workflow, mapping and schema enforcement, the dispatcher
     cloacina-testing/              # Test utilities: TestRunner, BoundaryEmitter
     cloacina-workflow/             # Slim workflow-author crate (Trigger trait, RetryPolicy, types)
     cloacina-workflow-plugin/      # FFI vtable for .cloacina cdylib plugins (CloacinaPlugin trait + package!() shell)
     cloacinactl/                   # CLI binary (cloacinactl)
+
+  connectors/                      # Sync connector guests (wasm32-wasip2): postgres, mssql, s3, snowflake, rest, rest-dest
 
   providers/                       # Constructor provider crates (own workspaces, excluded from the root workspace)
     cloacina-provider-fs/          # WASM task provider (read_file / write_file)
@@ -160,6 +165,10 @@ The wheel is built with `maturin develop --features "postgres,sqlite,macros,exte
 #### `cloacina-testing`
 
 Test fixtures: `TestRunner` for no-DB workflow testing, `BoundaryEmitter` for computation-graph simulation. Used by integration tests in `cloacina/tests/`, `cloacina-computation-graph/tests/`, and downstream workflow projects via `[dev-dependencies]`.
+
+#### `cloacina-bdd`
+
+The behaviour specs: Gherkin features under `features/`, run with `angreal test bdd`. See [Behaviour specs](../../contributing/behaviour-specs/).
 
 ## Examples
 

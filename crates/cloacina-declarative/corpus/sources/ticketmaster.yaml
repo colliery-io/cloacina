@@ -1,0 +1,145 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Ticketmaster Discovery v2's official API documentation
+# (https://developer.ticketmaster.com/products-and-docs/apis/discovery/v2/); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+type: DeclarativeSource
+
+streams:
+
+  # ── Stream 1: events ────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: events
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://app.ticketmaster.com/discovery/v2"
+        path: "/events"
+        # ⚠ AUTH CAVEAT — see Open Question #1:
+        # Ticketmaster injects the API key as the `apikey` QUERY PARAMETER,
+        # not as an HTTP header.  The target schema's ApiKeyAuthenticator
+        # only has a `header` field; there is no `query_param` / `inject_into`
+        # variant in the schema.  The block below is the closest representable
+        # construct and must be extended before it will work correctly.
+        authenticator:
+          type: ApiKeyAuthenticator
+          # Ticketmaster requires the key as a query param (?apikey=…), not a header.
+          api_token: "{{ config['api_key'] }}"
+          inject_into:
+            type: RequestOption
+            field_name: "apikey"
+            inject_into: request_parameter
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["_embedded", "events"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "size"        # docs: "Page Size Parameter: size (default 20)"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"        # docs: "Page Parameter: page (default 0, zero-indexed)"
+        pagination_strategy:
+          type: PageIncrement       # page-number based, not offset
+          page_size: 20             # documented default; see Open Question #3 re deep-paging limit
+    # No incremental_sync — see Open Questions #4, #5
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                 { type: string }
+          name:               { type: ["null", "string"] }
+          type:               { type: ["null", "string"] }
+          test:               { type: ["null", "boolean"] }
+          url:                { type: ["null", "string"] }
+          locale:             { type: ["null", "string"] }
+          info:               { type: ["null", "string"] }
+          pleaseNote:         { type: ["null", "string"] }
+          images:             { type: ["null", "array"] }
+          sales:              { type: ["null", "object"] }
+          dates:              { type: ["null", "object"] }
+          classifications:    { type: ["null", "array"] }
+          promoter:           { type: ["null", "object"] }
+          promoters:          { type: ["null", "array"] }
+          priceRanges:        { type: ["null", "array"] }
+          outlets:            { type: ["null", "array"] }
+          products:           { type: ["null", "array"] }
+          seatmap:            { type: ["null", "object"] }
+          accessibility:      { type: ["null", "object"] }
+          ticketLimit:        { type: ["null", "object"] }
+          place:              { type: ["null", "object"] }
+          externalLinks:      { type: ["null", "object"] }
+          aliases:            { type: ["null", "array"] }
+          localizedAliases:   { type: ["null", "object"] }
+
+  # ── Stream 2: venues ────────────────────────────────────────────────────────
+  - type: DeclarativeStream
+    name: venues
+    primary_key: id
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://app.ticketmaster.com/discovery/v2"
+        path: "/venues"
+        authenticator:
+          type: ApiKeyAuthenticator
+          # Ticketmaster requires the key as a query param (?apikey=…), not a header.
+          api_token: "{{ config['api_key'] }}"
+          inject_into:
+            type: RequestOption
+            field_name: "apikey"
+            inject_into: request_parameter
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["_embedded", "venues"]
+      paginator:
+        type: DefaultPaginator
+        page_size_option:
+          type: RequestOption
+          field_name: "size"
+        page_token_option:
+          type: RequestOption
+          field_name: "page"
+        pagination_strategy:
+          type: PageIncrement
+          page_size: 20
+    # No incremental_sync — see Open Question #6
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          id:                        { type: string }
+          name:                      { type: ["null", "string"] }
+          type:                      { type: ["null", "string"] }
+          test:                      { type: ["null", "boolean"] }
+          url:                       { type: ["null", "string"] }
+          locale:                    { type: ["null", "string"] }
+          postalCode:                { type: ["null", "string"] }
+          timezone:                  { type: ["null", "string"] }
+          city:                      { type: ["null", "object"] }
+          state:                     { type: ["null", "object"] }
+          country:                   { type: ["null", "object"] }
+          address:                   { type: ["null", "object"] }
+          location:                  { type: ["null", "object"] }
+          markets:                   { type: ["null", "array"] }
+          images:                    { type: ["null", "array"] }
+          dmas:                      { type: ["null", "array"] }
+          social:                    { type: ["null", "object"] }
+          boxOfficeInfo:             { type: ["null", "object"] }
+          parkingDetail:             { type: ["null", "string"] }
+          accessibleSeatingDetail:   { type: ["null", "string"] }
+          generalInfo:               { type: ["null", "object"] }
+          externalLinks:             { type: ["null", "object"] }
+          aliases:                   { type: ["null", "array"] }
+          localizedAliases:          { type: ["null", "object"] }
+          upcomingEvents:            { type: ["null", "object"] }
+          ada:                       { type: ["null", "object"] }

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import angreal  # type: ignore
-from utils import docker_clean, docker_down, docker_up
+from utils import DOCKER_COMPOSE_FILE, docker_clean, docker_down, docker_up
 
 from ._python_utils import (
     TestAggregator,
@@ -297,6 +297,50 @@ def integration(
             # target; they need Postgres (the server is Postgres-only) so they
             # run only in the postgres lane. Previously orphaned — no suite ran
             # them, so they drifted.
+            # COLLIERY-I-0632 / CLOACINA-T-0979: the Sync Postgres connector tests
+            # need the live Postgres and build the guest to wasm32-wasip2; they are
+            # #[ignore]d so a plain `cargo test` stays database-free. The
+            # conformance target runs the Postgres conformance file (CLOACINA-T-0983).
+            if backend_name == "postgres" and not skip_rust:
+                sync_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "postgres_connector", "--test", "conformance", "--", "--ignored", "--test-threads=1"]
+                print(f"Running: {' '.join(sync_cmd)}")
+                subprocess.run(sync_cmd, check=True)
+                # CLOACINA-T-0984: the MSSQL connector against SQL Server, which
+                # runs under the compose profile `mssql` so a default
+                # `services up` never pulls it.
+                compose = ["docker", "compose", "-f", str(DOCKER_COMPOSE_FILE), "--profile", "mssql"]
+                subprocess.run(compose + ["up", "-d", "--wait", "mssql"], check=True)
+                try:
+                    mssql_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "mssql_connector", "--", "--ignored", "--test-threads=1"]
+                    print(f"Running: {' '.join(mssql_cmd)}")
+                    subprocess.run(mssql_cmd, check=True)
+                finally:
+                    subprocess.run(compose + ["rm", "-sfv", "mssql"], check=False)
+                # CLOACINA-T-0985: the S3 connector against MinIO, under the
+                # compose profile `minio`.
+                minio = ["docker", "compose", "-f", str(DOCKER_COMPOSE_FILE), "--profile", "minio"]
+                subprocess.run(minio + ["up", "-d", "--wait", "minio"], check=True)
+                try:
+                    s3_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "s3_connector", "--", "--ignored", "--test-threads=1"]
+                    print(f"Running: {' '.join(s3_cmd)}")
+                    subprocess.run(s3_cmd, check=True)
+                finally:
+                    subprocess.run(minio + ["rm", "-sfv", "minio"], check=False)
+                # CLOACINA-T-0986: the Snowflake connector against the mock SQL
+                # API: the conformance run, and the two syncs with Postgres.
+                sf_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "snowflake_connector", "--", "--include-ignored", "--test-threads=1"]
+                print(f"Running: {' '.join(sf_cmd)}")
+                subprocess.run(sf_cmd, check=True)
+                # CLOACINA-T-0990, CLOACINA-T-0991: the REST source and
+                # destination against the mock JSON API.
+                rest_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "rest_connector", "--test", "rest_dest_connector", "--", "--test-threads=1"]
+                print(f"Running: {' '.join(rest_cmd)}")
+                subprocess.run(rest_cmd, check=True)
+                # CLOACINA-T-0993: a corpus definition synced to Postgres against
+                # the mock API, with its token in the secret store.
+                decl_cmd = ["cargo", "test", "-p", "cloacina-sync", "--test", "declarative_sync", "--", "--include-ignored", "--test-threads=1"]
+                print(f"Running: {' '.join(decl_cmd)}")
+                subprocess.run(decl_cmd, check=True)
             if backend_name == "postgres" and not skip_rust:
                 print_section_header("Running cloacina-server lib tests (Postgres)")
                 server_cmd = ["cargo", "test", "-p", "cloacina-server", "--lib"]

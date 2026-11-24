@@ -517,6 +517,7 @@ fn expand_task(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenStrea
                     dependencies: ::std::vec::Vec::new(),
                     description: #description_tokens,
                     author: #author_tokens,
+                    connector: None,
                 }
             }
 
@@ -813,6 +814,7 @@ fn expand_trigger(args: ConstructorArgs, item: DeriveInput) -> SynResult<TokenSt
                     dependencies: ::std::vec::Vec::new(),
                     description: #description_tokens,
                     author: #author_tokens,
+                    connector: None,
                 }
             }
 
@@ -1090,6 +1092,7 @@ fn expand_event_kind(args: ConstructorArgs, item: DeriveInput) -> SynResult<Toke
                     dependencies: ::std::vec::Vec::new(),
                     description: #description_tokens,
                     author: #author_tokens,
+                    connector: None,
                 }
             }
 
@@ -1295,6 +1298,7 @@ fn expand_stream_accumulator(args: ConstructorArgs, item: DeriveInput) -> SynRes
                     dependencies: ::std::vec::Vec::new(),
                     description: #description_tokens,
                     author: #author_tokens,
+                    connector: None,
                 }
             }
 

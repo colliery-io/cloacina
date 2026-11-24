@@ -7,7 +7,7 @@ sidebar:
 ---
 
 Guided paths for standing up and operating a Cloacina server: deploy a server,
-use the web UI, provision tenants, package and upload workflows, and scale out.
+use the web UI, provision tenants, package and upload workflows, scale out, and copy data with a sync.
 
 - [01 - Deploy a Server](01-deploy-a-server/)
 - [02 - The Web UI](02-the-web-ui/)
@@ -16,3 +16,4 @@ use the web UI, provision tenants, package and upload workflows, and scale out.
 - [05 — WebSocket Event Injection](05-websocket-events/)
 - [06 — Kafka-Sourced Computation Graphs](06-kafka-stream/)
 - [07 — Cross-Package Reactor Binding](07-cross-package-binding/)
+- [08 — Your First Sync](08-your-first-sync/)

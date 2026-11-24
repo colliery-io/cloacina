@@ -1,0 +1,111 @@
+# Conformance file for the MSSQL connector (CLOACINA-A-0014, CLOACINA-T-0984).
+# Needs SQL Server: the `mssql` service of .angreal/docker-compose.yaml
+# (profile `mssql`) on 11433, or CLOACINA_TEST_MSSQL_HOST and
+# CLOACINA_TEST_MSSQL_PORT. Run by `cargo test -p cloacina-sync --test
+# mssql_connector -- --ignored` in the Postgres integration lane. The format is
+# documented in `cloacina_testing::connectors::conformance`; `sql` steps run a
+# batch in `database` (default master).
+
+connector = "mssql"
+crate = "."
+
+[source]
+config = { host = "${CLOACINA_TEST_MSSQL_HOST:-localhost}", port = ${CLOACINA_TEST_MSSQL_PORT:-11433}, database = "cloacina_sync", user = "sa", password = "cloacinaStrong!Pass1", tls_mode = "disable" }
+# Any peer: the server's port comes from the environment.
+grants = { tcp = ["*"] }
+
+[[setup]]
+sql = "IF DB_ID('cloacina_sync') IS NULL CREATE DATABASE cloacina_sync"
+
+[[setup]]
+database = "cloacina_sync"
+sql = """
+DROP TABLE IF EXISTS dbo.conf_contacts;
+CREATE TABLE dbo.conf_contacts (
+  id INT NOT NULL PRIMARY KEY,
+  email NVARCHAR(200) NOT NULL,
+  full_name NVARCHAR(200) NULL,
+  active BIT NOT NULL,
+  updated_at DATETIME2 NOT NULL
+);
+INSERT INTO dbo.conf_contacts (id, email, full_name, active, updated_at) VALUES
+  (1, 'person1@example.test', 'Person 1', 1, '2026-01-01T00:00:00'),
+  (2, 'person2@example.test', 'Person 2', 0, '2026-01-02T00:00:00'),
+  (3, 'person3@example.test', 'Person 3', 1, '2026-01-03T00:00:00'),
+  (4, 'person4@example.test', 'Person 4', 0, '2026-01-04T00:00:00'),
+  (5, 'person5@example.test', 'Person 5', 1, '2026-01-05T00:00:00'),
+  (6, 'person6@example.test', 'Person 6', 0, '2026-01-06T00:00:00'),
+  (7, 'person7@example.test', 'Person 7', 1, '2026-01-07T00:00:00'),
+  (8, 'person8@example.test', 'Person 8', 0, '2026-01-08T00:00:00'),
+  (9, 'person9@example.test', 'Person 9', 1, '2026-01-09T00:00:00'),
+  (10, 'person10@example.test', 'Person 10', 0, '2026-01-10T00:00:00'),
+  (11, 'person11@example.test', 'Person 11', 1, '2026-01-11T00:00:00'),
+  (12, 'person12@example.test', 'Person 12', 0, '2026-01-12T00:00:00');
+"""
+
+[spec]
+name = "mssql"
+contract_version = 1
+roles = ["Source"]
+supported_sync_modes = ["FullRefresh", "Incremental"]
+
+[[check]]
+case = "good config"
+success = true
+
+[[check]]
+case = "TLS required without verifying the certificate"
+config = { tls_mode = "require", tls_insecure_skip_verify = true }
+success = true
+
+[[check]]
+case = "wrong password"
+config = { password = "wrong" }
+success = false
+
+[[check]]
+case = "no host"
+config_text = '{"database": "cloacina_sync", "user": "sa", "password": "x"}'
+success = false
+message_contains = "missing `host`"
+
+[discover]
+streams = [{ name = "dbo.conf_contacts", supported_sync_modes = ["FullRefresh", "Incremental"] }]
+exact = false
+
+[[read]]
+case = "full refresh"
+stream = { stream = "dbo.conf_contacts" }
+records = [
+  { id = 1, email = "person1@example.test", full_name = "Person 1", active = true, updated_at = "2026-01-01T00:00:00" },
+  { id = 2, active = false }, { id = 3 }, { id = 4 }, { id = 5 }, { id = 6 },
+  { id = 7 }, { id = 8 }, { id = 9 }, { id = 10 }, { id = 11 }, { id = 12 },
+]
+dead_letters = []
+
+[[read]]
+case = "incremental from the start"
+stream = { stream = "dbo.conf_contacts", sync_mode = "Incremental", cursor_field = "id" }
+records = [
+  { id = 1 }, { id = 2 }, { id = 3 }, { id = 4 }, { id = 5 }, { id = 6 },
+  { id = 7 }, { id = 8 }, { id = 9 }, { id = 10 }, { id = 11 }, { id = 12 },
+]
+ordered = true
+checkpoints = [{ cursor = 12 }]
+
+# An integer cursor at 9 must still read 10: compared as text, "10" < "9".
+[[read]]
+case = "incremental resumes past 9"
+stream = { stream = "dbo.conf_contacts", sync_mode = "Incremental", cursor_field = "id" }
+state = { cursor = 9 }
+records = [{ id = 10 }, { id = 11 }, { id = 12 }]
+ordered = true
+checkpoints = [{ cursor = 12 }]
+
+[[read]]
+case = "incremental by a datetime cursor"
+stream = { stream = "dbo.conf_contacts", sync_mode = "Incremental", cursor_field = "updated_at" }
+state = { cursor = "2026-01-10T00:00:00" }
+records = [{ id = 11 }, { id = 12 }]
+ordered = true
+checkpoints = [{ cursor = "2026-01-12T00:00:00" }]

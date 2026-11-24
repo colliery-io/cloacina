@@ -1,0 +1,45 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Google Sheets' official API documentation
+# (https://developers.google.com/sheets/api/reference/rest); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+#
+# Reads one tab of a shared spreadsheet: GET /v4/spreadsheets/{id}/values/{range}
+# returns row-arrays whose first row is the header — `header_row: true`
+# zips them into records (snake_cased header cells as field names,
+# ragged rows padded with null) and adds `_row` (1-based data-row index) as a stable
+# key, so an upsert on `_row` makes re-syncs replace cleanly. Column types come from
+# schema inference; sheets have no cursor → full refresh.
+#
+# Connection config: `spreadsheet_id` (from the sheet URL), `tab` (the sheet/tab name;
+# one tab per connection — add a connection per tab), `service_account_key` (the SA
+# JSON, host-side only; share the sheet with the SA email as Viewer).
+
+type: DeclarativeSource
+
+streams:
+  - type: DeclarativeStream
+    name: rows
+    primary_key: [_row]
+    header_row: true
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://sheets.googleapis.com"
+        path: "/v4/spreadsheets/{{ config['spreadsheet_id'] }}/values/{{ config['tab'] }}"
+        authenticator:
+          type: GoogleServiceAccountAuthenticator
+          service_account_key: "{{ config['service_account_key'] }}"
+          scopes:
+            - "https://www.googleapis.com/auth/spreadsheets.readonly"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["values"]
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          _row: { type: integer }

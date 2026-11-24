@@ -1,0 +1,233 @@
+# A declarative source in Airbyte's low-code format, moved from weir (CLOACINA-T-0992).
+# Authored solely from Google Analytics' official API documentation
+# (https://developers.google.com/analytics/devguides/reporting/data/v1); no third-party connector implementation was consulted.
+# License: Apache-2.0 (this repo).
+#
+# GA4 Data API: every stream is a POST :runReport whose offset/limit paginate **in the
+# body** and whose columnar rows ({dimensionValues[],metricValues[]})
+# are flattened by AddFields dot-path transforms — metric strings
+# coerce to the integer schema at the record-path enforcement stage.
+#
+# Connection config: `property_id` (numeric GA4 property), `start_date` (report window
+# start — "30daysAgo" / "2026-01-01"), `service_account_key` (the SA JSON, host-side
+# only). The cursor on `date` is **track-only**: GA4 restates late-arriving data, so
+# each sync re-reads the window and the checkpoint records progress — pair with an
+# upsert write mode keyed on the dimension tuple for idempotent loads.
+
+type: DeclarativeSource
+
+streams:
+  # ── traffic: sessions/users by date × default channel group ─────────────────
+  - type: DeclarativeStream
+    name: traffic
+    primary_key: [date, channel]
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://analyticsdata.googleapis.com"
+        path: "/v1beta/properties/{{ config['property_id'] }}:runReport"
+        http_method: POST
+        request_body_json:
+          dimensions:
+            - name: date
+            - name: sessionDefaultChannelGroup
+          metrics:
+            - name: sessions
+            - name: activeUsers
+          dateRanges:
+            - startDate: "{{ config['start_date'] }}"
+              endDate: "today"
+          keepEmptyRows: false
+        authenticator:
+          type: GoogleServiceAccountAuthenticator
+          service_account_key: "{{ config['service_account_key'] }}"
+          scopes:
+            - "https://www.googleapis.com/auth/analytics.readonly"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["rows"]
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 250
+        page_token_option:
+          type: RequestOption
+          inject_into: body_json
+          field_name: offset
+        page_size_option:
+          type: RequestOption
+          inject_into: body_json
+          field_name: limit
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: date
+      cursor_value_path: dimensionValues.0.value
+      track_only: true
+    transformations:
+      - type: AddFields
+        fields:
+          - path: [date]
+            value: "{{ record['dimensionValues'][0]['value'] }}"
+          - path: [channel]
+            value: "{{ record['dimensionValues'][1]['value'] }}"
+          - path: [sessions]
+            value: "{{ record['metricValues'][0]['value'] }}"
+          - path: [active_users]
+            value: "{{ record['metricValues'][1]['value'] }}"
+      - type: RemoveFields
+        field_pointers: [[dimensionValues], [metricValues]]
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          date: { type: string }
+          channel: { type: string }
+          sessions: { type: integer }
+          active_users: { type: integer }
+
+  # ── pages: page performance by date × path ──────────────────────────────────
+  - type: DeclarativeStream
+    name: pages
+    primary_key: [date, page_path]
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://analyticsdata.googleapis.com"
+        path: "/v1beta/properties/{{ config['property_id'] }}:runReport"
+        http_method: POST
+        request_body_json:
+          dimensions:
+            - name: date
+            - name: pagePath
+          metrics:
+            - name: screenPageViews
+            - name: userEngagementDuration
+          dateRanges:
+            - startDate: "{{ config['start_date'] }}"
+              endDate: "today"
+          keepEmptyRows: false
+        authenticator:
+          type: GoogleServiceAccountAuthenticator
+          service_account_key: "{{ config['service_account_key'] }}"
+          scopes:
+            - "https://www.googleapis.com/auth/analytics.readonly"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["rows"]
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 250
+        page_token_option:
+          type: RequestOption
+          inject_into: body_json
+          field_name: offset
+        page_size_option:
+          type: RequestOption
+          inject_into: body_json
+          field_name: limit
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: date
+      cursor_value_path: dimensionValues.0.value
+      track_only: true
+    transformations:
+      - type: AddFields
+        fields:
+          - path: [date]
+            value: "{{ record['dimensionValues'][0]['value'] }}"
+          - path: [page_path]
+            value: "{{ record['dimensionValues'][1]['value'] }}"
+          - path: [page_views]
+            value: "{{ record['metricValues'][0]['value'] }}"
+          - path: [engagement_duration]
+            value: "{{ record['metricValues'][1]['value'] }}"
+      - type: RemoveFields
+        field_pointers: [[dimensionValues], [metricValues]]
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          date: { type: string }
+          page_path: { type: string }
+          page_views: { type: integer }
+          engagement_duration: { type: number }
+
+  # ── events: event counts by date × event name ───────────────────────────────
+  - type: DeclarativeStream
+    name: events
+    primary_key: [date, event_name]
+    retriever:
+      type: SimpleRetriever
+      requester:
+        type: HttpRequester
+        url_base: "https://analyticsdata.googleapis.com"
+        path: "/v1beta/properties/{{ config['property_id'] }}:runReport"
+        http_method: POST
+        request_body_json:
+          dimensions:
+            - name: date
+            - name: eventName
+          metrics:
+            - name: eventCount
+          dateRanges:
+            - startDate: "{{ config['start_date'] }}"
+              endDate: "today"
+          keepEmptyRows: false
+        authenticator:
+          type: GoogleServiceAccountAuthenticator
+          service_account_key: "{{ config['service_account_key'] }}"
+          scopes:
+            - "https://www.googleapis.com/auth/analytics.readonly"
+      record_selector:
+        type: RecordSelector
+        extractor:
+          type: DpathExtractor
+          field_path: ["rows"]
+      paginator:
+        type: DefaultPaginator
+        pagination_strategy:
+          type: OffsetIncrement
+          page_size: 250
+        page_token_option:
+          type: RequestOption
+          inject_into: body_json
+          field_name: offset
+        page_size_option:
+          type: RequestOption
+          inject_into: body_json
+          field_name: limit
+    incremental_sync:
+      type: DatetimeBasedCursor
+      cursor_field: date
+      cursor_value_path: dimensionValues.0.value
+      track_only: true
+    transformations:
+      - type: AddFields
+        fields:
+          - path: [date]
+            value: "{{ record['dimensionValues'][0]['value'] }}"
+          - path: [event_name]
+            value: "{{ record['dimensionValues'][1]['value'] }}"
+          - path: [event_count]
+            value: "{{ record['metricValues'][0]['value'] }}"
+      - type: RemoveFields
+        field_pointers: [[dimensionValues], [metricValues]]
+    schema_loader:
+      type: InlineSchemaLoader
+      schema:
+        type: object
+        properties:
+          date: { type: string }
+          event_name: { type: string }
+          event_count: { type: integer }
