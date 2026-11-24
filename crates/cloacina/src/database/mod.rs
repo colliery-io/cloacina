@@ -85,12 +85,12 @@
 //!
 //! ## Public Types
 //!
-//! - [`DbPool`]: The connection pool type for managing database connections
+//! - `DbPool`: The connection pool type (single-backend builds only) for managing database connections
 //! - [`Result<T>`]: Type alias for database operation results
 //!
 //! ## Public Functions
 //!
-//! - [`run_migrations`]: Manually runs pending database migrations
+//! - `run_migrations`: Manually runs pending database migrations (single-backend builds only)
 //!
 //! Migrations are automatically applied when using `DefaultRunner`. For lower-level
 //! database access, migrations can be run manually using `run_migrations()`.

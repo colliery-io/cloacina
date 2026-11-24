@@ -36,7 +36,7 @@
 //! - Context management and merging for task dependencies
 //!
 //! Recovery of orphaned tasks is handled out-of-band by
-//! [`stale_claim_sweeper::StaleClaimSweeper`], which releases stale claims
+//! [`StaleClaimSweeper`](crate::execution_planner::stale_claim_sweeper::StaleClaimSweeper), which releases stale claims
 //! based on heartbeat expiry rather than wall-clock task status.
 //!
 //! ## Task State Management

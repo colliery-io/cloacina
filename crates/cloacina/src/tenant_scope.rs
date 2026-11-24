@@ -24,7 +24,7 @@
 //! CLOACI-T-0921 established this shape for the `EndpointRegistry`
 //! (`EndpointKey` / `EndpointOwner` / `EndpointScope`); CLOACI-T-0924 lifted it
 //! here so the [`Runtime`](crate::Runtime) registries and the
-//! [`ComputationGraphScheduler`](crate::computation_graph::ComputationGraphScheduler)
+//! [`ComputationGraphScheduler`](crate::computation_graph::scheduler::ComputationGraphScheduler)
 //! reuse *one* convention instead of inventing a third.
 //!
 //! Three ideas:
