@@ -29,6 +29,7 @@ mod charts;
 mod components;
 mod config;
 mod data;
+mod live;
 mod ops;
 mod routes;
 mod shell;

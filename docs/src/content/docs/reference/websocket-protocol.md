@@ -292,7 +292,7 @@ On every (re)connect, the server resets all `delivered`-but-unacked rows for the
 
 **Backpressure:** each connection has a bounded push channel. When it fills, rows simply remain `pending` in the outbox and are delivered when the client catches up — nothing is dropped (unlike the accumulator endpoint).
 
-**Single subscriber:** one connection per `(recipient, tenant)` — a new connection for the same recipient takes over and the previous connection's channel closes.
+**Single subscriber:** one connection per `(recipient, tenant)` — a new connection for the same recipient takes over and the previous connection's channel closes. The exception is the ops metrics recipient (`ops_metrics:*`): its snapshots are not stored in the outbox, and every connection for it receives them, so several browser tabs on one tenant can each follow the metrics.
 
 ### Execution-Events Subscription
 

@@ -111,7 +111,7 @@ async fn handle_delivery_socket(
     debug!(recipient = %recipient, tenant = ?tenant, "delivery WS connected");
 
     // Register first so any NOTIFY-driven wake during catch-up lands somewhere.
-    let mut rx = sink.register(&recipient, tenant.as_deref());
+    let (conn_id, mut rx) = sink.register(&recipient, tenant.as_deref());
 
     // Reset the stuck-`delivered` set for (recipient, tenant) → `pending`, so
     // the relay re-pushes them via the normal sink path on the next drain.
@@ -142,7 +142,7 @@ async fn handle_delivery_socket(
         max_known_id: 0,
     };
     if !send_server_frame(&mut socket, &welcome).await {
-        sink.unregister(&recipient, tenant.as_deref());
+        sink.unregister(&recipient, tenant.as_deref(), conn_id);
         return;
     }
 
@@ -192,7 +192,7 @@ async fn handle_delivery_socket(
         }
     }
 
-    sink.unregister(&recipient, tenant.as_deref());
+    sink.unregister(&recipient, tenant.as_deref(), conn_id);
     debug!(recipient = %recipient, "delivery WS disconnected");
 }
 

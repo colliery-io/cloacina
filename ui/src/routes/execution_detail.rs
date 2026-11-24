@@ -144,19 +144,38 @@ pub fn ExecutionView(
         let Some(conn) = auth.connection() else {
             return;
         };
-        leptos::task::spawn_local(async move {
+        // CLOACINA-T-0952: the T-0941 pattern of ops.rs. The client-internal
+        // reconnect is off and this loop reconnects itself, and the loop is
+        // aborted when the effect re-runs (the execution ended, or another
+        // execution) or the page leaves: a stream that gets no more frames
+        // never reaches the generation check, and dropping it closes the
+        // socket.
+        crate::live::spawn_until_cleanup(async move {
             let Ok(client) = client_for(&conn) else {
                 return;
             };
-            let stream = client.follow_execution_events(&exec_id);
-            let mut stream = std::pin::pin!(stream);
-            while let Some(ev) = stream.next().await {
+            loop {
+                let opts = cloacina_client::SubscribeOptions {
+                    reconnect: false,
+                    ..Default::default()
+                };
+                let stream = client.follow_execution_events_with(&exec_id, opts);
+                let mut stream = std::pin::pin!(stream);
+                while let Some(ev) = stream.next().await {
+                    if generation.with_value(|g| *g) != my_gen {
+                        return;
+                    }
+                    let Ok(ev) = ev else { continue };
+                    if let Ok(parsed) = serde_json::from_value::<ExecutionEvent>(ev) {
+                        live_events.update(|v| v.push(parsed));
+                    }
+                }
                 if generation.with_value(|g| *g) != my_gen {
                     return;
                 }
-                let Ok(ev) = ev else { continue };
-                if let Ok(parsed) = serde_json::from_value::<ExecutionEvent>(ev) {
-                    live_events.update(|v| v.push(parsed));
+                gloo_timers::future::TimeoutFuture::new(2_000).await;
+                if generation.with_value(|g| *g) != my_gen {
+                    return;
                 }
             }
         });
