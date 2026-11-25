@@ -401,3 +401,60 @@ async fn test_defer_dispatch_keeps_attempt_and_delays_the_task() {
         );
     }
 }
+
+/// CLOACINA-T-1013: a terminal write guarded by a runner id applies only while
+/// that runner holds the claim. The fleet executor guards its result writes
+/// this way, so a result that comes back after the claim moved changes nothing.
+#[tokio::test]
+async fn test_guarded_completion_needs_the_claim() {
+    for (backend, fixture) in get_all_fixtures().await {
+        let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
+        guard.reset_database().await;
+        guard.initialize().await;
+        let database = guard.get_database();
+        let dal = DAL::new(database.clone());
+
+        let (_exec_id, task_id) = create_running_task(&dal).await;
+        let owner = UniversalUuid::new_v4();
+        let late = UniversalUuid::new_v4();
+        assert_eq!(
+            dal.task_execution()
+                .claim_for_runner(task_id, owner)
+                .await
+                .expect("claim"),
+            RunnerClaimResult::Claimed
+        );
+
+        // A runner without the claim cannot complete or fail the task.
+        let applied = dal
+            .task_execution()
+            .mark_completed(task_id, Some(late))
+            .await
+            .expect("mark_completed by a runner without the claim");
+        assert!(
+            !applied,
+            "[{}] completion without the claim must not apply",
+            backend
+        );
+        dal.task_execution()
+            .mark_failed(task_id, "late failure", Some(late))
+            .await
+            .expect("mark_failed by a runner without the claim");
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(
+            task.status, "Running",
+            "[{}] the task is unchanged",
+            backend
+        );
+
+        // The owner can.
+        let applied = dal
+            .task_execution()
+            .mark_completed(task_id, Some(owner))
+            .await
+            .expect("mark_completed by the owner");
+        assert!(applied, "[{}] the owner completes the task", backend);
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(task.status, "Completed", "[{}]", backend);
+    }
+}

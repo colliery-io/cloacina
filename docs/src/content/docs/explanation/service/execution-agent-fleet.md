@@ -175,6 +175,16 @@ Two things worth knowing about the recovery characteristics:
 - **It is failover, not checkpointing.** The survivor re-runs the task from the
   start; there is no mid-task resume. Tasks run on the fleet should be
   idempotent, like any retryable task.
+- **The first copy is not stopped.** When the server gives up on a dispatch (a
+  dead agent, a result wait that timed out, a server that stopped), the agent
+  may still be running the task, and there is no cancel message. Two copies of
+  one task can be alive at the same time. A task that writes outside its
+  context, such as a table commit, must be safe to run twice, also at the same
+  time.
+- **A late report changes nothing.** A result counts only for the dispatch it
+  belongs to, and only while the dispatching server holds the claim on the
+  task. A report that nobody waits for is logged and counted in
+  `cloacina_fleet_orphan_results_total`.
 - **Detection latency is tunable.** Total time to recover ≈ (dead-after
   detection) + (re-run). The detection floor is `interval × misses`; lower both
   for more aggressive failover at the cost of more heartbeat traffic.
