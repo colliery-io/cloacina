@@ -480,13 +480,12 @@ async fn test_store_package_with_invalid_uuid() {
 
 #[tokio::test]
 async fn test_package_versioning() {
-    // Under the supersede-based lifecycle (T-0497), only one row per package name is
-    // active at any time. Inserting a second version for the same name without first
-    // marking the predecessor as superseded would violate the partial unique index
-    // `(package_name) WHERE NOT superseded` — so the direct DAL path can only hold a
-    // single active version. The supersede-and-insert flow that lets a new version
-    // replace the old is exercised separately via `register_workflow_package` in
-    // the workflow_registry integration tests.
+    // CLOACINA-T-1018: one ACTIVE row per package name (`NOT superseded AND
+    // build_status = 'success'`). Rows that wait for a build are candidates and
+    // may sit beside each other and beside the active row, so the direct DAL
+    // path can hold two pending versions of one name. A version number is
+    // still single-use (`UNIQUE(package_name, version)`). The upload and swap
+    // flow is exercised in the registry unit tests.
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -527,19 +526,24 @@ async fn test_package_versioning() {
         .await
         .expect("Failed to store initial version");
 
-    // A second active row for the same name is rejected by the partial unique index.
+    // A second pending row of the same name is allowed: neither is active.
     let meta_v2 = PackageMetadata {
         version: "1.1.0".to_string(),
         description: Some("Version 1.1.0 of the package".to_string()),
         ..meta_v1.clone()
     };
+    workflow_packages_dal
+        .store_package_metadata(&registry_id, &meta_v2, storage_type, None)
+        .await
+        .expect("a second pending version of one name is allowed");
+
+    // The same version number is refused.
     let err = workflow_packages_dal
         .store_package_metadata(&registry_id, &meta_v2, storage_type, None)
         .await
-        .expect_err("second active insert for same name should be rejected");
-    matches!(err, RegistryError::PackageExists { .. });
+        .expect_err("a version number cannot be stored twice");
+    assert!(matches!(err, RegistryError::PackageExists { .. }));
 
-    // The original active row is still retrievable and is the sole listed entry.
     let retrieved = workflow_packages_dal
         .get_package_metadata(&package_name, "1.0.0")
         .await
@@ -554,13 +558,18 @@ async fn test_package_versioning() {
         .iter()
         .filter(|p| p.package_name == package_name)
         .collect();
-    assert_eq!(versioned_packages.len(), 1);
-    assert_eq!(versioned_packages[0].version, "1.0.0");
+    assert_eq!(versioned_packages.len(), 2);
+
+    // Neither row is built, so the name has no active version.
+    assert!(
+        workflow_packages_dal
+            .get_active_dispatch_for_package(&package_name, None)
+            .await
+            .expect("active lookup")
+            .is_none()
+    );
 }
 
-/// CLOACI-T-0836: `package_providers` round-trip — run-verifies migration
-/// `create_package_providers` plus the upsert/get DAL pair. The archive bytes are
-/// opaque here (the reconciler unpacks real provider archives at load).
 #[tokio::test]
 async fn test_package_providers_upsert_and_get_round_trip() {
     let fixture = get_or_init_fixture().await;

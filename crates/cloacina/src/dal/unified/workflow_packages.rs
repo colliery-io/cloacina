@@ -236,19 +236,32 @@ impl<'a> WorkflowPackagesDAL<'a> {
     }
 
     /// CLOACI-T-0780 (multi-arch): the content-hash of the per-target artifact for
-    /// `(package, target_triple)`, or `None` if there's no build for that target.
-    /// Dispatch prefers this over the primary build so each agent gets its arch.
+    /// `(package, version, target_triple)`, or `None` if there's no build for
+    /// that target. Dispatch prefers this over the primary build so each agent
+    /// gets its arch.
+    ///
+    /// CLOACINA-T-1018: the version is part of the key. The caller passes the
+    /// version of the row it dispatches (the active one, or the one an
+    /// execution is pinned to), so an agent of a second architecture never gets
+    /// the library of another version.
     pub async fn get_artifact_digest_for_target(
         &self,
         package_name: &str,
+        version: &str,
         target_triple: &str,
     ) -> Result<Option<String>, RegistryError> {
         use crate::database::schema::unified::package_artifacts;
-        let (pn, tt) = (package_name.to_string(), target_triple.to_string());
+        let (pn, ver, tt) = (
+            package_name.to_string(),
+            version.to_string(),
+            target_triple.to_string(),
+        );
         crate::interact_on_backend!(self.dal, |conn| {
             package_artifacts::table
                 .filter(package_artifacts::package_name.eq(pn))
+                .filter(package_artifacts::version.eq(ver))
                 .filter(package_artifacts::target_triple.eq(tt))
+                .order(package_artifacts::created_at.desc())
                 .select(package_artifacts::content_hash)
                 .first::<String>(conn)
                 .optional()
@@ -258,11 +271,9 @@ impl<'a> WorkflowPackagesDAL<'a> {
 
     /// CLOACI-T-0905 (multi-arch, version-scoped): the cdylib bytes of the
     /// per-target artifact for `(package, version, target_triple)`, or `None` when
-    /// no build exists for that target. Unlike
-    /// [`get_artifact_digest_for_target`](Self::get_artifact_digest_for_target)
-    /// (which serves fleet dispatch and is version-agnostic), the reconciler loads
-    /// a SPECIFIC package version, so the version must participate in selection —
-    /// otherwise an old version's artifact could satisfy a new version's load.
+    /// no build exists for that target. The reconciler loads a SPECIFIC package
+    /// version, so the version must participate in selection — otherwise an old
+    /// version's artifact could satisfy a new version's load.
     pub async fn get_artifact_data_for_target(
         &self,
         package_name: &str,
@@ -289,19 +300,22 @@ impl<'a> WorkflowPackagesDAL<'a> {
         Ok(bytes.map(|b| b.into_inner()))
     }
 
-    /// CLOACI-T-0780: the set of target triples this package has a per-target
-    /// artifact for. The fleet uses this (∪ the host primary) to only dispatch a
-    /// package to an agent whose arch it actually has a cdylib for — so an agent
-    /// is never handed a WorkPacket it would fail-closed refuse.
+    /// CLOACI-T-0780: the set of target triples this package version has a
+    /// per-target artifact for. The fleet uses this (∪ the host primary) to only
+    /// dispatch a package to an agent whose arch it actually has a cdylib for —
+    /// so an agent is never handed a WorkPacket it would fail-closed refuse.
+    /// CLOACINA-T-1018: scoped to `version`, like the digest lookup.
     pub async fn get_artifact_triples_for_package(
         &self,
         package_name: &str,
+        version: &str,
     ) -> Result<Vec<String>, RegistryError> {
         use crate::database::schema::unified::package_artifacts;
-        let pn = package_name.to_string();
+        let (pn, ver) = (package_name.to_string(), version.to_string());
         crate::interact_on_backend!(self.dal, |conn| {
             package_artifacts::table
                 .filter(package_artifacts::package_name.eq(pn))
+                .filter(package_artifacts::version.eq(ver))
                 .select(package_artifacts::target_triple)
                 .distinct()
                 .load::<String>(conn)
@@ -704,6 +718,126 @@ impl<'a> WorkflowPackagesDAL<'a> {
         }))
     }
 
+    /// The active build of a package as a [`DispatchPackage`]: the row id and
+    /// version together with the digest and the language. Same active-row
+    /// filter as `get_active_content_hash_for_package`. (CLOACINA-T-1018)
+    pub async fn get_active_dispatch(
+        &self,
+        package_name: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<DispatchPackage>, RegistryError> {
+        let row = self
+            .get_active_row_for_package(package_name, tenant_id)
+            .await?;
+        Ok(row.map(DispatchPackage::from_row))
+    }
+
+    /// The package version that a task of `workflow_execution_id` runs on
+    /// (CLOACINA-T-1018).
+    ///
+    /// The rule: an execution runs all its tasks on one version of a package.
+    /// The first task of the execution that is dispatched pins the version that
+    /// is active at that moment (a row in `workflow_execution_package_pins`).
+    /// Each later task reads the pin and gets that version, also after a newer
+    /// version became active and the pinned one is superseded.
+    ///
+    /// Returns `Ok(None)` when there is no pin and no active version. Returns
+    /// an error when the pinned version is no longer built or was deleted: the
+    /// execution does not move to another version.
+    pub async fn resolve_dispatch_for_execution(
+        &self,
+        workflow_execution_id: UniversalUuid,
+        package_name: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<DispatchPackage>, RegistryError> {
+        use crate::dal::unified::models::WorkflowExecutionPackagePin;
+
+        let pinned = match self
+            .get_execution_pin(workflow_execution_id, package_name)
+            .await?
+        {
+            Some(pin) => pin,
+            None => {
+                let Some(active) = self
+                    .get_active_row_for_package(package_name, tenant_id)
+                    .await?
+                else {
+                    return Ok(None);
+                };
+                let pin = WorkflowExecutionPackagePin {
+                    workflow_execution_id,
+                    package_name: package_name.to_string(),
+                    package_id: active.id,
+                    version: active.version.clone(),
+                    created_at: UniversalTimestamp::now(),
+                };
+                {
+                    use crate::database::schema::unified::workflow_execution_package_pins as pins;
+                    crate::interact_on_backend!(self.dal, |conn| {
+                        diesel::insert_into(pins::table)
+                            .values(&pin)
+                            .on_conflict_do_nothing()
+                            .execute(conn)
+                    })
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                }
+                // Read back: another task of the execution may have pinned first.
+                let stored = self
+                    .get_execution_pin(workflow_execution_id, package_name)
+                    .await?
+                    .ok_or_else(|| {
+                        RegistryError::Internal(format!(
+                            "version pin of execution {} for package `{}` was not stored",
+                            workflow_execution_id.0, package_name
+                        ))
+                    })?;
+                if stored.package_id == active.id {
+                    return Ok(Some(DispatchPackage::from_row(active)));
+                }
+                stored
+            }
+        };
+
+        let package_id = pinned.package_id;
+        let row: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(self.dal, |conn| {
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(package_id))
+                .filter(workflow_packages::build_status.eq("success"))
+                .first::<UnifiedWorkflowPackage>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        match row {
+            Some(row) => Ok(Some(DispatchPackage::from_row(row))),
+            None => Err(RegistryError::Internal(format!(
+                "execution {} is pinned to version {} of package `{}`, which is no longer \
+                 built or was deleted",
+                workflow_execution_id.0, pinned.version, package_name
+            ))),
+        }
+    }
+
+    /// The version pin of an execution for a package, if one is recorded.
+    pub async fn get_execution_pin(
+        &self,
+        workflow_execution_id: UniversalUuid,
+        package_name: &str,
+    ) -> Result<Option<crate::dal::unified::models::WorkflowExecutionPackagePin>, RegistryError>
+    {
+        use crate::dal::unified::models::WorkflowExecutionPackagePin;
+        use crate::database::schema::unified::workflow_execution_package_pins as pins;
+        let name = package_name.to_string();
+        crate::interact_on_backend!(self.dal, |conn| {
+            pins::table
+                .filter(pins::workflow_execution_id.eq(workflow_execution_id))
+                .filter(pins::package_name.eq(name))
+                .select(WorkflowExecutionPackagePin::as_select())
+                .first(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+    }
+
     async fn get_active_row_for_package(
         &self,
         package_name: &str,
@@ -782,6 +916,34 @@ impl<'a> WorkflowPackagesDAL<'a> {
         })
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         Ok(result)
+    }
+}
+
+/// What fleet dispatch needs to know about the package version a task runs on
+/// (CLOACINA-T-1018).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchPackage {
+    /// The `workflow_packages` row.
+    pub package_id: Uuid,
+    pub version: String,
+    /// Digest of the primary build (the uploaded archive's content hash).
+    pub content_hash: String,
+    /// `"python"` when the build produced no cdylib, else `"rust"`.
+    pub language: String,
+}
+
+impl DispatchPackage {
+    fn from_row(row: UnifiedWorkflowPackage) -> Self {
+        let has_cdylib = row
+            .compiled_data
+            .map(|b| !b.into_inner().is_empty())
+            .unwrap_or(false);
+        Self {
+            package_id: row.id.0,
+            version: row.version,
+            content_hash: row.content_hash,
+            language: if has_cdylib { "rust" } else { "python" }.to_string(),
+        }
     }
 }
 
@@ -1075,5 +1237,251 @@ mod tests {
             .delete_package_metadata_by_id(Uuid::new_v4())
             .await
             .unwrap();
+    }
+    // ────────────────────────────────────────────────────────────────────
+    // CLOACINA-T-1018: version pins and the per-target lookup.
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Test helper: store a row and set its build state with plain updates.
+    #[cfg(feature = "sqlite")]
+    async fn store_built(
+        dal: &DAL,
+        name: &str,
+        version: &str,
+        hash: &str,
+        compiled: Vec<u8>,
+    ) -> Uuid {
+        use crate::database::universal_types::UniversalBinary;
+        let id = dal
+            .workflow_packages()
+            .store_package_metadata(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata(name, version),
+                crate::models::workflow_packages::StorageType::Database,
+                None,
+            )
+            .await
+            .unwrap();
+        let (pid, hash) = (UniversalUuid(id), hash.to_string());
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set((
+                    workflow_packages::build_status.eq("success"),
+                    workflow_packages::content_hash.eq(hash),
+                    workflow_packages::compiled_data.eq(Some(UniversalBinary::new(compiled))),
+                ))
+                .execute(conn)
+        })
+        .unwrap();
+        id
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn set_superseded(dal: &DAL, id: Uuid, superseded: bool) {
+        let pid = UniversalUuid(id);
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set(workflow_packages::superseded.eq(UniversalBool(superseded)))
+                .execute(conn)
+        })
+        .unwrap();
+    }
+
+    /// An execution runs all its tasks on the version its first task was
+    /// dispatched on. A new execution gets the new version.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_execution_stays_on_the_version_it_started_with() {
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+        let v1 = store_built(&dal, "pinned", "1.0.0", "digest-v1", vec![1]).await;
+
+        let running = UniversalUuid::new_v4();
+        let first = wp
+            .resolve_dispatch_for_execution(running, "pinned", None)
+            .await
+            .unwrap()
+            .expect("an active version");
+        assert_eq!(first.package_id, v1);
+        assert_eq!(first.version, "1.0.0");
+        assert_eq!(first.content_hash, "digest-v1");
+        assert_eq!(first.language, "rust");
+
+        // Version 2 becomes active while the execution runs.
+        set_superseded(&dal, v1, true).await;
+        let v2 = store_built(&dal, "pinned", "2.0.0", "digest-v2", vec![2]).await;
+        let active = wp
+            .get_active_dispatch("pinned", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(active.package_id, v2);
+
+        // The next task of the running execution still gets version 1.
+        let later = wp
+            .resolve_dispatch_for_execution(running, "pinned", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(later, first);
+        // The artifact of the superseded version is still served by digest.
+        assert_eq!(
+            wp.get_compiled_data_by_content_hash("digest-v1")
+                .await
+                .unwrap(),
+            Some(vec![1])
+        );
+
+        // An execution that starts now runs on version 2.
+        let fresh = wp
+            .resolve_dispatch_for_execution(UniversalUuid::new_v4(), "pinned", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(fresh.package_id, v2);
+        assert_eq!(fresh.content_hash, "digest-v2");
+
+        // Going back to version 1 does not move an execution pinned to 2.
+        let on_v2 = UniversalUuid::new_v4();
+        wp.resolve_dispatch_for_execution(on_v2, "pinned", None)
+            .await
+            .unwrap()
+            .unwrap();
+        set_superseded(&dal, v2, true).await;
+        set_superseded(&dal, v1, false).await;
+        let still = wp
+            .resolve_dispatch_for_execution(on_v2, "pinned", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(still.package_id, v2);
+    }
+
+    /// No pin and no active version: nothing to dispatch. A pinned version
+    /// that was deleted is an error, not a move to another version.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_pin_with_no_active_version_and_with_deleted_version() {
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+        let exec = UniversalUuid::new_v4();
+
+        // Only a pending row: no active version, and no pin is written.
+        wp.store_package_metadata(
+            &Uuid::new_v4().to_string(),
+            &sample_metadata("gone", "0.1.0"),
+            crate::models::workflow_packages::StorageType::Database,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(
+            wp.resolve_dispatch_for_execution(exec, "gone", None)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(wp.get_execution_pin(exec, "gone").await.unwrap().is_none());
+
+        let v1 = store_built(&dal, "gone", "1.0.0", "digest-gone", Vec::new()).await;
+        let pinned = wp
+            .resolve_dispatch_for_execution(exec, "gone", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            pinned.language, "python",
+            "an empty build is a Python package"
+        );
+        let pin = wp.get_execution_pin(exec, "gone").await.unwrap().unwrap();
+        assert_eq!(pin.package_id.0, v1);
+        assert_eq!(pin.version, "1.0.0");
+
+        wp.delete_package_metadata_by_id(v1).await.unwrap();
+        let _v2 = store_built(&dal, "gone", "2.0.0", "digest-gone-2", Vec::new()).await;
+        let err = wp
+            .resolve_dispatch_for_execution(exec, "gone", None)
+            .await
+            .expect_err("the execution must not move to version 2");
+        assert!(
+            format!("{err}").contains("pinned to version 1.0.0"),
+            "{err}"
+        );
+    }
+
+    /// The per-target lookups are for one version: the artifact of another
+    /// version of the same package and triple is never returned.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_artifact_digest_for_target_is_version_scoped() {
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+        let triple = "aarch64-unknown-linux-gnu";
+
+        // Version 1 has builds for two triples, version 2 for one. The row of
+        // version 1 is stored first, so a lookup with no version returned it.
+        wp.upsert_artifact("multi", "1.0.0", None, triple, "arm-v1", vec![1])
+            .await
+            .unwrap();
+        wp.upsert_artifact(
+            "multi",
+            "1.0.0",
+            None,
+            "riscv64gc-unknown-linux-gnu",
+            "rv-v1",
+            vec![3],
+        )
+        .await
+        .unwrap();
+        wp.upsert_artifact("multi", "2.0.0", None, triple, "arm-v2", vec![2])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            wp.get_artifact_digest_for_target("multi", "2.0.0", triple)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("arm-v2")
+        );
+        assert_eq!(
+            wp.get_artifact_digest_for_target("multi", "1.0.0", triple)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("arm-v1")
+        );
+        // A version with no build for the triple: none, not another version's.
+        assert!(
+            wp.get_artifact_digest_for_target("multi", "3.0.0", triple)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            wp.get_artifact_digest_for_target("multi", "2.0.0", "riscv64gc-unknown-linux-gnu")
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let mut v1 = wp
+            .get_artifact_triples_for_package("multi", "1.0.0")
+            .await
+            .unwrap();
+        v1.sort();
+        assert_eq!(
+            v1,
+            vec![
+                triple.to_string(),
+                "riscv64gc-unknown-linux-gnu".to_string()
+            ]
+        );
+        assert_eq!(
+            wp.get_artifact_triples_for_package("multi", "2.0.0")
+                .await
+                .unwrap(),
+            vec![triple.to_string()]
+        );
     }
 }

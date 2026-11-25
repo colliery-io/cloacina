@@ -517,15 +517,29 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             hex::encode(hasher.finalize())
         };
 
-        // 4. Look up the currently-active row for this package name.
-        //    - Same hash  → idempotent, return existing id (no storage churn, no supersede)
-        //    - Different  → supersede old + insert new atomically
-        //    - None       → insert new
-        let active = self.get_active_package_by_name(&pkg_name).await?;
-        if let Some((existing_id, _, ref existing_hash)) = active {
-            if existing_hash == &content_hash {
-                return Ok(existing_id);
+        // 4. Look up the live rows of this package name: the active row and
+        //    the candidates (CLOACINA-T-1018).
+        //    - Same hash as a candidate → idempotent, return its id.
+        //    - Same hash as the active row → idempotent, return its id. A
+        //      candidate that waits is abandoned: the caller asked for the
+        //      version that is in service.
+        //    - Different → insert a candidate. The active row stays in service
+        //      until the build of the candidate succeeds.
+        let live = self.get_live_rows_by_name(&pkg_name).await?;
+        if let Some((id, _, _)) = live
+            .iter()
+            .find(|(_, hash, status)| hash == &content_hash && status != "success")
+        {
+            return Ok(*id);
+        }
+        if let Some((id, _, _)) = live
+            .iter()
+            .find(|(_, hash, status)| hash == &content_hash && status == "success")
+        {
+            if live.len() > 1 {
+                self.abandon_candidates(&pkg_name).await?;
             }
+            return Ok(*id);
         }
 
         let package_metadata = crate::registry::loader::package_loader::PackageMetadata {
@@ -552,8 +566,6 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
 
         let registry_id = self.storage.store_binary(package_data).await?;
 
-        let old_id = active.map(|(id, _, _)| id);
-
         // Content-hash artifact reuse (T-0523): if an earlier row compiled the
         // same bytes successfully, skip the build queue and pre-populate the
         // new row as `success` with the existing compiled_data.
@@ -561,8 +573,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         let prebuilt_bytes = prebuilt.map(|(_, bytes)| bytes);
 
         let package_id = self
-            .supersede_and_insert_with_prebuilt(
-                old_id,
+            .insert_candidate(
                 &registry_id,
                 &package_metadata,
                 &content_hash,
@@ -847,5 +858,110 @@ mod tests {
         // This would need a database for full testing
         // For now just test that we can create the storage
         assert!(temp_dir.path().exists());
+    }
+    // ────────────────────────────────────────────────────────────────────
+    // CLOACINA-T-1018: the upload path, with real `.cloacina` archives.
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Pack a minimal Rust source package (manifest + one source file).
+    #[cfg(feature = "sqlite")]
+    fn pack_source(name: &str, version: &str, body: &str) -> Vec<u8> {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("pkg");
+        std::fs::create_dir_all(src.join("src")).unwrap();
+        std::fs::write(
+            src.join("package.toml"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"{version}\"\n\
+                 interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+                 extension = \"cloacina\"\n\n[metadata]\nlanguage = \"rust\"\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(src.join("src/lib.rs"), body).unwrap();
+        let out = dir.path().join("out.cloacina");
+        fidius_core::package::pack_package(&src, Some(&out)).unwrap();
+        std::fs::read(&out).unwrap()
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn sqlite_registry() -> super::WorkflowRegistryImpl<
+        crate::dal::unified::workflow_registry_storage::UnifiedRegistryStorage,
+    > {
+        let url = format!(
+            "file:wfreg_upload_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4()
+        );
+        let db = crate::database::Database::new(&url, "", 5);
+        db.run_migrations().await.unwrap();
+        let storage =
+            crate::dal::unified::workflow_registry_storage::UnifiedRegistryStorage::new(db.clone());
+        super::WorkflowRegistryImpl::new(storage, db).unwrap()
+    }
+
+    /// Scenario 3 of CLOACINA-T-1026 at the registry: an upload does not
+    /// retire the version in service, a failed build leaves it in service, and
+    /// uploads of the same bytes are idempotent.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_upload_keeps_active_version_until_build_succeeds() {
+        use crate::registry::traits::WorkflowRegistry as _;
+
+        let mut registry = sqlite_registry().await;
+        let v1 = pack_source("team-jobs", "1.0.0", "// one\n");
+        let v2 = pack_source("team-jobs", "2.0.0", "// two, does not compile\n");
+        let v3 = pack_source("team-jobs", "3.0.0", "// three\n");
+
+        let id_v1 = registry.register_workflow(v1.clone()).await.unwrap();
+        // The same bytes while the build waits: the same row.
+        assert_eq!(registry.register_workflow(v1.clone()).await.unwrap(), id_v1);
+        registry
+            .claim_next_build()
+            .await
+            .unwrap()
+            .expect("claim v1");
+        registry
+            .mark_build_success(id_v1, Vec::new())
+            .await
+            .unwrap();
+        assert_eq!(registry.list_workflows().await.unwrap()[0].id, id_v1);
+
+        // Version 2 is uploaded: version 1 stays the one in service.
+        let id_v2 = registry.register_workflow(v2.clone()).await.unwrap();
+        assert_ne!(id_v2, id_v1);
+        let active = registry.list_workflows().await.unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, id_v1);
+        assert_eq!(active[0].version, "1.0.0");
+
+        // Its build fails: version 1 is still in service.
+        registry
+            .claim_next_build()
+            .await
+            .unwrap()
+            .expect("claim v2");
+        registry
+            .mark_build_failed(id_v2, "error: expected item")
+            .await
+            .unwrap();
+        let active = registry.list_workflows().await.unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, id_v1);
+        // The same failed bytes again: the same failed row, no new build.
+        assert_eq!(registry.register_workflow(v2).await.unwrap(), id_v2);
+        assert!(registry.claim_next_build().await.unwrap().is_none());
+
+        // Version 3 is uploaded, then the caller uploads the bytes of version 1
+        // again: the candidate is abandoned and version 1 stays.
+        let id_v3 = registry.register_workflow(v3).await.unwrap();
+        assert_eq!(registry.register_workflow(v1).await.unwrap(), id_v1);
+        assert!(registry.claim_next_build().await.unwrap().is_none());
+        let versions = registry.list_package_versions("team-jobs").await.unwrap();
+        assert_eq!(versions.len(), 3);
+        let v3_row = versions.iter().find(|v| v.id == id_v3).unwrap();
+        assert!(v3_row.superseded && !v3_row.active);
+        let active: Vec<_> = versions.iter().filter(|v| v.active).collect();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, id_v1);
     }
 }

@@ -310,6 +310,21 @@ mod unified_schema {
         }
     }
 
+    // CLOACINA-T-1018: the package version an execution runs on. Written at the
+    // first dispatch of a task of the execution, read at each later one.
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp};
+
+        workflow_execution_package_pins (workflow_execution_id, package_name) {
+            workflow_execution_id -> DbUuid,
+            package_name -> Text,
+            package_id -> DbUuid,
+            version -> Text,
+            created_at -> DbTimestamp,
+        }
+    }
+
     // CLOACI-T-0836: bundled constructor providers for hermetic packaged
     // workflows. One row per (consumer package, provider): the provider's packed
     // `.cloacina` archive (arch-neutral WASM), unpacked by the reconciler into a
