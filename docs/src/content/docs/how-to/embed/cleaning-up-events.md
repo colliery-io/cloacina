@@ -7,6 +7,15 @@ sidebar:
 
 This guide covers using the `cloacinactl admin cleanup-events` command to manage the execution event table, which grows with every task execution and can impact query performance over time.
 
+:::note
+A `cloacina-server` deployment removes old run history by itself: finished
+runs and all their rows, events included, after
+`--run-history-retention-days` (default 90). See
+[Run history retention](../../service/production-deployment/#run-history-retention).
+This command is for the daemon and for embedded applications, which have no
+such job, and it removes event rows only.
+:::
+
 ## Prerequisites
 
 - `cloacinactl` binary installed

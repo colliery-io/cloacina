@@ -65,6 +65,7 @@ pub mod oidc_sessions;
 pub mod reactor_owner_addresses;
 pub mod reactor_subscriptions;
 pub mod recovery_event;
+pub mod retention;
 pub mod schedule;
 pub mod schedule_execution;
 pub mod task_execution;
@@ -98,6 +99,7 @@ pub use reactor_subscriptions::{
     compile_predicate, lint_predicate_variables, truncate_predicate_text,
 };
 pub use recovery_event::RecoveryEventDAL;
+pub use retention::{RetentionDAL, RunHistoryDeleted};
 pub use schedule::ScheduleDAL;
 pub use schedule_execution::{
     RecoveryClaimResult, RecoveryHeartbeatResult, ScheduleExecutionDAL, ScheduleExecutionStats,
@@ -254,6 +256,12 @@ impl DAL {
     /// Returns a recovery event DAL for recovery operations.
     pub fn recovery_event(&self) -> RecoveryEventDAL<'_> {
         RecoveryEventDAL::new(self)
+    }
+
+    /// Returns the run-history retention DAL (CLOACINA-T-1023): bounded
+    /// deletes of finished executions and their dependent rows.
+    pub fn retention(&self) -> RetentionDAL<'_> {
+        RetentionDAL::new(self)
     }
 
     /// Returns an execution event DAL for execution event operations.

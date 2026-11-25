@@ -89,6 +89,34 @@ struct Cli {
     #[arg(long, default_value_t = 14)]
     log_retention_days: u64,
 
+    /// Days to keep a finished workflow run (status Completed, Failed or
+    /// Cancelled) in the database, counted from when it finished. A
+    /// background job then deletes the run with its task executions, task
+    /// metadata, contexts, execution events, recovery events and schedule
+    /// executions. Runs that are not finished are never deleted. `0` turns
+    /// this off (keep for ever). Default 90. Not related to
+    /// `--log-retention-days`, which is about log files. CLOACINA-T-1023.
+    #[arg(
+        long,
+        env = "CLOACINA_RUN_HISTORY_RETENTION_DAYS",
+        default_value_t = 90
+    )]
+    run_history_retention_days: u64,
+
+    /// Seconds to keep a `delivery_outbox` row after it was acked. `0` turns
+    /// this off (keep for ever). Default 3600. CLOACINA-T-1023.
+    #[arg(
+        long,
+        env = "CLOACINA_OUTBOX_ACKED_RETENTION_S",
+        default_value_t = 3600
+    )]
+    outbox_acked_retention_s: u64,
+
+    /// Seconds between passes of the retention job. Default 300.
+    /// CLOACINA-T-1023.
+    #[arg(long, env = "CLOACINA_RETENTION_INTERVAL_S", default_value_t = 300)]
+    retention_interval_s: u64,
+
     /// Executor every task is dispatched to (CLOACI-T-0640). `default` (the
     /// in-process thread executor) unless set to another registered key —
     /// notably `fleet` to send all work to the execution-agent fleet. The key
@@ -216,6 +244,11 @@ async fn main() -> Result<()> {
             allowed_methods: cli.cors_allowed_methods,
             allowed_headers: cli.cors_allowed_headers,
         },
+        cloacina_server::retention::RetentionConfig::from_flags(
+            cli.run_history_retention_days,
+            cli.outbox_acked_retention_s,
+            cli.retention_interval_s,
+        ),
     )
     .await
 }

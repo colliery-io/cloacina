@@ -31,6 +31,7 @@ pub mod identity;
 pub mod oidc;
 pub mod openapi;
 pub mod ops_metrics;
+pub mod retention;
 pub mod routes;
 pub mod secrets;
 pub mod tenant_runner_cache;
@@ -366,6 +367,8 @@ pub async fn run(
     // CORS opt-in (CLOACI-T-0643 / REQ-009). Disabled unless at least one
     // allowed origin is configured.
     cors: CorsConfig,
+    // Retention of run history and acked outbox rows (CLOACINA-T-1023).
+    retention: retention::RetentionConfig,
 ) -> Result<()> {
     // Validate CORS config before any heavy startup work.
     let cors_layer = cors.layer()?;
@@ -1138,6 +1141,10 @@ pub async fn run(
     // substrate (direct sink push, not the durable outbox). No-op when nothing
     // is subscribed.
     crate::ops_metrics::spawn(state.clone(), substrate_shutdown_rx.clone());
+
+    // Retention (CLOACINA-T-1023): removes finished runs and acked outbox rows
+    // past their periods, per schema, on one replica per tick.
+    crate::retention::spawn(state.clone(), retention, substrate_shutdown_rx.clone());
 
     // Fleet executor registration (CLOACI-I-0114 / T-0633, T-0640). Only wired
     // up when the operator opts into the fleet via `--default-executor fleet`;
