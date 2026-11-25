@@ -1,6 +1,6 @@
 -- CLOACINA-T-1018: a package version is active only after its build succeeds,
 -- and an execution is pinned to the version it started with. See the sibling
--- postgres migration 051 for the reasons.
+-- postgres migration 052 for the reasons.
 DROP INDEX IF EXISTS idx_active_package_per_name;
 CREATE UNIQUE INDEX idx_active_package_per_name
     ON workflow_packages(package_name)
