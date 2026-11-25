@@ -94,7 +94,7 @@ The server binds to `127.0.0.1` (localhost only) when behind a reverse proxy —
 Configure your load balancer to check:
 
 - **Liveness**: `GET /health` — returns 200 if the process is alive
-- **Readiness**: `GET /ready` — returns 200 when the database connection pool is reachable **and** no loaded computation graph has crashed; otherwise 503 with a `reason` field (`database unreachable` or `crashed computation graphs`)
+- **Readiness**: `GET /ready` — returns 200 when the database connection pool is reachable **and** the embedded Python runtime is usable; otherwise 503 with a fixed `reason` field (`database unreachable` or `python runtime unavailable; restart required`). A crashed computation graph does not fail readiness; see `GET /v1/health/graphs`
 
 ## Docker Compose Example
 

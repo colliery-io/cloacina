@@ -12,8 +12,11 @@ spec:
   selector:
     matchLabels:
       {{- include "cloacina-server.selectorLabels" . | nindent 6 }}
+      {{- if .Values.metrics.enabled }}
+      app.kubernetes.io/component: metrics
+      {{- end }}
   endpoints:
-    - port: http
+    - port: {{ ternary "metrics" "http" .Values.metrics.enabled }}
       path: /metrics
       interval: {{ .Values.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}

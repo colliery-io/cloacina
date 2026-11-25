@@ -86,6 +86,17 @@ def helm_lint():
         "--set", "serviceMonitor.enabled=true",
     ], stdout=subprocess.DEVNULL)
 
+    # Variant: metrics listener, its Service, ServiceMonitor and NetworkPolicy
+    # (CLOACINA-T-1025).
+    _run([
+        "helm", "template", "cloacina", str(CHART_DIR),
+        "--set", "database.url=postgres://u:p@h:5432/d",
+        "--set", "metrics.enabled=true",
+        "--set", "metrics.networkPolicy.enabled=true",
+        "--set", "metrics.networkPolicy.from[0].namespaceSelector.matchLabels.team=monitoring",
+        "--set", "serviceMonitor.enabled=true",
+    ], stdout=subprocess.DEVNULL)
+
     # Variant 3: validateDatabase fail-fast — must error.
     rc = subprocess.run(
         ["helm", "template", "cloacina", str(CHART_DIR)],

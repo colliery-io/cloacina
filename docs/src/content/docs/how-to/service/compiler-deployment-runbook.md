@@ -146,6 +146,7 @@ evidence the defaults are wrong.
 | `--sweep-interval-s` | `30` | How often the sweeper checks for stale rows. |
 | `--cargo-flag` | appends to `build --release --lib --frozen --offline` | Repeatable. Extra flags for custom features etc.; `--cargo-flags-replace` is the explicit full-override escape hatch (e.g. debug/online builds). |
 | `--bind` | `127.0.0.1:9000` | Local `/health`, `/v1/status`, and `/metrics` endpoint. |
+| `--metrics-bind` (env `CLOACINA_COMPILER_METRICS_BIND`) | unset | Separate listener for `/metrics`. When set, `--bind` answers 404 for `/metrics`. |
 | `tmp_root` (env / config) | `$CLOACINA_HOME/build-tmp` | Where source archives are unpacked during builds. |
 | `--log-retention-days` | `7` | Per I-0109; rotates compiler structured logs. |
 
@@ -157,7 +158,8 @@ threat model rather than here.
 ### Server
 
 The server publishes `/metrics` on the same port as the API
-(unauthenticated, by design). Key deployment-relevant flags are
+(unauthenticated, by design) unless `--metrics-bind` moves it to a
+separate address. Key deployment-relevant flags are
 documented in [Deploying the API Server](../deploying-the-api-server/) and the full set is in [CLI Reference](../../../reference/cli/).
 
 For signature enforcement, the server accepts `--require-signatures`

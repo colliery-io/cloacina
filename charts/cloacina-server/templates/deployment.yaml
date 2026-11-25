@@ -42,6 +42,10 @@ spec:
           args:
             - "--bind"
             - {{ .Values.server.bind | quote }}
+            {{- if .Values.metrics.enabled }}
+            - "--metrics-bind"
+            - {{ printf "0.0.0.0:%v" .Values.metrics.port | quote }}
+            {{- end }}
             - "--tenant-runner-cache-size"
             - {{ .Values.server.tenantRunnerCacheSize | quote }}
             - "--tenant-deletion-drain-timeout-s"
@@ -57,6 +61,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
           env:
             {{- if .Values.reactorAffinity.enabled }}
             # CLOACI-T-0851 / A-0012 Amendment 3: the address this replica

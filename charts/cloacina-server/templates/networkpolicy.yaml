@@ -1,0 +1,37 @@
+{{- if .Values.metrics.networkPolicy.enabled }}
+{{- if not .Values.metrics.enabled }}
+{{- fail "metrics.networkPolicy.enabled needs metrics.enabled=true: without the metrics listener, /metrics is on the API port and a NetworkPolicy cannot separate it." }}
+{{- end }}
+# Ingress to the server pods (CLOACINA-T-1025). The API port stays open to
+# every source. The metrics port is open only to the peers in
+# metrics.networkPolicy.from; with an empty list it is open to nobody.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cloacina-server.fullname" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+spec:
+  # The compiler pods carry the same name and instance labels; leave them out.
+  podSelector:
+    matchLabels:
+      {{- include "cloacina-server.selectorLabels" . | nindent 6 }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values:
+          - compiler
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+    {{- with .Values.metrics.networkPolicy.from }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.metrics.port }}
+    {{- end }}
+{{- end }}

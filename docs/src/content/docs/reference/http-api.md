@@ -102,8 +102,10 @@ Liveness check. Always returns 200.
 
 ### GET /ready
 
-Readiness check. Verifies two things: the database connection pool
-is healthy, and no loaded computation graphs have crashed.
+Readiness check, for platform health only. Verifies two things: the
+database connection pool is healthy, and the embedded Python runtime is
+usable. A crashed computation graph does not fail readiness; see
+`GET /v1/health/graphs`.
 
 **Response:** `200 OK`
 
@@ -117,26 +119,26 @@ is healthy, and no loaded computation graphs have crashed.
 {"status": "not ready", "reason": "database unreachable"}
 ```
 
-**Response:** `503 Service Unavailable` — crashed-graph path
+**Response:** `503 Service Unavailable` — Python runtime path
 
 ```json
-{
-  "status": "not ready",
-  "reason": "crashed computation graphs",
-  "crashed_graphs": ["pricing_graph", "alerts_graph"]
-}
+{"status": "not ready", "reason": "python runtime unavailable; restart required"}
 ```
 
-The `crashed_graphs` array names every loaded graph whose reactor
-task is no longer running. The graph scheduler's supervision loop
-attempts to restart crashed graphs every 5 seconds; if a graph stays
-crashed past `MAX_RECOVERY_ATTEMPTS` (5 consecutive failures) it is
-permanently abandoned and remains in this list until the package is
-reloaded.
+The embedded Python interpreter is wedged by a package import that
+hung, and only a restart of this process fixes it. `/ready` has no
+authentication, so `reason` is one of these two fixed strings and never
+names a package. The package is named in the server log, in the
+`PYTHON RUNTIME WEDGED` error line.
 
 ### GET /metrics
 
-Prometheus metrics endpoint.
+Prometheus metrics endpoint. No authentication.
+
+By default it is on the main listener. When the server runs with
+`--metrics-bind <ADDR>` (env `CLOACINA_METRICS_BIND`), `/metrics` is
+served only on that address, and the main listener answers
+`404 Not Found` for it. The metrics listener serves no other route.
 
 **Response:** `200 OK` with `Content-Type: text/plain; version=0.0.4`
 
@@ -1746,9 +1748,12 @@ been removed.
 
 ### Metrics endpoint
 
-- `/metrics` is **public** — no authentication is enforced. Operators
-  who need to restrict access should reverse-proxy the endpoint and
-  enforce auth at that layer.
+- `/metrics` is **public** — no authentication is enforced. By default
+  it is on the API port, so every client that can reach the API can
+  read it. Operators who need to restrict access should set
+  `--metrics-bind` to move it to a separate address and limit who can
+  reach that address (a NetworkPolicy, a firewall rule, or a loopback
+  bind with a local scraper).
 
 ### Graph supervision
 

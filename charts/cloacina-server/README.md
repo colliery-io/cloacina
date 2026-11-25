@@ -53,6 +53,10 @@ The chart fails fast if you don't configure exactly one of:
 | `service.type` | `ClusterIP` | Service type |
 | `ingress.enabled` | `false` | Provision an Ingress |
 | `serviceMonitor.enabled` | `false` | Emit a Prometheus operator `ServiceMonitor` |
+| `metrics.enabled` | `false` | Serve `/metrics` on its own port and Service; the API port answers 404 for it |
+| `metrics.port` | `9090` | Port of the metrics listener |
+| `metrics.networkPolicy.enabled` | `false` | NetworkPolicy for the server pods: API port open, metrics port open only to `from` |
+| `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to reach the metrics port |
 | `livenessProbe`/`readinessProbe`/`startupProbe` | `/v1/health` HTTP probes | Override or disable per probe |
 
 See [`values.yaml`](./values.yaml) for the full reference.
@@ -78,6 +82,29 @@ without further changes.
 
 Set `serviceMonitor.enabled=true` to register a `ServiceMonitor` for
 the Prometheus operator. The chart scrapes `:8080/metrics` every 30s.
+
+By default `/metrics` is on the API port with no authentication: every
+client that can reach the API can read it, and the metric labels hold
+names that tenants choose. To separate it:
+
+```yaml
+metrics:
+  enabled: true          # /metrics moves to port 9090; :8080/metrics answers 404
+  networkPolicy:
+    enabled: true        # needs a CNI that enforces NetworkPolicy
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring
+serviceMonitor:
+  enabled: true          # now scrapes the Service <fullname>-metrics
+```
+
+With `metrics.enabled=true` the chart adds the container port `metrics`
+and a ClusterIP Service `<fullname>-metrics`. The NetworkPolicy keeps the
+API port open to every source, opens the metrics port only to the peers
+in `from` (nobody when the list is empty), and refuses every other
+ingress to the server pods.
 
 ## Upgrades
 

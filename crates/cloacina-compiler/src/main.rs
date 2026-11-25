@@ -47,6 +47,12 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:9000")]
     bind: SocketAddr,
 
+    /// Address of a separate listener for `/metrics`. When set, `/metrics` is
+    /// served only there and `--bind` answers 404 for it. When not set,
+    /// `/metrics` stays on `--bind`. CLOACINA-T-1025.
+    #[arg(long, env = "CLOACINA_COMPILER_METRICS_BIND")]
+    metrics_bind: Option<SocketAddr>,
+
     /// Database URL (overrides CLOACINA_DATABASE_URL / DATABASE_URL env vars).
     #[arg(long, env = "DATABASE_URL")]
     database_url: String,
@@ -249,6 +255,7 @@ async fn main() -> Result<()> {
     let config = CompilerConfig {
         home: cli.home,
         bind: cli.bind,
+        metrics_bind: cli.metrics_bind,
         database_url: cli.database_url,
         tenant_schema: cli.tenant_schema,
         build_target: cli.build_target,

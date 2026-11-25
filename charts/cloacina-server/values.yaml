@@ -344,7 +344,46 @@ compiler:
         - ALL
 
 # ---------------------------------------------------------------------------
+# Metrics listener (CLOACINA-T-1025)
+#
+# By default the server serves /metrics on the API port (8080) with no
+# authentication, so every client that can reach the API can read it. The
+# metric labels hold names that tenants choose (graphs, reactors, accumulators,
+# sources).
+#
+# metrics.enabled=true starts a second listener for /metrics on metrics.port
+# (the server's --metrics-bind). The API port then answers 404 for /metrics.
+# The chart adds a container port `metrics` and a ClusterIP Service
+# "<fullname>-metrics", and the ServiceMonitor (when enabled) scrapes that
+# Service instead of the API Service.
+# ---------------------------------------------------------------------------
+metrics:
+  enabled: false
+  port: 9090
+
+  # NetworkPolicy for the server pods. Needs metrics.enabled=true, and a CNI
+  # that enforces NetworkPolicy. When enabled:
+  #   - the API port stays open to every source, as without a policy;
+  #   - the metrics port is open only to the peers in `from`;
+  #   - every other ingress to the server pods is refused.
+  # `from` is a list of NetworkPolicy peers. An empty list admits nobody to the
+  # metrics port. Example, for a Prometheus in the namespace `monitoring`:
+  #   from:
+  #     - namespaceSelector:
+  #         matchLabels:
+  #           kubernetes.io/metadata.name: monitoring
+  #       podSelector:
+  #         matchLabels:
+  #           app.kubernetes.io/name: prometheus
+  networkPolicy:
+    enabled: false
+    from: []
+
+# ---------------------------------------------------------------------------
 # ServiceMonitor (Prometheus operator)
+#
+# Scrapes /metrics on the API Service, or on the metrics Service when
+# metrics.enabled=true.
 # ---------------------------------------------------------------------------
 serviceMonitor:
   enabled: false

@@ -58,6 +58,7 @@ All flags double as env vars:
 | Flag | Env | Purpose |
 |------|-----|---------|
 | `--bind` | — | Bind address (default `127.0.0.1:8080`; usually `0.0.0.0:8080` in containers) |
+| `--metrics-bind` | `CLOACINA_METRICS_BIND` | Separate address for `/metrics`; the main listener then answers 404 for it (default: `/metrics` on `--bind`) |
 | `--database-url` | `DATABASE_URL` | Postgres connection string |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | Pin the initial admin API key |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | Reject unsigned packages |
