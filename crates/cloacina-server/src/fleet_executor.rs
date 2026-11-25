@@ -151,7 +151,7 @@ impl FleetExecutor {
             agent_registry,
             coordinator,
             delivery_wake,
-            // CLOACINA-T-1013: the terminal writes of a result apply only while
+            // CLOACINA-T-1013, CLOACINA-A-0017: the terminal writes of a result apply only while
             // this executor holds the claim on the task. A result that comes
             // back after the claim moved (a stale-claim sweep, another
             // replica) changes no state.

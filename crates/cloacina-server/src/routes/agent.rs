@@ -319,7 +319,7 @@ pub async fn report_result(
     match state.fleet_coordinator.forward(task_id, req) {
         Ok(()) => {}
         Err(orphan) => {
-            // CLOACINA-T-1013: a report nobody waits for changes no state. It
+            // CLOACINA-T-1013, CLOACINA-A-0017: a report nobody waits for changes no state. It
             // is the report of an older dispatch of the task (the server
             // retried, or gave the work to another agent), a second report for
             // a dispatch already resolved, or a report that reached a replica
