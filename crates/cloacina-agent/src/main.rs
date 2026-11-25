@@ -376,6 +376,7 @@ fn spawn_heartbeat_loop(
                 agent_id: agent_id.clone(),
                 in_flight: n,
                 available_capacity: max_concurrency.saturating_sub(n),
+                in_flight_push_ids: push_registry().in_work_ids(),
             };
             match http
                 .post(format!("{}/v1/agent/heartbeat", server))
@@ -547,6 +548,22 @@ async fn handle_text_frame(
                 .get("id")
                 .and_then(|v| v.as_i64())
                 .ok_or_else(|| anyhow!("push frame missing numeric `id`"))?;
+            // CLOACINA-T-1011: one push id starts one worker. The server pushes
+            // an unacked row again after a reconnect or a sweep.
+            let state = push_registry().begin(push_id);
+            match state {
+                PushState::InWork => {
+                    debug!(push_id, "push already in work; ignoring the re-push");
+                    return Ok(());
+                }
+                PushState::Done => {
+                    debug!(push_id, "push already done; acking again");
+                    let _ = ack_tx.send(Message::Text(make_ack(push_id)?.into()));
+                    return Ok(());
+                }
+                PushState::New => {}
+            }
+            let mut guard = PushGuard::new(push_id);
             let kind = env.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             // CLOACI-T-0722: whole-graph firings ride their own packet kind.
             if kind == GRAPH_PACKET_KIND {
@@ -557,6 +574,7 @@ async fn handle_text_frame(
                         in_flight = cur,
                         max_concurrency, "saturated; refusing graph firing"
                     );
+                    guard.hand_over();
                     spawn_graph_refusal(
                         http.clone(),
                         server.to_string(),
@@ -569,6 +587,7 @@ async fn handle_text_frame(
                     );
                     return Ok(());
                 }
+                guard.hand_over();
                 spawn_graph_worker(
                     http.clone(),
                     server.to_string(),
@@ -584,7 +603,8 @@ async fn handle_text_frame(
             }
             if kind != WORK_PACKET_KIND {
                 warn!(kind = %kind, push_id, "non-work push received; acking + ignoring");
-                let _ = ack_tx.send(Message::Text(make_ack(push_id)?.into()));
+                guard.hand_over();
+                finish_and_ack(ack_tx, push_id);
                 return Ok(());
             }
 
@@ -599,6 +619,7 @@ async fn handle_text_frame(
                     max_concurrency, "saturated; refusing packet"
                 );
                 let packet = decode_packet(&env);
+                guard.hand_over();
                 spawn_refusal(
                     http.clone(),
                     server.to_string(),
@@ -614,6 +635,7 @@ async fn handle_text_frame(
             }
 
             let packet = decode_packet(&env).context("decode work packet")?;
+            guard.hand_over();
             spawn_packet_worker(
                 http.clone(),
                 server.to_string(),
@@ -656,6 +678,117 @@ fn decode_graph_packet(env: &serde_json::Value) -> Result<GraphWorkPacket> {
         .with_context(|| "decode base64 payload")?;
     serde_json::from_slice::<GraphWorkPacket>(&bytes)
         .with_context(|| "deserialize GraphWorkPacket JSON")
+}
+
+/// How many finished push ids the agent remembers, to ack a late re-push
+/// again without running it.
+const DONE_PUSH_MEMORY: usize = 4096;
+
+/// What the agent knows about one push id (CLOACINA-T-1011).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PushState {
+    /// Not seen before: now marked as in work.
+    New,
+    /// A worker has this push in work. Do not start it again.
+    InWork,
+    /// This push finished and was acked. Ack it again, do not run it.
+    Done,
+}
+
+/// The push ids this agent has in work and the ones it finished lately.
+///
+/// Delivery is at-least-once (CLOACINA-A-0006): the server pushes an outbox
+/// row again after a reconnect or a sweep. The agent acks a row only when the
+/// work ends, so a long task sees its own packet again. This registry makes
+/// the agent an idempotent recipient: one push id starts one worker.
+#[derive(Default)]
+struct PushRegistry {
+    in_work: std::collections::HashSet<i64>,
+    done: std::collections::HashSet<i64>,
+    done_order: std::collections::VecDeque<i64>,
+}
+
+impl PushRegistry {
+    /// Record the arrival of a push. `New` marks the id as in work.
+    fn begin(&mut self, id: i64) -> PushState {
+        if self.in_work.contains(&id) {
+            return PushState::InWork;
+        }
+        if self.done.contains(&id) {
+            return PushState::Done;
+        }
+        self.in_work.insert(id);
+        PushState::New
+    }
+
+    /// The work of this push ended and its ack is on the way.
+    fn finish(&mut self, id: i64) {
+        self.in_work.remove(&id);
+        if self.done.insert(id) {
+            self.done_order.push_back(id);
+            while self.done_order.len() > DONE_PUSH_MEMORY {
+                if let Some(old) = self.done_order.pop_front() {
+                    self.done.remove(&old);
+                }
+            }
+        }
+    }
+
+    /// The push could not be handled (a bad frame): forget it, so a later
+    /// push of the same id is handled again.
+    fn abandon(&mut self, id: i64) {
+        self.in_work.remove(&id);
+    }
+
+    fn in_work_ids(&self) -> Vec<i64> {
+        let mut ids: Vec<i64> = self.in_work.iter().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+}
+
+/// Process-wide, so it outlives a WebSocket reconnect: the server pushes the
+/// open rows again on each new connection.
+fn push_registry() -> std::sync::MutexGuard<'static, PushRegistry> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<PushRegistry>> =
+        std::sync::OnceLock::new();
+    REGISTRY
+        .get_or_init(|| std::sync::Mutex::new(PushRegistry::default()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Removes a push id from the registry when the frame handler fails before a
+/// worker takes the push over.
+struct PushGuard {
+    id: i64,
+    armed: bool,
+}
+
+impl PushGuard {
+    fn new(id: i64) -> Self {
+        Self { id, armed: true }
+    }
+    /// A worker (or an ack path) owns the push id now.
+    fn hand_over(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for PushGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            push_registry().abandon(self.id);
+        }
+    }
+}
+
+/// Mark the push as finished and queue its ack.
+fn finish_and_ack(ack_tx: &mpsc::UnboundedSender<Message>, push_id: i64) {
+    push_registry().finish(push_id);
+    if let Ok(ack) = make_ack(push_id) {
+        let _ = ack_tx.send(Message::Text(ack.into()));
+    }
 }
 
 fn make_ack(id: i64) -> Result<String> {
@@ -703,13 +836,12 @@ fn spawn_packet_worker(
             agent_id: agent_id.clone(),
             task_execution_id: packet.task_execution_id.clone(),
             attempt: packet.attempt,
+            dispatch_id: packet.dispatch_id.clone(),
             duration_ms,
             outcome,
         };
         report_outcome(&http, &server, &api_key, &req).await;
-        if let Ok(ack) = make_ack(push_id) {
-            let _ = ack_tx.send(Message::Text(ack.into()));
-        }
+        finish_and_ack(&ack_tx, push_id);
         in_flight.fetch_sub(1, Ordering::SeqCst);
     });
 }
@@ -922,13 +1054,12 @@ fn spawn_graph_worker(
             agent_id: agent_id.clone(),
             task_execution_id: packet.firing_id.clone(),
             attempt: 1,
+            dispatch_id: None,
             duration_ms,
             outcome,
         };
         report_outcome(&http, &server, &api_key, &req).await;
-        if let Ok(ack) = make_ack(push_id) {
-            let _ = ack_tx.send(Message::Text(ack.into()));
-        }
+        finish_and_ack(&ack_tx, push_id);
         in_flight.fetch_sub(1, Ordering::SeqCst);
     });
 }
@@ -953,6 +1084,7 @@ fn spawn_graph_refusal(
             agent_id,
             task_execution_id: packet.firing_id.clone(),
             attempt: 1,
+            dispatch_id: None,
             duration_ms: 0,
             outcome: cloacina::fleet::AgentOutcome::Refused {
                 reason: RefusalReason::Shutdown,
@@ -960,9 +1092,7 @@ fn spawn_graph_refusal(
             },
         };
         report_outcome(&http, &server, &api_key, &req).await;
-        if let Ok(ack) = make_ack(push_id) {
-            let _ = ack_tx.send(Message::Text(ack.into()));
-        }
+        finish_and_ack(&ack_tx, push_id);
     });
 }
 
@@ -1089,14 +1219,13 @@ fn spawn_refusal(
                 agent_id,
                 task_execution_id: packet.task_execution_id.clone(),
                 attempt: packet.attempt,
+                dispatch_id: packet.dispatch_id.clone(),
                 duration_ms: 0,
                 outcome: cloacina::fleet::AgentOutcome::Refused { reason, message },
             };
             report_outcome(&http, &server, &api_key, &req).await;
         }
-        if let Ok(ack) = make_ack(push_id) {
-            let _ = ack_tx.send(Message::Text(ack.into()));
-        }
+        finish_and_ack(&ack_tx, push_id);
     });
 }
 
@@ -1830,6 +1959,39 @@ mod tests {
     use super::*;
     use cloacina::fleet::{AgentOutcome, ArtifactRef};
 
+    #[test]
+    fn push_registry_starts_one_worker_per_push_id() {
+        // CLOACINA-T-1011: a re-push of a packet in work is not a new start.
+        let mut r = PushRegistry::default();
+        assert_eq!(r.begin(7), PushState::New);
+        assert_eq!(r.begin(7), PushState::InWork);
+        assert_eq!(r.in_work_ids(), vec![7]);
+        r.finish(7);
+        assert!(r.in_work_ids().is_empty());
+        assert_eq!(r.begin(7), PushState::Done);
+    }
+
+    #[test]
+    fn push_registry_abandon_lets_the_push_start_again() {
+        let mut r = PushRegistry::default();
+        assert_eq!(r.begin(3), PushState::New);
+        r.abandon(3);
+        assert_eq!(r.begin(3), PushState::New);
+    }
+
+    #[test]
+    fn push_registry_forgets_the_oldest_finished_ids() {
+        let mut r = PushRegistry::default();
+        for id in 0..(DONE_PUSH_MEMORY as i64 + 1) {
+            assert_eq!(r.begin(id), PushState::New);
+            r.finish(id);
+        }
+        assert_eq!(r.done.len(), DONE_PUSH_MEMORY);
+        assert_eq!(r.begin(1), PushState::Done);
+        // Id 0 was the oldest and is forgotten.
+        assert_eq!(r.begin(0), PushState::New);
+    }
+
     fn pkt(triple: &str) -> WorkPacket {
         WorkPacket {
             protocol_version: AGENT_PROTOCOL_VERSION,
@@ -1848,6 +2010,7 @@ mod tests {
             language: Some("rust".into()),
             wrapped_secrets: Vec::new(),
             secret_key_id: None,
+            dispatch_id: None,
         }
     }
 

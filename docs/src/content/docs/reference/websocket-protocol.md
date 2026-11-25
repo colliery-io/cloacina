@@ -288,7 +288,7 @@ Acks are **idempotent** — re-acking an acked or unknown row is a no-op.
 
 Delivery is **at-least-once**. A recipient may see the same `push` more than once across disconnect/reconnect cycles and must deduplicate on `id`.
 
-On every (re)connect, the server resets all `delivered`-but-unacked rows for the authenticated `(recipient, tenant)` back to `pending` and wakes the relay, which re-pushes them through the normal path. There are no separate resync frames — after `welcome`, the client simply sees a stream of `push` frames that includes any unacked backlog. A safety-net sweeper additionally redelivers rows stuck in `delivered` past a staleness threshold.
+On every (re)connect, the server resets all `delivered`-but-unacked rows for the authenticated `(recipient, tenant)` back to `pending` and wakes the relay, which re-pushes them through the normal path. There are no separate resync frames — after `welcome`, the client simply sees a stream of `push` frames that includes any unacked backlog. A safety-net sweeper additionally redelivers rows stuck in `delivered` past a staleness threshold (60 s by default), counted from the last delivery. A fleet agent acks a work packet when the work ends, which can be later than the threshold; its heartbeat renews the lease of the rows it works on, so they are not redelivered while the agent is alive.
 
 **Backpressure:** each connection has a bounded push channel. When it fills, rows simply remain `pending` in the outbox and are delivered when the client catches up — nothing is dropped (unlike the accumulator endpoint).
 

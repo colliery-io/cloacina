@@ -191,6 +191,25 @@ pub async fn heartbeat_agent(
             format!("agent not registered: {} (re-register)", req.agent_id),
         ));
     }
+    // CLOACINA-T-1011 — renew the lease of the work packets the agent says it
+    // still works on, so the delivery sweeper does not push them again. Best
+    // effort: on a failure the sweeper pushes again and the agent ignores the
+    // re-push of a packet it has in work.
+    if !req.in_flight_push_ids.is_empty() {
+        let recipient = format!(
+            "{}{}",
+            cloacina::fleet::AGENT_RECIPIENT_PREFIX,
+            req.agent_id
+        );
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        if let Err(e) = dal
+            .delivery_outbox()
+            .renew_delivered(&recipient, &req.in_flight_push_ids)
+            .await
+        {
+            tracing::warn!(agent_id = %req.agent_id, error = %e, "work packet lease renewal failed");
+        }
+    }
     // CLOACI-T-0861 / D-5 — tell the agent how many one-time keys to top up if
     // secret-bearing dispatches have drawn the pool below its target. The pool
     // is replica-local; a replica the agent has not topped up yet reports the

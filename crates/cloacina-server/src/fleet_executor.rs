@@ -588,6 +588,9 @@ impl TaskExecutor for FleetExecutor {
             };
 
             // ── 4. Build the work packet with real context + real artifact ref.
+            // CLOACINA-T-1011: name this dispatch, so only its own report
+            // resolves the wait registered in step 5.
+            let dispatch_id = uuid::Uuid::new_v4().to_string();
             let packet = WorkPacket {
                 protocol_version: AGENT_PROTOCOL_VERSION,
                 task_execution_id: event.task_execution_id.0.to_string(),
@@ -609,6 +612,7 @@ impl TaskExecutor for FleetExecutor {
                 // Both empty/None when the task references no secrets.
                 wrapped_secrets,
                 secret_key_id,
+                dispatch_id: Some(dispatch_id.clone()),
             };
             let payload_bytes = match serde_json::to_vec(&packet) {
                 Ok(b) => b,
@@ -622,7 +626,9 @@ impl TaskExecutor for FleetExecutor {
 
             // ── 5. Register the rendezvous BEFORE enqueueing so a fast agent
             //       reporting back can't race past the receiver.
-            let rx = self.coordinator.register_pending(event.task_execution_id);
+            let rx = self
+                .coordinator
+                .register_dispatch(event.task_execution_id, dispatch_id);
 
             // ── 6. Enqueue into the substrate outbox + wake the relay.
             let recipient = format!("{}{}", AGENT_RECIPIENT_PREFIX, agent_id);
