@@ -668,6 +668,14 @@ pub async fn run(
          non-zero means agents are dying or losing connectivity."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_dispatch_deferred_total",
+        "Fleet dispatch tries put back in the queue because no agent could \
+         take the task: no live agent of its tenant had a free slot, or the \
+         chosen agent was full (CLOACINA-T-1012). The task keeps its attempt \
+         count and is tried again after 2 s. Sustained growth means a tenant \
+         needs more agents."
+    );
+    metrics::describe_counter!(
         "cloacina_fleet_work_reassigned_total",
         "In-flight delivery_outbox rows re-targeted from an evicted (dead) \
          agent to a live agent by the heartbeat sweeper's reclaim path \

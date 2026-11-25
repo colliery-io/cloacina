@@ -90,6 +90,40 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(())
     }
 
+    /// Put a task back in the queue until `not_before`, with no change to its
+    /// attempt count (CLOACINA-T-1012).
+    ///
+    /// For a dispatch that could not start for a reason that is not a failure
+    /// of the task: no agent of its tenant has a free slot, or the agent it
+    /// was sent to was full. [`schedule_retry`](Self::schedule_retry) uses up
+    /// an attempt; this does not, so a task can wait for capacity for as long
+    /// as it takes. The caller releases its claim after this call. Writes no
+    /// execution event: a waiting task would write one every few seconds.
+    ///
+    /// Only a `Ready` task is changed. Returns `false` when the task is in
+    /// another state.
+    pub async fn defer_dispatch(
+        &self,
+        task_id: UniversalUuid,
+        not_before: UniversalTimestamp,
+    ) -> Result<bool, ValidationError> {
+        let now = UniversalTimestamp::now();
+        let rows: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                task_executions::table
+                    .find(task_id)
+                    .filter(task_executions::status.eq("Ready")),
+            )
+            .set((
+                task_executions::retry_at.eq(Some(not_before)),
+                task_executions::started_at.eq(None::<UniversalTimestamp>),
+                task_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
+        Ok(rows > 0)
+    }
+
     // ========================================================================
     // Runner-level claiming (for horizontal scaling)
     // ========================================================================

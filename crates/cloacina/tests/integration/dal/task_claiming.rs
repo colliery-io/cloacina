@@ -326,3 +326,78 @@ async fn test_find_stale_claims() {
         tracing::info!("[{}] test_find_stale_claims passed", backend);
     }
 }
+
+/// CLOACINA-T-1012: a deferred dispatch keeps the attempt count and hides the
+/// task from the ready query until its time.
+#[tokio::test]
+async fn test_defer_dispatch_keeps_attempt_and_delays_the_task() {
+    use cloacina::database::universal_types::UniversalTimestamp;
+
+    for (backend, fixture) in get_all_fixtures().await {
+        let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
+        guard.reset_database().await;
+        guard.initialize().await;
+        let database = guard.get_database();
+        let dal = DAL::new(database.clone());
+
+        let (_exec_id, task_id) = create_running_task(&dal).await;
+
+        // A Running task is not changed.
+        let later = UniversalTimestamp(chrono::Utc::now() + chrono::Duration::seconds(60));
+        let changed = dal
+            .task_execution()
+            .defer_dispatch(task_id, later)
+            .await
+            .expect("defer_dispatch on a Running task");
+        assert!(
+            !changed,
+            "[{}] a Running task must not be deferred",
+            backend
+        );
+
+        dal.task_execution()
+            .mark_ready(task_id)
+            .await
+            .expect("mark_ready");
+        let ready = dal.task_execution().get_ready_for_retry().await.unwrap();
+        assert!(
+            ready.iter().any(|t| t.id == task_id),
+            "[{}] a Ready task is in the ready query",
+            backend
+        );
+
+        // Deferred to the future: out of the ready query, attempt unchanged.
+        let changed = dal
+            .task_execution()
+            .defer_dispatch(task_id, later)
+            .await
+            .expect("defer_dispatch");
+        assert!(changed, "[{}] a Ready task is deferred", backend);
+        let ready = dal.task_execution().get_ready_for_retry().await.unwrap();
+        assert!(
+            !ready.iter().any(|t| t.id == task_id),
+            "[{}] a deferred task is not ready before its time",
+            backend
+        );
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(
+            task.attempt, 1,
+            "[{}] the attempt count is unchanged",
+            backend
+        );
+        assert_eq!(task.status, "Ready", "[{}]", backend);
+
+        // Deferred to the past: ready again.
+        let past = UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(1));
+        dal.task_execution()
+            .defer_dispatch(task_id, past)
+            .await
+            .expect("defer_dispatch to the past");
+        let ready = dal.task_execution().get_ready_for_retry().await.unwrap();
+        assert!(
+            ready.iter().any(|t| t.id == task_id),
+            "[{}] the task is ready when its time has come",
+            backend
+        );
+    }
+}
