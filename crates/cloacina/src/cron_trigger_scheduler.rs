@@ -203,6 +203,16 @@ fn compute_cron_sleep_delay(
     }
 }
 
+/// Schedule lag in seconds (CLOACINA-T-1024): how far in the past the
+/// earliest `next_run_at` of the enabled, not paused cron schedules is. 0 when
+/// no schedule is due or there is none.
+fn schedule_lag_seconds(next_due: Option<DateTime<Utc>>, now: DateTime<Utc>) -> f64 {
+    match next_due {
+        Some(t) if t < now => (now - t).num_milliseconds() as f64 / 1000.0,
+        _ => 0.0,
+    }
+}
+
 impl Scheduler {
     /// Creates a new unified scheduler.
     ///
@@ -289,6 +299,9 @@ impl Scheduler {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    // --- Schedule-lag gauge (CLOACINA-T-1024) ---
+                    self.record_schedule_lag(next_cron_due);
+
                     // --- Triggers ---
                     if let Err(e) = self.check_and_process_triggers().await {
                         error!("Error processing triggers: {}", e);
@@ -363,6 +376,20 @@ impl Scheduler {
                 None
             }
         }
+    }
+
+    /// Set `cloacina_schedule_lag_seconds` from the cached next-due time
+    /// (CLOACINA-T-1024). Runs on each base tick and reads no database: the
+    /// cache is the earliest `next_run_at` of the enabled, not paused cron
+    /// schedules, read again after each cron check, each cron change and at
+    /// least once per `cron_poll_interval`. A due schedule that is not picked
+    /// up keeps its `next_run_at`, so the gauge grows until it runs.
+    fn record_schedule_lag(&self, next_due: Option<DateTime<Utc>>) {
+        metrics::gauge!(
+            "cloacina_schedule_lag_seconds",
+            "tenant" => self.dal.tenant_label().to_string(),
+        )
+        .set(schedule_lag_seconds(next_due, Utc::now()));
     }
 
     /// How long to sleep before the next cron check, given the cached next-due
@@ -2050,6 +2077,26 @@ mod tests {
             compute_cron_sleep_delay(Some(due), now, backstop),
             Duration::ZERO
         );
+    }
+
+    // --- Schedule lag (CLOACINA-T-1024) ---
+
+    #[test]
+    fn schedule_lag_is_zero_with_no_schedule_or_none_due() {
+        let now = Utc::now();
+        assert_eq!(schedule_lag_seconds(None, now), 0.0);
+        assert_eq!(schedule_lag_seconds(Some(now), now), 0.0);
+        assert_eq!(
+            schedule_lag_seconds(Some(now + chrono::Duration::seconds(30)), now),
+            0.0
+        );
+    }
+
+    #[test]
+    fn schedule_lag_is_the_age_of_the_oldest_due_time() {
+        let now = Utc::now();
+        let due = now - chrono::Duration::milliseconds(90_500);
+        assert_eq!(schedule_lag_seconds(Some(due), now), 90.5);
     }
 
     #[test]

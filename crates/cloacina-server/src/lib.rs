@@ -479,16 +479,21 @@ pub async fn run(
     // Register metric descriptions
     metrics::describe_counter!(
         "cloacina_workflows_total",
-        "Total workflow executions by status and reason. \
+        "Total workflow executions by status, reason, workflow and tenant. \
          reason is `ok` on success, or a bounded failure category \
-         (currently `dependency_failed`) on failure."
+         (currently `dependency_failed`) on failure. workflow is the workflow \
+         name, at most 100 names per tenant and `other` after that. tenant is \
+         the tenant schema (`public` for the default one)."
     );
     metrics::describe_counter!(
         "cloacina_tasks_total",
-        "Total task executions by status and reason. \
+        "Total task attempts by status, reason, workflow and tenant, counted \
+         where the result is written, for the in-process and the fleet \
+         executor. status is `completed`, `failed` or `retried`. \
          reason is `ok` on success, or one of the bounded failure categories: \
          `task_error`, `timeout`, `validation_failed`, `infrastructure`, \
-         `task_not_found`, `claim_lost`, `unknown`."
+         `context_load_failed`, `task_not_found`, `claim_lost`, `unknown`. \
+         workflow and tenant are as on `cloacina_workflows_total`."
     );
     metrics::describe_counter!(
         "cloacina_api_requests_total",
@@ -517,9 +522,32 @@ pub async fn run(
         "cloacina_workflow_duration_seconds",
         "Workflow execution duration"
     );
-    metrics::describe_histogram!("cloacina_task_duration_seconds", "Task execution duration");
+    metrics::describe_histogram!(
+        "cloacina_task_duration_seconds",
+        "Task attempt duration, from the start of the dispatch to the result, \
+         for the in-process and the fleet executor. A fleet task includes \
+         the hand-off to the agent and the wait for its report."
+    );
     metrics::describe_gauge!("cloacina_active_workflows", "Currently active workflows");
     metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
+    metrics::describe_gauge!(
+        "cloacina_waiting_tasks",
+        "Tasks that wait to be dispatched, by tenant: status Ready, due \
+         (`retry_at` empty or in the past) and not claimed. Read from the \
+         database every 5 seconds. A task in a retry backoff, or put off \
+         because no agent had a free slot, is not counted until it is due again."
+    );
+    metrics::describe_gauge!(
+        "cloacina_oldest_waiting_task_age_seconds",
+        "Seconds since the oldest waiting task became due, by tenant; 0 when \
+         no task waits. Read with `cloacina_waiting_tasks`."
+    );
+    metrics::describe_gauge!(
+        "cloacina_schedule_lag_seconds",
+        "Seconds since the oldest due time (`next_run_at`) of the enabled, \
+         not paused cron schedules, by tenant; 0 when no schedule is due. \
+         Set every second by the cron scheduler."
+    );
     metrics::describe_counter!(
         "cloacina_scheduler_claim_attempts_total",
         "Total task claim attempts by the executor. outcome is `claimed` (claim succeeded), \

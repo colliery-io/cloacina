@@ -20,7 +20,8 @@ The namespace was retroactively normalized as part of CLOACI-I-0088; the post-re
 
 Every label on every `cloacina_*` metric is bounded by code, not by user input. The discipline:
 
-- **No task IDs, tenant IDs, package names, workflow names, or arbitrary user strings as label values.** Each of those has unbounded cardinality and would explode the per-series count in Prometheus over time.
+- **No task IDs, package names, or arbitrary user strings as label values.** Each of those has unbounded cardinality and would explode the per-series count in Prometheus over time.
+- **Two exceptions, both limited** (CLOACINA-T-1024): `tenant` (the tenant schema, one value per tenant an admin created) on the run and task counters and on the backlog and schedule-lag gauges, and `workflow` (the workflow name, which a tenant chooses) on the run and task counters. An alert on a failed run has to name the workflow and the tenant. `workflow` is capped at 100 names per tenant per server process; later names are counted under `other`.
 - **Labels are enums** (`status` ∈ `completed | failed`; `kind` ∈ `passthrough | stream | polling | batch`; `outcome` ∈ `claimed | contended | empty`) or **derived from package/tenant metadata at a bounded position** (`graph` is the deployed graph name, where the count of distinct graphs is operator-controlled and bounded by deployment shape).
 - **Per-route HTTP labels use `method` + numeric `status`** rather than the full path — labels stay finite even as the route surface grows.
 
@@ -117,7 +118,7 @@ A few choices Cloacina explicitly made the opposite way from common defaults:
 
 - **`/metrics` is unauthenticated.** Per ADR-0005, the server's `/metrics` and `/health` probes are public — Prometheus scrapes them without credentials. The trade-off: metric values leak as observable side channels (you can tell from `cloacina_workflows_total` whether a tenant is active). The benefit: no credential management on the scraper path. For deployments where this is unacceptable, terminate `/metrics` at the reverse proxy and require client-cert auth there — Cloacina doesn't enforce it.
 - **No built-in alert rules.** Cloacina ships metrics with bounded labels and stable names but does not ship a Prometheus alert-rule file. The rationale: alert thresholds depend on operator SLOs (a CG-fire p99 of 100ms is fine for batch use cases and a disaster for tick-by-tick trading); the metrics are uniform but the alerts can't be.
-- **No metric for "current backlog of pending workflows".** The `*_active_*` gauges count Running/Pending state; for true queue depth, operators wire their own gauge against `workflow_executions` directly. The avoidance is deliberate — a separate "pending only" gauge would double-count with `cloacina_active_workflows` and create a measurement-coupling bug.
+- **No metric for "current backlog of pending workflows".** The `*_active_*` gauges count Running/Pending state; for true queue depth, operators wire their own gauge against `workflow_executions` directly. The avoidance is deliberate — a separate "pending only" gauge would double-count with `cloacina_active_workflows` and create a measurement-coupling bug. The task backlog does have gauges: `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds` count the tasks that are ready and due and not yet dispatched, and `cloacina_schedule_lag_seconds` says how late the most overdue cron schedule is. Alert on the last two.
 
 ## See also
 

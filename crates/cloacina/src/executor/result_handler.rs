@@ -91,6 +91,69 @@ use crate::error::ExecutorError;
 use crate::executor::types::ClaimedTask;
 use crate::retry::{RetryCondition, RetryPolicy};
 
+/// Bounded `reason` value of `cloacina_tasks_total` for a failed or retried
+/// task.
+///
+/// Cardinality is closed: the set of returned values is fixed here, so the
+/// label cannot grow with error text.
+pub(crate) fn failure_reason(err: &ExecutorError) -> &'static str {
+    match err {
+        ExecutorError::TaskTimeout => "timeout",
+        ExecutorError::TaskExecution(_) => "task_error",
+        ExecutorError::Validation(_) => "validation_failed",
+        ExecutorError::ClaimLost => "claim_lost",
+        ExecutorError::Database(_)
+        | ExecutorError::ConnectionPool(_)
+        | ExecutorError::Context(_) => "infrastructure",
+        // COR-11: ContextLoadFailed now reports as its own bounded
+        // reason value so operators can distinguish "task failed
+        // because we couldn't load its dependency context" from
+        // generic infrastructure issues.
+        ExecutorError::ContextLoadFailed(_) => "context_load_failed",
+        ExecutorError::TaskNotFound(_) | ExecutorError::WorkflowExecutionNotFound(_) => {
+            "task_not_found"
+        }
+        ExecutorError::Serialization(_)
+        | ExecutorError::InvalidScope(_)
+        | ExecutorError::Semaphore(_) => "unknown",
+    }
+}
+
+/// Value of the `workflow` label for a task: the workflow part of its
+/// `tenant::package::workflow::task` name, or `unknown` when the name does
+/// not parse. Capped per tenant by [`crate::metric_labels::workflow_label`].
+fn workflow_label(tenant: &str, task_name: &str) -> String {
+    match crate::parse_namespace(task_name) {
+        Ok(ns) => crate::metric_labels::workflow_label(tenant, &ns.workflow_id),
+        Err(_) => "unknown".to_string(),
+    }
+}
+
+/// Count one finished task attempt in `cloacina_tasks_total`
+/// (CLOACINA-T-1024).
+///
+/// `status` is `completed`, `failed` or `retried`; `reason` is `ok` or a
+/// value of [`failure_reason`]. [`TaskResultHandler::handle_outcome`] calls
+/// this once per call, so the in-process executor and the fleet executor
+/// count the same way. The in-process executor also calls it for the early
+/// exits that fail a task before the handler runs.
+pub(crate) fn record_task_outcome(
+    dal: &DAL,
+    task_name: &str,
+    status: &'static str,
+    reason: &'static str,
+) {
+    let tenant = dal.tenant_label();
+    metrics::counter!(
+        "cloacina_tasks_total",
+        "status" => status,
+        "reason" => reason,
+        "workflow" => workflow_label(tenant, task_name),
+        "tenant" => tenant.to_string(),
+    )
+    .increment(1);
+}
+
 /// Post-execution handler — applies all state writes / retry decisions /
 /// metric increments for one task. Cloneable so executors can hold one per
 /// instance and pass clones into spawned work where needed.
@@ -139,6 +202,12 @@ impl TaskResultHandler {
         retry_policy: &RetryPolicy,
         duration: Duration,
     ) -> ExecutionResult {
+        // One histogram for the in-process and the fleet path
+        // (CLOACINA-T-1024). `duration` is what the executor measured from
+        // the start of its dispatch to the result: for a fleet task that
+        // includes the hand-off to the agent and the wait for its report.
+        metrics::histogram!("cloacina_task_duration_seconds").record(duration.as_secs_f64());
+
         match outcome {
             Ok(result_context) => {
                 // CLOACI-I-0140: retry transient DB contention — a sqlite-busy
@@ -151,6 +220,7 @@ impl TaskResultHandler {
                 {
                     Ok(()) => {
                         self.total_executed.fetch_add(1, Ordering::SeqCst);
+                        record_task_outcome(&self.dal, &event.task_name, "completed", "ok");
                         info!(
                             task_id = %event.task_execution_id,
                             task_name = %event.task_name,
@@ -161,6 +231,12 @@ impl TaskResultHandler {
                     }
                     Err(e) => {
                         self.total_failed.fetch_add(1, Ordering::SeqCst);
+                        record_task_outcome(
+                            &self.dal,
+                            &event.task_name,
+                            "failed",
+                            failure_reason(&e),
+                        );
                         let error_msg = format!("Failed to save context: {}", e);
                         // Mark failed in DB — executor owns all state transitions.
                         // CLOACI-I-0140: retried + NEVER silently swallowed — a
@@ -191,6 +267,7 @@ impl TaskResultHandler {
                 }
             }
             Err(error) => {
+                let reason = failure_reason(&error);
                 let should_retry = self
                     .should_retry_task(claimed_task, &error, retry_policy)
                     .await
@@ -208,6 +285,7 @@ impl TaskResultHandler {
                     {
                         Ok(()) => {
                             self.total_executed.fetch_add(1, Ordering::SeqCst);
+                            record_task_outcome(&self.dal, &event.task_name, "retried", reason);
                             ExecutionResult::retry(
                                 event.task_execution_id,
                                 error.to_string(),
@@ -222,6 +300,7 @@ impl TaskResultHandler {
                                  instead of leaving it Running"
                             );
                             self.total_failed.fetch_add(1, Ordering::SeqCst);
+                            record_task_outcome(&self.dal, &event.task_name, "failed", reason);
                             let error_str =
                                 format!("{} (retry scheduling failed: {})", error, sched_err);
                             if let Err(mark_err) =
@@ -250,6 +329,7 @@ impl TaskResultHandler {
                     }
                 } else {
                     self.total_failed.fetch_add(1, Ordering::SeqCst);
+                    record_task_outcome(&self.dal, &event.task_name, "failed", reason);
                     // Mark failed in DB — executor owns all state transitions.
                     // CLOACI-I-0140: retried + never swallowed (see above) — THIS
                     // was the primary hang site: the callback scenarios' tasks fail
@@ -529,5 +609,210 @@ mod is_transient_tests {
             timestamp: chrono::Utc::now(),
         };
         assert!(handler().is_transient_error(&ExecutorError::TaskExecution(task_err)));
+    }
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod outcome_metrics_tests {
+    //! `handle_outcome` is the one place that counts a task attempt and
+    //! records its duration (CLOACINA-T-1024). These tests run it on SQLite
+    //! in memory under a thread-local metrics recorder.
+
+    use super::*;
+    use crate::database::Database;
+    use crate::models::task_execution::NewTaskExecution;
+    use crate::models::workflow_execution::NewWorkflowExecution;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+    use metrics_util::{CompositeKey, MetricKind};
+
+    type Snapshot = Vec<(CompositeKey, DebugValue)>;
+
+    /// Run one `handle_outcome` call for a new task named `task_name` at
+    /// `attempt` and return the metrics it emitted.
+    fn run_outcome(
+        task_name: &str,
+        attempt: i32,
+        outcome: Result<Context<serde_json::Value>, ExecutorError>,
+    ) -> (ExecutionResult, Snapshot) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let task_name = task_name.to_string();
+        let result = metrics::with_local_recorder(&recorder, || {
+            rt.block_on(async move {
+                let url = format!(
+                    "file:outcome_metrics_test_{}?mode=memory&cache=shared",
+                    uuid::Uuid::new_v4()
+                );
+                let db = Database::new(&url, "", 5);
+                db.run_migrations().await.expect("migrations");
+                let dal = DAL::new(db);
+                let workflow_id = dal
+                    .workflow_execution()
+                    .create(NewWorkflowExecution {
+                        workflow_name: "orders".into(),
+                        workflow_version: "1.0".into(),
+                        status: "Running".into(),
+                        context_id: None,
+                    })
+                    .await
+                    .unwrap()
+                    .id;
+                let task_id = dal
+                    .task_execution()
+                    .create(NewTaskExecution {
+                        workflow_execution_id: workflow_id,
+                        task_name: task_name.clone(),
+                        status: "Running".into(),
+                        attempt,
+                        max_attempts: 3,
+                        trigger_rules: r#"{"type":"Always"}"#.into(),
+                        task_configuration: "{}".into(),
+                    })
+                    .await
+                    .unwrap()
+                    .id;
+                let handler = TaskResultHandler::new(
+                    dal,
+                    Arc::new(AtomicU64::new(0)),
+                    Arc::new(AtomicU64::new(0)),
+                    None,
+                );
+                let event = TaskReadyEvent::new(task_id, workflow_id, task_name.clone(), attempt);
+                let claimed = ClaimedTask {
+                    task_execution_id: task_id,
+                    workflow_execution_id: workflow_id,
+                    task_name,
+                    attempt,
+                };
+                handler
+                    .handle_outcome(
+                        &event,
+                        &claimed,
+                        outcome,
+                        &RetryPolicy::default(),
+                        Duration::from_millis(250),
+                    )
+                    .await
+            })
+        });
+        let snapshot = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .map(|(key, _, _, value)| (key, value))
+            .collect();
+        (result, snapshot)
+    }
+
+    /// Each `cloacina_tasks_total` series as (sorted labels, count).
+    fn task_counters(snapshot: &Snapshot) -> Vec<(Vec<(String, String)>, u64)> {
+        snapshot
+            .iter()
+            .filter(|(key, _)| {
+                key.kind() == MetricKind::Counter && key.key().name() == "cloacina_tasks_total"
+            })
+            .map(|(key, value)| {
+                let mut labels: Vec<(String, String)> = key
+                    .key()
+                    .labels()
+                    .map(|l| (l.key().to_string(), l.value().to_string()))
+                    .collect();
+                labels.sort();
+                let count = match value {
+                    DebugValue::Counter(n) => *n,
+                    other => panic!("not a counter: {other:?}"),
+                };
+                (labels, count)
+            })
+            .collect()
+    }
+
+    fn labels(status: &str, reason: &str, workflow: &str) -> Vec<(String, String)> {
+        vec![
+            ("reason".to_string(), reason.to_string()),
+            ("status".to_string(), status.to_string()),
+            ("tenant".to_string(), "public".to_string()),
+            ("workflow".to_string(), workflow.to_string()),
+        ]
+    }
+
+    fn task_error() -> ExecutorError {
+        ExecutorError::TaskExecution(crate::error::TaskError::ExecutionFailed {
+            message: "boom".to_string(),
+            task_id: "load".to_string(),
+            timestamp: chrono::Utc::now(),
+        })
+    }
+
+    fn duration_samples(snapshot: &Snapshot) -> Vec<f64> {
+        snapshot
+            .iter()
+            .filter(|(key, _)| {
+                key.kind() == MetricKind::Histogram
+                    && key.key().name() == "cloacina_task_duration_seconds"
+            })
+            .flat_map(|(_, value)| match value {
+                DebugValue::Histogram(samples) => {
+                    samples.iter().map(|s| s.into_inner()).collect::<Vec<_>>()
+                }
+                other => panic!("not a histogram: {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn handle_outcome_counts_a_completed_task_once_with_its_workflow() {
+        let (result, snapshot) = run_outcome(
+            "public::embedded::orders::load",
+            1,
+            Ok(Context::<serde_json::Value>::new()),
+        );
+        assert!(
+            matches!(result.status, crate::dispatcher::ExecutionStatus::Completed),
+            "status was {:?}",
+            result.status
+        );
+        assert_eq!(
+            task_counters(&snapshot),
+            vec![(labels("completed", "ok", "orders"), 1)]
+        );
+        assert_eq!(duration_samples(&snapshot), vec![0.25]);
+    }
+
+    #[test]
+    fn handle_outcome_counts_a_failed_task_with_a_bounded_reason() {
+        // Attempt 3 of 3: no retry is left.
+        let (_, snapshot) = run_outcome("public::embedded::orders::load", 3, Err(task_error()));
+        assert_eq!(
+            task_counters(&snapshot),
+            vec![(labels("failed", "task_error", "orders"), 1)]
+        );
+        assert_eq!(duration_samples(&snapshot), vec![0.25]);
+    }
+
+    #[test]
+    fn handle_outcome_counts_a_scheduled_retry_as_retried() {
+        let (_, snapshot) = run_outcome(
+            "public::embedded::orders::load",
+            1,
+            Err(ExecutorError::TaskTimeout),
+        );
+        assert_eq!(
+            task_counters(&snapshot),
+            vec![(labels("retried", "timeout", "orders"), 1)]
+        );
+    }
+
+    #[test]
+    fn handle_outcome_labels_a_task_name_that_does_not_parse_as_unknown() {
+        let (_, snapshot) = run_outcome("not_a_namespace", 3, Err(task_error()));
+        assert_eq!(
+            task_counters(&snapshot),
+            vec![(labels("failed", "task_error", "unknown"), 1)]
+        );
     }
 }

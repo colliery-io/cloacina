@@ -24,16 +24,32 @@ how the check is wired.
 ## Metric reference
 
 All metric names are prefixed `cloacina_`. All labels have bounded
-cardinality — no task IDs, tenant IDs, workflow names, or package names are
-used as labels. Adding a new metric should preserve this invariant; see
+cardinality — no task IDs or package names are used as labels. Adding a new
+metric should preserve this invariant; see
 [Adding a metric](#adding-a-metric) at the bottom.
+
+Two labels come from names that a tenant or an operator chooses
+(CLOACINA-T-1024):
+
+- `tenant` is the tenant schema of the runner that emits the metric
+  (`public` for the default schema and for an embedded runner). One value
+  per tenant: the count is the number of tenants an admin has created.
+- `workflow` is the workflow name. A tenant chooses it in the package it
+  uploads, so it is capped: the first 100 names seen for a tenant in a
+  server process keep their name, each later one is counted under
+  `workflow="other"`. The set starts empty after a restart. `unknown` is
+  used when a task name has no workflow part.
+
+Series per counter are at most tenants × 101 workflows × the `status` and
+`reason` values. If that is too many for your Prometheus, drop the `workflow`
+label at scrape time with a `metric_relabel_configs` `labeldrop` rule.
 
 ### Counters
 
 | Name | Labels | Description |
 |------|--------|-------------|
-| `cloacina_workflows_total` | `status`, `reason` | Total workflow executions. `status` ∈ `completed`, `failed`. `reason` is `ok` on success, `dependency_failed` on failure (workflow failure is always downstream of task failure). |
-| `cloacina_tasks_total` | `status`, `reason` | Total task executions. `status` ∈ `completed`, `failed`. `reason` is `ok` on success, or one of: `task_error`, `timeout`, `validation_failed`, `infrastructure`, `context_load_failed`, `task_not_found`, `claim_lost`, `unknown`. |
+| `cloacina_workflows_total` | `status`, `reason`, `workflow`, `tenant` | Total workflow executions. `status` ∈ `completed`, `failed`. `reason` is `ok` on success, `dependency_failed` on failure (workflow failure is always downstream of task failure). `workflow` is the workflow name (capped, see above); `tenant` is the tenant schema. |
+| `cloacina_tasks_total` | `status`, `reason`, `workflow`, `tenant` | Total task attempts, counted where the result is written, so a task run in-process and a task run by a fleet agent are counted the same way. `status` ∈ `completed`, `failed`, `retried` (the attempt failed and a retry is scheduled). `reason` is `ok` on success, or one of: `task_error`, `timeout`, `validation_failed`, `infrastructure`, `context_load_failed`, `task_not_found`, `claim_lost`, `unknown`. `workflow` and `tenant` as above. A dispatch that is put off for capacity is not an attempt and is not counted. |
 | `cloacina_api_requests_total` | `method`, `status` | Total HTTP API requests. `method` is the HTTP verb; `status` is the numeric HTTP status code. |
 | `cloacina_scheduler_claim_attempts_total` | `outcome` | Total task claim attempts. `outcome` ∈ `claimed` (claim succeeded), `contended` (another runner already held the claim), `empty` (scheduler tick found no ready tasks to dispatch). |
 | `cloacina_scheduler_heartbeat_writes_total` | — | Total successful heartbeat writes by the per-task heartbeat loop. Failed heartbeats are recorded only in logs. |
@@ -61,7 +77,7 @@ used as labels. Adding a new metric should preserve this invariant; see
 |------|--------|-------------|
 | `cloacina_api_request_duration_seconds` | `method`, `status` | Handler duration for HTTP API requests, measured inside the `api_request_metrics` middleware. |
 | `cloacina_workflow_duration_seconds` | — | Wall-clock duration from workflow execution start to finalize (success or failure). |
-| `cloacina_task_duration_seconds` | — | Wall-clock duration from task execution start to end, including timeouts. |
+| `cloacina_task_duration_seconds` | — | Wall-clock duration of a task attempt, from the start of its dispatch to the result, including timeouts. Recorded where the result is written, for the in-process and the fleet executor. For a fleet task it includes the hand-off to the agent and the wait for its report; a dispatch that fails before it reaches an agent is recorded with its short duration. |
 | `cloacina_accumulator_emit_duration_seconds` | `graph`, `accumulator` | End-to-end emit latency per accumulator event: time from the event arriving on the merge channel through `process()`, boundary send, and checkpoint persistence. |
 | `cloacina_reactor_fire_duration_seconds` | `graph`, `reactor` | Wall-clock duration of the user's compiled graph body (time inside `(graph)(snapshot).await`). Excludes cache lookup + persistence. |
 
@@ -71,6 +87,9 @@ used as labels. Adding a new metric should preserve this invariant; see
 |------|--------|-------------|
 | `cloacina_active_workflows` | — | Workflow executions in `Pending` or `Running` state. SQL-derived — re-seeded every scheduler tick from `workflow_executions` row count, so the value is correct by construction across crashes, claim loss, and finalize-path errors. Lags real DB state by at most one scheduler `poll_interval`. |
 | `cloacina_active_tasks` | — | Task executions in the `Running` state. SQL-derived — re-seeded every scheduler tick from a `task_executions WHERE status = 'Running'` count, so the value is correct by construction across crashes, claim loss, and panic-between-inc-and-dec paths. Lags real DB state by at most one scheduler `poll_interval`. |
+| `cloacina_waiting_tasks` | `tenant` | Tasks that wait to be dispatched: status `Ready`, due (`retry_at` empty or in the past) and not claimed. The same set the scheduler reads to dispatch. SQL-derived, read every 5 seconds. A task in a retry backoff is not counted until its `retry_at` passes. In fleet mode a task that found no free agent is put off for 2 s at a time and is counted only between those waits: use `cloacina_fleet_dispatch_deferred_total` for that case. |
+| `cloacina_oldest_waiting_task_age_seconds` | `tenant` | Seconds since the oldest waiting task became due (`retry_at`, or the time it was marked `Ready`); `0` when no task waits. Read with `cloacina_waiting_tasks`. Grows when tasks are ready and nothing dispatches them. |
+| `cloacina_schedule_lag_seconds` | `tenant` | Seconds since the oldest `next_run_at` of the enabled, not paused cron schedules; `0` when no schedule is due. Set every second by the cron scheduler from the next-due time it holds, which it reads again after each cron check and at least once per cron poll interval. A due schedule that is not picked up keeps its `next_run_at`, so the value grows until it runs. An enabled schedule past its `end_date` also keeps a past `next_run_at` and shows as lag: disable it. |
 | `cloacina_component_health` | `graph`, `component`, `state` | One-of indicator for a computation-graph component's current health. For each `(graph, component)` tuple the gauge is `1` on the current state and `0` on every other state. `state` is bounded: `healthy`, `degraded`, `starting`, `stopped`, `crashed`. Re-emitted every supervisor tick. |
 | `cloacina_accumulator_buffer_depth` | `graph`, `accumulator` | Current internal buffer size for buffered accumulators. Meaningful for `batch` and stateful `stream` kinds; `passthrough` and `polling` emit `0` from runtime startup so dashboards see a stable series per (graph, accumulator). |
 | `cloacina_reactor_cache_age_seconds` | `graph`, `reactor`, `source` | Age in seconds of the most-recent emission per source held in the reactor's input cache. Refreshed on every boundary arrival (all known sources re-emitted, so silent sources show increasing staleness). |
@@ -116,6 +135,34 @@ histogram_quantile(
 ```promql
 cloacina_active_workflows
 cloacina_active_tasks
+```
+
+### Failed runs, by workflow and tenant
+
+```promql
+sum by (tenant, workflow) (
+  increase(cloacina_workflows_total{status="failed"}[15m])
+) > 0
+```
+
+### Backlog: tasks wait and nothing takes them
+
+Alert when tasks have been due for more than 5 minutes.
+
+```promql
+cloacina_oldest_waiting_task_age_seconds > 300
+```
+
+```promql
+max by (tenant) (cloacina_waiting_tasks)
+```
+
+### Schedules run late
+
+Alert when a cron schedule is more than 2 minutes past its due time.
+
+```promql
+cloacina_schedule_lag_seconds > 120
 ```
 
 ### Task failure breakdown (which reason is dominant?)
@@ -226,8 +273,10 @@ When introducing a new metric:
    `crates/cloacina-server/src/lib.rs`; core-engine metrics go wherever the
    emission lives and are picked up by the global recorder).
 2. Keep label cardinality bounded. Labels must be enums or derived from
-   package/tenant metadata — **never** event keys, tenant IDs, raw paths,
-   or free-form user input.
+   package/tenant metadata — **never** event keys, raw paths, or free-form
+   user input. For a workflow name use
+   `cloacina::metric_labels::workflow_label`, which caps the values per
+   tenant; for the tenant use `DAL::tenant_label`.
 3. Update this document with a row, an operator-facing description, and at
    least one example PromQL query if the metric is meant to drive an alert
    or dashboard.
