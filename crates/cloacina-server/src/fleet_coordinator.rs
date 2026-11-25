@@ -69,7 +69,8 @@ impl FleetCoordinator {
         self.register(task_execution_id, None)
     }
 
-    /// Register a wait for one named dispatch of a task (CLOACINA-T-1011).
+    /// Register a wait for one named dispatch of a task (CLOACINA-T-1011,
+    /// CLOACINA-A-0016).
     /// [`forward`](Self::forward) gives this wait only a report that carries
     /// the same `dispatch_id`, or no id at all (an agent from before the
     /// field). A report for an older dispatch of the task is an orphan and

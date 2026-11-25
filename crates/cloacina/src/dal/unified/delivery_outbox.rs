@@ -293,7 +293,7 @@ impl<'a> DeliveryOutboxDAL<'a> {
 
     /// Renew the lease of the `delivered` rows in `ids` that are addressed to
     /// `recipient`: stamp `delivered_at = now`, so [`list_stuck`](Self::list_stuck)
-    /// leaves them alone for one more threshold (CLOACINA-T-1011).
+    /// leaves them alone for one more threshold (CLOACINA-T-1011, CLOACINA-A-0016).
     ///
     /// A fleet agent acks a work packet only when the work ends, because the
     /// open row marks work in flight for the dead-agent reclaim

@@ -697,7 +697,7 @@ enum PushState {
 
 /// The push ids this agent has in work and the ones it finished lately.
 ///
-/// Delivery is at-least-once (CLOACINA-A-0006): the server pushes an outbox
+/// Delivery is at-least-once (CLOACINA-A-0006, CLOACINA-A-0016): the server pushes an outbox
 /// row again after a reconnect or a sweep. The agent acks a row only when the
 /// work ends, so a long task sees its own packet again. This registry makes
 /// the agent an idempotent recipient: one push id starts one worker.
