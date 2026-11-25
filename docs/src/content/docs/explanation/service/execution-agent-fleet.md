@@ -52,6 +52,11 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    **in the task's tenant** with spare capacity, greedy on most-free-capacity so
    load spreads. Tenant scope is load-bearing: an agent only ever receives work
    for the tenant its API key is scoped to (REQ-008).
+   When no agent of the tenant can take the task now, the task **waits**: it
+   stays `Ready`, keeps its attempt count, and is tried again after 2 s. The
+   same holds when the chosen agent is full by the time the packet arrives and
+   refuses it. Waiting for capacity never fails a task; watch
+   `cloacina_fleet_dispatch_deferred_total` to see it.
 3. **Resolve the artifact.** It looks up the active (built, non-superseded)
    `.cloacina` cdylib digest for the task's package in that tenant.
 4. **Inline the context.** It builds the merged dependency context with the same

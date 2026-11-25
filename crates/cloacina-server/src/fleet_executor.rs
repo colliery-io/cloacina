@@ -63,6 +63,12 @@ use crate::fleet_coordinator::FleetCoordinator;
 /// dispatcher slot doesn't pin forever on a silent agent.
 const RESULT_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// How long a task waits before the next dispatch try when no agent could
+/// take it (CLOACINA-T-1012). Short enough that a freed slot or a new agent is
+/// used soon; long enough that a queue of waiting tasks does not read the
+/// roster on every scheduler tick.
+const NO_CAPACITY_RETRY_DELAY: Duration = Duration::from_secs(2);
+
 /// Baseline advertised capacity so an empty fleet still reports a value the
 /// dispatcher can throttle against.
 const MIN_ADVERTISED_CAPACITY: usize = 0;
@@ -220,6 +226,38 @@ impl FleetExecutor {
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
+    }
+
+    /// Put the task back in the queue for a later dispatch try, with no use of
+    /// a retry attempt (CLOACINA-T-1012). For "no agent can take it now": no
+    /// live agent of the tenant has a free slot, or the chosen agent was full
+    /// when the packet arrived. That is a wait for capacity, not a failure of
+    /// the task.
+    async fn defer_for_capacity(&self, event: &TaskReadyEvent, why: &str) -> ExecutionResult {
+        metrics::counter!("cloacina_fleet_dispatch_deferred_total").increment(1);
+        let not_before = cloacina::database::universal_types::UniversalTimestamp(
+            chrono::Utc::now()
+                + chrono::Duration::from_std(NO_CAPACITY_RETRY_DELAY)
+                    .unwrap_or_else(|_| chrono::Duration::seconds(2)),
+        );
+        match self
+            .dal
+            .task_execution()
+            .defer_dispatch(event.task_execution_id, not_before)
+            .await
+        {
+            Ok(_) => debug!(
+                task_id = %event.task_execution_id,
+                why,
+                "fleet: no capacity now; the task waits and keeps its attempt"
+            ),
+            Err(e) => warn!(
+                task_id = %event.task_execution_id,
+                error = %e,
+                "fleet: could not delay the next dispatch try; the task stays Ready"
+            ),
+        }
+        ExecutionResult::skipped(event.task_execution_id)
     }
 
     /// Route a pre-dispatch failure (namespace parse, task-not-loaded,
@@ -460,19 +498,15 @@ impl TaskExecutor for FleetExecutor {
                 }
             };
             let Some(agent) = select_fleet_agent(&snapshot, &task_tenant, &runnable_triples) else {
-                warn!(
+                // CLOACINA-T-1012: a wait for capacity, not a failure. The task
+                // stays Ready and keeps its attempt count.
+                debug!(
                     task_id = %event.task_execution_id,
                     tenant = ?task_tenant,
                     "fleet: no live agent with capacity + a runnable arch in the task's tenant"
                 );
                 return Ok(self
-                    .reconcile_error(
-                        &event,
-                        &claimed_task,
-                        &retry_policy,
-                        start.elapsed(),
-                        format!("no available fleet agent in tenant {:?}", task_tenant),
-                    )
+                    .defer_for_capacity(&event, "no agent of the tenant has a free slot")
                     .await);
             };
             let agent_id = agent.agent_id.clone();
@@ -727,6 +761,20 @@ impl TaskExecutor for FleetExecutor {
             // ── 8. Map AgentOutcome → Result<Context, ExecutorError>.
             // CLOACI-T-0780: a refusal is an expected fail-closed reschedule, not a
             // failure — keep its reconcile log quiet (debug), unlike a real failure.
+            // CLOACINA-T-1012: `Shutdown` is the agent's "I am full or going
+            // away" refusal. The task did not run: wait for capacity, with no
+            // use of a retry attempt.
+            if matches!(
+                result_req.outcome,
+                AgentOutcome::Refused {
+                    reason: cloacina::fleet::RefusalReason::Shutdown,
+                    ..
+                }
+            ) {
+                return Ok(self
+                    .defer_for_capacity(&event, "the agent refused: full or shutting down")
+                    .await);
+            }
             let was_refused = matches!(result_req.outcome, AgentOutcome::Refused { .. });
             let outcome: Result<Context<serde_json::Value>, ExecutorError> =
                 match result_req.outcome {
