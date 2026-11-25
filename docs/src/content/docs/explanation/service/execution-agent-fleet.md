@@ -57,8 +57,23 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    same holds when the chosen agent is full by the time the packet arrives and
    refuses it. Waiting for capacity never fails a task; watch
    `cloacina_fleet_dispatch_deferred_total` to see it.
-3. **Resolve the artifact.** It looks up the active (built, non-superseded)
-   `.cloacina` cdylib digest for the task's package in that tenant.
+3. **Resolve the artifact.** For the first task of an execution it looks up
+   the active (built, non-superseded) version of the task's package in that
+   tenant and records it as the execution's **version pin**. For each later
+   task of the same execution it reads the pin. So an execution runs all its
+   tasks on the version it started with, also when a newer version becomes
+   active or an earlier one is made active again while it runs. The artifact
+   of a superseded version stays fetchable by digest. If the pinned version
+   was deleted, the task fails; it does not move to another version.
+   The per-architecture artifact is looked up for that same version.
+
+   Limits of the rule: the pin covers the artifact an agent runs. The server
+   still builds the task's dependency context from the workflow it has loaded,
+   which is the active version, so a new version that removes a task or changes
+   the edges between tasks can still affect an execution that is running. A
+   runner that executes tasks in its own process (no fleet) holds one loaded
+   version of a package and is not pinned. Computation graph fires have no
+   execution and always use the active version.
 4. **Inline the context.** It builds the merged dependency context with the same
    `TaskContextBuilder` the in-process path uses, so a fleet-run task sees
    byte-for-byte the input context it would running locally.

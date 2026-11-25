@@ -604,6 +604,13 @@ curl -X POST http://localhost:8080/v1/tenants/tenant_acme/workflows \
 }
 ```
 
+The new version is a **candidate**: it waits for its build. The version that
+is in service stays active and loaded until the build of the new one succeeds;
+then the two are swapped in one transaction. If the build fails, the old
+version stays in service. An upload of the same bytes returns the same
+`package_id`. A version number can be uploaded once per package. See
+[Package versions](#package-versions).
+
 **Errors:**
 
 | Status | Body | Cause |
@@ -775,9 +782,91 @@ Resume a paused workflow. New executions are accepted
 again. Same response shape as `/pause` with `status: "resumed"` and
 `paused: false`. Requires a `write`-or-better key.
 
+### Package versions
+
+A package keeps every version that was uploaded. Each row has a build state
+(`pending`, `building`, `success`, `failed`) and a `superseded` flag:
+
+| `superseded` | `build_status` | State | Meaning |
+|---|---|---|---|
+| `false` | `success` | active | In service. At most one per package. |
+| `false` | `pending`, `building` | candidate | Waits for its build. The active version is not touched. |
+| `false` | `failed` | failed | The build failed. The active version is not touched. |
+| `true` | `success` | superseded | Was active. Can be made active again. |
+| `true` | other | abandoned | A candidate that a newer upload or an activation replaced. |
+
+An execution runs all its tasks on the version it started with: with the agent
+fleet, the first task that is dispatched pins the active version for the
+execution, and later tasks get the same artifact after a newer version becomes
+active. See [Execution Agent Fleet](../../explanation/service/execution-agent-fleet/)
+for the limits of this rule.
+
+#### GET /v1/tenants/{tenant_id}/workflows/{name}/versions
+
+List every stored version of the package `name`, newest upload first. Requires
+a `read`-or-better key. `404 workflow_not_found` when the package has no
+versions.
+
+```json
+{
+  "tenant_id": "tenant_acme",
+  "items": [
+    {
+      "id": "7b0c6c4e-3f0d-4a7e-9b56-0b1f5a7a2c11",
+      "package_name": "etl_pipeline",
+      "version": "1.3.0",
+      "active": false,
+      "superseded": false,
+      "build_status": "failed",
+      "build_error": "error[E0425]: cannot find value `x` in this scope",
+      "content_hash": "5f2b…",
+      "created_at": "2026-03-02T10:15:00+00:00"
+    },
+    {
+      "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+      "package_name": "etl_pipeline",
+      "version": "1.2.0",
+      "active": true,
+      "superseded": false,
+      "build_status": "success",
+      "content_hash": "9a41…",
+      "created_at": "2026-02-20T08:00:00+00:00",
+      "compiled_at": "2026-02-20T08:03:10+00:00"
+    }
+  ],
+  "total": 2
+}
+```
+
+#### POST /v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate
+
+Make an earlier built version the active one. There is no rebuild: the stored
+build is put back in service on the next reconcile pass. The version that was
+active becomes superseded, and a candidate that waits for a build is abandoned.
+The paused flag of the package is kept. Executions that already run stay on the
+version they started with. The call is idempotent for the active version.
+Requires a `write`-or-better key. No request body.
+
+```json
+{
+  "tenant_id": "tenant_acme",
+  "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "package_name": "etl_pipeline",
+  "version": "1.2.0",
+  "status": "active"
+}
+```
+
+| Status | Code | Cause |
+|---|---|---|
+| `404` | `workflow_version_not_found` | The package has no such version. |
+| `409` | `workflow_version_not_built` | The version has no successful build. |
+
 ### DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}
 
-Unregister a specific workflow version.
+Unregister a specific workflow version. Only the active version can be deleted
+this way. Deleting it does not make an earlier version active: use the
+activation route for that.
 
 **Path parameters:**
 

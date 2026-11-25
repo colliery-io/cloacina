@@ -203,9 +203,12 @@ Operationally useful at the compiler tier:
    it up on the next poll tick.
 
 4. **If `build_status = failed`** — the error is in `build_error`
-   (tail 64 KB of stderr). Fix the package, re-upload; the new
-   upload supersedes the old row. There is no in-place retry
-   command — re-uploading is the retry path.
+   (tail 64 KB of stderr). The version that was active before the
+   upload is still in service: a failed build does not retire it.
+   Fix the package, give it a new version number, and upload it; the
+   new upload replaces the failed row. There is no in-place retry
+   command — uploading is the retry path. `cloacinactl package
+   versions <name>` shows every row and which one is active.
 
 5. **If `build_status = pending` forever** — no compiler is
    running, or all compilers are busy building other packages.

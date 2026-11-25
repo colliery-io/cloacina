@@ -59,6 +59,10 @@ cloacinactl --tenant acme package upload my-pipeline-0.1.0.cloacina
 - **Python:** bare decorators only; a `WorkflowBuilder` inside a package fails to
   load.
 - **Rust:** compiled on the server at load time.
+- **Versions:** an upload of a new version does not retire the one in service.
+  The swap happens when the new build succeeds; a failed build leaves the old
+  version running. `cloacinactl package versions <name>` lists them and
+  `cloacinactl package activate <name> <version>` goes back to an earlier one.
 
 ## See also
 

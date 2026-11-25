@@ -368,6 +368,10 @@ Multipart POST of a `.cloacina` archive to
 the server was started with `--require-signatures`. Exit codes: 1
 (user error), 2 (network), 4 (auth), 5 (server reject).
 
+The version that is in service stays active until the build of the
+uploaded one succeeds. A failed build leaves it in service; see
+`package versions`.
+
 ### `package list [--filter <SUBSTRING>]`
 
 `GET /v1/tenants/<tenant>/workflows`. The `--filter` is applied
@@ -377,6 +381,27 @@ client-side as a substring match on the package name.
 
 `GET /v1/tenants/<tenant>/workflows/<id>`. Prints a single object
 respecting `--output`.
+
+### `package versions <NAME>`
+
+`GET /v1/tenants/<tenant>/workflows/<name>/versions`. Lists every stored
+version of a package, newest upload first, with a `STATE` column:
+`active`, `pending`, `building`, `failed`, `superseded` (was active
+earlier) or `abandoned` (replaced before it was built). `--output json`
+prints the raw rows.
+
+### `package activate <NAME> <VERSION>`
+
+`POST /v1/tenants/<tenant>/workflows/<name>/versions/<version>/activate`.
+Makes an earlier built version the active one, with no rebuild: this is
+the way back after a bad release. Executions that already run stay on
+the version they started with. Exit code 5 when the version does not
+exist or was never built.
+
+```bash
+cloacinactl package versions etl_pipeline
+cloacinactl package activate etl_pipeline 1.2.0
+```
 
 ### `package delete <ID> [--force]`
 
