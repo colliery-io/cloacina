@@ -259,8 +259,12 @@ impl<'a> DeliveryOutboxDAL<'a> {
         Ok(rows.into_iter().map(to_domain).collect())
     }
 
-    /// Open rows enqueued before `cutoff`, oldest first — the safety-net
-    /// sweeper's stuck-row scan (T-0628).
+    /// The stuck rows, oldest first — the scan of the safety-net sweeper
+    /// (T-0628). A `pending` row is stuck when it was enqueued before `cutoff`.
+    /// A `delivered` row is stuck when its last delivery, or the last renewal
+    /// of its lease ([`renew_delivered`](Self::renew_delivered)), was before
+    /// `cutoff` (CLOACINA-T-1011): a recipient that still works on a row keeps
+    /// it out of this scan.
     pub async fn list_stuck(
         &self,
         cutoff: UniversalTimestamp,
@@ -268,13 +272,58 @@ impl<'a> DeliveryOutboxDAL<'a> {
     ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
         let rows: Vec<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
             delivery_outbox::table
-                .filter(delivery_outbox::delivery_state.ne(STATE_ACKED))
-                .filter(delivery_outbox::created_at.lt(cutoff))
+                .filter(
+                    delivery_outbox::delivery_state
+                        .eq(STATE_PENDING)
+                        .and(delivery_outbox::created_at.lt(cutoff))
+                        .or(delivery_outbox::delivery_state.eq(STATE_DELIVERED).and(
+                            delivery_outbox::delivered_at.lt(cutoff).or(
+                                delivery_outbox::delivered_at
+                                    .is_null()
+                                    .and(delivery_outbox::created_at.lt(cutoff)),
+                            ),
+                        )),
+                )
                 .order(delivery_outbox::created_at.asc())
                 .limit(limit)
                 .load(conn)
         })?;
         Ok(rows.into_iter().map(to_domain).collect())
+    }
+
+    /// Renew the lease of the `delivered` rows in `ids` that are addressed to
+    /// `recipient`: stamp `delivered_at = now`, so [`list_stuck`](Self::list_stuck)
+    /// leaves them alone for one more threshold (CLOACINA-T-1011, CLOACINA-A-0016).
+    ///
+    /// A fleet agent acks a work packet only when the work ends, because the
+    /// open row marks work in flight for the dead-agent reclaim
+    /// ([`reassign_open_rows`](Self::reassign_open_rows)). Its heartbeat names
+    /// the rows it works on and lands here. The `recipient` filter stops one
+    /// agent from renewing the rows of another. Rows in any other state, and
+    /// ids that do not exist, are left alone. Returns the number of rows
+    /// renewed.
+    pub async fn renew_delivered(
+        &self,
+        recipient: &str,
+        ids: &[i64],
+    ) -> Result<usize, ValidationError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let recipient = recipient.to_string();
+        let ids = ids.to_vec();
+        let now = UniversalTimestamp::now();
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                delivery_outbox::table
+                    .filter(delivery_outbox::recipient.eq(recipient))
+                    .filter(delivery_outbox::id.eq_any(ids))
+                    .filter(delivery_outbox::delivery_state.eq(STATE_DELIVERED)),
+            )
+            .set(delivery_outbox::delivered_at.eq(Some(now)))
+            .execute(conn)
+        })
+        .map_err(ValidationError::from)
     }
 
     /// Count of open (un-acked) rows — outbox-depth signal for monitoring (T-0628).
@@ -694,5 +743,101 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 0, "Some(tenant) must not match a NULL-tenant row");
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn cutoff_now() -> UniversalTimestamp {
+        // A gap on each side, so a timestamp taken before is below the cutoff
+        // and one taken after is above it.
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        let c = UniversalTimestamp::now();
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        c
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_stuck_judges_a_delivered_row_by_its_delivery_time() {
+        // CLOACINA-T-1011: an old row that was delivered a moment ago is not stuck.
+        let dal = unique_dal().await;
+        let row = dal
+            .delivery_outbox()
+            .enqueue(new_row("agent:1"))
+            .await
+            .unwrap();
+        let cutoff = cutoff_now().await;
+        // Enqueued before the cutoff and still pending: stuck.
+        let stuck = dal.delivery_outbox().list_stuck(cutoff, 10).await.unwrap();
+        assert_eq!(stuck.len(), 1);
+        // Delivered after the cutoff: not stuck.
+        dal.delivery_outbox().mark_delivered(row.id).await.unwrap();
+        let stuck = dal.delivery_outbox().list_stuck(cutoff, 10).await.unwrap();
+        assert!(stuck.is_empty(), "a fresh delivery is not stuck: {stuck:?}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_renew_delivered_keeps_a_row_out_of_the_stuck_scan() {
+        // CLOACINA-T-1011: the heartbeat of the agent renews the lease.
+        let dal = unique_dal().await;
+        let row = dal
+            .delivery_outbox()
+            .enqueue(new_row("agent:1"))
+            .await
+            .unwrap();
+        dal.delivery_outbox().mark_delivered(row.id).await.unwrap();
+        let cutoff = cutoff_now().await;
+        let stuck = dal.delivery_outbox().list_stuck(cutoff, 10).await.unwrap();
+        assert_eq!(stuck.len(), 1, "delivered before the cutoff: stuck");
+
+        // Another agent cannot renew the row.
+        let n = dal
+            .delivery_outbox()
+            .renew_delivered("agent:2", &[row.id])
+            .await
+            .unwrap();
+        assert_eq!(n, 0);
+        let stuck = dal.delivery_outbox().list_stuck(cutoff, 10).await.unwrap();
+        assert_eq!(stuck.len(), 1);
+
+        // Its own agent renews it: the row leaves the scan.
+        let n = dal
+            .delivery_outbox()
+            .renew_delivered("agent:1", &[row.id, 999_999])
+            .await
+            .unwrap();
+        assert_eq!(n, 1);
+        let stuck = dal.delivery_outbox().list_stuck(cutoff, 10).await.unwrap();
+        assert!(stuck.is_empty());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_renew_delivered_leaves_pending_and_acked_rows() {
+        let dal = unique_dal().await;
+        let pending = dal
+            .delivery_outbox()
+            .enqueue(new_row("agent:1"))
+            .await
+            .unwrap();
+        let acked = dal
+            .delivery_outbox()
+            .enqueue(new_row("agent:1"))
+            .await
+            .unwrap();
+        dal.delivery_outbox().mark_acked(acked.id).await.unwrap();
+        let n = dal
+            .delivery_outbox()
+            .renew_delivered("agent:1", &[pending.id, acked.id])
+            .await
+            .unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(
+            dal.delivery_outbox()
+                .renew_delivered("agent:1", &[])
+                .await
+                .unwrap(),
+            0
+        );
     }
 }

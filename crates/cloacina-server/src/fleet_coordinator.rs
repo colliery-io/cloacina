@@ -40,9 +40,17 @@ use cloacina::fleet::AgentResultRequest;
 use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
+/// One wait of an executor for an agent report.
+struct Pending {
+    /// The dispatch this wait is for (CLOACINA-T-1011). `None` accepts any
+    /// report for the id (graph firings, which have one dispatch per id).
+    dispatch_id: Option<String>,
+    tx: oneshot::Sender<AgentResultRequest>,
+}
+
 #[derive(Default)]
 pub struct FleetCoordinator {
-    pending: Mutex<HashMap<UniversalUuid, oneshot::Sender<AgentResultRequest>>>,
+    pending: Mutex<HashMap<UniversalUuid, Pending>>,
 }
 
 impl FleetCoordinator {
@@ -58,9 +66,31 @@ impl FleetCoordinator {
         &self,
         task_execution_id: UniversalUuid,
     ) -> oneshot::Receiver<AgentResultRequest> {
+        self.register(task_execution_id, None)
+    }
+
+    /// Register a wait for one named dispatch of a task (CLOACINA-T-1011,
+    /// CLOACINA-A-0016).
+    /// [`forward`](Self::forward) gives this wait only a report that carries
+    /// the same `dispatch_id`, or no id at all (an agent from before the
+    /// field). A report for an older dispatch of the task is an orphan and
+    /// leaves this wait in place.
+    pub fn register_dispatch(
+        &self,
+        task_execution_id: UniversalUuid,
+        dispatch_id: String,
+    ) -> oneshot::Receiver<AgentResultRequest> {
+        self.register(task_execution_id, Some(dispatch_id))
+    }
+
+    fn register(
+        &self,
+        task_execution_id: UniversalUuid,
+        dispatch_id: Option<String>,
+    ) -> oneshot::Receiver<AgentResultRequest> {
         let (tx, rx) = oneshot::channel();
         let mut g = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(_prev) = g.insert(task_execution_id, tx) {
+        if let Some(_prev) = g.insert(task_execution_id, Pending { dispatch_id, tx }) {
             warn!(
                 task_id = %task_execution_id,
                 "FleetCoordinator: replaced an existing pending entry — \
@@ -80,12 +110,27 @@ impl FleetCoordinator {
         task_execution_id: UniversalUuid,
         result: AgentResultRequest,
     ) -> Result<(), AgentResultRequest> {
-        let tx = {
+        let pending = {
             let mut g = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            let other_dispatch = match g.get(&task_execution_id) {
+                Some(p) => match (&p.dispatch_id, &result.dispatch_id) {
+                    (Some(want), Some(got)) => want != got,
+                    _ => false,
+                },
+                None => false,
+            };
+            if other_dispatch {
+                debug!(
+                    task_id = %task_execution_id,
+                    "FleetCoordinator: report is for a different dispatch of this task (orphan); \
+                     the pending wait stays"
+                );
+                return Err(result);
+            }
             g.remove(&task_execution_id)
         };
-        match tx {
-            Some(tx) => tx.send(result).map_err(|r| {
+        match pending {
+            Some(p) => p.tx.send(result).map_err(|r| {
                 debug!(
                     task_id = %task_execution_id,
                     "FleetCoordinator: pending receiver dropped before forward; \
@@ -127,6 +172,7 @@ mod tests {
             agent_id: "agent-a".into(),
             task_execution_id: task_id.0.to_string(),
             attempt: 1,
+            dispatch_id: None,
             duration_ms: 10,
             outcome: AgentOutcome::Success {
                 context: serde_json::json!({}),
@@ -162,6 +208,33 @@ mod tests {
         coord.cancel(task_id);
         let result = synthetic_result(task_id);
         assert!(coord.forward(task_id, result).is_err());
+    }
+
+    #[tokio::test]
+    async fn report_of_another_dispatch_is_orphan_and_the_wait_stays() {
+        let coord = FleetCoordinator::new();
+        let task_id = UniversalUuid::new_v4();
+        let rx = coord.register_dispatch(task_id, "second".into());
+
+        let mut stale = synthetic_result(task_id);
+        stale.dispatch_id = Some("first".into());
+        assert!(coord.forward(task_id, stale).is_err());
+        assert_eq!(coord.pending_count(), 1);
+
+        let mut current = synthetic_result(task_id);
+        current.dispatch_id = Some("second".into());
+        assert!(coord.forward(task_id, current).is_ok());
+        assert_eq!(rx.await.unwrap().dispatch_id.as_deref(), Some("second"));
+    }
+
+    #[tokio::test]
+    async fn report_with_no_dispatch_id_resolves_a_dispatch_wait() {
+        // An agent from before the field sends no id: accept it as before.
+        let coord = FleetCoordinator::new();
+        let task_id = UniversalUuid::new_v4();
+        let rx = coord.register_dispatch(task_id, "d".into());
+        assert!(coord.forward(task_id, synthetic_result(task_id)).is_ok());
+        assert!(rx.await.is_ok());
     }
 
     #[test]

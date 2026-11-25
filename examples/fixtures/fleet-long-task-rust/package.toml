@@ -1,0 +1,14 @@
+# Long-task fixture for the fleet long-task e2e. One task that records each
+# start in a marker file and then blocks, so the test can count how many times
+# the fleet ran it. See .angreal/test/e2e/fleet_long_task.py.
+[package]
+name = "fleet-long-task-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "fleet_long_task_workflow"
+language = "rust"
+description = "fleet long-task e2e fixture"

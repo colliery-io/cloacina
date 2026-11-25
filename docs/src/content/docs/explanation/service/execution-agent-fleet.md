@@ -75,6 +75,9 @@ On the agent:
 9. **Execute + report.** It resolves the task in the loaded library, runs it
    under the packet's timeout with the inlined context, and POSTs the outcome
    (`Success` / `Failure` / `Refused`) back to the server.
+   It acks the work packet only now, when the work has ended: until then the
+   open `delivery_outbox` row marks the work as in flight (see
+   [dead-agent reclaim](#liveness-and-dead-agent-reclaim)).
 10. **Reconcile.** The server hands the outcome to the **shared**
     `TaskResultHandler` — the same code the in-process executor uses — so state
     writes, retries, and context persistence are identical by construction
@@ -144,6 +147,17 @@ agent **dead** after `--agent-liveness-misses` consecutive missed beats
 (default 3 → ~45s) and then **reclaims its in-flight work**: every non-acked
 `delivery_outbox` row addressed to the dead agent is re-targeted to a live agent
 in the same tenant and reset to `pending`, so the relay re-pushes it.
+
+A live agent keeps its packets. Each heartbeat names the packets the agent has
+in work, and the server renews the lease of those rows, so the delivery sweeper
+does not push a packet again while its agent still works on it. A packet that
+arrives a second time anyway (after a WebSocket reconnect, for example) starts
+no second run: the agent ignores a push it has in work, and acks again a push
+it has finished.
+
+Each dispatch of a task has its own `dispatch_id`, which the agent returns with
+the result. The server accepts a result only for the dispatch it waits on, so a
+report for an older dispatch of the same task cannot end a newer wait.
 
 Because the work keeps its original `task_execution_id`, the executor invocation
 still awaiting that rendezvous receives the new agent's result unchanged — the

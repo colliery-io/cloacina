@@ -162,6 +162,12 @@ pub struct AgentHeartbeatRequest {
     /// Currently-available capacity (`max_concurrency - in_flight`). The
     /// `FleetExecutor` uses this for selection.
     pub available_capacity: u32,
+    /// CLOACINA-T-1011 — the delivery-outbox ids of the pushes this agent has
+    /// in work. The server renews the lease of those rows, so the delivery
+    /// sweeper does not push a packet again while its agent still works on
+    /// it. Empty (the serde default) ⇒ nothing in work, or an older agent.
+    #[serde(default)]
+    pub in_flight_push_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,6 +258,13 @@ pub struct WorkPacket {
     /// secrets in one dispatch wrap to the SAME key (this execution's key).
     #[serde(default)]
     pub secret_key_id: Option<String>,
+    /// CLOACINA-T-1011 — names this one dispatch of the task. The agent echoes
+    /// it in [`AgentResultRequest::dispatch_id`], and the server accepts a
+    /// report only for the dispatch it waits on. So a report for an older
+    /// dispatch of the same task cannot resolve a newer wait. `None` ⇒ a
+    /// server from before this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_id: Option<String>,
 }
 
 /// One at-rest secret resolved by the server and HPKE-wrapped to a single
@@ -342,6 +355,10 @@ pub struct AgentResultRequest {
     /// Echoed from the original work packet so the server can reject stale
     /// reports (an agent reporting attempt N on a row already retried to N+1).
     pub attempt: i32,
+    /// CLOACINA-T-1011 — echoed from [`WorkPacket::dispatch_id`]. `None` ⇒ an
+    /// agent from before this field, or a graph firing (keyed by firing id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_id: Option<String>,
     pub duration_ms: u64,
     pub outcome: AgentOutcome,
 }
@@ -431,6 +448,7 @@ mod tests {
             language: Some("rust".into()),
             wrapped_secrets: Vec::new(),
             secret_key_id: None,
+            dispatch_id: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: WorkPacket = serde_json::from_str(&json).unwrap();
@@ -491,6 +509,7 @@ mod tests {
             language: None,
             wrapped_secrets: Vec::new(),
             secret_key_id: Some("key-42".into()),
+            dispatch_id: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: WorkPacket = serde_json::from_str(&json).unwrap();
