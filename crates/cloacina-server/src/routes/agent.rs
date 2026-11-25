@@ -334,32 +334,47 @@ pub async fn report_result(
     }))
 }
 
+/// The database that holds the packages the caller may fetch
+/// (CLOACI-T-0781, CLOACINA-T-1016). A tenant's packages live in ITS schema,
+/// so the three content-addressed fetch routes below must all read there:
+///
+/// - a tenant key reads its own tenant's database (`resolve("public")` is the
+///   admin schema, so a key of the `public` tenant reads public);
+/// - a platform admin key (no tenant) reads the admin schema;
+/// - a key with no tenant that is not a platform admin reads nothing.
+///
+/// A tenant database that does not resolve is an error. It is never replaced
+/// by the admin schema: that would hand a tenant key the public packages.
+async fn caller_package_db(
+    state: &AppState,
+    auth: &AuthenticatedKey,
+) -> Result<cloacina::database::Database, ApiError> {
+    match &auth.tenant_id {
+        Some(tenant) => state
+            .tenant_databases
+            .resolve(tenant, &state.database)
+            .await
+            .map_err(|e| ApiError::internal(format!("tenant database error: {}", e))),
+        None if auth.is_admin => Ok(state.database.clone()),
+        None => Err(ApiError::forbidden(
+            "tenant_access_denied",
+            "key has no tenant",
+        )),
+    }
+}
+
 /// `GET /v1/agent/artifact/{digest}` — content-addressed cdylib fetch.
 ///
 /// Returns the raw cdylib bytes for the `workflow_packages` row whose
-/// `content_hash == digest` and `build_status == 'success'`. The digest IS
-/// the secret in a content-addressed scheme, so blind probing is safe; an
-/// authenticated session is still required to keep this endpoint behind
-/// the same access fence as the rest of the API.
+/// `content_hash == digest` and `build_status == 'success'`, read from the
+/// caller's tenant (see [`caller_package_db`]). A digest of another tenant is
+/// a 404, the same as an unknown digest.
 pub async fn fetch_artifact(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
     Path(digest): Path<String>,
 ) -> Result<Response, ApiError> {
-    // CLOACI-T-0781: a tenant's compiled cdylibs live in ITS schema, so resolve
-    // the requesting agent's tenant database. A tenant-scoped agent (registered
-    // with a tenant key) fetches from its own schema; admin/public agents use the
-    // admin schema. `resolve("public")` returns the admin db, so any Some(tenant)
-    // routes correctly. Falls back to the admin db if resolution fails.
-    let db = match &auth.tenant_id {
-        Some(tenant) => state
-            .tenant_databases
-            .resolve(tenant, &state.database)
-            .await
-            .unwrap_or_else(|_| state.database.clone()),
-        None => state.database.clone(),
-    };
-    let dal = cloacina::dal::DAL::new(db);
+    let dal = cloacina::dal::DAL::new(caller_package_db(&state, &auth).await?);
     let bytes = dal
         .workflow_packages()
         .get_compiled_data_by_content_hash(&digest)
@@ -389,14 +404,14 @@ pub async fn fetch_artifact(
 /// (CLOACI-T-0716). Returns the uploaded `.cloacina` archive for the package
 /// whose active build has `content_hash == digest`. Used for Python packages:
 /// they have no cdylib (`/artifact/{digest}` is empty), so the agent fetches
-/// the archive and imports the `workflow/` + `vendor/` tree via PyO3. Same
-/// content-addressed access model as `fetch_artifact`.
+/// the archive and imports the `workflow/` + `vendor/` tree via PyO3. Reads
+/// the caller's tenant, as `fetch_artifact` does.
 pub async fn fetch_source(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthenticatedKey>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(digest): Path<String>,
 ) -> Result<Response, ApiError> {
-    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let dal = cloacina::dal::DAL::new(caller_package_db(&state, &auth).await?);
     let bytes = dal
         .workflow_packages()
         .get_package_archive_by_content_hash(&digest)
@@ -438,17 +453,17 @@ pub struct AgentProvidersResponse {
 /// (CLOACI-T-0838). Agents fetch these alongside the artifact so their load
 /// path can resolve `constructor!` nodes exactly like the server's reconciler
 /// Step 5b: unpack the bundles, set the provider search path, load each node.
-/// Empty list = the package uses no constructors. Same content-addressed
-/// access model as `fetch_artifact`.
+/// Empty list = the package uses no constructors. Reads the caller's tenant,
+/// as `fetch_artifact` does.
 pub async fn fetch_providers(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthenticatedKey>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(digest): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<AgentProvidersResponse>, ApiError> {
     use base64::Engine as _;
 
-    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let dal = cloacina::dal::DAL::new(caller_package_db(&state, &auth).await?);
     let Some((package_name, version)) = dal
         .workflow_packages()
         .get_package_name_version_by_content_hash(&digest)

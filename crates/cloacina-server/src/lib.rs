@@ -4999,6 +4999,313 @@ mod tests {
         }
     }
 
+    // ── CLOACINA-T-1016: agent fetch routes read the caller's tenant ────
+
+    /// One seeded package for the agent fetch tests: its digest and the bytes
+    /// each route must return for it.
+    struct SeededFetchPackage {
+        digest: String,
+        package_name: String,
+        registry_id: uuid::Uuid,
+        artifact: Vec<u8>,
+        source: Vec<u8>,
+        provider: Vec<u8>,
+    }
+
+    fn to_hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    /// Write a successfully-built package with a source archive, a compiled
+    /// artifact and one bundled provider into the schema `db` points at. The
+    /// rows are written the way a tenant schema holds them (`tenant_id` NULL).
+    /// The package row is marked superseded so that no reconciler tries to load
+    /// the placeholder bytes; the lookups by digest do not filter on it.
+    async fn seed_fetch_package(
+        db: &cloacina::database::Database,
+        label: &str,
+    ) -> SeededFetchPackage {
+        let seeded = SeededFetchPackage {
+            digest: format!(
+                "{}{}",
+                uuid::Uuid::new_v4().simple(),
+                uuid::Uuid::new_v4().simple()
+            ),
+            package_name: format!("t1016_{}_{}", label, uuid::Uuid::new_v4().simple()),
+            registry_id: uuid::Uuid::new_v4(),
+            artifact: format!("artifact-of-{}", label).into_bytes(),
+            source: format!("source-of-{}", label).into_bytes(),
+            provider: format!("provider-of-{}", label).into_bytes(),
+        };
+
+        let sql = format!(
+            "INSERT INTO workflow_registry (id, data) \
+                 VALUES ('{rid}', decode('{source}', 'hex')); \
+             INSERT INTO workflow_packages \
+                 (id, registry_id, package_name, version, metadata, storage_type, \
+                  content_hash, superseded, compiled_data, build_status, compiled_at) \
+                 VALUES (gen_random_uuid(), '{rid}', '{name}', '1.0.0', '{{}}', 'database', \
+                         '{digest}', true, decode('{artifact}', 'hex'), 'success', \
+                         CURRENT_TIMESTAMP);",
+            rid = seeded.registry_id,
+            source = to_hex(&seeded.source),
+            name = seeded.package_name,
+            digest = seeded.digest,
+            artifact = to_hex(&seeded.artifact),
+        );
+        db.get_postgres_connection()
+            .await
+            .expect("connection")
+            .interact(move |conn| {
+                use diesel::connection::SimpleConnection;
+                conn.batch_execute(&sql)
+            })
+            .await
+            .expect("interact")
+            .expect("seed package rows");
+
+        cloacina::dal::DAL::new(db.clone())
+            .workflow_packages()
+            .upsert_provider(
+                &seeded.package_name,
+                "1.0.0",
+                None,
+                "t1016_provider",
+                "1.0.0",
+                &seeded.digest,
+                seeded.provider.clone(),
+                "wasm",
+                None,
+            )
+            .await
+            .expect("seed provider row");
+
+        seeded
+    }
+
+    /// Remove what [`seed_fetch_package`] wrote. Only the public schema needs
+    /// it: a tenant's rows go with its schema.
+    async fn remove_fetch_package(db: &cloacina::database::Database, seeded: &SeededFetchPackage) {
+        let sql = format!(
+            "DELETE FROM package_providers WHERE package_name = '{name}'; \
+             DELETE FROM workflow_registry WHERE id = '{rid}';",
+            name = seeded.package_name,
+            rid = seeded.registry_id,
+        );
+        if let Ok(conn) = db.get_postgres_connection().await {
+            let _ = conn
+                .interact(move |conn| {
+                    use diesel::connection::SimpleConnection;
+                    conn.batch_execute(&sql)
+                })
+                .await;
+        }
+    }
+
+    /// GET `uri` with `token` and return the status and the raw body.
+    async fn agent_get(state: &AppState, token: &str, uri: &str) -> (StatusCode, Vec<u8>) {
+        let response = build_router(state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(uri)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+        let status = response.status();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes()
+            .to_vec();
+        (status, body)
+    }
+
+    /// Two tenants and the public schema, each with one package, and a key of
+    /// each tenant.
+    struct FetchTenants {
+        state: AppState,
+        admin_token: String,
+        schema_a: String,
+        schema_b: String,
+        key_a: String,
+        key_b: String,
+        pkg_a: SeededFetchPackage,
+        pkg_b: SeededFetchPackage,
+        pkg_public: SeededFetchPackage,
+    }
+
+    async fn setup_fetch_tenants() -> FetchTenants {
+        let state = test_state().await;
+        let admin_token = create_test_api_key(&state).await;
+
+        let schema_a = format!("test_t1016_a_{}", uuid::Uuid::new_v4().simple());
+        let schema_b = format!("test_t1016_b_{}", uuid::Uuid::new_v4().simple());
+        for s in [&schema_a, &schema_b] {
+            let req = axum::http::Request::builder()
+                .method("POST")
+                .uri("/v1/tenants")
+                .header("Authorization", format!("Bearer {}", admin_token))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "name": s, "password": "testpass123" }).to_string(),
+                ))
+                .unwrap();
+            let (status, _) = send_request(build_router(state.clone()), req).await;
+            assert_eq!(status, StatusCode::CREATED, "create tenant {}", s);
+        }
+
+        let db_a = state
+            .tenant_databases
+            .resolve(&schema_a, &state.database)
+            .await
+            .expect("resolve tenant A");
+        let db_b = state
+            .tenant_databases
+            .resolve(&schema_b, &state.database)
+            .await
+            .expect("resolve tenant B");
+        let pkg_a = seed_fetch_package(&db_a, "a").await;
+        let pkg_b = seed_fetch_package(&db_b, "b").await;
+        let pkg_public = seed_fetch_package(&state.database, "public").await;
+
+        let key_a = create_tenant_api_key(&state, &schema_a, "read").await;
+        let key_b = create_tenant_api_key(&state, &schema_b, "read").await;
+
+        FetchTenants {
+            state,
+            admin_token,
+            schema_a,
+            schema_b,
+            key_a,
+            key_b,
+            pkg_a,
+            pkg_b,
+            pkg_public,
+        }
+    }
+
+    async fn teardown_fetch_tenants(t: FetchTenants) {
+        remove_fetch_package(&t.state.database, &t.pkg_public).await;
+        for s in [&t.schema_a, &t.schema_b] {
+            let req = axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!("/v1/tenants/{}", s))
+                .header("Authorization", format!("Bearer {}", t.admin_token))
+                .body(Body::empty())
+                .unwrap();
+            let _ = send_request(build_router(t.state.clone()), req).await;
+        }
+    }
+
+    const AGENT_FETCH_ROUTES: [&str; 3] = ["artifact", "source", "providers"];
+
+    /// CLOACINA-T-1016: a key of tenant A gets 404 for a digest of tenant B and
+    /// for a digest of public, on the artifact, source and providers routes.
+    #[tokio::test]
+    #[serial]
+    async fn agent_fetch_routes_hide_other_tenants_digests() {
+        let t = setup_fetch_tenants().await;
+
+        for route in AGENT_FETCH_ROUTES {
+            for (owner, digest) in [
+                ("tenant B", &t.pkg_b.digest),
+                ("public", &t.pkg_public.digest),
+            ] {
+                let (status, body) = agent_get(
+                    &t.state,
+                    &t.key_a,
+                    &format!("/v1/agent/{}/{}", route, digest),
+                )
+                .await;
+                assert_eq!(
+                    status,
+                    StatusCode::NOT_FOUND,
+                    "{} route: a key of tenant A must not see a digest of {}: {}",
+                    route,
+                    owner,
+                    String::from_utf8_lossy(&body)
+                );
+            }
+            // The other direction: tenant B cannot see tenant A.
+            let (status, _) = agent_get(
+                &t.state,
+                &t.key_b,
+                &format!("/v1/agent/{}/{}", route, t.pkg_a.digest),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::NOT_FOUND,
+                "{} route: a key of tenant B must not see a digest of tenant A",
+                route
+            );
+        }
+
+        teardown_fetch_tenants(t).await;
+    }
+
+    /// CLOACINA-T-1016: a key of a named tenant gets its own package on all
+    /// three routes. Before the fix the source and providers routes read the
+    /// admin schema, so a named tenant's Python package could not be fetched.
+    /// The platform admin key still reads the public schema.
+    #[tokio::test]
+    #[serial]
+    async fn agent_fetch_routes_serve_the_callers_own_tenant() {
+        use base64::Engine as _;
+        let t = setup_fetch_tenants().await;
+
+        for (who, key, pkg) in [
+            ("tenant A", &t.key_a, &t.pkg_a),
+            ("tenant B", &t.key_b, &t.pkg_b),
+            ("platform admin", &t.admin_token, &t.pkg_public),
+        ] {
+            let (status, body) =
+                agent_get(&t.state, key, &format!("/v1/agent/artifact/{}", pkg.digest)).await;
+            assert_eq!(status, StatusCode::OK, "{}: artifact", who);
+            assert_eq!(body, pkg.artifact, "{}: artifact bytes", who);
+
+            let (status, body) =
+                agent_get(&t.state, key, &format!("/v1/agent/source/{}", pkg.digest)).await;
+            assert_eq!(status, StatusCode::OK, "{}: source", who);
+            assert_eq!(body, pkg.source, "{}: source bytes", who);
+
+            let (status, body) = agent_get(
+                &t.state,
+                key,
+                &format!("/v1/agent/providers/{}", pkg.digest),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{}: providers", who);
+            let json: serde_json::Value = serde_json::from_slice(&body).expect("providers json");
+            let providers = json["providers"].as_array().expect("providers array");
+            assert_eq!(providers.len(), 1, "{}: one provider", who);
+            assert_eq!(providers[0]["name"], "t1016_provider");
+            assert_eq!(
+                providers[0]["data"],
+                base64::engine::general_purpose::STANDARD.encode(&pkg.provider),
+                "{}: provider bytes",
+                who
+            );
+        }
+
+        // The platform admin key reads the admin schema only: a tenant's
+        // digest is not there.
+        let (status, _) = agent_get(
+            &t.state,
+            &t.admin_token,
+            &format!("/v1/agent/source/{}", t.pkg_a.digest),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        teardown_fetch_tenants(t).await;
+    }
+
     /// CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
     /// idempotent. First call drops the schema; second call sees no
     /// runner/DB to evict and `DROP SCHEMA IF EXISTS` is a no-op.
