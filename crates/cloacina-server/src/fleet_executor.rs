@@ -144,17 +144,22 @@ impl FleetExecutor {
         runtime: Arc<cloacina::Runtime>,
     ) -> Self {
         let context_builder = TaskContextBuilder::new(dal.clone());
+        let instance_id = UniversalUuid::new_v4();
         Self {
             dal,
             outbox_dal,
             agent_registry,
             coordinator,
             delivery_wake,
-            result_handler,
+            // CLOACINA-T-1013: the terminal writes of a result apply only while
+            // this executor holds the claim on the task. A result that comes
+            // back after the claim moved (a stale-claim sweep, another
+            // replica) changes no state.
+            result_handler: result_handler.with_runner_id(instance_id),
             runtime,
             context_builder,
             name: "fleet".to_string(),
-            instance_id: UniversalUuid::new_v4(),
+            instance_id,
             secret_resolver_factory: None,
         }
     }
@@ -313,12 +318,15 @@ impl TaskExecutor for FleetExecutor {
                 return Ok(ExecutionResult::skipped(task_execution_id));
             }
             Err(e) => {
+                // CLOACINA-T-1013: no dispatch without a claim. Without it two
+                // invocations can send the same task to agents. The task stays
+                // Ready and the scheduler dispatches it again on a later tick.
                 warn!(
                     task_id = %task_execution_id,
                     error = %e,
-                    "fleet: claim failed — proceeding without claim"
+                    "fleet: claim failed — not dispatching; the task stays Ready"
                 );
-                false
+                return Ok(ExecutionResult::skipped(task_execution_id));
             }
         };
 

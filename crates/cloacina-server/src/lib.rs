@@ -668,6 +668,15 @@ pub async fn run(
          non-zero means agents are dying or losing connectivity."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_orphan_results_total",
+        "Agent reports that no dispatch waited for: the report of an older \
+         dispatch of a task, a second report, or a report that reached a \
+         replica which did not dispatch the task (CLOACINA-T-1013). The report \
+         changes no state. Each one is work that ran and was not used; \
+         sustained non-zero means tasks time out or agents are declared dead \
+         while they still run."
+    );
+    metrics::describe_counter!(
         "cloacina_fleet_dispatch_deferred_total",
         "Fleet dispatch tries put back in the queue because no agent could \
          take the task: no live agent of its tenant had a free slot, or the \

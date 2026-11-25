@@ -121,6 +121,19 @@ impl TaskResultHandler {
         }
     }
 
+    /// The same handler, with its terminal writes (`mark_completed`,
+    /// `mark_failed`) guarded by the claim of `runner_id`: they apply only
+    /// while that runner holds the claim on the task (CLOACINA-T-1013).
+    pub fn with_runner_id(mut self, runner_id: UniversalUuid) -> Self {
+        self.runner_id = Some(runner_id);
+        self
+    }
+
+    /// The runner whose claim guards the terminal writes, if any.
+    pub fn runner_id(&self) -> Option<UniversalUuid> {
+        self.runner_id
+    }
+
     /// Apply the post-execution state machine for one task and return the
     /// dispatcher-shaped outcome.
     ///

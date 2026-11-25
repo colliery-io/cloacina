@@ -319,12 +319,20 @@ pub async fn report_result(
     match state.fleet_coordinator.forward(task_id, req) {
         Ok(()) => {}
         Err(orphan) => {
-            tracing::debug!(
+            // CLOACINA-T-1013: a report nobody waits for changes no state. It
+            // is the report of an older dispatch of the task (the server
+            // retried, or gave the work to another agent), a second report for
+            // a dispatch already resolved, or a report that reached a replica
+            // which did not dispatch the task. Counted and logged at info, so
+            // work that ran and was not used is visible.
+            metrics::counter!("cloacina_fleet_orphan_results_total").increment(1);
+            tracing::info!(
                 task_id = %task_id,
                 agent_id = %orphan.agent_id,
                 attempt = orphan.attempt,
-                "agent result has no pending FleetExecutor (orphan; ack + drop — \
-                 substrate at-least-once + sweeper retry keeps the system convergent)"
+                dispatch_id = ?orphan.dispatch_id,
+                duration_ms = orphan.duration_ms,
+                "agent result is for no pending dispatch (orphan): accepted, no state changed"
             );
         }
     }
