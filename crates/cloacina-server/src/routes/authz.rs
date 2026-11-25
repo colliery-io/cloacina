@@ -399,6 +399,13 @@ pub fn build_authz_table() -> AuthzTable {
         "/tenants/{tenant_id}/workflows/{name}/source",
         Access::tenant(Level::Read),
     );
+    // Versions of a package (CLOACINA-T-1018): the list is tenant-Read; the
+    // activation is registered with the other writes below.
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/workflows/{name}/versions",
+        Access::tenant(Level::Read),
+    );
     // Named workflow instances (CLOACI-T-0894). Reads are tenant-Read; the
     // mutating verbs are registered with the other writes below. Missing from
     // this table the routes exist but are unreachable — the middleware is
@@ -469,6 +476,11 @@ pub fn build_authz_table() -> AuthzTable {
     add(
         Method::DELETE,
         "/tenants/{tenant_id}/workflows/{name}/{version}",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate",
         Access::tenant(Level::Write),
     );
     add(
@@ -949,7 +961,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            68,
+            70,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
@@ -1045,6 +1057,21 @@ mod tests {
         assert_eq!(
             get(Method::GET, "/tenants/{tenant_id}/workflows"),
             Some(Access::tenant(Level::Read))
+        );
+        // CLOACINA-T-1018: the versions list is a read, the activation a write.
+        assert_eq!(
+            get(
+                Method::GET,
+                "/tenants/{tenant_id}/workflows/{name}/versions"
+            ),
+            Some(Access::tenant(Level::Read))
+        );
+        assert_eq!(
+            get(
+                Method::POST,
+                "/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate"
+            ),
+            Some(Access::tenant(Level::Write))
         );
         assert_eq!(
             get(

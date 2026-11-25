@@ -31,7 +31,7 @@ use cloacina::security::audit;
 use cloacina_api_types::{
     TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse,
     WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode,
-    WorkflowUploadedResponse,
+    WorkflowUploadedResponse, WorkflowVersionActivatedResponse, WorkflowVersionSummary,
 };
 
 use crate::AppState;
@@ -699,6 +699,163 @@ async fn set_workflow_paused(
                 name,
                 tenant_id,
                 e
+            );
+            ApiError::internal(format!("{}", e)).into_response()
+        }
+    }
+}
+
+/// GET /tenants/:tenant_id/workflows/:name/versions — every stored version of
+/// a package (CLOACINA-T-1018).
+///
+/// Newest upload first. Includes the active version, versions that wait for a
+/// build or whose build failed, and superseded versions. `name` is the package
+/// name.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/versions",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Package name"),
+    ),
+    responses(
+        (status = 200, description = "Versions of the package, newest upload first", body = TenantListResponse<WorkflowVersionSummary>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "No version of this package exists", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn list_workflow_versions(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let tenant_db: cloacina::database::Database = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+        }
+    };
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
+        Ok(r) => r,
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+    };
+
+    match registry.list_package_versions(&name).await {
+        Ok(versions) if versions.is_empty() => ApiError::not_found(
+            "workflow_not_found",
+            format!("package '{}' has no versions", name),
+        )
+        .into_response(),
+        Ok(versions) => {
+            let items: Vec<WorkflowVersionSummary> = versions
+                .into_iter()
+                .map(|v| WorkflowVersionSummary {
+                    id: v.id.to_string(),
+                    package_name: v.package_name,
+                    version: v.version,
+                    active: v.active,
+                    superseded: v.superseded,
+                    build_status: v.build_status,
+                    build_error: v.build_error,
+                    content_hash: v.content_hash,
+                    created_at: v.created_at.to_rfc3339(),
+                    compiled_at: v.compiled_at.map(|t| t.to_rfc3339()),
+                })
+                .collect();
+            Json(TenantListResponse::new(tenant_id, items)).into_response()
+        }
+        Err(e) => {
+            warn!(
+                "Failed to list versions of '{}' for tenant '{}': {}",
+                name, tenant_id, e
+            );
+            ApiError::internal(format!("{}", e)).into_response()
+        }
+    }
+}
+
+/// POST /tenants/:tenant_id/workflows/:name/versions/:version/activate — make
+/// an earlier built version the active one (CLOACINA-T-1018).
+///
+/// No rebuild: the stored build of that version is put back in service and the
+/// version that was active is superseded. A version that waits for a build is
+/// abandoned. Executions that already run stay on the version they started
+/// with. Idempotent for the version that is already active.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Package name"),
+        ("version" = String, Path, description = "Version to make active"),
+    ),
+    responses(
+        (status = 200, description = "The version is active", body = WorkflowVersionActivatedResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "No such version of the package", body = cloacina_api_types::ErrorBody),
+        (status = 409, description = "The version has no successful build", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn activate_workflow_version(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name, version)): Path<(String, String, String)>,
+) -> impl IntoResponse {
+    let tenant_db: cloacina::database::Database = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+        }
+    };
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
+        Ok(r) => r,
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+    };
+
+    use cloacina::registry::error::RegistryError;
+    match registry.activate_package_version(&name, &version).await {
+        Ok(id) => {
+            info!(
+                "Activated version {} of package '{}' for tenant '{}'",
+                version, name, tenant_id
+            );
+            Json(WorkflowVersionActivatedResponse {
+                tenant_id,
+                id: id.to_string(),
+                package_name: name,
+                version,
+                status: "active".to_string(),
+            })
+            .into_response()
+        }
+        Err(e @ RegistryError::PackageNotFound { .. }) => {
+            ApiError::not_found("workflow_version_not_found", format!("{}", e)).into_response()
+        }
+        Err(RegistryError::ValidationError { reason }) => {
+            ApiError::conflict("workflow_version_not_built", reason).into_response()
+        }
+        Err(e) => {
+            warn!(
+                "Failed to activate version {} of '{}' for tenant '{}': {}",
+                version, name, tenant_id, e
             );
             ApiError::internal(format!("{}", e)).into_response()
         }

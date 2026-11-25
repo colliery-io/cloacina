@@ -170,3 +170,45 @@ pub struct WorkflowPauseResponse {
     /// Current paused state after the operation.
     pub paused: bool,
 }
+
+/// One stored version of a package, in
+/// `GET /tenants/{tenant_id}/workflows/{name}/versions` (CLOACINA-T-1018).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct WorkflowVersionSummary {
+    /// Package UUID of this version.
+    pub id: String,
+    pub package_name: String,
+    pub version: String,
+    /// `true` for the version in service: built and not superseded. At most
+    /// one version of a package is active.
+    pub active: bool,
+    /// `true` once another version replaced this one, or a newer upload
+    /// replaced it before it was built.
+    pub superseded: bool,
+    /// `pending`, `building`, `success` or `failed`.
+    pub build_status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_error: Option<String>,
+    /// SHA-256 of the uploaded archive.
+    pub content_hash: String,
+    /// Upload time (RFC 3339).
+    pub created_at: String,
+    /// Time the build succeeded (RFC 3339).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiled_at: Option<String>,
+}
+
+/// `POST /tenants/{tenant_id}/workflows/{name}/versions/{version}/activate`
+/// response (CLOACINA-T-1018).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct WorkflowVersionActivatedResponse {
+    pub tenant_id: String,
+    /// Package UUID of the version that is now active.
+    pub id: String,
+    pub package_name: String,
+    pub version: String,
+    /// Always `"active"`.
+    pub status: String,
+}

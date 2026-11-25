@@ -1994,6 +1994,17 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/workflows/{name}/resume",
             post(crate::routes::workflows::resume_workflow),
         )
+        // Versions of a package: list, and make an earlier one active
+        // (CLOACINA-T-1018). The static `versions` segment wins over the
+        // `{version}` wildcard of the delete route below.
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/versions",
+            get(crate::routes::workflows::list_workflow_versions),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate",
+            post(crate::routes::workflows::activate_workflow_version),
+        )
         // Named workflow instances (CLOACI-T-0894). Declared BEFORE the
         // `{version}` delete so the static `instances` segment is never
         // shadowed by the version wildcard.
@@ -5777,6 +5788,70 @@ mod tests {
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
         assert!(body["package_id"].as_str().is_some());
+    }
+
+    /// CLOACINA-T-1018: the versions list and the activation route. No
+    /// compiler runs in this lane, so the uploaded version is not built: the
+    /// list shows it, and the activation refuses a version with no build.
+    #[tokio::test]
+    #[serial]
+    async fn test_workflow_versions_list_and_activate() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let call = |method: &'static str, uri: String| {
+            let (state, token) = (state.clone(), token.clone());
+            async move {
+                let req = axum::http::Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .body(Body::empty())
+                    .unwrap();
+                send_request(build_router(state), req).await
+            }
+        };
+
+        let package_data = std::fs::read(fixture_path("python-workflow.cloacina"))
+            .expect("fixture file not found");
+        let (boundary, body_bytes) = multipart_file_body(&package_data);
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/public/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body_bytes))
+            .unwrap();
+        let (status, body) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
+
+        let base = "/v1/tenants/public/workflows/test-fixture-python/versions";
+        let (status, body) = call("GET", base.to_string()).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        let items = body["items"].as_array().expect("items");
+        let row = items
+            .iter()
+            .find(|v| v["version"] == "1.0.0")
+            .expect("the uploaded version is listed");
+        assert_eq!(row["package_name"], "test-fixture-python");
+        let active = items.iter().filter(|v| v["active"] == true).count();
+        assert!(active <= 1, "at most one active version: {:?}", items);
+
+        // A version with no successful build cannot be made active.
+        if row["build_status"] != "success" {
+            let (status, body) = call("POST", format!("{base}/1.0.0/activate")).await;
+            assert_eq!(status, StatusCode::CONFLICT, "body: {:?}", body);
+        }
+        let (status, _) = call("POST", format!("{base}/9.9.9/activate")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = call(
+            "GET",
+            "/v1/tenants/public/workflows/no-such-package/versions".to_string(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

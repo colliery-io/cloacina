@@ -1058,6 +1058,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/workflows/{name}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/workflows/:name/versions — every stored version of
+         *     a package (CLOACINA-T-1018).
+         * @description Newest upload first. Includes the active version, versions that wait for a
+         *     build or whose build failed, and superseded versions. `name` is the package
+         *     name.
+         */
+        get: operations["list_workflow_versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/workflows/:name/versions/:version/activate — make
+         *     an earlier built version the active one (CLOACINA-T-1018).
+         * @description No rebuild: the stored build of that version is put back in service and the
+         *     version that was active is superseded. A version that waits for a build is
+         *     abandoned. Executions that already run stay on the version they started
+         *     with. Idempotent for the version that is already active.
+         */
+        post: operations["activate_workflow_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/workflows/{name}/{version}": {
         parameters: {
             query?: never;
@@ -2189,6 +2236,40 @@ export interface components {
             tenant_id: string;
             total: number;
         };
+        /**
+         * @description List envelope variant that retains a top-level `tenant_id`, used by
+         *     tenant-scoped list endpoints for backward compatibility with operator
+         *     dashboards that key off it.
+         */
+        TenantListResponse_WorkflowVersionSummary: {
+            items: {
+                /**
+                 * @description `true` for the version in service: built and not superseded. At most
+                 *     one version of a package is active.
+                 */
+                active: boolean;
+                build_error?: string | null;
+                /** @description `pending`, `building`, `success` or `failed`. */
+                build_status: string;
+                /** @description Time the build succeeded (RFC 3339). */
+                compiled_at?: string | null;
+                /** @description SHA-256 of the uploaded archive. */
+                content_hash: string;
+                /** @description Upload time (RFC 3339). */
+                created_at: string;
+                /** @description Package UUID of this version. */
+                id: string;
+                package_name: string;
+                /**
+                 * @description `true` once another version replaced this one, or a newer upload
+                 *     replaced it before it was built.
+                 */
+                superseded: boolean;
+                version: string;
+            }[];
+            tenant_id: string;
+            total: number;
+        };
         /** @description `DELETE /tenants/{schema_name}` response — orchestrated teardown report. */
         TenantRemovedResponse: {
             db_cache_evicted: boolean;
@@ -2480,6 +2561,48 @@ export interface components {
             /** @description UUID of the registered package. */
             package_id: string;
             tenant_id: string;
+        };
+        /**
+         * @description `POST /tenants/{tenant_id}/workflows/{name}/versions/{version}/activate`
+         *     response (CLOACINA-T-1018).
+         */
+        WorkflowVersionActivatedResponse: {
+            /** @description Package UUID of the version that is now active. */
+            id: string;
+            package_name: string;
+            /** @description Always `"active"`. */
+            status: string;
+            tenant_id: string;
+            version: string;
+        };
+        /**
+         * @description One stored version of a package, in
+         *     `GET /tenants/{tenant_id}/workflows/{name}/versions` (CLOACINA-T-1018).
+         */
+        WorkflowVersionSummary: {
+            /**
+             * @description `true` for the version in service: built and not superseded. At most
+             *     one version of a package is active.
+             */
+            active: boolean;
+            build_error?: string | null;
+            /** @description `pending`, `building`, `success` or `failed`. */
+            build_status: string;
+            /** @description Time the build succeeded (RFC 3339). */
+            compiled_at?: string | null;
+            /** @description SHA-256 of the uploaded archive. */
+            content_hash: string;
+            /** @description Upload time (RFC 3339). */
+            created_at: string;
+            /** @description Package UUID of this version. */
+            id: string;
+            package_name: string;
+            /**
+             * @description `true` once another version replaced this one, or a newer upload
+             *     replaced it before it was built.
+             */
+            superseded: boolean;
+            version: string;
         };
         /**
          * @description `POST /auth/ws-ticket` response — a single-use, short-lived ticket for
@@ -5436,6 +5559,139 @@ export interface operations {
             };
             /** @description Workflow not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_workflow_versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Package name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions of the package, newest upload first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantListResponse_WorkflowVersionSummary"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No version of this package exists */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    activate_workflow_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Package name */
+                name: string;
+                /** @description Version to make active */
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version is active */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersionActivatedResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such version of the package */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The version has no successful build */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
