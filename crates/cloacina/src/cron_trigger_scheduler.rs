@@ -75,6 +75,14 @@ use tracing::{debug, error, info, warn};
 /// structural one.
 pub const MAX_CONSECUTIVE_PREDICATE_ERRORS: i32 = 5;
 
+/// How often the completion accounting of a trigger-fired run reads the
+/// status of its workflow execution (CLOACINA-T-1019).
+const TRIGGER_COMPLETION_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// How many status reads in a row may fail before the completion accounting
+/// of a trigger-fired run gives up and leaves the row open (CLOACINA-T-1019).
+const TRIGGER_COMPLETION_MAX_READ_ERRORS: u32 = 20;
+
 /// Configuration for the unified scheduler.
 #[derive(Debug, Clone)]
 pub struct SchedulerConfig {
@@ -88,8 +96,6 @@ pub struct SchedulerConfig {
     pub cron_poll_interval: Duration,
     /// Maximum number of missed executions to run in catchup mode.
     pub max_catchup_executions: usize,
-    /// Maximum acceptable delay for cron (used for observability / alerting).
-    pub max_acceptable_delay: Duration,
     /// Base poll interval — the tick rate of the run loop.
     pub trigger_base_poll_interval: Duration,
     /// Maximum time to wait for a single trigger poll operation.
@@ -115,7 +121,6 @@ impl Default for SchedulerConfig {
         Self {
             cron_poll_interval: Duration::from_secs(30),
             max_catchup_executions: 100,
-            max_acceptable_delay: Duration::from_secs(300), // 5 minutes
             trigger_base_poll_interval: Duration::from_secs(1),
             trigger_poll_timeout: Duration::from_secs(30),
             reactor_poll_interval: Duration::from_secs(1),
@@ -893,10 +898,13 @@ impl Scheduler {
         // Extract context from result
         let context = poll_result.into_context().unwrap_or_else(Context::new);
 
-        // Hand off to workflow executor
+        // Hand off to the workflow executor. The handoff does not wait for the
+        // run: a wait here would hold the one scheduler loop, and with it
+        // every other trigger poll and cron fire, for the length of the run
+        // (CLOACINA-T-1019).
         match self.execute_trigger_workflow(schedule, context).await {
             Ok(workflow_execution_id) => {
-                // Link the execution to the workflow execution
+                // Link the execution to the workflow execution at handoff
                 if let Err(e) = self
                     .dal
                     .schedule_execution()
@@ -913,6 +921,21 @@ impl Scheduler {
                     "Successfully scheduled workflow '{}' for trigger '{}' (execution: {})",
                     schedule.workflow_name, trigger_name, workflow_execution_id
                 );
+
+                // Completion accounting, off the loop: the row stays open
+                // while the run is in flight (that is what the dedup by
+                // context hash reads) and is marked complete when it ends.
+                let this = self.clone();
+                let schedule_execution_id = execution.id;
+                let trigger_name = trigger_name.to_string();
+                tokio::spawn(async move {
+                    this.complete_trigger_execution_when_done(
+                        schedule_execution_id,
+                        workflow_execution_id,
+                        &trigger_name,
+                    )
+                    .await;
+                });
             }
             Err(e) => {
                 error!(
@@ -939,6 +962,80 @@ impl Scheduler {
         }
 
         Ok(())
+    }
+
+    /// Waits for a trigger-fired workflow execution to reach a terminal state
+    /// and then marks its schedule execution row complete (CLOACINA-T-1019).
+    ///
+    /// Runs on its own task, never inside the scheduler loop. A failed status
+    /// read is retried: marking the row complete while the run may still be
+    /// live would let the same context fire a second, overlapping run. After
+    /// [`TRIGGER_COMPLETION_MAX_READ_ERRORS`] consecutive failures, or on
+    /// shutdown, the row is left open and linked; the cron recovery sweep
+    /// backfills the completion of a linked row once its run is terminal.
+    async fn complete_trigger_execution_when_done(
+        &self,
+        schedule_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
+        trigger_name: &str,
+    ) {
+        let mut shutdown = self.shutdown.clone();
+        let mut consecutive_errors = 0u32;
+
+        loop {
+            if *shutdown.borrow() {
+                debug!(
+                    "Shutdown while waiting for trigger '{}' execution {}; leaving schedule execution {} open",
+                    trigger_name, workflow_execution_id, schedule_execution_id
+                );
+                return;
+            }
+
+            match self
+                .executor
+                .get_execution_status(workflow_execution_id.0)
+                .await
+            {
+                Ok(status) if status.is_terminal() => break,
+                Ok(_) => consecutive_errors = 0,
+                Err(e) => {
+                    consecutive_errors += 1;
+                    if consecutive_errors >= TRIGGER_COMPLETION_MAX_READ_ERRORS {
+                        warn!(
+                            "Could not read the status of workflow execution {} (trigger '{}') {} times in a row; leaving schedule execution {} open: {}",
+                            workflow_execution_id,
+                            trigger_name,
+                            consecutive_errors,
+                            schedule_execution_id,
+                            e
+                        );
+                        return;
+                    }
+                }
+            }
+
+            tokio::select! {
+                _ = tokio::time::sleep(TRIGGER_COMPLETION_POLL_INTERVAL) => {}
+                changed = shutdown.changed() => {
+                    if changed.is_err() {
+                        // The shutdown sender is gone: the scheduler is gone.
+                        return;
+                    }
+                }
+            }
+        }
+
+        if let Err(e) = self
+            .dal
+            .schedule_execution()
+            .complete(schedule_execution_id, Utc::now())
+            .await
+        {
+            warn!(
+                "Failed to mark schedule execution {} complete for trigger '{}': {}",
+                schedule_execution_id, trigger_name, e
+            );
+        }
     }
 
     /// Creates an audit record for a trigger execution.
@@ -970,7 +1067,8 @@ impl Scheduler {
         Ok(execution)
     }
 
-    /// Executes a trigger workflow by handing it off to the workflow executor.
+    /// Hands a trigger workflow off to the workflow executor and returns the
+    /// id of the workflow execution. It does not wait for the run to end.
     async fn execute_trigger_workflow(
         &self,
         schedule: &Schedule,
@@ -1008,15 +1106,17 @@ impl Scheduler {
             })?;
 
         // Primary: the trigger's `on` workflow. Drives the audit record + return
-        // value, and propagates its error (unchanged behavior).
-        let result = self
+        // value, and propagates a handoff error. `execute_async` returns as
+        // soon as the execution exists (CLOACINA-T-1019).
+        let handle = self
             .executor
-            .execute(&schedule.workflow_name, context)
+            .execute_async(&schedule.workflow_name, context)
             .await?;
+        let execution_id = handle.execution_id;
 
         debug!(
             "Successfully handed off workflow '{}' to executor (execution_id: {})",
-            schedule.workflow_name, result.execution_id
+            schedule.workflow_name, execution_id
         );
 
         // CLOACI-T-0778: fan out to every OTHER workflow subscribed to this
@@ -1035,7 +1135,7 @@ impl Scheduler {
                                 continue;
                             }
                             match Context::from_json(ctx_json.clone()) {
-                                Ok(ctx) => match self.executor.execute(&wf, ctx).await {
+                                Ok(ctx) => match self.executor.execute_async(&wf, ctx).await {
                                     Ok(r) => debug!(
                                         "trigger '{}' fan-out: fired '{}' (execution_id: {})",
                                         trigger_name, wf, r.execution_id
@@ -1060,7 +1160,7 @@ impl Scheduler {
             }
         }
 
-        Ok(UniversalUuid(result.execution_id))
+        Ok(UniversalUuid(execution_id))
     }
 
     // -----------------------------------------------------------------------
@@ -1677,7 +1777,6 @@ mod tests {
         let config = SchedulerConfig::default();
         assert_eq!(config.cron_poll_interval, Duration::from_secs(30));
         assert_eq!(config.max_catchup_executions, 100);
-        assert_eq!(config.max_acceptable_delay, Duration::from_secs(300));
         assert_eq!(config.trigger_base_poll_interval, Duration::from_secs(1));
         assert_eq!(config.trigger_poll_timeout, Duration::from_secs(30));
         assert_eq!(config.reactor_poll_interval, Duration::from_secs(1));
@@ -1792,7 +1891,6 @@ mod tests {
         let config = SchedulerConfig {
             cron_poll_interval: Duration::from_secs(60),
             max_catchup_executions: 50,
-            max_acceptable_delay: Duration::from_secs(120),
             trigger_base_poll_interval: Duration::from_secs(5),
             trigger_poll_timeout: Duration::from_secs(10),
             reactor_poll_interval: Duration::from_secs(2),
@@ -1802,7 +1900,6 @@ mod tests {
         };
         assert_eq!(config.cron_poll_interval, Duration::from_secs(60));
         assert_eq!(config.max_catchup_executions, 50);
-        assert_eq!(config.max_acceptable_delay, Duration::from_secs(120));
         assert_eq!(config.trigger_base_poll_interval, Duration::from_secs(5));
         assert_eq!(config.trigger_poll_timeout, Duration::from_secs(10));
         assert_eq!(config.reactor_poll_interval, Duration::from_secs(2));
@@ -1823,7 +1920,6 @@ mod tests {
         let cloned = config.clone();
         assert_eq!(cloned.cron_poll_interval, config.cron_poll_interval);
         assert_eq!(cloned.max_catchup_executions, config.max_catchup_executions);
-        assert_eq!(cloned.max_acceptable_delay, config.max_acceptable_delay);
         assert_eq!(
             cloned.trigger_base_poll_interval,
             config.trigger_base_poll_interval
@@ -2057,5 +2153,309 @@ mod tests {
         let now = Utc::now();
         let backstop = Duration::from_secs(45);
         assert_eq!(compute_cron_sleep_delay(None, now, backstop), backstop);
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1019 — a long run fired by a poll trigger must not hold the loop
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "sqlite")]
+    mod trigger_handoff {
+        use super::super::*;
+        use crate::runner::{DefaultRunner, DefaultRunnerConfig};
+        use crate::trigger::TriggerResult;
+        use crate::{Task, TaskError, TaskNamespace, Workflow};
+        use async_trait::async_trait;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        /// A task that counts its starts and then holds for `hold`, or until
+        /// the test releases it.
+        struct HoldTask {
+            hold: Duration,
+            started: Arc<AtomicUsize>,
+            release: Arc<Notify>,
+        }
+
+        #[async_trait]
+        impl Task for HoldTask {
+            async fn execute(
+                &self,
+                context: Context<serde_json::Value>,
+            ) -> Result<Context<serde_json::Value>, TaskError> {
+                self.started.fetch_add(1, Ordering::SeqCst);
+                if !self.hold.is_zero() {
+                    tokio::select! {
+                        _ = tokio::time::sleep(self.hold) => {}
+                        _ = self.release.notified() => {}
+                    }
+                }
+                Ok(context)
+            }
+
+            fn id(&self) -> &str {
+                "work"
+            }
+
+            fn dependencies(&self) -> &[TaskNamespace] {
+                &[]
+            }
+        }
+
+        /// A poll trigger that fires on every poll with the same context.
+        #[derive(Debug)]
+        struct AlwaysFire {
+            name: String,
+            polls: Arc<AtomicUsize>,
+        }
+
+        #[async_trait]
+        impl Trigger for AlwaysFire {
+            fn name(&self) -> &str {
+                &self.name
+            }
+
+            fn poll_interval(&self) -> Duration {
+                Duration::from_millis(100)
+            }
+
+            fn allow_concurrent(&self) -> bool {
+                false
+            }
+
+            async fn poll(&self) -> Result<TriggerResult, cloacina_workflow::TriggerError> {
+                self.polls.fetch_add(1, Ordering::SeqCst);
+                let mut context = Context::new();
+                context
+                    .insert("source", serde_json::json!(self.name))
+                    .expect("context insert");
+                Ok(TriggerResult::Fire(Some(context)))
+            }
+        }
+
+        /// Registers a one-task workflow and returns the start counter and the
+        /// release handle of its task.
+        fn register_workflow(
+            runtime: &Runtime,
+            name: &str,
+            hold: Duration,
+        ) -> (Arc<AtomicUsize>, Arc<Notify>) {
+            let started = Arc::new(AtomicUsize::new(0));
+            let release = Arc::new(Notify::new());
+            let task: Arc<dyn Task> = Arc::new(HoldTask {
+                hold,
+                started: started.clone(),
+                release: release.clone(),
+            });
+            let workflow = Workflow::builder(name)
+                .add_task(task.clone())
+                .expect("add task")
+                .build()
+                .expect("build workflow");
+            let namespace = TaskNamespace::new(
+                workflow.tenant(),
+                workflow.package(),
+                workflow.name(),
+                "work",
+            );
+            runtime.register_task(namespace, move || task.clone());
+            runtime.register_workflow(name.to_string(), move || workflow.clone());
+            (started, release)
+        }
+
+        fn register_trigger(runtime: &Runtime, name: &str) -> Arc<AtomicUsize> {
+            let polls = Arc::new(AtomicUsize::new(0));
+            let trigger: Arc<dyn Trigger> = Arc::new(AlwaysFire {
+                name: name.to_string(),
+                polls: polls.clone(),
+            });
+            runtime.register_trigger(name.to_string(), move || trigger.clone());
+            polls
+        }
+
+        /// Polls `check` every 50 ms until it is true or `timeout` passes.
+        async fn wait_until<F, Fut>(timeout: Duration, mut check: F) -> bool
+        where
+            F: FnMut() -> Fut,
+            Fut: std::future::Future<Output = bool>,
+        {
+            let deadline = Instant::now() + timeout;
+            loop {
+                if check().await {
+                    return true;
+                }
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+
+        /// A poll trigger fires a workflow that runs for 2 minutes. While that
+        /// run is in flight, a second trigger and a cron schedule must still
+        /// fire (hand their workflow off) within seconds, the slow trigger
+        /// must not fire a second run for the same context, and each schedule
+        /// execution row must be linked at handoff and marked complete when
+        /// its run ends.
+        ///
+        /// "Fire" here is the handoff, read from the schedule execution rows.
+        /// The runs of the other workflows cannot start while the slow task
+        /// holds: on SQLite the runner dispatches tasks one at a time.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn slow_trigger_run_does_not_hold_other_triggers_or_cron() {
+            let runtime = Arc::new(Runtime::empty());
+            let (slow_started, slow_release) =
+                register_workflow(&runtime, "slow_workflow", Duration::from_secs(120));
+            let (fast_started, _) = register_workflow(&runtime, "fast_workflow", Duration::ZERO);
+            register_workflow(&runtime, "cron_workflow", Duration::ZERO);
+            let slow_polls = register_trigger(&runtime, "slow_trigger");
+            let fast_polls = register_trigger(&runtime, "fast_trigger");
+
+            let dir = tempfile::tempdir().expect("temp dir");
+            let url = format!("sqlite://{}", dir.path().join("scheduler.db").display());
+            let config = DefaultRunnerConfig::builder()
+                .enable_cron_scheduling(true)
+                .cron_poll_interval(Duration::from_millis(200))
+                .cron_enable_recovery(false)
+                .enable_trigger_scheduling(true)
+                .trigger_base_poll_interval(Duration::from_millis(100))
+                .enable_registry_reconciler(false)
+                .build()
+                .expect("runner config");
+            let runner = DefaultRunner::builder()
+                .database_url(&url)
+                .with_config(config)
+                .runtime_arc(runtime.clone())
+                .build()
+                .await
+                .expect("runner");
+            let dal = runner.dal();
+
+            // The slow trigger fires first. Wait until its run is in flight.
+            let slow_schedule = dal
+                .schedule()
+                .upsert_trigger(NewSchedule::trigger(
+                    "slow_trigger",
+                    "slow_workflow",
+                    Duration::from_millis(100),
+                ))
+                .await
+                .expect("slow trigger schedule");
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    slow_started.load(Ordering::SeqCst) >= 1
+                })
+                .await,
+                "the slow workflow did not start"
+            );
+
+            // Now add a second trigger and a cron schedule due in one second.
+            let fast_schedule = dal
+                .schedule()
+                .upsert_trigger(NewSchedule::trigger(
+                    "fast_trigger",
+                    "fast_workflow",
+                    Duration::from_millis(100),
+                ))
+                .await
+                .expect("fast trigger schedule");
+            let cron_due = Utc::now() + chrono::Duration::seconds(1);
+            let cron_schedule = dal
+                .schedule()
+                .create(NewSchedule::cron(
+                    "cron_workflow",
+                    "* * * * *",
+                    UniversalTimestamp(cron_due),
+                ))
+                .await
+                .expect("cron schedule");
+
+            let added = Instant::now();
+            let linked_rows = |schedule_id: UniversalUuid| {
+                let dal = dal.clone();
+                async move {
+                    dal.schedule_execution()
+                        .list_by_schedule(schedule_id, 50, 0)
+                        .await
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|row| row.workflow_execution_id.is_some())
+                        .count()
+                }
+            };
+            let fired_in_time = wait_until(Duration::from_secs(6), || async {
+                linked_rows(fast_schedule.id).await >= 1 && linked_rows(cron_schedule.id).await >= 1
+            })
+            .await;
+            assert!(
+                fired_in_time,
+                "while the slow run was in flight, after {:?}: fast trigger polls = {}, fires = {}; \
+                 cron fires = {} (each must be at least 1)",
+                added.elapsed(),
+                fast_polls.load(Ordering::SeqCst),
+                linked_rows(fast_schedule.id).await,
+                linked_rows(cron_schedule.id).await,
+            );
+
+            // The slow run is still in flight: one run, one open, linked row,
+            // although the trigger kept firing the same context.
+            assert!(slow_polls.load(Ordering::SeqCst) >= 2, "slow trigger polls");
+            assert_eq!(slow_started.load(Ordering::SeqCst), 1);
+            let slow_rows = dal
+                .schedule_execution()
+                .list_by_schedule(slow_schedule.id, 10, 0)
+                .await
+                .expect("slow rows");
+            assert_eq!(slow_rows.len(), 1, "dedup by context hash must hold");
+            assert!(slow_rows[0].completed_at.is_none());
+            let slow_execution_id = slow_rows[0]
+                .workflow_execution_id
+                .expect("the row is linked at handoff");
+            let slow_execution = dal
+                .workflow_execution()
+                .get_by_id(slow_execution_id)
+                .await
+                .expect("slow workflow execution");
+            assert!(
+                !matches!(slow_execution.status.as_str(), "Completed" | "Failed"),
+                "the slow run must still be in flight, got {}",
+                slow_execution.status
+            );
+
+            // Let the slow run end: its row is marked complete.
+            slow_release.notify_one();
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    dal.schedule_execution()
+                        .get_by_id(slow_rows[0].id)
+                        .await
+                        .map(|r| r.completed_at.is_some())
+                        .unwrap_or(false)
+                })
+                .await,
+                "the slow run's row must be marked complete when the run ends"
+            );
+
+            // The fast runs can start now. A fast run ends, its row is marked
+            // complete, and the same context fires again.
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    let rows = dal
+                        .schedule_execution()
+                        .list_by_schedule(fast_schedule.id, 50, 0)
+                        .await
+                        .unwrap_or_default();
+                    rows.len() >= 2 && rows.iter().any(|r| r.completed_at.is_some())
+                })
+                .await,
+                "a finished fast run must complete its row and let the trigger fire again \
+                 (fast runs started = {})",
+                fast_started.load(Ordering::SeqCst)
+            );
+
+            let _ = dal.schedule().delete(slow_schedule.id).await;
+            let _ = dal.schedule().delete(fast_schedule.id).await;
+            let _ = dal.schedule().delete(cron_schedule.id).await;
+            runner.shutdown().await.expect("shutdown");
+        }
     }
 }

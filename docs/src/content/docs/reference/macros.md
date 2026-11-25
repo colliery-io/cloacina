@@ -306,7 +306,7 @@ pub async fn nightly_report() {}
 | `on` | string literal | yes | -- | Name of the workflow to trigger. |
 | `poll_interval` | string literal | exactly one of `poll_interval` / `cron` | -- | Poll frequency. Format: `100ms`, `5s`, `2m`, `1h`. |
 | `cron` | string literal | exactly one of `poll_interval` / `cron` | -- | Cron expression (5-7 fields: minute hour day month weekday, optional year and seconds). Validated at compile time. |
-| `timezone` | string literal | no | `"UTC"` | IANA timezone for cron evaluation (e.g., `"America/New_York"`). Only applies to cron triggers. |
+| `timezone` | string literal | no | `"UTC"` | IANA timezone for cron evaluation (e.g., `"America/New_York"`). Only applies to cron triggers. A packaged cron trigger registers its schedule in this timezone. |
 | `allow_concurrent` | boolean | no | `false` | Whether multiple trigger firings can overlap. |
 | `name` | string literal | no | function name | Override the trigger name (used for registration and schedule records). |
 

@@ -388,6 +388,11 @@ pub struct TriggerPackageMetadata {
     /// Whether concurrent executions are allowed.
     #[serde(default)]
     pub allow_concurrent: bool,
+    /// IANA timezone the cron expression is evaluated in (the
+    /// `#[trigger(timezone = "...")]` attribute). `None` means UTC. Only read
+    /// when `cron_expression.is_some()`. (CLOACINA-T-1019)
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 /// Result of a computation graph execution.

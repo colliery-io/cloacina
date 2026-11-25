@@ -147,7 +147,7 @@ A persistent record of execution events used by the continuous scheduling system
 
 ### Method-Index Vtable
 
-The positional dispatch table that the host uses to call into a packaged cdylib over the FFI boundary. The `CloacinaPlugin` trait (interface version 5) declares eleven methods (indices 0–10); `cloacina-workflow-plugin` exports canonical constants (`METHOD_GET_TASK_METADATA = 0` through `METHOD_GET_CONSTRUCTOR_METADATA = 10`) so call sites and trait declarations cannot drift. Methods 4–8 are `#[optional(since = 2)]`, method 9 (`get_input_interface`) is `#[optional(since = 3)]`, and method 10 (`get_constructor_metadata`) is `#[optional(since = 4)]`; older plugins return `CallError::NotImplemented` for slots they don't emit, which the host treats as "package declares none." See [FFI Vtable Reference](../ffi-vtable/).
+The positional dispatch table that the host uses to call into a packaged cdylib over the FFI boundary. The `CloacinaPlugin` trait (interface version 8) declares eleven methods (indices 0–10); `cloacina-workflow-plugin` exports canonical constants (`METHOD_GET_TASK_METADATA = 0` through `METHOD_GET_CONSTRUCTOR_METADATA = 10`) so call sites and trait declarations cannot drift. Methods 4–8 are `#[optional(since = 2)]`, method 9 (`get_input_interface`) is `#[optional(since = 3)]`, and method 10 (`get_constructor_metadata`) is `#[optional(since = 4)]`; older plugins return `CallError::NotImplemented` for slots they don't emit, which the host treats as "package declares none." See [FFI Vtable Reference](../ffi-vtable/).
 
 ### Multi-tenancy
 

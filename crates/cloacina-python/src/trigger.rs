@@ -164,6 +164,7 @@ pub struct PythonTriggerWrapper {
     python_function: Py<PyAny>,
     workflow_name: String,
     cron_expression: Option<String>,
+    timezone: Option<String>,
 }
 
 // SAFETY: PythonTriggerWrapper holds a PyObject which is not Send/Sync.
@@ -182,6 +183,7 @@ impl PythonTriggerWrapper {
             python_function: function,
             workflow_name: def.workflow_name.clone(),
             cron_expression: def.cron_expression.clone(),
+            timezone: def.timezone.clone(),
         }
     }
 }
@@ -215,6 +217,10 @@ impl Trigger for PythonTriggerWrapper {
 
     fn cron_expression(&self) -> Option<String> {
         self.cron_expression.clone()
+    }
+
+    fn cron_timezone(&self) -> Option<String> {
+        self.timezone.clone()
     }
 
     async fn poll(&self) -> Result<RustTriggerResult, TriggerError> {
@@ -354,6 +360,7 @@ mod tests {
             let wrapper = PythonTriggerWrapper::new(def);
             assert_eq!(wrapper.workflow_name(), "reports_workflow");
             assert_eq!(wrapper.cron_expression().as_deref(), Some("0 9 * * *"));
+            assert_eq!(wrapper.cron_timezone().as_deref(), Some("UTC"));
         });
     }
 

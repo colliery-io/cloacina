@@ -31,7 +31,7 @@ The `#[computation_graph]` macro expands into code that references types from th
 
 ## The FFI Boundary: fidius
 
-Cloacina uses [fidius](https://crates.io/crates/fidius) as its plugin system. fidius provides a stable ABI for calling methods on loaded plugins by positional index. The `CloacinaPlugin` trait is declared at **interface version 5** and the unified `cloacina::package!()` shell implements its **eleven methods**; the canonical mapping (defined as `METHOD_*` constants in `crates/cloacina-workflow-plugin/src/lib.rs`) is:
+Cloacina uses [fidius](https://crates.io/crates/fidius) as its plugin system. fidius provides a stable ABI for calling methods on loaded plugins by positional index. The `CloacinaPlugin` trait is declared at **interface version 8** and the unified `cloacina::package!()` shell implements its **eleven methods**; the canonical mapping (defined as `METHOD_*` constants in `crates/cloacina-workflow-plugin/src/lib.rs`) is:
 
 | Method index | Constant | What it does |
 |---|---|---|

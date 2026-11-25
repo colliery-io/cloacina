@@ -1645,6 +1645,7 @@ impl RegistryReconciler {
                 poll_interval: format!("{}s", impl_.poll_interval().as_secs()),
                 cron_expression: impl_.cron_expression(),
                 allow_concurrent: impl_.allow_concurrent(),
+                timezone: impl_.cron_timezone(),
             });
         }
 
@@ -1783,27 +1784,40 @@ impl RegistryReconciler {
             } else {
                 t.workflow_name.as_str()
             };
-            // Default to UTC so behavior is deterministic across hosts.
-            // The trigger metadata doesn't carry a timezone today; if we
-            // need per-trigger timezones in future, plumb a field on
-            // TriggerPackageMetadata.
+            // The schedule runs in the trigger's own timezone
+            // (`#[trigger(timezone = "...")]`, CLOACINA-T-1019). A trigger
+            // that names none runs in UTC, so behavior is deterministic
+            // across hosts.
+            let timezone = t.timezone.as_deref().unwrap_or("UTC");
             match registrar
-                .register_cron_workflow(target_workflow, expr, "UTC")
+                .register_cron_workflow(target_workflow, expr, timezone)
                 .await
             {
                 Ok(id) => {
                     info!(
                         "Package {} v{}: registered cron schedule for workflow '{}' \
-                         (trigger '{}', cron='{}', id={})",
-                        metadata.package_name, metadata.version, target_workflow, t.name, expr, id
+                         (trigger '{}', cron='{}', timezone='{}', id={})",
+                        metadata.package_name,
+                        metadata.version,
+                        target_workflow,
+                        t.name,
+                        expr,
+                        timezone,
+                        id
                     );
                     schedule_ids.push(id);
                 }
                 Err(e) => {
                     warn!(
                         "Package {} v{}: failed to register cron schedule for workflow '{}' \
-                         (trigger '{}', cron='{}'): {}",
-                        metadata.package_name, metadata.version, target_workflow, t.name, expr, e
+                         (trigger '{}', cron='{}', timezone='{}'): {}",
+                        metadata.package_name,
+                        metadata.version,
+                        target_workflow,
+                        t.name,
+                        expr,
+                        timezone,
+                        e
                     );
                 }
             }
@@ -2868,6 +2882,7 @@ mod tests {
         name: String,
         workflow: String,
         cron: String,
+        timezone: Option<String>,
     }
 
     #[async_trait::async_trait]
@@ -2889,6 +2904,9 @@ mod tests {
         }
         fn cron_expression(&self) -> Option<String> {
             Some(self.cron.clone())
+        }
+        fn cron_timezone(&self) -> Option<String> {
+            self.timezone.clone()
         }
         fn workflow_name(&self) -> &str {
             &self.workflow
@@ -2969,6 +2987,7 @@ mod tests {
                 name: "nightly_cron".to_string(),
                 workflow: "etl_workflow".to_string(),
                 cron: "0 0 * * *".to_string(),
+                timezone: None,
             })
         });
 
@@ -3006,6 +3025,7 @@ mod tests {
                 name: "nightly_cron".to_string(),
                 workflow: "etl_workflow".to_string(),
                 cron: "0 0 * * *".to_string(),
+                timezone: None,
             })
         });
         runtime.register_trigger("file_watch".to_string(), || {
@@ -3045,6 +3065,50 @@ mod tests {
                 "etl_workflow".to_string(),
                 "0 0 * * *".to_string(),
                 "UTC".to_string()
+            )
+        );
+    }
+
+    /// CLOACINA-T-1019: a packaged cron schedule is registered in the timezone
+    /// of its trigger, not always in UTC.
+    #[tokio::test]
+    #[serial]
+    async fn step_load_cron_triggers_uses_the_trigger_timezone() {
+        let registrar = Arc::new(RecordingCronRegistrar::default());
+        let reconciler = make_test_reconciler().with_cron_registrar(registrar.clone());
+        let runtime = runtime_of(&reconciler);
+        runtime.register_trigger("morning_report".to_string(), || {
+            Arc::new(MockCronTrigger {
+                name: "morning_report".to_string(),
+                workflow: "report_workflow".to_string(),
+                cron: "0 9 * * *".to_string(),
+                timezone: Some("America/New_York".to_string()),
+            })
+        });
+
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("cron-pkg", &pre_r, &pre_t, &pre_g, &[]);
+        assert_eq!(view.triggers.len(), 1);
+        assert_eq!(
+            view.triggers[0].timezone.as_deref(),
+            Some("America/New_York"),
+            "the view must carry the trigger's cron_timezone()"
+        );
+
+        let metadata = make_test_metadata();
+        let ids = reconciler
+            .step_load_cron_triggers(&metadata, &view)
+            .await
+            .expect("step_load_cron_triggers should succeed");
+        assert_eq!(ids.len(), 1);
+
+        let calls = registrar.calls.lock().unwrap();
+        assert_eq!(
+            calls[0],
+            (
+                "report_workflow".to_string(),
+                "0 9 * * *".to_string(),
+                "America/New_York".to_string()
             )
         );
     }

@@ -1,6 +1,6 @@
 ---
 title: "FFI Vtable Reference"
-description: "Method-by-method specification of the CloacinaPlugin FFI vtable: indices 0-10, interface version 5, optional-since semantics, and wire types."
+description: "Method-by-method specification of the CloacinaPlugin FFI vtable: indices 0-10, interface version 8, optional-since semantics, and wire types."
 sidebar:
   order: 31
 ---
@@ -133,6 +133,12 @@ cron-shaped entries (where `cron_expression: Some(...)`) to the cron
 scheduler via `CronWorkflowRegistrar`; non-cron entries get a host-side
 `FfiTriggerImpl` adapter that proxies `Trigger::poll()` back into the
 plugin via method 6.
+
+`timezone: Option<String>` (added in interface version 8,
+CLOACINA-T-1019) carries the `#[trigger(timezone = "...")]` of a cron
+trigger. The reconciler registers the cron schedule in that timezone;
+`None` means UTC. A package built against interface version 7 fails the
+version gate and must be rebuilt.
 
 ## Method Index 6 — `invoke_trigger_poll`
 

@@ -392,7 +392,7 @@ Contains only the types needed to compile workflows:
 
 ### cloacina-workflow-plugin (FFI vtable)
 
-The interface contract for `.cloacina` cdylib plugins (per CLOACI-I-0102's unified shell). Defines the eleven-method `CloacinaPlugin` trait (interface version 5) and the magic-byte / ABI-hash invariants that fidius uses to reject mismatched plugins at load time. Both the plugin author and the host depend on exactly this crate, which is what makes the ABI hash check meaningful.
+The interface contract for `.cloacina` cdylib plugins (per CLOACI-I-0102's unified shell). Defines the eleven-method `CloacinaPlugin` trait (interface version 8) and the magic-byte / ABI-hash invariants that fidius uses to reject mismatched plugins at load time. Both the plugin author and the host depend on exactly this crate, which is what makes the ABI hash check meaningful.
 
 ### cloacina (full embedded runtime)
 

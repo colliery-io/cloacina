@@ -33,7 +33,7 @@ CLOACI-T-0688):
 - `name` (str): Unique identifier for the trigger (defaults to function name)
 - `poll_interval` (str): How often to poll the trigger condition (e.g., "5s", "100ms", "1m"). Defaults to "30s". Mutually exclusive with `cron`.
 - `cron` (str): Cron expression — instead of polling, the framework schedules the `on` workflow on this expression and the function body is unused. Mutually exclusive with `poll_interval`.
-- `timezone` (str): Timezone for the `cron` schedule.
+- `timezone` (str): IANA timezone for the `cron` schedule (e.g., "America/New_York"). Defaults to UTC. A packaged cron trigger registers its schedule in this timezone.
 - `allow_concurrent` (bool): Whether to allow concurrent executions of the same trigger. Defaults to `False`
 
 Setting both `cron` and `poll_interval`, or `cron` without `on`, raises
@@ -128,6 +128,9 @@ When `allow_concurrent=False` (the default), the trigger scheduler prevents dupl
 1. Context is hashed when `TriggerResult.fire()` is returned
 2. Active executions are tracked by (trigger_name, context_hash)
 3. If an execution with the same hash is running, the trigger skips
+4. When that execution ends, its record is marked complete and the same context can fire again
+
+The scheduler hands a fired workflow off and does not wait for it. A long run does not delay the polls of other triggers or cron schedules.
 
 ```python
 @cloaca.trigger(
