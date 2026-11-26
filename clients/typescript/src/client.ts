@@ -37,6 +37,19 @@ export type ListInstancesQuery = NonNullable<
   paths["/v1/tenants/{tenant_id}/workflows/{name}/instances"]["get"]["parameters"]["query"]
 >;
 
+// ---- audit record (CLOACINA-T-1024) ----
+
+/** Query string for the audit record: filters, page size and cursor. */
+export type ListAuditQuery = NonNullable<
+  paths["/v1/audit"]["get"]["parameters"]["query"]
+>;
+
+/** A page of audit rows, newest first, with the cursor of the next page. */
+export type AuditListResponse = schemas["AuditListResponse"];
+
+/** One audit row: who did what, when, in which tenant. */
+export type AuditEvent = schemas["AuditEventInfo"];
+
 // ---- secrets (CLOACI-I-0133 / T-0862) ----
 //
 // Aliases of the generated wire schemas, kept under the names the UI already
@@ -381,6 +394,36 @@ export class CloacinaClient {
     );
   }
 
+  // ---- audit record (CLOACINA-T-1024) ----
+
+  /**
+   * Audit rows of every tenant and of platform actions, newest first
+   * (platform admin key). `query.tenant` narrows to one tenant. Pass a
+   * page's `next_cursor` as `query.cursor` to read the next page.
+   */
+  async listAudit(query?: ListAuditQuery): Promise<AuditListResponse> {
+    return unwrap(
+      await this.api.GET("/v1/audit", {
+        params: { query: query as never },
+      }),
+    );
+  }
+
+  /** Audit rows of one tenant, newest first (tenant admin key). */
+  async listTenantAudit(
+    query?: Omit<ListAuditQuery, "tenant">,
+    tenant?: string,
+  ): Promise<AuditListResponse> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/audit", {
+        params: {
+          path: { tenant_id: this.#tenant(tenant) },
+          query: query as never,
+        },
+      }),
+    );
+  }
+
   // ---- workflows ----
 
   /**
@@ -440,6 +483,44 @@ export class CloacinaClient {
     return unwrap(
       await this.api.DELETE(
         "/v1/tenants/{tenant_id}/workflows/{name}/{version}",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), name, version },
+          },
+        },
+      ),
+    );
+  }
+
+  /**
+   * Every stored version of a package, newest upload first
+   * (CLOACINA-T-1018). `name` is the package name. Rejects with a 404 when
+   * the package has no version.
+   */
+  async listWorkflowVersions(
+    name: string,
+    tenant?: string,
+  ): Promise<schemas["TenantListResponse_WorkflowVersionSummary"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/workflows/{name}/versions", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
+
+  /**
+   * Make an earlier built version of a package the active one, with no
+   * rebuild (CLOACINA-T-1018). Rejects with a 404 for an unknown version and
+   * a 409 for a version with no successful build.
+   */
+  async activateWorkflowVersion(
+    name: string,
+    version: string,
+    tenant?: string,
+  ): Promise<schemas["WorkflowVersionActivatedResponse"]> {
+    return unwrap(
+      await this.api.POST(
+        "/v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate",
         {
           params: {
             path: { tenant_id: this.#tenant(tenant), name, version },

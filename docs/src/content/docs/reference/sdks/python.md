@@ -48,6 +48,17 @@ for execution in client.iterate_executions(status="Failed", page_size=100):
     print(execution.id, execution.workflow_name)
 ```
 
+**Read the audit record** (`list_tenant_audit` for one tenant with a tenant admin key; `list_audit` for every tenant with a platform admin key; both are on `AsyncClient` too):
+
+```python
+page = client.list_tenant_audit(action="package.upload", limit=50)
+while page.next_cursor is not None:
+    page = client.list_tenant_audit(action="package.upload", limit=50, cursor=page.next_cursor)
+every_tenant = client.list_audit(tenant="acme", since="2026-11-01T00:00:00Z")
+```
+
+The filters are `action`, `actor`, `since`, `until`, `limit` and `cursor`; see [Read the Audit Record](../../../how-to/service/security/audit-record/).
+
 **Handle errors** — `CloacinaApiError` carries the canonical envelope:
 
 ```python

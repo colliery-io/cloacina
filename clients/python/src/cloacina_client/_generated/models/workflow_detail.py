@@ -44,6 +44,9 @@ class WorkflowDetail:
             task_graph (list[WorkflowTaskNode] | Unset): The task dependency graph (nodes + their upstream dependencies) for
                 rendering the full workflow DAG. Empty for packages predating
                 task-graph persistence. (CLOACI-T-0663)
+            uploaded_by (None | str | Unset): Who uploaded the package (CLOACINA-T-1024): the login identity, or
+                the name of the API key. Read from the audit record; `null` for a
+                package uploaded before the audit record existed.
     """
 
     build_status: str
@@ -59,6 +62,7 @@ class WorkflowDetail:
     description: None | str | Unset = UNSET
     paused: bool | Unset = UNSET
     task_graph: list[WorkflowTaskNode] | Unset = UNSET
+    uploaded_by: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -106,6 +110,12 @@ class WorkflowDetail:
                 task_graph_item = task_graph_item_data.to_dict()
                 task_graph.append(task_graph_item)
 
+        uploaded_by: None | str | Unset
+        if isinstance(self.uploaded_by, Unset):
+            uploaded_by = UNSET
+        else:
+            uploaded_by = self.uploaded_by
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -130,6 +140,8 @@ class WorkflowDetail:
             field_dict["paused"] = paused
         if task_graph is not UNSET:
             field_dict["task_graph"] = task_graph
+        if uploaded_by is not UNSET:
+            field_dict["uploaded_by"] = uploaded_by
 
         return field_dict
 
@@ -193,6 +205,15 @@ class WorkflowDetail:
 
                 task_graph.append(task_graph_item)
 
+        def _parse_uploaded_by(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        uploaded_by = _parse_uploaded_by(d.pop("uploaded_by", UNSET))
+
         workflow_detail = cls(
             build_status=build_status,
             created_at=created_at,
@@ -207,6 +228,7 @@ class WorkflowDetail:
             description=description,
             paused=paused,
             task_graph=task_graph,
+            uploaded_by=uploaded_by,
         )
 
         workflow_detail.additional_properties = d

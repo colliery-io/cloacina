@@ -50,6 +50,11 @@ pub struct WorkflowSummary {
     /// new executions until resumed.
     #[serde(default)]
     pub paused: bool,
+    /// Who uploaded the package (CLOACINA-T-1024): the login identity, or
+    /// the name of the API key. Read from the audit record; `null` for a
+    /// package uploaded before the audit record existed.
+    #[serde(default)]
+    pub uploaded_by: Option<String>,
 }
 
 /// `DELETE /tenants/{tenant_id}/workflows/{name}/{version}` response.
@@ -153,6 +158,11 @@ pub struct WorkflowDetail {
     /// render a typed execute form and the server validate context.
     #[serde(default)]
     pub declared_params: Vec<crate::InputSlot>,
+    /// Who uploaded the package (CLOACINA-T-1024): the login identity, or
+    /// the name of the API key. Read from the audit record; `null` for a
+    /// package uploaded before the audit record existed.
+    #[serde(default)]
+    pub uploaded_by: Option<String>,
 }
 
 /// `POST /tenants/{tenant_id}/workflows/{name}/pause` and `/resume` response

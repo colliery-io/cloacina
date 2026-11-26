@@ -17,6 +17,7 @@
 //! API server route handlers and middleware.
 
 pub mod agent;
+pub mod audit;
 pub mod auth;
 pub mod authz;
 pub mod compiler;

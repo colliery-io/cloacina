@@ -32,7 +32,7 @@
 //! - `GET .../fleet` → **tenant-scoped read** (own tenant only).
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
@@ -42,6 +42,8 @@ use tracing::warn;
 use utoipa::ToSchema;
 
 use crate::AppState;
+use crate::routes::audit::{self as audit_record, AuditEvent};
+use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 
 /// A tenant's fleet-scaling view: requested count, live count, and the ceiling.
@@ -155,6 +157,7 @@ pub async fn get_fleet(
 )]
 pub async fn provision(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
     let info = match fleet_info(&state, &tenant_id).await {
@@ -178,6 +181,14 @@ pub async fn provision(
         warn!("provision (set desired) failed: {}", e);
         return ApiError::internal("failed to provision agent").into_response();
     }
+    audit_record::record(
+        &state,
+        &auth,
+        Some(&tenant_id),
+        AuditEvent::ok(audit_record::actions::FLEET_PROVISION, tenant_id.as_str())
+            .detail(serde_json::json!({ "desired_count": info.desired_count + 1 })),
+    )
+    .await;
     match fleet_info(&state, &tenant_id).await {
         Ok(info) => (StatusCode::OK, Json(info)).into_response(),
         Err(e) => e.into_response(),
@@ -202,6 +213,7 @@ pub async fn provision(
 )]
 pub async fn deprovision(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
     let info = match fleet_info(&state, &tenant_id).await {
@@ -217,6 +229,14 @@ pub async fn deprovision(
         warn!("deprovision (set desired) failed: {}", e);
         return ApiError::internal("failed to deprovision agent").into_response();
     }
+    audit_record::record(
+        &state,
+        &auth,
+        Some(&tenant_id),
+        AuditEvent::ok(audit_record::actions::FLEET_DEPROVISION, tenant_id.as_str())
+            .detail(serde_json::json!({ "desired_count": info.desired_count.saturating_sub(1) })),
+    )
+    .await;
     match fleet_info(&state, &tenant_id).await {
         Ok(info) => (StatusCode::OK, Json(info)).into_response(),
         Err(e) => e.into_response(),

@@ -92,6 +92,139 @@
         ]
       }
     },
+    "/v1/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "GET /audit — the audit record of every tenant and of platform actions,\nnewest first. Platform admin.",
+        "operationId": "list_audit",
+        "parameters": [
+          {
+            "name": "tenant",
+            "in": "query",
+            "description": "Only rows of this tenant. Read by `GET /v1/audit` only: the\ntenant route takes the tenant from the path.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Only rows with this action, for example `package.upload`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "description": "Only rows whose key id, key name or identity equals this.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Only rows at or after this RFC 3339 time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "Only rows before this RFC 3339 time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1 to 200. Default 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` of the page before: only older rows are returned.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of audit rows, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid limit or time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Platform admin required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/auth/keys": {
       "get": {
         "tags": [
@@ -1587,6 +1720,148 @@
           },
           "404": {
             "description": "Account not found in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "GET /tenants/:tenant_id/audit — the audit record of one tenant, newest\nfirst. Tenant admin.",
+        "operationId": "list_tenant_audit",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenant",
+            "in": "query",
+            "description": "Only rows of this tenant. Read by `GET /v1/audit` only: the\ntenant route takes the tenant from the path.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Only rows with this action, for example `package.upload`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "description": "Only rows whose key id, key name or identity equals this.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Only rows at or after this RFC 3339 time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "Only rows before this RFC 3339 time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1 to 200. Default 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` of the page before: only older rows are returned.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of audit rows, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid limit or time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -5122,6 +5397,105 @@
         },
         "additionalProperties": false
       },
+      "AuditEventInfo": {
+        "type": "object",
+        "description": "One audit row: who did what, when, in which tenant.",
+        "required": [
+          "id",
+          "created_at",
+          "actor_key_id",
+          "actor_key_name",
+          "action",
+          "target_kind",
+          "outcome",
+          "detail"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "A fixed string, for example `package.upload`."
+          },
+          "actor_identity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who the key was minted for at login (`oidc:<issuer>:<sub>` or\n`local:<account_id>`); `null` for a manually created key."
+          },
+          "actor_key_id": {
+            "type": "string",
+            "description": "UUID of the API key that made the request."
+          },
+          "actor_key_name": {
+            "type": "string",
+            "description": "Name of that key."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "detail": {
+            "type": "object",
+            "description": "A small JSON object with facts of the action (a version, an\nexecution id). Never a secret value or a request body."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Row id. Larger is newer."
+          },
+          "outcome": {
+            "type": "string",
+            "description": "`ok` or `denied`."
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name or id of the target; `null` when the action has none."
+          },
+          "target_kind": {
+            "type": "string",
+            "description": "What the action applied to, for example `package` or `workflow`."
+          },
+          "tenant_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tenant the action applied to; `null` for a platform action."
+          }
+        }
+      },
+      "AuditListResponse": {
+        "type": "object",
+        "description": "A page of audit rows, newest first.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEventInfo"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Pass as `cursor` to read the next (older) page; `null` when this page\nwas not full."
+          },
+          "total": {
+            "type": "integer",
+            "description": "Number of rows in this page.",
+            "minimum": 0
+          }
+        }
+      },
       "CompilerStatus": {
         "type": "object",
         "description": "Build-pipeline state, derived from the build queue in the database — the\nsame rows the compiler's own `/v1/status` reports. The server reads them\ndirectly, so this needs no HTTP coupling to the compiler service.",
@@ -7326,6 +7700,13 @@
                   },
                   "description": "Task IDs included in this package."
                 },
+                "uploaded_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Who uploaded the package (CLOACINA-T-1024): the login identity, or\nthe name of the API key. Read from the audit record; `null` for a\npackage uploaded before the audit record existed."
+                },
                 "version": {
                   "type": "string"
                 },
@@ -7813,6 +8194,13 @@
           "tenant_id": {
             "type": "string"
           },
+          "uploaded_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who uploaded the package (CLOACINA-T-1024): the login identity, or\nthe name of the API key. Read from the audit record; `null` for a\npackage uploaded before the audit record existed."
+          },
           "version": {
             "type": "string"
           },
@@ -8019,6 +8407,13 @@
               "type": "string"
             },
             "description": "Task IDs included in this package."
+          },
+          "uploaded_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who uploaded the package (CLOACINA-T-1024): the login identity, or\nthe name of the API key. Read from the audit record; `null` for a\npackage uploaded before the audit record existed."
           },
           "version": {
             "type": "string"
@@ -8232,6 +8627,10 @@
     {
       "name": "fleet",
       "description": "Execution-agent fleet roster (admin)"
+    },
+    {
+      "name": "audit",
+      "description": "Audit record: who did what, when, in which tenant (admin)"
     },
     {
       "name": "compiler",

@@ -22,6 +22,7 @@ use anyhow::Result;
 use crate::GlobalOpts;
 
 pub mod accumulator;
+pub mod audit;
 pub mod compiler;
 pub mod constructor;
 pub mod daemon;

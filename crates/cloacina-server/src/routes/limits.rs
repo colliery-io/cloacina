@@ -27,7 +27,7 @@
 //!   only its own tenant's limit (cross-tenant is denied server-side).
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
@@ -37,6 +37,8 @@ use tracing::warn;
 use utoipa::ToSchema;
 
 use crate::AppState;
+use crate::routes::audit::{self as audit_record, AuditEvent};
+use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 
 /// Set (or replace) a tenant's agent-capacity exception. God-only.
@@ -95,6 +97,7 @@ async fn limit_info(state: &AppState, tenant_id: &str) -> Result<TenantAgentLimi
 )]
 pub async fn set_tenant_limit(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     Json(body): Json<SetAgentLimitRequest>,
 ) -> impl IntoResponse {
@@ -107,6 +110,14 @@ pub async fn set_tenant_limit(
         warn!("set agent limit failed: {}", e);
         return ApiError::internal("failed to set agent limit").into_response();
     }
+    audit_record::record(
+        &state,
+        &auth,
+        Some(&tenant_id),
+        AuditEvent::ok(audit_record::actions::LIMIT_SET, tenant_id.as_str())
+            .detail(serde_json::json!({ "max_agents": body.max_agents })),
+    )
+    .await;
     match limit_info(&state, &tenant_id).await {
         Ok(info) => (StatusCode::OK, Json(info)).into_response(),
         Err(e) => e.into_response(),
@@ -155,6 +166,7 @@ pub async fn get_tenant_limit(
 )]
 pub async fn clear_tenant_limit(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
     let dal = cloacina::dal::DAL::new(state.database.clone());
@@ -162,6 +174,13 @@ pub async fn clear_tenant_limit(
         warn!("clear agent limit failed: {}", e);
         return ApiError::internal("failed to clear agent limit").into_response();
     }
+    audit_record::record(
+        &state,
+        &auth,
+        Some(&tenant_id),
+        AuditEvent::ok(audit_record::actions::LIMIT_CLEAR, tenant_id.as_str()),
+    )
+    .await;
     match limit_info(&state, &tenant_id).await {
         Ok(info) => (StatusCode::OK, Json(info)).into_response(),
         Err(e) => e.into_response(),

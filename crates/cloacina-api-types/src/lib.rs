@@ -31,6 +31,7 @@
 //!   byte-compatible with the ad-hoc `serde_json::json!` responses they
 //!   replaced. Changes here are API changes and must ride a release.
 
+pub mod audit;
 pub mod common;
 pub mod compiler;
 pub mod delivery;
@@ -48,6 +49,7 @@ pub mod tenants;
 pub mod triggers;
 pub mod workflows;
 
+pub use audit::{AuditEventInfo, AuditListResponse, ListAuditQuery};
 pub use common::{ListResponse, TenantListResponse};
 pub use compiler::CompilerStatus;
 pub use delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, ServerMessage};

@@ -408,6 +408,15 @@ pub fn build_authz_table() -> AuthzTable {
         Access::platform(Level::Admin),
     );
 
+    // CLOACINA-T-1024: the audit record. A tenant admin reads its own tenant;
+    // the global form is for the platform admin.
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/audit",
+        Access::tenant(Level::Admin),
+    );
+    add(Method::GET, "/audit", Access::platform(Level::Admin));
+
     // ----- Tenant + Read -----
     add(
         Method::GET,
@@ -659,23 +668,46 @@ pub async fn authz_mw(State(state): State<AppState>, request: Request, next: Nex
         }
     };
 
-    let principal = match request.extensions().get::<AuthenticatedKey>() {
-        Some(key) => Principal::from_key(key),
+    let key = match request.extensions().get::<AuthenticatedKey>() {
+        Some(key) => key.clone(),
         None => {
             // require_auth must run first; if the key is absent, fail closed.
             return ApiError::unauthorized("missing authentication").into_response();
         }
+    };
+    let principal = Principal::from_key(&key);
+    // CLOACINA-T-1024: a denial on an audited route is written to the audit
+    // record (`deny`), with the URL path (names and ids only).
+    // Inside the `/v1` nest `request.uri()` has the prefix stripped; the
+    // path the client called is in `OriginalUri`.
+    let request_path = request
+        .extensions()
+        .get::<axum::extract::OriginalUri>()
+        .map(|u| u.0.path().to_string())
+        .unwrap_or_else(|| request.uri().path().to_string());
+    let deny = async |tenant: Option<&str>, reason: &'static str| {
+        crate::routes::audit::record_denied(
+            &state,
+            &key,
+            tenant,
+            &method,
+            &matched_path,
+            &request_path,
+            reason,
+        )
+        .await;
+        deny_response(reason)
     };
 
     // Resolve the scope (only TenantParam needs the path param).
     match access.scope {
         Scope::Platform => match evaluate(&principal, &ResolvedScope::Platform, access.level) {
             Decision::Permit => next.run(request).await,
-            Decision::Deny(reason) => deny_response(reason),
+            Decision::Deny(reason) => deny(None, reason).await,
         },
         Scope::Any => match evaluate(&principal, &ResolvedScope::Any, access.level) {
             Decision::Permit => next.run(request).await,
-            Decision::Deny(reason) => deny_response(reason),
+            Decision::Deny(reason) => deny(None, reason).await,
         },
         Scope::TenantParam => {
             let (mut parts, body) = request.into_parts();
@@ -696,9 +728,13 @@ pub async fn authz_mw(State(state): State<AppState>, request: Request, next: Nex
                     return deny_response(DENY_TENANT);
                 }
             };
-            match evaluate(&principal, &ResolvedScope::Tenant(tenant), access.level) {
+            match evaluate(
+                &principal,
+                &ResolvedScope::Tenant(tenant.clone()),
+                access.level,
+            ) {
                 Decision::Permit => next.run(request).await,
-                Decision::Deny(reason) => deny_response(reason),
+                Decision::Deny(reason) => deny(Some(&tenant), reason).await,
             }
         }
     }
@@ -986,7 +1022,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            74,
+            76,
             "authz table size changed — a route was added/removed without updating the table"
         );
 

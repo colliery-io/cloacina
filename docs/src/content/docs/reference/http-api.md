@@ -573,6 +573,71 @@ Metadata responses carry `id`, `name`, `field_names`, `created_at`, and
 `updated_at`. Managing secrets is documented in
 [Manage Secrets](../../how-to/service/manage-secrets/).
 
+## Audit
+
+The audit record: who did what, when, in which tenant. One row per
+control-plane action, written after the action succeeds, and one row per
+authorization denial on those actions. The list of actions and the meaning of
+each field are in [Read the Audit Record](../../how-to/service/security/audit-record/).
+
+| Method + path | Auth | Purpose |
+|---|---|---|
+| `GET /v1/tenants/{tenant_id}/audit` | Tenant-admin | The rows of one tenant, newest first. |
+| `GET /v1/audit` | Platform admin | Every row, newest first. `?tenant=` narrows to one tenant. |
+
+**Query fields** (all optional):
+
+| Field | Type | Description |
+|---|---|---|
+| `tenant` | string | Only rows of this tenant. Read by `GET /v1/audit` only. |
+| `action` | string | Only rows with this action, for example `package.upload`. |
+| `actor` | string | Only rows whose key id, key name or identity equals this. |
+| `since` | RFC 3339 time | Only rows at or after this time. |
+| `until` | RFC 3339 time | Only rows before this time. |
+| `limit` | integer | Page size, `1..=200`. Default `50`. |
+| `cursor` | integer | The `next_cursor` of the page before: only older rows are returned. |
+
+**Response:** `200 OK`
+
+```json
+{
+  "items": [
+    {
+      "id": 4212,
+      "created_at": "2026-11-25T10:00:00+00:00",
+      "tenant_id": "tenant_acme",
+      "actor_key_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "actor_key_name": "oidc:https://idp.example:sub-123",
+      "actor_identity": "oidc:https://idp.example:sub-123",
+      "action": "package.upload",
+      "target_kind": "package",
+      "target": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+      "outcome": "ok",
+      "detail": {
+        "package_name": "etl_pipeline",
+        "version": "1.2.0",
+        "content_hash": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "size_bytes": 18234
+      }
+    }
+  ],
+  "total": 1,
+  "next_cursor": null
+}
+```
+
+`total` is the number of rows in the page. `next_cursor` is the `id` of the
+last row when the page is full, else `null`; pass it as `cursor` to read the
+next (older) page.
+
+**Errors:**
+
+| Status | Code | Condition |
+|---|---|---|
+| `400` | `invalid_pagination` | `limit` is outside `1..=200` |
+| `400` | `invalid_request` | `since` or `until` is not an RFC 3339 time |
+| `403` | `tenant_access_denied` / `insufficient_permissions` / `admin_required` | Caller is not an admin of the tenant, or not a platform admin for `GET /v1/audit` |
+
 ## Workflow Packages
 
 Workflow packages are `.cloacina` archives uploaded via multipart form data, scoped to a tenant.
@@ -639,12 +704,18 @@ List all registered workflows for a tenant.
       "version": "1.2.0",
       "description": "Extract, transform, and load data",
       "tasks": ["extract", "transform", "load"],
-      "created_at": "2026-04-01T10:00:00+00:00"
+      "created_at": "2026-04-01T10:00:00+00:00",
+      "uploaded_by": "oidc:https://idp.example:sub-123"
     }
   ],
   "total": 1
 }
 ```
+
+`uploaded_by` is who uploaded the package: the login identity, or the name of
+the API key. It is read from the [audit record](#audit) and is `null` for a
+package uploaded before the audit record existed. The workflow detail response
+carries the same field.
 
 ### GET /v1/tenants/{tenant_id}/workflows/{name}
 

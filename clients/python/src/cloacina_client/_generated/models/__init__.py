@@ -13,6 +13,9 @@ from .agent_pool_settings_pod_labels import AgentPoolSettingsPodLabels
 from .agent_pool_settings_service_account_annotations import (
     AgentPoolSettingsServiceAccountAnnotations,
 )
+from .audit_event_info import AuditEventInfo
+from .audit_event_info_detail import AuditEventInfoDetail
+from .audit_list_response import AuditListResponse
 from .compiler_status import CompilerStatus
 from .create_account_request import CreateAccountRequest
 from .create_instance_request import CreateInstanceRequest
@@ -151,6 +154,9 @@ __all__ = (
     "AgentPoolSettingsPodAnnotations",
     "AgentPoolSettingsPodLabels",
     "AgentPoolSettingsServiceAccountAnnotations",
+    "AuditEventInfo",
+    "AuditEventInfoDetail",
+    "AuditListResponse",
     "CompilerStatus",
     "CreateAccountRequest",
     "CreateInstanceRequest",

@@ -19,6 +19,7 @@
 //! These models use the unified schema with DbUuid, DbTimestamp, DbBool custom
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
+use crate::database::schema::unified::audit_events;
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, agent_pools, contexts, delivery_outbox,
     execution_events, fleet_agents, fleet_result_inbox, key_trust_acls, login_throttle,
@@ -424,6 +425,43 @@ pub struct NewUnifiedAgentPool {
     pub settings: String,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Unified Audit Event Models (CLOACINA-T-1024)
+// ============================================================================
+
+/// One audit row: who did what, when, in which tenant. `detail` is a JSON
+/// object as text.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = audit_events)]
+pub struct UnifiedAuditEvent {
+    pub id: i64,
+    pub created_at: UniversalTimestamp,
+    pub tenant_id: Option<String>,
+    pub actor_key_id: String,
+    pub actor_key_name: String,
+    pub actor_identity: Option<String>,
+    pub action: String,
+    pub target_kind: String,
+    pub target: Option<String>,
+    pub outcome: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = audit_events)]
+pub struct NewUnifiedAuditEvent {
+    pub created_at: UniversalTimestamp,
+    pub tenant_id: Option<String>,
+    pub actor_key_id: String,
+    pub actor_key_name: String,
+    pub actor_identity: Option<String>,
+    pub action: String,
+    pub target_kind: String,
+    pub target: Option<String>,
+    pub outcome: String,
+    pub detail: String,
 }
 
 // ============================================================================

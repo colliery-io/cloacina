@@ -75,6 +75,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /audit — the audit record of every tenant and of platform actions,
+         *     newest first. Platform admin.
+         */
+        get: operations["list_audit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/keys": {
         parameters: {
             query?: never;
@@ -573,6 +593,26 @@ export interface paths {
         put?: never;
         /** `POST /v1/tenants/{tenant_id}/accounts/{account_id}/password` — admin reset. */
         post: operations["reset_password"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/audit — the audit record of one tenant, newest
+         *     first. Tenant admin.
+         */
+        get: operations["list_tenant_audit"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1393,6 +1433,52 @@ export interface components {
              *     `default` ServiceAccount.
              */
             service_account_name?: string | null;
+        };
+        /** @description One audit row: who did what, when, in which tenant. */
+        AuditEventInfo: {
+            /** @description A fixed string, for example `package.upload`. */
+            action: string;
+            /**
+             * @description Who the key was minted for at login (`oidc:<issuer>:<sub>` or
+             *     `local:<account_id>`); `null` for a manually created key.
+             */
+            actor_identity?: string | null;
+            /** @description UUID of the API key that made the request. */
+            actor_key_id: string;
+            /** @description Name of that key. */
+            actor_key_name: string;
+            /** @description RFC 3339 timestamp. */
+            created_at: string;
+            /**
+             * @description A small JSON object with facts of the action (a version, an
+             *     execution id). Never a secret value or a request body.
+             */
+            detail: Record<string, never>;
+            /**
+             * Format: int64
+             * @description Row id. Larger is newer.
+             */
+            id: number;
+            /** @description `ok` or `denied`. */
+            outcome: string;
+            /** @description Name or id of the target; `null` when the action has none. */
+            target?: string | null;
+            /** @description What the action applied to, for example `package` or `workflow`. */
+            target_kind: string;
+            /** @description The tenant the action applied to; `null` for a platform action. */
+            tenant_id?: string | null;
+        };
+        /** @description A page of audit rows, newest first. */
+        AuditListResponse: {
+            items: components["schemas"]["AuditEventInfo"][];
+            /**
+             * Format: int64
+             * @description Pass as `cursor` to read the next (older) page; `null` when this page
+             *     was not full.
+             */
+            next_cursor?: number | null;
+            /** @description Number of rows in this page. */
+            total: number;
         };
         /**
          * @description Build-pipeline state, derived from the build queue in the database — the
@@ -2426,6 +2512,12 @@ export interface components {
                 paused?: boolean;
                 /** @description Task IDs included in this package. */
                 tasks: string[];
+                /**
+                 * @description Who uploaded the package (CLOACINA-T-1024): the login identity, or
+                 *     the name of the API key. Read from the audit record; `null` for a
+                 *     package uploaded before the audit record existed.
+                 */
+                uploaded_by?: string | null;
                 version: string;
                 /**
                  * @description Executable workflow name (the identifier to execute by). Differs from
@@ -2627,6 +2719,12 @@ export interface components {
             /** @description Task IDs included in this package. */
             tasks: string[];
             tenant_id: string;
+            /**
+             * @description Who uploaded the package (CLOACINA-T-1024): the login identity, or
+             *     the name of the API key. Read from the audit record; `null` for a
+             *     package uploaded before the audit record existed.
+             */
+            uploaded_by?: string | null;
             version: string;
             /**
              * @description Executable workflow name (the identifier to execute by). Differs from
@@ -2724,6 +2822,12 @@ export interface components {
             paused?: boolean;
             /** @description Task IDs included in this package. */
             tasks: string[];
+            /**
+             * @description Who uploaded the package (CLOACINA-T-1024): the login identity, or
+             *     the name of the API key. Read from the audit record; `null` for a
+             *     package uploaded before the audit record existed.
+             */
+            uploaded_by?: string | null;
             version: string;
             /**
              * @description Executable workflow name (the identifier to execute by). Differs from
@@ -2896,6 +3000,80 @@ export interface operations {
             };
             /** @description Admin required */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_audit: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Only rows of this tenant. Read by `GET /v1/audit` only: the
+                 *     tenant route takes the tenant from the path.
+                 */
+                tenant?: string;
+                /** @description Only rows with this action, for example `package.upload`. */
+                action?: string;
+                /** @description Only rows whose key id, key name or identity equals this. */
+                actor?: string;
+                /** @description Only rows at or after this RFC 3339 time. */
+                since?: string;
+                /** @description Only rows before this RFC 3339 time. */
+                until?: string;
+                /** @description Page size, 1 to 200. Default 50. */
+                limit?: number;
+                /** @description `next_cursor` of the page before: only older rows are returned. */
+                cursor?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of audit rows, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditListResponse"];
+                };
+            };
+            /** @description Invalid limit or time */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Platform admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4036,6 +4214,83 @@ export interface operations {
             };
             /** @description Account not found in this tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_tenant_audit: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Only rows of this tenant. Read by `GET /v1/audit` only: the
+                 *     tenant route takes the tenant from the path.
+                 */
+                tenant?: string;
+                /** @description Only rows with this action, for example `package.upload`. */
+                action?: string;
+                /** @description Only rows whose key id, key name or identity equals this. */
+                actor?: string;
+                /** @description Only rows at or after this RFC 3339 time. */
+                since?: string;
+                /** @description Only rows before this RFC 3339 time. */
+                until?: string;
+                /** @description Page size, 1 to 200. Default 50. */
+                limit?: number;
+                /** @description `next_cursor` of the page before: only older rows are returned. */
+                cursor?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of audit rows, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditListResponse"];
+                };
+            };
+            /** @description Invalid limit or time */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

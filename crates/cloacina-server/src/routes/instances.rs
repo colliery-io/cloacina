@@ -52,6 +52,7 @@ use cloacina::models::schedule::{NewSchedule, Schedule};
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
 use crate::AppState;
+use crate::routes::audit::{self as audit_record, AuditEvent};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::routes::executions::validate_declared_params;
@@ -308,6 +309,10 @@ pub async fn create_instance(
             // Re-arm the scheduler, or a scheduled instance sits there never
             // firing (CLOACI-T-0927).
             wake_cron_scheduler(&state, &tenant_id, tenant_db).await;
+            let detail =
+                serde_json::json!({ "workflow": name, "schedule_id": schedule.id.0.to_string() });
+            let event = AuditEvent::ok(audit_record::actions::INSTANCE_CREATE, &body.instance_name);
+            audit_record::record(&state, &_auth, Some(&tenant_id), event.detail(detail)).await;
             Json(to_summary(schedule)).into_response()
         }
         Err(e) => {
@@ -522,6 +527,14 @@ pub async fn delete_instance(
             );
             // Re-arm against the REMAINING schedules (CLOACI-T-0927).
             wake_cron_scheduler(&state, &tenant_id, tenant_db).await;
+            audit_record::record(
+                &state,
+                &_auth,
+                Some(&tenant_id),
+                AuditEvent::ok(audit_record::actions::INSTANCE_DELETE, instance.as_str())
+                    .detail(serde_json::json!({ "workflow": name })),
+            )
+            .await;
             Json(DeleteInstanceResponse {
                 tenant_id,
                 workflow_name: name,
