@@ -323,6 +323,37 @@ The cron recovery service (`crates/cloacina/src/cron_recovery.rs`) inspects `las
 See [Configuration Reference](../../../reference/configuration/) for the related knobs:
 `cron_max_catchup_executions` (default 100), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).
 
+## The interval of a run
+
+Each cron run gets the interval that it covers in its context, next to the other scheduler keys:
+
+| Key | Value |
+|---|---|
+| `scheduled_time` | The fire time of this run. |
+| `interval_start` | The fire time of the expression before `scheduled_time`. |
+| `interval_end` | Equal to `scheduled_time`. |
+| `schedule_id`, `schedule_timezone`, `schedule_expression` | The schedule that fired. |
+
+The times are RFC 3339 strings in UTC. An hourly job that fires at `2026-01-01T05:00:00+00:00` gets `interval_start = 2026-01-01T04:00:00+00:00` and `interval_end = 2026-01-01T05:00:00+00:00`. A task that builds a table from landed files reads the two keys and takes the files of that hour.
+
+The interval follows the cron expression in the timezone of the schedule, so it is not always the same length. A daily job in `America/New_York` has one 23 hour interval and one 25 hour interval each year. The start of one interval is always the end of the interval before it.
+
+A catch-up run (`run_all`) and a run that the recovery service fires again get the interval of the fire time they stand for, not of the time they start.
+
+### The same keys on a manual run
+
+`interval_start` and `interval_end` are not reserved. A manual run sets them in its context like any other key:
+
+```bash
+curl -X POST "$SERVER/v1/tenants/acme/workflows/build_hourly_table/execute" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"context": {"interval_start": "2026-01-01T04:00:00+00:00", "interval_end": "2026-01-01T05:00:00+00:00"}}'
+```
+
+So a workflow reads its interval from the same keys in a scheduled run, a rerun of one interval and a history load. The server does not check the two values on a manual run.
+
+The other scheduler keys (`scheduled_time`, `schedule_id`, `schedule_timezone`, `schedule_expression`, `trigger_name`, `triggered_at`) stay reserved: a manual run that sends them has them dropped, with no error. On a cron run the scheduler writes all of its keys after the bound params of an instance, so a param named `interval_start` does not change the interval of a scheduled run.
+
 
 ## Cron Expression Parsing
 

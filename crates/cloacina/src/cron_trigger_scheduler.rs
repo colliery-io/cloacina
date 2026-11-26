@@ -208,6 +208,60 @@ fn compute_cron_sleep_delay(
     }
 }
 
+/// Writes the keys that the scheduler owns into the context of a cron run:
+/// `scheduled_time`, `schedule_id`, `schedule_timezone`,
+/// `schedule_expression`, and the interval that the run covers
+/// (CLOACINA-T-1020): `interval_start` is the fire time of the expression
+/// before `scheduled_time`, `interval_end` is `scheduled_time`. Times are
+/// RFC 3339 in UTC.
+///
+/// Called after the bound params are merged, and it replaces a key that is
+/// already there, so on a scheduled run the scheduler's values win. The cron
+/// fire path and the cron recovery sweep both use it, so a recovered run gets
+/// the same interval as the run it replaces.
+pub(crate) fn stamp_cron_fire_keys(
+    context: &mut Context<serde_json::Value>,
+    schedule: &Schedule,
+    scheduled_time: DateTime<Utc>,
+) -> Result<(), WorkflowExecutionError> {
+    let cron_expr = schedule.cron_expression.as_deref().unwrap_or("* * * * *");
+    let tz = schedule.timezone.as_deref().unwrap_or("UTC");
+    let interval_start = CronEvaluator::new(cron_expr, tz)
+        .and_then(|evaluator| evaluator.previous_execution(scheduled_time))
+        .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+            message: format!("Cron evaluation error: {}", e),
+        })?;
+
+    let keys = [
+        ("scheduled_time", scheduled_time.to_rfc3339()),
+        ("schedule_id", schedule.id.to_string()),
+        ("schedule_timezone", tz.to_string()),
+        (
+            "schedule_expression",
+            schedule.cron_expression.clone().unwrap_or_default(),
+        ),
+        (
+            crate::workflow_instance::INTERVAL_START_KEY,
+            interval_start.to_rfc3339(),
+        ),
+        (
+            crate::workflow_instance::INTERVAL_END_KEY,
+            scheduled_time.to_rfc3339(),
+        ),
+    ];
+    for (key, value) in keys {
+        let value = serde_json::Value::String(value);
+        if context.update(key, value.clone()).is_err() {
+            context
+                .insert(key, value)
+                .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+                    message: format!("Context error: {}", e),
+                })?;
+        }
+    }
+    Ok(())
+}
+
 /// Schedule lag in seconds (CLOACINA-T-1024): how far in the past the
 /// earliest `next_run_at` of the enabled, not paused cron schedules is. 0 when
 /// no schedule is due or there is none.
@@ -716,35 +770,7 @@ impl Scheduler {
                 },
             )?;
         }
-        context
-            .insert(
-                "scheduled_time",
-                serde_json::json!(scheduled_time.to_rfc3339()),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert("schedule_id", serde_json::json!(schedule.id.to_string()))
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert(
-                "schedule_timezone",
-                serde_json::json!(schedule.timezone.as_deref().unwrap_or("UTC")),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert(
-                "schedule_expression",
-                serde_json::json!(schedule.cron_expression.as_deref().unwrap_or("")),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
+        stamp_cron_fire_keys(&mut context, schedule, scheduled_time)?;
 
         info!(
             "Executing workflow '{}' for cron schedule {} (scheduled time: {})",
@@ -1797,6 +1823,33 @@ mod tests {
             params: None,
             instance_name: None,
         }
+    }
+
+    /// CLOACINA-T-1020: a cron run gets the interval it covers, and the
+    /// scheduler's values replace the ones a bound param set.
+    #[test]
+    fn cron_fire_keys_carry_the_interval_and_win_over_params() {
+        let schedule = create_test_cron_schedule("30 2 * * *", "America/New_York");
+        let mut context = Context::new();
+        crate::workflow_instance::merge_instance_params(
+            &mut context,
+            r#"{"interval_start": "spoofed", "interval_end": "spoofed", "source": "/a"}"#,
+        )
+        .unwrap();
+
+        // The day after the spring-forward change in New York: the fire of
+        // the day before was moved to 03:00 EDT (07:00 UTC).
+        let scheduled_time: DateTime<Utc> = "2026-03-09T06:30:00Z".parse().unwrap();
+        stamp_cron_fire_keys(&mut context, &schedule, scheduled_time).unwrap();
+
+        let get = |key: &str| context.get(key).cloned().unwrap();
+        assert_eq!(get("interval_start"), "2026-03-08T07:00:00+00:00");
+        assert_eq!(get("interval_end"), "2026-03-09T06:30:00+00:00");
+        assert_eq!(get("scheduled_time"), "2026-03-09T06:30:00+00:00");
+        assert_eq!(get("schedule_id"), schedule.id.to_string());
+        assert_eq!(get("schedule_timezone"), "America/New_York");
+        assert_eq!(get("schedule_expression"), "30 2 * * *");
+        assert_eq!(get("source"), "/a");
     }
 
     #[test]

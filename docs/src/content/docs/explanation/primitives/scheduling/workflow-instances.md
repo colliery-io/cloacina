@@ -137,6 +137,10 @@ in both cases:
   `triggered_at` cannot be overridden (or spoofed) by a binding.
 - For **trigger** fires, bound instance params override same-named keys in
   the trigger-produced payload.
+- A cron fire also sets `interval_start` and `interval_end`, the interval the
+  run covers. These two are not reserved (a manual run sets them), but on a
+  cron fire the scheduler's values replace a bound param of the same name. See
+  [the interval of a run](../../../engine/cron-scheduling/#the-interval-of-a-run).
 
 Anonymous schedules (registered via `register_cron_workflow`) are unaffected —
 they carry no params and behave exactly as before.

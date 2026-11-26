@@ -502,36 +502,13 @@ impl CronRecoveryService {
                 message: format!("Context error: {}", e),
             })?;
 
-        // Add original scheduling metadata
-        context
-            .insert(
-                "scheduled_time",
-                serde_json::json!(scheduled_time.to_rfc3339()),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert("schedule_id", serde_json::json!(schedule.id.to_string()))
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert(
-                "schedule_timezone",
-                serde_json::json!(schedule.timezone.as_deref().unwrap_or("UTC")),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert(
-                "schedule_expression",
-                serde_json::json!(schedule.cron_expression.as_deref().unwrap_or("")),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
+        // Add original scheduling metadata, with the interval of the run
+        // (CLOACINA-T-1020): the same keys and values as the first fire.
+        crate::cron_trigger_scheduler::stamp_cron_fire_keys(
+            &mut context,
+            &schedule,
+            scheduled_time,
+        )?;
 
         // Execute the workflow
         info!(
