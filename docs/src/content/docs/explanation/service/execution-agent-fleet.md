@@ -79,8 +79,10 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    byte-for-byte the input context it would running locally.
 5. **Enqueue + register a rendezvous.** It registers a one-shot keyed by the
    `task_execution_id`, then enqueues a **work packet** (task name, context,
-   artifact reference, timeout, tenant) into `delivery_outbox` addressed to the
-   chosen agent and wakes the delivery relay.
+   artifact reference, time limit, tenant) into `delivery_outbox` addressed to
+   the chosen agent and wakes the delivery relay. The time limit is the
+   task's own (see [time limits and retries](#time-limits-and-retries)) or the
+   server default.
 6. **Push.** The relay pushes the work packet over the agent's delivery
    WebSocket. (A LISTEN/NOTIFY wake keeps same-replica delivery prompt; a
    safety-net sweeper re-pushes anything that slips through.)
@@ -93,7 +95,7 @@ On the agent:
 8. **Fetch + cache.** It fetches the cdylib by digest over REST (skipped on a
    cache hit) and `dlopen`s it via [fidius](../../engine/ffi-system/).
 9. **Execute + report.** It resolves the task in the loaded library, runs it
-   under the packet's timeout with the inlined context, and POSTs the outcome
+   under the packet's time limit with the inlined context, and POSTs the outcome
    (`Success` / `Failure` / `Refused`) back to the server.
    A POST that fails for a reason that can pass (a network error, a time
    limit, a 5xx) is sent again with a backoff of 1 s, doubled up to 15 s, at
@@ -212,6 +214,35 @@ still awaiting that rendezvous receives the new agent's result unchanged — the
 task completes on a survivor with no workflow-level failure. If no live agent is
 available, the rows stay put and the executor's own result-wait timeout drives a
 retry (degraded, not lost).
+
+## Time limits and retries
+
+A fleet task runs under a time limit, and the task's own retry policy decides
+what happens when an attempt fails.
+
+- **The time limit is per task.** A task sets it with
+  `#[task(timeout_seconds = N)]` (Rust) or `@task(timeout_seconds=N)`
+  (Python). A task that sets none gets the server default,
+  `--fleet-task-timeout-s` (`CLOACINA_FLEET_TASK_TIMEOUT_S`, default `300`).
+- **The server has a maximum.** No task gets more than
+  `--fleet-task-timeout-max-s` (`CLOACINA_FLEET_TASK_TIMEOUT_MAX_S`, default
+  `86400`, 24 hours). A task that asks for more gets the maximum, and the
+  server logs a warning on each dispatch. A default above the maximum stops
+  the server at start.
+- **The agent enforces the limit.** The work packet carries it. When the task
+  runs past it the agent reports a timeout and the attempt fails as a timeout,
+  the same as on the in-process executor. The server waits for the report for
+  the limit plus 30 seconds, then gives up on the dispatch.
+- **The retry policy is the task's own.** `retry_attempts`, `retry_condition`
+  and the backoff settings of the task apply on the fleet as they do in
+  process. `retry_attempts = 0` or `retry_condition = "never"` gives one
+  attempt.
+- **Retry conditions read the task's error text.** A failure arrives at the
+  server as `agent failure (<class>): <the task's error>`. An error pattern or
+  the `transient` condition tests that text, so it sees what the task wrote.
+
+A task that ran past its limit is not stopped (see the second point below):
+the agent stops waiting for it and frees the slot.
 
 Two things worth knowing about the recovery characteristics:
 

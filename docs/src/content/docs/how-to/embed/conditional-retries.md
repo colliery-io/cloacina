@@ -134,6 +134,16 @@ So `retry_attempts = 3, retry_condition = "never"` collapses to "fail
 on first error." `retry_attempts = 1, retry_condition = "all"` means
 "retry once on any error" — same as before.
 
+## Packaged workflows and the agent fleet
+
+The policy travels with the task. A packaged workflow carries each task's
+retry policy in its task metadata, so the server applies it as it does for an
+embedded task. On an
+[execution-agent fleet](../../../explanation/service/execution-agent-fleet/#time-limits-and-retries)
+the server also applies the task's own policy, and the condition tests the
+task's error text as the agent reported it. A package built before this
+metadata existed must be built again.
+
 ## See also
 
 - [`retry_attempts`, `retry_delay_ms`, `retry_backoff` reference](../../../reference/macros/) — the rest of the retry-policy knobs
