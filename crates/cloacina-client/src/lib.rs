@@ -60,13 +60,14 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, AgentPoolInfo, AgentPoolSettings, CompilerStatus,
-    CreateInstanceRequest, CreateKeyRequest, CreateSecretRequest, CreateTenantRequest,
-    DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, FireReactorRequest, FireReactorResponse,
-    FireTriggerRequest, FireTriggerResponse, GraphStatus, InjectAccumulatorRequest,
-    InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
-    ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus, RotateSecretRequest,
+    AccumulatorStatus, AgentInfo, AgentPoolInfo, AgentPoolSettings, BackfillDetail,
+    BackfillSummary, CompilerStatus, CreateBackfillRequest, CreateInstanceRequest,
+    CreateKeyRequest, CreateSecretRequest, CreateTenantRequest, DeclaredSurface, ExecuteRequest,
+    ExecuteResponse, ExecutionDetail, ExecutionEventsResponse, ExecutionSummary,
+    ExecutionTasksResponse, FireReactorRequest, FireReactorResponse, FireTriggerRequest,
+    FireTriggerResponse, GraphStatus, InjectAccumulatorRequest, InjectAccumulatorResponse,
+    KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, ReactorFire,
+    ReactorFireTimeseries, ReactorStatus, RetryBackfillRequest, RotateSecretRequest,
     SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse, TenantListResponse,
     TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerPauseResponse,
     TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary,
@@ -792,6 +793,91 @@ impl Client {
         self.delete_path(&format!(
             "/v1/tenants/{t}/workflows/{workflow}/instances/{instance}"
         ))
+        .await
+    }
+
+    // ---- backfills (CLOACINA-T-1020) ----
+
+    /// Create a backfill of a workflow: one run for each fire time of the
+    /// cron expression from `start` to `end`, oldest first.
+    pub async fn create_backfill(
+        &self,
+        workflow: &str,
+        request: &CreateBackfillRequest,
+        tenant: Option<&str>,
+    ) -> Result<BackfillSummary, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/workflows/{workflow}/backfills"),
+            request,
+        )
+        .await
+    }
+
+    /// The backfills of a workflow, newest first, each with its progress.
+    pub async fn list_backfills(
+        &self,
+        workflow: &str,
+        limit: Option<i64>,
+        offset: Option<i64>,
+        tenant: Option<&str>,
+    ) -> Result<TenantListResponse<BackfillSummary>, ClientError> {
+        let t = self.tenant_of(tenant);
+        let mut path = format!("/v1/tenants/{t}/workflows/{workflow}/backfills");
+        let mut sep = '?';
+        if let Some(l) = limit {
+            path.push_str(&format!("{sep}limit={l}"));
+            sep = '&';
+        }
+        if let Some(o) = offset {
+            path.push_str(&format!("{sep}offset={o}"));
+        }
+        self.get_json(&path).await
+    }
+
+    /// One backfill, with its progress and its failed intervals.
+    pub async fn get_backfill(
+        &self,
+        workflow: &str,
+        id: &str,
+        tenant: Option<&str>,
+    ) -> Result<BackfillDetail, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!(
+            "/v1/tenants/{t}/workflows/{workflow}/backfills/{id}"
+        ))
+        .await
+    }
+
+    /// Stop a backfill: no new interval gets a run, active runs end on
+    /// their own.
+    pub async fn cancel_backfill(
+        &self,
+        workflow: &str,
+        id: &str,
+        tenant: Option<&str>,
+    ) -> Result<BackfillSummary, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/workflows/{workflow}/backfills/{id}/cancel"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Create a new backfill from the failed intervals of backfill `id`.
+    pub async fn retry_backfill(
+        &self,
+        workflow: &str,
+        id: &str,
+        request: &RetryBackfillRequest,
+        tenant: Option<&str>,
+    ) -> Result<BackfillSummary, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/workflows/{workflow}/backfills/{id}/retry"),
+            request,
+        )
         .await
     }
 

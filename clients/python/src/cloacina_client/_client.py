@@ -32,6 +32,13 @@ from ._generated.api.auth import (
     reset_password,
     whoami,
 )
+from ._generated.api.backfills import (
+    cancel_backfill,
+    create_backfill,
+    get_backfill,
+    list_backfills,
+    retry_backfill,
+)
 from ._generated.api.compiler import compiler_status
 from ._generated.api.executions import (
     execute_workflow,
@@ -105,6 +112,7 @@ from ._generated.api.workflows import (
 from ._generated.models import (
     AgentPoolSettings,
     CreateAccountRequest,
+    CreateBackfillRequest,
     CreateInstanceRequest,
     CreateKeyRequest,
     CreateSecretRequest,
@@ -116,6 +124,7 @@ from ._generated.models import (
     LocalLoginRequest,
     PackageUploadForm,
     ResetPasswordRequest,
+    RetryBackfillRequest,
     RotateSecretRequest,
     RotateSecretRequestFields,
 )
@@ -576,6 +585,104 @@ class Client(_Base):
         return _unwrap(
             delete_instance.sync_detailed(
                 self.tenant_segment(tenant), workflow, instance, client=self._gen
+            )
+        )
+
+    # ---- backfills (CLOACINA-T-1020) ----
+
+    def create_backfill(
+        self,
+        workflow: str,
+        start: str,
+        end: str,
+        *,
+        cron: str | None = None,
+        timezone: str | None = None,
+        max_active_runs: int | None = None,
+        params: dict | None = None,
+        tenant: str | None = None,
+    ):
+        """Create a backfill of ``workflow``.
+
+        One run for each fire time of the cron expression from ``start`` to
+        ``end`` (RFC 3339 timestamps, both included), oldest first, with its
+        own limit on active runs. Omit ``cron`` to use the cron schedule of
+        the workflow, when it has exactly one.
+        """
+        body = CreateBackfillRequest(
+            start=start,
+            end=end,
+            cron=cron if cron is not None else UNSET,
+            timezone=timezone if timezone is not None else UNSET,
+            max_active_runs=max_active_runs if max_active_runs is not None else UNSET,
+            params=params if params is not None else UNSET,
+        )
+        return _unwrap(
+            create_backfill.sync_detailed(
+                self.tenant_segment(tenant),
+                workflow,
+                client=self._gen,
+                body=body,
+            )
+        )
+
+    def list_backfills(
+        self,
+        workflow: str,
+        *,
+        limit: int | None = None,
+        offset: int | None = None,
+        tenant: str | None = None,
+    ):
+        """The backfills of ``workflow``, newest first, each with its progress."""
+        return _unwrap(
+            list_backfills.sync_detailed(
+                self.tenant_segment(tenant),
+                workflow,
+                client=self._gen,
+                limit=limit if limit is not None else UNSET,
+                offset=offset if offset is not None else UNSET,
+            )
+        )
+
+    def get_backfill(self, workflow: str, backfill_id: str, tenant: str | None = None):
+        """One backfill, with its progress and its failed intervals."""
+        return _unwrap(
+            get_backfill.sync_detailed(
+                self.tenant_segment(tenant), workflow, backfill_id, client=self._gen
+            )
+        )
+
+    def cancel_backfill(
+        self, workflow: str, backfill_id: str, tenant: str | None = None
+    ):
+        """Stop a backfill: no new interval gets a run, active runs end on
+        their own."""
+        return _unwrap(
+            cancel_backfill.sync_detailed(
+                self.tenant_segment(tenant), workflow, backfill_id, client=self._gen
+            )
+        )
+
+    def retry_backfill(
+        self,
+        workflow: str,
+        backfill_id: str,
+        *,
+        max_active_runs: int | None = None,
+        tenant: str | None = None,
+    ):
+        """Create a new backfill from the failed intervals of ``backfill_id``."""
+        body = RetryBackfillRequest(
+            max_active_runs=max_active_runs if max_active_runs is not None else UNSET,
+        )
+        return _unwrap(
+            retry_backfill.sync_detailed(
+                self.tenant_segment(tenant),
+                workflow,
+                backfill_id,
+                client=self._gen,
+                body=body,
             )
         )
 

@@ -16,8 +16,13 @@ from .agent_pool_settings_service_account_annotations import (
 from .audit_event_info import AuditEventInfo
 from .audit_event_info_detail import AuditEventInfoDetail
 from .audit_list_response import AuditListResponse
+from .backfill_detail import BackfillDetail
+from .backfill_failed_interval import BackfillFailedInterval
+from .backfill_progress import BackfillProgress
+from .backfill_summary import BackfillSummary
 from .compiler_status import CompilerStatus
 from .create_account_request import CreateAccountRequest
+from .create_backfill_request import CreateBackfillRequest
 from .create_instance_request import CreateInstanceRequest
 from .create_key_request import CreateKeyRequest
 from .create_secret_request import CreateSecretRequest
@@ -89,12 +94,17 @@ from .reactor_fire_inputs import ReactorFireInputs
 from .reactor_fire_timeseries import ReactorFireTimeseries
 from .reactor_status import ReactorStatus
 from .reset_password_request import ResetPasswordRequest
+from .retry_backfill_request import RetryBackfillRequest
 from .rotate_secret_request import RotateSecretRequest
 from .rotate_secret_request_fields import RotateSecretRequestFields
 from .secret_deleted_response import SecretDeletedResponse
 from .secret_metadata_response import SecretMetadataResponse
 from .task_execution_detail import TaskExecutionDetail
 from .tenant_created_response import TenantCreatedResponse
+from .tenant_list_response_backfill_summary import TenantListResponseBackfillSummary
+from .tenant_list_response_backfill_summary_items_item import (
+    TenantListResponseBackfillSummaryItemsItem,
+)
 from .tenant_list_response_execution_summary import TenantListResponseExecutionSummary
 from .tenant_list_response_execution_summary_items_item import (
     TenantListResponseExecutionSummaryItemsItem,
@@ -157,8 +167,13 @@ __all__ = (
     "AuditEventInfo",
     "AuditEventInfoDetail",
     "AuditListResponse",
+    "BackfillDetail",
+    "BackfillFailedInterval",
+    "BackfillProgress",
+    "BackfillSummary",
     "CompilerStatus",
     "CreateAccountRequest",
+    "CreateBackfillRequest",
     "CreateInstanceRequest",
     "CreateKeyRequest",
     "CreateSecretRequest",
@@ -224,12 +239,15 @@ __all__ = (
     "ReactorFireTimeseries",
     "ReactorStatus",
     "ResetPasswordRequest",
+    "RetryBackfillRequest",
     "RotateSecretRequest",
     "RotateSecretRequestFields",
     "SecretDeletedResponse",
     "SecretMetadataResponse",
     "TaskExecutionDetail",
     "TenantCreatedResponse",
+    "TenantListResponseBackfillSummary",
+    "TenantListResponseBackfillSummaryItemsItem",
     "TenantListResponseExecutionSummary",
     "TenantListResponseExecutionSummaryItemsItem",
     "TenantListResponseTriggerScheduleSummary",
