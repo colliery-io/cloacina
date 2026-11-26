@@ -1,0 +1,16 @@
+# Fixture of the publishing behaviour spec (CLOACINA-T-1026,
+# features/publishing/independent_publish.feature): team B's "ledger job".
+# It is the thing of team B that a key or a task of team A must not reach.
+[package]
+name = "publish-ledger-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "publish_ledger"
+language = "python"
+description = "publishing spec fixture: team B's ledger job"
+author = "team-b"
+entry_module = "publish_ledger.tasks"

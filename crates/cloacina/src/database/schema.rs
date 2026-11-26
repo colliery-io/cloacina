@@ -81,6 +81,7 @@ mod unified_schema {
             sub_status -> Nullable<Text>,
             claimed_by -> Nullable<DbUuid>,
             heartbeat_at -> Nullable<DbTimestamp>,
+            waiting_since -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }
@@ -281,6 +282,22 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Agent pools (CLOACINA-T-1021). One row per (tenant, pool) that has
+        /// settings; `settings` is a JSON object. The pool `default` needs
+        /// no row.
+        agent_pools (tenant_id, pool) {
+            tenant_id -> Text,
+            pool -> Text,
+            settings -> Text,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         task_execution_metadata (id) {
             id -> DbUuid,
             task_execution_id -> DbUuid,
@@ -421,6 +438,7 @@ mod unified_schema {
             paused_at -> Nullable<DbTimestamp>,
             params -> Nullable<Text>,
             instance_name -> Nullable<Text>,
+            max_active_runs -> Nullable<Integer>,
         }
     }
 

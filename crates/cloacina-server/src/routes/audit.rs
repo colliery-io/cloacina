@@ -88,6 +88,8 @@ pub mod actions {
     pub const FLEET_DEPROVISION: Action = action("fleet.deprovision", "fleet");
     pub const LIMIT_SET: Action = action("limit.set", "limit");
     pub const LIMIT_CLEAR: Action = action("limit.clear", "limit");
+    pub const POOL_SET: Action = action("pool.set", "pool");
+    pub const POOL_DELETE: Action = action("pool.delete", "pool");
     pub const ACCOUNT_CREATE: Action = action("account.create", "account");
     pub const ACCOUNT_DISABLE: Action = action("account.disable", "account");
     pub const ACCOUNT_PASSWORD_RESET: Action = action("account.password_reset", "account");
@@ -195,6 +197,8 @@ pub fn action_for_route(method: &Method, path: &str) -> Option<Action> {
         ("POST", "/tenants/{tenant_id}/fleet/deprovision") => FLEET_DEPROVISION,
         ("POST", "/tenants/{tenant_id}/limits") => LIMIT_SET,
         ("DELETE", "/tenants/{tenant_id}/limits") => LIMIT_CLEAR,
+        ("PUT", "/tenants/{tenant_id}/pools/{pool}") => POOL_SET,
+        ("DELETE", "/tenants/{tenant_id}/pools/{pool}") => POOL_DELETE,
         ("POST", "/tenants/{tenant_id}/accounts") => ACCOUNT_CREATE,
         ("DELETE", "/tenants/{tenant_id}/accounts/{account_id}") => ACCOUNT_DISABLE,
         ("POST", "/tenants/{tenant_id}/accounts/{account_id}/password") => ACCOUNT_PASSWORD_RESET,
@@ -353,7 +357,7 @@ async fn list_with(state: &AppState, filter: AuditEventFilter) -> axum::response
         }
         Err(e) => {
             warn!("Failed to list audit events: {}", e);
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("failed to list audit events", &e).into_response()
         }
     }
 }
@@ -434,8 +438,8 @@ mod tests {
                 assert_ne!(method, Method::GET, "a read is not audited: {path}");
             }
         }
-        // 25 actions; key create and key revoke each have two routes.
-        assert_eq!(audited, 27);
+        // 27 actions; key create and key revoke each have two routes.
+        assert_eq!(audited, 29);
     }
 
     #[test]
@@ -463,6 +467,21 @@ mod tests {
         assert_eq!(
             action_for_route(&Method::PUT, "/tenants/{tenant_id}/secrets/{name}"),
             Some(actions::SECRET_ROTATE)
+        );
+        assert_eq!(
+            action_for_route(&Method::PUT, "/tenants/{tenant_id}/pools/{pool}"),
+            Some(actions::POOL_SET)
+        );
+        assert_eq!(
+            action_for_route(&Method::DELETE, "/tenants/{tenant_id}/pools/{pool}"),
+            Some(actions::POOL_DELETE)
+        );
+        assert_eq!(actions::POOL_SET.name, "pool.set");
+        assert_eq!(actions::POOL_DELETE.target_kind, "pool");
+        // Reading pools writes no audit row.
+        assert_eq!(
+            action_for_route(&Method::GET, "/tenants/{tenant_id}/pools/{pool}"),
+            None
         );
         assert_eq!(
             action_for_route(&Method::GET, "/tenants/{tenant_id}/workflows"),

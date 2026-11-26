@@ -53,6 +53,12 @@ pub struct PythonTriggerDef {
     pub cron_expression: Option<String>,
     /// Timezone for the cron schedule (`@cloaca.trigger(timezone=…)`).
     pub timezone: Option<String>,
+    /// Catch-up policy of the cron schedule (`@cloaca.trigger(catchup=…)`):
+    /// `"skip"` or `"run_all"` (CLOACINA-T-1020).
+    pub catchup_policy: Option<String>,
+    /// Limit on active runs of the cron schedule
+    /// (`@cloaca.trigger(max_active_runs=…)`), 1 or more (CLOACINA-T-1020).
+    pub max_active_runs: Option<u32>,
 }
 
 /// Collect all registered Python triggers and clear the registry.
@@ -77,6 +83,8 @@ pub struct TriggerDecorator {
     workflow_name: String,
     cron_expression: Option<String>,
     timezone: Option<String>,
+    catchup_policy: Option<String>,
+    max_active_runs: Option<u32>,
 }
 
 #[pymethods]
@@ -96,6 +104,8 @@ impl TriggerDecorator {
             workflow_name: self.workflow_name.clone(),
             cron_expression: self.cron_expression.clone(),
             timezone: self.timezone.clone(),
+            catchup_policy: self.catchup_policy.clone(),
+            max_active_runs: self.max_active_runs,
         };
 
         PYTHON_TRIGGER_REGISTRY.lock().push(def);
@@ -118,8 +128,18 @@ impl TriggerDecorator {
 ///
 /// `on` names the workflow the trigger fires; it is **required for cron**
 /// triggers. `cron` and `poll_interval` are mutually exclusive.
+///
+/// `catchup` is for cron triggers (CLOACINA-T-1020): `"skip"` (the default)
+/// fires once for the fire times missed while no scheduler ran, `"run_all"`
+/// fires each of them, oldest first.
+///
+/// `max_active_runs` is for cron triggers too: the most runs of the schedule
+/// that may be active at once, 1 or more. At the limit the scheduler takes no
+/// fire and leaves the schedule due. Not given: a `"run_all"` schedule runs
+/// one fire at a time, a `"skip"` schedule has no limit.
 #[pyfunction]
-#[pyo3(signature = (*, name = None, on = None, poll_interval = None, cron = None, timezone = None, allow_concurrent = false))]
+#[pyo3(signature = (*, name = None, on = None, poll_interval = None, cron = None, timezone = None, allow_concurrent = false, catchup = None, max_active_runs = None))]
+#[allow(clippy::too_many_arguments)]
 pub fn trigger(
     name: Option<String>,
     on: Option<String>,
@@ -127,6 +147,8 @@ pub fn trigger(
     cron: Option<String>,
     timezone: Option<String>,
     allow_concurrent: bool,
+    catchup: Option<String>,
+    max_active_runs: Option<u32>,
 ) -> PyResult<TriggerDecorator> {
     // Mirror the Rust macro's validation.
     if cron.is_some() && poll_interval.is_some() {
@@ -137,6 +159,32 @@ pub fn trigger(
     if cron.is_some() && on.is_none() {
         return Err(PyValueError::new_err(
             "@cloaca.trigger(cron=…) requires 'on' (the workflow the cron schedule fires)",
+        ));
+    }
+
+    if cron.is_none() && catchup.is_some() {
+        return Err(PyValueError::new_err(
+            "@cloaca.trigger(catchup=…) needs 'cron': only a cron schedule has missed fire times",
+        ));
+    }
+    if let Some(policy) = catchup
+        .as_deref()
+        .filter(|policy| !matches!(*policy, "skip" | "run_all"))
+    {
+        return Err(PyValueError::new_err(format!(
+            "Invalid catchup '{}': use \"skip\" or \"run_all\"",
+            policy
+        )));
+    }
+
+    if cron.is_none() && max_active_runs.is_some() {
+        return Err(PyValueError::new_err(
+            "@cloaca.trigger(max_active_runs=…) needs 'cron': it limits the runs of a cron schedule (a poll trigger has 'allow_concurrent')",
+        ));
+    }
+    if max_active_runs.is_some_and(|limit| limit == 0 || limit > i32::MAX as u32) {
+        return Err(PyValueError::new_err(
+            "Invalid max_active_runs: use a whole number, 1 or more",
         ));
     }
 
@@ -153,6 +201,8 @@ pub fn trigger(
         workflow_name: on.unwrap_or_default(),
         cron_expression: cron,
         timezone,
+        catchup_policy: catchup,
+        max_active_runs,
     })
 }
 
@@ -165,6 +215,8 @@ pub struct PythonTriggerWrapper {
     workflow_name: String,
     cron_expression: Option<String>,
     timezone: Option<String>,
+    catchup_policy: Option<String>,
+    max_active_runs: Option<u32>,
 }
 
 // SAFETY: PythonTriggerWrapper holds a PyObject which is not Send/Sync.
@@ -184,6 +236,8 @@ impl PythonTriggerWrapper {
             workflow_name: def.workflow_name.clone(),
             cron_expression: def.cron_expression.clone(),
             timezone: def.timezone.clone(),
+            catchup_policy: def.catchup_policy.clone(),
+            max_active_runs: def.max_active_runs,
         }
     }
 }
@@ -221,6 +275,14 @@ impl Trigger for PythonTriggerWrapper {
 
     fn cron_timezone(&self) -> Option<String> {
         self.timezone.clone()
+    }
+
+    fn cron_catchup_policy(&self) -> Option<String> {
+        self.catchup_policy.clone()
+    }
+
+    fn cron_max_active_runs(&self) -> Option<u32> {
+        self.max_active_runs
     }
 
     async fn poll(&self) -> Result<RustTriggerResult, TriggerError> {
@@ -290,6 +352,8 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
+                None,
             )
             .unwrap();
 
@@ -310,8 +374,17 @@ mod tests {
         Python::attach(|py| {
             drain_python_triggers();
 
-            let decorator =
-                trigger(None, None, Some("10s".to_string()), None, None, false).unwrap();
+            let decorator = trigger(
+                None,
+                None,
+                Some("10s".to_string()),
+                None,
+                None,
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
             // Create a named function
             py.run(c_str!("def check_status(): pass"), None, None)
@@ -342,6 +415,8 @@ mod tests {
                 Some("0 9 * * *".to_string()),
                 Some("UTC".to_string()),
                 false,
+                Some("run_all".to_string()),
+                Some(4),
             )
             .unwrap();
 
@@ -361,13 +436,30 @@ mod tests {
             assert_eq!(wrapper.workflow_name(), "reports_workflow");
             assert_eq!(wrapper.cron_expression().as_deref(), Some("0 9 * * *"));
             assert_eq!(wrapper.cron_timezone().as_deref(), Some("UTC"));
+            // CLOACINA-T-1020: the declared catch-up policy reaches the host.
+            assert_eq!(def.catchup_policy.as_deref(), Some("run_all"));
+            assert_eq!(wrapper.cron_catchup_policy().as_deref(), Some("run_all"));
+            assert_eq!(def.max_active_runs, Some(4));
+            assert_eq!(wrapper.cron_max_active_runs(), Some(4));
         });
     }
 
     #[test]
     fn test_cron_trigger_validation_mirrors_rust() {
         // cron requires `on`
-        assert!(trigger(None, None, None, Some("0 9 * * *".to_string()), None, false).is_err());
+        assert!(
+            trigger(
+                None,
+                None,
+                None,
+                Some("0 9 * * *".to_string()),
+                None,
+                false,
+                None,
+                None
+            )
+            .is_err()
+        );
         // cron and poll_interval are mutually exclusive
         assert!(
             trigger(
@@ -376,7 +468,66 @@ mod tests {
                 Some("30s".to_string()),
                 Some("0 9 * * *".to_string()),
                 None,
-                false
+                false,
+                None,
+                None
+            )
+            .is_err()
+        );
+        // CLOACINA-T-1020: catchup is for cron triggers, and has two values.
+        let cron = |catchup: &str| {
+            trigger(
+                None,
+                Some("wf".to_string()),
+                None,
+                Some("0 9 * * *".to_string()),
+                None,
+                false,
+                Some(catchup.to_string()),
+                None,
+            )
+        };
+        assert!(cron("skip").is_ok());
+        assert!(cron("run_all").is_ok());
+        assert!(cron("all").is_err());
+        assert!(
+            trigger(
+                None,
+                Some("wf".to_string()),
+                Some("30s".to_string()),
+                None,
+                None,
+                false,
+                Some("run_all".to_string()),
+                None
+            )
+            .is_err()
+        );
+        // CLOACINA-T-1020: max_active_runs is for cron triggers, 1 or more.
+        let cron = |max_active_runs: u32| {
+            trigger(
+                None,
+                Some("wf".to_string()),
+                None,
+                Some("0 9 * * *".to_string()),
+                None,
+                false,
+                None,
+                Some(max_active_runs),
+            )
+        };
+        assert!(cron(1).is_ok());
+        assert!(cron(0).is_err());
+        assert!(
+            trigger(
+                None,
+                Some("wf".to_string()),
+                Some("30s".to_string()),
+                None,
+                None,
+                false,
+                None,
+                Some(2)
             )
             .is_err()
         );
@@ -396,6 +547,8 @@ mod tests {
                 workflow_name: String::new(),
                 cron_expression: None,
                 timezone: None,
+                catchup_policy: None,
+                max_active_runs: None,
             }
         });
 
@@ -420,6 +573,8 @@ mod tests {
                 workflow_name: String::new(),
                 cron_expression: None,
                 timezone: None,
+                catchup_policy: None,
+                max_active_runs: None,
             }
         });
 
@@ -448,6 +603,8 @@ mod tests {
                 workflow_name: String::new(),
                 cron_expression: None,
                 timezone: None,
+                catchup_policy: None,
+                max_active_runs: None,
             }
         });
 

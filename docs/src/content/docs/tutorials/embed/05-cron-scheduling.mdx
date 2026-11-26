@@ -132,7 +132,7 @@ let config = DefaultRunnerConfig::builder()
     .enable_cron_scheduling(true)
     .cron_enable_recovery(true)                    // re-run lost executions
     .cron_recovery_interval(Duration::from_secs(30))
-    .cron_max_catchup_executions(50)               // cap catchup to avoid a storm
+    .cron_max_catchup_executions(50)               // missed fire times read per pass
     .build()?;
 ```
 </TabItem>
@@ -142,7 +142,7 @@ config = cloaca.DefaultRunnerConfig(
     enable_cron_scheduling=True,
     cron_enable_recovery=True,            # re-run lost executions
     cron_recovery_interval_seconds=30,
-    cron_max_catchup_executions=50,       # cap catchup to avoid a storm
+    cron_max_catchup_executions=50,       # missed fire times read per pass
 )
 ```
 </TabItem>

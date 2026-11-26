@@ -80,6 +80,37 @@ mod postgres_impl {
 
         #[error("Invalid username: {0}")]
         InvalidUsername(#[from] UsernameError),
+
+        /// The tenant's database user exists already (CLOACINA-T-1035).
+        #[error("tenant '{name}' already exists")]
+        TenantExists { name: String },
+    }
+
+    /// Row of the "does this role exist" check in `create_tenant`.
+    #[derive(diesel::QueryableByName)]
+    struct RoleCount {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        n: i64,
+    }
+
+    /// True when a Postgres error message says the object exists already.
+    /// `CREATE USER` answers this when two creates of one tenant run at the
+    /// same time and both pass the `pg_roles` check.
+    pub(crate) fn is_already_exists_message(message: &str) -> bool {
+        message.contains("already exists")
+    }
+
+    /// The error for a failed `CREATE USER` (CLOACINA-T-1035).
+    pub(crate) fn create_user_error(username: &str, db_message: &str) -> AdminError {
+        if is_already_exists_message(db_message) {
+            AdminError::TenantExists {
+                name: username.to_string(),
+            }
+        } else {
+            AdminError::SqlExecution {
+                message: format!("Failed to create user '{}': {}", username, db_message),
+            }
+        }
     }
 
     impl From<deadpool::managed::PoolError<deadpool_diesel::postgres::Manager>> for AdminError {
@@ -149,6 +180,23 @@ mod postgres_impl {
                 .interact(move |conn| {
                     let result =
                         conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
+                            // 0. Refuse a tenant that exists (CLOACINA-T-1035).
+                            // The tenant's role is the mark: the schema is
+                            // made with IF NOT EXISTS, the role is not.
+                            let existing = diesel::sql_query(
+                                "SELECT COUNT(*) AS n FROM pg_roles WHERE rolname = $1",
+                            )
+                            .bind::<diesel::sql_types::Text, _>(&username)
+                            .get_result::<RoleCount>(conn)
+                            .map_err(|e| AdminError::SqlExecution {
+                                message: format!("Failed to check for user '{}': {}", username, e),
+                            })?;
+                            if existing.n > 0 {
+                                return Err(AdminError::TenantExists {
+                                    name: username.clone(),
+                                });
+                            }
+
                             // 1. Create schema
                             let sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
                             diesel::sql_query(&sql).execute(conn).map_err(|e| {
@@ -167,11 +215,9 @@ mod postgres_impl {
                                 "CREATE USER {} WITH PASSWORD '{}'",
                                 username, escaped_password_clone
                             );
-                            diesel::sql_query(&sql).execute(conn).map_err(|e| {
-                                AdminError::SqlExecution {
-                                    message: format!("Failed to create user '{}': {}", username, e),
-                                }
-                            })?;
+                            diesel::sql_query(&sql)
+                                .execute(conn)
+                                .map_err(|e| create_user_error(&username, &e.to_string()))?;
 
                             // 3. Grant permissions
                             let sqls = vec![
@@ -415,6 +461,21 @@ mod postgres_impl {
             let has_digit = password.chars().any(|c| c.is_ascii_digit());
 
             assert!(has_upper || has_lower || has_digit);
+        }
+
+        /// CLOACINA-T-1035: a `CREATE USER` that fails because the role is
+        /// there is "tenant exists", with no SQL text in the message.
+        #[test]
+        fn create_user_error_maps_an_existing_role_to_tenant_exists() {
+            let e = create_user_error("team_a", "role \"team_a\" already exists");
+            assert!(matches!(&e, AdminError::TenantExists { name } if name == "team_a"));
+            assert_eq!(e.to_string(), "tenant 'team_a' already exists");
+        }
+
+        #[test]
+        fn create_user_error_keeps_other_failures_as_sql_errors() {
+            let e = create_user_error("team_a", "permission denied to create role");
+            assert!(matches!(e, AdminError::SqlExecution { .. }));
         }
 
         #[test]

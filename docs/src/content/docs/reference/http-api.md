@@ -38,6 +38,14 @@ includes a stable `code` field** clients can switch on. The full
 catalog of codes by route and status, plus client retry guidance,
 lives in [API Error Envelope](../api-error-envelope/).
 
+### `500` responses
+
+A `500` body never holds the text of a database error or of another internal
+error. It holds a fixed message, for example
+`internal error: failed to list tenants; the server log has the detail under this response's x-request-id`,
+and the code `internal_error`. The server logs the cause at error level with the
+`request_id` of the response's `x-request-id` header.
+
 ### Request correlation: `x-request-id`
 
 Every response (successful and error alike) carries an
@@ -473,8 +481,10 @@ Create a new tenant. **Admin-only** (requires an `is_admin` key).
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `tenant_creation_failed` | `DatabaseAdmin::create_tenant` rejected (invalid name, schema exists, Postgres permission denied). |
+| `400` | `tenant_creation_failed` | The name is not a valid tenant name. The message says why. |
 | `403` | `admin_required` | Caller is not an `is_admin` key. |
+| `409` | `tenant_exists` | A tenant of this name exists. The message is `tenant '<name>' already exists`. |
+| `500` | `internal_error` | The database refused or failed the create. The body holds a fixed text; the cause is in the server log under the response's `x-request-id`. |
 
 ### GET /v1/tenants
 
@@ -495,7 +505,7 @@ List all tenant schemas.
 
 | Status | Body |
 |---|---|
-| `500` | `{"error": "<detail>"}` |
+| `500` | `{"error": "internal error: <operation>; the server log has the detail under this response's x-request-id"}` |
 
 ### DELETE /v1/tenants/{schema_name}
 
@@ -548,8 +558,8 @@ successful teardown).
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `tenant_removal_failed` | Step 4 (schema drop) failed. Steps 1-3 may have committed. Retry is idempotent. |
-| `500` | `internal_error` | Step 1 (key revocation) failed. Steps 2-4 not attempted. |
+| `400` | `tenant_removal_failed` | The name is not a valid tenant name. Steps 1-3 may have committed. |
+| `500` | `internal_error` | Step 1 (key revocation) failed and steps 2-4 were not attempted, or step 4 (schema drop) failed after steps 1-3. Retry is idempotent. The cause is in the server log under the response's `x-request-id`. |
 | `403` | `admin_required` | Caller is not an `is_admin` key. |
 
 ## Tenant Secrets
@@ -974,14 +984,14 @@ detail page and `cloacinactl instance` drives the same endpoints.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true}` — `params`, `cron`, `timezone`, and `enabled` are optional (no `cron` = unscheduled binding). Returns `201` with the instance summary. |
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true, "catchup_policy": "skip", "max_active_runs": 1}` — `params`, `cron`, `timezone`, `enabled`, `catchup_policy` and `max_active_runs` are optional (no `cron` = unscheduled binding). `catchup_policy` is `skip` (default) or `run_all`. `max_active_runs` is the most runs of the schedule active at once, 1 or more; omitted, a `run_all` schedule runs one fire time at a time and a `skip` schedule has no limit. A wrong value, or either option with no `cron`, is a `400` (`invalid_schedule_options`). Returns `201` with the instance summary. |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances` | List instances (`{items, total}` envelope; `limit`/`offset` paging). |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | One instance's summary. |
 | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Delete the instance (and its schedule). Returns `{"deleted": true, ...}`. |
 
 Instance summary shape: `id`, `workflow_name`, `instance_name`, `params`,
-`cron_expression`, `timezone`, `enabled`, `paused`, `next_run_at`,
-`last_run_at`, `created_at`.
+`cron_expression`, `timezone`, `catchup_policy`, `max_active_runs` (when one
+is declared), `enabled`, `paused`, `next_run_at`, `last_run_at`, `created_at`.
 
 ## Executions
 
@@ -1124,7 +1134,7 @@ Get the execution event log for a specific execution.
 | Status | Body |
 |---|---|
 | `400` | `{"error": "invalid execution ID"}` |
-| `500` | `{"error": "<detail>"}` |
+| `500` | `{"error": "internal error: <operation>; the server log has the detail under this response's x-request-id"}` |
 
 ### GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks
 
@@ -1673,6 +1683,123 @@ Remove a tenant's exception (revert to the platform default).
 
 **Errors:** same as `POST .../limits`.
 
+### Agent pools
+
+A tenant's managed agents are grouped in pools; see
+[Agent pools](../../explanation/service/execution-agent-fleet/#agent-pools).
+Every tenant has the pool `default`. The limits and fleet routes of this
+section are for `default`. Until a task can name a pool, all work runs on
+`default`: another pool can be created and sized but receives no work.
+
+#### GET /v1/tenants/{tenant_id}/pools
+
+The tenant's pools, `default` first. Tenant-scoped read.
+
+**Response:** `200 OK`
+
+```json
+{
+  "items": [
+    {
+      "tenant_id": "tenant_acme",
+      "pool": "default",
+      "settings": {},
+      "desired_agents": 2,
+      "live_agents": 2
+    },
+    {
+      "tenant_id": "tenant_acme",
+      "pool": "big",
+      "settings": { "memory_limit": "32Gi", "max_concurrency": 1, "max_agents": 1 },
+      "desired_agents": 1,
+      "live_agents": 1
+    }
+  ],
+  "total": 2
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `pool` | string | Pool name. |
+| `settings` | object | The pool's settings as stored (see `PUT`). A field that is absent means the server-wide default. |
+| `desired_agents` | integer | How many agents the server keeps for the pool: the tenant's `desired_count` for `default`, the pool's `max_agents` for another pool. |
+| `live_agents` | integer | Agents of the pool that are registered and alive now. |
+
+**Errors:** `401`; `403 tenant_access_denied`; `500`.
+
+#### GET /v1/tenants/{tenant_id}/pools/{pool}
+
+One pool, in the shape of a list item. Tenant-scoped read.
+
+**Errors:** `401`; `403 tenant_access_denied`; `404 pool_not_found`; `500`.
+
+#### PUT /v1/tenants/{tenant_id}/pools/{pool}
+
+Create a pool, or replace its settings as a whole. **Platform-admin only.**
+The pool name is lowercase letters, digits and `-`, 40 characters at most.
+
+**Request:** every field is optional.
+
+```json
+{
+  "cpu_request": "2",
+  "memory_request": "16Gi",
+  "cpu_limit": "8",
+  "memory_limit": "32Gi",
+  "max_concurrency": 1,
+  "image": "registry.example/cloacina-agent:1.2.3",
+  "service_account_name": "team-data",
+  "service_account_annotations": {
+    "eks.amazonaws.com/role-arn": "arn:aws:iam::000000000000:role/example-team"
+  },
+  "extra_egress": [
+    { "cidr": "198.51.100.0/24", "ports": [{ "port": 443, "protocol": "TCP" }] }
+  ],
+  "max_agents": 1
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `cpu_request`, `memory_request`, `cpu_limit`, `memory_limit` | string | Kubernetes quantities for the agent container (`500m`, `32Gi`). A request must not be above its limit; the one that is not set counts with its server-wide default. |
+| `max_concurrency` | integer | Tasks one agent runs at the same time, 1 to 1024. Absent: the agent's default, 4. |
+| `image` | string | Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`. |
+| `service_account_name` | string | Kubernetes ServiceAccount the pool's pods run as. The actuator creates it in the tenant namespace. |
+| `service_account_annotations` | object | Annotations for that ServiceAccount (a cloud workload identity). Needs `service_account_name`. Two pools of a tenant that name one ServiceAccount must give the same annotations. |
+| `pod_labels` | object | Labels added to the pool's pods. Keys and values must be valid Kubernetes label keys and values. The keys the actuator sets itself (`app.kubernetes.io/name`, `cloacina.managed`, `cloacina.tenant`, `cloacina.pool`) are refused. 32 at most. |
+| `pod_annotations` | object | Annotations added to the pool's pods. Keys must be valid annotation keys. 32 at most. |
+| `automount_service_account_token` | boolean | The pod's `automountServiceAccountToken`. Absent: left out of the pod, the cluster default applies. |
+| `extra_egress` | array | Egress rules added to the default (DNS and the server only). Each has `cidr` (IPv4 or IPv6 block, no host bits set) and optional `ports` (`port` 1 to 65535; `protocol` `TCP` (default), `UDP` or `SCTP`). No ports: every port. 64 rules at most. |
+| `max_agents` | integer | For a pool other than `default`: the number of agents the pool runs (needed; 0 to 1000). Refused for `default`, whose max is the tenant's agent limit. |
+| `min_agents` | integer | For a pool other than `default`: must equal `max_agents` (such a pool is not autoscaled yet). Refused for `default`. |
+
+**Response:** `200 OK` — the pool, in the shape of a list item. The actuator
+applies the settings on its next tick; a changed setting rolls the pool's agents.
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed. The message names the field. |
+| `401` | (auth) | Missing or invalid API key. |
+| `403` | `admin_required` | Caller is not an `is_admin` (god-mode) key. |
+| `422` | | The body is not the JSON object above (for example an unknown field). |
+| `500` | `internal_error` | Failed to store the pool. |
+
+#### DELETE /v1/tenants/{tenant_id}/pools/{pool}
+
+Remove a pool. **Platform-admin only.** The server refuses while the pool has
+agents: its `max_agents` must be 0 and no agent of it may be alive. It then
+deletes the pool's Deployment and NetworkPolicy and removes the pool. The
+pool's ServiceAccount stays. For `default` the call clears the pool's settings
+and the pool stays.
+
+**Response:** `204 No Content`
+
+**Errors:** `401`; `403 admin_required`; `404 pool_not_found`;
+`409 pool_has_agents`; `500`.
+
 ### GET /v1/tenants/{tenant_id}/fleet
 
 The tenant's fleet-scaling view. Tenant-scoped read.
@@ -1847,8 +1974,8 @@ been removed.
 
 - **Per-tenant runner instances.** Each tenant has its own
   `DefaultRunner` (with its own scheduler loop, executor pool, and
-  per-tenant DB pool), cached in `TenantRunnerCache` up to the
-  `--tenant-runner-cache-size` cap (default 256).
+  per-tenant DB pool), held in `TenantRunnerCache` from server start
+  until the tenant is deleted.
   Workflow execution lands in the tenant's schema, not in `public`.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers`
   routes through the tenant-scoped `Database` from

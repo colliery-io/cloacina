@@ -48,6 +48,7 @@ use crate::context::Context;
 use crate::cron_evaluator::CronEvaluator;
 use crate::dal::DAL;
 use crate::dal::UnifiedRegistryStorage;
+use crate::dal::unified::schedule::{CronClaimOutcome, CronFireCandidate};
 use crate::dal::unified::truncate_predicate_text;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
@@ -94,8 +95,15 @@ pub struct SchedulerConfig {
     /// It is NOT a fixed poll: when the next fire is sooner than this, the loop
     /// wakes exactly at the fire time, not on this interval.
     pub cron_poll_interval: Duration,
-    /// Maximum number of missed executions to run in catchup mode.
+    /// The most missed fire times that one claim of a `run_all` schedule
+    /// takes. The fires beyond it are not lost: the schedule stays due and
+    /// the next pass takes the next batch (CLOACINA-T-1020).
     pub max_catchup_executions: usize,
+    /// How often the cron loop looks again at a schedule that it holds at
+    /// its limit on active runs (CLOACINA-T-1020). A run of the schedule that
+    /// ends in this process wakes the loop at once; this interval covers a
+    /// run that another scheduler started, and a missed wake.
+    pub cron_held_poll_interval: Duration,
     /// Base poll interval — the tick rate of the run loop.
     pub trigger_base_poll_interval: Duration,
     /// Maximum time to wait for a single trigger poll operation.
@@ -121,6 +129,7 @@ impl Default for SchedulerConfig {
         Self {
             cron_poll_interval: Duration::from_secs(30),
             max_catchup_executions: 100,
+            cron_held_poll_interval: Duration::from_secs(1),
             trigger_base_poll_interval: Duration::from_secs(1),
             trigger_poll_timeout: Duration::from_secs(30),
             reactor_poll_interval: Duration::from_secs(1),
@@ -170,6 +179,12 @@ pub struct Scheduler {
     /// waiting for the backstop (CLOACI-T-0743). Shared with the cron registrar
     /// / runner cron API, which call `notify_one` after mutating schedules.
     cron_change: Arc<Notify>,
+    /// The cron schedules that are due but held at their limit on active
+    /// runs (CLOACINA-T-1020). They stay due in the database, so the loop
+    /// leaves them out when it computes how long to sleep, and looks at them
+    /// again each `cron_held_poll_interval` and when one of their runs ends.
+    /// Shared by the clones of the scheduler that process schedules.
+    cron_held: CronHeldSet,
     /// Tracks when reactor subscriptions were last polled
     /// (CLOACI-I-0100 / T-0599).
     last_reactor_poll: Option<Instant>,
@@ -183,6 +198,14 @@ pub struct Scheduler {
     /// (the active poller is single-threaded, but Clone is on the type).
     predicate_cache: PredicateCache,
 }
+
+/// Counts the passes of the cron check in this process, so a test can see
+/// that a schedule held at its limit does not make the loop spin.
+#[cfg(test)]
+static CRON_CHECK_PASSES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The ids of the cron schedules held at their limit on active runs.
+type CronHeldSet = Arc<parking_lot::Mutex<std::collections::HashSet<UniversalUuid>>>;
 
 /// CLOACI-T-0602 — alias to satisfy clippy::type_complexity on the
 /// Scheduler's predicate cache field.
@@ -206,6 +229,60 @@ fn compute_cron_sleep_delay(
         Some(t) => (t - now).to_std().unwrap_or(Duration::ZERO).min(backstop),
         None => backstop,
     }
+}
+
+/// Writes the keys that the scheduler owns into the context of a cron run:
+/// `scheduled_time`, `schedule_id`, `schedule_timezone`,
+/// `schedule_expression`, and the interval that the run covers
+/// (CLOACINA-T-1020): `interval_start` is the fire time of the expression
+/// before `scheduled_time`, `interval_end` is `scheduled_time`. Times are
+/// RFC 3339 in UTC.
+///
+/// Called after the bound params are merged, and it replaces a key that is
+/// already there, so on a scheduled run the scheduler's values win. The cron
+/// fire path and the cron recovery sweep both use it, so a recovered run gets
+/// the same interval as the run it replaces.
+pub(crate) fn stamp_cron_fire_keys(
+    context: &mut Context<serde_json::Value>,
+    schedule: &Schedule,
+    scheduled_time: DateTime<Utc>,
+) -> Result<(), WorkflowExecutionError> {
+    let cron_expr = schedule.cron_expression.as_deref().unwrap_or("* * * * *");
+    let tz = schedule.timezone.as_deref().unwrap_or("UTC");
+    let interval_start = CronEvaluator::new(cron_expr, tz)
+        .and_then(|evaluator| evaluator.previous_execution(scheduled_time))
+        .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+            message: format!("Cron evaluation error: {}", e),
+        })?;
+
+    let keys = [
+        ("scheduled_time", scheduled_time.to_rfc3339()),
+        ("schedule_id", schedule.id.to_string()),
+        ("schedule_timezone", tz.to_string()),
+        (
+            "schedule_expression",
+            schedule.cron_expression.clone().unwrap_or_default(),
+        ),
+        (
+            crate::workflow_instance::INTERVAL_START_KEY,
+            interval_start.to_rfc3339(),
+        ),
+        (
+            crate::workflow_instance::INTERVAL_END_KEY,
+            scheduled_time.to_rfc3339(),
+        ),
+    ];
+    for (key, value) in keys {
+        let value = serde_json::Value::String(value);
+        if context.update(key, value.clone()).is_err() {
+            context
+                .insert(key, value)
+                .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+                    message: format!("Context error: {}", e),
+                })?;
+        }
+    }
+    Ok(())
 }
 
 /// Schedule lag in seconds (CLOACINA-T-1024): how far in the past the
@@ -241,6 +318,7 @@ impl Scheduler {
             shutdown,
             runtime,
             cron_change,
+            cron_held: Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new())),
             last_poll_times: HashMap::new(),
             last_reactor_poll: None,
             last_reactor_prune: None,
@@ -297,8 +375,8 @@ impl Scheduler {
         // longer than ~1 s never accumulated progress and the backstop could
         // never elapse. Now only the branches that consume or invalidate the
         // deadline reset it.
-        let mut next_cron_due = self.query_next_cron_due().await;
-        let cron_sleep = tokio::time::sleep(self.cron_sleep_delay(next_cron_due));
+        let (mut next_cron_due, first_delay) = self.next_cron_wake().await;
+        let cron_sleep = tokio::time::sleep(first_delay);
         tokio::pin!(cron_sleep);
 
         loop {
@@ -342,20 +420,18 @@ impl Scheduler {
                     if let Err(e) = self.check_and_execute_cron_schedules().await {
                         error!("Error processing cron schedules: {}", e);
                     }
-                    next_cron_due = self.query_next_cron_due().await;
+                    let (due, delay) = self.next_cron_wake().await;
+                    next_cron_due = due;
                     // An elapsed Sleep stays ready forever — re-arm it, or this
                     // branch would win every subsequent select (busy loop).
-                    cron_sleep.as_mut().reset(
-                        tokio::time::Instant::now() + self.cron_sleep_delay(next_cron_due),
-                    );
+                    cron_sleep.as_mut().reset(tokio::time::Instant::now() + delay);
                 }
                 // --- Cron schedule changed (registered/enabled/deleted): re-arm ---
                 _ = self.cron_change.notified() => {
                     debug!("Cron change notification — recomputing next due time");
-                    next_cron_due = self.query_next_cron_due().await;
-                    cron_sleep.as_mut().reset(
-                        tokio::time::Instant::now() + self.cron_sleep_delay(next_cron_due),
-                    );
+                    let (due, delay) = self.next_cron_wake().await;
+                    next_cron_due = due;
+                    cron_sleep.as_mut().reset(tokio::time::Instant::now() + delay);
                 }
                 _ = self.shutdown.changed() => {
                     if *self.shutdown.borrow() {
@@ -397,6 +473,33 @@ impl Scheduler {
         .set(schedule_lag_seconds(next_due, Utc::now()));
     }
 
+    /// The earliest due time of all cron schedules (for the lag gauge) and how
+    /// long the cron loop sleeps before its next check.
+    ///
+    /// With no schedule held at its limit on active runs, the sleep follows
+    /// the earliest due time, as before. A held schedule stays due, so its
+    /// due time is in the past and would make the sleep zero for as long as
+    /// it is held (CLOACINA-T-1020). So the sleep then follows the earliest
+    /// due time of the OTHER schedules, capped at `cron_held_poll_interval`:
+    /// the others still fire on time and the held ones are looked at again.
+    async fn next_cron_wake(&self) -> (Option<DateTime<Utc>>, Duration) {
+        let next_due = self.query_next_cron_due().await;
+        let held: Vec<UniversalUuid> = self.cron_held.lock().iter().copied().collect();
+        if held.is_empty() {
+            return (next_due, self.cron_sleep_delay(next_due));
+        }
+        let delay = match self.dal.schedule().next_cron_due_time_excluding(held).await {
+            Ok(others_due) => self
+                .cron_sleep_delay(others_due)
+                .min(self.config.cron_held_poll_interval),
+            Err(e) => {
+                warn!("Failed to query next cron due time: {}", e);
+                self.config.cron_held_poll_interval
+            }
+        };
+        (next_due, delay)
+    }
+
     /// How long to sleep before the next cron check, given the cached next-due
     /// instant. Sleeps exactly until the due time when it's known and sooner
     /// than the backstop; otherwise caps at `cron_poll_interval` (the backstop)
@@ -414,6 +517,8 @@ impl Scheduler {
     async fn check_and_execute_cron_schedules(&self) -> Result<(), WorkflowExecutionError> {
         let now = Utc::now();
         debug!("Checking for due cron schedules at {}", now);
+        #[cfg(test)]
+        CRON_CHECK_PASSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let due_schedules = self
             .dal
@@ -423,6 +528,15 @@ impl Scheduler {
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: e.to_string(),
             })?;
+
+        // A held schedule that is no longer due (disabled, paused, deleted,
+        // or moved on by another scheduler) is no longer held.
+        {
+            let mut held = self.cron_held.lock();
+            if !held.is_empty() {
+                held.retain(|id| due_schedules.iter().any(|schedule| schedule.id == *id));
+            }
+        }
 
         if due_schedules.is_empty() {
             debug!("No due cron schedules found");
@@ -452,7 +566,15 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Processes a single cron schedule using the saga pattern.
+    /// Processes one due cron schedule: takes its next fire times and hands
+    /// each run off. It does not wait for a run to end.
+    ///
+    /// The claim (`ScheduleDAL::claim_cron_fires`) decides how many of the
+    /// fire times are taken now: all of them, or as many as the limit on
+    /// active runs leaves room for. The schedule row moves only past the
+    /// fires that were taken, so with `run_all` a backlog larger than
+    /// `max_catchup_executions`, or larger than the limit, stays due and the
+    /// next pass goes on with it, oldest first (CLOACINA-T-1020).
     async fn process_cron_schedule(
         &self,
         schedule: &Schedule,
@@ -472,9 +594,13 @@ impl Scheduler {
             return Ok(());
         }
 
-        // Calculate execution times based on catchup policy
-        let execution_times = self.calculate_execution_times(schedule, now)?;
-        if execution_times.is_empty() {
+        let Some(expected_next_run) = schedule.next_run_at.map(|t| t.0) else {
+            return Ok(());
+        };
+
+        // The fire times this pass wants, with the schedule times for each.
+        let candidates = self.cron_fire_candidates(schedule, now)?;
+        if candidates.is_empty() {
             debug!(
                 "No execution times calculated for cron schedule {}",
                 schedule.id
@@ -482,64 +608,61 @@ impl Scheduler {
             return Ok(());
         }
 
-        // Calculate next run time
-        let next_run = self.calculate_next_run(schedule, now)?;
-
-        // Atomically claim the schedule
-        let claimed = self
+        let outcome = self
             .dal
             .schedule()
-            .claim_and_update_cron(schedule.id, now, now, next_run)
+            .claim_cron_fires(
+                schedule.id,
+                now,
+                expected_next_run,
+                candidates,
+                self.max_active_runs(schedule),
+            )
             .await
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: e.to_string(),
             })?;
 
-        if !claimed {
-            debug!(
-                "Cron schedule {} was already claimed by another instance",
-                schedule.id
-            );
-            return Ok(());
-        }
+        let claimed = match outcome {
+            CronClaimOutcome::Claimed(claimed) => claimed,
+            CronClaimOutcome::NotClaimed => {
+                debug!(
+                    "Cron schedule {} was already claimed by another instance",
+                    schedule.id
+                );
+                return Ok(());
+            }
+            CronClaimOutcome::AtLimit { active } => {
+                debug!(
+                    "Cron schedule {} has {} active run(s), its limit; it stays due",
+                    schedule.id, active
+                );
+                self.cron_held.lock().insert(schedule.id);
+                return Ok(());
+            }
+        };
+        self.cron_held.lock().remove(&schedule.id);
 
         info!(
             "Successfully claimed cron schedule {} for {} execution(s)",
             schedule.id,
-            execution_times.len()
+            claimed.len()
         );
 
-        // Execute all scheduled times
-        for scheduled_time in execution_times {
-            // Step 1: Create audit record BEFORE handoff
-            let audit_record_id = match self
-                .create_cron_execution_audit(schedule.id, scheduled_time)
-                .await
-            {
-                Ok(id) => id,
-                Err(e) => {
-                    error!(
-                        "Failed to create execution audit for cron schedule {} at {}: {}",
-                        schedule.id, scheduled_time, e
-                    );
-                    continue;
-                }
-            };
+        for fire in claimed {
+            let audit_record_id = fire.schedule_execution_id;
+            let scheduled_time = fire.scheduled_time;
 
-            // Step 2: Hand off to workflow executor (async — the execution id
-            // exists as soon as the handoff is accepted).
+            // Hand off to the workflow executor (async — the execution id
+            // exists as soon as the handoff is accepted). The schedule
+            // execution row was written by the claim, before the handoff.
             match self.execute_cron_workflow(schedule, scheduled_time).await {
                 Ok(handle) => {
                     let workflow_execution_id = UniversalUuid(handle.execution_id);
 
-                    // Step 3: Link audit record AT HANDOFF (CLOACI-T-0914
-                    // finding 5). Linking used to happen only after the
-                    // blocking execute() returned — i.e. after the workflow
-                    // completed — so cron_recovery saw any workflow running
-                    // longer than its lost threshold as an unlinked "lost"
-                    // handoff and re-fired the schedule (duplicate execution).
-                    // With the link in place immediately, recovery consults
-                    // the live workflow execution row instead.
+                    // Link the row AT HANDOFF (CLOACI-T-0914 finding 5), so
+                    // cron_recovery reads the live workflow execution and
+                    // does not take a long run for a lost handoff.
                     if let Err(e) = self
                         .dal
                         .schedule_execution()
@@ -552,38 +675,27 @@ impl Scheduler {
                         );
                     }
 
-                    // Step 4: Wait for the workflow to reach a terminal state,
-                    // then mark the audit row complete so cron_recovery stops
-                    // tracking it. If the wait itself fails, the row is left
-                    // open — it is linked, so recovery skips it while the
-                    // execution is live and backfills completion once the
-                    // execution reaches a terminal state.
-                    match handle.wait_for_completion().await {
-                        Ok(_) => {
-                            if let Err(e) = self
-                                .dal
-                                .schedule_execution()
-                                .complete(audit_record_id, Utc::now())
-                                .await
-                            {
-                                warn!(
-                                    "Failed to mark cron schedule execution {} complete: {}",
-                                    audit_record_id, e
-                                );
-                            }
+                    info!(
+                        "Handed off workflow {} for cron schedule {} (scheduled: {})",
+                        schedule.workflow_name, schedule.id, scheduled_time
+                    );
 
-                            info!(
-                                "Successfully executed and audited workflow {} for cron schedule {} (scheduled: {})",
-                                schedule.workflow_name, schedule.id, scheduled_time
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Wait for workflow {} (cron schedule {}) failed; leaving audit record {} open for cron_recovery to reconcile: {}",
-                                schedule.workflow_name, schedule.id, audit_record_id, e
-                            );
-                        }
-                    }
+                    // Mark the row complete when the run ends, on a task of
+                    // its own: this function does not wait for the run. The
+                    // limit on active runs is what keeps the runs of a
+                    // `run_all` backlog from all starting at once.
+                    let this = self.clone();
+                    let schedule_id = schedule.id;
+                    let workflow_name = schedule.workflow_name.clone();
+                    tokio::spawn(async move {
+                        this.complete_cron_execution_when_done(
+                            schedule_id,
+                            audit_record_id,
+                            workflow_execution_id,
+                            &workflow_name,
+                        )
+                        .await;
+                    });
                 }
                 Err(e) => {
                     error!(
@@ -603,11 +715,51 @@ impl Scheduler {
                             audit_record_id, e
                         );
                     }
+                    // The slot of this run is free again.
+                    self.cron_change.notify_one();
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Waits for a cron-fired workflow execution to reach a terminal state,
+    /// marks its schedule execution row complete, and wakes the cron loop so
+    /// a schedule held at its limit on active runs takes its next fire at
+    /// once (CLOACINA-T-1020).
+    ///
+    /// Runs on its own task. When the wait gives up (shutdown, or the status
+    /// cannot be read), the row stays open and linked: the claim does not
+    /// count a row whose run is terminal, and the cron recovery sweep marks
+    /// such a row complete.
+    async fn complete_cron_execution_when_done(
+        &self,
+        schedule_id: UniversalUuid,
+        schedule_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
+        workflow_name: &str,
+    ) {
+        self.complete_trigger_execution_when_done(
+            schedule_execution_id,
+            workflow_execution_id,
+            workflow_name,
+        )
+        .await;
+        self.cron_held.lock().remove(&schedule_id);
+        self.cron_change.notify_one();
+    }
+
+    /// The limit on active runs of a cron schedule. `None` is no limit.
+    ///
+    /// The declared `max_active_runs` of the schedule, or else the default
+    /// of its catch-up policy: one for `run_all`, none for `skip`. See
+    /// [`effective_max_active_runs`](crate::models::schedule::effective_max_active_runs).
+    fn max_active_runs(&self, schedule: &Schedule) -> Option<i64> {
+        crate::models::schedule::effective_max_active_runs(
+            schedule.catchup_policy.as_deref(),
+            schedule.max_active_runs,
+        )
     }
 
     /// Checks if a cron schedule is within its active time window.
@@ -625,74 +777,77 @@ impl Scheduler {
         true
     }
 
-    /// Calculates execution times based on the schedule's catchup policy.
-    fn calculate_execution_times(
+    /// The fire times that a pass over a due schedule wants, oldest first,
+    /// each with the times the schedule row gets when it is the last fire
+    /// taken.
+    ///
+    /// * `skip`: one fire, at the due time of the schedule. The row moves to
+    ///   the next fire after `now`, so the fire times missed in between are
+    ///   skipped.
+    /// * `run_all`: each fire time after the last one taken (`last_run_at`,
+    ///   or `created_at` for a schedule that never ran) and before `now`, at
+    ///   most `max_catchup_executions` of them. After fire `F` the row has
+    ///   `last_run_at = F` and `next_run_at` = the fire after `F`. When that
+    ///   is in the past the schedule stays due, and the next pass starts at
+    ///   `F`: nothing beyond the batch is lost (CLOACINA-T-1020).
+    fn cron_fire_candidates(
         &self,
         schedule: &Schedule,
         now: DateTime<Utc>,
-    ) -> Result<Vec<DateTime<Utc>>, WorkflowExecutionError> {
-        let policy_str = schedule.catchup_policy.as_deref().unwrap_or("skip");
-        let policy = CatchupPolicy::from(policy_str.to_string());
+    ) -> Result<Vec<CronFireCandidate>, WorkflowExecutionError> {
+        let to_err =
+            |e: crate::cron_evaluator::CronError| WorkflowExecutionError::ExecutionFailed {
+                message: format!("Cron evaluation error: {}", e),
+            };
+        let cron_expr = schedule.cron_expression.as_deref().unwrap_or("* * * * *");
+        let tz = schedule.timezone.as_deref().unwrap_or("UTC");
+        let evaluator = CronEvaluator::new(cron_expr, tz).map_err(to_err)?;
 
-        match policy {
+        let policy_str = schedule.catchup_policy.as_deref().unwrap_or("skip");
+        match CatchupPolicy::from(policy_str.to_string()) {
             CatchupPolicy::Skip => {
-                // Just return the current next_run_at
-                let next_run = schedule.next_run_at.map(|t| t.0).unwrap_or(now);
-                Ok(vec![next_run])
+                let scheduled_time = schedule.next_run_at.map(|t| t.0).unwrap_or(now);
+                Ok(vec![CronFireCandidate {
+                    scheduled_time,
+                    last_run_at: now,
+                    next_run_at: evaluator.next_execution(now).map_err(to_err)?,
+                }])
             }
             CatchupPolicy::RunAll => {
-                let cron_expr = schedule.cron_expression.as_deref().unwrap_or("* * * * *");
-                let tz = schedule.timezone.as_deref().unwrap_or("UTC");
-
-                let evaluator = CronEvaluator::new(cron_expr, tz).map_err(|e| {
-                    WorkflowExecutionError::ExecutionFailed {
-                        message: format!("Cron evaluation error: {}", e),
-                    }
-                })?;
-
                 let start_time = schedule
                     .last_run_at
                     .map(|t| t.0)
                     .unwrap_or(schedule.created_at.0);
 
-                let missed_executions = evaluator
-                    .executions_between(start_time, now, self.config.max_catchup_executions)
-                    .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                        message: format!("Cron evaluation error: {}", e),
-                    })?;
+                // At least one: a batch of zero would take nothing and leave
+                // the schedule due for good.
+                let batch = self.config.max_catchup_executions.max(1);
+                let missed = evaluator
+                    .executions_between(start_time, now, batch)
+                    .map_err(to_err)?;
 
-                if missed_executions.len() >= self.config.max_catchup_executions {
-                    warn!(
-                        "Limited catchup executions to {} for cron schedule {} (policy: RunAll)",
-                        self.config.max_catchup_executions, schedule.id
+                if missed.len() >= batch {
+                    debug!(
+                        "Cron schedule {} has at least {} missed fire(s); this pass takes at most that many and the schedule stays due",
+                        schedule.id, batch
                     );
                 }
 
-                Ok(missed_executions)
+                let mut candidates = Vec::with_capacity(missed.len());
+                for (index, fire) in missed.iter().enumerate() {
+                    let next_run_at = match missed.get(index + 1) {
+                        Some(next) => *next,
+                        None => evaluator.next_execution(*fire).map_err(to_err)?,
+                    };
+                    candidates.push(CronFireCandidate {
+                        scheduled_time: *fire,
+                        last_run_at: *fire,
+                        next_run_at,
+                    });
+                }
+                Ok(candidates)
             }
         }
-    }
-
-    /// Calculates the next run time for a cron schedule.
-    fn calculate_next_run(
-        &self,
-        schedule: &Schedule,
-        after: DateTime<Utc>,
-    ) -> Result<DateTime<Utc>, WorkflowExecutionError> {
-        let cron_expr = schedule.cron_expression.as_deref().unwrap_or("* * * * *");
-        let tz = schedule.timezone.as_deref().unwrap_or("UTC");
-
-        let evaluator = CronEvaluator::new(cron_expr, tz).map_err(|e| {
-            WorkflowExecutionError::ExecutionFailed {
-                message: format!("Cron evaluation error: {}", e),
-            }
-        })?;
-
-        evaluator
-            .next_execution(after)
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Cron evaluation error: {}", e),
-            })
     }
 
     /// Executes a cron workflow by handing it off to the workflow executor.
@@ -716,35 +871,7 @@ impl Scheduler {
                 },
             )?;
         }
-        context
-            .insert(
-                "scheduled_time",
-                serde_json::json!(scheduled_time.to_rfc3339()),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert("schedule_id", serde_json::json!(schedule.id.to_string()))
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert(
-                "schedule_timezone",
-                serde_json::json!(schedule.timezone.as_deref().unwrap_or("UTC")),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert(
-                "schedule_expression",
-                serde_json::json!(schedule.cron_expression.as_deref().unwrap_or("")),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
+        stamp_cron_fire_keys(&mut context, schedule, scheduled_time)?;
 
         info!(
             "Executing workflow '{}' for cron schedule {} (scheduled time: {})",
@@ -762,30 +889,6 @@ impl Scheduler {
         );
 
         Ok(handle)
-    }
-
-    /// Creates an audit record for a cron execution.
-    async fn create_cron_execution_audit(
-        &self,
-        schedule_id: UniversalUuid,
-        scheduled_time: DateTime<Utc>,
-    ) -> Result<UniversalUuid, ValidationError> {
-        let new_execution = NewScheduleExecution {
-            schedule_id,
-            workflow_execution_id: None,
-            scheduled_time: Some(UniversalTimestamp(scheduled_time)),
-            claimed_at: Some(UniversalTimestamp(Utc::now())),
-            context_hash: None,
-        };
-
-        let audit_record = self.dal.schedule_execution().create(new_execution).await?;
-
-        debug!(
-            "Created cron execution audit record {} for schedule {} (scheduled: {})",
-            audit_record.id, schedule_id, scheduled_time
-        );
-
-        Ok(audit_record.id)
     }
 
     // -----------------------------------------------------------------------
@@ -1769,6 +1872,7 @@ mod tests {
             paused_at: None,
             params: None,
             instance_name: None,
+            max_active_runs: None,
         }
     }
 
@@ -1796,7 +1900,35 @@ mod tests {
             paused_at: None,
             params: None,
             instance_name: None,
+            max_active_runs: None,
         }
+    }
+
+    /// CLOACINA-T-1020: a cron run gets the interval it covers, and the
+    /// scheduler's values replace the ones a bound param set.
+    #[test]
+    fn cron_fire_keys_carry_the_interval_and_win_over_params() {
+        let schedule = create_test_cron_schedule("30 2 * * *", "America/New_York");
+        let mut context = Context::new();
+        crate::workflow_instance::merge_instance_params(
+            &mut context,
+            r#"{"interval_start": "spoofed", "interval_end": "spoofed", "source": "/a"}"#,
+        )
+        .unwrap();
+
+        // The day after the spring-forward change in New York: the fire of
+        // the day before was moved to 03:00 EDT (07:00 UTC).
+        let scheduled_time: DateTime<Utc> = "2026-03-09T06:30:00Z".parse().unwrap();
+        stamp_cron_fire_keys(&mut context, &schedule, scheduled_time).unwrap();
+
+        let get = |key: &str| context.get(key).cloned().unwrap();
+        assert_eq!(get("interval_start"), "2026-03-08T07:00:00+00:00");
+        assert_eq!(get("interval_end"), "2026-03-09T06:30:00+00:00");
+        assert_eq!(get("scheduled_time"), "2026-03-09T06:30:00+00:00");
+        assert_eq!(get("schedule_id"), schedule.id.to_string());
+        assert_eq!(get("schedule_timezone"), "America/New_York");
+        assert_eq!(get("schedule_expression"), "30 2 * * *");
+        assert_eq!(get("source"), "/a");
     }
 
     #[test]
@@ -1918,6 +2050,7 @@ mod tests {
         let config = SchedulerConfig {
             cron_poll_interval: Duration::from_secs(60),
             max_catchup_executions: 50,
+            cron_held_poll_interval: Duration::from_secs(3),
             trigger_base_poll_interval: Duration::from_secs(5),
             trigger_poll_timeout: Duration::from_secs(10),
             reactor_poll_interval: Duration::from_secs(2),
@@ -2502,6 +2635,553 @@ mod tests {
             let _ = dal.schedule().delete(slow_schedule.id).await;
             let _ = dal.schedule().delete(fast_schedule.id).await;
             let _ = dal.schedule().delete(cron_schedule.id).await;
+            runner.shutdown().await.expect("shutdown");
+        }
+    }
+
+    /// CLOACINA-T-1020: the cron fire path with a real runner on SQLite.
+    #[cfg(feature = "sqlite")]
+    mod cron_backlog {
+        use super::super::*;
+        use crate::runner::{DefaultRunner, DefaultRunnerConfig};
+        use crate::{Task, TaskError, TaskNamespace, Workflow};
+        use async_trait::async_trait;
+
+        /// What one run saw: its fire time and its interval.
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        struct SeenRun {
+            scheduled_time: String,
+            interval_start: String,
+            interval_end: String,
+        }
+
+        /// A task that records the interval of its run, and then waits until
+        /// the gate is open.
+        struct IntervalTask {
+            seen: Arc<parking_lot::Mutex<Vec<SeenRun>>>,
+            gate: watch::Receiver<bool>,
+        }
+
+        #[async_trait]
+        impl Task for IntervalTask {
+            async fn execute(
+                &self,
+                context: Context<serde_json::Value>,
+            ) -> Result<Context<serde_json::Value>, TaskError> {
+                let text = |key: &str| {
+                    context
+                        .get(key)
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("missing")
+                        .to_string()
+                };
+                self.seen.lock().push(SeenRun {
+                    scheduled_time: text("scheduled_time"),
+                    interval_start: text("interval_start"),
+                    interval_end: text("interval_end"),
+                });
+                let mut gate = self.gate.clone();
+                while !*gate.borrow() {
+                    if gate.changed().await.is_err() {
+                        break;
+                    }
+                }
+                Ok(context)
+            }
+
+            fn id(&self) -> &str {
+                "work"
+            }
+
+            fn dependencies(&self) -> &[TaskNamespace] {
+                &[]
+            }
+        }
+
+        /// Registers a one-task workflow. Returns what its runs saw and the
+        /// gate: send `true` to let each run, now and later, end.
+        fn register_workflow(
+            runtime: &Runtime,
+            name: &str,
+            gate_open: bool,
+        ) -> (Arc<parking_lot::Mutex<Vec<SeenRun>>>, watch::Sender<bool>) {
+            let seen = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let (gate_tx, gate_rx) = watch::channel(gate_open);
+            let task: Arc<dyn Task> = Arc::new(IntervalTask {
+                seen: seen.clone(),
+                gate: gate_rx,
+            });
+            let workflow = Workflow::builder(name)
+                .add_task(task.clone())
+                .expect("add task")
+                .build()
+                .expect("build workflow");
+            let namespace = TaskNamespace::new(
+                workflow.tenant(),
+                workflow.package(),
+                workflow.name(),
+                "work",
+            );
+            runtime.register_task(namespace, move || task.clone());
+            runtime.register_workflow(name.to_string(), move || workflow.clone());
+            (seen, gate_tx)
+        }
+
+        async fn start_runner(
+            runtime: &Arc<Runtime>,
+            dir: &tempfile::TempDir,
+            max_catchup: usize,
+        ) -> DefaultRunner {
+            let url = format!("sqlite://{}", dir.path().join("scheduler.db").display());
+            let config = DefaultRunnerConfig::builder()
+                .enable_cron_scheduling(true)
+                .cron_poll_interval(Duration::from_millis(200))
+                .cron_max_catchup_executions(max_catchup)
+                .cron_enable_recovery(false)
+                .enable_trigger_scheduling(false)
+                .enable_registry_reconciler(false)
+                .build()
+                .expect("runner config");
+            DefaultRunner::builder()
+                .database_url(&url)
+                .with_config(config)
+                .runtime_arc(runtime.clone())
+                .build()
+                .await
+                .expect("runner")
+        }
+
+        /// An every-minute `run_all` schedule whose row says that its last
+        /// fire was `missed` minutes before the current minute. Returns the
+        /// schedule and that last fire time.
+        async fn schedule_with_missed_minutes(
+            dal: &DAL,
+            workflow: &str,
+            missed: i64,
+            max_active_runs: Option<i32>,
+        ) -> (Schedule, DateTime<Utc>) {
+            let this_minute = DateTime::<Utc>::from_timestamp(Utc::now().timestamp() / 60 * 60, 0)
+                .expect("minute");
+            let last_fire = this_minute - chrono::Duration::minutes(missed);
+            // Created not due, so the scheduler leaves it until the row has
+            // its backlog.
+            let mut new = NewSchedule::cron(
+                workflow,
+                "* * * * *",
+                UniversalTimestamp(Utc::now() + chrono::Duration::hours(1)),
+            );
+            new.catchup_policy = Some("run_all".to_string());
+            new.max_active_runs = max_active_runs;
+            let created = dal.schedule().create(new).await.expect("schedule");
+            dal.schedule()
+                .update_schedule_times(
+                    created.id,
+                    last_fire,
+                    last_fire + chrono::Duration::minutes(1),
+                )
+                .await
+                .expect("backlog");
+            (created, last_fire)
+        }
+
+        async fn wait_until<F, Fut>(timeout: Duration, mut check: F) -> bool
+        where
+            F: FnMut() -> Fut,
+            Fut: std::future::Future<Output = bool>,
+        {
+            let deadline = Instant::now() + timeout;
+            loop {
+                if check().await {
+                    return true;
+                }
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }
+
+        /// A `run_all` schedule missed 8 fire times and one claim takes at
+        /// most 3. Each of the 8 runs, oldest first, one at a time, and each
+        /// run gets the interval of its fire time. Before CLOACINA-T-1020
+        /// the first claim took 3 and dropped the other 5.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn run_all_backlog_beyond_the_batch_is_kept_and_runs_in_order() {
+            let runtime = Arc::new(Runtime::empty());
+            let (seen, _gate) = register_workflow(&runtime, "history_workflow", true);
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = start_runner(&runtime, &dir, 3).await;
+            let dal = runner.dal();
+
+            let (schedule, last_fire) =
+                schedule_with_missed_minutes(&dal, "history_workflow", 8, None).await;
+            runner.notify_cron_change();
+
+            // Wait for 8 finished runs. On each look, count the active runs:
+            // the open rows with no workflow execution yet, or with one that
+            // has not ended. The limit of a `run_all` schedule is one. (A row
+            // can stay open a moment after its run ended; it is not active.)
+            let most_active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let drained = wait_until(Duration::from_secs(60), || {
+                let dal = dal.clone();
+                let most_active = most_active.clone();
+                async move {
+                    let rows = dal
+                        .schedule_execution()
+                        .list_by_schedule(schedule.id, 100, 0)
+                        .await
+                        .unwrap_or_default();
+                    let mut active = 0;
+                    for row in rows.iter().filter(|r| r.completed_at.is_none()) {
+                        let ended = match row.workflow_execution_id {
+                            None => false,
+                            Some(id) => dal
+                                .workflow_execution()
+                                .get_by_id(id)
+                                .await
+                                .map(|run| {
+                                    matches!(
+                                        run.status.as_str(),
+                                        "Completed" | "Failed" | "Cancelled"
+                                    )
+                                })
+                                .unwrap_or(false),
+                        };
+                        if !ended {
+                            active += 1;
+                        }
+                    }
+                    most_active.fetch_max(active, std::sync::atomic::Ordering::SeqCst);
+                    rows.iter().filter(|r| r.completed_at.is_some()).count() >= 8
+                }
+            })
+            .await;
+            dal.schedule().disable(schedule.id).await.expect("disable");
+            assert!(
+                drained,
+                "8 missed fires must all run; runs seen: {:?}",
+                seen.lock()
+            );
+            assert_eq!(
+                most_active.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "one active run at a time"
+            );
+
+            // The first 8 runs, in the order they ran, are the 8 missed fire
+            // times in order, each with its own interval. (A ninth can follow
+            // when the test crosses a minute.)
+            let fire = |n: i64| (last_fire + chrono::Duration::minutes(n)).to_rfc3339();
+            let expected: Vec<SeenRun> = (1..=8)
+                .map(|n| SeenRun {
+                    scheduled_time: fire(n),
+                    interval_start: fire(n - 1),
+                    interval_end: fire(n),
+                })
+                .collect();
+            let seen_runs = seen.lock().clone();
+            assert_eq!(&seen_runs[..8], &expected[..]);
+
+            // The row moved to the last fire taken; nothing points back.
+            let after = dal.schedule().get_by_id(schedule.id).await.expect("row");
+            let taken = seen_runs.len() as i64;
+            assert_eq!(
+                after.last_run_at.map(|t| t.0),
+                Some(last_fire + chrono::Duration::minutes(taken))
+            );
+            assert_eq!(
+                after.next_run_at.map(|t| t.0),
+                Some(last_fire + chrono::Duration::minutes(taken + 1))
+            );
+
+            let mut scheduled: Vec<DateTime<Utc>> = dal
+                .schedule_execution()
+                .list_by_schedule(schedule.id, 100, 0)
+                .await
+                .expect("rows")
+                .into_iter()
+                .filter_map(|row| row.scheduled_time.map(|t| t.0))
+                .collect();
+            scheduled.sort();
+            scheduled.dedup();
+            assert_eq!(scheduled.len() as i64, taken, "each fire time ran once");
+
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// A `run_all` schedule whose run does not end is at its limit of one
+        /// active run. It does not fire again and stays due, with the times
+        /// of the fire it took. Another schedule still fires on time, and
+        /// the scheduler loop keeps sleeping between its checks. When the
+        /// run ends, the next fire is taken at once.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn schedule_at_its_limit_stays_due_and_other_schedules_fire() {
+            let runtime = Arc::new(Runtime::empty());
+            let (held_seen, gate) = register_workflow(&runtime, "held_workflow", false);
+            register_workflow(&runtime, "other_workflow", true);
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = start_runner(&runtime, &dir, 100).await;
+            let dal = runner.dal();
+
+            let (held, last_fire) =
+                schedule_with_missed_minutes(&dal, "held_workflow", 5, None).await;
+            runner.notify_cron_change();
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    held_seen.lock().len() == 1
+                })
+                .await,
+                "the first missed fire did not start"
+            );
+
+            // A second schedule, due in one second, while the first is held.
+            let other_due = Utc::now() + chrono::Duration::seconds(1);
+            let other = dal
+                .schedule()
+                .create(NewSchedule::cron(
+                    "other_workflow",
+                    "* * * * *",
+                    UniversalTimestamp(other_due),
+                ))
+                .await
+                .expect("other schedule");
+            runner.notify_cron_change();
+            let handed_off = |schedule_id: UniversalUuid| {
+                let dal = dal.clone();
+                async move {
+                    dal.schedule_execution()
+                        .list_by_schedule(schedule_id, 50, 0)
+                        .await
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|row| row.workflow_execution_id.is_some())
+                        .count()
+                }
+            };
+            assert!(
+                wait_until(Duration::from_secs(5), || async {
+                    handed_off(other.id).await >= 1
+                })
+                .await,
+                "a schedule at its limit must not keep another schedule from firing"
+            );
+            let other_row = dal
+                .schedule_execution()
+                .list_by_schedule(other.id, 10, 0)
+                .await
+                .expect("other rows")
+                .remove(0);
+            let late = other_row.created_at.0 - other_due;
+            assert!(
+                late < chrono::Duration::milliseconds(900),
+                "the other schedule fired {late} after its due time"
+            );
+
+            // Three seconds on, the held schedule still has one run and its
+            // row has not moved: four missed fires wait, none is lost.
+            let passes_before = CRON_CHECK_PASSES.load(std::sync::atomic::Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            // The held schedule is due the whole time, and the loop must
+            // still sleep between its checks. This runner checks 5 times a
+            // second at most (its backstop is 200 ms); the count is shared
+            // with the other tests of this process, so the bound is loose. A
+            // loop that does not sleep makes thousands of passes.
+            let passes =
+                CRON_CHECK_PASSES.load(std::sync::atomic::Ordering::Relaxed) - passes_before;
+            println!("cron checks in 3 s with a held schedule: {passes}");
+            assert!(
+                passes < 300,
+                "{passes} cron checks in 3 seconds: the loop spins on the held schedule"
+            );
+            let rows = dal
+                .schedule_execution()
+                .list_by_schedule(held.id, 50, 0)
+                .await
+                .expect("held rows");
+            assert_eq!(rows.len(), 1, "no second run while the first is active");
+            assert_eq!(held_seen.lock().len(), 1);
+            let row = dal.schedule().get_by_id(held.id).await.expect("held row");
+            let first_fire = last_fire + chrono::Duration::minutes(1);
+            assert_eq!(row.last_run_at.map(|t| t.0), Some(first_fire));
+            assert_eq!(
+                row.next_run_at.map(|t| t.0),
+                Some(first_fire + chrono::Duration::minutes(1)),
+                "the schedule stays due at its next missed fire"
+            );
+
+            // The run ends: the next fire is taken without waiting for a
+            // poll. The gate stays open, so the rest of the backlog runs too.
+            let released = Instant::now();
+            gate.send(true).expect("open the gate");
+            assert!(
+                wait_until(Duration::from_secs(10), || async {
+                    handed_off(held.id).await >= 2
+                })
+                .await,
+                "the next missed fire must be taken when the run ends"
+            );
+            let waited = released.elapsed();
+            assert!(
+                wait_until(Duration::from_secs(30), || async {
+                    held_seen.lock().len() >= 5
+                })
+                .await,
+                "the rest of the backlog must run; runs seen: {:?}",
+                held_seen.lock()
+            );
+            let seen_runs = held_seen.lock().clone();
+            for (index, run) in seen_runs.iter().take(5).enumerate() {
+                let n = index as i64 + 1;
+                assert_eq!(
+                    run.scheduled_time,
+                    (last_fire + chrono::Duration::minutes(n)).to_rfc3339()
+                );
+            }
+            println!("next fire taken {waited:?} after the run was released");
+
+            let _ = dal.schedule().delete(held.id).await;
+            let _ = dal.schedule().delete(other.id).await;
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// A `run_all` schedule that declares `max_active_runs = 3` and
+        /// missed 7 fire times starts 3 runs and no more while they are
+        /// active: the oldest 3, with the row at the third. When runs end,
+        /// the rest follow.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn declared_max_active_runs_sets_how_fast_a_backlog_drains() {
+            let runtime = Arc::new(Runtime::empty());
+            let (seen, gate) = register_workflow(&runtime, "wide_workflow", false);
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = start_runner(&runtime, &dir, 100).await;
+            let dal = runner.dal();
+
+            let (schedule, last_fire) =
+                schedule_with_missed_minutes(&dal, "wide_workflow", 7, Some(3)).await;
+            runner.notify_cron_change();
+
+            let rows = || {
+                let dal = dal.clone();
+                async move {
+                    dal.schedule_execution()
+                        .list_by_schedule(schedule.id, 100, 0)
+                        .await
+                        .unwrap_or_default()
+                }
+            };
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    rows()
+                        .await
+                        .iter()
+                        .filter(|row| row.workflow_execution_id.is_some())
+                        .count()
+                        >= 3
+                })
+                .await,
+                "3 runs must be handed off"
+            );
+
+            // Two seconds on: still 3 runs, the 3 oldest fire times.
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let mut taken: Vec<DateTime<Utc>> = rows()
+                .await
+                .into_iter()
+                .filter_map(|row| row.scheduled_time.map(|t| t.0))
+                .collect();
+            taken.sort();
+            let fire = |n: i64| last_fire + chrono::Duration::minutes(n);
+            assert_eq!(taken, vec![fire(1), fire(2), fire(3)]);
+            let row = dal.schedule().get_by_id(schedule.id).await.expect("row");
+            assert_eq!(row.last_run_at.map(|t| t.0), Some(fire(3)));
+            assert_eq!(row.next_run_at.map(|t| t.0), Some(fire(4)));
+
+            // Runs end: the rest of the backlog runs.
+            gate.send(true).expect("open the gate");
+            assert!(
+                wait_until(Duration::from_secs(30), || async { seen.lock().len() >= 7 }).await,
+                "the 7 missed fires must all run; runs seen: {:?}",
+                seen.lock()
+            );
+            let mut seen_times: Vec<String> = seen
+                .lock()
+                .iter()
+                .take(7)
+                .map(|run| run.scheduled_time.clone())
+                .collect();
+            seen_times.sort();
+            assert_eq!(
+                seen_times,
+                (1..=7).map(|n| fire(n).to_rfc3339()).collect::<Vec<_>>()
+            );
+
+            let _ = dal.schedule().delete(schedule.id).await;
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// A `skip` schedule that fires each second and declares
+        /// `max_active_runs = 1` does not start a second run while the first
+        /// is active. Without the limit it would hand off one run a second.
+        /// When the run ends, the schedule fires again, once, for the time it
+        /// was held.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn skip_schedule_with_a_limit_does_not_overlap_its_runs() {
+            let runtime = Arc::new(Runtime::empty());
+            let (seen, gate) = register_workflow(&runtime, "no_overlap_workflow", false);
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = start_runner(&runtime, &dir, 100).await;
+            let dal = runner.dal();
+
+            let mut new = NewSchedule::cron(
+                "no_overlap_workflow",
+                "* * * * * *",
+                UniversalTimestamp(Utc::now()),
+            );
+            new.max_active_runs = Some(1);
+            let schedule = dal.schedule().create(new).await.expect("schedule");
+            runner.notify_cron_change();
+
+            let row_count = || {
+                let dal = dal.clone();
+                async move {
+                    dal.schedule_execution()
+                        .list_by_schedule(schedule.id, 100, 0)
+                        .await
+                        .unwrap_or_default()
+                        .len()
+                }
+            };
+            assert!(
+                wait_until(Duration::from_secs(15), || async { seen.lock().len() == 1 }).await,
+                "the first run did not start"
+            );
+
+            // Three fire times pass. One run, one row.
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            assert_eq!(row_count().await, 1, "no run while the first is active");
+            let held = dal.schedule().get_by_id(schedule.id).await.expect("row");
+            assert!(
+                held.next_run_at.map(|t| t.0) < Some(Utc::now()),
+                "the schedule stays due while it is held"
+            );
+
+            // The run ends, the gate closes again: one more run starts, and
+            // again only one.
+            gate.send(true).expect("open the gate");
+            assert!(
+                wait_until(Duration::from_secs(10), || async { row_count().await >= 2 }).await,
+                "the schedule must fire again when its run ends"
+            );
+            gate.send(false).expect("close the gate");
+            let rows_after_release = row_count().await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert!(
+                row_count().await <= rows_after_release + 1,
+                "with the gate closed again, at most one more run may start"
+            );
+
+            dal.schedule().disable(schedule.id).await.expect("disable");
+            gate.send(true).expect("open the gate");
             runner.shutdown().await.expect("shutdown");
         }
     }

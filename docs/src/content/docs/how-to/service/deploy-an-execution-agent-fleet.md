@@ -88,6 +88,17 @@ free capacity. Useful options (full list in the [CLI reference](../../../referen
 - `--cache-dir <PATH>` / `CLOACINA_AGENT_CACHE_DIR` — persist the fetched-cdylib
   cache across restarts to skip re-fetching artifacts.
 - `--capabilities a,b` — advertise free-form tags at registration.
+- `--api-key-file <PATH>` / `CLOACINA_API_KEY_FILE` — read the key from a file
+  in place of `CLOACINA_API_KEY`.
+
+**The key and task code.** Tasks run inside the agent process. At start the
+agent reads `CLOACINA_API_KEY`, overwrites the value in its start-time
+environment and removes the variable, so a task finds no key in `std::env`,
+`os.environ` or `/proc/self/environ`. A key given with `--api-key` on the command
+line stays in the process's argument list, and a key file stays readable by the
+agent's user: for an agent that runs untrusted tasks, give the key in
+`CLOACINA_API_KEY`. See
+[what a task can reach on its agent](../../../explanation/service/security-model/#what-a-task-can-reach-on-its-agent).
 
 > **Architecture must match.** Agents `dlopen` the compiler's cdylibs — native
 > code that only runs on the target triple it was built for. The fidius wire
@@ -189,6 +200,154 @@ A newly created tenant is auto-seeded with
 `min(CLOACINA_INITIAL_AGENTS, CLOACINA_DEFAULT_MAX_AGENTS)` (default 1) on
 `POST /v1/tenants`; set `CLOACINA_INITIAL_AGENTS=0` to disable.
 
+### Size the agents: pools
+
+A tenant's managed agents are grouped in pools, each with its own size. Every
+tenant has the pool `default`. A platform admin sets a pool's settings; each
+field is optional, and one that is absent means the server-wide default.
+
+```bash
+# Platform-admin (god key): make the tenant's default pool large, one task per
+# agent, with a cloud identity and a path to object storage.
+curl -X PUT -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "content-type: application/json" \
+  http://cloacina-server:8080/v1/tenants/tenant_acme/pools/default -d '{
+    "cpu_request": "2", "cpu_limit": "8",
+    "memory_request": "16Gi", "memory_limit": "32Gi",
+    "max_concurrency": 1,
+    "service_account_name": "team-data",
+    "service_account_annotations": {
+      "eks.amazonaws.com/role-arn": "arn:aws:iam::000000000000:role/example-team"
+    },
+    "extra_egress": [
+      { "cidr": "198.51.100.0/24", "ports": [{ "port": 443 }] }
+    ]
+  }'
+
+# The same with cloacinactl.
+cloacinactl tenant pool set tenant_acme default \
+  --cpu-request 2 --cpu-limit 8 --memory-request 16Gi --memory-limit 32Gi \
+  --max-concurrency 1 --service-account team-data \
+  --service-account-annotation eks.amazonaws.com/role-arn=arn:aws:iam::000000000000:role/example-team \
+  --egress 198.51.100.0/24=443
+
+cloacinactl tenant pool list tenant_acme
+```
+
+`PUT` replaces the pool's settings as a whole: send every setting you want to
+keep. The server checks the values (a malformed quantity such as `32GB`, a
+request above its limit, a CIDR block with host bits set are a `400`). The
+actuator applies the settings on its next tick (30s by default) and Kubernetes
+rolls the pool's agents.
+
+**What this gives today, and what it does not.** All work runs on the pool
+`default`: a task cannot name a pool yet. So a tenant has, in effect, one size
+of agent. If one task of a tenant needs 32 GB, either size the tenant's
+`default` pool for it (every agent of the tenant is then that size, and with
+`max_concurrency` above 1 the tasks of one agent share the 32 GB), or run that
+work in a second tenant. You can already create another pool:
+
+```bash
+cloacinactl tenant pool set tenant_acme big --memory-limit 32Gi \
+  --memory-request 16Gi --max-concurrency 1 --agents 2
+```
+
+Its two agents start and register, but they receive no work until a task can
+name its pool. A pool other than `default` runs a fixed number of agents
+(`--agents`, the `max_agents` setting); it is not autoscaled, and the tenant's
+agent limit does not count it. To remove it, set it to 0 agents, wait until its
+agents have stopped, then delete it:
+
+```bash
+cloacinactl tenant pool set tenant_acme big --agents 0
+cloacinactl tenant pool delete tenant_acme big
+```
+
+See [Agent pools](../../../explanation/service/execution-agent-fleet/#agent-pools)
+for how a change reaches the agents and what the identity and egress settings do.
+
+### Give a pool a cloud identity
+
+Cloacina has no cloud-specific code. A pool has four generic settings, and a
+cloud's workload identity system is set up with them:
+
+| Setting | What the actuator does |
+|---|---|
+| `service_account_name`, `service_account_annotations` | Creates the ServiceAccount in the tenant namespace with the annotations; the pool's pods run as it. |
+| `pod_labels` | Adds the labels to the pool's pods. |
+| `pod_annotations` | Adds the annotations to the pool's pods. |
+| `automount_service_account_token` | Sets the pod's field of that name. Not set: left out, the cluster default. |
+
+The three recipes below are examples of those settings. The account ids, role
+names and addresses are placeholders. Each recipe shows the identity settings
+only. `set` replaces all of a pool's settings, so give the pool's resources in
+the same command. The cloud side (the role, its trust in the cluster's identity
+provider, its permissions) is yours to set up.
+
+**Amazon EKS, IAM roles for service accounts.** An annotation on the
+ServiceAccount names the role. A webhook in the cluster then adds a projected
+token volume and environment variables to pods that use the ServiceAccount.
+
+```bash
+cloacinactl tenant pool set tenant_acme default \
+  --service-account team-data \
+  --service-account-annotation eks.amazonaws.com/role-arn=arn:aws:iam::000000000000:role/example-team \
+  --automount-service-account-token false \
+  --egress 198.51.100.0/24=443
+```
+
+**Google GKE, Workload Identity.** An annotation on the ServiceAccount names the
+Google service account. Pods get credentials from the node's metadata server.
+
+```bash
+cloacinactl tenant pool set tenant_acme default \
+  --service-account team-data \
+  --service-account-annotation iam.gke.io/gcp-service-account=example-team@example-project.iam.gserviceaccount.com \
+  --egress 198.51.100.0/24=443
+```
+
+**Azure AKS, Workload Identity.** An annotation on the ServiceAccount names the
+client id, and a label on the pod turns the webhook on for it. The webhook adds
+a projected token volume and environment variables.
+
+```bash
+cloacinactl tenant pool set tenant_acme default \
+  --service-account team-data \
+  --service-account-annotation azure.workload.identity/client-id=00000000-0000-0000-0000-000000000000 \
+  --pod-label azure.workload.identity/use=true \
+  --automount-service-account-token false \
+  --egress 198.51.100.0/24=443
+```
+
+**Egress.** A managed agent reaches cluster DNS and the server only, so the
+pool needs egress rules for the identity and for the service the task calls.
+`198.51.100.0/24` above stands for your real ranges. The rules are CIDR blocks,
+not host names: for an endpoint whose addresses change, use a private endpoint
+in your network (its subnet is a fixed range) or the provider's published
+ranges.
+
+- **EKS:** the AWS STS endpoint on port 443, where the pod exchanges its token
+  for credentials, and the endpoints of the services the task calls (object
+  storage, the catalog) on 443.
+- **GKE:** the node's metadata server, a link-local address that your GKE
+  documentation gives with its port, and the Google APIs the task calls on 443.
+- **Azure:** the Microsoft Entra login endpoint on port 443, where the pod
+  exchanges its token, and the endpoints of the services the task calls on 443.
+
+How an `ipBlock` rule applies to a node-local address such as a metadata server
+depends on the cluster's network plugin: follow the plugin's documentation for
+that address. A missing rule fails closed: the task gets a network timeout.
+
+**The mounted Kubernetes token.** `--automount-service-account-token false`
+stops Kubernetes from mounting the ServiceAccount's own API token in the pod.
+The agent does not use it. The token a workload identity webhook injects is a
+separate projected volume and still arrives.
+
+A changed label, annotation, ServiceAccount or automount setting changes the
+pod template, so the pool's agents are rolled. Setting a ServiceAccount's
+annotations alone does not restart pods: a webhook acts when a pod is created,
+so change something in the pod template too, or delete the pods.
+
 ### Docker actuator (local dev)
 
 For a single-host dev loop, the Docker actuator spawns/stops `cloacina-agent`
@@ -205,7 +364,10 @@ cloacina-server --default-executor fleet --bind 0.0.0.0:8080
 The actuator mints a tenant-scoped key per container and injects it as
 `CLOACINA_API_KEY`, so you don't manage agent keys yourself. The substrate guard
 is **fail-closed**: `docker` refuses to start if it detects Kubernetes or finds
-no Docker socket. It is **dev-only** — for production use the
+no Docker socket. Of a pool's settings it applies the image, the memory and CPU
+limits and the max concurrency, and replaces the containers of a pool whose
+settings changed; resource requests, the service account and the egress rules
+have no Docker counterpart and are ignored. It is **dev-only** — for production use the
 [Kubernetes actuator](../deploying-to-kubernetes/#fleet-actuator-kubernetes--rbac),
 which scales a per-tenant agent Deployment with least-privilege RBAC.
 
@@ -221,9 +383,12 @@ production cluster:
   resource requests/limits (`fleet.agentResources`). The pods carry **no probes**
   — the agent has no health endpoint; liveness is the server's heartbeat/eviction
   sweep, tuned by `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` / `CLOACINA_AGENT_LIVENESS_MISSES`.
+- **No service account token** — the pods set
+  `automountServiceAccountToken: false`. The agent never calls the Kubernetes API.
 - **Per-tenant `NetworkPolicy`** (`fleet.networkPolicy.enabled`, default on) —
-  deny all ingress; egress only to DNS + the `cloacina-server`. Defense-in-depth;
-  the server-side ABAC remains the real boundary.
+  deny all ingress; egress only to DNS + the `cloacina-server`, plus the extra
+  egress rules of each pool for that pool's pods. Defense-in-depth; the
+  server-side ABAC remains the real boundary.
 
 See [Deploying to Kubernetes → Hardened agent pods + NetworkPolicy](../deploying-to-kubernetes/#hardened-agent-pods--networkpolicy)
 for the full knob list.

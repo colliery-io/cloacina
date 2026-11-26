@@ -50,11 +50,24 @@ spec:
             # Kubernetes expands $(DATABASE_URL) from the env below, so a
             # secret-sourced URL never appears literally in the manifest/argv.
             - "$(DATABASE_URL)"
+            {{- if .Values.metrics.enabled }}
+            - "--metrics-bind"
+            - {{ printf "0.0.0.0:%v" .Values.metrics.port | quote }}
+            {{- end }}
             - "--poll-interval-ms"
             - {{ .Values.compiler.pollIntervalMs | quote }}
             {{- range .Values.compiler.extraArgs }}
             - {{ . | quote }}
             {{- end }}
+          {{- if .Values.metrics.enabled }}
+          ports:
+            # Not `metrics`: the server's metrics Service selects by the name
+            # and instance labels, which these pods carry too, and finds its
+            # endpoints by that port name.
+            - name: cmp-metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          {{- end }}
           env:
             {{- if .Values.postgresql.enabled }}
             - name: DATABASE_URL

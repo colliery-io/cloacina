@@ -94,25 +94,24 @@ pub struct StaleClaim {
     pub recovery_attempts: i32,
 }
 
-/// The tasks that wait to be dispatched: `Ready`, due and not claimed
-/// (CLOACINA-T-1024). Feeds the `cloacina_waiting_tasks` and
-/// `cloacina_oldest_waiting_task_age_seconds` gauges.
+/// The tasks that wait for capacity (CLOACINA-T-1024, CLOACINA-T-1036): status
+/// `Ready` with a `waiting_since` that is not in the future. Feeds the
+/// `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds`
+/// gauges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WaitingTasks {
     /// Number of waiting tasks.
     pub count: i64,
-    /// The earliest time one of them became due: `retry_at` when it is set,
-    /// else `updated_at` (the time it was marked `Ready`). `None` when no
-    /// task waits.
-    pub oldest_due_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The earliest `waiting_since` of them. `None` when no task waits.
+    pub oldest_waiting_since: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl WaitingTasks {
     /// Age of the oldest waiting task at `now`, in seconds. 0 when no task
     /// waits, and never negative.
     pub fn oldest_age_seconds(&self, now: chrono::DateTime<chrono::Utc>) -> f64 {
-        match self.oldest_due_at {
-            Some(due) => ((now - due).num_milliseconds() as f64 / 1000.0).max(0.0),
+        match self.oldest_waiting_since {
+            Some(since) => ((now - since).num_milliseconds() as f64 / 1000.0).max(0.0),
             None => 0.0,
         }
     }

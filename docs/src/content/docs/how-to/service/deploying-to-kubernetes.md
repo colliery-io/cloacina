@@ -108,57 +108,97 @@ cert-manager users can wire issuance via the standard
 | `livenessProbe`, `readinessProbe`, `startupProbe` | `/health` (liveness/startup) and `/ready` (readiness) HTTP | Override per-probe; set to `null` to disable |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
 | `server.verificationOrgId` | `""` | Trusted org UUID (required when signatures are required) |
-| `server.tenantRunnerCacheSize` | `256` | LRU cap on per-tenant `DefaultRunner` instances |
+| `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant `DefaultRunner` instances; none is stopped at the limit |
 
 See `values.yaml` for the full reference.
 
-## Observability (Prometheus operator)
+## Metrics and Prometheus
 
-```sh
-helm upgrade --install cloacina \
-  oci://ghcr.io/colliery-io/charts/cloacina-server \
-  --version 0.1.0 \
-  --reuse-values \
-  --set serviceMonitor.enabled=true
-```
+`/metrics` has no authentication, and its labels hold tenant names,
+workflow names and other names that tenants choose. The chart keeps it
+off the API port by default:
 
-The chart emits a `ServiceMonitor` that scrapes `:8080/metrics` every
-30 seconds — picked up automatically by a Prometheus operator that
-watches your namespace.
+- The server starts with `--metrics-bind 0.0.0.0:9090`. `/metrics` is
+  served on port 9090 only, and `:8080/metrics` answers 404.
+- The ClusterIP Service `<fullname>-metrics` exposes port 9090. The API
+  Service and the Ingress do not.
+- A NetworkPolicy for the server pods keeps the API port open to every
+  source and opens port 9090 only to the peers in
+  `metrics.networkPolicy.from`. The list is empty by default, so no pod
+  can reach the metrics port until you name your Prometheus.
 
-### Keep `/metrics` off the API port
+### Let Prometheus scrape
 
-By default `/metrics` is on the API port with no authentication, so
-every client that can reach the API can read it, tenant agents
-included. To serve it on a port of its own and limit who can reach it:
+Name the pods that may scrape, and turn on the `ServiceMonitor` if you
+run the Prometheus operator:
 
 ```yaml
 metrics:
-  enabled: true
-  port: 9090
   networkPolicy:
-    enabled: true
     from:
       - namespaceSelector:
           matchLabels:
             kubernetes.io/metadata.name: monitoring
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus
 serviceMonitor:
   enabled: true
 ```
 
+The `ServiceMonitor` selects the Service `<fullname>-metrics`, port
+`metrics`, path `/metrics`, every 30 seconds. Without the Prometheus
+operator, point a scrape job at
+`<fullname>-metrics.<namespace>.svc:9090/metrics`.
+
+With `compiler.enabled=true` the compiler pods get the same treatment:
+`--metrics-bind` on `metrics.port`, the Service
+`<fullname>-compiler-metrics` (port `cmp-metrics`), a second
+`ServiceMonitor` named `<fullname>-compiler`, and a NetworkPolicy that
+keeps the compiler's bind port open and opens the metrics port only to
+the peers in `from`.
+
 | Knob | Default | Effect |
 |------|---------|--------|
-| `metrics.enabled` | `false` | Starts the server with `--metrics-bind 0.0.0.0:<port>`. Adds the container port `metrics` and the ClusterIP Service `<fullname>-metrics`. `:8080/metrics` then answers 404, and the `ServiceMonitor` scrapes the metrics Service |
+| `metrics.enabled` | `true` | Starts the server (and the compiler, when enabled) with `--metrics-bind 0.0.0.0:<port>`. Adds the container port and the ClusterIP metrics Service. `:8080/metrics` answers 404 |
 | `metrics.port` | `9090` | Port of the metrics listener |
-| `metrics.networkPolicy.enabled` | `false` | Adds a NetworkPolicy for the server pods. Needs `metrics.enabled=true` and a CNI that enforces NetworkPolicy |
+| `metrics.networkPolicy.enabled` | `true` | Adds the NetworkPolicy for the server pods (and the compiler pods). Rendered only with `metrics.enabled=true`. Takes effect on a CNI that enforces NetworkPolicy |
 | `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers that may reach the metrics port. Empty admits nobody |
+| `serviceMonitor.enabled` | `false` | Emits a `ServiceMonitor` for the metrics Service |
 
-The NetworkPolicy keeps the API port open to every source, as without a
-policy. It refuses every other ingress to the server pods. With the
-fleet actuator's agent NetworkPolicy on (`fleet.networkPolicy.enabled`),
-agents can already reach only the API port, so `metrics.enabled=true`
-alone takes `/metrics` out of their reach; the server NetworkPolicy
-covers the other pods in the cluster.
+### Who can reach the metrics port
+
+- Agents that the fleet actuator provisions run in namespaces named
+  `cloacina-tenant-<tenant>`, labelled `cloacina.managed: "true"`. Their
+  own NetworkPolicy (`fleet.networkPolicy.enabled`, on by default)
+  allows egress only to cluster DNS and to the server pods on the API
+  port. Port 9090 is not in that list.
+- The server NetworkPolicy closes port 9090 to every pod that is not in
+  `from`. This covers agents installed with the `cloacina-agent` chart,
+  agents in a cluster where `fleet.networkPolicy.enabled=false`, and
+  every other workload.
+- Both policies need a CNI that enforces NetworkPolicy. On a CNI that
+  does not, the metrics port is reachable from every pod in the cluster;
+  the API port still answers 404 for `/metrics`.
+
+### `/metrics` on the API port
+
+`metrics.enabled=false` puts `/metrics` back on port 8080, where every
+client that can reach the API can read it, each tenant's agents
+included. The chart then renders no metrics Service and no
+NetworkPolicy, and the `ServiceMonitor` scrapes the API Service on port
+`http`.
+
+### Upgrading from a chart where `metrics.enabled` was `false`
+
+- Scrape `<fullname>-metrics:9090/metrics`, not
+  `<fullname>:8080/metrics`. A scrape of the API port gets 404.
+- With `serviceMonitor.enabled=true` the chart moves the `ServiceMonitor`
+  to the metrics Service on upgrade.
+- Add the Prometheus pods to `metrics.networkPolicy.from`. Until then
+  the NetworkPolicy refuses the scrape.
+- The server image must have `--metrics-bind`: a release after 0.12.0.
+  With an older image, set `metrics.enabled=false`.
 
 ## Fleet actuator (Kubernetes) + RBAC
 
@@ -206,11 +246,25 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 ### Per-tenant namespaces
 
 The actuator gives each tenant its **own** namespace, `cloacina-tenant-<t>`
-(the tenant id is sanitized to a DNS-1123 label), and manages exactly one
-`cloacina-agent` Deployment plus one agent-key Secret inside it. Scaling a
-tenant's fleet patches that Deployment's `replicas`. Tenant isolation is the
-namespace boundary — the actuator only ever touches the requesting tenant's
-namespace.
+(the tenant id is sanitized to a DNS-1123 label). Inside it the actuator manages
+one Deployment per [agent pool](../../../explanation/service/execution-agent-fleet/#agent-pools)
+and one agent-key Secret. The pool `default` is the Deployment `cloacina-agent`,
+as before pools; another pool is `cloacina-agent-<pool>`. Scaling a pool patches
+its Deployment's `replicas`. Tenant isolation is the namespace boundary — the
+actuator only ever touches the requesting tenant's namespace.
+
+`fleet.agentImage` and `fleet.agentResources` are the server-wide defaults. A
+pool's settings override them for that pool: resources, max concurrency, image,
+a ServiceAccount with annotations, pod labels and annotations and the
+`automountServiceAccountToken` switch (for a cloud workload identity; see
+[Give a pool a cloud identity](../deploy-an-execution-agent-fleet/#give-a-pool-a-cloud-identity)),
+and extra egress rules. A platform admin sets them through the
+[pool API](../../../reference/http-api/#agent-pools) or
+`cloacinactl tenant pool set`; see
+[Size the agents: pools](../deploy-an-execution-agent-fleet/#size-the-agents-pools).
+The actuator applies them on its next tick, and a changed setting rolls the
+pool's Deployment. An upgrade to a version with pools does not roll the
+existing Deployment: with no settings the manifest is unchanged.
 
 ### The exact RBAC the chart grants
 
@@ -222,9 +276,17 @@ cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
 | API group | Resource | Verbs | Why |
 |---|---|---|---|
 | (core) | `namespaces` | `create`, `patch` | Ensure each tenant's namespace via server-side apply (a single create-or-update call, authorized as `create`+`patch`). No `get`/`list`/`delete`. |
-| `apps` | `deployments` | `create`, `get`, `patch` | Ensure the per-tenant agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count during reconcile. No `list`/`delete` — scale-to-zero replaces deletion. |
+| `apps` | `deployments` | `create`, `delete`, `get`, `patch` | Ensure each pool's agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count during reconcile. `delete` removes the Deployment of a pool that an admin removes, by name, after the server checked that the pool has no agents; a tenant's deprovision still scales to zero. No `list`. |
+| (core) | `serviceaccounts` | `create`, `patch` | Ensure the ServiceAccount a pool names, with the pool's annotations (server-side apply). No `get`/`list`/`delete`: the ServiceAccount stays when its pool is removed. |
 | (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
-| `networking.k8s.io` | `networkpolicies` | `create`, `patch` | Ensure the per-tenant agent NetworkPolicy (server-side apply). Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`/`delete`. |
+| `networking.k8s.io` | `networkpolicies` | `create`, `delete`, `patch` | Ensure the per-tenant agent NetworkPolicy and each pool's own NetworkPolicy (server-side apply). `delete` removes the policy of a removed pool, by name. Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`. |
+
+The ClusterRole is cluster-wide, so the `serviceaccounts` rule lets the server
+write a ServiceAccount's annotations in any namespace, as the `secrets` rule
+lets it write Secrets. The actuator writes only in tenant namespaces. If you
+upgrade the chart from a version before pools, the new verbs come with it; a
+server that runs with the old ClusterRole fails the reconcile of a pool that
+names a ServiceAccount, and cannot remove a pool.
 
 ### Hardened agent pods + NetworkPolicy
 
@@ -238,6 +300,8 @@ the real tenant-isolation boundary; none of it weakens a server-side check.
   forbid privilege escalation, and use a `readOnlyRootFilesystem`. The agent's
   writable paths (`$HOME` for the unpacked `workflow/`+`vendor/` tree and cdylib
   cache, plus `/tmp`) are backed by `emptyDir` volumes.
+- **No service account token.** Pods set `automountServiceAccountToken: false`;
+  the agent never calls the Kubernetes API.
 - **Resources.** Requests/limits come from `fleet.agentResources`. The defaults
   account for the agent's embedded CPython interpreter (PyO3) — bump
   `fleet.agentResources.limits.memory` for heavy vendored dependencies.
@@ -252,6 +316,11 @@ the real tenant-isolation boundary; none of it weakens a server-side check.
   `CLOACINA_SERVER_POD_SELECTOR` (the server's pod labels), both rendered by the
   chart. Set `fleet.networkPolicy.enabled=false` to skip the policy (the RBAC
   verb stays granted, so you can re-enable without a redeploy of RBAC).
+- **Extra egress per pool.** Each pool has its own NetworkPolicy,
+  `cloacina-agent-pool-<pool>`, that selects the pool's pods and allows the
+  CIDR blocks of the pool's `extra_egress` setting (for object storage, a
+  catalog, a cloud API). With no rules it allows nothing more, so the default
+  stays DNS and the server only. It is written only when the tenant policy is.
 
 > **Restricted clusters.** Because the agent pods are already `restricted`-clean,
 > you can safely label tenant namespaces `pod-security.kubernetes.io/enforce: restricted`.

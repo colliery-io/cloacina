@@ -58,7 +58,10 @@ pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
     ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
 };
-pub use fleet::AgentInfo;
+pub use fleet::{
+    AGENT_POOL_CAPABILITY_PREFIX, AgentEgressPort, AgentEgressRule, AgentInfo, AgentPoolInfo,
+    AgentPoolSettings, DEFAULT_AGENT_POOL, agent_pool_of,
+};
 pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
     ReactorFire, ReactorFireTimeseries, ReactorStatus,

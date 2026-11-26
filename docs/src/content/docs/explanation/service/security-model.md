@@ -246,7 +246,7 @@ If the threat model includes nation-state actors targeting the compiler host, do
 CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier server releases. The current state is **strong by default**:
 
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, not a silent fall-through to `public`. This closes the cross-tenant data-leak risk that existed pre-I-0106.
-- **Per-tenant `DefaultRunner` instances** cached in `TenantRunnerCache` (default 256-entry LRU). Workflow execution lands in the tenant's schema, not in a shared global runner.
+- **Per-tenant `DefaultRunner` instances** held in `TenantRunnerCache`, one for every tenant from server start until the tenant is deleted. Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers` routes through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
 - **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
 
@@ -255,6 +255,16 @@ What multi-tenant isolation **does not** guarantee:
 - **CPU side-channels** between executions running concurrently on the same server process. Tenants share the OS and the runtime; an attacker who can run code in one tenant can in principle observe timing of code in another. If this threat is in scope, run a separate `cloacina-server` instance per tenant (one host process per tenant) rather than relying on schema isolation.
 - **Privileged operator actions.** An `is_admin` key can do anything; key compromise = total compromise. Treat `is_admin` keys like AWS root credentials.
 - **Postgres-level row-level security.** Cloacina relies on schema-level isolation and the `SET search_path` enforcement above; it does not layer Postgres RLS policies on top. If your compliance posture requires defense-in-depth at the DB layer, layer RLS yourself.
+
+### What a task can reach on its agent
+
+A task runs inside the `cloacina-agent` process of its own tenant: a Rust task as a loaded library, a Python task in the embedded interpreter. It has the agent's user, files, network and memory.
+
+- **The Kubernetes API.** Agent pods mount no service account token (`automountServiceAccountToken: false`, in the actuator's Deployment and in the `cloacina-agent` chart), and the per-tenant `NetworkPolicy` allows egress only to DNS and the server.
+- **The agent's API key, by the ordinary routes.** The agent reads the key at start, overwrites the value in its start-time environment and removes `CLOACINA_API_KEY`. `std::env`, Python's `os.environ` and `/proc/self/environ` do not hold the key. The agent keeps no key in a file, and sets no default header on its HTTP client.
+- **The agent's API key, in memory.** The agent holds the key in its own memory for its calls to the server, and a task shares that memory. Native code in a task, or a task that reads `/proc/self/mem`, can find it. A key given with `--api-key` is in the argument list, and a key file (`--api-key-file`) is readable by the agent's user: both are readable by a task.
+- **What that key opens.** A managed agent's key is scoped to its tenant with the role `read`, and every agent of the tenant has the same key. It can read the tenant's workflows, versions, package source, instances, triggers, executions with their events and tasks, the fleet view and the limit. It can call the agent routes (register, heartbeat, result, and fetch of the tenant's artifacts, source and providers by digest), mint a WebSocket ticket, and reach the tenant's computation-graph health routes, which include a reactor fire and an accumulator inject. It cannot publish, execute, read or manage secrets, keys or accounts, or reach another tenant.
+- **Secrets.** A task receives the secrets it declares, unwrapped by the agent for that one execution. Tasks of one tenant that run on the same agent share its memory.
 
 For the operational mechanics — how to provision tenants, how to safely decommission them, how to rotate per-tenant credentials — see the [Multi-tenancy explanation](../multi-tenancy/) and the multi-tenant how-tos under `/service/how-to/`.
 
@@ -265,9 +275,9 @@ The Prometheus `/metrics` endpoint and the `/health` + `/ready` probes are **una
 - **In favor:** no credential management on the scraping path; standard Prometheus deployment shape works out of the box; health probes work with off-the-shelf Kubernetes / load-balancer tooling.
 - **Against:** metric values are observable side channels. From `cloacina_workflows_total{status="completed"}` an outside observer can infer whether a tenant is active and roughly how much work it's doing. Similar for `cloacina_active_tasks`.
 
-By default `/metrics` is on the API port. Every client that can reach the API can read it, and that includes each tenant's execution agents. Metric labels hold names that tenants choose (graphs, reactors, accumulators, sources), so one tenant's code can read another tenant's names.
+When the server binary is started with no `--metrics-bind`, `/metrics` is on the API port. Every client that can reach the API can read it, and that includes each tenant's execution agents. Metric labels hold tenant names, workflow names and other names that tenants choose (graphs, reactors, accumulators, sources), so one tenant's code can read another tenant's names.
 
-Deployments where this is unacceptable should start the server with `--metrics-bind <ADDR>` (env `CLOACINA_METRICS_BIND`). `/metrics` is then served only on that address, the metrics listener serves nothing else, and the API port answers 404 for `/metrics`. Limit who can reach the metrics address at the network layer: in Kubernetes the chart values `metrics.enabled=true` and `metrics.networkPolicy.enabled=true` add the port, a ClusterIP Service for it and a NetworkPolicy that admits only the peers you list. The scrape itself stays unauthenticated. `cloacina-compiler` has the same flag (`--metrics-bind`, env `CLOACINA_COMPILER_METRICS_BIND`).
+Deployments where this is unacceptable should start the server with `--metrics-bind <ADDR>` (env `CLOACINA_METRICS_BIND`). `/metrics` is then served only on that address, the metrics listener serves nothing else, and the API port answers 404 for `/metrics`. Limit who can reach the metrics address at the network layer. The Helm chart does both by default: `metrics.enabled` and `metrics.networkPolicy.enabled` are `true`, so a chart install has the metrics port, a ClusterIP Service for it, and a NetworkPolicy that admits only the peers listed in `metrics.networkPolicy.from` (nobody until you list your Prometheus). The NetworkPolicy takes effect only on a CNI that enforces NetworkPolicy. The scrape itself stays unauthenticated. `cloacina-compiler` has the same flag (`--metrics-bind`, env `CLOACINA_COMPILER_METRICS_BIND`).
 
 `/ready` gives a fixed `reason` (`database unreachable`, or `python runtime unavailable; restart required`). The package that wedged the Python runtime is named in the server log only.
 

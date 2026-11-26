@@ -95,8 +95,10 @@ cloacinactl instance delete sync_file sync_prod
 (`max_files=500` → the number 500), and anything else binds as a string
 (`mode=copy`). `--params <file.json>` supplies a base object that explicit
 `--param` flags override, so a shared configuration can be reused with a couple
-of per-instance tweaks. `--timezone` sets the cron timezone (default `UTC`) and
-`--disabled` creates the schedule switched off.
+of per-instance tweaks. `--timezone` sets the cron timezone (default `UTC`),
+`--catchup run_all` makes the schedule run each fire time it missed (default
+`skip`), `--max-active-runs N` limits how many runs of the schedule are active
+at once, and `--disabled` creates the schedule switched off.
 
 Values are validated against the workflow's declared `params(...)` **when the
 instance is created**, with the same check that validates a per-run context — a
@@ -137,6 +139,10 @@ in both cases:
   `triggered_at` cannot be overridden (or spoofed) by a binding.
 - For **trigger** fires, bound instance params override same-named keys in
   the trigger-produced payload.
+- A cron fire also sets `interval_start` and `interval_end`, the interval the
+  run covers. These two are not reserved (a manual run sets them), but on a
+  cron fire the scheduler's values replace a bound param of the same name. See
+  [the interval of a run](../../../engine/cron-scheduling/#the-interval-of-a-run).
 
 Anonymous schedules (registered via `register_cron_workflow`) are unaffected —
 they carry no params and behave exactly as before.

@@ -171,16 +171,16 @@ the deployment-relevant summary follows.
 > documented "Workflow execution scheduling is NOT tenant-scoped" as
 > an isolation gap. **That gap is closed.** Each tenant now has its
 > own `DefaultRunner` instance (own scheduler loop, executor pool,
-> per-tenant DB connection pool), cached in `TenantRunnerCache` up to
-> `--tenant-runner-cache-size` (default 256). Workflow execution
+> per-tenant DB connection pool), held in `TenantRunnerCache` from
+> server start until the tenant is deleted. Workflow execution
 > lands in the tenant's schema, not in `public`.
 
 **Knobs you may want to tune:**
-- `--tenant-runner-cache-size` (default 256): the LRU cap on cached
-  per-tenant runners. Bump for high-cardinality SaaS deployments;
-  drop for memory-tight ones. Each cached runner has its own
-  scheduler loop and DB pool — count accordingly when sizing your
-  Postgres `max_connections`.
+- `--tenant-runner-cache-size` (default 256): a warning limit on
+  per-tenant runners. Every tenant has a runner on every replica and
+  none is stopped at the limit; above it the server logs a warning.
+  Each tenant uses up to 2 database connections on each replica —
+  count accordingly when sizing your Postgres `max_connections`.
 - For CPU/memory side-channel isolation (which Cloacina does **not**
   provide between tenants on the same host), run a separate
   `cloacina-server` per tenant. Schema isolation alone is fine for

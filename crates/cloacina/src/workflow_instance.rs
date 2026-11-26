@@ -45,6 +45,21 @@ pub const RESERVED_FIRE_KEYS: &[&str] = &[
     "triggered_at",
 ];
 
+/// Context key for the start of the interval that a run covers
+/// (CLOACINA-T-1020). On a cron run the scheduler sets it to the fire time of
+/// the expression before `scheduled_time`, as RFC 3339 in UTC.
+///
+/// This key and [`INTERVAL_END_KEY`] are NOT in [`RESERVED_FIRE_KEYS`]: a
+/// manual run sets them, so a history load or a rerun of one interval gives
+/// the workflow the interval in the same keys as a scheduled run. On a cron
+/// run the scheduler writes them after the bound params, so its values win.
+pub const INTERVAL_START_KEY: &str = "interval_start";
+
+/// Context key for the end of the interval that a run covers
+/// (CLOACINA-T-1020). On a cron run it equals `scheduled_time`. See
+/// [`INTERVAL_START_KEY`].
+pub const INTERVAL_END_KEY: &str = "interval_end";
+
 /// Errors from building or using a workflow instance.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkflowInstanceError {
@@ -52,6 +67,8 @@ pub enum WorkflowInstanceError {
     UnknownParam(String),
     #[error("required param '{0}' was not supplied and has no default")]
     MissingParam(String),
+    #[error("{}", missing_secret_ref_message(.0))]
+    MissingSecretRef(String),
     #[error("param '{0}' conflicts with the reserved scheduler key of the same name")]
     ReservedParam(String),
     #[error("param '{name}' failed schema validation: {message}")]
@@ -70,6 +87,18 @@ pub enum WorkflowInstanceError {
     MalformedSecretRef { name: String, message: String },
     #[error("serialization: {0}")]
     Serialization(String),
+}
+
+/// The message for a declared secret that the supplied params or context do
+/// not bind (CLOACINA-T-1035). It names the secret and shows the reference to
+/// add. Shared by [`WorkflowInstanceBuilder::build`] and the server's check of
+/// an execute context.
+pub fn missing_secret_ref_message(name: &str) -> String {
+    format!(
+        "secret '{}' is declared by the workflow but not bound: add a reference for it, {}",
+        name,
+        cloacina_workflow::secret::secret_ref_form(name)
+    )
 }
 
 /// The instance-param marker key for a secret reference (CLOACI-I-0133 / T-0859,
@@ -217,6 +246,9 @@ impl WorkflowInstanceBuilder {
                 None => match &slot.default {
                     Some(d) => {
                         resolved.insert(slot.name.clone(), d.clone());
+                    }
+                    None if slot.encrypted => {
+                        return Err(WorkflowInstanceError::MissingSecretRef(slot.name.clone()));
                     }
                     None if slot.required => {
                         return Err(WorkflowInstanceError::MissingParam(slot.name.clone()));
@@ -375,6 +407,33 @@ mod tests {
         assert!(ctx.get("scheduled_time").is_none());
     }
 
+    /// CLOACINA-T-1020: a manual run (and a bound param) can set the interval
+    /// of the run; the older scheduler keys in the same payload stay dropped.
+    #[test]
+    fn merge_keeps_the_interval_keys() {
+        assert!(!RESERVED_FIRE_KEYS.contains(&INTERVAL_START_KEY));
+        assert!(!RESERVED_FIRE_KEYS.contains(&INTERVAL_END_KEY));
+
+        let mut ctx = crate::Context::<serde_json::Value>::new();
+        let sent = serde_json::json!({
+            "interval_start": "2026-01-01T04:00:00+00:00",
+            "interval_end": "2026-01-01T05:00:00+00:00",
+            "scheduled_time": "2026-01-01T05:00:00+00:00",
+        })
+        .to_string();
+        merge_instance_params(&mut ctx, &sent).unwrap();
+
+        assert_eq!(
+            ctx.get("interval_start").cloned().unwrap(),
+            serde_json::json!("2026-01-01T04:00:00+00:00")
+        );
+        assert_eq!(
+            ctx.get("interval_end").cloned().unwrap(),
+            serde_json::json!("2026-01-01T05:00:00+00:00")
+        );
+        assert!(ctx.get("scheduled_time").is_none());
+    }
+
     // ── CLOACI-T-0859: `$secret` reference routing ───────────────────────────
 
     fn secret_slot(name: &str) -> InputSlot {
@@ -451,13 +510,20 @@ mod tests {
     fn build_requires_secret_slot_bound_with_ref() {
         let declared = vec![slot("source", true, None), secret_slot("db")];
 
-        // Encrypted slot left unbound → MissingParam (declared-but-unbound).
+        // Encrypted slot left unbound → MissingSecretRef: the message names the
+        // secret and shows the reference to add (CLOACINA-T-1035).
         let err = WorkflowInstance::builder("sync")
             .param("source", "/a")
             .unwrap()
             .build(&declared)
             .unwrap_err();
-        assert!(matches!(err, WorkflowInstanceError::MissingParam(_)));
+        assert!(matches!(err, WorkflowInstanceError::MissingSecretRef(_)));
+        let message = err.to_string();
+        assert!(message.contains("secret 'db'"), "{message}");
+        assert!(
+            message.contains(r#"{"db": {"$secret": "<name of a stored secret>"}}"#),
+            "{message}"
+        );
 
         // Encrypted slot bound with a literal value → SecretRequiresRef.
         let err = WorkflowInstance::builder("sync")

@@ -83,7 +83,7 @@ pub async fn mint_for_principal(
             &principal.provenance,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("failed to mint key: {e}")))?;
+        .map_err(|e| ApiError::internal_logged("failed to mint key", &e))?;
 
     Ok((plaintext, info))
 }

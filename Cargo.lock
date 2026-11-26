@@ -811,6 +811,7 @@ dependencies = [
  "cloacina",
  "cloacina-python",
  "futures-util",
+ "libc",
  "reqwest 0.13.5",
  "rustls",
  "serde",

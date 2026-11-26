@@ -246,10 +246,14 @@ impl<'a> SchedulerLoop<'a> {
         // crash, claim loss, or any path that skips
         // finalize_workflow_execution (workflows) /
         // `ThreadTaskExecutor::execute_task` (tasks). See T-0534 + T-0589.
-        metrics::gauge!("cloacina_active_workflows").set(active_executions.len() as f64);
+        // The `tenant` label keeps the runners of one process apart: a server
+        // runs one per tenant schema (CLOACINA-T-1036).
+        let tenant = self.dal.tenant_label().to_string();
+        metrics::gauge!("cloacina_active_workflows", "tenant" => tenant.clone())
+            .set(active_executions.len() as f64);
         match self.dal.task_execution().count_running_tasks().await {
             Ok(n) => {
-                metrics::gauge!("cloacina_active_tasks").set(n as f64);
+                metrics::gauge!("cloacina_active_tasks", "tenant" => tenant).set(n as f64);
             }
             Err(e) => {
                 // Best-effort — leave the previous tick's value rather than
@@ -599,5 +603,136 @@ impl<'a> SchedulerLoop<'a> {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod gauge_label_tests {
+    //! The gauges that the loop sets from the database carry the `tenant`
+    //! label (CLOACINA-T-1024, CLOACINA-T-1036). These tests run one pass of
+    //! the loop on SQLite in memory under a thread-local metrics recorder.
+
+    use super::*;
+    use crate::database::Database;
+    use crate::models::task_execution::NewTaskExecution;
+    use crate::models::workflow_execution::NewWorkflowExecution;
+    use metrics_util::MetricKind;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+    /// Each gauge series of one pass as (name, sorted labels, value).
+    type Gauges = Vec<(String, Vec<(String, String)>, f64)>;
+
+    /// Run one pass of the loop over a database with one running workflow
+    /// that has one `Running` task and `ready_tasks` `Ready` tasks.
+    fn gauges_after_one_pass(ready_tasks: usize) -> Gauges {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        metrics::with_local_recorder(&recorder, || {
+            rt.block_on(async move {
+                let url = format!(
+                    "file:gauge_label_test_{}?mode=memory&cache=shared",
+                    uuid::Uuid::new_v4()
+                );
+                let db = Database::new(&url, "", 5);
+                db.run_migrations().await.expect("migrations");
+                let dal = DAL::new(db);
+                let workflow_id = dal
+                    .workflow_execution()
+                    .create(NewWorkflowExecution {
+                        workflow_name: "orders".into(),
+                        workflow_version: "1.0".into(),
+                        status: "Running".into(),
+                        context_id: None,
+                    })
+                    .await
+                    .unwrap()
+                    .id;
+                let mut tasks = vec![("load".to_string(), "Running")];
+                tasks.extend((0..ready_tasks).map(|n| (format!("ready_{n}"), "Ready")));
+                for (task_name, status) in tasks {
+                    dal.task_execution()
+                        .create(NewTaskExecution {
+                            workflow_execution_id: workflow_id,
+                            task_name,
+                            status: status.into(),
+                            attempt: 1,
+                            max_attempts: 3,
+                            trigger_rules: r#"{"type":"Always"}"#.into(),
+                            task_configuration: "{}".into(),
+                        })
+                        .await
+                        .unwrap();
+                }
+                let scheduler = SchedulerLoop::with_dispatcher(
+                    &dal,
+                    Arc::new(Runtime::new()),
+                    Uuid::new_v4(),
+                    Duration::from_millis(100),
+                    None,
+                );
+                // The gauges are set at the top of the pass. What the pass
+                // does with the workflow after that is not under test.
+                let _ = scheduler.process_active_executions().await;
+            })
+        });
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter(|(key, _, _, _)| key.kind() == MetricKind::Gauge)
+            .map(|(key, _, _, value)| {
+                let mut labels: Vec<(String, String)> = key
+                    .key()
+                    .labels()
+                    .map(|l| (l.key().to_string(), l.value().to_string()))
+                    .collect();
+                labels.sort();
+                let value = match value {
+                    DebugValue::Gauge(v) => v.into_inner(),
+                    other => panic!("not a gauge: {other:?}"),
+                };
+                (key.key().name().to_string(), labels, value)
+            })
+            .collect()
+    }
+
+    /// The one series of `name`, with its labels and value.
+    fn series(gauges: &Gauges, name: &str) -> (Vec<(String, String)>, f64) {
+        let found: Vec<_> = gauges.iter().filter(|(n, _, _)| n == name).collect();
+        assert_eq!(found.len(), 1, "series of {name}: {found:?}");
+        (found[0].1.clone(), found[0].2)
+    }
+
+    fn tenant_public() -> Vec<(String, String)> {
+        vec![("tenant".to_string(), "public".to_string())]
+    }
+
+    #[test]
+    fn active_gauges_carry_the_tenant_label() {
+        let gauges = gauges_after_one_pass(0);
+        assert_eq!(
+            series(&gauges, "cloacina_active_workflows"),
+            (tenant_public(), 1.0)
+        );
+        assert_eq!(
+            series(&gauges, "cloacina_active_tasks"),
+            (tenant_public(), 1.0)
+        );
+    }
+
+    #[test]
+    fn waiting_gauges_carry_the_tenant_label_and_count_ready_tasks() {
+        let gauges = gauges_after_one_pass(2);
+        assert_eq!(
+            series(&gauges, "cloacina_waiting_tasks"),
+            (tenant_public(), 2.0)
+        );
+        let (labels, age) = series(&gauges, "cloacina_oldest_waiting_task_age_seconds");
+        assert_eq!(labels, tenant_public());
+        assert!((0.0..60.0).contains(&age), "age was {age}");
     }
 }

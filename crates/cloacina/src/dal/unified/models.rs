@@ -21,13 +21,13 @@
 
 use crate::database::schema::unified::audit_events;
 use crate::database::schema::unified::{
-    accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
-    fleet_agents, fleet_result_inbox, key_trust_acls, login_throttle, package_artifacts,
-    package_providers, package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
-    schedule_executions, schedules, secrets, signing_keys, state_accumulator_buffers,
-    task_execution_metadata, task_executions, tenant_data_keys, trusted_keys,
-    workflow_execution_package_pins, workflow_executions, workflow_packages, workflow_registry,
-    ws_tickets,
+    accumulator_boundaries, accumulator_checkpoints, agent_pools, contexts, delivery_outbox,
+    execution_events, fleet_agents, fleet_result_inbox, key_trust_acls, login_throttle,
+    package_artifacts, package_providers, package_signatures, reactor_owner_addresses,
+    reactor_state, recovery_events, schedule_executions, schedules, secrets, signing_keys,
+    state_accumulator_buffers, task_execution_metadata, task_executions, tenant_data_keys,
+    trusted_keys, workflow_execution_package_pins, workflow_executions, workflow_packages,
+    workflow_registry, ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -122,6 +122,7 @@ pub struct UnifiedTaskExecution {
     pub sub_status: Option<String>,
     pub claimed_by: Option<UniversalUuid>,
     pub heartbeat_at: Option<UniversalTimestamp>,
+    pub waiting_since: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -405,6 +406,28 @@ pub struct NewUnifiedFleetAgent {
     pub last_heartbeat_at: UniversalTimestamp,
 }
 
+/// One agent pool of a tenant (CLOACINA-T-1021). `settings` is a JSON object;
+/// the server owns its shape.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = agent_pools)]
+pub struct UnifiedAgentPool {
+    pub tenant_id: String,
+    pub pool: String,
+    pub settings: String,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = agent_pools)]
+pub struct NewUnifiedAgentPool {
+    pub tenant_id: String,
+    pub pool: String,
+    pub settings: String,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
 // ============================================================================
 // Unified Audit Event Models (CLOACINA-T-1024)
 // ============================================================================
@@ -474,6 +497,9 @@ pub struct UnifiedSchedule {
     /// human instance name; both None for anonymous schedules.
     pub params: Option<String>,
     pub instance_name: Option<String>,
+    /// CLOACINA-T-1020: the most active runs of a cron schedule; None = not
+    /// declared.
+    pub max_active_runs: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -497,6 +523,8 @@ pub struct NewUnifiedSchedule {
     // CLOACI-I-0116: named parameterized instance (None = anonymous).
     pub params: Option<String>,
     pub instance_name: Option<String>,
+    // CLOACINA-T-1020: limit on active runs (None = not declared).
+    pub max_active_runs: Option<i32>,
 }
 
 // ============================================================================
@@ -931,6 +959,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             sub_status: u.sub_status,
             claimed_by: u.claimed_by,
             heartbeat_at: u.heartbeat_at,
+            waiting_since: u.waiting_since,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }
@@ -1097,6 +1126,7 @@ impl From<UnifiedSchedule> for Schedule {
             paused_at: u.paused_at,
             params: u.params,
             instance_name: u.instance_name,
+            max_active_runs: u.max_active_runs,
         }
     }
 }

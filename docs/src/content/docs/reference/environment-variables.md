@@ -41,7 +41,7 @@ If none of these are set, the command exits with an error message listing all th
 | `CLOACINA_REQUIRE_SIGNATURES` | When set (any value), the server enforces package signature verification at upload time. Requires `CLOACINA_VERIFICATION_ORG_ID` to also be set; startup fails fast otherwise. | `false` (off) | `true` | Server | No |
 | `CLOACINA_VERIFICATION_ORG_ID` | Trusted organization UUID used to verify package signatures. **Required when `CLOACINA_REQUIRE_SIGNATURES` is set**. | None | `12345678-1234-1234-1234-123456789abc` | Server | Conditional |
 | `CLOACINA_SECRET_KEK` | Server key-encryption key (KEK) for the [tenant secrets](../../explanation/service/secrets/) store. Base64 or hex encoding of **exactly 32 bytes** (AES-256). It wraps each tenant's data key (envelope encryption at rest); keep it stable and backed up — losing it makes existing secrets unrecoverable, changing it invalidates them. When unset or malformed, secret routes return `503` and workflow secret resolution fails closed. Generate with `openssl rand -base64 32` or `openssl rand -hex 32`. | None (secrets disabled) | `openssl rand -base64 32` output | Server | No |
-| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB pool. Bump for high-cardinality SaaS; drop for memory-tight deployments. | `256` | `1024` | Server | No |
+| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | Warning limit on per-tenant `DefaultRunner` instances. Every tenant has a runner; none is stopped at the limit. Above it the server logs a warning. | `256` | `1024` | Server | No |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; tasks ignoring cooperative cancellation will error on next DB write. | `30` | `60` | Server | No |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins. **CORS is disabled by default** — set this to opt in (REQ-009). Use `*` to allow any origin. Needed when a browser app (e.g. the web UI on a different origin) calls the API. | None (CORS off) | `https://ui.internal.example.com,https://app.example.com` | Server | No |
 | `CLOACINA_CORS_ALLOWED_METHODS` | Comma-separated CORS allowed methods. Only applies once origins are set. | `GET,POST,DELETE,OPTIONS` | `GET,POST` | Server | No |
@@ -63,8 +63,9 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `--alert-webhook-timeout-s` | `10` | Seconds allowed for one alert request |
 | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `--alert-webhook-max-attempts` | `8` | The most sends of one alert before it is dropped |
 | `CLOACINA_PUBLIC_BASE_URL` | `--public-base-url` | None | Public URL of the server, for the absolute links in an alert |
+| `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `--database-wait-timeout-s` | `60` | Seconds the server waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s), then exits with an error. `0` = one try, no wait |
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
-| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner cache cap |
+| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner warning limit |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |
 | `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. |
@@ -113,10 +114,13 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_SERVER` | Base URL of the `cloacina-server` the agent registers with (used for both REST and the WebSocket ticket mint). Equivalent to `--server`. | None | `http://cloacina-server:8080` | Agent | Yes |
-| `CLOACINA_API_KEY` | API key the agent authenticates with. Its tenant scope determines which tenants' work the agent may receive (REQ-008 tenant isolation). Equivalent to `--api-key`. | None | `sk-...` | Agent | Yes |
+| `CLOACINA_API_KEY` | API key the agent authenticates with. Its tenant scope determines which tenants' work the agent may receive (REQ-008 tenant isolation). Equivalent to `--api-key`. The agent removes it from its environment at start. | None | `sk-...` | Agent | Yes, or `CLOACINA_API_KEY_FILE` |
+| `CLOACINA_API_KEY_FILE` | Path of a file that holds the agent's API key (surrounding whitespace is ignored). Use it in place of `CLOACINA_API_KEY`; setting both is an error. The agent does not delete the file. Equivalent to `--api-key-file`. | None | `/run/secrets/cloacina/api-key` | Agent | No |
 | `CLOACINA_AGENT_CACHE_DIR` | Directory used to cache fetched workflow cdylibs by digest, so a cache hit skips the REST fetch. Equivalent to `--cache-dir`. | `<TMPDIR>/cloacina-agent-cache` | `/var/lib/cloacina-agent/cache` | Agent | No |
+| `CLOACINA_AGENT_MAX_CONCURRENCY` | How many work packets the agent runs at the same time. Equivalent to `--max-concurrency`. The fleet actuator sets it from the pool's `max_concurrency` setting. | `4` | `1` | Agent | No |
+| `CLOACINA_AGENT_POOL` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in, registered as the capability `pool:<name>`. Equivalent to `--pool`. The fleet actuator sets it for a pool other than `default`. Unset: the server counts the agent in `default`. | None | `big` | Agent | No |
 
-The remaining agent options — `--agent-id`, `--max-concurrency` (default `4`), `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
+The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
 
 ---
 
@@ -144,7 +148,7 @@ These server-side variables drive the **agent self-management control plane**: t
 
 #### Kubernetes agent-pod hardening
 
-These are read by the **Kubernetes actuator** and applied to every `cloacina-agent` pod it creates. The chart renders them from `fleet.agentResources` / `fleet.networkPolicy` when `fleet.actuator=kubernetes`; defaults are sane if unset. Agent pods are created non-root (uid/gid `10001`) with `readOnlyRootFilesystem`, dropped capabilities, and `seccompProfile: RuntimeDefault`, so they pass PodSecurity `restricted`. They carry **no httpGet probes** — the agent is a WebSocket client with no health endpoint; the server tracks liveness via heartbeat/eviction (`CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` × `CLOACINA_AGENT_LIVENESS_MISSES`).
+These are read by the **Kubernetes actuator** and applied to every `cloacina-agent` pod it creates. They are the server-wide defaults: an [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools)'s settings override the image and the four resource values for that pool. The chart renders them from `fleet.agentResources` / `fleet.networkPolicy` when `fleet.actuator=kubernetes`; defaults are sane if unset. Agent pods are created non-root (uid/gid `10001`) with `readOnlyRootFilesystem`, dropped capabilities, and `seccompProfile: RuntimeDefault`, so they pass PodSecurity `restricted`. They carry **no httpGet probes** — the agent is a WebSocket client with no health endpoint; the server tracks liveness via heartbeat/eviction (`CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` × `CLOACINA_AGENT_LIVENESS_MISSES`).
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
@@ -288,9 +292,9 @@ The top-of-mind metrics for operators:
 - `cloacina_api_requests_total` (counter, by `method` + `status`).
 - `cloacina_workflow_duration_seconds` (histogram).
 - `cloacina_task_duration_seconds` (histogram).
-- `cloacina_active_workflows` (gauge, SQL-derived re-seed).
-- `cloacina_active_tasks` (gauge, SQL-derived re-seed).
-- `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds` (gauges, by `tenant`) — the backlog of due tasks and the age of the oldest.
+- `cloacina_active_workflows` (gauge, by `tenant`, SQL-derived re-seed).
+- `cloacina_active_tasks` (gauge, by `tenant`, SQL-derived re-seed).
+- `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds` (gauges, by `tenant`) — the tasks that wait for capacity and the age of the oldest.
 - `cloacina_schedule_lag_seconds` (gauge, by `tenant`) — how late the most overdue cron schedule is.
 
 The legacy `cloacina_pipeline*` names (used in pre-2026 docs) are gone — emission was renamed to `workflow*` to match the user-facing primitive. See the metrics catalog for the full namespace.
@@ -436,8 +440,9 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_BOOTSTRAP_KEY` | Server | First-run admin API key |
 | `CLOACINA_REQUIRE_SIGNATURES` | Server | Toggle package signature enforcement |
 | `CLOACINA_VERIFICATION_ORG_ID` | Server | Trusted org UUID for signature verification |
-| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | Server | Per-tenant runner LRU cap |
+| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | Server | Per-tenant runner warning limit |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Server | Drain timeout during tenant teardown |
+| `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | Server | Wait for the database at start |
 | `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `default`; set `fleet` to offload to the agent fleet) |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
@@ -464,6 +469,8 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_SERVER` | Agent | Server base URL the agent registers with |
 | `CLOACINA_API_KEY` | Agent | Agent API key (tenant scope) |
 | `CLOACINA_AGENT_CACHE_DIR` | Agent | Fetched-cdylib cache directory |
+| `CLOACINA_AGENT_MAX_CONCURRENCY` | Agent | Work packets the agent runs at the same time (default `4`) |
+| `CLOACINA_AGENT_POOL` | Agent | The agent pool the agent registers in (unset: `default`) |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap (default `600`) |
 | `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | `CARGO_HOME` pointed at a curated vendored source tree |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Compiler | Per-build setrlimit caps |

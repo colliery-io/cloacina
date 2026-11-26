@@ -135,7 +135,7 @@ server:
   requireSignatures: false
   # Trusted org UUID for signature verification — required if requireSignatures.
   verificationOrgId: ""
-  # LRU cap on per-tenant DefaultRunner instances.
+  # Warning limit on per-tenant DefaultRunner instances; none is stopped at it.
   tenantRunnerCacheSize: 256
   # Drain timeout (seconds) for in-flight workflows during tenant deletion.
   tenantDeletionDrainTimeoutSeconds: 30
@@ -351,30 +351,37 @@ compiler:
         - ALL
 
 # ---------------------------------------------------------------------------
-# Metrics listener (CLOACINA-T-1025)
+# Metrics listener (CLOACINA-T-1025, CLOACINA-T-1032)
 #
-# By default the server serves /metrics on the API port (8080) with no
-# authentication, so every client that can reach the API can read it. The
-# metric labels hold names that tenants choose (graphs, reactors, accumulators,
-# sources).
+# /metrics has no authentication, and its labels hold tenant names, workflow
+# names and other names that tenants choose. The chart keeps it off the API
+# port: the server starts a second listener for /metrics on metrics.port (its
+# --metrics-bind), and the API port (8080) answers 404 for /metrics.
 #
-# metrics.enabled=true starts a second listener for /metrics on metrics.port
-# (the server's --metrics-bind). The API port then answers 404 for /metrics.
-# The chart adds a container port `metrics` and a ClusterIP Service
-# "<fullname>-metrics", and the ServiceMonitor (when enabled) scrapes that
-# Service instead of the API Service.
+# With metrics.enabled=true the chart adds a container port `metrics` and a
+# ClusterIP Service "<fullname>-metrics", and the ServiceMonitor (when enabled)
+# scrapes that Service. With compiler.enabled=true the compiler pods get the
+# same: --metrics-bind on metrics.port, a container port `cmp-metrics`, a
+# ClusterIP Service "<fullname>-compiler-metrics" and a ServiceMonitor.
+#
+# metrics.enabled=false puts /metrics back on the API port (and on the
+# compiler's bind port), where every client that can reach the API can read
+# it. No metrics Service and no NetworkPolicy is rendered then.
 # ---------------------------------------------------------------------------
 metrics:
-  enabled: false
+  enabled: true
   port: 9090
 
-  # NetworkPolicy for the server pods. Needs metrics.enabled=true, and a CNI
-  # that enforces NetworkPolicy. When enabled:
-  #   - the API port stays open to every source, as without a policy;
+  # NetworkPolicy for the server pods (and the compiler pods, when the
+  # compiler is enabled). Rendered only with metrics.enabled=true. It needs a
+  # CNI that enforces NetworkPolicy; on a CNI that does not, it changes nothing.
+  #   - the API port (and the compiler's bind port) stays open to every
+  #     source, as without a policy;
   #   - the metrics port is open only to the peers in `from`;
-  #   - every other ingress to the server pods is refused.
-  # `from` is a list of NetworkPolicy peers. An empty list admits nobody to the
-  # metrics port. Example, for a Prometheus in the namespace `monitoring`:
+  #   - every other ingress to those pods is refused.
+  # `from` is a list of NetworkPolicy peers. The default, an empty list, admits
+  # nobody to the metrics port: name your Prometheus here. Example, for a
+  # Prometheus in the namespace `monitoring`:
   #   from:
   #     - namespaceSelector:
   #         matchLabels:
@@ -383,14 +390,16 @@ metrics:
   #         matchLabels:
   #           app.kubernetes.io/name: prometheus
   networkPolicy:
-    enabled: false
+    enabled: true
     from: []
 
 # ---------------------------------------------------------------------------
 # ServiceMonitor (Prometheus operator)
 #
-# Scrapes /metrics on the API Service, or on the metrics Service when
-# metrics.enabled=true.
+# Scrapes /metrics on the metrics Service (and on the compiler's metrics
+# Service, when the compiler is enabled). With metrics.enabled=false it scrapes
+# the API Service. The Prometheus pods must be among the peers in
+# metrics.networkPolicy.from.
 # ---------------------------------------------------------------------------
 serviceMonitor:
   enabled: false

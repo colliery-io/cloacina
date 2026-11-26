@@ -313,7 +313,17 @@ impl CronRecoveryService {
             .map(|t| t.0)
             .unwrap_or(execution.created_at.0);
 
-        let execution_age = Utc::now() - scheduled_time;
+        // The age of a lost handoff is the time since the scheduler took the
+        // fire, not since the fire time (CLOACINA-T-1020): a catch-up fire of
+        // a `run_all` schedule stands for a time that can be months back, and
+        // measuring from it would abandon every lost catch-up handoff. For a
+        // fire taken on time the two are the same.
+        let claimed_time = execution
+            .claimed_at
+            .as_ref()
+            .map(|t| t.0)
+            .unwrap_or(scheduled_time);
+        let execution_age = Utc::now() - claimed_time;
 
         // Check if execution is too old to recover. `from_std` returns
         // `Err` only when the duration overflows chrono's range (~290 yr);
@@ -333,6 +343,7 @@ impl CronRecoveryService {
                 "Execution {} is too old to recover (age: {:?}), abandoning",
                 execution.id, execution_age
             );
+            self.close_abandoned_execution(execution.id).await;
             return Ok(());
         }
 
@@ -383,6 +394,27 @@ impl CronRecoveryService {
         }
 
         outcome
+    }
+
+    /// Marks an abandoned handoff complete (CLOACINA-T-1020).
+    ///
+    /// An abandoned row is never fired again: it only gets older, and its
+    /// attempt count only grows. Left open it was found again on each sweep,
+    /// and it counts as an active run of its schedule, so a schedule with a
+    /// limit on active runs would never fire again. The row keeps no link to
+    /// a workflow execution, which is how an abandoned handoff reads.
+    async fn close_abandoned_execution(&self, execution_id: UniversalUuid) {
+        if let Err(e) = self
+            .dal
+            .schedule_execution()
+            .complete(execution_id, Utc::now())
+            .await
+        {
+            warn!(
+                "Failed to close abandoned execution {}: {}",
+                execution_id, e
+            );
+        }
     }
 
     /// Recovery body that runs while this service holds the row's recovery
@@ -442,6 +474,7 @@ impl CronRecoveryService {
                 "Execution {} has exceeded max recovery attempts ({}), abandoning",
                 execution.id, self.config.max_recovery_attempts
             );
+            self.close_abandoned_execution(execution.id).await;
             return Ok(());
         }
 
@@ -502,36 +535,13 @@ impl CronRecoveryService {
                 message: format!("Context error: {}", e),
             })?;
 
-        // Add original scheduling metadata
-        context
-            .insert(
-                "scheduled_time",
-                serde_json::json!(scheduled_time.to_rfc3339()),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert("schedule_id", serde_json::json!(schedule.id.to_string()))
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert(
-                "schedule_timezone",
-                serde_json::json!(schedule.timezone.as_deref().unwrap_or("UTC")),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
-        context
-            .insert(
-                "schedule_expression",
-                serde_json::json!(schedule.cron_expression.as_deref().unwrap_or("")),
-            )
-            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Context error: {}", e),
-            })?;
+        // Add original scheduling metadata, with the interval of the run
+        // (CLOACINA-T-1020): the same keys and values as the first fire.
+        crate::cron_trigger_scheduler::stamp_cron_fire_keys(
+            &mut context,
+            &schedule,
+            scheduled_time,
+        )?;
 
         // Execute the workflow
         info!(

@@ -82,7 +82,9 @@ pub struct DaemonSection {
     pub watcher_debounce_ms: u64,
     /// Trigger scheduler base poll interval in milliseconds.
     pub trigger_poll_interval_ms: u64,
-    /// Maximum cron catchup executions (None = unlimited/run_all).
+    /// The most missed fire times that one claim of a `run_all` cron schedule
+    /// takes. `None` uses the runner default, 100. It is a batch size, not a
+    /// cap: the fires beyond it stay due and the next pass takes them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cron_max_catchup: Option<u64>,
     /// Cron recovery check interval in seconds.
@@ -99,7 +101,7 @@ impl Default for DaemonSection {
             shutdown_timeout_s: 30,
             watcher_debounce_ms: 500,
             trigger_poll_interval_ms: 1000,
-            cron_max_catchup: None, // None = unlimited (run_all)
+            cron_max_catchup: None, // None = the runner default (100 per claim)
             cron_recovery_interval_s: 300,
             cron_lost_threshold_min: 10,
         }

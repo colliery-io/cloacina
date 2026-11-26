@@ -24,10 +24,11 @@ command-line flags (most also accept an environment variable). The
 | `--alert-webhook-max-attempts` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
 | `--public-base-url` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
+| `--database-wait-timeout-s` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds to wait at start for the database to accept a connection, with retries. After it the server exits with an error. `0` = one try. |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject unsigned package uploads. Requires `--verification-org-id`. |
 | `--verification-org-id` | `CLOACINA_VERIFICATION_ORG_ID` | — | Trusted org UUID for signature verification (mandatory when signatures are required). |
-| `--tenant-runner-cache-size` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | LRU cap on cached per-tenant runners. |
+| `--tenant-runner-cache-size` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | Warning limit on per-tenant runners; none is stopped at the limit. |
 | `--tenant-deletion-drain-timeout-s` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Seconds to drain in-flight work before a tenant's runner is hard-evicted on `DELETE /v1/tenants/{name}`. |
 | `--default-executor` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to; set `fleet` to route to the execution-agent fleet. An unknown key fails startup fast. |
 | `--agent-heartbeat-interval-s` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Fleet-agent heartbeat cadence advertised to agents. |
@@ -93,7 +94,7 @@ same-named getter methods, and construct only through the builder.
 |---|---|---|---|
 | `enable_cron_scheduling` | `bool` | `true` | Master switch for cron scheduling. When disabled, no cron schedules are evaluated. |
 | `cron_poll_interval` | `Duration` | `30s` | How often the cron scheduler checks for schedules that are due. |
-| `cron_max_catchup_executions` | `usize` | `100` | Maximum number of missed cron executions to catch up on after downtime. The builder rejects values above `1000`. |
+| `cron_max_catchup_executions` | `usize` | `100` | The most missed fire times that one claim of a `run_all` schedule takes. It is a batch size, not a cap: the fire times beyond it stay due and the next pass takes them. The builder rejects values above `1000`; `0` is read as `1`. |
 | `cron_enable_recovery` | `bool` | `true` | Whether recovery of lost/failed cron executions is enabled. |
 | `cron_recovery_interval` | `Duration` | `300s` (5 min) | How often the recovery system scans for lost cron executions. |
 | `cron_lost_threshold_minutes` | `i32` | `10` | Minutes after which a started-but-not-completed cron execution is considered lost. |

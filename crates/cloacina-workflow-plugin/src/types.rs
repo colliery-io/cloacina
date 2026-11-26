@@ -410,6 +410,17 @@ pub struct TriggerPackageMetadata {
     /// when `cron_expression.is_some()`. (CLOACINA-T-1019)
     #[serde(default)]
     pub timezone: Option<String>,
+    /// Catch-up policy of the cron schedule (the `#[trigger(catchup = "...")]`
+    /// attribute): `"skip"` or `"run_all"`. `None` means the trigger declares
+    /// none. Only read when `cron_expression.is_some()`. (CLOACINA-T-1020)
+    #[serde(default)]
+    pub catchup_policy: Option<String>,
+    /// Limit on active runs of the cron schedule (the
+    /// `#[trigger(max_active_runs = ...)]` attribute), 1 or more. `None`
+    /// means the trigger declares none. Only read when
+    /// `cron_expression.is_some()`. (CLOACINA-T-1020)
+    #[serde(default)]
+    pub max_active_runs: Option<u32>,
 }
 
 /// Result of a computation graph execution.

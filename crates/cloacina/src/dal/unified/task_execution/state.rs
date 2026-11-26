@@ -55,6 +55,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 let set_clause = (
                     task_executions::status.eq("Completed"),
                     task_executions::completed_at.eq(Some(now)),
+                    task_executions::waiting_since.eq(None::<UniversalTimestamp>),
                     task_executions::updated_at.eq(now),
                 );
                 let rows = if let Some(rid) = runner_id {
@@ -127,6 +128,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::status.eq("Failed"),
                     task_executions::completed_at.eq(Some(now)),
                     task_executions::last_error.eq(&error_message),
+                    task_executions::waiting_since.eq(None::<UniversalTimestamp>),
                     task_executions::updated_at.eq(now),
                 );
                 let rows = if let Some(rid) = runner_id {
@@ -177,6 +179,9 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// Ready tasks are picked up by the push dispatcher's ready-task scan
     /// (`get_ready_for_retry`); there is no separate work-distribution queue.
+    ///
+    /// Sets `waiting_since` to now: the task waits for capacity from here
+    /// (CLOACINA-T-1036).
     pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
@@ -192,6 +197,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 diesel::update(task_executions::table.find(task_id))
                     .set((
                         task_executions::status.eq("Ready"),
+                        task_executions::waiting_since.eq(Some(now)),
                         task_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;
@@ -232,6 +238,9 @@ impl<'a> TaskExecutionDAL<'a> {
     /// runs; the `started_at IS NULL` guard makes it a no-op when a claim
     /// already stamped it, so the two paths don't fight. Best-effort: failures
     /// are logged by the caller, not fatal to execution.
+    ///
+    /// Clears `waiting_since`: the wait for capacity is over
+    /// (CLOACINA-T-1036).
     pub async fn mark_started(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         crate::interact_on_backend!(self.dal, |conn| {
             let now = UniversalTimestamp::now();
@@ -243,6 +252,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .set((
                 task_executions::status.eq("Running"),
                 task_executions::started_at.eq(Some(now)),
+                task_executions::waiting_since.eq(None::<UniversalTimestamp>),
                 task_executions::updated_at.eq(now),
             ))
             .execute(conn)
@@ -278,6 +288,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     .set((
                         task_executions::status.eq("Skipped"),
                         task_executions::error_details.eq(&reason),
+                        task_executions::waiting_since.eq(None::<UniversalTimestamp>),
                         task_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;
@@ -334,6 +345,7 @@ impl<'a> TaskExecutionDAL<'a> {
                         task_executions::status.eq("Failed"),
                         task_executions::completed_at.eq(Some(now)),
                         task_executions::error_details.eq(format!("ABANDONED: {}", reason)),
+                        task_executions::waiting_since.eq(None::<UniversalTimestamp>),
                         task_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;
@@ -449,6 +461,7 @@ impl<'a> TaskExecutionDAL<'a> {
                         task_executions::completed_at.eq(None::<UniversalTimestamp>),
                         task_executions::last_error.eq(None::<String>),
                         task_executions::status.eq("Ready"),
+                        task_executions::waiting_since.eq(Some(now)),
                         task_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;

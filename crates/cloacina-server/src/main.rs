@@ -72,10 +72,10 @@ struct Cli {
     #[arg(long)]
     reconcile_interval_s: Option<u64>,
 
-    /// LRU cap on cached per-tenant `DefaultRunner` instances (CLOACI-T-0580).
-    /// Each cached runner has its own scheduler loop, executor pool, and DB
-    /// connection pool; bump for high-cardinality SaaS deployments, drop for
-    /// memory-tight ones. Default 256.
+    /// Warning limit on per-tenant `DefaultRunner` instances (CLOACI-T-0580,
+    /// CLOACINA-T-1031). Every tenant has a runner from server start until
+    /// the tenant is deleted; none is stopped at this limit. Above it the
+    /// server logs a warning. Default 256.
     #[arg(long, env = "CLOACINA_TENANT_RUNNER_CACHE_SIZE", default_value_t = 256)]
     tenant_runner_cache_size: usize,
 
@@ -236,6 +236,14 @@ struct Cli {
     #[arg(long, env = "CLOACINA_PUBLIC_BASE_URL")]
     public_base_url: Option<String>,
 
+    /// Seconds to wait at start for the database to accept a connection.
+    /// The server tries again with a growing delay (0.5 s, doubling, at most
+    /// 5 s) and logs each wait. After this time it exits with an error.
+    /// `0` means one try and no wait. The migrations run after the first
+    /// connection. CLOACINA-T-1035.
+    #[arg(long, env = "CLOACINA_DATABASE_WAIT_TIMEOUT_S", default_value_t = 60)]
+    database_wait_timeout_s: u64,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -339,6 +347,7 @@ async fn main() -> Result<()> {
             cli.outbox_acked_retention_s,
             cli.retention_interval_s,
         ),
+        std::time::Duration::from_secs(cli.database_wait_timeout_s),
     )
     .await
 }

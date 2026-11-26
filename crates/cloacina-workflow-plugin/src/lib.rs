@@ -602,6 +602,12 @@ macro_rules! package {
                                 &*trigger,
                             ),
                             timezone: cloacina_workflow::Trigger::cron_timezone(&*trigger),
+                            catchup_policy: cloacina_workflow::Trigger::cron_catchup_policy(
+                                &*trigger,
+                            ),
+                            max_active_runs: cloacina_workflow::Trigger::cron_max_active_runs(
+                                &*trigger,
+                            ),
                         });
                     }
                     Ok(out)
@@ -1016,6 +1022,10 @@ pub trait CloacinaHost: Send + Sync {
 // version 7 → 8 (CLOACINA-T-1019): `TriggerPackageMetadata` gained `timezone`,
 // so a packaged cron schedule is registered in its trigger's timezone and not
 // always in UTC. Positional bincode again — the gate must reject a v7 plugin.
+// version 8, no bump (CLOACINA-T-1020): `TriggerPackageMetadata` gained
+// `catchup_policy` and then `max_active_runs` at the end. Version 8 is not
+// released yet, so the new fields ride it; a plugin built from an earlier
+// commit of version 8 must be rebuilt.
 // version 8 also covers (CLOACINA-T-1014): `TaskMetadataEntry` gained
 // `retry_policy` and `timeout_seconds` at its end, so the host applies a
 // packaged task's own retry policy and time limit. No release shipped version 8
