@@ -35,7 +35,7 @@
 //! a `400` at the API and not a failed reconcile later.
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
@@ -49,6 +49,8 @@ use cloacina_api_types::{
 use crate::AppState;
 use crate::actuator::kubernetes::AgentResources;
 use crate::actuator::settings;
+use crate::routes::audit::{self as audit_record, AuditEvent};
+use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 
 /// A tenant's pools, `default` first and always present.
@@ -269,6 +271,7 @@ pub async fn get_pool(
 )]
 pub async fn put_pool(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, pool)): Path<(String, String)>,
     Json(body): Json<AgentPoolSettings>,
 ) -> impl IntoResponse {
@@ -298,6 +301,19 @@ pub async fn put_pool(
             warn!("set agent pool failed: {}", e);
             ApiError::internal("failed to store agent pool")
         })?;
+        // The names of the settings that were given, not their values.
+        let given: Vec<String> = serde_json::to_value(&body)
+            .ok()
+            .and_then(|v| v.as_object().map(|o| o.keys().cloned().collect()))
+            .unwrap_or_default();
+        audit_record::record(
+            &state,
+            &auth,
+            Some(&tenant_id),
+            AuditEvent::ok(audit_record::actions::POOL_SET, pool.as_str())
+                .detail(serde_json::json!({ "settings": given })),
+        )
+        .await;
         pool_info(&state, &tenant_id, &pool).await
     }
     .await;
@@ -334,6 +350,7 @@ pub async fn put_pool(
 )]
 pub async fn delete_pool(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, pool)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let result = async {
@@ -347,8 +364,18 @@ pub async fn delete_pool(
                     ApiError::internal("failed to remove agent pool")
                 })
         };
+        let audit = || async {
+            audit_record::record(
+                &state,
+                &auth,
+                Some(&tenant_id),
+                AuditEvent::ok(audit_record::actions::POOL_DELETE, pool.as_str()),
+            )
+            .await;
+        };
         if pool == DEFAULT_AGENT_POOL {
             delete_row().await?;
+            audit().await;
             return Ok(());
         }
 
@@ -367,6 +394,7 @@ pub async fn delete_pool(
                 ApiError::internal("failed to remove the pool's agents")
             })?;
         delete_row().await?;
+        audit().await;
         Ok(())
     }
     .await;
