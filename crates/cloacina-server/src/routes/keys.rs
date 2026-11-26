@@ -33,6 +33,7 @@ use cloacina_api_types::{
 };
 
 use crate::AppState;
+use crate::routes::audit::{self as audit_record, AuditEvent};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 
@@ -90,19 +91,29 @@ pub async fn create_key(
         )
         .await
     {
-        Ok(info) => (
-            StatusCode::CREATED,
-            Json(KeyCreatedResponse {
-                id: info.id.to_string(),
-                name: info.name,
-                key: plaintext,
-                permissions: info.permissions,
-                tenant_id: info.tenant_id,
-                is_admin: info.is_admin,
-                created_at: info.created_at.to_rfc3339(),
-            }),
-        )
-            .into_response(),
+        Ok(info) => {
+            audit_record::record(
+                &state,
+                &_auth,
+                info.tenant_id.as_deref(),
+                AuditEvent::ok(audit_record::actions::KEY_CREATE, info.id.to_string())
+                    .detail(serde_json::json!({ "name": info.name, "role": info.permissions })),
+            )
+            .await;
+            (
+                StatusCode::CREATED,
+                Json(KeyCreatedResponse {
+                    id: info.id.to_string(),
+                    name: info.name,
+                    key: plaintext,
+                    permissions: info.permissions,
+                    tenant_id: info.tenant_id,
+                    is_admin: info.is_admin,
+                    created_at: info.created_at.to_rfc3339(),
+                }),
+            )
+                .into_response()
+        }
         Err(e) => {
             warn!("Failed to create API key: {}", e);
             ApiError::internal("failed to create API key").into_response()
@@ -187,6 +198,13 @@ pub async fn revoke_key(
         Ok(true) => {
             // Clear cache so revoked key is rejected immediately
             state.key_cache.clear().await;
+            audit_record::record(
+                &state,
+                &_auth,
+                None,
+                AuditEvent::ok(audit_record::actions::KEY_REVOKE, key_id.as_str()),
+            )
+            .await;
             Json(KeyRevokedResponse {
                 status: "revoked".to_string(),
                 id: key_id,
@@ -244,6 +262,14 @@ pub async fn create_tenant_key(
                 "Created tenant-scoped key '{}' for tenant '{}'",
                 info.name, tenant_id
             );
+            audit_record::record(
+                &state,
+                &_auth,
+                Some(&tenant_id),
+                AuditEvent::ok(audit_record::actions::KEY_CREATE, info.id.to_string())
+                    .detail(serde_json::json!({ "name": info.name, "role": info.permissions })),
+            )
+            .await;
             (
                 StatusCode::CREATED,
                 Json(KeyCreatedResponse {
@@ -333,6 +359,7 @@ pub async fn list_tenant_keys(
 )]
 pub async fn revoke_tenant_key(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, key_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let id = match uuid::Uuid::parse_str(&key_id) {
@@ -362,6 +389,13 @@ pub async fn revoke_tenant_key(
     match dal.api_keys().revoke_key(id).await {
         Ok(true) => {
             state.key_cache.clear().await;
+            audit_record::record(
+                &state,
+                &auth,
+                Some(&tenant_id),
+                AuditEvent::ok(audit_record::actions::KEY_REVOKE, key_id.as_str()),
+            )
+            .await;
             Json(KeyRevokedResponse {
                 status: "revoked".to_string(),
                 id: key_id,

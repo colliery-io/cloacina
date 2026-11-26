@@ -519,6 +519,16 @@ Requires an admin-role key.
 | `tenant list` | `GET /v1/tenants` | Lists tenant schema names. |
 | `tenant delete <NAME> [--force]` | `DELETE /v1/tenants/<name>` | Triggers the 4-step teardown orchestration (revoke keys → evict runner cache → evict DB cache → drop schema). Each step emits an audit event. The drain step is bounded by `--tenant-deletion-drain-timeout-s` (server flag, default 30s); past that, the runner is hard-evicted. Interactive confirmation unless `--force`. CLOACI-T-0581. |
 
+## `audit` (admin)
+
+Reads the [audit record](../../how-to/service/security/audit-record/): who did
+what, when, in which tenant.
+
+| Command | HTTP Endpoint | Notes |
+|---|---|---|
+| `audit list [--action <ACTION>] [--actor <ACTOR>] [--since <TIME>] [--until <TIME>] [--limit <N>] [--cursor <ID>]` | `GET /v1/tenants/<tenant>/audit` | The tenant of the profile, newest first. Needs a tenant admin key. `--actor` matches a key id, a key name or a login identity. Times are RFC 3339. Default limit: 50, max 200. When more rows exist, the command prints the `--cursor` value for the next page on stderr. |
+| `audit list --all-tenants […]` | `GET /v1/audit` | Every tenant and platform actions. Needs a platform admin key. |
+
 ## `key`
 
 | Command | HTTP Endpoint | Notes |

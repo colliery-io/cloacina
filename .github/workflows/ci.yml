@@ -111,12 +111,13 @@ jobs:
             scripts:
               - 'scripts/**'
 
-  # Quick gate - only runs if code, harness, scripts, or workflows changed
+  # Quick gate - only runs if code, the API surface, harness, scripts, or workflows changed
   quick-checks:
     name: Quick Checks
     needs: changes
     if: |
       needs.changes.outputs.rust == 'true' ||
+      needs.changes.outputs.api == 'true' ||
       needs.changes.outputs.workflows == 'true' ||
       needs.changes.outputs.harness == 'true' ||
       needs.changes.outputs.scripts == 'true'
@@ -151,6 +152,16 @@ jobs:
       # exactly once (0.10.0 postmortem 8961abb5 — two crates missing).
       - name: Publish-tier completeness (unified_release.yml)
         run: python3 scripts/check_publish_tiers.py
+
+      # CLOACINA-T-1018: the static half of the SDK coverage rule ran only in
+      # the nightly sdk-contract job, so two routes merged with no hand-written
+      # SDK method and main went red at night. Stdlib-only scripts, no build
+      # and no server. The job also runs on `api` changes (the spec, the
+      # api types, the TypeScript client) because the rule reads them.
+      - name: SDK coverage rule and version lockstep
+        run: |
+          python3 scripts/check_sdk_coverage.py
+          python3 scripts/check_sdk_versions.py
 
       - name: Check formatting
         run: cargo fmt --all -- --check

@@ -36,6 +36,7 @@ use cloacina::executor::WorkflowExecutor;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
 use crate::AppState;
+use crate::routes::audit::{self as audit_record, AuditEvent};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::routes::executions::validate_declared_params;
@@ -343,6 +344,21 @@ async fn set_trigger_paused(
         dal.schedule().resume(schedule.id).await
     };
 
+    if result.is_ok() {
+        let action = if pause {
+            audit_record::actions::TRIGGER_PAUSE
+        } else {
+            audit_record::actions::TRIGGER_RESUME
+        };
+        audit_record::record(
+            &state,
+            &_auth,
+            Some(&tenant_id),
+            AuditEvent::ok(action, name.as_str())
+                .detail(serde_json::json!({ "schedule_id": schedule.id.0.to_string() })),
+        )
+        .await;
+    }
     match result {
         Ok(()) => Json(TriggerPauseResponse {
             tenant_id,
@@ -533,6 +549,17 @@ pub async fn fire_trigger(
         }
     }
 
+    if !executions.is_empty() {
+        let ids: Vec<&str> = executions.iter().map(|e| e.execution_id.as_str()).collect();
+        audit_record::record(
+            &state,
+            &_auth,
+            Some(&tenant_id),
+            AuditEvent::ok(audit_record::actions::TRIGGER_FIRE, name.as_str())
+                .detail(serde_json::json!({ "execution_ids": ids })),
+        )
+        .await;
+    }
     Json(FireTriggerResponse {
         tenant_id,
         trigger: name,

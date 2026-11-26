@@ -506,6 +506,11 @@ pub async fn run(
          workflow and tenant are as on `cloacina_workflows_total`."
     );
     metrics::describe_counter!(
+        "cloacina_audit_write_errors_total",
+        "Total audit rows that could not be written to `audit_events`. The \
+         action itself still ran; its audit row is missing."
+    );
+    metrics::describe_counter!(
         "cloacina_api_requests_total",
         "Total API requests by HTTP method and response status code"
     );
@@ -1997,6 +2002,12 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
             "/compiler/status",
             get(crate::routes::compiler::compiler_status),
         )
+        // Audit record (CLOACINA-T-1024): the platform form and the tenant form.
+        .route("/audit", get(crate::routes::audit::list_audit))
+        .route(
+            "/tenants/{tenant_id}/audit",
+            get(crate::routes::audit::list_tenant_audit),
+        )
         // Tenant management
         .route("/tenants", post(crate::routes::tenants::create_tenant))
         .route("/tenants", get(crate::routes::tenants::list_tenants))
@@ -2679,6 +2690,9 @@ mod tests {
     use serial_test::serial;
     use std::io::Write;
     use tower::ServiceExt;
+
+    /// Router tests of the audit record (CLOACINA-T-1024).
+    mod audit_routes;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 

@@ -38,7 +38,7 @@
 use std::net::SocketAddr;
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{ConnectInfo, Path, State},
     http::{Extensions, HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
@@ -56,6 +56,8 @@ use cloacina_api_types::common::ListResponse;
 
 use crate::AppState;
 use crate::identity::{DEFAULT_MINTED_KEY_TTL, ResolvedPrincipal, mint_for_principal};
+use crate::routes::audit::{self as audit_record, AuditEvent};
+use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 
 /// Operator-tunable brute-force throttle settings, resolved once at startup and
@@ -429,6 +431,7 @@ fn to_account_info(a: LocalAccount) -> AccountInfo {
 )]
 pub async fn create_account(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     Json(body): Json<CreateAccountRequest>,
 ) -> impl IntoResponse {
@@ -438,7 +441,17 @@ pub async fn create_account(
         .create(&body.username, &body.password, Some(&tenant_id), &body.role)
         .await
     {
-        Ok(a) => (StatusCode::CREATED, Json(to_account_info(a))).into_response(),
+        Ok(a) => {
+            audit_record::record(
+                &state,
+                &auth,
+                Some(&tenant_id),
+                AuditEvent::ok(audit_record::actions::ACCOUNT_CREATE, a.id.to_string())
+                    .detail(serde_json::json!({ "username": a.username, "role": a.role })),
+            )
+            .await;
+            (StatusCode::CREATED, Json(to_account_info(a))).into_response()
+        }
         Err(e) => {
             warn!("create local account failed: {}", e);
             ApiError::internal("failed to create account").into_response()
@@ -498,6 +511,7 @@ pub async fn list_accounts(
 )]
 pub async fn disable_account(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, account_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let id = match uuid::Uuid::parse_str(&account_id) {
@@ -513,11 +527,20 @@ pub async fn disable_account(
         .set_status(id, &tenant_id, "disabled")
         .await
     {
-        Ok(true) => Json(AccountActionResponse {
-            status: "disabled".to_string(),
-            id: account_id,
-        })
-        .into_response(),
+        Ok(true) => {
+            audit_record::record(
+                &state,
+                &auth,
+                Some(&tenant_id),
+                AuditEvent::ok(audit_record::actions::ACCOUNT_DISABLE, account_id.as_str()),
+            )
+            .await;
+            Json(AccountActionResponse {
+                status: "disabled".to_string(),
+                id: account_id,
+            })
+            .into_response()
+        }
         Ok(false) => ApiError::not_found("account_not_found", "account not found in this tenant")
             .into_response(),
         Err(e) => {
@@ -547,6 +570,7 @@ pub async fn disable_account(
 )]
 pub async fn reset_password(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, account_id)): Path<(String, String)>,
     Json(body): Json<ResetPasswordRequest>,
 ) -> impl IntoResponse {
@@ -563,11 +587,23 @@ pub async fn reset_password(
         .set_password(id, &tenant_id, &body.password)
         .await
     {
-        Ok(true) => Json(AccountActionResponse {
-            status: "password_reset".to_string(),
-            id: account_id,
-        })
-        .into_response(),
+        Ok(true) => {
+            audit_record::record(
+                &state,
+                &auth,
+                Some(&tenant_id),
+                AuditEvent::ok(
+                    audit_record::actions::ACCOUNT_PASSWORD_RESET,
+                    account_id.as_str(),
+                ),
+            )
+            .await;
+            Json(AccountActionResponse {
+                status: "password_reset".to_string(),
+                id: account_id,
+            })
+            .into_response()
+        }
         Ok(false) => ApiError::not_found("account_not_found", "account not found in this tenant")
             .into_response(),
         Err(e) => {

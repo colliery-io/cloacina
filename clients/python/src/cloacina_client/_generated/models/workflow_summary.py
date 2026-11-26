@@ -28,6 +28,9 @@ class WorkflowSummary:
         description (None | str | Unset):
         paused (bool | Unset): Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
             new executions until resumed.
+        uploaded_by (None | str | Unset): Who uploaded the package (CLOACINA-T-1024): the login identity, or
+            the name of the API key. Read from the audit record; `null` for a
+            package uploaded before the audit record existed.
     """
 
     created_at: str
@@ -38,6 +41,7 @@ class WorkflowSummary:
     workflow_name: str
     description: None | str | Unset = UNSET
     paused: bool | Unset = UNSET
+    uploaded_by: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,6 +65,12 @@ class WorkflowSummary:
 
         paused = self.paused
 
+        uploaded_by: None | str | Unset
+        if isinstance(self.uploaded_by, Unset):
+            uploaded_by = UNSET
+        else:
+            uploaded_by = self.uploaded_by
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -77,6 +87,8 @@ class WorkflowSummary:
             field_dict["description"] = description
         if paused is not UNSET:
             field_dict["paused"] = paused
+        if uploaded_by is not UNSET:
+            field_dict["uploaded_by"] = uploaded_by
 
         return field_dict
 
@@ -106,6 +118,15 @@ class WorkflowSummary:
 
         paused = d.pop("paused", UNSET)
 
+        def _parse_uploaded_by(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        uploaded_by = _parse_uploaded_by(d.pop("uploaded_by", UNSET))
+
         workflow_summary = cls(
             created_at=created_at,
             id=id,
@@ -115,6 +136,7 @@ class WorkflowSummary:
             workflow_name=workflow_name,
             description=description,
             paused=paused,
+            uploaded_by=uploaded_by,
         )
 
         workflow_summary.additional_properties = d

@@ -4,6 +4,9 @@ from .account_action_response import AccountActionResponse
 from .account_info import AccountInfo
 from .accumulator_status import AccumulatorStatus
 from .agent_info import AgentInfo
+from .audit_event_info import AuditEventInfo
+from .audit_event_info_detail import AuditEventInfoDetail
+from .audit_list_response import AuditListResponse
 from .compiler_status import CompilerStatus
 from .create_account_request import CreateAccountRequest
 from .create_instance_request import CreateInstanceRequest
@@ -133,6 +136,9 @@ __all__ = (
     "AccountInfo",
     "AccumulatorStatus",
     "AgentInfo",
+    "AuditEventInfo",
+    "AuditEventInfoDetail",
+    "AuditListResponse",
     "CompilerStatus",
     "CreateAccountRequest",
     "CreateInstanceRequest",
