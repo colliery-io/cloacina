@@ -29,6 +29,7 @@ Tunable via env (defaults in parens):
   CLOACINA_SOAK_FLEET_TARGET_INFLIGHT   executions kept outstanding (agents×conc×2)
 """
 
+import json
 import os
 import re
 import subprocess
@@ -209,10 +210,23 @@ def fleet():
         print("  ok: workflow compiled")
 
         # --- start N agents ------------------------------------------------
+        # CLOACINA-T-1017: an agent takes its tenant from its key, and dispatch
+        # only picks an agent of the task's tenant. An agent on the bootstrap
+        # admin key has no tenant and gets no work, so mint a key scoped to
+        # the tenant of the workload.
+        key_req = urllib.request.Request(
+            f"{server_url}/v1/tenants/public/keys",
+            data=json.dumps({"name": "soak-fleet-agent", "role": "read"}).encode(),
+            headers={"Authorization": f"Bearer {bootstrap_key}",
+                     "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(key_req, timeout=10) as resp:
+            agent_key = json.loads(resp.read())["key"]
         for i in range(AGENTS):
             p = subprocess.Popen(
                 ["target/debug/cloacina-agent", "--server", server_url,
-                 "--api-key", bootstrap_key, "--max-concurrency", str(CONCURRENCY)],
+                 "--api-key", agent_key, "--max-concurrency", str(CONCURRENCY)],
                 cwd=REPO_ROOT, stdout=open(home / f"agent-{i}.log", "w"),  # noqa: SIM115 - stays open for the subprocess
                 stderr=subprocess.STDOUT,
             )
