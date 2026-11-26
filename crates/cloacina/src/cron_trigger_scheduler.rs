@@ -2640,6 +2640,7 @@ mod tests {
     }
 
     /// CLOACINA-T-1020: the cron fire path with a real runner on SQLite.
+    #[cfg(feature = "sqlite")]
     mod cron_backlog {
         use super::super::*;
         use crate::runner::{DefaultRunner, DefaultRunnerConfig};
