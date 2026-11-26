@@ -118,7 +118,8 @@ import cloaca
 runner = cloaca.DefaultRunner("sqlite://app.db")
 
 # Schedules — list of dicts with keys: id, workflow_name, cron_expression,
-# timezone, enabled, catchup_policy, next_run_at, last_run_at, created_at, updated_at
+# timezone, enabled, catchup_policy, max_active_runs, next_run_at, last_run_at,
+# created_at, updated_at
 schedules = runner.list_cron_schedules(enabled_only=True, limit=50, offset=0)
 for s in schedules:
     print(f"{s['workflow_name']}: {s['cron_expression']} (next: {s['next_run_at']})")

@@ -48,7 +48,7 @@ use cloacina_api_types::{
 use cloacina::CronEvaluator;
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::database::universal_types::UniversalTimestamp;
-use cloacina::models::schedule::{NewSchedule, Schedule};
+use cloacina::models::schedule::{CronScheduleOptions, NewSchedule, Schedule};
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
 use crate::AppState;
@@ -114,6 +114,10 @@ fn to_summary(s: Schedule) -> WorkflowInstanceSummary {
             .and_then(|p| serde_json::from_str::<serde_json::Value>(p).ok()),
         cron_expression: s.cron_expression,
         timezone: s.timezone,
+        catchup_policy: s.catchup_policy,
+        max_active_runs: s
+            .max_active_runs
+            .and_then(|limit| u32::try_from(limit).ok()),
         enabled: s.enabled.is_true(),
         paused: s.paused.is_true(),
         next_run_at: s.next_run_at.map(|t| t.0.to_rfc3339()),
@@ -231,6 +235,25 @@ pub async fn create_instance(
 
     let timezone = body.timezone.clone().unwrap_or_else(|| "UTC".to_string());
 
+    // The options of the schedule (CLOACINA-T-1020). They describe a cron
+    // schedule, so an instance with no `cron` cannot carry them.
+    let schedule_options = match CronScheduleOptions::from_declared(
+        body.catchup_policy.as_deref(),
+        body.max_active_runs,
+    ) {
+        Ok(options) => options,
+        Err(e) => {
+            return ApiError::bad_request("invalid_schedule_options", e).into_response();
+        }
+    };
+    if body.cron.is_none() && schedule_options != CronScheduleOptions::default() {
+        return ApiError::bad_request(
+            "invalid_schedule_options",
+            "catchup_policy and max_active_runs need a cron expression".to_string(),
+        )
+        .into_response();
+    }
+
     // Build the row. A cron expression is validated and its first fire computed
     // now, so a bad expression is a 400 rather than a schedule that silently
     // never runs.
@@ -278,6 +301,7 @@ pub async fn create_instance(
         }
     };
 
+    schedule_options.apply_to(&mut new_schedule);
     new_schedule.instance_name = Some(body.instance_name.clone());
     new_schedule.params = match &body.params {
         Some(v) => match serde_json::to_string(v) {

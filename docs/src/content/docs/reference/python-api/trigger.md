@@ -34,10 +34,24 @@ CLOACI-T-0688):
 - `poll_interval` (str): How often to poll the trigger condition (e.g., "5s", "100ms", "1m"). Defaults to "30s". Mutually exclusive with `cron`.
 - `cron` (str): Cron expression — instead of polling, the framework schedules the `on` workflow on this expression and the function body is unused. Mutually exclusive with `poll_interval`.
 - `timezone` (str): IANA timezone for the `cron` schedule (e.g., "America/New_York"). Defaults to UTC. A packaged cron trigger registers its schedule in this timezone.
+- `catchup` (str): Catch-up policy of the `cron` schedule: `"skip"` or `"run_all"`. With `"run_all"` the schedule runs each fire time it missed while no scheduler ran, oldest first. When it is not given, a new schedule gets `skip` and an existing schedule keeps its policy.
+- `max_active_runs` (int): The most runs of the `cron` schedule that may be active at once, 1 or more. At the limit the scheduler starts no new run and leaves the schedule due. When it is not given, a `"run_all"` schedule runs one fire time at a time and a `"skip"` schedule has no limit.
 - `allow_concurrent` (bool): Whether to allow concurrent executions of the same trigger. Defaults to `False`
 
-Setting both `cron` and `poll_interval`, or `cron` without `on`, raises
-`ValueError`.
+Setting both `cron` and `poll_interval`, `cron` without `on`, `catchup` or
+`max_active_runs` without `cron`, a `catchup` that is not one of the two
+values, or a `max_active_runs` of 0, raises `ValueError`.
+
+```python
+@cloaca.trigger(
+    on="build_hourly_table",
+    cron="0 * * * *",
+    catchup="run_all",
+    max_active_runs=4,
+)
+def hourly_table():
+    pass
+```
 
 :::note[Scaffolding a cron package]
 `cloacinactl package new <name> --language python --kind cron` scaffolds a

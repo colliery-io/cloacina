@@ -77,6 +77,16 @@ pub enum CronError {
     CronParsingError(String),
 }
 
+/// How many occurrences [`CronEvaluator::previous_execution`] steps back with
+/// croner's backward search before it walks forward.
+const PREVIOUS_SEARCH_STEPS_BACK: usize = 3;
+
+/// The most forward steps [`CronEvaluator::previous_execution`] takes from
+/// its start point. The start point is a few occurrences back, so a normal
+/// search takes about `PREVIOUS_SEARCH_STEPS_BACK` steps (a two-hour margin
+/// can add 7200 steps for an every-second expression).
+const PREVIOUS_SEARCH_MAX_WALK: usize = 10_000;
+
 /// Timezone-aware cron expression evaluator.
 ///
 /// This struct provides methods for evaluating cron expressions in specific timezones,
@@ -226,6 +236,69 @@ impl CronEvaluator {
             .find_next_occurrence(&gap_start, true)
             .map_err(to_err)?;
         Ok(first_in_gap < wall)
+    }
+
+    /// Finds the last execution time strictly before the given timestamp.
+    ///
+    /// This is the start of the interval that a fire at `before` covers
+    /// (CLOACINA-T-1020). The answer agrees with [`next_execution`] by
+    /// construction: `next_execution(previous_execution(t)) >= t`, and when
+    /// `t` is itself a fire time, `next_execution(previous_execution(t)) == t`.
+    /// So the interval of one fire starts where the interval of the fire
+    /// before it ends, across daylight saving changes too.
+    ///
+    /// # Arguments
+    /// * `before` - UTC timestamp to find the previous execution before
+    ///
+    /// # Returns
+    /// * `Result<DateTime<Utc>, CronError>` - Previous execution time in UTC
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use cloacina_workflow::cron_evaluator::CronEvaluator;
+    /// use chrono::{DateTime, Utc};
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let evaluator = CronEvaluator::new("0 * * * *", "UTC")?; // Hourly
+    /// let fire: DateTime<Utc> = "2026-01-01T05:00:00Z".parse()?;
+    /// let previous = evaluator.previous_execution(fire)?;
+    /// assert_eq!(previous.to_rfc3339(), "2026-01-01T04:00:00+00:00");
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`next_execution`]: Self::next_execution
+    pub fn previous_execution(&self, before: DateTime<Utc>) -> Result<DateTime<Utc>, CronError> {
+        let to_err = |e: croner::errors::CronError| CronError::CronParsingError(e.to_string());
+
+        // croner's backward search gives candidates only: near a daylight
+        // saving change its answers can differ from the forward search that
+        // the scheduler fires on. Step back a few occurrences to get a point
+        // that is before the answer, then walk forward with `next_execution`
+        // and keep the last fire time before `before`.
+        let mut anchor = self.timezone.from_utc_datetime(&before.naive_utc());
+        for _ in 0..PREVIOUS_SEARCH_STEPS_BACK {
+            anchor = self
+                .cron
+                .find_previous_occurrence(&anchor, false)
+                .map_err(to_err)?;
+        }
+        // A candidate at the end of a spring-forward gap can be later than
+        // the real fire time by the size of the gap; two hours covers every
+        // offset change in the tz database.
+        let mut cursor = anchor.with_timezone(&Utc) - Duration::hours(2);
+
+        let mut last = None;
+        for _ in 0..PREVIOUS_SEARCH_MAX_WALK {
+            let next = self.next_execution(cursor)?;
+            if next >= before {
+                return last.ok_or(CronError::NoNextExecution);
+            }
+            last = Some(next);
+            cursor = next;
+        }
+        Err(CronError::NoNextExecution)
     }
 
     /// Finds multiple next execution times after the given timestamp.
@@ -603,6 +676,84 @@ mod pinned_fire_times {
             runs,
             ["2026-03-08T07:00:00+00:00", "2026-03-09T06:30:00+00:00"]
         );
+    }
+
+    /// CLOACINA-T-1020: the previous fire time is the start of the interval
+    /// of a run. Spring-forward day in New York (2026-03-08): a job at 02:30
+    /// (inside the gap) runs at 03:00 EDT that day, so the intervals around it
+    /// are 23.5 h and 23.5 h long, not 24 h.
+    #[test]
+    fn previous_execution_across_spring_forward() {
+        let in_gap = CronEvaluator::new("30 2 * * *", "America/New_York").unwrap();
+        let prev = |t: &str| {
+            in_gap
+                .previous_execution(t.parse().unwrap())
+                .unwrap()
+                .to_rfc3339()
+        };
+        // The fire after the change day starts where the gap fire was.
+        assert_eq!(prev("2026-03-09T06:30:00Z"), "2026-03-08T07:00:00+00:00");
+        // The gap fire starts at the fire of the day before (02:30 EST).
+        assert_eq!(prev("2026-03-08T07:00:00Z"), "2026-03-07T07:30:00+00:00");
+        // A time that is not a fire time: the last fire before it.
+        assert_eq!(prev("2026-03-08T12:00:00Z"), "2026-03-08T07:00:00+00:00");
+        // Strictly before: one second after a fire gives that fire.
+        assert_eq!(prev("2026-03-08T07:00:01Z"), "2026-03-08T07:00:00+00:00");
+    }
+
+    /// Fall-back day in New York (2026-11-01, 02:00 EDT -> 01:00 EST): a daily
+    /// job at 00:30 has one 25 hour interval.
+    #[test]
+    fn previous_execution_across_fall_back() {
+        let daily = CronEvaluator::new("30 0 * * *", "America/New_York").unwrap();
+        let after_change: DateTime<Utc> = "2026-11-02T05:30:00Z".parse().unwrap(); // 00:30 EST
+        let start = daily.previous_execution(after_change).unwrap();
+        assert_eq!(start.to_rfc3339(), "2026-11-01T04:30:00+00:00"); // 00:30 EDT
+        assert_eq!((after_change - start).num_hours(), 25);
+    }
+
+    /// For each pair of fire times in a row, the previous fire of the second
+    /// is the first. Runs over both 2026 changes in two timezones (one in the
+    /// southern hemisphere, one with a 30 minute change) and UTC.
+    #[test]
+    fn previous_execution_agrees_with_next_execution() {
+        let cases = [
+            ("0 * * * *", "America/New_York"),
+            ("30 1 * * *", "America/New_York"),
+            ("30 2 * * *", "America/New_York"),
+            ("*/15 * * * *", "America/New_York"),
+            ("0 0 * * *", "America/New_York"),
+            ("0 */6 * * *", "Australia/Sydney"),
+            ("15 2 * * *", "Australia/Lord_Howe"),
+            ("0 3 * * 1", "Europe/London"),
+            ("0 * * * *", "UTC"),
+        ];
+        let starts = ["2026-03-06T00:00:00Z", "2026-10-30T00:00:00Z"];
+        let mut checked = 0;
+        for (expr, tz) in cases {
+            let ev = CronEvaluator::new(expr, tz).unwrap();
+            for start in starts {
+                let fires = ev.next_executions(start.parse().unwrap(), 150).unwrap();
+                for pair in fires.windows(2) {
+                    assert_eq!(
+                        ev.previous_execution(pair[1]).unwrap(),
+                        pair[0],
+                        "{expr} @ {tz}: previous of {}",
+                        pair[1]
+                    );
+                    // A time inside the interval gives the same start.
+                    assert_eq!(
+                        ev.previous_execution(pair[1] - Duration::seconds(1))
+                            .unwrap(),
+                        pair[0],
+                        "{expr} @ {tz}: previous of one second before {}",
+                        pair[1]
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 9 * 2 * 149);
     }
 
     #[test]

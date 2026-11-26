@@ -93,7 +93,7 @@ same-named getter methods, and construct only through the builder.
 |---|---|---|---|
 | `enable_cron_scheduling` | `bool` | `true` | Master switch for cron scheduling. When disabled, no cron schedules are evaluated. |
 | `cron_poll_interval` | `Duration` | `30s` | How often the cron scheduler checks for schedules that are due. |
-| `cron_max_catchup_executions` | `usize` | `100` | Maximum number of missed cron executions to catch up on after downtime. The builder rejects values above `1000`. |
+| `cron_max_catchup_executions` | `usize` | `100` | The most missed fire times that one claim of a `run_all` schedule takes. It is a batch size, not a cap: the fire times beyond it stay due and the next pass takes them. The builder rejects values above `1000`; `0` is read as `1`. |
 | `cron_enable_recovery` | `bool` | `true` | Whether recovery of lost/failed cron executions is enabled. |
 | `cron_recovery_interval` | `Duration` | `300s` (5 min) | How often the recovery system scans for lost cron executions. |
 | `cron_lost_threshold_minutes` | `i32` | `10` | Minutes after which a started-but-not-completed cron execution is considered lost. |

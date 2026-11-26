@@ -562,6 +562,12 @@ async fn test_recovery_attempt_cap_survives_restart() {
         row.recovery_attempts > max_attempts as i32,
         "the persisted count must keep climbing past the cap, never reset"
     );
+    // CLOACINA-T-1020: an abandoned handoff is closed, so it leaves the lost
+    // set and no longer counts as an active run of its schedule.
+    assert!(
+        row.completed_at.is_some() && row.workflow_execution_id.is_none(),
+        "an abandoned handoff must be marked complete, with no workflow execution"
+    );
 
     assert_eq!(
         recovery2.get_recovery_attempts(audit_id).await,

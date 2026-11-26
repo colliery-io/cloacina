@@ -6673,6 +6673,81 @@ mod tests {
         assert!(body["events"].as_array().unwrap().is_empty());
     }
 
+    // ── Instances ────────────────────────────────────────────────────
+
+    /// CLOACINA-T-1020: an instance is created with a catch-up policy and a
+    /// limit on active runs, both come back in the summary, and a wrong
+    /// value or an option with no cron is a 400.
+    #[tokio::test]
+    #[serial]
+    async fn test_create_instance_with_schedule_options() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let workflow = format!("t1020_wf_{}", uuid::Uuid::new_v4().simple());
+        let post = |body: serde_json::Value| {
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(format!("/v1/tenants/public/workflows/{workflow}/instances"))
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+
+        let (status, body) = send_request(
+            build_router(state.clone()),
+            post(serde_json::json!({
+                "instance_name": "history",
+                "cron": "0 * * * *",
+                "catchup_policy": "run_all",
+                "max_active_runs": 4,
+                "enabled": false,
+            })),
+        )
+        .await;
+        assert!(status.is_success(), "create failed: {status} {body}");
+        assert_eq!(body["catchup_policy"], "run_all");
+        assert_eq!(body["max_active_runs"], 4);
+
+        let (status, body) = send_request(
+            build_router(state.clone()),
+            post(serde_json::json!({
+                "instance_name": "plain",
+                "cron": "0 * * * *",
+                "enabled": false,
+            })),
+        )
+        .await;
+        assert!(status.is_success(), "create failed: {status} {body}");
+        assert_eq!(body["catchup_policy"], "skip");
+        assert!(body.get("max_active_runs").is_none());
+
+        for bad in [
+            serde_json::json!({"instance_name": "a", "cron": "0 * * * *", "catchup_policy": "all"}),
+            serde_json::json!({"instance_name": "b", "cron": "0 * * * *", "max_active_runs": 0}),
+            serde_json::json!({"instance_name": "c", "catchup_policy": "run_all"}),
+            serde_json::json!({"instance_name": "d", "max_active_runs": 2}),
+        ] {
+            let (status, body) = send_request(build_router(state.clone()), post(bad)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert_eq!(body["code"], "invalid_schedule_options", "{body}");
+        }
+
+        // Leave no schedule behind in the shared test database.
+        for instance in ["history", "plain"] {
+            let req = axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!(
+                    "/v1/tenants/public/workflows/{workflow}/instances/{instance}"
+                ))
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap();
+            let (status, body) = send_request(build_router(state.clone()), req).await;
+            assert!(status.is_success(), "delete failed: {status} {body}");
+        }
+    }
+
     // ── Triggers ─────────────────────────────────────────────────────
 
     #[tokio::test]
