@@ -70,7 +70,8 @@ use cloacina_api_types::{
     TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
     TriggerPauseResponse, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
     WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary,
-    WorkflowUploadedResponse, WsTicketResponse,
+    WorkflowUploadedResponse, WorkflowVersionActivatedResponse, WorkflowVersionSummary,
+    WsTicketResponse,
 };
 
 /// Builder for [`Client`].
@@ -611,6 +612,36 @@ impl Client {
             .await
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
+    }
+
+    /// Every stored version of a package, newest upload first
+    /// (CLOACINA-T-1018). `name` is the package name. `NotFound` when the
+    /// package has no version.
+    pub async fn list_workflow_versions(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<TenantListResponse<WorkflowVersionSummary>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/workflows/{name}/versions"))
+            .await
+    }
+
+    /// Make an earlier built version of a package the active one, with no
+    /// rebuild (CLOACINA-T-1018). `NotFound` for an unknown version,
+    /// `Server` with status 409 for a version with no successful build.
+    pub async fn activate_workflow_version(
+        &self,
+        name: &str,
+        version: &str,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowVersionActivatedResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/workflows/{name}/versions/{version}/activate"),
+            &Value::Null,
+        )
+        .await
     }
 
     // ---- triggers ----

@@ -182,6 +182,21 @@ def test_workflow_delete_idempotent(client: Client) -> None:
     assert deleted.status == "deleted"
 
 
+def test_workflow_versions_missing_404(client: Client) -> None:
+    # CLOACINA-T-1018: a package with no version is a 404.
+    with pytest.raises(CloacinaApiError) as exc:
+        client.list_workflow_versions("does-not-exist")
+    assert exc.value.status == 404
+    assert exc.value.code == "workflow_not_found"
+
+
+def test_workflow_version_activate_missing_404(client: Client) -> None:
+    with pytest.raises(CloacinaApiError) as exc:
+        client.activate_workflow_version("does-not-exist", "0.0.0")
+    assert exc.value.status == 404
+    assert exc.value.code == "workflow_version_not_found"
+
+
 # ---- triggers ----
 
 
