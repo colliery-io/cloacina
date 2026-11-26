@@ -884,6 +884,7 @@ fn generate_embedded_registration(
                         fn trigger_rules(&self) -> serde_json::Value { self.rewritten_trigger_rules.clone() }
                         fn code_fingerprint(&self) -> Option<String> { self.inner.code_fingerprint() }
                         fn requires_handle(&self) -> bool { self.inner.requires_handle() }
+                        fn timeout(&self) -> Option<std::time::Duration> { self.inner.timeout() }
                     }
 
                     workflow.add_task(std::sync::Arc::new(TaskWithNamespacedTriggers {
@@ -1203,6 +1204,9 @@ fn build_task_inventory_entries(
                             }
                             fn requires_handle(&self) -> bool {
                                 self.inner.requires_handle()
+                            }
+                            fn timeout(&self) -> Option<std::time::Duration> {
+                                self.inner.timeout()
                             }
                         }
 

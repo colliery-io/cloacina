@@ -224,7 +224,8 @@ pub mod analytics_workflow {
     #[task(
         dependencies = ["transform_data"],
         retry_attempts = 2,
-        retry_backoff = "fixed"
+        retry_backoff = "fixed",
+        timeout_seconds = 600
     )]
     pub async fn generate_reports(
         context: &mut Context<serde_json::Value>,

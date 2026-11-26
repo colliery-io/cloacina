@@ -149,6 +149,28 @@ struct Cli {
     #[arg(long, env = "CLOACINA_AGENT_LIVENESS_MISSES", default_value_t = 3)]
     agent_liveness_misses: u32,
 
+    /// Time limit (seconds) of a fleet task that sets none of its own. The
+    /// agent stops waiting for the task after this long and the attempt fails
+    /// as a timeout. A task sets its own limit with
+    /// `#[task(timeout_seconds = N)]` or `@task(timeout_seconds=N)`.
+    /// Default 300. CLOACINA-T-1014.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_TASK_TIMEOUT_S",
+        default_value_t = cloacina_server::fleet_executor::FleetTaskTimeLimits::DEFAULT_SECONDS
+    )]
+    fleet_task_timeout_s: u64,
+
+    /// Longest time limit (seconds) a fleet task can get. A task that asks
+    /// for more gets this value, with a warning in the log. Must not be below
+    /// `--fleet-task-timeout-s`. Default 86400 (24 hours). CLOACINA-T-1014.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_TASK_TIMEOUT_MAX_S",
+        default_value_t = cloacina_server::fleet_executor::FleetTaskTimeLimits::DEFAULT_MAX_SECONDS
+    )]
+    fleet_task_timeout_max_s: u64,
+
     /// CORS allowed origins, comma-separated (e.g.
     /// `https://ops.example.com,https://ui.example.com`, or `*` for any).
     /// CORS is DISABLED unless this is set — browser consumers require an
@@ -180,6 +202,39 @@ struct Cli {
         num_args = 0..
     )]
     cors_allowed_headers: Vec<String>,
+
+    /// Alert webhook (CLOACINA-T-1024): a URL that gets a JSON POST when a
+    /// run ends. Not set = off. The URL can hold a token, so it is never
+    /// logged. To sign each request, set `CLOACINA_ALERT_WEBHOOK_SECRET`
+    /// (environment only): the header `X-Cloacina-Signature` then holds
+    /// `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`.
+    #[arg(long, env = "CLOACINA_ALERT_WEBHOOK_URL", hide_env_values = true)]
+    alert_webhook_url: Option<String>,
+
+    /// Which run outcomes send an alert, comma-separated: `failed`,
+    /// `completed`, `cancelled`, or `all`. Default `failed`.
+    #[arg(
+        long,
+        env = "CLOACINA_ALERT_WEBHOOK_EVENTS",
+        value_delimiter = ',',
+        num_args = 0..
+    )]
+    alert_webhook_events: Vec<String>,
+
+    /// Seconds allowed for one alert webhook request. Default 10.
+    #[arg(long, env = "CLOACINA_ALERT_WEBHOOK_TIMEOUT_S", default_value_t = 10)]
+    alert_webhook_timeout_s: u64,
+
+    /// The most sends of one alert before it is dropped. The wait between
+    /// sends doubles from 30 seconds to 15 minutes. Default 8.
+    #[arg(long, env = "CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS", default_value_t = 8)]
+    alert_webhook_max_attempts: u32,
+
+    /// The public URL of this server (for example
+    /// `https://cloacina.example.com`). Used for the absolute links in an
+    /// alert. Not set = the alert holds paths only.
+    #[arg(long, env = "CLOACINA_PUBLIC_BASE_URL")]
+    public_base_url: Option<String>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -228,6 +283,32 @@ async fn main() -> Result<()> {
         )
     })?;
 
+    // CLOACINA-T-1024: the alert webhook. An empty URL means off, like no URL.
+    if let Some(url) = cli
+        .alert_webhook_url
+        .as_deref()
+        .filter(|u| !u.trim().is_empty())
+    {
+        let config = cloacina_server::alerts::AlertWebhookConfig::new(
+            url,
+            &cli.alert_webhook_events,
+            std::env::var("CLOACINA_ALERT_WEBHOOK_SECRET").ok(),
+            std::time::Duration::from_secs(cli.alert_webhook_timeout_s),
+            cli.alert_webhook_max_attempts,
+            cli.public_base_url.clone(),
+        )
+        .map_err(anyhow::Error::msg)?;
+        cloacina_server::alerts::install(config);
+    }
+
+    // Fail at start on limits the server cannot run with (CLOACINA-T-1014).
+    let fleet_task_time_limits =
+        cloacina_server::fleet_executor::FleetTaskTimeLimits::from_seconds(
+            cli.fleet_task_timeout_s,
+            cli.fleet_task_timeout_max_s,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+
     cloacina_server::run(
         cli.home,
         cli.bind,
@@ -244,6 +325,7 @@ async fn main() -> Result<()> {
         cli.default_executor,
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
+        fleet_task_time_limits,
         cloacina_server::CorsConfig {
             allowed_origins: cli.cors_allowed_origins,
             allowed_methods: cli.cors_allowed_methods,

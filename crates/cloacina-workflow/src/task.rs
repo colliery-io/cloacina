@@ -219,4 +219,16 @@ pub trait Task: Send + Sync {
     fn requires_handle(&self) -> bool {
         false
     }
+
+    /// Returns this task's own time limit, when it has one.
+    ///
+    /// `None` (the default) means the task has no limit of its own and the
+    /// executor's configured limit applies. `Some(limit)` replaces the
+    /// executor's limit for this task. Set by `#[task(timeout_seconds = N)]`.
+    ///
+    /// On an execution-agent fleet the server caps the limit at its configured
+    /// maximum.
+    fn timeout(&self) -> Option<std::time::Duration> {
+        None
+    }
 }

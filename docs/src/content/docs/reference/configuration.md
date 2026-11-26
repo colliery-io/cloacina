@@ -17,6 +17,12 @@ command-line flags (most also accept an environment variable). The
 |------|---------|---------|---------|
 | `--bind` | — | `127.0.0.1:8080` | HTTP listen address. Set `0.0.0.0:8080` to accept remote connections (containers, behind a proxy). The server exposes a **single** HTTP port unless `--metrics-bind` is set. |
 | `--metrics-bind` | `CLOACINA_METRICS_BIND` | — | Address of a separate listener for `/metrics` (for example `0.0.0.0:9090`). When set, `/metrics` is served only there and the main listener answers 404 for it. When not set, `/metrics` stays on `--bind` with no authentication. |
+| `--alert-webhook-url` | `CLOACINA_ALERT_WEBHOOK_URL` | — | URL that gets a JSON `POST` when a run ends. Not set = off. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/). |
+| `--alert-webhook-events` | `CLOACINA_ALERT_WEBHOOK_EVENTS` | `failed` | Outcomes that send an alert: `failed`, `completed`, `cancelled`, or `all`. |
+| — | `CLOACINA_ALERT_WEBHOOK_SECRET` | — | Shared secret that signs each alert request. Environment only. |
+| `--alert-webhook-timeout-s` | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `10` | Seconds allowed for one alert request. |
+| `--alert-webhook-max-attempts` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
+| `--public-base-url` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject unsigned package uploads. Requires `--verification-org-id`. |
@@ -26,6 +32,8 @@ command-line flags (most also accept an environment variable). The
 | `--default-executor` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to; set `fleet` to route to the execution-agent fleet. An unknown key fails startup fast. |
 | `--agent-heartbeat-interval-s` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Fleet-agent heartbeat cadence advertised to agents. |
 | `--agent-liveness-misses` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Missed heartbeats before an agent is considered dead (dead-after = interval × misses). |
+| `--fleet-task-timeout-s` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. |
+| `--fleet-task-timeout-max-s` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get; a task that asks for more gets this value. |
 | `--cors-allowed-origins` | `CLOACINA_CORS_ALLOWED_ORIGINS` | unset | Comma-separated origins (`*` allowed). Unset means **CORS is disabled** — browser clients on other origins are blocked. |
 | `--cors-allowed-methods` | `CLOACINA_CORS_ALLOWED_METHODS` | `GET,POST,DELETE,OPTIONS` | Applies only when CORS is enabled. |
 | `--cors-allowed-headers` | `CLOACINA_CORS_ALLOWED_HEADERS` | `authorization,content-type` | Applies only when CORS is enabled. |

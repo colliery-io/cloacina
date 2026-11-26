@@ -22,6 +22,7 @@
 
 pub mod actuator;
 pub mod agent_registry;
+pub mod alerts;
 pub mod autoscaler;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
@@ -367,6 +368,9 @@ pub async fn run(
     // the prior hardcoded 15s/45s.
     agent_heartbeat_interval_s: u32,
     agent_liveness_misses: u32,
+    // CLOACINA-T-1014: the default and the maximum time limit of a fleet task.
+    // A task with a limit of its own gets that limit, capped at the maximum.
+    fleet_task_time_limits: crate::fleet_executor::FleetTaskTimeLimits,
     // CORS opt-in (CLOACI-T-0643 / REQ-009). Disabled unless at least one
     // allowed origin is configured.
     cors: CorsConfig,
@@ -699,6 +703,8 @@ pub async fn run(
          `pending` + `delivered`). Sustained growth means delivery is wedged \
          — the analog of the compiler `sweep_resets_total` signal."
     );
+    // CLOACINA-T-1024: the alert webhook counters.
+    crate::alerts::describe_metrics();
     // Execution-agent fleet (CLOACI-I-0114 / T-0634).
     metrics::describe_counter!(
         "cloacina_fleet_agents_evicted_total",
@@ -1012,6 +1018,19 @@ pub async fn run(
     // task resolves.
     let tenant_database_cache = Arc::new(TenantDatabaseCache::new(database_url.clone()));
 
+    // CLOACINA-T-1024: alert webhook for finished runs. Off unless `main`
+    // gave settings with `alerts::install`. The sender reads the notice rows
+    // that the engine writes when a run ends, in each tenant schema.
+    if let Some(alert_config) = crate::alerts::installed() {
+        crate::alerts::spawn(
+            alert_config.clone(),
+            runner.database().clone(),
+            tenant_database_cache.clone(),
+            substrate_shutdown_rx.clone(),
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+    }
+
     // CLOACI-T-0862 / T-0861 handoff: the concrete fleet secret resolver factory.
     // Activates the `FleetExecutor` secret seam so a `$secret`-referencing fleet
     // task actually resolves (it failed closed while the factory was `None`).
@@ -1066,7 +1085,8 @@ pub async fn run(
                         result_handler,
                         runner.runtime(),
                     )
-                    .with_secret_resolver_factory(reg_secret_factory.clone());
+                    .with_secret_resolver_factory(reg_secret_factory.clone())
+                    .with_task_time_limits(fleet_task_time_limits);
                     if runner.register_executor("fleet", Arc::new(fleet_executor)) {
                         info!("Fleet executor registered on per-tenant runner dispatcher");
                     } else {
@@ -1237,7 +1257,8 @@ pub async fn run(
             state.runner.runtime(),
         )
         // CLOACI-T-0862: activate the secret resolver seam on the global executor.
-        .with_secret_resolver_factory(secret_resolver_factory.clone());
+        .with_secret_resolver_factory(secret_resolver_factory.clone())
+        .with_task_time_limits(fleet_task_time_limits);
         if state
             .runner
             .register_executor("fleet", Arc::new(fleet_executor))
