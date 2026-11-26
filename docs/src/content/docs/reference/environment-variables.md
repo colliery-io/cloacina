@@ -81,7 +81,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 
 `CLOACINA_DEFAULT_EXECUTOR` / `--default-executor` is forwarded by the
 `cloacinactl server start` wrapper (preferably set via
-`[server].default_executor` in `config.toml`). The wrapper also takes the
+`[server].default_executor` in `config.toml`). The wrapper also takes
+`CLOACINA_DATABASE_WAIT_TIMEOUT_S`, the
 three retention settings, the two fleet time limits, the alert webhook
 settings (but not the secret) and `CLOACINA_PUBLIC_BASE_URL`: as a flag of
 the same name, as the env var above, or as a key of `[server]` in
@@ -96,6 +97,7 @@ The Helm chart `cloacina-server` sets these variables from its values:
 
 | Variable | Chart value | Chart default |
 |----------|-------------|---------------|
+| `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `server.databaseWaitTimeoutSeconds` | `60` |
 | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `retention.runHistoryDays` | `0` |
 | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `retention.outboxAckedSeconds` | `3600` |
 | `CLOACINA_RETENTION_INTERVAL_S` | `retention.intervalSeconds` | `300` |

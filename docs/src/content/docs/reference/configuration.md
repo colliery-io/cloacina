@@ -297,6 +297,7 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 |---|---|---|
 | `server.default_executor` | `"default"` | Executor key every task is dispatched to. There is no per-task routing — all work goes to this one executor. `"default"` is the in-process thread executor; set `"fleet"` to offload all work to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). The key is hard-matched against registered executors at server startup; an unknown key fails fast (no silent fallback). |
 
+| `server.database_wait_timeout_s` | not set | Seconds the server waits at start for the database to accept a connection; `0` = one try. Forwarded as `--database-wait-timeout-s`. |
 | `server.run_history_retention_days` | not set | Days to keep a finished run; `0` keeps run history for ever. Forwarded as `--run-history-retention-days`. |
 | `server.outbox_acked_retention_s` | not set | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever. Forwarded as `--outbox-acked-retention-s`. |
 | `server.retention_interval_s` | not set | Seconds between passes of the retention job. Forwarded as `--retention-interval-s`. |

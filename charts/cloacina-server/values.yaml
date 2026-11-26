@@ -139,6 +139,11 @@ server:
   tenantRunnerCacheSize: 256
   # Drain timeout (seconds) for in-flight workflows during tenant deletion.
   tenantDeletionDrainTimeoutSeconds: 30
+  # Seconds the server waits at start for the database to accept a
+  # connection, with retries; after it the server exits with an error and the
+  # pod restarts. 0 = one try, no wait. CLOACINA_DATABASE_WAIT_TIMEOUT_S
+  # (CLOACINA-T-1035).
+  databaseWaitTimeoutSeconds: 60
   # Extra environment vars merged into the container's env list.
   # Example:
   #   extraEnv:

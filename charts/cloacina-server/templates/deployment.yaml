@@ -145,6 +145,9 @@ spec:
               value: {{ .Values.fleet.networkPolicy.dnsNamespace | quote }}
             {{- end }}
             {{- end }}
+            # Wait for the database at start (CLOACINA-T-1035).
+            - name: CLOACINA_DATABASE_WAIT_TIMEOUT_S
+              value: {{ .Values.server.databaseWaitTimeoutSeconds | int64 | quote }}
             # Retention job (CLOACINA-T-1023).
             - name: CLOACINA_RUN_HISTORY_RETENTION_DAYS
               value: {{ .Values.retention.runHistoryDays | int64 | quote }}

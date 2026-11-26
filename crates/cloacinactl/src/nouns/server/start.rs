@@ -34,6 +34,12 @@ use crate::shared::pid;
 /// `CLOACINA_ALERT_WEBHOOK_SECRET` only, and the server process inherits it.
 #[derive(clap::Args, Debug, Default, Clone)]
 pub struct ServerSettingArgs {
+    /// Seconds the server waits at start for the database to accept a
+    /// connection, with retries; `0` = one try. Overrides
+    /// `[server].database_wait_timeout_s`.
+    #[arg(long, env = "CLOACINA_DATABASE_WAIT_TIMEOUT_S")]
+    pub database_wait_timeout_s: Option<u64>,
+
     /// Days to keep a finished run in the database; `0` keeps run history
     /// for ever. Overrides `[server].run_history_retention_days`.
     #[arg(long, env = "CLOACINA_RUN_HISTORY_RETENTION_DAYS")]
@@ -114,6 +120,10 @@ pub(crate) fn forwarded_settings(
     let number = |cli: Option<u64>, config: Option<u64>| cli.or(config).map(|n| n.to_string());
 
     arg(
+        "--database-wait-timeout-s",
+        number(cli.database_wait_timeout_s, config.database_wait_timeout_s),
+    );
+    arg(
         "--run-history-retention-days",
         number(
             cli.run_history_retention_days,
@@ -180,6 +190,7 @@ pub(crate) fn forwarded_settings(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     globals: &GlobalOpts,
     bind: SocketAddr,
@@ -199,8 +210,8 @@ pub async fn run(
     let default_executor =
         config::resolve_default_executor(default_executor.as_deref(), &config_path);
 
-    // CLOACINA-T-1039: the retention, fleet time limit and alert webhook
-    // settings, resolved the same way.
+    // CLOACINA-T-1039: the database wait, retention, fleet time limit and
+    // alert webhook settings, resolved the same way.
     let forwarded = forwarded_settings(&settings, &CloacinaConfig::load(&config_path).server);
 
     // Write PID file before exec — we're the process about to become server.
@@ -285,6 +296,7 @@ mod tests {
 
     const FULL_CONFIG: &str = r#"
 [server]
+database_wait_timeout_s = 120
 run_history_retention_days = 30
 outbox_acked_retention_s = 600
 retention_interval_s = 60
@@ -310,6 +322,8 @@ public_base_url = "https://cloacina.example.com"
         assert_eq!(
             forwarded.args,
             [
+                "--database-wait-timeout-s",
+                "120",
                 "--run-history-retention-days",
                 "30",
                 "--outbox-acked-retention-s",
@@ -388,6 +402,8 @@ public_base_url = "https://cloacina.example.com"
     fn flags_parse() {
         let flags = Flags::try_parse_from([
             "start",
+            "--database-wait-timeout-s",
+            "0",
             "--run-history-retention-days",
             "30",
             "--outbox-acked-retention-s",
@@ -411,6 +427,7 @@ public_base_url = "https://cloacina.example.com"
         ])
         .unwrap()
         .settings;
+        assert_eq!(flags.database_wait_timeout_s, Some(0));
         assert_eq!(flags.run_history_retention_days, Some(30));
         assert_eq!(flags.outbox_acked_retention_s, Some(600));
         assert_eq!(flags.retention_interval_s, Some(60));
@@ -449,6 +466,34 @@ public_base_url = "https://cloacina.example.com"
         let args = args(Some("127.0.0.1:9090".parse().unwrap()));
         let at = args.iter().position(|a| a == "--metrics-bind").unwrap();
         assert_eq!(args[at + 1], "127.0.0.1:9090");
+    }
+
+    /// The whole command line: the base arguments, then the forwarded
+    /// settings. No flag is there twice.
+    #[test]
+    fn no_flag_is_forwarded_twice() {
+        let mut cmd = server_command(
+            Path::new("/tmp/cloacina-home"),
+            "127.0.0.1:8080".parse().unwrap(),
+            Some("127.0.0.1:9090".parse().unwrap()),
+            "postgres://u:p@h:5432/d",
+            Some("key".to_string()),
+            true,
+            "fleet",
+        );
+        let forwarded = forwarded_settings(&ServerSettingArgs::default(), &section(FULL_CONFIG));
+        cmd.args(&forwarded.args);
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
+        let unique: std::collections::BTreeSet<&String> = flags.iter().copied().collect();
+        assert_eq!(flags.len(), unique.len(), "a flag is there twice: {args:?}");
+        assert_eq!(flags.len(), 17);
+        assert_eq!(flags[0], "--home");
+        assert_eq!(flags[6], "--require-signatures");
+        assert_eq!(flags[7], "--database-wait-timeout-s");
     }
 
     #[test]

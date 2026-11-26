@@ -144,6 +144,10 @@ pub struct ServerSection {
     // is not set is not forwarded, and `cloacina-server` uses its own default.
     // `cloacinactl server start` forwards a key that is set, unless the flag
     // or the env var of the same setting is given.
+    /// Seconds the server waits at start for the database to accept a
+    /// connection; `0` = one try (`--database-wait-timeout-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database_wait_timeout_s: Option<u64>,
     /// Days to keep a finished run; `0` keeps run history for ever
     /// (`--run-history-retention-days`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -187,6 +191,7 @@ impl Default for ServerSection {
     fn default() -> Self {
         Self {
             default_executor: "default".to_string(),
+            database_wait_timeout_s: None,
             run_history_retention_days: None,
             outbox_acked_retention_s: None,
             retention_interval_s: None,
@@ -737,6 +742,7 @@ directories = ["/extra/dir1", "~/workflows"]
     #[test]
     fn server_settings_are_not_set_by_default() {
         let server = CloacinaConfig::default().server;
+        assert!(server.database_wait_timeout_s.is_none());
         assert!(server.run_history_retention_days.is_none());
         assert!(server.outbox_acked_retention_s.is_none());
         assert!(server.retention_interval_s.is_none());
@@ -757,6 +763,7 @@ directories = ["/extra/dir1", "~/workflows"]
             &path,
             r#"
 [server]
+database_wait_timeout_s = 120
 run_history_retention_days = 30
 outbox_acked_retention_s = 600
 retention_interval_s = 60
@@ -772,6 +779,7 @@ public_base_url = "https://cloacina.example.com"
         .unwrap();
 
         let server = CloacinaConfig::load(&path).server;
+        assert_eq!(server.database_wait_timeout_s, Some(120));
         // A key that the file does not set keeps its default.
         assert_eq!(server.default_executor, "default");
         assert_eq!(server.run_history_retention_days, Some(30));

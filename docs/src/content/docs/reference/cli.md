@@ -185,6 +185,7 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
                         [--tenant-deletion-drain-timeout-s <N>]
                         [--log-retention-days <N>]
                         [--default-executor <KEY>]
+                        [--database-wait-timeout-s <N>]
                         [--run-history-retention-days <N>]
                         [--outbox-acked-retention-s <N>]
                         [--retention-interval-s <N>]
@@ -221,7 +222,7 @@ Retention of run history in the database has three settings:
 See
 [Run history retention](../../how-to/service/production-deployment/#run-history-retention).
 
-`server start` takes the retention settings, the
+`server start` takes `--database-wait-timeout-s`, the retention settings, the
 [fleet time limits](#fleet-agent-liveness-cloacina-server) and the
 [alert webhook settings](#alert-webhook-cloacina-server) in three ways: a
 flag, the env var of the setting, or a key of `[server]` in `config.toml`
@@ -277,7 +278,7 @@ These flags send a JSON `POST` when a run ends. They live on the `cloacina-serve
 | `--alert-webhook-timeout-s <N>` | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `10` | Seconds allowed for one request. |
 | `--alert-webhook-max-attempts <N>` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
 | `--public-base-url <URL>` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
-| `--database-wait-timeout-s <N>` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds `cloacina-server` waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s) and logs `Waiting for the database to accept connections` for each wait. After this time it exits with an error that holds the last connection error. `0` = one try, no wait. The HTTP listener opens after the database answers and the migrations ran, so `/health` and `/ready` do not answer during the wait. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. |
+| `--database-wait-timeout-s <N>` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds `cloacina-server` waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s) and logs `Waiting for the database to accept connections` for each wait. After this time it exits with an error that holds the last connection error. `0` = one try, no wait. The HTTP listener opens after the database answers and the migrations ran, so `/health` and `/ready` do not answer during the wait. `cloacinactl server start` takes the same flag and env var, and the key `database_wait_timeout_s` of `[server]` in `config.toml`. |
 
 ### `server stop` / `status` / `health`
 
@@ -298,7 +299,8 @@ binary from `PATH`** (after writing `<home>/compiler.pid`).
 ### `compiler start` / `stop` / `status` / `health`
 
 ```text
-cloacinactl compiler start [--bind <ADDR>] [--database-url <URL>]
+cloacinactl compiler start [--bind <ADDR>] [--metrics-bind <ADDR>]
+                          [--database-url <URL>]
                           [--poll-interval-ms <N>]
                           [--heartbeat-interval-s <N>]
                           [--stale-threshold-s <N>]
@@ -308,6 +310,7 @@ cloacinactl compiler start [--bind <ADDR>] [--database-url <URL>]
 | Flag | Default | Description |
 |---|---|---|
 | `--bind <ADDR>` | `127.0.0.1:9000` | Listen address. |
+| `--metrics-bind <ADDR>` | (none) | Address of a separate listener for `/metrics` (env `CLOACINA_COMPILER_METRICS_BIND`). When set, `/metrics` is served only there and `--bind` answers 404 for it. Forwarded to `cloacina-compiler` only when set. |
 | `--database-url <URL>` | from `DATABASE_URL` | Connection URL (Postgres or SQLite). |
 | `--poll-interval-ms` | (binary default) | How often to poll for pending build rows. |
 | `--heartbeat-interval-s` | (binary default) | Worker heartbeat cadence. |
@@ -713,6 +716,7 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 [server]
 default_executor = "default"        # "default" (in-process) or "fleet"
 # Optional. A key that is not set is not forwarded: the server default applies.
+# database_wait_timeout_s = 60
 # run_history_retention_days = 30   # 0 keeps run history for ever
 # outbox_acked_retention_s = 3600
 # retention_interval_s = 300
