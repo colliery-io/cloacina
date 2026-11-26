@@ -1317,7 +1317,7 @@
             }
           },
           "400": {
-            "description": "Tenant creation failed",
+            "description": "Invalid tenant name",
             "content": {
               "application/json": {
                 "schema": {
@@ -1338,6 +1338,26 @@
           },
           "403": {
             "description": "Admin (god-mode) key required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A tenant of this name exists (`tenant_exists`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -1385,7 +1405,7 @@
             }
           },
           "400": {
-            "description": "Tenant removal failed",
+            "description": "Invalid tenant name",
             "content": {
               "application/json": {
                 "schema": {

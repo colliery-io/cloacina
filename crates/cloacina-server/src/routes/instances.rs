@@ -176,8 +176,7 @@ pub async fn create_instance(
                 "Failed to resolve tenant database for '{}': {}",
                 tenant_id, e
             );
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db.clone());
@@ -201,7 +200,7 @@ pub async fn create_instance(
             .into_response();
         }
         Ok(None) => {}
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => return ApiError::internal_logged("create instance failed", &e).into_response(),
     }
 
     // Validate the bound params against the workflow's declared slots — the
@@ -333,7 +332,7 @@ pub async fn create_instance(
                 "Failed to create instance '{}' of '{}' for tenant '{}': {}",
                 body.instance_name, name, tenant_id, e
             );
-            ApiError::internal(msg).into_response()
+            ApiError::internal_logged("create instance failed", &msg).into_response()
         }
     }
 }
@@ -389,8 +388,7 @@ pub async fn list_instances(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -411,7 +409,7 @@ pub async fn list_instances(
                 "Failed to list instances of '{}' for tenant '{}': {}",
                 name, tenant_id, e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("list instances failed", &e).into_response()
         }
     }
 }
@@ -447,8 +445,7 @@ pub async fn get_instance(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -460,7 +457,7 @@ pub async fn get_instance(
             format!("instance '{}' of workflow '{}' not found", instance, name),
         )
         .into_response(),
-        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => ApiError::internal_logged("get instance failed", &e).into_response(),
     }
 }
 
@@ -499,8 +496,7 @@ pub async fn delete_instance(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db.clone());
@@ -514,7 +510,7 @@ pub async fn delete_instance(
             )
             .into_response();
         }
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => return ApiError::internal_logged("delete instance failed", &e).into_response(),
     };
 
     match dal.schedule().delete(schedule.id).await {
@@ -548,7 +544,7 @@ pub async fn delete_instance(
                 "Failed to delete instance '{}' of '{}' for tenant '{}': {}",
                 instance, name, tenant_id, e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("delete instance failed", &e).into_response()
         }
     }
 }

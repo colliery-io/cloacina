@@ -4858,6 +4858,45 @@ mod tests {
         assert_eq!(body["name"], name);
     }
 
+    /// CLOACINA-T-1035: a second create of one name answers 409 with a
+    /// message that names the tenant, and no SQL text.
+    #[tokio::test]
+    #[serial]
+    async fn test_create_tenant_twice_returns_409_without_sql_text() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        let name = format!(
+            "test_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let body_json = serde_json::json!({ "name": name, "password": "testpass123" });
+        let request = || {
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/v1/tenants")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&body_json).unwrap()))
+                .unwrap()
+        };
+
+        let (status, body) = send_request(build_router(state.clone()), request()).await;
+        assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
+
+        let (status, body) = send_request(build_router(state), request()).await;
+        assert_eq!(status, StatusCode::CONFLICT, "body: {:?}", body);
+        assert_eq!(body["code"], "tenant_exists");
+        let message = body["error"].as_str().unwrap_or_default();
+        assert_eq!(message, format!("tenant '{}' already exists", name));
+        for sql_word in ["role", "CREATE", "SQL", "Failed to"] {
+            assert!(
+                !message.contains(sql_word),
+                "no SQL text in the answer (body: {body})"
+            );
+        }
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_list_tenants() {

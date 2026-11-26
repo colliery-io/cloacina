@@ -3721,7 +3721,7 @@ export interface operations {
                     "application/json": components["schemas"]["TenantCreatedResponse"];
                 };
             };
-            /** @description Tenant creation failed */
+            /** @description Invalid tenant name */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3741,6 +3741,24 @@ export interface operations {
             };
             /** @description Admin (god-mode) key required */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A tenant of this name exists (`tenant_exists`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3771,7 +3789,7 @@ export interface operations {
                     "application/json": components["schemas"]["TenantRemovedResponse"];
                 };
             };
-            /** @description Tenant removal failed */
+            /** @description Invalid tenant name */
             400: {
                 headers: {
                     [name: string]: unknown;

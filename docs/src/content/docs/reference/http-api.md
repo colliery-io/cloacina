@@ -38,6 +38,14 @@ includes a stable `code` field** clients can switch on. The full
 catalog of codes by route and status, plus client retry guidance,
 lives in [API Error Envelope](../api-error-envelope/).
 
+### `500` responses
+
+A `500` body never holds the text of a database error or of another internal
+error. It holds a fixed message, for example
+`internal error: failed to list tenants; the server log has the detail under this response's x-request-id`,
+and the code `internal_error`. The server logs the cause at error level with the
+`request_id` of the response's `x-request-id` header.
+
 ### Request correlation: `x-request-id`
 
 Every response (successful and error alike) carries an
@@ -473,8 +481,10 @@ Create a new tenant. **Admin-only** (requires an `is_admin` key).
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `tenant_creation_failed` | `DatabaseAdmin::create_tenant` rejected (invalid name, schema exists, Postgres permission denied). |
+| `400` | `tenant_creation_failed` | The name is not a valid tenant name. The message says why. |
 | `403` | `admin_required` | Caller is not an `is_admin` key. |
+| `409` | `tenant_exists` | A tenant of this name exists. The message is `tenant '<name>' already exists`. |
+| `500` | `internal_error` | The database refused or failed the create. The body holds a fixed text; the cause is in the server log under the response's `x-request-id`. |
 
 ### GET /v1/tenants
 
@@ -495,7 +505,7 @@ List all tenant schemas.
 
 | Status | Body |
 |---|---|
-| `500` | `{"error": "<detail>"}` |
+| `500` | `{"error": "internal error: <operation>; the server log has the detail under this response's x-request-id"}` |
 
 ### DELETE /v1/tenants/{schema_name}
 
@@ -548,8 +558,8 @@ successful teardown).
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `tenant_removal_failed` | Step 4 (schema drop) failed. Steps 1-3 may have committed. Retry is idempotent. |
-| `500` | `internal_error` | Step 1 (key revocation) failed. Steps 2-4 not attempted. |
+| `400` | `tenant_removal_failed` | The name is not a valid tenant name. Steps 1-3 may have committed. |
+| `500` | `internal_error` | Step 1 (key revocation) failed and steps 2-4 were not attempted, or step 4 (schema drop) failed after steps 1-3. Retry is idempotent. The cause is in the server log under the response's `x-request-id`. |
 | `403` | `admin_required` | Caller is not an `is_admin` key. |
 
 ## Tenant Secrets
@@ -1124,7 +1134,7 @@ Get the execution event log for a specific execution.
 | Status | Body |
 |---|---|
 | `400` | `{"error": "invalid execution ID"}` |
-| `500` | `{"error": "<detail>"}` |
+| `500` | `{"error": "internal error: <operation>; the server log has the detail under this response's x-request-id"}` |
 
 ### GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks
 

@@ -202,8 +202,7 @@ pub async fn execute_workflow(
             Ok(r) => r,
             Err(e) => {
                 warn!("Failed to acquire tenant runner for '{}': {}", tenant_id, e);
-                return ApiError::internal(format!("tenant runner unavailable: {}", e))
-                    .into_response();
+                return ApiError::internal_logged("tenant runner unavailable", &e).into_response();
             }
         }
     };
@@ -325,7 +324,7 @@ pub async fn list_executions(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -360,7 +359,7 @@ pub async fn list_executions(
                 "Failed to list executions for tenant '{}': {}",
                 tenant_id, e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("list executions failed", &e).into_response()
         }
     }
 }
@@ -403,7 +402,7 @@ pub async fn get_execution(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -463,7 +462,7 @@ pub async fn get_execution_events(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -503,7 +502,7 @@ pub async fn get_execution_events(
             })
             .into_response()
         }
-        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => ApiError::internal_logged("get execution events failed", &e).into_response(),
     }
 }
 
@@ -545,7 +544,7 @@ pub async fn get_execution_tasks(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -581,7 +580,7 @@ pub async fn get_execution_tasks(
             })
             .into_response()
         }
-        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => ApiError::internal_logged("get execution tasks failed", &e).into_response(),
     }
 }
 
