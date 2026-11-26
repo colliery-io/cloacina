@@ -80,11 +80,20 @@ env:
 args: ["--max-concurrency", "4"]
 ```
 
-Scale by adding replicas; the server spreads work across live agents greedily by
-free capacity. Useful options (full list in the [CLI reference](../../../reference/cli/#agent)):
+Scale by adding replicas; the server places each task on a live agent of its
+pool with a free slot and room for its requests
+([How a task is placed](../../../explanation/service/execution-agent-fleet/#how-a-task-is-placed)).
+Useful options (full list in the [CLI reference](../../../reference/cli/#agent)):
 
 - `--max-concurrency <N>` (default 4) — packets this agent runs at once; a
   saturated agent refuses further work.
+- `--pool <NAME>` / `CLOACINA_AGENT_POOL` — the agent pool the agent is in
+  (default: the pool `default`).
+- `--cpu <QTY>` / `CLOACINA_AGENT_CPU` and `--memory <QTY>` /
+  `CLOACINA_AGENT_MEMORY` — the total CPU and memory the agent offers to tasks,
+  as Kubernetes quantities (`4`, `32Gi`). The server places tasks by their
+  requests against these. With neither, the server counts only the agent's
+  slots. The agent does not limit a task by them.
 - `--cache-dir <PATH>` / `CLOACINA_AGENT_CACHE_DIR` — persist the fetched-cdylib
   cache across restarts to skip re-fetching artifacts.
 - `--capabilities a,b` — advertise free-form tags at registration.
@@ -240,27 +249,75 @@ request above its limit, a CIDR block with host bits set are a `400`). The
 actuator applies the settings on its next tick (30s by default) and Kubernetes
 rolls the pool's agents.
 
-**What this gives today, and what it does not.** All work runs on the pool
-`default`: a task cannot name a pool yet. So a tenant has, in effect, one size
-of agent. If one task of a tenant needs 32 GB, either size the tenant's
-`default` pool for it (every agent of the tenant is then that size, and with
-`max_concurrency` above 1 the tasks of one agent share the 32 GB), or run that
-work in a second tenant. You can already create another pool:
+### Run large tasks in their own pool
+
+A tenant whose tasks are mostly small, with some that need about 32 GB, runs
+the large ones in a second pool.
+
+1. Create the pool. Its limits are what one agent of the pool can hold.
+
+   ```bash
+   cloacinactl tenant pool set tenant_acme large --cpu-limit 4 \
+     --memory-limit 32Gi --memory-request 16Gi --max-concurrency 8 --agents 2
+   ```
+
+   A pool other than `default` runs a fixed number of agents (`--agents`, the
+   `max_agents` setting). It is not autoscaled, and the tenant's agent limit
+   does not count it.
+
+2. Name the pool on the tasks that need it, with what each one needs.
+
+   ```rust
+   #[task(pool = "large", cpu = "2", memory = "24Gi")]
+   pub async fn load_history(context: &mut Context<Value>) -> Result<(), TaskError> { Ok(()) }
+   ```
+
+   ```python
+   @cloaca.task(pool="large", cpu="2", memory="24Gi")
+   def load_history(context):
+       return context
+   ```
+
+   A task with no `pool` stays on `default`.
+
+3. Publish the package. A task that names a pool the tenant does not have, or
+   that requests more than one agent of its pool holds, makes the package fail:
+   `cloacinactl package inspect <id>` shows build status `failed` and an error
+   that names the task. Create the pool before you publish.
+
+4. Watch the pool. `cloacina_waiting_tasks{tenant="tenant_acme", pool="large"}`
+   is the number of tasks of the pool that wait for room, and
+   `cloacina_oldest_waiting_task_age_seconds` with the same labels is how long
+   the oldest has waited. A count that stays above zero means the pool needs
+   more agents (`--agents`) or larger ones.
+
+The server packs the tasks of a pool onto its agents by their requests: an
+agent with 32Gi runs one 24Gi task and four 2Gi tasks together, and a second
+24Gi task waits for room or goes to the pool's other agent. The rule is in
+[How a task is placed](../../../explanation/service/execution-agent-fleet/#how-a-task-is-placed).
+
+A request decides where a task is sent. It is not a limit: nothing stops a task
+that uses more than it requested, and a pod that runs out of memory takes every
+task on that agent with it. Request what the task needs at its peak.
+
+To use agents you start by hand in a pool, create the pool with `--agents 0`
+and give each agent its pool and its size:
 
 ```bash
-cloacinactl tenant pool set tenant_acme big --memory-limit 32Gi \
-  --memory-request 16Gi --max-concurrency 1 --agents 2
+cloacinactl tenant pool set tenant_acme large --cpu-limit 4 --memory-limit 32Gi --agents 0
+cloacina-agent --server http://cloacina-server:8080 --api-key-file /run/secrets/agent-key \
+  --pool large --cpu 4 --memory 32Gi --max-concurrency 8
 ```
 
-Its two agents start and register, but they receive no work until a task can
-name its pool. A pool other than `default` runs a fixed number of agents
-(`--agents`, the `max_agents` setting); it is not autoscaled, and the tenant's
-agent limit does not count it. To remove it, set it to 0 agents, wait until its
-agents have stopped, then delete it:
+An agent started with no `--cpu` and no `--memory` reports no size. The server
+then counts only its slots (`--max-concurrency`).
+
+To remove a pool, set it to 0 agents, wait until its agents have stopped, then
+delete it:
 
 ```bash
-cloacinactl tenant pool set tenant_acme big --agents 0
-cloacinactl tenant pool delete tenant_acme big
+cloacinactl tenant pool set tenant_acme large --agents 0
+cloacinactl tenant pool delete tenant_acme large
 ```
 
 See [Agent pools](../../../explanation/service/execution-agent-fleet/#agent-pools)

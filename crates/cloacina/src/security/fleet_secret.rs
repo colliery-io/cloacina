@@ -620,6 +620,10 @@ mod tests {
             wrapped_secrets: vec![wrapped],
             secret_key_id: Some(key.key_id.clone()),
             dispatch_id: None,
+            pool: None,
+            cpu_millis: None,
+            memory_bytes: None,
+            inline: false,
         };
 
         // Wire assertion: the plaintext value must not appear anywhere in the

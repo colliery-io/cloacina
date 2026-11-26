@@ -140,12 +140,22 @@ class FleetStack:
         return body["key"]
 
     def start_agent(
-        self, tenant: str | None = "public", max_concurrency: int = 2, env: dict | None = None
+        self,
+        tenant: str | None = "public",
+        max_concurrency: int = 2,
+        env: dict | None = None,
+        pool: str | None = None,
+        cpu: str | None = None,
+        memory: str | None = None,
     ):
         """Start one agent with a key scoped to `tenant`. Returns its log path.
 
         `tenant=None` gives the agent the bootstrap admin key: it registers
         with no tenant, has free capacity, and is eligible for no task.
+
+        `pool` puts the agent in an agent pool (`--pool`). `cpu` and `memory`
+        are the totals it reports (`--cpu`, `--memory`, Kubernetes quantities);
+        with neither it reports none and is packed by its slots only.
         """
         self._agents += 1
         log_name = f"agent-{self._agents}.log"
@@ -158,6 +168,9 @@ class FleetStack:
                 "--server", self.server_url,
                 "--api-key", self.bootstrap_key if tenant is None else self.mint_tenant_key(tenant),
                 "--max-concurrency", str(max_concurrency),
+                *(["--pool", pool] if pool else []),
+                *(["--cpu", cpu] if cpu else []),
+                *(["--memory", memory] if memory else []),
             ],
             agent_env,
         )
@@ -165,7 +178,8 @@ class FleetStack:
         if proc.poll() is not None:
             self.dump(log_name)
             raise AssertionError(f"agent exited early: code={proc.returncode}")
-        print(f"  ok: agent registered (tenant {tenant}, capacity {max_concurrency})")
+        size = f", pool {pool or 'default'}, cpu {cpu}, memory {memory}" if (pool or cpu or memory) else ""
+        print(f"  ok: agent registered (tenant {tenant}, capacity {max_concurrency}{size})")
         return self.home / log_name
 
     def api(self, method: str, path: str, body: dict | None = None) -> dict:

@@ -50,6 +50,12 @@ pub struct FleetAgent {
     pub available_capacity: u32,
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
+    /// The agent's total CPU in millicores, as it reported at registration
+    /// (CLOACINA-T-1027). `None` = it reported none, and the fleet packs it by
+    /// its slot count only.
+    pub cpu_millis: Option<u64>,
+    /// The agent's total memory in bytes (CLOACINA-T-1027). `None` as above.
+    pub memory_bytes: Option<u64>,
 }
 
 /// Registration input (the fields an agent supplies on `POST /v1/agent/register`).
@@ -60,6 +66,10 @@ pub struct FleetAgentRegistration {
     pub target_triple: String,
     pub capabilities: Vec<String>,
     pub max_concurrency: u32,
+    /// Total CPU (millicores) and memory (bytes) of the agent
+    /// (CLOACINA-T-1027). `None` when the agent reports none.
+    pub cpu_millis: Option<u64>,
+    pub memory_bytes: Option<u64>,
 }
 
 fn to_domain(r: UnifiedFleetAgent) -> FleetAgent {
@@ -73,6 +83,15 @@ fn to_domain(r: UnifiedFleetAgent) -> FleetAgent {
         available_capacity: r.available_capacity.max(0) as u32,
         registered_at: r.registered_at,
         last_heartbeat_at: r.last_heartbeat_at,
+        // A total of zero or less is "none reported": nothing fits in it.
+        cpu_millis: r
+            .cpu_millis
+            .and_then(|v| u64::try_from(v).ok())
+            .filter(|v| *v > 0),
+        memory_bytes: r
+            .memory_bytes
+            .and_then(|v| u64::try_from(v).ok())
+            .filter(|v| *v > 0),
     }
 }
 
@@ -114,6 +133,8 @@ impl<'a> FleetAgentDAL<'a> {
             available_capacity: reg.max_concurrency.min(i32::MAX as u32) as i32,
             registered_at: now,
             last_heartbeat_at: now,
+            cpu_millis: reg.cpu_millis.and_then(|v| i64::try_from(v).ok()),
+            memory_bytes: reg.memory_bytes.and_then(|v| i64::try_from(v).ok()),
         };
         crate::interact_on_backend!(self.dal, |conn| {
             diesel::insert_into(fleet_agents::table)
@@ -266,6 +287,8 @@ mod tests {
             target_triple: "aarch64-apple-darwin".to_string(),
             capabilities: vec!["python".to_string()],
             max_concurrency: cap,
+            cpu_millis: None,
+            memory_bytes: None,
         }
     }
 

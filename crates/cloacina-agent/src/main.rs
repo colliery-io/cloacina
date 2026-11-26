@@ -96,6 +96,17 @@ struct Args {
     /// `pool:<name>`. Not set: the server counts the agent in `default`.
     #[arg(long, env = "CLOACINA_AGENT_POOL")]
     pool: Option<String>,
+    /// Total CPU this agent offers to tasks, a Kubernetes quantity (`4`,
+    /// `500m`). Reported at registration; the server places tasks by their
+    /// CPU requests against it. Not set: the agent reports none and the
+    /// server packs it by `--max-concurrency` only. The agent does not limit
+    /// a task by it.
+    #[arg(long, env = "CLOACINA_AGENT_CPU")]
+    cpu: Option<String>,
+    /// Total memory this agent offers to tasks, a Kubernetes quantity
+    /// (`32Gi`, `512Mi`). Reported at registration, as `--cpu` is.
+    #[arg(long, env = "CLOACINA_AGENT_MEMORY")]
+    memory: Option<String>,
     /// Override the host target triple the agent advertises (rarely needed —
     /// useful for testing the OQ-6 fail-closed path on a homogeneous host).
     #[arg(long)]
@@ -205,7 +216,28 @@ async fn async_main(args: Args) -> Result<()> {
 const RECONNECT_BACKOFF_MIN: Duration = Duration::from_secs(1);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
+/// The totals the agent reports at registration (CLOACINA-T-1027): CPU in
+/// millicores and memory in bytes, from `--cpu` and `--memory`. A flag that
+/// is not set, or is empty (an env var set to nothing), reports none. A value
+/// that is not a Kubernetes quantity above zero stops the agent at start.
+fn agent_totals(cpu: Option<&str>, memory: Option<&str>) -> Result<(Option<u64>, Option<u64>)> {
+    fn set(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|v| !v.is_empty())
+    }
+    let cpu_millis = set(cpu)
+        .map(cloacina::fleet::parse_cpu_millis)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--cpu / CLOACINA_AGENT_CPU: {e}"))?;
+    let memory_bytes = set(memory)
+        .map(cloacina::fleet::parse_memory_bytes)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--memory / CLOACINA_AGENT_MEMORY: {e}"))?;
+    Ok((cpu_millis, memory_bytes))
+}
+
 async fn run(args: Args) -> Result<()> {
+    // CLOACINA-T-1027: a bad total stops the start, before any connection.
+    agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
     let server_base = args.server.trim_end_matches('/').to_string();
     let http = reqwest::Client::builder()
         .user_agent(concat!("cloacina-agent/", env!("CARGO_PKG_VERSION")))
@@ -306,6 +338,9 @@ async fn connect_and_serve(
     if let Some(pool) = args.pool.as_deref().filter(|p| !p.is_empty()) {
         capabilities.push(format!("pool:{pool}"));
     }
+    // CLOACINA-T-1027: the agent's total CPU and memory, when it was given
+    // them. The server places tasks by their requests against these.
+    let (cpu_millis, memory_bytes) = agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
     let register_resp = register(
         http,
         server_base,
@@ -315,6 +350,8 @@ async fn connect_and_serve(
         target_triple,
         &capabilities,
         ephemeral_key_pool,
+        cpu_millis,
+        memory_bytes,
     )
     .await
     .context("agent register failed")?;
@@ -323,6 +360,8 @@ async fn connect_and_serve(
         agent_id = %agent_id,
         target_triple = %target_triple,
         max_concurrency = args.max_concurrency,
+        cpu_millis = ?cpu_millis,
+        memory_bytes = ?memory_bytes,
         heartbeat_interval_seconds = register_resp.heartbeat_interval_seconds,
         "agent registered with server"
     );
@@ -388,6 +427,8 @@ async fn register(
     target_triple: &str,
     capabilities: &[String],
     ephemeral_key_pool: Vec<EphemeralKeyEntry>,
+    cpu_millis: Option<u64>,
+    memory_bytes: Option<u64>,
 ) -> Result<AgentRegisterResponse> {
     let body = AgentRegisterRequest {
         protocol_version: AGENT_PROTOCOL_VERSION,
@@ -400,6 +441,8 @@ async fn register(
         // field is retired in favor of the pool.
         ephemeral_public_key: None,
         ephemeral_key_pool,
+        cpu_millis,
+        memory_bytes,
     };
     let resp = http
         .post(format!("{}/v1/agent/register", server))
@@ -2525,7 +2568,71 @@ mod tests {
             wrapped_secrets: Vec::new(),
             secret_key_id: None,
             dispatch_id: None,
+            pool: None,
+            cpu_millis: None,
+            memory_bytes: None,
+            inline: false,
         }
+    }
+
+    // CLOACINA-T-1027: the totals an agent reports come from `--cpu` and
+    // `--memory` (or their env vars), in the Kubernetes forms.
+    #[test]
+    fn agent_totals_are_read_from_the_flags() {
+        assert_eq!(
+            agent_totals(Some("4"), Some("32Gi")).unwrap(),
+            (Some(4000), Some(32 << 30))
+        );
+        assert_eq!(
+            agent_totals(Some("500m"), Some("512Mi")).unwrap(),
+            (Some(500), Some(512 << 20))
+        );
+        // The managed Deployment and a hand start can give one and not the other.
+        assert_eq!(
+            agent_totals(None, Some("1Gi")).unwrap(),
+            (None, Some(1 << 30))
+        );
+    }
+
+    #[test]
+    fn an_agent_with_no_totals_reports_none() {
+        assert_eq!(agent_totals(None, None).unwrap(), (None, None));
+        // An env var set to nothing is "not set".
+        assert_eq!(agent_totals(Some(""), Some("  ")).unwrap(), (None, None));
+    }
+
+    #[test]
+    fn a_bad_total_stops_the_agent_and_names_the_flag() {
+        let err = agent_totals(Some("lots"), None).unwrap_err().to_string();
+        assert!(err.contains("--cpu"), "{err}");
+        let err = agent_totals(None, Some("32GB")).unwrap_err().to_string();
+        assert!(err.contains("--memory"), "{err}");
+        let err = agent_totals(Some("0"), None).unwrap_err().to_string();
+        assert!(err.contains("zero"), "{err}");
+    }
+
+    #[test]
+    fn the_total_flags_parse_from_the_command_line() {
+        let args = Args::try_parse_from([
+            "cloacina-agent",
+            "--server",
+            "http://localhost:8080",
+            "--api-key",
+            "k",
+            "--pool",
+            "large",
+            "--cpu",
+            "8",
+            "--memory",
+            "64Gi",
+        ])
+        .expect("the flags parse");
+        assert_eq!(args.cpu.as_deref(), Some("8"));
+        assert_eq!(args.memory.as_deref(), Some("64Gi"));
+        assert_eq!(
+            agent_totals(args.cpu.as_deref(), args.memory.as_deref()).unwrap(),
+            (Some(8000), Some(64u64 << 30))
+        );
     }
 
     fn empty_key_pool() -> Arc<AsyncMutex<AgentKeyPool>> {

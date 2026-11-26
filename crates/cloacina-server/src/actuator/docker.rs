@@ -444,6 +444,15 @@ fn spawn_env(spec: &SpawnSpec) -> Vec<String> {
     if let Some(n) = spec.settings.max_concurrency {
         env.push(format!("CLOACINA_AGENT_MAX_CONCURRENCY={n}"));
     }
+    // CLOACINA-T-1027: the totals the agent reports are the container's
+    // limits. CPU in millicores, rounded up; memory in bytes.
+    if let Some(nanos) = spec.settings.nano_cpus.filter(|n| *n > 0) {
+        let millis = nanos / 1_000_000 + i64::from(nanos % 1_000_000 != 0);
+        env.push(format!("CLOACINA_AGENT_CPU={millis}m"));
+    }
+    if let Some(bytes) = spec.settings.memory_bytes.filter(|b| *b > 0) {
+        env.push(format!("CLOACINA_AGENT_MEMORY={bytes}"));
+    }
     env
 }
 
@@ -805,6 +814,9 @@ mod tests {
         assert_eq!(host.network_mode.as_deref(), Some("cloacina_net"));
         let env = spawn_env(&specs[0]);
         assert!(env.contains(&"CLOACINA_AGENT_MAX_CONCURRENCY=1".to_string()));
+        // CLOACINA-T-1027: the agent reports the container's limits.
+        assert!(env.contains(&"CLOACINA_AGENT_CPU=2000m".to_string()));
+        assert!(env.contains(&format!("CLOACINA_AGENT_MEMORY={}", 512 << 20)));
         // The pool `default` sets no pool env.
         assert!(!env.iter().any(|e| e.starts_with("CLOACINA_AGENT_POOL=")));
     }

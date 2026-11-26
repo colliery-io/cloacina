@@ -123,6 +123,10 @@ pub struct UnifiedTaskExecution {
     pub claimed_by: Option<UniversalUuid>,
     pub heartbeat_at: Option<UniversalTimestamp>,
     pub waiting_since: Option<UniversalTimestamp>,
+    pub pool: Option<String>,
+    pub cpu_request_millis: Option<i64>,
+    pub memory_request_bytes: Option<i64>,
+    pub fleet_agent_id: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -138,6 +142,11 @@ pub struct NewUnifiedTaskExecution {
     pub max_attempts: i32,
     pub trigger_rules: String,
     pub task_configuration: String,
+    /// CLOACINA-T-1027: the task's agent pool (`None` = `default`) and its
+    /// requests (`None` = none), from `Task::placement()`.
+    pub pool: Option<String>,
+    pub cpu_request_millis: Option<i64>,
+    pub memory_request_bytes: Option<i64>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -389,6 +398,10 @@ pub struct UnifiedFleetAgent {
     pub available_capacity: i32,
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
+    /// CLOACINA-T-1027: the agent's total CPU (millicores) and memory
+    /// (bytes), as it reported them. `None` = it reported none.
+    pub cpu_millis: Option<i64>,
+    pub memory_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Insertable, AsChangeset)]
@@ -404,6 +417,10 @@ pub struct NewUnifiedFleetAgent {
     pub available_capacity: i32,
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
+    /// CLOACINA-T-1027: the agent's total CPU (millicores) and memory
+    /// (bytes), as it reported them. `None` = it reported none.
+    pub cpu_millis: Option<i64>,
+    pub memory_bytes: Option<i64>,
 }
 
 /// One agent pool of a tenant (CLOACINA-T-1021). `settings` is a JSON object;
@@ -960,6 +977,10 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             claimed_by: u.claimed_by,
             heartbeat_at: u.heartbeat_at,
             waiting_since: u.waiting_since,
+            pool: u.pool,
+            cpu_request_millis: u.cpu_request_millis,
+            memory_request_bytes: u.memory_request_bytes,
+            fleet_agent_id: u.fleet_agent_id,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }

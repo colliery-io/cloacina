@@ -83,6 +83,8 @@ pub use namespace::{TaskNamespace, parse_namespace};
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use secret::{SecretAccessError, SecretResolver, SecretResolverError};
 pub use task::{Task, TaskState};
+// CLOACINA-T-1027: what a task declares for its placement on a fleet.
+pub use cloacina_api_types::TaskPlacement;
 pub use trigger::{Trigger, TriggerError, TriggerResult};
 
 // Re-export macros when the feature is enabled

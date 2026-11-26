@@ -150,6 +150,10 @@ pub(super) struct DynamicLibraryTask {
     /// CLOACINA-T-1014: the packaged task's own time limit, forwarded from FFI
     /// metadata. `None` = the executor's limit applies.
     timeout: Option<Duration>,
+    /// CLOACINA-T-1027: the packaged task's agent pool, CPU and memory
+    /// requests and inline mark, forwarded from FFI metadata. The default
+    /// declares nothing (a package built before the fields existed).
+    placement: cloacina_workflow::TaskPlacement,
 }
 
 /// Parse the retry policy JSON of a packaged task (CLOACINA-T-1014).
@@ -201,7 +205,15 @@ impl DynamicLibraryTask {
             requires_handle,
             retry_policy,
             timeout,
+            placement: cloacina_workflow::TaskPlacement::default(),
         }
+    }
+
+    /// Set the task's placement (CLOACINA-T-1027), read from the package
+    /// metadata.
+    pub(super) fn with_placement(mut self, placement: cloacina_workflow::TaskPlacement) -> Self {
+        self.placement = placement;
+        self
     }
 }
 
@@ -380,6 +392,11 @@ impl Task for DynamicLibraryTask {
     fn timeout(&self) -> Option<Duration> {
         self.timeout
     }
+
+    /// Forwarded from the cdylib's FFI metadata (CLOACINA-T-1027).
+    fn placement(&self) -> cloacina_workflow::TaskPlacement {
+        self.placement.clone()
+    }
 }
 
 #[cfg(test)]
@@ -422,5 +439,54 @@ mod tests {
             super::parse_retry_policy("not json", "t"),
             RetryPolicy::default()
         );
+    }
+
+    // CLOACINA-T-1027: what the plugin shell writes into the metadata entry
+    // (the four fields of `Task::placement()`) is what the host reads back
+    // and hands to the `DynamicLibraryTask`.
+    #[test]
+    fn placement_of_a_packaged_task_survives_the_metadata() {
+        use cloacina_workflow::TaskPlacement;
+        use cloacina_workflow_plugin::TaskMetadataEntry;
+        let declared = TaskPlacement {
+            pool: Some("large".to_string()),
+            cpu: Some("4".to_string()),
+            memory: Some("32Gi".to_string()),
+            inline: true,
+        };
+        let entry = TaskMetadataEntry {
+            index: 0,
+            id: "big".to_string(),
+            namespaced_id_template: "{tenant}::{pkg}::wf::big".to_string(),
+            dependencies: vec![],
+            description: String::new(),
+            source_location: String::new(),
+            trigger_rules: "{\"type\":\"Always\"}".to_string(),
+            requires_handle: false,
+            retry_policy: String::new(),
+            timeout_seconds: None,
+            pool: declared.pool.clone(),
+            cpu: declared.cpu.clone(),
+            memory: declared.memory.clone(),
+            inline: declared.inline,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let back: TaskMetadataEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.placement(), declared);
+        assert_eq!(back.placement().pool_name(), "large");
+        assert_eq!(back.placement().cpu_millis(), Some(4000));
+        assert_eq!(back.placement().memory_bytes(), Some(32 << 30));
+    }
+
+    #[test]
+    fn a_packaged_task_with_no_placement_reads_as_the_default_pool() {
+        use cloacina_workflow_plugin::TaskMetadataEntry;
+        let json = r#"{"index":0,"id":"t","namespaced_id_template":"x","dependencies":[],
+            "description":"d","source_location":"s"}"#;
+        let entry: TaskMetadataEntry = serde_json::from_str(json).unwrap();
+        let placement = entry.placement();
+        assert!(placement.is_default());
+        assert_eq!(placement.pool_name(), "default");
+        assert_eq!(placement.memory_bytes(), None);
     }
 }

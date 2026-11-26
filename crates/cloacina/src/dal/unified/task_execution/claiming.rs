@@ -203,7 +203,8 @@ impl<'a> TaskExecutionDAL<'a> {
 
     /// Release a runner's claim on a task (on completion or failure).
     ///
-    /// Clears `claimed_by` and `heartbeat_at`.
+    /// Clears `claimed_by` and `heartbeat_at`, and `fleet_agent_id`
+    /// (CLOACINA-T-1027): a task with no dispatch is on no agent.
     pub async fn release_runner_claim(
         &self,
         task_id: UniversalUuid,
@@ -214,6 +215,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 .set((
                     task_executions::claimed_by.eq(None::<UniversalUuid>),
                     task_executions::heartbeat_at.eq(None::<UniversalTimestamp>),
+                    task_executions::fleet_agent_id.eq(None::<String>),
                     task_executions::updated_at.eq(now),
                 ))
                 .execute(conn)

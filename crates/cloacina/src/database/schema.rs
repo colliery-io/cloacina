@@ -82,6 +82,10 @@ mod unified_schema {
             claimed_by -> Nullable<DbUuid>,
             heartbeat_at -> Nullable<DbTimestamp>,
             waiting_since -> Nullable<DbTimestamp>,
+            pool -> Nullable<Text>,
+            cpu_request_millis -> Nullable<BigInt>,
+            memory_request_bytes -> Nullable<BigInt>,
+            fleet_agent_id -> Nullable<Text>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }
@@ -275,6 +279,8 @@ mod unified_schema {
             available_capacity -> Integer,
             registered_at -> DbTimestamp,
             last_heartbeat_at -> DbTimestamp,
+            cpu_millis -> Nullable<BigInt>,
+            memory_bytes -> Nullable<BigInt>,
         }
     }
 

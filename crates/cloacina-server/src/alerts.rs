@@ -1006,6 +1006,10 @@ mod tests {
             claimed_by: None,
             heartbeat_at: None,
             waiting_since: None,
+            pool: None,
+            cpu_request_millis: None,
+            memory_request_bytes: None,
+            fleet_agent_id: None,
             created_at: at(0),
             updated_at: at(90),
         }

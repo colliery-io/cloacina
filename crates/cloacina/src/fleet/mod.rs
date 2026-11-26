@@ -25,3 +25,7 @@
 pub mod protocol;
 
 pub use protocol::*;
+
+// CLOACINA-T-1027: the quantity parsers an agent reads its `--cpu` and
+// `--memory` totals with, and a task's placement.
+pub use cloacina_api_types::resources::{TaskPlacement, parse_cpu_millis, parse_memory_bytes};

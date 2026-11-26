@@ -48,17 +48,20 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    mechanism the in-process executor uses) so exactly one invocation owns it,
    then marks the workflow execution `Running`. This is what keeps the
    over-selecting scheduler from dispatching the same task twice.
-2. **Select an agent.** From the in-memory agent roster it picks a *live* agent
-   **in the task's tenant** with spare capacity, greedy on most-free-capacity so
-   load spreads. Tenant scope is load-bearing: an agent only ever receives work
+2. **Select an agent.** From the agent roster it picks a *live* agent
+   **in the task's tenant** and **in the task's pool**, with a free slot and
+   with room for the task's CPU and memory requests
+   (see [How a task is placed](#how-a-task-is-placed)). Tenant scope is
+   load-bearing: an agent only ever receives work
    for the tenant its API key is scoped to (REQ-008).
-   When no agent of the tenant can take the task now, the task **waits**: it
+   When no agent of the tenant and pool can take the task now, the task **waits**: it
    stays `Ready`, keeps its attempt count, and is tried again after 2 s. The
    same holds when the chosen agent is full by the time the packet arrives and
    refuses it. Waiting for capacity never fails a task; watch
    `cloacina_fleet_dispatch_deferred_total` to see it. The task is in
    `cloacina_waiting_tasks` for as long as it waits, and
-   `cloacina_oldest_waiting_task_age_seconds` grows.
+   `cloacina_oldest_waiting_task_age_seconds` grows. Both carry the task's pool
+   as a label.
 3. **Resolve the artifact.** For the first task of an execution it looks up
    the active (built, non-superseded) version of the task's package in that
    tenant and records it as the execution's **version pin**. For each later
@@ -359,21 +362,119 @@ An agent tells the server its pool when it registers, as the capability
 `pool:<name>` (`--pool` / `CLOACINA_AGENT_POOL`; the actuator sets it). An agent
 with no pool capability, such as one you start by hand, is in `default`.
 
-What pools do **not** do yet:
+A task names its pool with `pool = "large"` on
+[`#[task]`](../../../reference/macros/#pool-and-requests) or on the Python
+[`@task`](../../../reference/python-api/task/#pool-and-requests). A task with a
+pool runs only on an agent of that pool. A task with no pool runs only on
+`default`. Work never moves to another pool because its own is full or empty:
+it waits.
 
-- **All work runs on `default`.** A task cannot name the pool it needs, so the
-  server sends every task to an agent of the pool `default`. A pool other than
-  `default` can be created and sized, and its agents start and register, but
-  they receive no work. Until a task can name a pool, a tenant with one task
-  that needs 32 GB must size its `default` pool for that task (so every agent
-  of the tenant is that size), or run that work in a second tenant.
+### How a task is placed
+
+A task may also request CPU and memory (`cpu = "4"`, `memory = "32Gi"`). The
+server packs tasks onto the agents of a pool by these requests.
+
+**What an agent can hold.** An agent reports its total CPU and memory when it
+registers, next to its slot count (`max_concurrency`):
+
+- A managed agent on Kubernetes reports what its pool's settings give its pod:
+  the pool's limit, or the pool's request when it sets no limit, for CPU and
+  for memory. A pool that sets neither for a resource reports no total for it.
+- A managed agent on Docker reports the container's CPU and memory limits.
+- An agent you start by hand reports what you give it with `--cpu` and
+  `--memory` (`CLOACINA_AGENT_CPU`, `CLOACINA_AGENT_MEMORY`). With neither it
+  reports no totals.
+
+**What is in flight.** The server keeps, for each agent, the tasks it has
+placed there and not yet had a result for. It keeps them on the task rows in
+the database, so every server replica counts the same tasks. The sum of their
+requests is what is used on the agent.
+
+**What a task counts for.**
+
+| The task | The agent reports a total | The agent reports no total |
+|---|---|---|
+| has a request | the request | nothing: the agent is packed by slots only |
+| has no request | one slot's share: the total divided by `max_concurrency` | nothing |
+
+So a package built before requests existed behaves as before: an agent is full
+at its slot count.
+
+**The rule.** A task can go to an agent when all of these hold:
+
+1. the agent is live, in the task's tenant and in the task's pool, and can run
+   the package (its architecture);
+2. it has a free slot. The slot count is an upper cap whatever the requests
+   say: an agent never has more tasks than its `max_concurrency`;
+3. what the task counts for in CPU fits in the agent's free CPU, and the same
+   for memory.
+
+Among the agents where the task fits, the server picks the one with the
+**least free memory**, so that the agents with the most room stay free for
+large tasks. Between agents with the same free memory it picks the one with the
+most free slots. An agent that reports no memory total comes after every agent
+that does.
+
+Example: a pool whose agents hold 32Gi. One agent runs a 24Gi task and four
+2Gi tasks together, which is 32Gi. A second 24Gi task does not fit there. It
+goes to another agent of the pool with 24Gi free, or it waits.
+
+**A task that fits nowhere waits.** It stays `Ready`, keeps its attempt count
+and is tried again every 2 s. It does not fail and it uses no retry attempt.
+`cloacina_waiting_tasks{pool="large"}` counts the waiting tasks of each pool.
+
+**Two server replicas and the last free room.** Each replica writes its
+placement on the task's row and then reads the agent's sum again. If the sum is
+now more than the agent can hold, that replica takes its placement back and its
+task waits. The replica that wrote second always sees the first one, so an
+agent never keeps two tasks on the same room. When both wrote before either
+read, both take their placement back and both tasks are tried again.
+
+**Requests are not limits.** A request decides where a task is sent. Nothing
+measures or limits what the task then uses. A task that uses more memory than
+it requested is not stopped, and when the agent's pod runs out of memory every
+task on that agent fails with it. Set each request to what the task needs at
+its peak, and keep `max_concurrency` low on a pool for large tasks.
+
+Graph firings (computation graphs dispatched to the fleet) name no pool and
+have no request. They go to the pool `default` and are counted by the agent's
+free slots only.
+
+### What a publish checks
+
+When a package is published, the server checks each of its tasks against the
+tenant's pools. The package is refused when a task:
+
+- names a pool the tenant does not have, or
+- requests more CPU or memory than one agent of its pool can hold. That size is
+  what the pool's settings say: its limit, or its request when it sets no
+  limit. A pool that sets neither for a resource has no size to compare with.
+
+The check runs when the tenant's runner loads the package, because that is when
+its tasks are known: for a Rust package, after the compile. A refused package
+is not loaded. Its build status becomes `failed` and its build error holds the
+reason, with the task, the pool and the numbers:
+
+```text
+package orders v1.4.0 is refused: task 'load_history' requests memory 64Gi,
+but one agent of the pool 'large' holds 32Gi at most. Lower the request, or
+raise the pool's memory limit, and publish again.
+```
+
+`cloacinactl package inspect <id>` and the workflow routes show it, the same
+way they show a compile error. Fix the task or the pool, then publish the
+package again.
+
+A pool for agents you start by hand needs a row too, or tasks that name it are
+refused: create it with `max_agents` 0, so the server starts no agents for it.
+
+### What pools do not do
+
 - **Only `default` is autoscaled.** Another pool runs a fixed number of agents,
   its `max_agents`. The tenant's agent limit and the provision API are for
   `default`; they do not count or bound the other pools.
-- **No per-task resources.** A task runs inside the agent process. The pool's
-  limits are the agent's limits, shared by the tasks it runs at one time
-  (`max_concurrency`). For a task that needs most of the agent's memory, set
-  `max_concurrency` to 1.
+- **No limit on what a task uses.** A task runs inside the agent process, next
+  to the other tasks of that agent. See "Requests are not limits" above.
 
 ### How a change of settings reaches the agents
 

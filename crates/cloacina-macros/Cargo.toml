@@ -17,6 +17,9 @@ categories.workspace = true
 proc-macro = true
 
 [dependencies]
+# The pool name rule and the quantity grammar of `#[task(pool, cpu, memory)]`
+# (CLOACINA-T-1027): the same rules the server's pool routes use.
+cloacina-api-types = { workspace = true }
 once_cell.workspace = true
 proc-macro2 = { version = "1.0" }
 quote = { version = "1.0" }

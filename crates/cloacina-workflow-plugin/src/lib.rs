@@ -221,6 +221,12 @@ macro_rules! package {
                             .unwrap_or_default(),
                             timeout_seconds: cloacina_workflow::Task::timeout(&*task)
                                 .map(|limit| limit.as_secs()),
+                            // CLOACINA-T-1027: the pool, the requests and the
+                            // inline mark, as the author declared them.
+                            pool: cloacina_workflow::Task::placement(&*task).pool,
+                            cpu: cloacina_workflow::Task::placement(&*task).cpu,
+                            memory: cloacina_workflow::Task::placement(&*task).memory,
+                            inline: cloacina_workflow::Task::placement(&*task).inline,
                         });
                     }
                     // Look up WorkflowDescriptorEntry for description / author /
@@ -1031,6 +1037,12 @@ pub trait CloacinaHost: Send + Sync {
 // packaged task's own retry policy and time limit. No release shipped version 8
 // before these fields, so they did not need a new version. A package built
 // from a commit between the two changes must be built again.
+// version 8 also covers (CLOACINA-T-1027): `TaskMetadataEntry` gained `pool`,
+// `cpu`, `memory` and `inline` at its end, after `timeout_seconds`, so the host
+// learns a packaged task's agent pool, its CPU and memory requests and its
+// inline mark. Version 8 is still not released, so the fields ride it with no
+// new version. A package built from an earlier commit of version 8 must be
+// built again.
 #[fidius::plugin_interface(version = 8, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.

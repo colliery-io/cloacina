@@ -77,6 +77,35 @@ pub struct TaskMetadataEntry {
     /// its own and the executor's limit applies.
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
+    /// CLOACINA-T-1027: the agent pool the task runs in on a fleet, from
+    /// `#[task(pool = "large")]`. `None` means the pool `default`.
+    #[serde(default)]
+    pub pool: Option<String>,
+    /// CLOACINA-T-1027: the task's CPU request, a Kubernetes quantity as the
+    /// author wrote it (`500m`, `4`). `None` means no request.
+    #[serde(default)]
+    pub cpu: Option<String>,
+    /// CLOACINA-T-1027: the task's memory request, a Kubernetes quantity as
+    /// the author wrote it (`512Mi`, `32Gi`). `None` means no request.
+    #[serde(default)]
+    pub memory: Option<String>,
+    /// CLOACINA-T-1027: `#[task(inline = true)]`. Carried for
+    /// CLOACINA-T-1028; nothing acts on it yet.
+    #[serde(default)]
+    pub inline: bool,
+}
+
+impl TaskMetadataEntry {
+    /// The task's placement (CLOACINA-T-1027): pool, requests and the inline
+    /// mark, as one value.
+    pub fn placement(&self) -> cloacina_workflow::TaskPlacement {
+        cloacina_workflow::TaskPlacement {
+            pool: self.pool.clone(),
+            cpu: self.cpu.clone(),
+            memory: self.memory.clone(),
+            inline: self.inline,
+        }
+    }
 }
 
 /// Default trigger-rules JSON (`Always`) for back-compat deserialization of
@@ -609,6 +638,10 @@ mod tests {
             requires_handle: false,
             retry_policy: "{\"max_attempts\":0}".to_string(),
             timeout_seconds: Some(600),
+            pool: Some("large".to_string()),
+            cpu: Some("4".to_string()),
+            memory: Some("32Gi".to_string()),
+            inline: true,
         };
 
         let json = serde_json::to_string(&entry).unwrap();
@@ -617,6 +650,29 @@ mod tests {
         assert_eq!(roundtrip.index, 0);
         assert_eq!(roundtrip.retry_policy, "{\"max_attempts\":0}");
         assert_eq!(roundtrip.timeout_seconds, Some(600));
+        // CLOACINA-T-1027: the pool, the requests and the inline mark.
+        assert_eq!(roundtrip.pool.as_deref(), Some("large"));
+        assert_eq!(roundtrip.cpu.as_deref(), Some("4"));
+        assert_eq!(roundtrip.memory.as_deref(), Some("32Gi"));
+        assert!(roundtrip.inline);
+        let placement = roundtrip.placement();
+        assert_eq!(placement.pool_name(), "large");
+        assert_eq!(placement.cpu_millis(), Some(4000));
+        assert_eq!(placement.memory_bytes(), Some(32 << 30));
+    }
+
+    // CLOACINA-T-1027: metadata written before the placement fields existed
+    // reads as "the pool `default`, no request, not inline".
+    #[test]
+    fn task_metadata_without_placement_fields_reads_as_the_default() {
+        let json = r#"{"index":0,"id":"t","namespaced_id_template":"x","dependencies":[],
+            "description":"d","source_location":"s"}"#;
+        let entry: TaskMetadataEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.pool, None);
+        assert_eq!(entry.cpu, None);
+        assert_eq!(entry.memory, None);
+        assert!(!entry.inline);
+        assert!(entry.placement().is_default());
     }
 
     #[test]
@@ -639,6 +695,10 @@ mod tests {
                 requires_handle: false,
                 retry_policy: String::new(),
                 timeout_seconds: None,
+                pool: None,
+                cpu: None,
+                memory: None,
+                inline: false,
             }],
             triggers: Vec::new(),
         };

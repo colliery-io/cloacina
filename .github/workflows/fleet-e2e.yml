@@ -26,6 +26,8 @@ on:
       - 'crates/cloacina/src/executor/result_handler.rs'
       - 'examples/fixtures/compiler-happy-rust/**'
       - 'examples/fixtures/fleet-long-task-rust/**'
+      - 'examples/fixtures/fleet-pools-rust/**'
+      - 'crates/cloacina-server/src/placement_check.rs'
       - '.angreal/test/e2e/fleet*.py'
       - '.angreal/test/e2e/_fleet_stack.py'
       - '.angreal/test/e2e/compiler.py'
@@ -86,3 +88,6 @@ jobs:
 
       - name: Fleet e2e (a 150 s task runs one time)
         run: angreal test e2e fleet-long-task
+
+      - name: Fleet e2e (two agent pools; tasks are packed by their requests)
+        run: angreal test e2e fleet-pools

@@ -37,7 +37,7 @@ pub struct AgentInfo {
 }
 
 /// The name of the pool every tenant has. An agent that registers no pool is
-/// in it, and until a task can name a pool all work goes to it.
+/// in it, and a task that names no pool runs in it.
 pub const DEFAULT_AGENT_POOL: &str = "default";
 
 /// Prefix of the capability an agent registers to say which pool it is in

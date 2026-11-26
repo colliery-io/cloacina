@@ -142,6 +142,19 @@ use crate::{Context, Database, Workflow};
 
 use scheduler_loop::SchedulerLoop;
 
+/// One task row the planner writes for a new workflow execution.
+struct PlannedTaskRow {
+    task_name: String,
+    trigger_rules: String,
+    task_config: String,
+    max_attempts: i32,
+    /// CLOACINA-T-1027: the task's agent pool (`None` = `default`) and its
+    /// requests, from `Task::placement()`.
+    pool: Option<String>,
+    cpu_request_millis: Option<i64>,
+    memory_request_bytes: Option<i64>,
+}
+
 /// The main Task Scheduler that manages workflow execution and task readiness.
 ///
 /// The TaskScheduler converts Workflow definitions into persistent database execution plans,
@@ -371,7 +384,7 @@ impl TaskScheduler {
 
         // Build all task data BEFORE the transaction
         let task_ids = workflow.topological_sort()?;
-        let mut task_data: Vec<(String, String, String, i32)> = Vec::with_capacity(task_ids.len());
+        let mut task_data: Vec<PlannedTaskRow> = Vec::with_capacity(task_ids.len());
 
         for task_id in &task_ids {
             let trigger_rules = self.get_task_trigger_rules(&workflow, task_id);
@@ -381,12 +394,23 @@ impl TaskScheduler {
                 .map(|t| t.retry_policy().max_attempts)
                 .unwrap_or(3);
 
-            task_data.push((
-                task_id.to_string(),
-                trigger_rules.to_string(),
-                task_config.to_string(),
+            // CLOACINA-T-1027: the task's agent pool and requests go on its
+            // row, so the fleet packs by them and the waiting gauges group
+            // by pool.
+            let placement = workflow
+                .get_task(task_id)
+                .map(|t| t.placement())
+                .unwrap_or_default();
+
+            task_data.push(PlannedTaskRow {
+                task_name: task_id.to_string(),
+                trigger_rules: trigger_rules.to_string(),
+                task_config: task_config.to_string(),
                 max_attempts,
-            ));
+                pool: placement.pool.clone(),
+                cpu_request_millis: placement.cpu_millis().and_then(|v| i64::try_from(v).ok()),
+                memory_request_bytes: placement.memory_bytes().and_then(|v| i64::try_from(v).ok()),
+            });
         }
 
         // Prepare workflow execution data
@@ -437,7 +461,7 @@ impl TaskScheduler {
         workflow_name: String,
         workflow_version: String,
         stored_context: Option<UniversalUuid>,
-        task_data: Vec<(String, String, String, i32)>,
+        task_data: Vec<PlannedTaskRow>,
     ) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -463,17 +487,20 @@ impl TaskScheduler {
                     .execute(conn)?;
 
                 // Insert all tasks
-                for (task_name, trigger_rules, task_config, max_attempts) in task_data {
+                for task in task_data {
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
                             workflow_execution_id,
-                            task_name,
+                            task_name: task.task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
-                            max_attempts,
-                            trigger_rules,
-                            task_configuration: task_config,
+                            max_attempts: task.max_attempts,
+                            trigger_rules: task.trigger_rules,
+                            task_configuration: task.task_config,
+                            pool: task.pool,
+                            cpu_request_millis: task.cpu_request_millis,
+                            memory_request_bytes: task.memory_request_bytes,
                             created_at: now,
                             updated_at: now,
                         })
@@ -498,7 +525,7 @@ impl TaskScheduler {
         workflow_name: String,
         workflow_version: String,
         stored_context: Option<UniversalUuid>,
-        task_data: Vec<(String, String, String, i32)>,
+        task_data: Vec<PlannedTaskRow>,
     ) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -524,17 +551,20 @@ impl TaskScheduler {
                     .execute(conn)?;
 
                 // Insert all tasks
-                for (task_name, trigger_rules, task_config, max_attempts) in task_data {
+                for task in task_data {
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
                             workflow_execution_id,
-                            task_name,
+                            task_name: task.task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
-                            max_attempts,
-                            trigger_rules,
-                            task_configuration: task_config,
+                            max_attempts: task.max_attempts,
+                            trigger_rules: task.trigger_rules,
+                            task_configuration: task.task_config,
+                            pool: task.pool,
+                            cpu_request_millis: task.cpu_request_millis,
+                            memory_request_bytes: task.memory_request_bytes,
                             created_at: now,
                             updated_at: now,
                         })

@@ -165,6 +165,19 @@ fn test_metadata_fidelity() {
     );
     assert_eq!(by_id("validate_data").timeout_seconds, None);
     assert_eq!(by_id("generate_reports").timeout_seconds, Some(600));
+
+    // CLOACINA-T-1027: the pool, the requests and the inline mark cross the
+    // boundary. `generate_reports` is `#[task(.., cpu = "500m", memory =
+    // "256Mi")]` with no pool; `validate_data` declares nothing.
+    let reports = by_id("generate_reports").placement();
+    assert_eq!(reports.pool, None);
+    assert_eq!(reports.pool_name(), "default");
+    assert_eq!(reports.cpu.as_deref(), Some("500m"));
+    assert_eq!(reports.memory.as_deref(), Some("256Mi"));
+    assert_eq!(reports.cpu_millis(), Some(500));
+    assert_eq!(reports.memory_bytes(), Some(256 << 20));
+    assert!(!reports.inline);
+    assert!(by_id("validate_data").placement().is_default());
 }
 
 #[test]
@@ -288,6 +301,8 @@ fn test_plugin_info_populated() {
     //   8 — CLOACINA-T-1019 `timezone` on TriggerPackageMetadata
     //       and CLOACINA-T-1014 `retry_policy` + `timeout_seconds` on
     //       TaskMetadataEntry (same version: no release shipped 8 between)
+    //       and CLOACINA-T-1027 `pool`, `cpu`, `memory`, `inline` on
+    //       TaskMetadataEntry (same version, still not released)
     assert_eq!(
         plugin.info.interface_version, 8,
         "Interface version should be 8 (CLOACINA-T-1019 timezone on TriggerPackageMetadata)"

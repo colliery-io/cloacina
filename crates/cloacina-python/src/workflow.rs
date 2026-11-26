@@ -377,6 +377,10 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
+                None,
+                false,
             )
             .unwrap();
             let func = py

@@ -34,6 +34,10 @@ Applied to an `async fn` to define a task with retry policies, dependency declar
     retry_condition = "all",
     retry_jitter = true,
     timeout_seconds = 600,
+    pool = "large",
+    cpu = "4",
+    memory = "32Gi",
+    inline = false,
     trigger_rules = always,
     on_success = my_success_handler,
     on_failure = my_failure_handler,
@@ -56,11 +60,54 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 | `retry_condition` | string literal | no | `"all"` | When to retry. See [Retry Conditions](#retry-conditions). |
 | `retry_jitter` | boolean | no | `true` | Whether to add random jitter to retry delays to avoid thundering herd. |
 | `timeout_seconds` | integer (> 0) | no | -- | The task's own time limit in seconds. When set it replaces the executor's limit for this task: `task_timeout` in process, the server default (`--fleet-task-timeout-s`) on an [execution-agent fleet](../../explanation/service/execution-agent-fleet/#time-limits-and-retries), where the server maximum caps it. An attempt that runs past the limit fails as a timeout. |
+| `pool` | string literal | no | `"default"` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the task runs in on an execution-agent fleet. A task with a pool runs only on an agent of that pool; a task with none runs only on the pool `default`. The name follows the pool name rule: lowercase letters, digits and `-`, a letter or digit at both ends, 40 characters at most. See [Pool and requests](#pool-and-requests). |
+| `cpu` | string literal | no | -- | CPU request, a Kubernetes quantity above zero: `"500m"`, `"4"`. The fleet places the task on an agent that has this much CPU free. |
+| `memory` | string literal | no | -- | Memory request, a Kubernetes quantity above zero: `"512Mi"`, `"32Gi"`. The fleet places the task on an agent that has this much memory free. |
+| `inline` | boolean | no | `false` | Marks the task as one that runs inside the agent process. The mark is stored with the task and sent to the agent. It changes nothing about how the task runs. |
 | `trigger_rules` | expression | no | `always` | Trigger rule expression controlling when the task should execute. See [Trigger Rules](#trigger-rules). |
 | `on_success` | expression (path) | no | -- | Async callback on success. Signature: `async fn(&str, &Context<Value>) -> Result<(), E>` |
 | `on_failure` | expression (path) | no | -- | Async callback on failure. Signature: `async fn(&str, &TaskError, &Context<Value>) -> Result<(), E>` |
 | `invokes` | call-expression | no | -- | Embed a computation graph as this task. Form: `invokes = computation_graph("name")`. The graph runs once per task invocation with the task's context as input; terminal-node outputs merge back into the context. See [Invoke a computation graph from a workflow task](../../how-to/embed/invoke-computation-graph-from-workflow/) for the full recipe. |
 | `post_invocation` | expression (path) | no | -- | Only valid alongside `invokes`. Async callback to run after the embedded graph completes, receives the merged output context. Signature: `async fn(&mut Context<Value>) -> Result<(), TaskError>` |
+
+### Pool and requests
+
+`pool`, `cpu` and `memory` say where a task runs on an
+[execution-agent fleet](../../explanation/service/execution-agent-fleet/#how-a-task-is-placed)
+and how much room it needs there. All three are optional.
+
+```rust
+#[task(pool = "large", cpu = "4", memory = "32Gi")]
+pub async fn load_history(context: &mut Context<Value>) -> Result<(), TaskError> {
+    Ok(())
+}
+
+#[task(memory = "512Mi")]
+pub async fn summarize(context: &mut Context<Value>) -> Result<(), TaskError> {
+    Ok(())
+}
+```
+
+- The values are checked when the macro runs. A pool name that breaks the name
+  rule, or a quantity that is not a Kubernetes quantity above zero (`"32GB"`,
+  `"0"`, `cpu = 4` with no quotes), is a compile error at the attribute.
+- A quantity uses the Kubernetes forms: a number with no suffix (`"4"`,
+  `"0.5"`), a decimal suffix (`m`, `k`, `M`, `G`, `T`) or a binary suffix
+  (`Ki`, `Mi`, `Gi`, `Ti`). CPU is counted in millicores and memory in bytes,
+  both rounded up.
+- **A request is used for placement only.** The server counts the requests of
+  the tasks in flight on each agent and sends a task where its request still
+  fits. Nothing limits what a task uses: a task that asks for `2Gi` and uses
+  `20Gi` is not stopped, and it can take down the agent with the other tasks on
+  it. Ask for what the task needs at its peak.
+- A task with no request counts as one slot's share of its agent: the agent's
+  total divided by its max concurrency.
+- When a package is published, a task that names a pool the tenant does not
+  have, or that requests more than one agent of its pool can hold, makes the
+  package fail with an error that names the task. See
+  [what a publish checks](../../explanation/service/execution-agent-fleet/#what-a-publish-checks).
+- The in-process executor does not read these attributes. They take effect
+  when tasks run on a fleet.
 
 ### Backoff Strategies
 
