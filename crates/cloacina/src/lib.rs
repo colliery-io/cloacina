@@ -199,6 +199,8 @@
 //! - `retry_attempts`, `retry_delay_ms`, `retry_max_delay_ms`, `retry_jitter`,
 //!   `retry_backoff` (`"fixed"` | `"linear"` | `"exponential"`),
 //!   `retry_condition`: Optional configuration for automatic retries
+//! - `timeout_seconds`: Optional time limit of the task's own, in seconds; it
+//!   replaces the executor's limit for this task
 //! - `trigger_rules`: Optional conditions for task execution
 //!
 //! ### Context

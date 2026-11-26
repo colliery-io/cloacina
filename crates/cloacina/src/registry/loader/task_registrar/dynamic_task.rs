@@ -22,9 +22,11 @@
 
 use chrono::Utc;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::context::Context;
 use crate::error::TaskError;
+use crate::retry::RetryPolicy;
 use crate::task::{Task, TaskNamespace};
 use cloacina_workflow_plugin::{TaskExecutionRequest, TaskExecutionResult};
 
@@ -140,6 +142,36 @@ pub(super) struct DynamicLibraryTask {
     /// was registered for deferral, and `defer_until` failed with
     /// `TASK_NOT_RUNNING`.
     requires_handle: bool,
+    /// CLOACINA-T-1014: the packaged task's own retry policy, forwarded from
+    /// FFI metadata. Without it every packaged task got the trait default
+    /// (3 attempts, all errors), so `retry_attempts = 0` and
+    /// `retry_condition = "never"` did nothing.
+    retry_policy: RetryPolicy,
+    /// CLOACINA-T-1014: the packaged task's own time limit, forwarded from FFI
+    /// metadata. `None` = the executor's limit applies.
+    timeout: Option<Duration>,
+}
+
+/// Parse the retry policy JSON of a packaged task (CLOACINA-T-1014).
+///
+/// Empty text means the default policy. Text that does not parse also gives
+/// the default policy, with a warning: a task that runs with the default
+/// policy is better than a package that does not load.
+pub(super) fn parse_retry_policy(json: &str, task_name: &str) -> RetryPolicy {
+    if json.trim().is_empty() {
+        return RetryPolicy::default();
+    }
+    match serde_json::from_str(json) {
+        Ok(policy) => policy,
+        Err(e) => {
+            tracing::warn!(
+                task = %task_name,
+                error = %e,
+                "packaged task retry policy does not parse; using the default policy"
+            );
+            RetryPolicy::default()
+        }
+    }
 }
 
 impl DynamicLibraryTask {
@@ -158,6 +190,8 @@ impl DynamicLibraryTask {
         dependencies: Vec<TaskNamespace>,
         trigger_rules: serde_json::Value,
         requires_handle: bool,
+        retry_policy: RetryPolicy,
+        timeout: Option<Duration>,
     ) -> Self {
         Self {
             plugin,
@@ -165,6 +199,8 @@ impl DynamicLibraryTask {
             dependencies,
             trigger_rules,
             requires_handle,
+            retry_policy,
+            timeout,
         }
     }
 }
@@ -332,6 +368,18 @@ impl Task for DynamicLibraryTask {
     fn requires_handle(&self) -> bool {
         self.requires_handle
     }
+
+    /// Forwarded from the cdylib's FFI metadata (CLOACINA-T-1014). The trait
+    /// default is 3 attempts on all errors; before this override the task's
+    /// own `retry_attempts` and `retry_condition` were ignored.
+    fn retry_policy(&self) -> RetryPolicy {
+        self.retry_policy.clone()
+    }
+
+    /// Forwarded from the cdylib's FFI metadata (CLOACINA-T-1014).
+    fn timeout(&self) -> Option<Duration> {
+        self.timeout
+    }
 }
 
 #[cfg(test)]
@@ -341,5 +389,38 @@ mod tests {
         // Just verify Debug trait works
         let formatted = format!("{:?}", "LoadedWorkflowPlugin");
         assert!(!formatted.is_empty());
+    }
+
+    // CLOACINA-T-1014: the policy text that the plugin shell writes
+    // (`serde_json::to_string(&task.retry_policy())`) must give the same
+    // policy back on the host.
+    #[test]
+    fn retry_policy_of_a_packaged_task_survives_the_metadata() {
+        use crate::retry::{BackoffStrategy, RetryCondition, RetryPolicy};
+        let policy = RetryPolicy {
+            max_attempts: 0,
+            backoff_strategy: BackoffStrategy::Fixed,
+            initial_delay: std::time::Duration::from_millis(250),
+            max_delay: std::time::Duration::from_secs(5),
+            jitter: false,
+            retry_conditions: vec![
+                RetryCondition::Never,
+                RetryCondition::ErrorPattern {
+                    patterns: vec!["rate limit".to_string()],
+                },
+            ],
+        };
+        let json = serde_json::to_string(&policy).unwrap();
+        assert_eq!(super::parse_retry_policy(&json, "t"), policy);
+    }
+
+    #[test]
+    fn empty_or_bad_retry_policy_text_gives_the_default_policy() {
+        use crate::retry::RetryPolicy;
+        assert_eq!(super::parse_retry_policy("", "t"), RetryPolicy::default());
+        assert_eq!(
+            super::parse_retry_policy("not json", "t"),
+            RetryPolicy::default()
+        );
     }
 }

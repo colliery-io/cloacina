@@ -28,3 +28,22 @@ fn test_macro_expansion() {
     // Just test that the macro expands without error
     let _task = test_task_task();
 }
+
+// CLOACINA-T-1014: `timeout_seconds` gives the task a time limit of its own,
+// and `retry_attempts = 0` reaches `Task::retry_policy()`.
+#[task(id = "long_task", timeout_seconds = 600, retry_attempts = 0)]
+async fn long_task(
+    _context: &mut cloacina::Context<serde_json::Value>,
+) -> Result<(), cloacina::TaskError> {
+    Ok(())
+}
+
+#[test]
+fn test_task_time_limit_and_retry_attempts_from_the_macro() {
+    use cloacina::Task;
+    let task = long_task_task();
+    assert_eq!(task.timeout(), Some(std::time::Duration::from_secs(600)));
+    assert_eq!(task.retry_policy().max_attempts, 0);
+    // A task that sets no limit has none of its own.
+    assert_eq!(test_task_task().timeout(), None);
+}

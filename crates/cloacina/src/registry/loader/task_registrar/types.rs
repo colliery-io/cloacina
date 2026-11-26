@@ -35,6 +35,12 @@ pub struct OwnedTaskMetadata {
     /// Gates the executor's entire handle path; `false` for packages built
     /// before the field existed, which is correct — they could not use one.
     pub requires_handle: bool,
+    /// JSON string of the task's `RetryPolicy` (CLOACINA-T-1014). Empty means
+    /// the default policy.
+    pub retry_policy_json: String,
+    /// The task's own time limit in seconds (CLOACINA-T-1014). `None` = the
+    /// executor's limit applies.
+    pub timeout_seconds: Option<u64>,
 }
 
 /// Owned collection of task metadata — safe to use after library is unloaded.

@@ -271,7 +271,10 @@ impl ThreadTaskExecutor {
         task: &dyn Task,
         context: Context<serde_json::Value>,
     ) -> Result<Context<serde_json::Value>, ExecutorError> {
-        match tokio::time::timeout(self.config.task_timeout, task.execute(context)).await {
+        // CLOACINA-T-1014: the task's own time limit, when it has one, replaces
+        // the configured `task_timeout` for this task.
+        let limit = task.timeout().unwrap_or(self.config.task_timeout);
+        match tokio::time::timeout(limit, task.execute(context)).await {
             Ok(result) => result.map_err(ExecutorError::TaskExecution),
             Err(_) => Err(ExecutorError::TaskTimeout),
         }
@@ -992,6 +995,85 @@ mod tests {
             let metrics = exec.metrics();
             assert_eq!(metrics.max_concurrent, 8);
             assert_eq!(exec.semaphore().available_permits(), 8);
+        }
+
+        // -----------------------------------------------------------------------
+        // CLOACINA-T-1014: a task's own time limit replaces `task_timeout`
+        // -----------------------------------------------------------------------
+
+        /// A task that sleeps, with an optional time limit of its own.
+        struct SleepTask {
+            sleep: std::time::Duration,
+            own_limit: Option<std::time::Duration>,
+        }
+
+        #[async_trait]
+        impl Task for SleepTask {
+            async fn execute(
+                &self,
+                context: Context<serde_json::Value>,
+            ) -> Result<Context<serde_json::Value>, crate::error::TaskError> {
+                tokio::time::sleep(self.sleep).await;
+                Ok(context)
+            }
+            fn id(&self) -> &str {
+                "sleep_task"
+            }
+            fn dependencies(&self) -> &[crate::task::TaskNamespace] {
+                &[]
+            }
+            fn timeout(&self) -> Option<std::time::Duration> {
+                self.own_limit
+            }
+        }
+
+        fn executor_with_task_timeout(task_timeout: std::time::Duration) -> ThreadTaskExecutor {
+            let db = Database::new("sqlite://:memory:", "", 1);
+            let registry = Arc::new(TaskRegistry::new());
+            let config = ExecutorConfig {
+                task_timeout,
+                ..ExecutorConfig::default()
+            };
+            ThreadTaskExecutor::new(db, registry, config)
+        }
+
+        // Real time with short durations: the limits here are milliseconds
+        // where a deployment has minutes. The rule under test is which limit
+        // applies, not its size.
+        const MS: fn(u64) -> std::time::Duration = std::time::Duration::from_millis;
+
+        #[tokio::test]
+        async fn a_task_limit_longer_than_the_configured_one_is_honoured() {
+            // Configured limit 50 ms; the task asks for 5 s and runs 300 ms.
+            let exec = executor_with_task_timeout(MS(50));
+            let task = SleepTask {
+                sleep: MS(300),
+                own_limit: Some(MS(5000)),
+            };
+            let result = exec.execute_with_timeout(&task, Context::new()).await;
+            assert!(result.is_ok(), "the task's own limit applies: {result:?}");
+        }
+
+        #[tokio::test]
+        async fn a_task_limit_shorter_than_the_configured_one_is_honoured() {
+            let exec = executor_with_task_timeout(MS(5000));
+            let task = SleepTask {
+                sleep: MS(2000),
+                own_limit: Some(MS(50)),
+            };
+            let result = exec.execute_with_timeout(&task, Context::new()).await;
+            assert!(matches!(result, Err(ExecutorError::TaskTimeout)));
+        }
+
+        #[tokio::test]
+        async fn a_task_with_no_limit_gets_the_configured_one() {
+            let exec = executor_with_task_timeout(MS(50));
+            let task = SleepTask {
+                sleep: MS(2000),
+                own_limit: None,
+            };
+            let result = exec.execute_with_timeout(&task, Context::new()).await;
+            assert!(matches!(result, Err(ExecutorError::TaskTimeout)));
         }
     } // mod sqlite_tests
 

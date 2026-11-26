@@ -45,7 +45,7 @@ use cloacina::executor::types::ClaimedTask;
 use cloacina::executor::{TaskContextBuilder, TaskResultHandler};
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentOutcome, AgentResultRequest, ArtifactRef,
-    WORK_PACKET_KIND, WorkPacket, WrappedSecret, host_target_triple,
+    FailureClassification, WORK_PACKET_KIND, WorkPacket, WrappedSecret, host_target_triple,
 };
 use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::retry::RetryPolicy;
@@ -57,11 +57,122 @@ use tracing::{debug, info, warn};
 use crate::agent_registry::{AgentRegistry, select_fleet_agent};
 use crate::fleet_coordinator::FleetCoordinator;
 
-/// Default ceiling on how long the executor will wait for an agent to report
-/// back. T-0633 Tier B will derive this from the task's `RetryPolicy`/
-/// `ExecutorConfig::task_timeout`; v1 uses a single conservative cap so the
-/// dispatcher slot doesn't pin forever on a silent agent.
-const RESULT_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
+/// How long the server waits for the agent's report past the task's time
+/// limit (CLOACINA-T-1014). The agent starts its clock when the task starts,
+/// after it took the packet and loaded the package, and its report needs a
+/// moment to arrive. Without the grace the server would give up on a task at
+/// the same moment the agent reports its timeout.
+const RESULT_WAIT_GRACE: Duration = Duration::from_secs(30);
+
+/// The time limits of a fleet task (CLOACINA-T-1014).
+///
+/// A task with a time limit of its own (`#[task(timeout_seconds = N)]`,
+/// `@task(timeout_seconds=N)`) gets that limit; any other task gets
+/// `default`. No task gets more than `max`. The limit goes to the agent in the
+/// work packet, and the server waits for the result that long plus a short
+/// grace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FleetTaskTimeLimits {
+    /// The limit of a task that sets none.
+    pub default: Duration,
+    /// The longest limit a task can get.
+    pub max: Duration,
+}
+
+impl FleetTaskTimeLimits {
+    /// Seconds a task with no limit of its own gets.
+    pub const DEFAULT_SECONDS: u64 = 300;
+    /// The longest limit a task can ask for, in seconds (24 hours).
+    pub const DEFAULT_MAX_SECONDS: u64 = 86_400;
+
+    /// Build the limits from the server's settings. Fails on a value the
+    /// server cannot run with, so a bad setting stops the start and does not
+    /// show up later as tasks that time out at once.
+    pub fn from_seconds(default_seconds: u64, max_seconds: u64) -> Result<Self, String> {
+        if default_seconds == 0 || max_seconds == 0 {
+            return Err("the fleet task time limits must be greater than 0 seconds".to_string());
+        }
+        if max_seconds > u32::MAX as u64 {
+            return Err(format!(
+                "the maximum fleet task time limit ({max_seconds} s) is above {} s",
+                u32::MAX
+            ));
+        }
+        if default_seconds > max_seconds {
+            return Err(format!(
+                "the default fleet task time limit ({default_seconds} s) is above the \
+                 maximum ({max_seconds} s)"
+            ));
+        }
+        Ok(Self {
+            default: Duration::from_secs(default_seconds),
+            max: Duration::from_secs(max_seconds),
+        })
+    }
+
+    /// The limit one task gets: its own or the default, capped at the maximum,
+    /// in whole seconds (a part of a second counts as one second).
+    fn limit_for(&self, own: Option<Duration>) -> TaskTimeLimit {
+        let asked = own.unwrap_or(self.default);
+        let capped = asked > self.max;
+        let limit = if capped { self.max } else { asked };
+        let mut seconds = limit.as_secs();
+        if limit.subsec_nanos() > 0 {
+            seconds += 1;
+        }
+        let seconds = seconds.clamp(1, u32::MAX as u64) as u32;
+        TaskTimeLimit {
+            seconds,
+            capped_from: capped.then_some(asked),
+        }
+    }
+}
+
+impl Default for FleetTaskTimeLimits {
+    fn default() -> Self {
+        Self {
+            default: Duration::from_secs(Self::DEFAULT_SECONDS),
+            max: Duration::from_secs(Self::DEFAULT_MAX_SECONDS),
+        }
+    }
+}
+
+/// The time limit of one dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TaskTimeLimit {
+    /// What the work packet carries and the agent enforces.
+    seconds: u32,
+    /// The limit the task asked for, when it was above the maximum.
+    capped_from: Option<Duration>,
+}
+
+impl TaskTimeLimit {
+    /// How long the server waits for the agent's report.
+    fn result_wait(&self) -> Duration {
+        Duration::from_secs(self.seconds as u64) + RESULT_WAIT_GRACE
+    }
+}
+
+/// The error the shared result handler gets for an agent's failure report.
+///
+/// The task's own error text is kept inside the message, because a retry
+/// condition (`ErrorPattern`, `TransientOnly`) is a test on that text. A task
+/// that ran past its time limit on the agent is a timeout, the same as on the
+/// in-process executor.
+fn agent_failure_error(
+    task_name: &str,
+    message: &str,
+    classification: FailureClassification,
+) -> ExecutorError {
+    if classification == FailureClassification::Timeout {
+        return ExecutorError::TaskTimeout;
+    }
+    ExecutorError::TaskExecution(TaskError::ExecutionFailed {
+        message: format!("agent failure ({:?}): {}", classification, message),
+        task_id: task_name.to_string(),
+        timestamp: chrono::Utc::now(),
+    })
+}
 
 /// How long a task waits before the next dispatch try when no agent could
 /// take it (CLOACINA-T-1012). Short enough that a freed slot or a new agent is
@@ -131,6 +242,8 @@ pub struct FleetExecutor {
     /// that references secrets then fails closed at dispatch. See
     /// [`FleetSecretResolverFactory`].
     secret_resolver_factory: Option<Arc<dyn FleetSecretResolverFactory>>,
+    /// CLOACINA-T-1014: the default and the maximum time limit of a task.
+    time_limits: FleetTaskTimeLimits,
 }
 
 impl FleetExecutor {
@@ -161,7 +274,15 @@ impl FleetExecutor {
             name: "fleet".to_string(),
             instance_id,
             secret_resolver_factory: None,
+            time_limits: FleetTaskTimeLimits::default(),
         }
+    }
+
+    /// CLOACINA-T-1014: set the default and the maximum time limit of a task
+    /// (the server's `--fleet-task-timeout-s` and `--fleet-task-timeout-max-s`).
+    pub fn with_task_time_limits(mut self, time_limits: FleetTaskTimeLimits) -> Self {
+        self.time_limits = time_limits;
+        self
     }
 
     /// CLOACI-T-0861 / D-5 — attach the grant-gated secret resolver factory used
@@ -353,7 +474,7 @@ impl TaskExecutor for FleetExecutor {
 
         // Heartbeat the claim for the lifetime of the dispatch so the stale-claim
         // sweeper (60s) doesn't reclaim a task while the agent is still running it
-        // (the result wait can be up to RESULT_WAIT_TIMEOUT).
+        // (the result wait is the task's time limit plus RESULT_WAIT_GRACE).
         let heartbeat = if claimed {
             let dal = self.dal.clone();
             let runner_id = self.instance_id;
@@ -386,10 +507,6 @@ impl TaskExecutor for FleetExecutor {
                 task_name: event.task_name.clone(),
                 attempt: event.attempt,
             };
-            // T-0633 follow-on: derive the real RetryPolicy from the loaded task.
-            // v1 uses the engine default — retry per the standard policy on failure.
-            let retry_policy = RetryPolicy::default();
-
             // ── 1. Parse the task namespace first — its tenant is the authoritative
             //       work tenant (NOT the agent's), and we need it to select a
             //       tenant-matching agent in step 2.
@@ -400,13 +517,36 @@ impl TaskExecutor for FleetExecutor {
                         .reconcile_error(
                             &event,
                             &claimed_task,
-                            &retry_policy,
+                            // No task to ask: the name does not parse.
+                            &RetryPolicy::default(),
                             start.elapsed(),
                             format!("parse_namespace({}): {}", event.task_name, e),
                         )
                         .await);
                 }
             };
+
+            // CLOACINA-T-1014: the task's own retry policy and time limit come
+            // from the task loaded in the server runtime, the same object the
+            // in-process executor asks. A task that is not loaded fails in
+            // step 3; until then it has the default policy.
+            let loaded_task = self.runtime.get_task(&namespace);
+            let retry_policy = loaded_task
+                .as_ref()
+                .map(|task| task.retry_policy())
+                .unwrap_or_default();
+            let time_limit = self
+                .time_limits
+                .limit_for(loaded_task.as_ref().and_then(|task| task.timeout()));
+            if let Some(asked) = time_limit.capped_from {
+                warn!(
+                    task = %event.task_name,
+                    asked_s = asked.as_secs(),
+                    max_s = time_limit.seconds,
+                    "fleet: the task's time limit is above the server maximum; \
+                     the maximum applies"
+                );
+            }
             // CLOACI-T-0817: "public" is now a first-class named tenant in the
             // WORK/AGENT realm — public agents register as `Some("public")` (the
             // actuator/demo mint a public-tenant-scoped key, never the bootstrap
@@ -535,25 +675,24 @@ impl TaskExecutor for FleetExecutor {
             //       build the merged dependency context via the SHARED
             //       TaskContextBuilder so the agent receives exactly the input
             //       context a thread run would produce.
-            let dependencies: Vec<cloacina::task::TaskNamespace> =
-                match self.runtime.get_task(&namespace) {
-                    Some(task) => task.dependencies().to_vec(),
-                    None => {
-                        return Ok(self
-                            .reconcile_error(
-                                &event,
-                                &claimed_task,
-                                &retry_policy,
-                                start.elapsed(),
-                                format!(
-                                    "task `{}` not loaded in server runtime — cannot resolve \
+            let dependencies: Vec<cloacina::task::TaskNamespace> = match loaded_task.as_ref() {
+                Some(task) => task.dependencies().to_vec(),
+                None => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!(
+                                "task `{}` not loaded in server runtime — cannot resolve \
                                  dependency context for fleet dispatch",
-                                    event.task_name
-                                ),
-                            )
-                            .await);
-                    }
-                };
+                                event.task_name
+                            ),
+                        )
+                        .await);
+                }
+            };
             let context = match self
                 .context_builder
                 .build(&claimed_task, &dependencies)
@@ -657,7 +796,9 @@ impl TaskExecutor for FleetExecutor {
                     digest,
                     build_target_triple,
                 },
-                timeout_seconds: 300,
+                // CLOACINA-T-1014: the task's own limit or the server default,
+                // capped at the server maximum. The agent enforces it.
+                timeout_seconds: time_limit.seconds,
                 tenant_id: tenant_id.clone(),
                 language: Some(language),
                 // CLOACI-T-0861 / D-5 — secrets resolved + HPKE-wrapped to a
@@ -735,48 +876,49 @@ impl TaskExecutor for FleetExecutor {
                 "fleet: work packet enqueued + relay woken"
             );
 
-            // ── 7. Await the agent's result.
-            let result_req: AgentResultRequest =
-                match tokio::time::timeout(RESULT_WAIT_TIMEOUT, rx).await {
-                    Ok(Ok(req)) => req,
-                    Ok(Err(_)) => {
-                        // Sender dropped — coordinator cleared (e.g. server shutdown).
-                        warn!(
-                            task_id = %event.task_execution_id,
-                            "fleet: result rendezvous canceled before agent reported"
-                        );
-                        return Ok(self
-                            .reconcile_error(
-                                &event,
-                                &claimed_task,
-                                &retry_policy,
-                                start.elapsed(),
-                                "fleet result rendezvous canceled".to_string(),
-                            )
-                            .await);
-                    }
-                    Err(_) => {
-                        // Timeout waiting for the agent. Cancel the rendezvous so a
-                        // late report is reported as orphan + dropped.
-                        self.coordinator.cancel(event.task_execution_id);
-                        warn!(
-                            task_id = %event.task_execution_id,
-                            agent_id = %agent_id,
-                            elapsed_s = ?RESULT_WAIT_TIMEOUT.as_secs(),
-                            "fleet: agent result wait exceeded server-side timeout"
-                        );
-                        return Ok(self
-                            .result_handler
-                            .handle_outcome(
-                                &event,
-                                &claimed_task,
-                                Err(ExecutorError::TaskTimeout),
-                                &retry_policy,
-                                start.elapsed(),
-                            )
-                            .await);
-                    }
-                };
+            // ── 7. Await the agent's result: the task's time limit plus a
+            //       short grace (CLOACINA-T-1014).
+            let result_wait = time_limit.result_wait();
+            let result_req: AgentResultRequest = match tokio::time::timeout(result_wait, rx).await {
+                Ok(Ok(req)) => req,
+                Ok(Err(_)) => {
+                    // Sender dropped — coordinator cleared (e.g. server shutdown).
+                    warn!(
+                        task_id = %event.task_execution_id,
+                        "fleet: result rendezvous canceled before agent reported"
+                    );
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            "fleet result rendezvous canceled".to_string(),
+                        )
+                        .await);
+                }
+                Err(_) => {
+                    // Timeout waiting for the agent. Cancel the rendezvous so a
+                    // late report is reported as orphan + dropped.
+                    self.coordinator.cancel(event.task_execution_id);
+                    warn!(
+                        task_id = %event.task_execution_id,
+                        agent_id = %agent_id,
+                        elapsed_s = ?result_wait.as_secs(),
+                        "fleet: agent result wait exceeded server-side timeout"
+                    );
+                    return Ok(self
+                        .result_handler
+                        .handle_outcome(
+                            &event,
+                            &claimed_task,
+                            Err(ExecutorError::TaskTimeout),
+                            &retry_policy,
+                            start.elapsed(),
+                        )
+                        .await);
+                }
+            };
 
             // ── 8. Map AgentOutcome → Result<Context, ExecutorError>.
             // CLOACI-T-0780: a refusal is an expected fail-closed reschedule, not a
@@ -809,11 +951,11 @@ impl TaskExecutor for FleetExecutor {
                     AgentOutcome::Failure {
                         message,
                         classification,
-                    } => Err(ExecutorError::TaskExecution(TaskError::ExecutionFailed {
-                        message: format!("agent failure ({:?}): {}", classification, message),
-                        task_id: event.task_name.clone(),
-                        timestamp: chrono::Utc::now(),
-                    })),
+                    } => Err(agent_failure_error(
+                        &event.task_name,
+                        &message,
+                        classification,
+                    )),
                     AgentOutcome::Refused { reason, message } => {
                         // Refusals are transient (target-triple mismatch, artifact
                         // fetch failure, agent shutdown → reschedule). Map onto
@@ -956,6 +1098,178 @@ const _: fn(UniversalUuid) = |_| {};
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── CLOACINA-T-1014: time limits ─────────────────────────────────────────
+
+    #[test]
+    fn a_task_with_a_ten_minute_limit_gets_ten_minutes_in_the_packet_and_the_wait() {
+        let limits = FleetTaskTimeLimits::default();
+        let limit = limits.limit_for(Some(Duration::from_secs(600)));
+        assert_eq!(limit.seconds, 600, "the packet carries the task's limit");
+        assert_eq!(limit.capped_from, None);
+        assert_eq!(
+            limit.result_wait(),
+            Duration::from_secs(600) + RESULT_WAIT_GRACE,
+            "the server waits the limit plus the grace, not a fixed 300 s"
+        );
+    }
+
+    #[test]
+    fn a_task_with_no_limit_gets_the_server_default() {
+        let limits = FleetTaskTimeLimits::from_seconds(120, 3600).unwrap();
+        let limit = limits.limit_for(None);
+        assert_eq!(limit.seconds, 120);
+        assert_eq!(limit.capped_from, None);
+        assert_eq!(FleetTaskTimeLimits::default().limit_for(None).seconds, 300);
+    }
+
+    #[test]
+    fn a_task_limit_above_the_maximum_gets_the_maximum() {
+        let limits = FleetTaskTimeLimits::from_seconds(300, 900).unwrap();
+        let limit = limits.limit_for(Some(Duration::from_secs(7200)));
+        assert_eq!(limit.seconds, 900);
+        assert_eq!(limit.capped_from, Some(Duration::from_secs(7200)));
+    }
+
+    #[test]
+    fn a_part_of_a_second_counts_as_one_second() {
+        let limits = FleetTaskTimeLimits::default();
+        assert_eq!(
+            limits.limit_for(Some(Duration::from_millis(200))).seconds,
+            1
+        );
+        assert_eq!(
+            limits.limit_for(Some(Duration::from_millis(1500))).seconds,
+            2
+        );
+    }
+
+    #[test]
+    fn bad_time_limit_settings_are_refused() {
+        assert!(FleetTaskTimeLimits::from_seconds(0, 10).is_err());
+        assert!(FleetTaskTimeLimits::from_seconds(10, 0).is_err());
+        assert!(FleetTaskTimeLimits::from_seconds(600, 300).is_err());
+        assert!(FleetTaskTimeLimits::from_seconds(300, u32::MAX as u64 + 1).is_err());
+        assert_eq!(
+            FleetTaskTimeLimits::from_seconds(
+                FleetTaskTimeLimits::DEFAULT_SECONDS,
+                FleetTaskTimeLimits::DEFAULT_MAX_SECONDS
+            )
+            .unwrap(),
+            FleetTaskTimeLimits::default()
+        );
+    }
+
+    // ── CLOACINA-T-1014: the agent's error reaches the retry conditions ─────
+
+    /// What the agent reports for a failed task: `TaskError::to_string()`.
+    fn agent_message(task_text: &str) -> String {
+        TaskError::ExecutionFailed {
+            message: task_text.to_string(),
+            task_id: "t".to_string(),
+            timestamp: chrono::Utc::now(),
+        }
+        .to_string()
+    }
+
+    fn policy(max_attempts: i32, condition: cloacina::retry::RetryCondition) -> RetryPolicy {
+        RetryPolicy::builder()
+            .max_attempts(max_attempts)
+            .retry_condition(condition)
+            .build()
+    }
+
+    #[test]
+    fn an_error_pattern_matches_the_task_text_of_an_agent_failure() {
+        use cloacina::retry::RetryCondition;
+        let error = agent_failure_error(
+            "public::pkg::wf::t",
+            &agent_message("upstream said: Rate Limit exceeded"),
+            FailureClassification::TaskError,
+        );
+        assert!(
+            error.to_string().contains("Rate Limit exceeded"),
+            "the task's own text is in the error: {error}"
+        );
+        let matching = policy(
+            3,
+            RetryCondition::ErrorPattern {
+                patterns: vec!["rate limit".to_string()],
+            },
+        );
+        assert!(TaskResultHandler::retry_allowed(&matching, 1, &error));
+        let other = policy(
+            3,
+            RetryCondition::ErrorPattern {
+                patterns: vec!["disk full".to_string()],
+            },
+        );
+        assert!(!TaskResultHandler::retry_allowed(&other, 1, &error));
+    }
+
+    #[test]
+    fn transient_only_reads_the_task_text_of_an_agent_failure() {
+        use cloacina::retry::RetryCondition;
+        let transient = agent_failure_error(
+            "public::pkg::wf::t",
+            &agent_message("connection reset by peer"),
+            FailureClassification::TaskError,
+        );
+        let permanent = agent_failure_error(
+            "public::pkg::wf::t",
+            &agent_message("invalid input row 7"),
+            FailureClassification::TaskError,
+        );
+        let p = policy(3, RetryCondition::TransientOnly);
+        assert!(TaskResultHandler::retry_allowed(&p, 1, &transient));
+        assert!(!TaskResultHandler::retry_allowed(&p, 1, &permanent));
+    }
+
+    #[test]
+    fn a_timeout_on_the_agent_is_a_task_timeout() {
+        use cloacina::retry::RetryCondition;
+        let error = agent_failure_error(
+            "public::pkg::wf::t",
+            "task exceeded timeout of 600s",
+            FailureClassification::Timeout,
+        );
+        assert!(matches!(error, ExecutorError::TaskTimeout));
+        assert!(TaskResultHandler::retry_allowed(
+            &policy(3, RetryCondition::TransientOnly),
+            1,
+            &error
+        ));
+    }
+
+    // ── CLOACINA-T-1014: the task's retry policy decides, not the default ───
+
+    #[test]
+    fn retry_attempts_zero_gives_one_attempt() {
+        use cloacina::retry::RetryCondition;
+        let error = agent_failure_error(
+            "public::pkg::wf::t",
+            &agent_message("boom"),
+            FailureClassification::TaskError,
+        );
+        // The first run of a task is attempt 1.
+        assert!(!TaskResultHandler::retry_allowed(
+            &policy(0, RetryCondition::AllErrors),
+            1,
+            &error
+        ));
+        assert!(!TaskResultHandler::retry_allowed(
+            &policy(3, RetryCondition::Never),
+            1,
+            &error
+        ));
+        // The default policy, which the fleet used for every task before,
+        // retries the same failure.
+        assert!(TaskResultHandler::retry_allowed(
+            &RetryPolicy::default(),
+            1,
+            &error
+        ));
+    }
 
     #[test]
     fn value_to_context_round_trips_an_object() {

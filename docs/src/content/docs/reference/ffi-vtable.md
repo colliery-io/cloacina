@@ -53,6 +53,16 @@ dependency list, description, and source location. The reconciler calls
 this at load time (step 6 of the [reconciler pipeline](../../explanation/service/reconciler-pipeline/)) to register a `DynamicLibraryTask` constructor in the host
 `Runtime` per declared task.
 
+Each `TaskMetadataEntry` carries, in this order (the wire is positional):
+`index`, `id`, `namespaced_id_template`, `dependencies`, `description`,
+`source_location`, `trigger_rules` (JSON), `requires_handle`,
+`retry_policy` (JSON of the task's `RetryPolicy`; empty means the default
+policy) and `timeout_seconds` (`Option<u64>`, the task's own time limit).
+The last two were added under interface version 8 (CLOACINA-T-1014): the
+host's `DynamicLibraryTask` answers `retry_policy()` and `timeout()` from
+them, so a packaged task's `retry_attempts`, `retry_condition` and
+`timeout_seconds` apply on the server.
+
 ## Method Index 1 — `execute_task`
 
 | | |
@@ -265,7 +275,7 @@ language-neutral.
 
 ## ABI Stability and Versioning
 
-- The trait is annotated `#[fidius::plugin_interface(version = 5,
+- The trait is annotated `#[fidius::plugin_interface(version = 8,
   buffer = PluginAllocated)]`. fidius-host computes an
   `INTERFACE_HASH` from the trait shape; mismatched hashes are
   rejected at load time, preventing silent ABI drift.
@@ -279,6 +289,15 @@ language-neutral.
     change**. Unlike the additive bumps, this one is a hard gate:
     stale pre-v5 artifacts must fail the version check at load rather
     than mis-decode the request.
+  - **5 → 6**, **6 → 7** (CLOACI-T-0897): `TaskExecutionRequest` gained
+    `task_execution_id`, then `TaskMetadataEntry` gained
+    `requires_handle`. Layout changes, hard gates.
+  - **7 → 8** (CLOACINA-T-1019, CLOACINA-T-1014):
+    `TriggerPackageMetadata` gained `timezone`, and `TaskMetadataEntry`
+    gained `retry_policy` and `timeout_seconds` at its end. Both are
+    layout changes under the one version 8, which no release shipped
+    in between. A package built against version 7 fails the gate and
+    must be rebuilt.
 - Method-additive bumps are backward-compatible: methods 4–8 are
   `#[optional(since = 2)]`, 9 is `#[optional(since = 3)]`, 10 is
   `#[optional(since = 4)]`; older plugins return
