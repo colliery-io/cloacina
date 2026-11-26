@@ -27,6 +27,7 @@
 //! [`guard`] module (REQ-008): a misconfigured actuator REFUSES to start rather
 //! than silently scaling the wrong thing.
 
+pub mod compiler;
 pub mod docker;
 pub mod guard;
 pub mod kubernetes;
@@ -95,6 +96,30 @@ pub trait FleetActuator: Send + Sync {
     /// the pool has no agents. Idempotent; never called for `default`.
     async fn remove_pool(&self, _tenant_id: &str, _pool: &str) -> Result<(), ActuatorError> {
         Ok(())
+    }
+
+    /// Move the tenant's compiler toward `want` (CLOACINA-T-1034): one
+    /// compiler while the tenant's build queue has work, none after the queue
+    /// has been empty for the cooldown. Idempotent. The default does nothing:
+    /// an actuator with no per-tenant compilers.
+    async fn reconcile_compiler(
+        &self,
+        _tenant_id: &str,
+        _want: compiler::CompilerWant,
+    ) -> Result<compiler::CompilerOutcome, ActuatorError> {
+        Ok(compiler::CompilerOutcome::default())
+    }
+
+    /// Remove what the actuator made for a tenant's compiler. Called when the
+    /// tenant is removed. Idempotent.
+    async fn remove_compiler(&self, _tenant_id: &str) -> Result<(), ActuatorError> {
+        Ok(())
+    }
+
+    /// The cooldown of the per-tenant compilers. `None`: this actuator runs
+    /// none, and the fleet loop reads no build queue.
+    fn compiler_cooldown(&self) -> Option<std::time::Duration> {
+        None
     }
 
     /// A short, stable identifier for the actuator kind (`"docker"`, `"none"`,

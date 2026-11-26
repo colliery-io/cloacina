@@ -258,6 +258,8 @@ pub struct DockerActuator {
     minter: Arc<dyn KeyMinter>,
     pools: Arc<dyn AgentPoolSource>,
     config: DockerConfig,
+    /// The per-tenant compilers (CLOACINA-T-1034). `None`: off.
+    compilers: Option<super::compiler::DockerCompilers>,
 }
 
 impl DockerActuator {
@@ -274,6 +276,7 @@ impl DockerActuator {
             minter,
             pools: Arc::new(DefaultPoolOnly),
             config,
+            compilers: None,
         }
     }
 
@@ -283,18 +286,37 @@ impl DockerActuator {
         self
     }
 
+    /// Run a compiler container per tenant (CLOACINA-T-1034) through `ops`.
+    pub fn with_compilers(
+        mut self,
+        ops: Arc<dyn super::compiler::CompilerContainerOps>,
+        settings: super::compiler::CompilerSettings,
+    ) -> Self {
+        self.compilers = Some(super::compiler::DockerCompilers::new(ops, settings));
+        self
+    }
+
     /// Production constructor: a lazily-connected bollard client + DAL-backed
     /// key mint, configured from the environment. Connecting is lazy (no daemon
     /// round-trip here); the substrate guard has already probed the socket.
-    pub fn from_env(database: Database) -> Result<Self, ActuatorError> {
+    pub fn from_env(
+        database: Database,
+        compilers: Option<super::compiler::CompilerSettings>,
+    ) -> Result<Self, ActuatorError> {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| ActuatorError::Substrate(format!("docker connect failed: {e}")))?;
         let config = DockerConfig::from_env();
-        Ok(Self {
-            ops: Arc::new(BollardOps::new(docker)),
+        let ops = Arc::new(BollardOps::new(docker));
+        let actuator = Self {
+            ops: ops.clone(),
             minter: Arc::new(DalKeyMinter::new(database.clone())),
             pools: Arc::new(DalPoolSource::new(database)),
             config,
+            compilers: None,
+        };
+        Ok(match compilers {
+            Some(settings) => actuator.with_compilers(ops, settings),
+            None => actuator,
         })
     }
 }
@@ -427,6 +449,28 @@ impl FleetActuator for DockerActuator {
         Ok(())
     }
 
+    async fn reconcile_compiler(
+        &self,
+        tenant_id: &str,
+        want: super::compiler::CompilerWant,
+    ) -> Result<super::compiler::CompilerOutcome, ActuatorError> {
+        match &self.compilers {
+            Some(compilers) => compilers.reconcile(tenant_id, want).await,
+            None => Ok(Default::default()),
+        }
+    }
+
+    async fn remove_compiler(&self, tenant_id: &str) -> Result<(), ActuatorError> {
+        match &self.compilers {
+            Some(compilers) => compilers.remove(tenant_id).await,
+            None => Ok(()),
+        }
+    }
+
+    fn compiler_cooldown(&self) -> Option<std::time::Duration> {
+        self.compilers.as_ref().map(|c| c.cooldown())
+    }
+
     fn kind(&self) -> &'static str {
         "docker"
     }
@@ -466,7 +510,7 @@ fn spawn_host_config(spec: &SpawnSpec) -> Option<HostConfig> {
 
 /// Real [`ContainerOps`] over the Docker Engine API (`bollard`).
 pub struct BollardOps {
-    docker: Docker,
+    pub(super) docker: Docker,
 }
 
 impl BollardOps {

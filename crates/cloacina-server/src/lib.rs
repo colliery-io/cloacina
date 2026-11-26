@@ -720,6 +720,7 @@ pub async fn run(
     );
     // CLOACINA-T-1024: the alert webhook counters.
     crate::alerts::describe_metrics();
+    crate::actuator::compiler::describe_metrics();
     // Execution-agent fleet (CLOACI-I-0114 / T-0634).
     metrics::describe_counter!(
         "cloacina_fleet_agents_evicted_total",
@@ -1182,10 +1183,16 @@ pub async fn run(
     // against the detected host (refuses Docker-on-Kubernetes, refuses with no
     // Docker socket).
     let actuator_kind = crate::actuator::guard::actuator_kind_from_env();
+    // CLOACINA-T-1034: the settings of the per-tenant compilers. Off unless
+    // CLOACINA_TENANT_COMPILERS is true. A value that cannot be used stops the
+    // start, as a bad actuator does.
+    let tenant_compilers = crate::actuator::compiler::CompilerSettings::from_env(&database_url)
+        .map_err(|e| anyhow::anyhow!("FATAL: per-tenant compiler settings: {e}"))?;
     let fleet_actuator = crate::actuator::guard::build_actuator(
         &actuator_kind,
         &crate::actuator::guard::HostSubstrate,
         runner.database().clone(),
+        tenant_compilers,
     )
     .map_err(|e| {
         anyhow::anyhow!(
@@ -1517,6 +1524,11 @@ pub async fn run(
         let loop_dal = unified_dal.clone();
         let loop_db = state.database.clone();
         let loop_registry = agent_registry.clone();
+        // CLOACINA-T-1034: where the loop reads each tenant's build queue.
+        let loop_build_queues = crate::actuator::compiler::DalBuildQueues::new(
+            state.database.clone(),
+            state.tenant_databases.clone(),
+        );
         let mut loop_shutdown = substrate_shutdown_rx.clone();
         let scale_cfg = crate::autoscaler::ScaleConfig::from_env();
         let autoscale_enabled = std::env::var("CLOACINA_AUTOSCALE")
@@ -1678,6 +1690,17 @@ pub async fn run(
                                     ),
                                 }
                             }
+
+                            // (c) COMPILERS (CLOACINA-T-1034) — one compiler for
+                            // each tenant whose build queue has work, none after
+                            // the queue was empty for the cooldown. After the
+                            // agents, so their namespace and policy exist.
+                            crate::actuator::compiler::run_compiler_pass(
+                                loop_actuator.as_ref(),
+                                &loop_build_queues,
+                                chrono::Utc::now(),
+                            )
+                            .await;
                         })
                         .await;
                     }

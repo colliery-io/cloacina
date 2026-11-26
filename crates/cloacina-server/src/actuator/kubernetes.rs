@@ -433,6 +433,8 @@ pub struct KubernetesActuator {
     minter: Arc<dyn KeyMinter>,
     pools: Arc<dyn AgentPoolSource>,
     config: KubernetesConfig,
+    /// The per-tenant compilers (CLOACINA-T-1034). `None`: off.
+    compilers: Option<super::compiler::KubeCompilers>,
 }
 
 impl KubernetesActuator {
@@ -449,12 +451,28 @@ impl KubernetesActuator {
             minter,
             pools: Arc::new(DefaultPoolOnly),
             config,
+            compilers: None,
         }
     }
 
     /// Read each tenant's pools from `pools`.
     pub fn with_pools(mut self, pools: Arc<dyn AgentPoolSource>) -> Self {
         self.pools = pools;
+        self
+    }
+
+    /// Run a compiler per tenant (CLOACINA-T-1034) through `ops`.
+    pub fn with_compilers(
+        mut self,
+        ops: Arc<dyn super::compiler::CompilerKubeOps>,
+        settings: super::compiler::CompilerSettings,
+    ) -> Self {
+        self.compilers = Some(super::compiler::KubeCompilers::new(
+            ops,
+            settings,
+            self.config.network_policy_enabled,
+            self.config.dns_namespace.clone(),
+        ));
         self
     }
 
@@ -466,13 +484,21 @@ impl KubernetesActuator {
     /// round-trip here — the substrate guard has already confirmed we are
     /// in-cluster, fail-closed). Constructing outside a cluster errors, which
     /// the guard maps to a fatal boot failure.
-    pub fn from_env(database: Database) -> Result<Self, ActuatorError> {
-        let ops = KubeApiOps::in_cluster()?;
-        Ok(Self {
-            ops: Arc::new(ops),
+    pub fn from_env(
+        database: Database,
+        compilers: Option<super::compiler::CompilerSettings>,
+    ) -> Result<Self, ActuatorError> {
+        let ops = Arc::new(KubeApiOps::in_cluster()?);
+        let actuator = Self {
+            ops: ops.clone(),
             minter: Arc::new(DalKeyMinter::new(database.clone())),
             pools: Arc::new(DalPoolSource::new(database)),
             config: KubernetesConfig::from_env(),
+            compilers: None,
+        };
+        Ok(match compilers {
+            Some(settings) => actuator.with_compilers(ops, settings),
+            None => actuator,
         })
     }
 
@@ -677,6 +703,28 @@ impl FleetActuator for KubernetesActuator {
         // actuator has no right to delete ServiceAccounts.
         info!(tenant = %tenant_id, namespace = %namespace, pool = %pool, "fleet actuator removed pool (kubernetes)");
         Ok(())
+    }
+
+    async fn reconcile_compiler(
+        &self,
+        tenant_id: &str,
+        want: super::compiler::CompilerWant,
+    ) -> Result<super::compiler::CompilerOutcome, ActuatorError> {
+        match &self.compilers {
+            Some(compilers) => compilers.reconcile(tenant_id, want).await,
+            None => Ok(Default::default()),
+        }
+    }
+
+    async fn remove_compiler(&self, tenant_id: &str) -> Result<(), ActuatorError> {
+        match &self.compilers {
+            Some(compilers) => compilers.remove(tenant_id).await,
+            None => Ok(()),
+        }
+    }
+
+    fn compiler_cooldown(&self) -> Option<std::time::Duration> {
+        self.compilers.as_ref().map(|c| c.cooldown())
     }
 
     fn kind(&self) -> &'static str {
@@ -983,7 +1031,7 @@ fn service_account_manifest(
 /// driven by a separate merge patch in [`KubeApiOps::scale_deployment`], so the
 /// actuator's apply never conflicts with its own scaling.
 pub struct KubeApiOps {
-    client: Client,
+    pub(super) client: Client,
 }
 
 impl KubeApiOps {
@@ -1002,7 +1050,7 @@ impl KubeApiOps {
         Ok(Self::new(client))
     }
 
-    fn apply_params() -> PatchParams {
+    pub(super) fn apply_params() -> PatchParams {
         // `force` so the actuator always wins ownership of the fields it
         // manages (it is the sole owner of these objects).
         PatchParams::apply(FIELD_MANAGER).force()
