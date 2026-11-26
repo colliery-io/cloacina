@@ -160,3 +160,22 @@ fn test_cron_trigger_poll_returns_result() {
     // Cron triggers poll every 30s
     assert_eq!(trigger.poll_interval(), std::time::Duration::from_secs(30));
 }
+
+// CLOACINA-T-1020: the catch-up policy is declared on the trigger.
+#[trigger(on = "unified_test_workflow", cron = "0 * * * *", catchup = "run_all")]
+fn hourly_history_job() {}
+
+#[test]
+fn test_cron_trigger_declares_its_catchup_policy() {
+    let runtime = cloacina::Runtime::new();
+    let history = runtime
+        .get_trigger("hourly_history_job")
+        .expect("hourly_history_job trigger should exist");
+    assert_eq!(history.cron_catchup_policy().as_deref(), Some("run_all"));
+
+    // A trigger that declares none sends none: the schedule keeps its policy.
+    let nightly = runtime
+        .get_trigger("nightly_job")
+        .expect("nightly_job trigger should exist");
+    assert_eq!(nightly.cron_catchup_policy(), None);
+}

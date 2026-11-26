@@ -55,6 +55,58 @@ impl From<&str> for CatchupPolicy {
     }
 }
 
+impl CatchupPolicy {
+    /// The name stored in `schedules.catchup_policy`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CatchupPolicy::Skip => "skip",
+            CatchupPolicy::RunAll => "run_all",
+        }
+    }
+
+    /// Reads a declared policy: `"skip"` or `"run_all"`, nothing else
+    /// (CLOACINA-T-1020). `From<&str>` reads a stored value and turns an
+    /// unknown one into `Skip`; a declaration with a typing error must fail.
+    pub fn parse_declared(value: &str) -> Result<Self, String> {
+        match value {
+            "skip" => Ok(CatchupPolicy::Skip),
+            "run_all" => Ok(CatchupPolicy::RunAll),
+            other => Err(format!(
+                "invalid catch-up policy '{}': use \"skip\" or \"run_all\"",
+                other
+            )),
+        }
+    }
+}
+
+/// What a declaration sets on a cron schedule, next to its expression and
+/// timezone (CLOACINA-T-1020). `None` in a field means "not declared": a new
+/// schedule gets the default, and an existing schedule keeps its value.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CronScheduleOptions {
+    /// Catch-up policy. Default for a new schedule: `Skip`.
+    pub catchup_policy: Option<CatchupPolicy>,
+}
+
+impl CronScheduleOptions {
+    /// Builds the options from declared values, as the trigger metadata, the
+    /// instance API and the Python bindings carry them.
+    pub fn from_declared(catchup_policy: Option<&str>) -> Result<Self, String> {
+        Ok(Self {
+            catchup_policy: catchup_policy
+                .map(CatchupPolicy::parse_declared)
+                .transpose()?,
+        })
+    }
+
+    /// Sets the declared values on a new schedule row.
+    pub fn apply_to(&self, new_schedule: &mut NewSchedule) {
+        if let Some(policy) = &self.catchup_policy {
+            new_schedule.catchup_policy = Some(policy.as_str().to_string());
+        }
+    }
+}
+
 /// The type of schedule — determines which fields are relevant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScheduleType {
@@ -308,6 +360,38 @@ mod tests {
         assert_eq!(ScheduleType::from("unknown"), ScheduleType::Cron);
         assert_eq!(ScheduleType::Cron.to_string(), "cron");
         assert_eq!(ScheduleType::Trigger.to_string(), "trigger");
+    }
+
+    /// CLOACINA-T-1020: a declared policy has two values; a stored one that
+    /// is unknown still reads as `Skip`.
+    #[test]
+    fn declared_catchup_policy_is_strict() {
+        assert_eq!(
+            CatchupPolicy::parse_declared("skip"),
+            Ok(CatchupPolicy::Skip)
+        );
+        assert_eq!(
+            CatchupPolicy::parse_declared("run_all"),
+            Ok(CatchupPolicy::RunAll)
+        );
+        assert!(CatchupPolicy::parse_declared("all").is_err());
+        assert!(CatchupPolicy::parse_declared("").is_err());
+        assert_eq!(CatchupPolicy::from("all"), CatchupPolicy::Skip);
+
+        assert!(CronScheduleOptions::from_declared(Some("RUN_ALL")).is_err());
+        assert_eq!(
+            CronScheduleOptions::from_declared(None),
+            Ok(CronScheduleOptions::default())
+        );
+
+        let now = current_timestamp();
+        let mut schedule = NewSchedule::cron("wf", "0 * * * *", now);
+        CronScheduleOptions::default().apply_to(&mut schedule);
+        assert_eq!(schedule.catchup_policy.as_deref(), Some("skip"));
+        CronScheduleOptions::from_declared(Some("run_all"))
+            .unwrap()
+            .apply_to(&mut schedule);
+        assert_eq!(schedule.catchup_policy.as_deref(), Some("run_all"));
     }
 
     #[test]

@@ -1263,6 +1263,12 @@ export interface components {
         /** @description Body for `POST /tenants/{tenant_id}/workflows/{name}/instances`. */
         CreateInstanceRequest: {
             /**
+             * @description What the schedule does with the fire times it missed while no
+             *     scheduler ran: `skip` (the default) fires once, `run_all` fires each
+             *     of them, oldest first. Needs `cron`.
+             */
+            catchup_policy?: string | null;
+            /**
              * @description Cron expression. When omitted the instance is created **unscheduled** —
              *     a durable named param binding that never fires on its own.
              */
@@ -2183,6 +2189,8 @@ export interface components {
          */
         TenantListResponse_WorkflowInstanceSummary: {
             items: {
+                /** @description `skip` or `run_all`. Absent in a response from an older server. */
+                catchup_policy?: string | null;
                 /** @description RFC 3339 timestamp. */
                 created_at: string;
                 cron_expression?: string | null;
@@ -2436,6 +2444,8 @@ export interface components {
         };
         /** @description One row in the instance list, and the body of a single-instance GET. */
         WorkflowInstanceSummary: {
+            /** @description `skip` or `run_all`. Absent in a response from an older server. */
+            catchup_policy?: string | null;
             /** @description RFC 3339 timestamp. */
             created_at: string;
             cron_expression?: string | null;

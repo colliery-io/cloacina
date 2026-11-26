@@ -125,6 +125,15 @@ pub trait Trigger: Send + Sync + fmt::Debug {
         None
     }
 
+    /// Returns the catch-up policy of this trigger's cron schedule, if it
+    /// declares one (`#[trigger(cron = "...", catchup = "run_all")]`): `"skip"`
+    /// or `"run_all"`. The reconciler registers the packaged cron schedule
+    /// with it. Default `None` means the schedule keeps the policy it has
+    /// (`skip` for a new schedule). (CLOACINA-T-1020)
+    fn cron_catchup_policy(&self) -> Option<String> {
+        None
+    }
+
     /// The target workflow this trigger fires — the `#[trigger(on = "...")]`
     /// binding. For cron triggers the reconciler registers the schedule against
     /// this workflow (not the trigger's own `name`). Default empty for manual

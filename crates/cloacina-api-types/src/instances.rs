@@ -46,6 +46,11 @@ pub struct CreateInstanceRequest {
     /// Whether the schedule is enabled on creation. Defaults to `true`.
     #[serde(default)]
     pub enabled: Option<bool>,
+    /// What the schedule does with the fire times it missed while no
+    /// scheduler ran: `skip` (the default) fires once, `run_all` fires each
+    /// of them, oldest first. Needs `cron`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catchup_policy: Option<String>,
 }
 
 /// One row in the instance list, and the body of a single-instance GET.
@@ -60,6 +65,9 @@ pub struct WorkflowInstanceSummary {
     pub params: Option<serde_json::Value>,
     pub cron_expression: Option<String>,
     pub timezone: Option<String>,
+    /// `skip` or `run_all`. Absent in a response from an older server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catchup_policy: Option<String>,
     pub enabled: bool,
     /// Whether the schedule is paused (distinct from `enabled`).
     #[serde(default)]

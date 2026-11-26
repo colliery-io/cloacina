@@ -393,6 +393,11 @@ pub struct TriggerPackageMetadata {
     /// when `cron_expression.is_some()`. (CLOACINA-T-1019)
     #[serde(default)]
     pub timezone: Option<String>,
+    /// Catch-up policy of the cron schedule (the `#[trigger(catchup = "...")]`
+    /// attribute): `"skip"` or `"run_all"`. `None` means the trigger declares
+    /// none. Only read when `cron_expression.is_some()`. (CLOACINA-T-1020)
+    #[serde(default)]
+    pub catchup_policy: Option<String>,
 }
 
 /// Result of a computation graph execution.

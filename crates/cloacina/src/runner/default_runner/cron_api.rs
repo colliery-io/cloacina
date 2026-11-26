@@ -49,6 +49,27 @@ impl DefaultRunner {
         cron_expression: &str,
         timezone: &str,
     ) -> Result<UniversalUuid, WorkflowExecutionError> {
+        self.register_cron_workflow_instance_with_options(
+            instance,
+            instance_name,
+            cron_expression,
+            timezone,
+            &crate::models::schedule::CronScheduleOptions::default(),
+        )
+        .await
+    }
+
+    /// [`register_cron_workflow_instance`](Self::register_cron_workflow_instance)
+    /// with the options of the schedule (CLOACINA-T-1020): the catch-up
+    /// policy.
+    pub async fn register_cron_workflow_instance_with_options(
+        &self,
+        instance: &crate::workflow_instance::WorkflowInstance,
+        instance_name: &str,
+        cron_expression: &str,
+        timezone: &str,
+        options: &crate::models::schedule::CronScheduleOptions,
+    ) -> Result<UniversalUuid, WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
             return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled. Use enable_cron_scheduling(true) in config."
@@ -91,6 +112,7 @@ impl DefaultRunner {
                     })?,
             );
         new_schedule.instance_name = Some(instance_name.to_string());
+        options.apply_to(&mut new_schedule);
 
         let schedule = dal.schedule().create(new_schedule).await.map_err(|e| {
             WorkflowExecutionError::ExecutionFailed {
@@ -151,6 +173,35 @@ impl DefaultRunner {
         cron_expression: &str,
         timezone: &str,
     ) -> Result<UniversalUuid, WorkflowExecutionError> {
+        self.register_cron_workflow_with_options(
+            workflow_name,
+            cron_expression,
+            timezone,
+            &crate::models::schedule::CronScheduleOptions::default(),
+        )
+        .await
+    }
+
+    /// Register a workflow to run on a cron schedule, with the options of the
+    /// schedule (CLOACINA-T-1020).
+    ///
+    /// # Arguments
+    /// * `workflow_name` - Name of the workflow to schedule
+    /// * `cron_expression` - Cron expression (e.g., "0 9 * * *" for daily at 9 AM)
+    /// * `timezone` - Timezone for interpreting the cron expression
+    /// * `options` - The catch-up policy: `Skip` (the default) fires once for
+    ///   the fire times missed while no scheduler ran; `RunAll` fires each of
+    ///   them, oldest first.
+    ///
+    /// # Returns
+    /// * `Result<UniversalUuid, WorkflowExecutionError>` - The ID of the created schedule or an error
+    pub async fn register_cron_workflow_with_options(
+        &self,
+        workflow_name: &str,
+        cron_expression: &str,
+        timezone: &str,
+        options: &crate::models::schedule::CronScheduleOptions,
+    ) -> Result<UniversalUuid, WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
             return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled. Use enable_cron_scheduling(true) in config."
@@ -190,6 +241,7 @@ impl DefaultRunner {
         let mut new_schedule =
             NewSchedule::cron(workflow_name, cron_expression, UniversalTimestamp(next_run));
         new_schedule.timezone = Some(timezone.to_string());
+        options.apply_to(&mut new_schedule);
 
         let schedule = dal.schedule().create(new_schedule).await.map_err(|e| {
             WorkflowExecutionError::ExecutionFailed {
@@ -496,6 +548,22 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
         cron_expression: &str,
         timezone: &str,
     ) -> Result<String, String> {
+        self.register_cron_workflow_with_options(
+            workflow_name,
+            cron_expression,
+            timezone,
+            &crate::models::schedule::CronScheduleOptions::default(),
+        )
+        .await
+    }
+
+    async fn register_cron_workflow_with_options(
+        &self,
+        workflow_name: &str,
+        cron_expression: &str,
+        timezone: &str,
+        options: &crate::models::schedule::CronScheduleOptions,
+    ) -> Result<String, String> {
         use crate::CronEvaluator;
         use crate::database::universal_types::UniversalTimestamp;
         use crate::models::schedule::NewSchedule;
@@ -520,7 +588,7 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
         // schedule every time (CLOACI-T-0669). Upsert collapses those to one.
         let schedule = dal
             .schedule()
-            .upsert_cron(new_schedule)
+            .upsert_cron_declared(new_schedule, options)
             .await
             .map_err(|e| format!("Failed to register cron schedule: {}", e))?;
 

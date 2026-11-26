@@ -62,6 +62,10 @@ enum InstanceVerb {
         /// IANA timezone for `--cron` (default: UTC).
         #[arg(long)]
         timezone: Option<String>,
+        /// What the schedule does with the fire times it missed: `skip`
+        /// (default) or `run_all`. Needs `--cron`.
+        #[arg(long, value_name = "POLICY", requires = "cron")]
+        catchup: Option<String>,
         /// Create the schedule disabled.
         #[arg(long)]
         disabled: bool,
@@ -96,6 +100,7 @@ impl InstanceCmd {
                 params_file,
                 cron,
                 timezone,
+                catchup,
                 disabled,
             } => {
                 let merged = merge_params(&params, params_file.as_deref())?;
@@ -108,6 +113,9 @@ impl InstanceCmd {
                 }
                 if let Some(tz) = timezone {
                     body["timezone"] = serde_json::json!(tz);
+                }
+                if let Some(policy) = catchup {
+                    body["catchup_policy"] = serde_json::json!(policy);
                 }
                 if disabled {
                     body["enabled"] = serde_json::json!(false);

@@ -334,6 +334,7 @@ mod postgres_bindings {
                     "schema-cron-test".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     py,
                 )
                 .unwrap();

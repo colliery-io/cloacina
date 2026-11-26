@@ -903,14 +903,14 @@ detail page and `cloacinactl instance` drives the same endpoints.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true}` — `params`, `cron`, `timezone`, and `enabled` are optional (no `cron` = unscheduled binding). Returns `201` with the instance summary. |
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true, "catchup_policy": "skip"}` — `params`, `cron`, `timezone`, `enabled` and `catchup_policy` are optional (no `cron` = unscheduled binding). `catchup_policy` is `skip` (default) or `run_all`; another value, or a policy with no `cron`, is a `400` (`invalid_schedule_options`). Returns `201` with the instance summary. |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances` | List instances (`{items, total}` envelope; `limit`/`offset` paging). |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | One instance's summary. |
 | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Delete the instance (and its schedule). Returns `{"deleted": true, ...}`. |
 
 Instance summary shape: `id`, `workflow_name`, `instance_name`, `params`,
-`cron_expression`, `timezone`, `enabled`, `paused`, `next_run_at`,
-`last_run_at`, `created_at`.
+`cron_expression`, `timezone`, `catchup_policy`, `enabled`, `paused`,
+`next_run_at`, `last_run_at`, `created_at`.
 
 ## Executions
 

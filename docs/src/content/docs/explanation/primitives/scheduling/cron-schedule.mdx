@@ -49,8 +49,11 @@ runner.delete_cron_schedule(schedule_id)
   with an **optional leading seconds field** (6-field, e.g. `*/3 * * * * *` =
   every 3 seconds). Parsed by the `croner` crate with seconds-optional enabled;
   evaluated timezone-aware (`CronEvaluator` in `cloacina-workflow`).
-- **Catch-up policy:** `skip` or `run-all` (run-all is bounded by a max-catchup
-  count).
+- **Catch-up policy:** `skip` (the default) or `run_all`. It is declared with
+  the schedule: `catchup = "run_all"` on `#[trigger]`, `catchup="run_all"` on
+  `@cloaca.trigger`, `catchup_policy` on a named instance and on
+  `register_cron_workflow`. See
+  [missed fire times](../../../engine/cron-scheduling/#missed-execution-handling).
 - **Schedule dicts (Python):** `id`, `workflow_name`, `cron_expression`,
   `timezone`, `enabled`, `catchup_policy`, `next_run_at`, `last_run_at`,
   `created_at`, `updated_at`.

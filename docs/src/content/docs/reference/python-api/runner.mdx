@@ -131,7 +131,7 @@ Cron expressions are validated by the engine's `CronEvaluator`
 expressions (`minute hour day month weekday`), with an optional leading
 seconds field also accepted.
 
-### `register_cron_workflow(workflow_name, cron_expression, timezone)`
+### `register_cron_workflow(workflow_name, cron_expression, timezone, catchup_policy=None)`
 
 Register a workflow for cron-based scheduling.
 
@@ -139,6 +139,7 @@ Register a workflow for cron-based scheduling.
 - `workflow_name` (str): Name of the workflow to schedule
 - `cron_expression` (str): Cron expression (e.g., "0 2 * * *")
 - `timezone` (str): Timezone name (e.g., "UTC", "America/New_York")
+- `catchup_policy` (str, optional): `"skip"` (the default) or `"run_all"`. With `"run_all"` the schedule runs each fire time it missed while no scheduler ran, oldest first. Another value raises `ValueError`.
 
 **Returns:** str - Schedule ID (UUID)
 

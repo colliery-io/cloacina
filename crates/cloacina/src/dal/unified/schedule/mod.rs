@@ -30,7 +30,7 @@ use crate::dal::unified::models::{NewUnifiedSchedule, UnifiedSchedule};
 use crate::database::schema::unified::schedules;
 use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
-use crate::models::schedule::{NewSchedule, Schedule};
+use crate::models::schedule::{CronScheduleOptions, NewSchedule, Schedule};
 use chrono::{DateTime, Utc};
 
 /// Data access layer for unified schedule operations with runtime backend selection.
@@ -447,6 +447,25 @@ impl<'a> ScheduleDAL<'a> {
         &self,
         new_schedule: NewSchedule,
     ) -> Result<Schedule, ValidationError> {
+        self.upsert_cron_declared(new_schedule, &CronScheduleOptions::default())
+            .await
+    }
+
+    /// [`upsert_cron`](Self::upsert_cron) with what the declaration sets on
+    /// the schedule (CLOACINA-T-1020). A new row gets the declared values. An
+    /// existing row gets each value that is declared and keeps the others, so
+    /// a re-load of a package that declares no catch-up policy does not undo
+    /// a policy that an operator set on the row.
+    pub async fn upsert_cron_declared(
+        &self,
+        mut new_schedule: NewSchedule,
+        options: &CronScheduleOptions,
+    ) -> Result<Schedule, ValidationError> {
+        options.apply_to(&mut new_schedule);
+        let declared_catchup = options
+            .catchup_policy
+            .as_ref()
+            .map(|policy| policy.as_str().to_string());
         // Identity of a cron schedule: (workflow_name, cron_expression,
         // timezone). Re-registering the same packaged cron on a reconcile
         // re-load updates the existing row instead of inserting a duplicate.
@@ -495,6 +514,14 @@ impl<'a> ScheduleDAL<'a> {
                     ))
                     .execute(conn)
             })?;
+
+            if let Some(policy) = declared_catchup {
+                crate::interact_on_backend!(self.dal, |conn| {
+                    diesel::update(schedules::table.find(existing_id))
+                        .set(schedules::catchup_policy.eq(Some(policy)))
+                        .execute(conn)
+                })?;
+            }
 
             let result: UnifiedSchedule = crate::interact_on_backend!(self.dal, |conn| {
                 schedules::table.find(existing_id).first(conn)
@@ -781,6 +808,61 @@ mod tests {
             2,
             "a different cron expression is a new schedule"
         );
+    }
+
+    /// CLOACINA-T-1020: a declared catch-up policy is written on insert and
+    /// on re-registration; a re-registration that declares none keeps the
+    /// value on the row.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn upsert_cron_declared_sets_and_keeps_the_catchup_policy() {
+        use crate::models::schedule::{CatchupPolicy, CronScheduleOptions};
+
+        let dal = unique_dal().await;
+        let next_run = UniversalTimestamp::now();
+        let new = || NewSchedule::cron("wf", "0 * * * *", next_run);
+        let run_all = CronScheduleOptions {
+            catchup_policy: Some(CatchupPolicy::RunAll),
+        };
+        let skip = CronScheduleOptions {
+            catchup_policy: Some(CatchupPolicy::Skip),
+        };
+
+        // Not declared: a new schedule gets the default.
+        let plain = dal.schedule().upsert_cron(new()).await.unwrap();
+        assert_eq!(plain.catchup_policy.as_deref(), Some("skip"));
+
+        // Declared on a re-registration: the row changes.
+        let declared = dal
+            .schedule()
+            .upsert_cron_declared(new(), &run_all)
+            .await
+            .unwrap();
+        assert_eq!(declared.id, plain.id);
+        assert_eq!(declared.catchup_policy.as_deref(), Some("run_all"));
+
+        // Not declared on a re-registration: the row keeps its value.
+        let kept = dal.schedule().upsert_cron(new()).await.unwrap();
+        assert_eq!(kept.catchup_policy.as_deref(), Some("run_all"));
+
+        // Declared again: back to skip.
+        let back = dal
+            .schedule()
+            .upsert_cron_declared(new(), &skip)
+            .await
+            .unwrap();
+        assert_eq!(back.catchup_policy.as_deref(), Some("skip"));
+
+        // Declared on insert.
+        let mut other = NewSchedule::cron("wf", "0 0 * * *", next_run);
+        other.timezone = Some("America/New_York".to_string());
+        let inserted = dal
+            .schedule()
+            .upsert_cron_declared(other, &run_all)
+            .await
+            .unwrap();
+        assert_ne!(inserted.id, plain.id);
+        assert_eq!(inserted.catchup_policy.as_deref(), Some("run_all"));
     }
 
     #[cfg(feature = "sqlite")]

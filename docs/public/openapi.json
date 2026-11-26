@@ -4664,6 +4664,13 @@
           "instance_name"
         ],
         "properties": {
+          "catchup_policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the schedule does with the fire times it missed while no\nscheduler ran: `skip` (the default) fires once, `run_all` fires each\nof them, oldest first. Needs `cron`."
+          },
           "cron": {
             "type": [
               "string",
@@ -6625,6 +6632,13 @@
                 "created_at"
               ],
               "properties": {
+                "catchup_policy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "`skip` or `run_all`. Absent in a response from an older server."
+                },
                 "created_at": {
                   "type": "string",
                   "description": "RFC 3339 timestamp."
@@ -7245,6 +7259,13 @@
           "created_at"
         ],
         "properties": {
+          "catchup_policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`skip` or `run_all`. Absent in a response from an older server."
+          },
           "created_at": {
             "type": "string",
             "description": "RFC 3339 timestamp."

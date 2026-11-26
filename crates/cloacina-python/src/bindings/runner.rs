@@ -61,6 +61,7 @@ enum RuntimeMessage {
         workflow_name: String,
         cron_expression: String,
         timezone: String,
+        options: cloacina::models::schedule::CronScheduleOptions,
         response_tx: oneshot::Sender<Result<String, cloacina::executor::WorkflowExecutionError>>,
     },
     RegisterWorkflowInstance {
@@ -536,12 +537,18 @@ async fn run_event_loop(
                 workflow_name,
                 cron_expression,
                 timezone,
+                options,
                 response_tx,
             } => {
                 let runner = runner.clone();
                 tokio::spawn(async move {
                     let result = runner
-                        .register_cron_workflow(&workflow_name, &cron_expression, &timezone)
+                        .register_cron_workflow_with_options(
+                            &workflow_name,
+                            &cron_expression,
+                            &timezone,
+                            &options,
+                        )
                         .await
                         .map(|uuid| uuid.to_string());
                     let _ = response_tx.send(result);
@@ -1142,18 +1149,27 @@ impl PyDefaultRunner {
         )
     }
 
+    #[pyo3(signature = (workflow_name, cron_expression, timezone, catchup_policy = None))]
     pub fn register_cron_workflow(
         &self,
         workflow_name: String,
         cron_expression: String,
         timezone: String,
+        catchup_policy: Option<String>,
         py: Python,
     ) -> PyResult<String> {
+        // CLOACINA-T-1020: the options of the schedule. A value that is not a
+        // policy is an error here, not a silent `skip`.
+        let options = cloacina::models::schedule::CronScheduleOptions::from_declared(
+            catchup_policy.as_deref(),
+        )
+        .map_err(PyValueError::new_err)?;
         let (response_tx, response_rx) = oneshot::channel();
         let message = RuntimeMessage::RegisterCronWorkflow {
             workflow_name,
             cron_expression,
             timezone,
+            options,
             response_tx,
         };
         self.send_and_recv(message, response_rx, py, "Failed to register cron workflow")
@@ -1626,6 +1642,50 @@ mod tests {
         });
     }
 
+    /// CLOACINA-T-1020: the catch-up policy is set at registration, and a
+    /// value that is not a policy is an error.
+    #[test]
+    #[serial]
+    fn test_runner_register_cron_workflow_with_catchup_policy() {
+        Python::initialize();
+        let url = unique_sqlite_url();
+        let runner =
+            Python::attach(|py| PyDefaultRunner::new(py, &url)).expect("Failed to create runner");
+        Python::attach(|py| {
+            let schedule_id = runner
+                .register_cron_workflow(
+                    "test-cron-history".to_string(),
+                    "0 * * * *".to_string(),
+                    "UTC".to_string(),
+                    Some("run_all".to_string()),
+                    py,
+                )
+                .expect("register_cron_workflow should succeed");
+            let schedule = runner
+                .get_cron_schedule(schedule_id, py)
+                .expect("get_cron_schedule should succeed");
+            let policy: String = schedule
+                .bind(py)
+                .get_item("catchup_policy")
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(policy, "run_all");
+
+            let err = runner
+                .register_cron_workflow(
+                    "test-cron-history".to_string(),
+                    "0 * * * *".to_string(),
+                    "UTC".to_string(),
+                    Some("all".to_string()),
+                    py,
+                )
+                .expect_err("a wrong policy must fail");
+            assert!(err.to_string().contains("invalid catch-up policy"), "{err}");
+            runner.shutdown(py).unwrap();
+        });
+    }
+
     #[test]
     #[serial]
     fn test_runner_register_cron_workflow() {
@@ -1639,6 +1699,7 @@ mod tests {
                     "test-cron-wf".to_string(),
                     "0 * * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     py,
                 )
                 .expect("register_cron_workflow should succeed");
@@ -1661,6 +1722,7 @@ mod tests {
                     "list-test-wf".to_string(),
                     "0 12 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     py,
                 )
                 .unwrap();
@@ -1686,6 +1748,7 @@ mod tests {
                     "get-test-wf".to_string(),
                     "30 2 * * *".to_string(),
                     "America/New_York".to_string(),
+                    None,
                     py,
                 )
                 .unwrap();
@@ -1711,6 +1774,7 @@ mod tests {
                     "enable-test-wf".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     py,
                 )
                 .unwrap();
@@ -1738,6 +1802,7 @@ mod tests {
                     "delete-test-wf".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     py,
                 )
                 .unwrap();
@@ -1765,6 +1830,7 @@ mod tests {
                     "update-test-wf".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     py,
                 )
                 .unwrap();
@@ -1794,6 +1860,7 @@ mod tests {
                     "history-test-wf".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     py,
                 )
                 .unwrap();
@@ -1976,6 +2043,7 @@ mod tests {
                     "filter-test".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     py,
                 )
                 .unwrap();

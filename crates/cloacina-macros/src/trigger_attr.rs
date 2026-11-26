@@ -39,6 +39,9 @@ pub struct TriggerAttributes {
     pub poll_interval: Option<String>,
     pub cron: Option<String>,
     pub timezone: Option<String>,
+    /// Catch-up policy of the cron schedule: `"skip"` or `"run_all"`
+    /// (CLOACINA-T-1020). Cron triggers only.
+    pub catchup: Option<String>,
     pub allow_concurrent: bool,
     pub name: Option<String>,
 }
@@ -49,6 +52,7 @@ impl Parse for TriggerAttributes {
         let mut poll_interval = None;
         let mut cron = None;
         let mut timezone = None;
+        let mut catchup = None;
         let mut allow_concurrent = false;
         let mut name = None;
 
@@ -73,6 +77,17 @@ impl Parse for TriggerAttributes {
                     let lit: LitStr = input.parse()?;
                     timezone = Some(lit.value());
                 }
+                "catchup" => {
+                    let lit: LitStr = input.parse()?;
+                    let value = lit.value();
+                    if value != "skip" && value != "run_all" {
+                        return Err(syn::Error::new(
+                            lit.span(),
+                            format!("Invalid catchup: '{}'. Valid: \"skip\", \"run_all\"", value),
+                        ));
+                    }
+                    catchup = Some(value);
+                }
                 "allow_concurrent" => {
                     let lit: syn::LitBool = input.parse()?;
                     allow_concurrent = lit.value();
@@ -85,7 +100,7 @@ impl Parse for TriggerAttributes {
                     return Err(syn::Error::new(
                         field_name.span(),
                         format!(
-                            "Unknown attribute: '{}'. Valid: on, poll_interval, cron, timezone, allow_concurrent, name",
+                            "Unknown attribute: '{}'. Valid: on, poll_interval, cron, timezone, catchup, allow_concurrent, name",
                             field_name
                         ),
                     ));
@@ -115,11 +130,19 @@ impl Parse for TriggerAttributes {
             ));
         }
 
+        if cron.is_none() && catchup.is_some() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "#[trigger] 'catchup' needs 'cron': only a cron schedule has missed fire times",
+            ));
+        }
+
         Ok(TriggerAttributes {
             on,
             poll_interval,
             cron,
             timezone,
+            catchup,
             allow_concurrent,
             name,
         })
@@ -297,6 +320,10 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
     let cron_expression = attrs.cron.as_deref().unwrap();
     let timezone = attrs.timezone.as_deref().unwrap_or("UTC");
     let allow_concurrent = attrs.allow_concurrent;
+    let catchup_policy = match attrs.catchup.as_deref() {
+        Some(policy) => quote! { Some(#policy.to_string()) },
+        None => quote! { None },
+    };
 
     // Compile-time validation of the cron expression
     // We parse it here to give a compile error if invalid
@@ -353,6 +380,10 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
 
             fn cron_timezone(&self) -> Option<String> {
                 Some(#timezone.to_string())
+            }
+
+            fn cron_catchup_policy(&self) -> Option<String> {
+                #catchup_policy
             }
 
             fn workflow_name(&self) -> &str {
@@ -434,4 +465,60 @@ fn validate_cron_expression(expr: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+
+    /// CLOACINA-T-1020: `catchup` is read for a cron trigger and reaches the
+    /// generated `cron_catchup_policy()`.
+    #[test]
+    fn cron_trigger_carries_the_declared_catchup_policy() {
+        let attrs: TriggerAttributes = syn::parse2(quote! {
+            on = "hourly_table", cron = "0 * * * *", catchup = "run_all"
+        })
+        .unwrap();
+        assert_eq!(attrs.catchup.as_deref(), Some("run_all"));
+
+        let input_fn: ItemFn = syn::parse2(quote! { async fn hourly() {} }).unwrap();
+        let generated = generate_cron_trigger(attrs, input_fn)
+            .to_string()
+            .replace(' ', "");
+        assert!(
+            generated.contains(
+                "fncron_catchup_policy(&self)->Option<String>{Some(\"run_all\".to_string())}"
+            ),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn cron_trigger_with_no_catchup_declares_none() {
+        let attrs: TriggerAttributes =
+            syn::parse2(quote! { on = "hourly_table", cron = "0 * * * *" }).unwrap();
+        assert_eq!(attrs.catchup, None);
+
+        let input_fn: ItemFn = syn::parse2(quote! { async fn hourly() {} }).unwrap();
+        let generated = generate_cron_trigger(attrs, input_fn)
+            .to_string()
+            .replace(' ', "");
+        assert!(
+            generated.contains("fncron_catchup_policy(&self)->Option<String>{None}"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn catchup_is_checked_at_compile_time() {
+        let parse = |tokens| syn::parse2::<TriggerAttributes>(tokens).map(|_| ());
+        // Not a policy.
+        let err = parse(quote! { on = "wf", cron = "0 * * * *", catchup = "all" }).unwrap_err();
+        assert!(err.to_string().contains("Invalid catchup"), "{err}");
+        // A poll trigger has no missed fire times.
+        let err =
+            parse(quote! { on = "wf", poll_interval = "5s", catchup = "run_all" }).unwrap_err();
+        assert!(err.to_string().contains("needs 'cron'"), "{err}");
+    }
 }

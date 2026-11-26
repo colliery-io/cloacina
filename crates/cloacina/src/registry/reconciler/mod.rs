@@ -187,6 +187,22 @@ pub trait CronWorkflowRegistrar: Send + Sync {
         timezone: &str,
     ) -> Result<String, String>;
 
+    /// Create a cron schedule with what its trigger declares for it
+    /// (CLOACINA-T-1020): the catch-up policy. The reconciler calls this one.
+    /// The default ignores the options, so a registrar written before them
+    /// still compiles; `DalCronRegistrar` applies them.
+    async fn register_cron_workflow_with_options(
+        &self,
+        workflow_name: &str,
+        cron_expression: &str,
+        timezone: &str,
+        options: &crate::models::schedule::CronScheduleOptions,
+    ) -> Result<String, String> {
+        let _ = options;
+        self.register_cron_workflow(workflow_name, cron_expression, timezone)
+            .await
+    }
+
     /// Drop a cron schedule by the ID returned from
     /// [`register_cron_workflow`](Self::register_cron_workflow).
     async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String>;

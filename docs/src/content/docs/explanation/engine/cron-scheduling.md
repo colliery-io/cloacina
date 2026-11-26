@@ -318,7 +318,18 @@ When a scheduler starts after downtime and finds firings whose `next_execution_a
 | `Skip` | Roll `next_execution_at` forward to the next future firing; the missed firings are dropped. Default for newly-registered schedules — appropriate when a missed firing has no value (e.g., dashboard refresh, hourly aggregation whose inputs have already advanced). |
 | `RunAll` | Replay every missed firing in order, bounded by `cron_max_catchup_executions` on `DefaultRunnerConfig`. Appropriate when each firing is independently durable work (e.g., per-hour reports that must each emit). |
 
-The cron recovery service (`crates/cloacina/src/cron_recovery.rs`) inspects `last_executed_at` against the cron expression and applies the policy on each recovery tick (cadence: `cron_recovery_interval`, default 5min). Set the policy at schedule-registration time via the DAL — the field is not currently exposed on `register_cron_workflow` and is set during direct row insert.
+The scheduler applies the policy when it claims a due schedule. The policy is declared with the schedule, and the default is `skip`:
+
+| Where the schedule is declared | How to set the policy |
+|---|---|
+| Rust packaged trigger | `#[trigger(on = "wf", cron = "0 * * * *", catchup = "run_all")]` |
+| Python packaged trigger | `@cloaca.trigger(on="wf", cron="0 * * * *", catchup="run_all")` |
+| Named instance (HTTP) | `"catchup_policy": "run_all"` in the body of `POST /v1/tenants/{tenant}/workflows/{name}/instances` |
+| Named instance (CLI) | `cloacinactl instance create wf name --cron "0 * * * *" --catchup run_all` |
+| Embedded Rust | `runner.register_cron_workflow_with_options(wf, expr, tz, &CronScheduleOptions { catchup_policy: Some(CatchupPolicy::RunAll) })` |
+| Embedded Python | `runner.register_cron_workflow(wf, expr, tz, catchup_policy="run_all")` |
+
+A value that is not `skip` or `run_all` is an error at each of these places. A packaged trigger that declares no policy does not change the policy of a schedule that already exists, so a policy set on the row by an operator survives a re-load of the package.
 
 See [Configuration Reference](../../../reference/configuration/) for the related knobs:
 `cron_max_catchup_executions` (default 100), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).

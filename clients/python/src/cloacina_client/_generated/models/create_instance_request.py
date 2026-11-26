@@ -18,6 +18,9 @@ class CreateInstanceRequest:
     Attributes:
         instance_name (str): Instance name, unique per `(workflow_name, instance_name)` within the
             tenant.
+        catchup_policy (None | str | Unset): What the schedule does with the fire times it missed while no
+            scheduler ran: `skip` (the default) fires once, `run_all` fires each
+            of them, oldest first. Needs `cron`.
         cron (None | str | Unset): Cron expression. When omitted the instance is created **unscheduled** —
             a durable named param binding that never fires on its own.
         enabled (bool | None | Unset): Whether the schedule is enabled on creation. Defaults to `true`.
@@ -27,6 +30,7 @@ class CreateInstanceRequest:
     """
 
     instance_name: str
+    catchup_policy: None | str | Unset = UNSET
     cron: None | str | Unset = UNSET
     enabled: bool | None | Unset = UNSET
     params: Any | Unset = UNSET
@@ -35,6 +39,12 @@ class CreateInstanceRequest:
 
     def to_dict(self) -> dict[str, Any]:
         instance_name = self.instance_name
+
+        catchup_policy: None | str | Unset
+        if isinstance(self.catchup_policy, Unset):
+            catchup_policy = UNSET
+        else:
+            catchup_policy = self.catchup_policy
 
         cron: None | str | Unset
         if isinstance(self.cron, Unset):
@@ -63,6 +73,8 @@ class CreateInstanceRequest:
                 "instance_name": instance_name,
             }
         )
+        if catchup_policy is not UNSET:
+            field_dict["catchup_policy"] = catchup_policy
         if cron is not UNSET:
             field_dict["cron"] = cron
         if enabled is not UNSET:
@@ -78,6 +90,15 @@ class CreateInstanceRequest:
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
         instance_name = d.pop("instance_name")
+
+        def _parse_catchup_policy(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        catchup_policy = _parse_catchup_policy(d.pop("catchup_policy", UNSET))
 
         def _parse_cron(data: object) -> None | str | Unset:
             if data is None:
@@ -110,6 +131,7 @@ class CreateInstanceRequest:
 
         create_instance_request = cls(
             instance_name=instance_name,
+            catchup_policy=catchup_policy,
             cron=cron,
             enabled=enabled,
             params=params,

@@ -21,6 +21,7 @@ class TenantListResponseWorkflowInstanceSummaryItemsItem:
         id (str): Underlying schedule UUID.
         instance_name (str):
         workflow_name (str):
+        catchup_policy (None | str | Unset): `skip` or `run_all`. Absent in a response from an older server.
         cron_expression (None | str | Unset):
         last_run_at (None | str | Unset): RFC 3339 timestamp.
         next_run_at (None | str | Unset): RFC 3339 timestamp.
@@ -34,6 +35,7 @@ class TenantListResponseWorkflowInstanceSummaryItemsItem:
     id: str
     instance_name: str
     workflow_name: str
+    catchup_policy: None | str | Unset = UNSET
     cron_expression: None | str | Unset = UNSET
     last_run_at: None | str | Unset = UNSET
     next_run_at: None | str | Unset = UNSET
@@ -52,6 +54,12 @@ class TenantListResponseWorkflowInstanceSummaryItemsItem:
         instance_name = self.instance_name
 
         workflow_name = self.workflow_name
+
+        catchup_policy: None | str | Unset
+        if isinstance(self.catchup_policy, Unset):
+            catchup_policy = UNSET
+        else:
+            catchup_policy = self.catchup_policy
 
         cron_expression: None | str | Unset
         if isinstance(self.cron_expression, Unset):
@@ -92,6 +100,8 @@ class TenantListResponseWorkflowInstanceSummaryItemsItem:
                 "workflow_name": workflow_name,
             }
         )
+        if catchup_policy is not UNSET:
+            field_dict["catchup_policy"] = catchup_policy
         if cron_expression is not UNSET:
             field_dict["cron_expression"] = cron_expression
         if last_run_at is not UNSET:
@@ -119,6 +129,15 @@ class TenantListResponseWorkflowInstanceSummaryItemsItem:
         instance_name = d.pop("instance_name")
 
         workflow_name = d.pop("workflow_name")
+
+        def _parse_catchup_policy(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        catchup_policy = _parse_catchup_policy(d.pop("catchup_policy", UNSET))
 
         def _parse_cron_expression(data: object) -> None | str | Unset:
             if data is None:
@@ -166,6 +185,7 @@ class TenantListResponseWorkflowInstanceSummaryItemsItem:
             id=id,
             instance_name=instance_name,
             workflow_name=workflow_name,
+            catchup_policy=catchup_policy,
             cron_expression=cron_expression,
             last_run_at=last_run_at,
             next_run_at=next_run_at,
