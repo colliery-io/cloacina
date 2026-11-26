@@ -63,6 +63,9 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). |
+| `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `--run-history-retention-days` | `0` (off) | Days to keep a finished workflow run (Completed, Failed or Cancelled) before the server's retention job deletes it with its task executions, task metadata, contexts, events, recovery events and schedule executions. `0` turns it off. Runs that are not finished are never deleted. |
+| `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `--outbox-acked-retention-s` | `3600` | Seconds to keep a `delivery_outbox` row after its ack. `0` turns it off. |
+| `CLOACINA_RETENTION_INTERVAL_S` | `--retention-interval-s` | `300` | Seconds between passes of the retention job. |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
 | `CLOACINA_CORS_ALLOWED_METHODS` | `--cors-allowed-methods` | `GET,POST,DELETE,OPTIONS` | Comma-separated allowed methods. |
 | `CLOACINA_CORS_ALLOWED_HEADERS` | `--cors-allowed-headers` | `authorization,content-type` | Comma-separated allowed request headers. |
@@ -72,7 +75,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 `[server].default_executor` in `config.toml`). The two
 `CLOACINA_AGENT_*` liveness flags are read by the `cloacina-server` binary
 directly (and via the env vars above); the wrapper does **not** forward them,
-so set them on `cloacina-server` itself or through the environment.
+so set them on `cloacina-server` itself or through the environment. The same
+holds for the three retention settings.
 
 The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents.
 

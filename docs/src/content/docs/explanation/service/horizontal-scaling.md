@@ -392,6 +392,7 @@ Everything above concerns duplicate *task execution* across runners. Running mul
 - **Work-packet dispatch** does not care which replica holds an agent's WebSocket: packets are written to the durable `delivery_outbox` and delivered by whichever replica the agent's delivery socket is connected to (connection-ownership routing). A replica with no route simply leaves the row `pending` for the replica that has one.
 - **OIDC login flows** persist their state/nonce/PKCE in `oidc_login_flows`, so the callback may land on a different replica than the one that began the login.
 - Leader-gated loops (fleet autoscaler/reconciler) use a Postgres advisory lock plus DB wall-clock cooldowns, so replicas never double-drive them.
+- **The retention job** (removal of old run history and acked outbox rows) runs on every replica behind its own advisory lock, so one replica works per tick. The lock is taken per tick: two replicas can each run a pass within one interval, one after the other, which is harmless because the deletes are idempotent.
 
 **Readiness is platform-scoped.** `GET /ready` reports only platform health (database reachability). Tenant workload health — e.g. a crashed computation graph from a bad package — deliberately does not fail `/ready`: it would flip readiness false on *every* replica at once and eject the whole fleet from the load-balancer pool. Crashed graphs stay visible via `GET /v1/health/graphs` and metrics; `GET /health` remains a process-liveness check.
 

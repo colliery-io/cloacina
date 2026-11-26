@@ -73,6 +73,8 @@ label at scrape time with a `metric_relabel_configs` `labeldrop` rule.
 | `cloacina_delivery_outbox_sweep_runs_total` | — | Delivery-outbox sweeper: total sweep passes executed. Complements the `cloacina_delivery_outbox_open` gauge. |
 | `cloacina_delivery_outbox_sweep_redeliveries_total` | — | Delivery-outbox sweeper: total outbox rows re-delivered by a sweep pass (e.g. after a missed acknowledgement). |
 | `cloacina_reactor_firings_pruned_total` | — | Reactor firing-history rows pruned during retention cleanup. Each increment counts one pruned firing record. |
+| `cloacina_retention_rows_deleted_total` | `table` | Rows removed by the server's background retention job, summed over the admin schema and all tenant schemas. `table` ∈ `workflow_executions`, `task_executions`, `task_execution_metadata`, `contexts`, `execution_events`, `recovery_events`, `schedule_executions`, `delivery_outbox`. Only the replica that holds the retention lock for a tick counts. A series appears after its first removed row. CLOACINA-T-1023. |
+| `cloacina_retention_errors_total` | — | Retention passes over one schema that failed (also: the tenant schema list could not be read). The pass is retried on the next tick. Sustained growth means run history is not being removed. CLOACINA-T-1023. |
 
 ### Histograms
 

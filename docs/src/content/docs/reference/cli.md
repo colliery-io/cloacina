@@ -194,10 +194,19 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 | `--reconcile-interval-s <N>` | | (runtime default) | Interval (seconds) between reconciler passes that sync the in-runner workflow registry with the DB. Increase for quiet prod; decrease for fast e2e tests. |
 | `--tenant-runner-cache-size <N>` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB connection pool. Bump for high-cardinality SaaS deployments; drop for memory-tight ones. CLOACI-T-0580. |
 | `--tenant-deletion-drain-timeout-s <N>` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; any task that ignored cooperative cancellation errors on its next DB write once the schema is dropped. CLOACI-T-0581. |
-| `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. CLOACI-I-0109 / T-0592. |
+| `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. Log files only: database rows are covered by the retention settings below. CLOACI-I-0109 / T-0592. |
 
 This subcommand was renamed from `serve` in an earlier release; older
 docs may still mention the old name.
+
+Retention of run history in the database is set on the `cloacina-server`
+binary, by flag or environment variable (the wrapper passes the environment
+through): `--run-history-retention-days` /
+`CLOACINA_RUN_HISTORY_RETENTION_DAYS` (default `0`, off),
+`--outbox-acked-retention-s` / `CLOACINA_OUTBOX_ACKED_RETENTION_S` (default
+`3600`) and `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S`
+(default `300`). See
+[Run history retention](../../how-to/service/production-deployment/#run-history-retention).
 
 `server start` **execs the `cloacina-server` binary from `PATH`**
 (after writing `<home>/server.pid`). The install script installs only

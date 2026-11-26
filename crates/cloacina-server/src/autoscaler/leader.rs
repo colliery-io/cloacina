@@ -75,19 +75,40 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = T>,
 {
+    with_advisory_leadership(db, FLEET_CONTROL_LOCK_KEY, "fleet", work).await
+}
+
+/// The same single-replica gate for any advisory-lock `key` (CLOACINA-T-1023):
+/// run `work` only if this replica takes `pg_try_advisory_lock(key)`, and
+/// ALWAYS release the lock afterwards. `what` names the loop in log lines.
+///
+/// Each background loop that must run on one replica at a time uses its own
+/// key, so the loops do not block each other. The return value and the
+/// fail-safe behaviour are those of [`with_fleet_leadership`].
+#[cfg(feature = "postgres")]
+pub async fn with_advisory_leadership<F, Fut, T>(
+    db: &Database,
+    key: i64,
+    what: &'static str,
+    work: F,
+) -> Option<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = T>,
+{
     // Hold ONE pooled connection for the whole tick so lock + unlock land on the
     // same Postgres session (see module docs).
     let conn = match db.get_postgres_connection().await {
         Ok(c) => c,
         Err(e) => {
-            warn!(error = %e, "fleet leadership: failed to acquire a connection; skipping tick");
+            warn!(error = %e, what, "leadership: failed to acquire a connection; skipping tick");
             return None;
         }
     };
 
     // Try to take the lock. A non-blocking try: if another replica holds it we
     // get `false` and bow out rather than queueing.
-    let lock_sql = format!("SELECT pg_try_advisory_lock({FLEET_CONTROL_LOCK_KEY}) AS locked");
+    let lock_sql = format!("SELECT pg_try_advisory_lock({key}) AS locked");
     let acquired = match conn
         .interact(move |conn| {
             use diesel::RunQueryDsl;
@@ -97,11 +118,11 @@ where
     {
         Ok(Ok(row)) => row.locked,
         Ok(Err(e)) => {
-            warn!(error = %e, "fleet leadership: pg_try_advisory_lock query failed; skipping tick");
+            warn!(error = %e, what, "leadership: pg_try_advisory_lock query failed; skipping tick");
             return None;
         }
         Err(e) => {
-            warn!(error = %e, "fleet leadership: interact failed during lock; skipping tick");
+            warn!(error = %e, what, "leadership: interact failed during lock; skipping tick");
             return None;
         }
     };
@@ -114,7 +135,7 @@ where
     // We are the leader. Run the work, then ALWAYS unlock.
     let out = work().await;
 
-    let unlock_sql = format!("SELECT pg_advisory_unlock({FLEET_CONTROL_LOCK_KEY}) AS locked");
+    let unlock_sql = format!("SELECT pg_advisory_unlock({key}) AS locked");
     match conn
         .interact(move |conn| {
             use diesel::RunQueryDsl;
@@ -124,11 +145,12 @@ where
     {
         Ok(Ok(row)) if row.locked => {}
         Ok(Ok(_)) => warn!(
-            "fleet leadership: pg_advisory_unlock returned false (lock was not held on this \
+            what,
+            "leadership: pg_advisory_unlock returned false (lock was not held on this \
              session); the lock will free when this connection is recycled"
         ),
-        Ok(Err(e)) => warn!(error = %e, "fleet leadership: pg_advisory_unlock query failed"),
-        Err(e) => warn!(error = %e, "fleet leadership: interact failed during unlock"),
+        Ok(Err(e)) => warn!(error = %e, what, "leadership: pg_advisory_unlock query failed"),
+        Err(e) => warn!(error = %e, what, "leadership: interact failed during unlock"),
     }
 
     Some(out)
