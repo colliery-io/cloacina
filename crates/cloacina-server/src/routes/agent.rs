@@ -38,7 +38,8 @@ use cloacina::fleet::{
     host_target_triple,
 };
 use cloacina::security::ServerKeyPool;
-use tracing::{debug, info};
+use cloacina::security::ownership::{AgentOwner, Principal, Refusal};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use cloacina::dal::unified::FleetAgentRegistration;
@@ -70,36 +71,57 @@ fn require_protocol_version(version: u32) -> Result<(), ApiError> {
     }
 }
 
-/// CLOACI-T-0785: reject an agent-protocol call whose caller key is not in the
-/// agent's tenant. God-mode (`is_admin`) bypasses. Unknown agents fall through
-/// (the handler's own not-found / orphan handling applies). Dispatch-time
-/// isolation already holds (`fleet_executor` only selects same-tenant agents);
-/// this closes the inbound `heartbeat`/`result` endpoints, which previously
-/// ignored the caller's tenant entirely. CLOACI-T-0916: the tenant is read
-/// from the DB-backed roster, so the guard holds no matter which replica
-/// handled the agent's registration.
-async fn reject_cross_tenant_agent(
+/// The caller key as the ownership rules see it
+/// ([`cloacina::security::ownership`]).
+pub(crate) fn principal_of(auth: &AuthenticatedKey) -> Principal {
+    Principal {
+        key_id: auth.key_id,
+        tenant_id: auth.tenant_id.clone(),
+        is_admin: auth.is_admin,
+    }
+}
+
+/// Refuse an agent-protocol call unless the caller key holds the agent
+/// (CLOACINA-T-1050, CLOACINA-T-1051; the rule is
+/// [`Principal::may_act_as_agent`]). Returns the roster row's owner.
+///
+/// - No row has the id: 404 `agent_not_registered`. The agent registers
+///   again.
+/// - The row is in another tenant, or another key holds it: 403
+///   `agent_access_denied`, one answer for both.
+///
+/// A platform admin key gets no bypass. The row is read from the DB-backed
+/// roster (CLOACI-T-0916), so the answer is the same on every replica.
+async fn require_agent_owner(
     state: &AppState,
     auth: &AuthenticatedKey,
     agent_id: &str,
-) -> Result<(), ApiError> {
-    if auth.is_admin {
-        return Ok(());
-    }
-    let agent_tenant = state
+) -> Result<AgentOwner, ApiError> {
+    let row = state
         .agent_registry
-        .agent_tenant(agent_id)
+        .agent_owner(agent_id)
         .await
         .map_err(|e| ApiError::internal_logged("agent roster lookup failed", &e))?;
-    if let Some(agent_tenant) = agent_tenant {
-        if agent_tenant != auth.tenant_id {
-            return Err(ApiError::forbidden(
-                "tenant_access_denied",
-                "agent belongs to a different tenant",
-            ));
+    match (principal_of(auth).may_act_as_agent(row.as_ref()), row) {
+        (Ok(()), Some(row)) => Ok(row),
+        (Err(Refusal::UnknownAgent), _) | (Ok(()), None) => Err(ApiError::not_found(
+            "agent_not_registered",
+            format!("agent not registered: {} (re-register)", agent_id),
+        )),
+        (Err(why), _) => {
+            warn!(
+                agent_id = %agent_id,
+                api_key = %auth.name,
+                tenant = ?auth.tenant_id,
+                reason = %why,
+                "agent call refused: the key does not hold this agent"
+            );
+            Err(ApiError::forbidden(
+                "agent_access_denied",
+                "this key does not hold the agent",
+            ))
         }
     }
-    Ok(())
 }
 
 /// `POST /v1/agent/register`
@@ -119,7 +141,8 @@ pub async fn register_agent(
     // agent's advertised entries. A pre-pool agent that sent only the single
     // `ephemeral_public_key` is accommodated by synthesizing one pool entry so
     // one secret-bearing dispatch can still be served; a modern agent sends a
-    // full pool. Re-registration overwrites the record (and its pool) wholesale.
+    // full pool. A register by the key that holds the id overwrites the
+    // record (and its pool) wholesale.
     let mut pool_entries = req.ephemeral_key_pool.clone();
     if pool_entries.is_empty() {
         if let Some(pk) = req.ephemeral_public_key.clone() {
@@ -133,20 +156,42 @@ pub async fn register_agent(
 
     // CLOACI-T-0916: the roster row is DB-backed (visible to every replica);
     // the one-time key pool is seeded on THIS replica (see agent_registry.rs).
-    state
+    //
+    // CLOACINA-T-1051: the row gets the tenant of the key and the key as its
+    // owner. An id the server assigned is new. An id the caller chose is
+    // checked in the same transaction as the write: a register for an id
+    // that another tenant or another key holds is refused, and the holder's
+    // row and key pool stay as they are.
+    let registered = state
         .agent_registry
         .register(
             FleetAgentRegistration {
                 agent_id: agent_id.clone(),
-                tenant_id: auth.tenant_id.clone(),
                 target_triple: req.target_triple.clone(),
                 capabilities: req.capabilities.clone(),
                 max_concurrency: req.max_concurrency,
             },
             ServerKeyPool::from_entries(pool_entries),
+            &principal_of(&auth),
         )
         .await
         .map_err(|e| ApiError::internal_logged("agent registration persist failed", &e))?;
+    if let Err(why) = registered {
+        warn!(
+            agent_id = %agent_id,
+            api_key = %auth.name,
+            tenant = ?auth.tenant_id,
+            reason = %why,
+            "agent register refused: another key holds this agent id"
+        );
+        return Err(ApiError::conflict(
+            "agent_id_taken",
+            format!(
+                "agent id {agent_id} is held by another key; register with the key that holds \
+                 it, or with no agent_id to get a new one"
+            ),
+        ));
+    }
 
     info!(
         agent_id = %agent_id,
@@ -175,7 +220,7 @@ pub async fn heartbeat_agent(
     Json(req): Json<AgentHeartbeatRequest>,
 ) -> Result<Json<AgentHeartbeatResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
+    require_agent_owner(&state, &auth, &req.agent_id).await?;
 
     // CLOACI-T-0916: heartbeat lands in the DB-backed roster, so it succeeds
     // no matter which replica handled the registration (no more "not
@@ -194,7 +239,10 @@ pub async fn heartbeat_agent(
     // CLOACINA-T-1011 — renew the lease of the work packets the agent says it
     // still works on, so the delivery sweeper does not push them again. Best
     // effort: on a failure the sweeper pushes again and the agent ignores the
-    // re-push of a packet it has in work.
+    // re-push of a packet it has in work. The renewal names the rows by id;
+    // `renew_delivered` touches only the rows addressed to this agent, and
+    // the caller holds this agent (checked above), so one agent cannot renew
+    // the rows of another (CLOACINA-T-1052).
     if !req.in_flight_push_ids.is_empty() {
         let recipient = format!(
             "{}{}",
@@ -228,29 +276,18 @@ pub async fn heartbeat_agent(
 ///
 /// The agent appends fresh [`EphemeralKeyEntry`]s to its server-side pool, either
 /// in response to the heartbeat replenish signal or proactively. De-duped by
-/// `key_id`; an unknown agent is rejected (it should re-register).
+/// `key_id`. An unknown agent is rejected (it should re-register), and so is
+/// a key that does not hold the agent: the keys are what the server wraps
+/// the agent's secrets to.
 pub async fn replenish_keys(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
     Json(req): Json<AgentKeyReplenishRequest>,
 ) -> Result<Json<AgentKeyReplenishResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
-
     // CLOACI-T-0916: registration is checked against the DB-backed roster (any
     // replica); the keys themselves land in THIS replica's local pool.
-    let registered = state
-        .agent_registry
-        .agent_tenant(&req.agent_id)
-        .await
-        .map_err(|e| ApiError::internal_logged("agent roster lookup failed", &e))?
-        .is_some();
-    if !registered {
-        return Err(ApiError::not_found(
-            "agent_not_registered",
-            format!("agent not registered: {} (re-register)", req.agent_id),
-        ));
-    }
+    require_agent_owner(&state, &auth, &req.agent_id).await?;
     let accepted = state
         .agent_registry
         .replenish_secret_keys(&req.agent_id, req.keys);
@@ -272,13 +309,19 @@ pub async fn replenish_keys(
 /// retry, or a report whose replica stopped) changes no state. A report that
 /// can be neither forwarded nor stored is answered with a 5xx, so the agent
 /// sends it again.
+///
+/// CLOACINA-T-1050: the caller key must hold the agent the report names (an
+/// unknown agent id is a 404, another key's agent a 403). The wait then takes
+/// the report only if it comes from the tenant and the agent its packet went
+/// to, with the dispatch id of the packet
+/// ([`cloacina::security::ownership::DispatchTarget::check_report`]).
 pub async fn report_result(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
     Json(req): Json<AgentResultRequest>,
 ) -> Result<Json<AgentResultResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
+    let agent_row = require_agent_owner(&state, &auth, &req.agent_id).await?;
 
     // CLOACI-T-0780: a refusal is an EXPECTED fail-closed outcome — and now rare,
     // since the fleet only dispatches to agents with a runnable arch. Log it at
@@ -330,8 +373,20 @@ pub async fn report_result(
     let dispatch_id = req.dispatch_id.clone();
     let duration_ms = req.duration_ms;
     let inbox = cloacina::dal::DAL::new(state.database.clone());
-    match state.fleet_coordinator.accept(&inbox, task_id, req).await {
+    // The report goes on with the tenant of the agent row the key was checked
+    // against. A stored report keeps it, so the replica that takes it runs
+    // the same check.
+    let checked = crate::fleet_coordinator::CheckedReport::new(&agent_row, req);
+    match state
+        .fleet_coordinator
+        .accept(&inbox, task_id, checked)
+        .await
+    {
         Ok(crate::fleet_coordinator::Accepted::Local) => {}
+        // A wait here is for this dispatch and the sender is not the agent
+        // it went to. The coordinator logged and counted it; no state
+        // changed. The answer is the one an orphan gets.
+        Ok(crate::fleet_coordinator::Accepted::Refused(_)) => {}
         Ok(crate::fleet_coordinator::Accepted::Stored) => {
             tracing::info!(
                 task_id = %task_id,

@@ -256,6 +256,16 @@ What multi-tenant isolation **does not** guarantee:
 - **Privileged operator actions.** An `is_admin` key can do anything; key compromise = total compromise. Treat `is_admin` keys like AWS root credentials.
 - **Postgres-level row-level security.** Cloacina relies on schema-level isolation and the `SET search_path` enforcement above; it does not layer Postgres RLS policies on top. If your compliance posture requires defense-in-depth at the DB layer, layer RLS yourself.
 
+### Ownership on the fleet and the delivery socket
+
+The authorization table decides the level a route needs. Which agent, which dispatch and which outbox row a key may touch is decided by ownership, in one module (`cloacina::security::ownership`) that the agent routes, the fleet result path and the delivery WebSocket all call.
+
+- **An agent has an owner.** The owner is the tenant and the API key that registered the agent. Only that key may register the same agent id again, send its heartbeat, report a result for it, top up its one-time keys, or open its `agent:<id>` delivery socket. A register for an agent id that another tenant or another key holds is refused with `409 agent_id_taken`. A call for an agent id that is not registered is refused with `404 agent_not_registered`, and a call for another key's agent with `403 agent_access_denied`. A platform admin key gets no bypass.
+- **Agents that share one key are one owner.** The Kubernetes actuator gives every agent of a tenant the same key, so those agents can act as each other. Agents that must be separate need separate keys.
+- **A result counts only from the agent the work went to.** The server accepts a task result only from a registered agent, in the tenant of the dispatch, that is the agent the work packet is addressed to, and only with the `dispatch_id` of that packet. When an agent is evicted and its packet is re-targeted, the packet is addressed to the new agent and its result is the one accepted. A graph firing has no `dispatch_id`; the tenant and agent check is the same. A report stored for another server replica carries the tenant and the agent of its sender, and the replica that takes it runs the same check.
+- **A delivery connection has a recipient and a tenant.** Who may open which recipient is in the [WebSocket protocol reference](../../../reference/websocket-protocol/#recipients-who-may-subscribe). An `ack` applies only to an outbox row addressed to the connection's own recipient and tenant.
+- **Agent rows from before the owner existed.** A row that an older server wrote has no owner. A key of the row's tenant may heartbeat, report and top up for it, as before; nobody may open its `agent:<id>` socket. The next register for that id by a key of the row's tenant makes that key the owner. An agent registers at the start of every session, before it opens the socket, so the row gets its owner at the agent's first reconnect after the upgrade.
+
 ### What a task can reach on its agent
 
 A task runs inside the `cloacina-agent` process of its own tenant: a Rust task as a loaded library, a Python task in the embedded interpreter. It has the agent's user, files, network and memory.

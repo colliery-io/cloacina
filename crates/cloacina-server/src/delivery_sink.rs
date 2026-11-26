@@ -54,15 +54,22 @@ type Key = (String, Option<String>);
 /// (CLOACINA-T-0952).
 pub type ConnectionId = u64;
 
-/// Recipients whose frames go to every connected subscriber (CLOACINA-T-0952).
+/// Recipients whose frames go to every connected subscriber
+/// (CLOACINA-T-0952, CLOACINA-T-1051). The rule per recipient kind is
+/// [`cloacina::security::ownership::RecipientKind::is_shared`]:
 ///
-/// These carry ephemeral snapshots pushed with
-/// [`WsDeliverySink::push_direct`] (the ops metrics), so two browser tabs or
-/// two people on one tenant can each hold a socket. Every other recipient is
-/// single-consumer: the durable outbox is at-least-once with acks, and a
-/// newer connection replaces the older one.
+/// - `ops_metrics:*`: ephemeral snapshots pushed with
+///   [`WsDeliverySink::push_direct`], so two browser tabs or two people on
+///   one tenant can each hold a socket.
+/// - `exec_events:<id>`: the events of an execution, which more than one
+///   person of the tenant can follow. A second follower does not cut off the
+///   first. The rows are durable: each connected follower gets a row when it
+///   is pushed, and the first ack settles it.
+///
+/// Every other recipient is single-consumer (`agent:<id>`): its rows are
+/// work for one process, and a newer connection replaces the older one.
 pub fn is_broadcast_recipient(recipient: &str) -> bool {
-    recipient.starts_with("ops_metrics:")
+    cloacina::security::ownership::RecipientKind::of(recipient).is_shared()
 }
 
 struct Connection {
@@ -202,22 +209,32 @@ impl WsDeliverySink {
 #[async_trait]
 impl DeliverySink for WsDeliverySink {
     async fn deliver(&self, row: &DeliveryOutbox) -> Result<DeliveryOutcome, DeliveryError> {
-        // A durable row goes to one consumer: the newest connection of the key.
-        let Some((id, sender)) = self.senders(&row.recipient, row.tenant_id.as_deref()).pop()
-        else {
+        // A single-consumer key holds one connection. A shared key
+        // (`exec_events:<id>`) holds any number: the row goes to each of
+        // them, and it counts as delivered when at least one took it.
+        let senders = self.senders(&row.recipient, row.tenant_id.as_deref());
+        if senders.is_empty() {
             return Ok(DeliveryOutcome::NoRoute);
-        };
+        }
         let frame = cloacina::delivery::envelope::push_from_row(row);
-        match sender.try_send(frame) {
-            Ok(()) => Ok(DeliveryOutcome::Delivered),
-            // Closed: recipient disconnected between the lookup and the send;
-            // drop the stale entry and treat as NoRoute.
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                self.unregister(&row.recipient, row.tenant_id.as_deref(), id);
-                Ok(DeliveryOutcome::NoRoute)
+        let mut delivered = false;
+        for (id, sender) in senders {
+            match sender.try_send(frame.clone()) {
+                Ok(()) => delivered = true,
+                // Closed: recipient disconnected between the lookup and the
+                // send; drop the stale entry.
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    self.unregister(&row.recipient, row.tenant_id.as_deref(), id);
+                }
+                // Full: recipient is slow. With no other taker the row stays
+                // pending (backpressure on the relay).
+                Err(mpsc::error::TrySendError::Full(_)) => {}
             }
-            // Full: recipient is slow; backpressure the relay (row stays pending).
-            Err(mpsc::error::TrySendError::Full(_)) => Ok(DeliveryOutcome::NoRoute),
+        }
+        if delivered {
+            Ok(DeliveryOutcome::Delivered)
+        } else {
+            Ok(DeliveryOutcome::NoRoute)
         }
     }
 }
@@ -350,6 +367,58 @@ mod tests {
         assert!(sink.push_direct("ops_metrics:global", Some("t1"), ops_frame()));
         assert_eq!(b.recv().await, Some(ops_frame()));
         assert_eq!(sink.len(), 1);
+    }
+
+    // CLOACINA-T-1051: two followers of one execution in one tenant both get
+    // each event; the second does not cut off the first.
+    #[tokio::test]
+    async fn execution_events_go_to_every_follower_of_the_tenant() {
+        let sink = WsDeliverySink::new();
+        let (first_id, mut first) = sink.register("exec_events:e1", Some("t1"));
+        let (_, mut second) = sink.register("exec_events:e1", Some("t1"));
+        // A follower with the same id in another tenant is another key.
+        let (_, mut other_tenant) = sink.register("exec_events:e1", Some("t2"));
+        assert_eq!(sink.len(), 3);
+
+        let outcome = sink
+            .deliver(&row("exec_events:e1", Some("t1")))
+            .await
+            .unwrap();
+        assert_eq!(outcome, DeliveryOutcome::Delivered);
+        assert!(
+            first.try_recv().is_ok(),
+            "the first follower is not cut off"
+        );
+        assert!(second.try_recv().is_ok());
+        assert!(
+            other_tenant.try_recv().is_err(),
+            "another tenant gets nothing"
+        );
+
+        // One follower leaves: the other still gets the events.
+        drop(first);
+        sink.unregister("exec_events:e1", Some("t1"), first_id);
+        let outcome = sink
+            .deliver(&row("exec_events:e1", Some("t1")))
+            .await
+            .unwrap();
+        assert_eq!(outcome, DeliveryOutcome::Delivered);
+        assert!(second.try_recv().is_ok());
+    }
+
+    // A follower that went away without unregistering is pruned; with no
+    // follower left the row stays pending.
+    #[tokio::test]
+    async fn execution_events_with_no_live_follower_are_no_route() {
+        let sink = WsDeliverySink::new();
+        let (_, gone) = sink.register("exec_events:e1", Some("t1"));
+        drop(gone);
+        let outcome = sink
+            .deliver(&row("exec_events:e1", Some("t1")))
+            .await
+            .unwrap();
+        assert_eq!(outcome, DeliveryOutcome::NoRoute);
+        assert_eq!(sink.len(), 0);
     }
 
     // The queue stays single-consumer: a new connection replaces the old one.

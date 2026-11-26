@@ -139,6 +139,50 @@ impl<'a> DeliveryOutboxDAL<'a> {
         transition_result(id, "pending|delivered", STATE_ACKED, affected)
     }
 
+    /// `pending|delivered → acked` for an ack that a client sent
+    /// (CLOACINA-T-1052): the row must be addressed to `recipient` in
+    /// `tenant_id` (`None` matches a row with no tenant). The filter is in
+    /// the update itself, so a row that was re-targeted to another recipient
+    /// after the client got it ([`reassign_open_rows`](Self::reassign_open_rows))
+    /// is not acked by its old recipient.
+    ///
+    /// Returns whether a row was acked. `false` means: no such row, a row of
+    /// another recipient or tenant, or a row that is acked already. The
+    /// caller tells them apart with [`get`](Self::get).
+    ///
+    /// [`mark_acked`](Self::mark_acked) has no such filter: it is for code
+    /// of the server that read the row itself.
+    pub async fn mark_acked_for(
+        &self,
+        id: i64,
+        recipient: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<bool, ValidationError> {
+        let now = UniversalTimestamp::now();
+        let recipient = recipient.to_string();
+        let tenant_id = tenant_id.map(|s| s.to_string());
+        let affected = crate::interact_on_backend!(self.dal, |conn| {
+            let base = delivery_outbox::table
+                .filter(delivery_outbox::id.eq(id))
+                .filter(delivery_outbox::recipient.eq(recipient))
+                .filter(delivery_outbox::delivery_state.ne(STATE_ACKED));
+            let set = (
+                delivery_outbox::delivery_state.eq(STATE_ACKED),
+                delivery_outbox::acked_at.eq(Some(now)),
+            );
+            match tenant_id {
+                Some(t) => diesel::update(base.filter(delivery_outbox::tenant_id.eq(t)))
+                    .set(set)
+                    .execute(conn),
+                None => diesel::update(base.filter(delivery_outbox::tenant_id.is_null()))
+                    .set(set)
+                    .execute(conn),
+            }
+        })
+        .map_err(ValidationError::from)?;
+        Ok(affected == 1)
+    }
+
     /// `delivered → pending`: redelivery path (sweeper reclaim / reconnect resync).
     pub async fn reset_to_pending(&self, id: i64) -> Result<(), ValidationError> {
         let affected = crate::interact_on_backend!(self.dal, |conn| {
@@ -225,6 +269,17 @@ impl<'a> DeliveryOutboxDAL<'a> {
     }
 
     // ── queries ────────────────────────────────────────────────────
+
+    /// One row by id, in any state. `None` when no row has the id.
+    pub async fn get(&self, id: i64) -> Result<Option<DeliveryOutbox>, ValidationError> {
+        let row: Option<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
+            delivery_outbox::table
+                .filter(delivery_outbox::id.eq(id))
+                .first(conn)
+                .optional()
+        })?;
+        Ok(row.map(to_domain))
+    }
 
     /// Open (un-acked) rows addressed to `recipient`, ordered by id for
     /// deterministic replay (relay drain / reconnect resync).
@@ -441,6 +496,138 @@ mod tests {
             tenant_id: None,
             payload: b"hello".to_vec(),
         }
+    }
+
+    #[cfg(feature = "sqlite")]
+    fn row_of(recipient: &str, tenant: Option<&str>) -> NewDeliveryOutbox {
+        NewDeliveryOutbox {
+            tenant_id: tenant.map(str::to_string),
+            ..new_row(recipient)
+        }
+    }
+
+    /// CLOACINA-T-1052: a client ack applies only to a row addressed to the
+    /// connection's own recipient and tenant.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_client_ack_needs_the_recipient_and_the_tenant_of_the_row() {
+        let dal = unique_dal().await;
+        let outbox = dal.delivery_outbox();
+        let row = outbox
+            .enqueue(row_of("agent:a1", Some("t1")))
+            .await
+            .unwrap();
+        outbox.mark_delivered(row.id).await.unwrap();
+
+        // Another recipient of the same tenant.
+        assert!(
+            !outbox
+                .mark_acked_for(row.id, "agent:a2", Some("t1"))
+                .await
+                .unwrap()
+        );
+        // The same recipient name in another tenant.
+        assert!(
+            !outbox
+                .mark_acked_for(row.id, "agent:a1", Some("t2"))
+                .await
+                .unwrap()
+        );
+        // A connection with no tenant.
+        assert!(
+            !outbox
+                .mark_acked_for(row.id, "agent:a1", None)
+                .await
+                .unwrap()
+        );
+        let still = outbox.get(row.id).await.unwrap().unwrap();
+        assert_eq!(still.delivery_state, STATE_DELIVERED);
+        assert!(still.acked_at.is_none());
+
+        // Its own recipient and tenant.
+        assert!(
+            outbox
+                .mark_acked_for(row.id, "agent:a1", Some("t1"))
+                .await
+                .unwrap()
+        );
+        let acked = outbox.get(row.id).await.unwrap().unwrap();
+        assert_eq!(acked.delivery_state, STATE_ACKED);
+        assert!(acked.acked_at.is_some());
+        // A second ack and an unknown id change nothing.
+        assert!(
+            !outbox
+                .mark_acked_for(row.id, "agent:a1", Some("t1"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !outbox
+                .mark_acked_for(row.id + 1000, "agent:a1", Some("t1"))
+                .await
+                .unwrap()
+        );
+        assert!(outbox.get(row.id + 1000).await.unwrap().is_none());
+    }
+
+    /// CLOACINA-T-1052: a row with no tenant is acked only by a connection
+    /// with no tenant, and a pending row can be acked (the ack can arrive
+    /// before the relay marks the row delivered).
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_client_ack_of_a_row_with_no_tenant() {
+        let dal = unique_dal().await;
+        let outbox = dal.delivery_outbox();
+        let row = outbox
+            .enqueue(row_of("exec_events:e1", None))
+            .await
+            .unwrap();
+        assert!(
+            !outbox
+                .mark_acked_for(row.id, "exec_events:e1", Some("t1"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            outbox
+                .mark_acked_for(row.id, "exec_events:e1", None)
+                .await
+                .unwrap()
+        );
+    }
+
+    /// CLOACINA-T-1052: after an eviction the packet belongs to the new
+    /// agent. The old agent's ack no longer applies; the new agent's does.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_client_ack_follows_a_retargeted_row() {
+        let dal = unique_dal().await;
+        let outbox = dal.delivery_outbox();
+        let row = outbox
+            .enqueue(row_of("agent:dead", Some("t1")))
+            .await
+            .unwrap();
+        outbox.mark_delivered(row.id).await.unwrap();
+        assert_eq!(
+            outbox
+                .reassign_open_rows("agent:dead", "agent:live")
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(
+            !outbox
+                .mark_acked_for(row.id, "agent:dead", Some("t1"))
+                .await
+                .unwrap(),
+            "the evicted agent cannot ack the packet away from the new one"
+        );
+        assert!(
+            outbox
+                .mark_acked_for(row.id, "agent:live", Some("t1"))
+                .await
+                .unwrap()
+        );
     }
 
     #[cfg(feature = "sqlite")]
