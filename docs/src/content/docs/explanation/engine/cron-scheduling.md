@@ -316,7 +316,25 @@ When a scheduler starts after downtime and finds firings whose `next_execution_a
 | `CatchupPolicy` | Behavior |
 |---|---|
 | `Skip` | Roll `next_execution_at` forward to the next future firing; the missed firings are dropped. Default for newly-registered schedules — appropriate when a missed firing has no value (e.g., dashboard refresh, hourly aggregation whose inputs have already advanced). |
-| `RunAll` | Replay every missed firing in order, bounded by `cron_max_catchup_executions` on `DefaultRunnerConfig`. Appropriate when each firing is independently durable work (e.g., per-hour reports that must each emit). |
+| `RunAll` | Run every missed firing, oldest first, one at a time. Appropriate when each firing is independently durable work (e.g., per-hour table builds that must each run). |
+
+#### How `RunAll` works through a backlog
+
+No missed firing is dropped, however long the backlog is:
+
+- One claim takes at most `cron_max_catchup_executions` firings (default 100). That number is a batch size, not a cap.
+- The claim moves `last_run_at` to the last firing it took and `next_run_at` to the firing after it. While that is in the past the schedule stays due, and the next pass of the scheduler goes on from there.
+- A `RunAll` schedule has one active run at a time. The scheduler does not wait for the run: when the schedule has an active run it takes no firing and leaves the schedule due. When the run ends, the next firing is taken at once in the same process; another scheduler replica sees it within a second.
+- A run is active while its `schedule_executions` row is open and its workflow execution has not reached `Completed`, `Failed` or `Cancelled`. A failed run does not stop the backlog: the next firing runs.
+- The start of the backlog is `last_run_at`, or the creation time of a schedule that never ran. `RunAll` does not reach before the schedule was created.
+- Each catch-up run gets the interval of the firing it stands for (see [the interval of a run](#the-interval-of-a-run)).
+
+Two things to know while a backlog drains:
+
+- The schedule stays due, so `cloacina_schedule_lag_seconds` shows the age of the oldest firing not yet taken. It falls as the backlog drains. An alert on that gauge fires during a long catch-up.
+- With more than one scheduler replica, the claim is a transaction on the schedule row: it checks that the row is as the scheduler read it, counts the active runs, writes the `schedule_executions` rows and moves the schedule. Two replicas cannot take the same firing, and cannot both start a run past the limit.
+
+A handoff that is lost (the process stops between the claim and the start of the run) holds the slot of the schedule until the cron recovery service fires it again. Recovery measures the age of a lost handoff from the time of the claim, so a catch-up firing for an old interval is recovered like any other. A handoff that recovery gives up on (older than `cron_max_recovery_age` since the claim, or `cron_max_recovery_attempts` spent) is marked complete, so it frees the slot. With `cron_enable_recovery` off, nothing does this: a lost handoff then holds a `RunAll` schedule until its row is completed by hand.
 
 The scheduler applies the policy when it claims a due schedule. The policy is declared with the schedule, and the default is `skip`:
 

@@ -33,6 +33,45 @@ use crate::error::ValidationError;
 use crate::models::schedule::{CronScheduleOptions, NewSchedule, Schedule};
 use chrono::{DateTime, Utc};
 
+/// One fire time that a claim of a cron schedule may take, with the values
+/// the schedule row gets when this fire is the last one taken
+/// (CLOACINA-T-1020).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CronFireCandidate {
+    /// The fire time. It becomes `scheduled_time` of the schedule execution.
+    pub scheduled_time: DateTime<Utc>,
+    /// `schedules.last_run_at` when this is the last fire taken.
+    pub last_run_at: DateTime<Utc>,
+    /// `schedules.next_run_at` when this is the last fire taken. It may be in
+    /// the past: the schedule then stays due and the next pass goes on.
+    pub next_run_at: DateTime<Utc>,
+}
+
+/// A fire that a claim took: its schedule execution row exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimedCronFire {
+    /// Id of the schedule execution row.
+    pub schedule_execution_id: UniversalUuid,
+    /// The fire time.
+    pub scheduled_time: DateTime<Utc>,
+}
+
+/// Result of [`ScheduleDAL::claim_cron_fires`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CronClaimOutcome {
+    /// The fires taken, oldest first: a prefix of the candidates.
+    Claimed(Vec<ClaimedCronFire>),
+    /// The schedule is not due, not active, or its row changed after the
+    /// caller read it (another scheduler took the fires). Nothing changed.
+    NotClaimed,
+    /// The schedule has as many active runs as its limit allows. Nothing
+    /// changed: the schedule stays due.
+    AtLimit {
+        /// Active runs counted under the claim.
+        active: i64,
+    },
+}
+
 /// Data access layer for unified schedule operations with runtime backend selection.
 #[derive(Clone)]
 pub struct ScheduleDAL<'a> {
@@ -281,6 +320,170 @@ impl<'a> ScheduleDAL<'a> {
             self.claim_and_update_cron_sqlite(id, current_time, last_run, next_run)
                 .await
         )
+    }
+
+    /// Takes the next fires of a due cron schedule, in one transaction
+    /// (CLOACINA-T-1020).
+    ///
+    /// `candidates` are the fire times the caller wants, oldest first. The
+    /// claim takes as many of them as the limit on active runs allows, writes
+    /// one schedule execution row for each, and moves `last_run_at` and
+    /// `next_run_at` to the values of the last fire it took. So a fire that is
+    /// not taken is not lost: the schedule row still points at it.
+    ///
+    /// Three things make this safe with more than one scheduler:
+    ///
+    /// * The first statement is an UPDATE of the schedule row that requires
+    ///   `next_run_at` to equal `expected_next_run`, the value the caller
+    ///   read. A scheduler that computed its candidates from an older row
+    ///   matches nothing. (`next_run_at <= now` alone is not enough: a
+    ///   schedule with a backlog stays due after a claim.)
+    /// * That UPDATE locks the row until the transaction ends, so the count
+    ///   of active runs and the new rows of two schedulers cannot interleave.
+    /// * The rows are written in the same transaction, so a later claim
+    ///   counts them even before the runs are handed off.
+    ///
+    /// A run is active while its schedule execution row is open
+    /// (`completed_at IS NULL`) and is not linked to a workflow execution in
+    /// a terminal state. A row with no link counts: its handoff is in flight,
+    /// or it waits for the cron recovery sweep.
+    pub async fn claim_cron_fires(
+        &self,
+        id: UniversalUuid,
+        current_time: DateTime<Utc>,
+        expected_next_run: DateTime<Utc>,
+        candidates: Vec<CronFireCandidate>,
+        max_active_runs: Option<i64>,
+    ) -> Result<CronClaimOutcome, ValidationError> {
+        use crate::dal::unified::models::NewUnifiedScheduleExecution;
+        use crate::database::schema::unified::{schedule_executions, workflow_executions};
+
+        if candidates.is_empty() {
+            return Ok(CronClaimOutcome::NotClaimed);
+        }
+
+        let current_ts = UniversalTimestamp::from(current_time);
+        let expected_ts = UniversalTimestamp::from(expected_next_run);
+        let now = UniversalTimestamp::now();
+        let enabled_true = UniversalBool::from(true);
+
+        let outcome = crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                // Lock the row and check that it is the row the caller read.
+                // The assignment changes nothing.
+                let locked = diesel::update(schedules::table.find(id))
+                    .filter(schedules::schedule_type.eq("cron"))
+                    .filter(schedules::next_run_at.eq(Some(expected_ts)))
+                    .filter(schedules::next_run_at.le(Some(current_ts)))
+                    .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
+                    .set(schedules::workflow_name.eq(schedules::workflow_name))
+                    .execute(conn)?;
+                if locked != 1 {
+                    return Ok(CronClaimOutcome::NotClaimed);
+                }
+
+                let take = match max_active_runs {
+                    None => candidates.len(),
+                    Some(limit) => {
+                        let active: i64 = schedule_executions::table
+                            .left_join(
+                                workflow_executions::table
+                                    .on(schedule_executions::workflow_execution_id
+                                        .eq(workflow_executions::id.nullable())),
+                            )
+                            .filter(schedule_executions::schedule_id.eq(id))
+                            .filter(schedule_executions::completed_at.is_null())
+                            .filter(
+                                schedule_executions::workflow_execution_id.is_null().or(
+                                    workflow_executions::status
+                                        .nullable()
+                                        .ne("Completed")
+                                        .and(workflow_executions::status.nullable().ne("Failed"))
+                                        .and(
+                                            workflow_executions::status.nullable().ne("Cancelled"),
+                                        ),
+                                ),
+                            )
+                            .count()
+                            .get_result(conn)?;
+                        let free = (limit - active).max(0) as usize;
+                        if free == 0 {
+                            return Ok(CronClaimOutcome::AtLimit { active });
+                        }
+                        free.min(candidates.len())
+                    }
+                };
+
+                let mut claimed = Vec::with_capacity(take);
+                for candidate in &candidates[..take] {
+                    let row_id = UniversalUuid::new_v4();
+                    let row = NewUnifiedScheduleExecution {
+                        id: row_id,
+                        schedule_id: id,
+                        workflow_execution_id: None,
+                        scheduled_time: Some(UniversalTimestamp::from(candidate.scheduled_time)),
+                        claimed_at: Some(now),
+                        context_hash: None,
+                        started_at: now,
+                        created_at: now,
+                        updated_at: now,
+                    };
+                    diesel::insert_into(schedule_executions::table)
+                        .values(&row)
+                        .execute(conn)?;
+                    claimed.push(ClaimedCronFire {
+                        schedule_execution_id: row_id,
+                        scheduled_time: candidate.scheduled_time,
+                    });
+                }
+
+                let last = &candidates[take - 1];
+                diesel::update(schedules::table.find(id))
+                    .set((
+                        schedules::last_run_at.eq(Some(UniversalTimestamp::from(last.last_run_at))),
+                        schedules::next_run_at.eq(Some(UniversalTimestamp::from(last.next_run_at))),
+                        schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                Ok(CronClaimOutcome::Claimed(claimed))
+            })
+        })?;
+
+        Ok(outcome)
+    }
+
+    /// The earliest `next_run_at` of the enabled, not paused cron schedules,
+    /// leaving out the schedules in `excluded` (CLOACINA-T-1020). The
+    /// scheduler leaves out the schedules it holds at their limit on active
+    /// runs: they stay due, and their due time must not hide the next fire of
+    /// the others.
+    pub async fn next_cron_due_time_excluding(
+        &self,
+        excluded: Vec<UniversalUuid>,
+    ) -> Result<Option<DateTime<Utc>>, ValidationError> {
+        let enabled_true = UniversalBool::from(true);
+
+        let earliest: Option<UniversalTimestamp> = crate::interact_on_backend!(self.dal, |conn| {
+            let mut query = schedules::table
+                .filter(schedules::schedule_type.eq("cron"))
+                .filter(schedules::enabled.eq(enabled_true))
+                .filter(schedules::paused.eq(UniversalBool::from(false)))
+                .filter(schedules::next_run_at.is_not_null())
+                .into_boxed();
+            for id in excluded {
+                query = query.filter(schedules::id.ne(id));
+            }
+            query
+                .order(schedules::next_run_at.asc())
+                .select(schedules::next_run_at)
+                .first::<Option<UniversalTimestamp>>(conn)
+                .optional()
+        })?
+        .flatten();
+
+        Ok(earliest.map(DateTime::<Utc>::from))
     }
 
     /// Updates the last run and next run times for a schedule.
@@ -1200,6 +1403,287 @@ mod tests {
             .await
             .unwrap();
         assert!(!claimed_again);
+    }
+
+    // ── claim_cron_fires (CLOACINA-T-1020) ──────────────────────────
+
+    /// Hourly fire times `first, first + 1h, ...`, each one moving the row to
+    /// itself and to the fire after it, as the scheduler builds them for a
+    /// `run_all` schedule.
+    #[cfg(feature = "sqlite")]
+    fn hourly_candidates(first: DateTime<Utc>, count: i64) -> Vec<CronFireCandidate> {
+        (0..count)
+            .map(|i| {
+                let fire = first + chrono::Duration::hours(i);
+                CronFireCandidate {
+                    scheduled_time: fire,
+                    last_run_at: fire,
+                    next_run_at: fire + chrono::Duration::hours(1),
+                }
+            })
+            .collect()
+    }
+
+    /// A cron schedule whose row says: the last fire taken was `last_run`,
+    /// the next one is an hour later.
+    #[cfg(feature = "sqlite")]
+    async fn schedule_with_backlog(dal: &DAL, last_run: DateTime<Utc>) -> Schedule {
+        let created = dal
+            .schedule()
+            .create(NewSchedule::cron(
+                "wf",
+                "0 * * * *",
+                UniversalTimestamp::from(last_run + chrono::Duration::hours(1)),
+            ))
+            .await
+            .unwrap();
+        dal.schedule()
+            .update_schedule_times(created.id, last_run, last_run + chrono::Duration::hours(1))
+            .await
+            .unwrap();
+        dal.schedule().get_by_id(created.id).await.unwrap()
+    }
+
+    /// With no limit, a claim takes each candidate, writes a row for each and
+    /// moves the schedule to the last one. The schedule stays due when the
+    /// fire after the last one is in the past, and a second claim made from
+    /// the row as it was before the first one matches nothing.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn claim_cron_fires_moves_the_schedule_to_the_last_fire_taken() {
+        let dal = unique_dal().await;
+        let now = Utc::now();
+        let t0 = now - chrono::Duration::hours(10);
+        let schedule = schedule_with_backlog(&dal, t0).await;
+        let read_next_run = schedule.next_run_at.unwrap().0;
+        let first = t0 + chrono::Duration::hours(1);
+
+        let outcome = dal
+            .schedule()
+            .claim_cron_fires(
+                schedule.id,
+                now,
+                read_next_run,
+                hourly_candidates(first, 3),
+                None,
+            )
+            .await
+            .unwrap();
+        let CronClaimOutcome::Claimed(claimed) = outcome else {
+            panic!("expected a claim, got {outcome:?}");
+        };
+        assert_eq!(
+            claimed.iter().map(|c| c.scheduled_time).collect::<Vec<_>>(),
+            vec![
+                first,
+                first + chrono::Duration::hours(1),
+                first + chrono::Duration::hours(2)
+            ]
+        );
+
+        let after = dal.schedule().get_by_id(schedule.id).await.unwrap();
+        assert_eq!(
+            after.last_run_at.unwrap().0,
+            first + chrono::Duration::hours(2),
+            "last_run_at is the last fire taken, not the time of the claim"
+        );
+        assert_eq!(
+            after.next_run_at.unwrap().0,
+            first + chrono::Duration::hours(3)
+        );
+        assert!(after.next_run_at.unwrap().0 < now, "the schedule stays due");
+
+        let rows = dal
+            .schedule_execution()
+            .list_by_schedule(schedule.id, 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().all(|row| row.claimed_at.is_some()
+            && row.workflow_execution_id.is_none()
+            && row.completed_at.is_none()));
+
+        // A second scheduler that read the row before the claim: the schedule
+        // is still due, but its `next_run_at` is no longer the one it read.
+        let stale = dal
+            .schedule()
+            .claim_cron_fires(
+                schedule.id,
+                now,
+                read_next_run,
+                hourly_candidates(first, 3),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(stale, CronClaimOutcome::NotClaimed);
+        assert_eq!(
+            dal.schedule_execution()
+                .list_by_schedule(schedule.id, 10, 0)
+                .await
+                .unwrap()
+                .len(),
+            3,
+            "a claim that matches nothing writes no row"
+        );
+
+        // The next pass reads the row again and goes on from the fourth fire.
+        let next = dal
+            .schedule()
+            .claim_cron_fires(
+                schedule.id,
+                now,
+                after.next_run_at.unwrap().0,
+                hourly_candidates(first + chrono::Duration::hours(3), 2),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(next, CronClaimOutcome::Claimed(ref c) if c.len() == 2));
+    }
+
+    /// With a limit, a claim takes only as many fires as there are free
+    /// slots, and at the limit it changes nothing: the schedule stays due
+    /// with the same times. A row that is marked complete frees its slot.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn claim_cron_fires_takes_what_the_limit_on_active_runs_allows() {
+        let dal = unique_dal().await;
+        let now = Utc::now();
+        let t0 = now - chrono::Duration::hours(10);
+        let schedule = schedule_with_backlog(&dal, t0).await;
+        let first = t0 + chrono::Duration::hours(1);
+
+        // Limit 2, three candidates: two are taken.
+        let outcome = dal
+            .schedule()
+            .claim_cron_fires(
+                schedule.id,
+                now,
+                schedule.next_run_at.unwrap().0,
+                hourly_candidates(first, 3),
+                Some(2),
+            )
+            .await
+            .unwrap();
+        let CronClaimOutcome::Claimed(claimed) = outcome else {
+            panic!("expected a claim, got {outcome:?}");
+        };
+        assert_eq!(claimed.len(), 2);
+        let after = dal.schedule().get_by_id(schedule.id).await.unwrap();
+        assert_eq!(
+            after.last_run_at.unwrap().0,
+            first + chrono::Duration::hours(1)
+        );
+        assert_eq!(
+            after.next_run_at.unwrap().0,
+            first + chrono::Duration::hours(2)
+        );
+
+        // At the limit: nothing is taken and the row does not change.
+        let third = first + chrono::Duration::hours(2);
+        let held = dal
+            .schedule()
+            .claim_cron_fires(
+                schedule.id,
+                now,
+                after.next_run_at.unwrap().0,
+                hourly_candidates(third, 3),
+                Some(2),
+            )
+            .await
+            .unwrap();
+        assert_eq!(held, CronClaimOutcome::AtLimit { active: 2 });
+        let unchanged = dal.schedule().get_by_id(schedule.id).await.unwrap();
+        assert_eq!(unchanged.last_run_at, after.last_run_at);
+        assert_eq!(unchanged.next_run_at, after.next_run_at);
+        assert_eq!(unchanged.updated_at, after.updated_at);
+
+        // One run ends: one slot, one more fire.
+        dal.schedule_execution()
+            .complete(claimed[0].schedule_execution_id, Utc::now())
+            .await
+            .unwrap();
+        let outcome = dal
+            .schedule()
+            .claim_cron_fires(
+                schedule.id,
+                now,
+                after.next_run_at.unwrap().0,
+                hourly_candidates(third, 3),
+                Some(2),
+            )
+            .await
+            .unwrap();
+        let CronClaimOutcome::Claimed(claimed) = outcome else {
+            panic!("expected a claim, got {outcome:?}");
+        };
+        assert_eq!(
+            claimed.iter().map(|c| c.scheduled_time).collect::<Vec<_>>(),
+            vec![third]
+        );
+    }
+
+    /// A schedule that is not due, is disabled or is paused is not claimed.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn claim_cron_fires_needs_a_due_active_schedule() {
+        let dal = unique_dal().await;
+        let now = Utc::now();
+        let t0 = now - chrono::Duration::hours(10);
+        let first = t0 + chrono::Duration::hours(1);
+
+        let disabled = schedule_with_backlog(&dal, t0).await;
+        dal.schedule().disable(disabled.id).await.unwrap();
+        let paused = schedule_with_backlog(&dal, t0).await;
+        dal.schedule().pause(paused.id).await.unwrap();
+        // Due in the future: its fire time has not come.
+        let future = schedule_with_backlog(&dal, now).await;
+
+        for schedule in [disabled, paused, future] {
+            let outcome = dal
+                .schedule()
+                .claim_cron_fires(
+                    schedule.id,
+                    now,
+                    schedule.next_run_at.unwrap().0,
+                    hourly_candidates(first, 1),
+                    Some(1),
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome, CronClaimOutcome::NotClaimed);
+        }
+    }
+
+    /// The due time of a held schedule does not hide the due time of the
+    /// other schedules.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn next_cron_due_time_excluding_leaves_out_the_held_schedules() {
+        let dal = unique_dal().await;
+        let now = Utc::now();
+        let held = schedule_with_backlog(&dal, now - chrono::Duration::hours(10)).await;
+        let other = schedule_with_backlog(&dal, now).await;
+
+        assert_eq!(
+            dal.schedule().next_cron_due_time().await.unwrap(),
+            held.next_run_at.map(|t| t.0)
+        );
+        assert_eq!(
+            dal.schedule()
+                .next_cron_due_time_excluding(vec![held.id])
+                .await
+                .unwrap(),
+            other.next_run_at.map(|t| t.0)
+        );
+        assert_eq!(
+            dal.schedule()
+                .next_cron_due_time_excluding(vec![held.id, other.id])
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     // ── trigger-specific methods ────────────────────────────────────

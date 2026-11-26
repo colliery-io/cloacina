@@ -114,6 +114,9 @@ impl DefaultRunner {
         let scheduler_config = SchedulerConfig {
             cron_poll_interval: self.config.cron_poll_interval(),
             max_catchup_executions: self.config.cron_max_catchup_executions(),
+            // CLOACINA-T-1020 — a schedule held at its limit on active runs
+            // is looked at again each second (and when one of its runs ends).
+            cron_held_poll_interval: Duration::from_secs(1),
             trigger_base_poll_interval: self.config.trigger_base_poll_interval(),
             trigger_poll_timeout: self.config.trigger_poll_timeout(),
             // CLOACI-I-0100 / T-0599 — defaults match the unified

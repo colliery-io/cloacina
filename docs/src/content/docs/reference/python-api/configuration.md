@@ -48,7 +48,7 @@ config = cloaca.DefaultRunnerConfig(
 | `enable_recovery` | bool | `True` | Recover in-flight work after a restart |
 | `enable_cron_scheduling` | bool | `True` | Run the cron scheduler loop |
 | `cron_poll_interval_seconds` | int | `30` | Cron scheduler polling interval, in seconds |
-| `cron_max_catchup_executions` | int | `100` | Maximum missed runs replayed per schedule |
+| `cron_max_catchup_executions` | int | `100` | Most missed fire times one claim of a `run_all` schedule takes; the rest stay due for the next pass |
 | `cron_enable_recovery` | bool | `True` | Recover lost cron executions |
 | `cron_recovery_interval_seconds` | int | `300` | Cron recovery sweep interval, in seconds |
 | `cron_lost_threshold_minutes` | int | `10` | Age after which a cron execution is considered lost |

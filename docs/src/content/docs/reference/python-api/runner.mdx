@@ -639,7 +639,7 @@ runner = cloaca.DefaultRunner.with_config(database_url, config)
 # Tune cron polling
 config = cloaca.DefaultRunnerConfig()
 config.cron_poll_interval_seconds = 30     # Check every 30 seconds
-config.cron_max_catchup_executions = 10    # Catch up to 10 missed runs
+config.cron_max_catchup_executions = 10    # Read 10 missed fire times per pass
 
 runner = cloaca.DefaultRunner.with_config(database_url, config)
 ```
