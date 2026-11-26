@@ -1317,7 +1317,7 @@
             }
           },
           "400": {
-            "description": "Tenant creation failed",
+            "description": "Invalid tenant name",
             "content": {
               "application/json": {
                 "schema": {
@@ -1338,6 +1338,26 @@
           },
           "403": {
             "description": "Admin (god-mode) key required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A tenant of this name exists (`tenant_exists`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -1385,7 +1405,7 @@
             }
           },
           "400": {
-            "description": "Tenant removal failed",
+            "description": "Invalid tenant name",
             "content": {
               "application/json": {
                 "schema": {
@@ -5573,6 +5593,13 @@
           "instance_name"
         ],
         "properties": {
+          "catchup_policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the schedule does with the fire times it missed while no\nscheduler ran: `skip` (the default) fires once, `run_all` fires each\nof them, oldest first. Needs `cron`."
+          },
           "cron": {
             "type": [
               "string",
@@ -5590,6 +5617,15 @@
           "instance_name": {
             "type": "string",
             "description": "Instance name, unique per `(workflow_name, instance_name)` within the\ntenant."
+          },
+          "max_active_runs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The most runs of this schedule that may be active at once, 1 or more.\nAt the limit the scheduler starts no new run and leaves the schedule\ndue. When omitted, a `run_all` schedule runs one fire at a time and a\n`skip` schedule has no limit. Needs `cron`.",
+            "minimum": 1
           },
           "params": {
             "description": "Parameter values bound to this instance, validated against the\nworkflow's declared `params(...)` slots."
@@ -7587,6 +7623,13 @@
                 "created_at"
               ],
               "properties": {
+                "catchup_policy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "`skip` or `run_all`. Absent in a response from an older server."
+                },
                 "created_at": {
                   "type": "string",
                   "description": "RFC 3339 timestamp."
@@ -7613,6 +7656,15 @@
                     "null"
                   ],
                   "description": "RFC 3339 timestamp."
+                },
+                "max_active_runs": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32",
+                  "description": "The declared limit on active runs. Absent when none is declared.",
+                  "minimum": 0
                 },
                 "next_run_at": {
                   "type": [
@@ -8221,6 +8273,13 @@
           "created_at"
         ],
         "properties": {
+          "catchup_policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`skip` or `run_all`. Absent in a response from an older server."
+          },
           "created_at": {
             "type": "string",
             "description": "RFC 3339 timestamp."
@@ -8247,6 +8306,15 @@
               "null"
             ],
             "description": "RFC 3339 timestamp."
+          },
+          "max_active_runs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The declared limit on active runs. Absent when none is declared.",
+            "minimum": 0
           },
           "next_run_at": {
             "type": [

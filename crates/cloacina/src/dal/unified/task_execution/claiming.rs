@@ -33,6 +33,11 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
+    ///
+    /// Sets `waiting_since` to `retry_at` (CLOACINA-T-1036): the backoff is
+    /// not a wait for capacity, so the wait starts when the retry is due.
+    /// Until then the value is in the future and the task is not counted as
+    /// waiting.
     pub async fn schedule_retry(
         &self,
         task_id: UniversalUuid,
@@ -55,6 +60,7 @@ impl<'a> TaskExecutionDAL<'a> {
                         task_executions::status.eq("Ready"),
                         task_executions::attempt.eq(new_attempt),
                         task_executions::retry_at.eq(Some(retry_at)),
+                        task_executions::waiting_since.eq(Some(retry_at)),
                         task_executions::started_at.eq(None::<UniversalTimestamp>),
                         task_executions::completed_at.eq(None::<UniversalTimestamp>),
                         task_executions::updated_at.eq(now),
@@ -99,6 +105,12 @@ impl<'a> TaskExecutionDAL<'a> {
     /// an attempt; this does not, so a task can wait for capacity for as long
     /// as it takes. The caller releases its claim after this call. Writes no
     /// execution event: a waiting task would write one every few seconds.
+    ///
+    /// `waiting_since` is not written (CLOACINA-T-1036): the task has waited
+    /// for capacity since it became `Ready`, and each deferral moves only
+    /// `retry_at`. So the task stays in
+    /// [`waiting_task_stats`](Self::waiting_task_stats) between tries and its
+    /// age keeps growing.
     ///
     /// Only a `Ready` task is changed. Returns `false` when the task is in
     /// another state.

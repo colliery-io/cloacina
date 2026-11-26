@@ -41,6 +41,7 @@ helm install fleet charts/cloacina-agent \
 | `server.maxConcurrency` | `4` | Concurrent work packets per agent. |
 | `server.capabilities` | `[]` | Capability tags advertised at registration. |
 | `image.repository` / `image.tag` | ghcr image / appVersion | Agent image. |
+| `automountServiceAccountToken` | `false` | Mount a service account token in the pod. The agent does not use one. |
 
 See `values.yaml` for the full set (resources, security context, scheduling).
 

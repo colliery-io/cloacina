@@ -63,7 +63,7 @@ All flags double as env vars:
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | Pin the initial admin API key |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | Reject unsigned packages |
 | `--verification-org-id` | `CLOACINA_VERIFICATION_ORG_ID` | Org UUID for signature verification |
-| `--tenant-runner-cache-size` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | LRU cap on per-tenant runners (default 256) |
+| `--tenant-runner-cache-size` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | Warning limit on per-tenant runners (default 256); none is stopped at the limit |
 
 The image's home directory is `/home/cloacina/.cloacina`
 (`CLOACINA_HOME` is set so any tooling that reads it resolves correctly).

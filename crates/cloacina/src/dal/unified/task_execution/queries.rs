@@ -74,66 +74,61 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(n)
     }
 
-    /// Count the tasks that wait to be dispatched and find the earliest time
-    /// one of them became due (CLOACINA-T-1024).
+    /// Count the tasks that wait for capacity and find the one that has
+    /// waited longest (CLOACINA-T-1024, CLOACINA-T-1036).
     ///
-    /// A waiting task matches the predicate of
-    /// [`get_ready_for_retry`](Self::get_ready_for_retry): status `Ready`,
-    /// `retry_at` NULL or not in the future, and `claimed_by` NULL. A task
-    /// that waits out a retry backoff, or a dispatch that was put off for
-    /// capacity (`defer_dispatch`), is not due and is not counted until its
-    /// `retry_at` passes.
+    /// A waiting task has status `Ready` and a `waiting_since` that is not in
+    /// the future. `waiting_since` is set when the task becomes `Ready` and
+    /// cleared when it starts or ends, so:
     ///
-    /// Reads no task rows: one count, and two one-column `ORDER BY … LIMIT 1`
-    /// reads for the earliest due time (`retry_at` when set, else
-    /// `updated_at`, the time the task was marked `Ready`).
+    /// - A task whose dispatch is put off for capacity
+    ///   ([`defer_dispatch`](Self::defer_dispatch)) is counted the whole
+    ///   time: a deferral moves `retry_at`, not `waiting_since`.
+    /// - A task that an executor holds a claim on and has not started (a
+    ///   dispatch try on a fleet, a wait for a slot in process) is counted.
+    /// - A retry in backoff is not counted: its `waiting_since` is its
+    ///   `retry_at`, in the future until the retry is due.
+    ///
+    /// A `Ready` row with no `waiting_since` (written by a replica that runs
+    /// a version from before the column) is counted when its `retry_at` is
+    /// empty or past, and adds nothing to the age.
+    ///
+    /// Reads no task rows: one count, and a one-column `ORDER BY … LIMIT 1`
+    /// read for the earliest `waiting_since`.
     pub async fn waiting_task_stats(&self) -> Result<WaitingTasks, ValidationError> {
         let now = UniversalTimestamp::now();
-        let (count, oldest_ready, oldest_retry): (
-            i64,
-            Option<UniversalTimestamp>,
-            Option<UniversalTimestamp>,
-        ) = crate::interact_on_backend!(self.dal, |conn| {
-            let count: i64 = task_executions::table
-                .filter(task_executions::status.eq("Ready"))
-                .filter(
-                    task_executions::retry_at
-                        .is_null()
-                        .or(task_executions::retry_at.le(now)),
-                )
-                .filter(task_executions::claimed_by.is_null())
-                .count()
-                .get_result(conn)?;
-            if count == 0 {
-                return Ok((0, None, None));
-            }
-            let oldest_ready: Option<UniversalTimestamp> = task_executions::table
-                .filter(task_executions::status.eq("Ready"))
-                .filter(task_executions::retry_at.is_null())
-                .filter(task_executions::claimed_by.is_null())
-                .order(task_executions::updated_at.asc())
-                .select(task_executions::updated_at)
-                .first::<UniversalTimestamp>(conn)
-                .optional()?;
-            let oldest_retry: Option<UniversalTimestamp> = task_executions::table
-                .filter(task_executions::status.eq("Ready"))
-                .filter(task_executions::retry_at.le(now))
-                .filter(task_executions::claimed_by.is_null())
-                .order(task_executions::retry_at.asc())
-                .select(task_executions::retry_at)
-                .first::<Option<UniversalTimestamp>>(conn)
-                .optional()?
-                .flatten();
-            Ok::<_, diesel::result::Error>((count, oldest_ready, oldest_retry))
-        })?;
+        let (count, oldest): (i64, Option<UniversalTimestamp>) =
+            crate::interact_on_backend!(self.dal, |conn| {
+                let count: i64 = task_executions::table
+                    .filter(task_executions::status.eq("Ready"))
+                    .filter(
+                        task_executions::waiting_since
+                            .le(now)
+                            .or(task_executions::waiting_since.is_null().and(
+                                task_executions::retry_at
+                                    .is_null()
+                                    .or(task_executions::retry_at.le(now)),
+                            )),
+                    )
+                    .count()
+                    .get_result(conn)?;
+                if count == 0 {
+                    return Ok((0, None));
+                }
+                let oldest: Option<UniversalTimestamp> = task_executions::table
+                    .filter(task_executions::status.eq("Ready"))
+                    .filter(task_executions::waiting_since.le(now))
+                    .order(task_executions::waiting_since.asc())
+                    .select(task_executions::waiting_since)
+                    .first::<Option<UniversalTimestamp>>(conn)
+                    .optional()?
+                    .flatten();
+                Ok::<_, diesel::result::Error>((count, oldest))
+            })?;
 
-        let oldest_due_at = match (oldest_ready, oldest_retry) {
-            (Some(a), Some(b)) => Some(a.0.min(b.0)),
-            (a, b) => a.or(b).map(|t| t.0),
-        };
         Ok(WaitingTasks {
             count,
-            oldest_due_at,
+            oldest_waiting_since: oldest.map(|t| t.0),
         })
     }
 
@@ -288,6 +283,28 @@ mod waiting_task_stats_tests {
             .id
     }
 
+    /// Move `waiting_since` of a task into the past, as if it became Ready
+    /// `seconds` ago.
+    async fn age_waiting_since(dal: &DAL, task_id: UniversalUuid, seconds: i64) {
+        use crate::database::schema::unified::task_executions;
+        use diesel::prelude::*;
+        let since = UniversalTimestamp(Utc::now() - Duration::seconds(seconds));
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(task_executions::table.find(task_id))
+                .set(task_executions::waiting_since.eq(Some(since)))
+                .execute(conn)
+        })
+        .unwrap();
+    }
+
+    async fn waiting_since(dal: &DAL, task_id: UniversalUuid) -> Option<UniversalTimestamp> {
+        dal.task_execution()
+            .get_by_id(task_id)
+            .await
+            .unwrap()
+            .waiting_since
+    }
+
     #[tokio::test]
     async fn waiting_task_stats_is_empty_with_no_ready_task() {
         let dal = unique_dal().await;
@@ -297,26 +314,26 @@ mod waiting_task_stats_tests {
 
         let stats = dal.task_execution().waiting_task_stats().await.unwrap();
         assert_eq!(stats.count, 0);
-        assert_eq!(stats.oldest_due_at, None);
+        assert_eq!(stats.oldest_waiting_since, None);
         assert_eq!(stats.oldest_age_seconds(Utc::now()), 0.0);
     }
 
     #[tokio::test]
-    async fn waiting_task_stats_counts_only_due_unclaimed_ready_tasks() {
+    async fn waiting_task_stats_counts_ready_tasks_that_wait_for_capacity() {
         let dal = unique_dal().await;
         let wf = create_workflow(&dal).await;
         let before = Utc::now();
 
-        // Counted: Ready, no retry_at, no claim.
+        // Counted: Ready, just created.
         create_task(&dal, wf, "fresh", "Ready").await;
-        // Counted: Ready, retry_at in the past. This is the oldest.
+        // Counted: a retry that became due 120 s ago. This is the oldest.
         let overdue = create_task(&dal, wf, "overdue", "Ready").await;
         let overdue_at = before - Duration::seconds(120);
         dal.task_execution()
             .schedule_retry(overdue, UniversalTimestamp(overdue_at), 2)
             .await
             .unwrap();
-        // Not counted: retry_at in the future (retry backoff).
+        // Not counted: a retry in backoff.
         let backoff = create_task(&dal, wf, "backoff", "Ready").await;
         dal.task_execution()
             .schedule_retry(
@@ -326,7 +343,7 @@ mod waiting_task_stats_tests {
             )
             .await
             .unwrap();
-        // Not counted: dispatch put off for capacity.
+        // Counted: dispatch put off for capacity.
         let deferred = create_task(&dal, wf, "deferred", "Ready").await;
         assert!(
             dal.task_execution()
@@ -337,42 +354,300 @@ mod waiting_task_stats_tests {
                 .await
                 .unwrap()
         );
-        // Not counted: Ready with a claim (a dispatch is in flight).
+        // Counted: Ready with a claim and not started (a dispatch try, or a
+        // wait for a slot).
         let claimed = create_task(&dal, wf, "claimed", "Ready").await;
         dal.task_execution()
             .claim_for_runner(claimed, UniversalUuid::new_v4())
             .await
             .unwrap();
         // Not counted: other states.
+        create_task(&dal, wf, "not_started", "NotStarted").await;
         create_task(&dal, wf, "running", "Running").await;
         create_task(&dal, wf, "done", "Completed").await;
 
         let stats = dal.task_execution().waiting_task_stats().await.unwrap();
-        assert_eq!(stats.count, 2);
-        // The same set that the dispatcher reads.
-        let ready = dal.task_execution().get_ready_for_retry().await.unwrap();
-        assert_eq!(ready.len() as i64, stats.count);
+        assert_eq!(stats.count, 4);
 
-        let oldest = stats.oldest_due_at.expect("a task waits");
+        let oldest = stats.oldest_waiting_since.expect("a task waits");
         assert!(
             (oldest - overdue_at).num_milliseconds().abs() < 1000,
-            "oldest due time {oldest} should be the overdue retry_at {overdue_at}"
+            "oldest waiting_since {oldest} should be the overdue retry_at {overdue_at}"
         );
         let age = stats.oldest_age_seconds(Utc::now());
         assert!((119.0..180.0).contains(&age), "age was {age}");
     }
 
     #[tokio::test]
-    async fn waiting_task_stats_uses_updated_at_when_retry_at_is_null() {
+    async fn waiting_since_is_set_when_a_task_becomes_ready() {
         let dal = unique_dal().await;
         let wf = create_workflow(&dal).await;
-        let before = Utc::now();
-        create_task(&dal, wf, "fresh", "Ready").await;
-        let after = Utc::now();
+
+        let before = Utc::now() - Duration::seconds(1);
+        let created_ready = create_task(&dal, wf, "created_ready", "Ready").await;
+        let task = create_task(&dal, wf, "task", "NotStarted").await;
+        assert_eq!(waiting_since(&dal, task).await, None);
+        dal.task_execution().mark_ready(task).await.unwrap();
+        let after = Utc::now() + Duration::seconds(1);
+
+        for id in [created_ready, task] {
+            let since = waiting_since(&dal, id).await.expect("set when Ready").0;
+            assert!(since >= before && since <= after, "waiting_since {since}");
+        }
+        let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 2);
+    }
+
+    /// CLOACINA-T-1036: a fleet task with no free agent is deferred again and
+    /// again. It is one waiting task the whole time and its age grows.
+    #[tokio::test]
+    async fn a_task_deferred_three_times_is_counted_once_and_its_age_grows() {
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        let runner = UniversalUuid::new_v4();
+        let task = create_task(&dal, wf, "waits_for_an_agent", "NotStarted").await;
+        dal.task_execution().mark_ready(task).await.unwrap();
+        let ready_at = waiting_since(&dal, task).await.expect("set by mark_ready");
+
+        let mut last_age = 0.0;
+        for round in 1..=3 {
+            // The fleet executor claims the task for a dispatch try.
+            dal.task_execution()
+                .claim_for_runner(task, runner)
+                .await
+                .unwrap();
+            let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+            assert_eq!(stats.count, 1, "claimed for dispatch, round {round}");
+
+            // No agent is free: the try is put off 2 s and the claim released.
+            let not_before = UniversalTimestamp(Utc::now() + Duration::seconds(2));
+            assert!(
+                dal.task_execution()
+                    .defer_dispatch(task, not_before)
+                    .await
+                    .unwrap()
+            );
+            dal.task_execution()
+                .release_runner_claim(task)
+                .await
+                .unwrap();
+
+            // Between tries the task is not due for dispatch.
+            let due = dal.task_execution().get_ready_for_retry().await.unwrap();
+            assert!(due.is_empty(), "deferred, round {round}");
+
+            // It still waits, since the time it became Ready.
+            assert_eq!(waiting_since(&dal, task).await, Some(ready_at));
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+            assert_eq!(stats.count, 1, "deferred, round {round}");
+            assert_eq!(stats.oldest_waiting_since, Some(ready_at.0));
+            let age = stats.oldest_age_seconds(Utc::now());
+            assert!(age > last_age, "age {age} did not grow from {last_age}");
+            last_age = age;
+        }
+
+        // An agent takes the task: the wait is over.
+        dal.task_execution()
+            .claim_for_runner(task, runner)
+            .await
+            .unwrap();
+        dal.task_execution().mark_started(task).await.unwrap();
+        assert_eq!(waiting_since(&dal, task).await, None);
+        let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 0);
+        assert_eq!(stats.oldest_age_seconds(Utc::now()), 0.0);
+    }
+
+    #[tokio::test]
+    async fn a_claimed_deferred_task_is_counted_with_its_full_age() {
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        let task = create_task(&dal, wf, "waits", "Ready").await;
+        age_waiting_since(&dal, task, 300).await;
+
+        // Deferred, and its `retry_at` has not passed.
+        dal.task_execution()
+            .defer_dispatch(
+                task,
+                UniversalTimestamp(Utc::now() + Duration::seconds(600)),
+            )
+            .await
+            .unwrap();
+        // The fleet executor holds the claim for the next dispatch try.
+        dal.task_execution()
+            .claim_for_runner(task, UniversalUuid::new_v4())
+            .await
+            .unwrap();
 
         let stats = dal.task_execution().waiting_task_stats().await.unwrap();
         assert_eq!(stats.count, 1);
-        let oldest = stats.oldest_due_at.expect("a task waits");
-        assert!(oldest >= before - Duration::seconds(1) && oldest <= after + Duration::seconds(1));
+        let age = stats.oldest_age_seconds(Utc::now());
+        assert!((299.0..360.0).contains(&age), "age was {age}");
+    }
+
+    #[tokio::test]
+    async fn a_retry_in_backoff_is_not_counted_until_it_is_due() {
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        let task = create_task(&dal, wf, "retried", "Running").await;
+
+        // The backoff ends in 300 ms.
+        let due_at = UniversalTimestamp(Utc::now() + Duration::milliseconds(300));
+        dal.task_execution()
+            .schedule_retry(task, due_at, 2)
+            .await
+            .unwrap();
+        assert_eq!(waiting_since(&dal, task).await, Some(due_at));
+        let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 0, "in backoff");
+        assert_eq!(stats.oldest_waiting_since, None);
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 1, "the retry is due");
+        // The wait starts at the due time, not at the failure.
+        assert_eq!(stats.oldest_waiting_since, Some(due_at.0));
+        let age = stats.oldest_age_seconds(Utc::now());
+        assert!((0.1..5.0).contains(&age), "age was {age}");
+
+        // A deferral of the due retry keeps the wait.
+        dal.task_execution()
+            .defer_dispatch(
+                task,
+                UniversalTimestamp(Utc::now() + Duration::seconds(600)),
+            )
+            .await
+            .unwrap();
+        let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 1);
+        assert_eq!(stats.oldest_waiting_since, Some(due_at.0));
+    }
+
+    #[tokio::test]
+    async fn waiting_since_is_cleared_when_a_task_starts_or_ends() {
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        let te = dal.task_execution();
+
+        let started = create_task(&dal, wf, "started", "Ready").await;
+        te.mark_started(started).await.unwrap();
+        let completed = create_task(&dal, wf, "completed", "Ready").await;
+        te.mark_completed(completed, None).await.unwrap();
+        let failed = create_task(&dal, wf, "failed", "Ready").await;
+        te.mark_failed(failed, "boom", None).await.unwrap();
+        let skipped = create_task(&dal, wf, "skipped", "Ready").await;
+        te.mark_skipped(skipped, "not needed").await.unwrap();
+        let abandoned = create_task(&dal, wf, "abandoned", "Ready").await;
+        te.mark_abandoned(abandoned, "gave up").await.unwrap();
+
+        for id in [started, completed, failed, skipped, abandoned] {
+            assert_eq!(waiting_since(&dal, id).await, None);
+        }
+        let stats = te.waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 0);
+    }
+
+    #[tokio::test]
+    async fn recovery_keeps_the_wait_of_a_ready_task_and_restarts_a_running_one() {
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        let te = dal.task_execution();
+
+        // The runner died between the claim and the start.
+        let ready = create_task(&dal, wf, "ready", "Ready").await;
+        age_waiting_since(&dal, ready, 300).await;
+        let ready_since = waiting_since(&dal, ready).await;
+        te.reset_task_for_recovery(ready).await.unwrap();
+        assert_eq!(waiting_since(&dal, ready).await, ready_since);
+
+        // The runner died while the task ran.
+        let running = create_task(&dal, wf, "running", "Ready").await;
+        te.mark_started(running).await.unwrap();
+        let before = Utc::now() - Duration::seconds(1);
+        te.reset_task_for_recovery(running).await.unwrap();
+        let since = waiting_since(&dal, running).await.expect("waits again").0;
+        assert!(since >= before, "waiting_since {since}");
+
+        let stats = te.waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 2);
+    }
+
+    /// A `Ready` row from before the column (or from a replica of an older
+    /// version) has no `waiting_since`.
+    #[tokio::test]
+    async fn a_ready_row_with_no_waiting_since_is_counted_when_due_with_no_age() {
+        use crate::database::schema::unified::task_executions;
+        use diesel::prelude::*;
+
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        let due = create_task(&dal, wf, "due", "Ready").await;
+        let later = create_task(&dal, wf, "later", "Ready").await;
+        let in_future = UniversalTimestamp(Utc::now() + Duration::seconds(600));
+        crate::interact_on_backend!(&dal, |conn| {
+            diesel::update(task_executions::table.find(due))
+                .set(task_executions::waiting_since.eq(None::<UniversalTimestamp>))
+                .execute(conn)?;
+            diesel::update(task_executions::table.find(later))
+                .set((
+                    task_executions::waiting_since.eq(None::<UniversalTimestamp>),
+                    task_executions::retry_at.eq(Some(in_future)),
+                ))
+                .execute(conn)
+        })
+        .unwrap();
+
+        let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 1);
+        assert_eq!(stats.oldest_waiting_since, None);
+        assert_eq!(stats.oldest_age_seconds(Utc::now()), 0.0);
+    }
+
+    /// Migration 057 on a database with rows: `Ready` rows get a value, a
+    /// retry gets its due time, other rows stay empty.
+    #[tokio::test]
+    async fn migration_057_backfills_ready_rows() {
+        use crate::database::schema::unified::task_executions;
+        use diesel::prelude::*;
+
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        let fresh = create_task(&dal, wf, "fresh", "Ready").await;
+        let retry = create_task(&dal, wf, "retry", "Ready").await;
+        let running = create_task(&dal, wf, "running", "Running").await;
+        let retry_at = UniversalTimestamp(Utc::now() + Duration::seconds(600));
+        let backfill =
+            include_str!("../../../database/migrations/sqlite/057_add_task_waiting_since/up.sql")
+                .split(';')
+                .map(|statement| {
+                    statement
+                        .lines()
+                        .filter(|line| !line.trim_start().starts_with("--"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .find(|statement| statement.trim_start().starts_with("UPDATE"))
+                .expect("the migration has an UPDATE statement");
+        // The rows as the version before the column left them.
+        crate::interact_on_backend!(&dal, |conn| {
+            diesel::update(task_executions::table)
+                .set(task_executions::waiting_since.eq(None::<UniversalTimestamp>))
+                .execute(conn)?;
+            diesel::update(task_executions::table.find(retry))
+                .set(task_executions::retry_at.eq(Some(retry_at)))
+                .execute(conn)?;
+            // The data statement of the migration file.
+            diesel::sql_query(backfill.clone()).execute(conn)
+        })
+        .unwrap();
+
+        let fresh_row = dal.task_execution().get_by_id(fresh).await.unwrap();
+        assert_eq!(fresh_row.waiting_since, Some(fresh_row.updated_at));
+        assert_eq!(waiting_since(&dal, retry).await, Some(retry_at));
+        assert_eq!(waiting_since(&dal, running).await, None);
+
+        let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 1, "the retry in backoff is not counted");
     }
 }

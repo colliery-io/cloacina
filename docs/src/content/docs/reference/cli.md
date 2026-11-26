@@ -75,6 +75,7 @@ distinguish failure modes:
 |---|---|---|
 | `DATABASE_URL` | `server start`, `compiler start`, `admin cleanup-events` | PostgreSQL or SQLite connection URL. Overridden by the corresponding `--database-url` flag where applicable. |
 | `CLOACINA_BOOTSTRAP_KEY` | `server start` | Pre-supplied bootstrap admin key. If unset and no keys exist, one is generated. Overridden by `--bootstrap-key`. |
+| `CLOACINA_METRICS_BIND` | `server start` | Address of a separate listener for `/metrics`. Overridden by `--metrics-bind`. |
 | `CLOACINA_REQUIRE_SIGNATURES` | `server start` | If `true`, the server enforces package signature verification at upload. Overridden by `--require-signatures`. |
 | `RUST_LOG` | All commands | Log filter directive (e.g., `info`, `debug`, `cloacina=debug`). Overridden by `-v` / `--verbose`. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `server start` | If set, enables OpenTelemetry tracing to the named gRPC collector. |
@@ -175,7 +176,8 @@ under the `/v1/` prefix and the unauth probes `/health`, `/ready`,
 ### `server start`
 
 ```text
-cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
+cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
+                        [--database-url <URL>]
                         [--bootstrap-key <KEY>]
                         [--require-signatures] [--verification-org-id <UUID>]
                         [--reconcile-interval-s <N>]
@@ -198,12 +200,13 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
 | `--bind <ADDR>` | | `127.0.0.1:8080` | Listen address. |
+| `--metrics-bind <ADDR>` | `CLOACINA_METRICS_BIND` | (none) | Address of a separate listener for `/metrics`. When set, `/metrics` is served only there and `--bind` answers 404 for it. When not set, `/metrics` is on `--bind`. |
 | `--database-url <URL>` | `DATABASE_URL` | (required) | Database connection URL. Examples: `sqlite:///path/to/cloacina.db`, `postgres://user:pass@host/dbname`. |
 | `--bootstrap-key <KEY>` | `CLOACINA_BOOTSTRAP_KEY` | (auto-generated) | Pre-supplied admin key for first startup. If a key is generated, the plaintext is written to `~/.cloacina/bootstrap-key` with `0600` perms exactly once. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. Requires `--verification-org-id`. CLOACI-I-0103. |
 | `--verification-org-id <UUID>` | `CLOACINA_VERIFICATION_ORG_ID` | (none) | Trusted organization UUID used to verify package signatures. **Required when `--require-signatures` is set**; startup fails fast otherwise. CLOACI-I-0103 / T-0567. |
 | `--reconcile-interval-s <N>` | | (runtime default) | Interval (seconds) between reconciler passes that sync the in-runner workflow registry with the DB. Increase for quiet prod; decrease for fast e2e tests. |
-| `--tenant-runner-cache-size <N>` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB connection pool. Bump for high-cardinality SaaS deployments; drop for memory-tight ones. CLOACI-T-0580. |
+| `--tenant-runner-cache-size <N>` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | Warning limit on per-tenant `DefaultRunner` instances. Every tenant has a runner from server start until the tenant is deleted; none is stopped at the limit. Above it the server logs a warning. Each tenant uses up to 2 database connections on each replica. CLOACI-T-0580, CLOACINA-T-1031. |
 | `--tenant-deletion-drain-timeout-s <N>` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; any task that ignored cooperative cancellation errors on its next DB write once the schema is dropped. CLOACI-T-0581. |
 | `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. Log files only: database rows are covered by the retention settings below. CLOACI-I-0109 / T-0592. |
 
@@ -274,6 +277,7 @@ These flags send a JSON `POST` when a run ends. They live on the `cloacina-serve
 | `--alert-webhook-timeout-s <N>` | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `10` | Seconds allowed for one request. |
 | `--alert-webhook-max-attempts <N>` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
 | `--public-base-url <URL>` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
+| `--database-wait-timeout-s <N>` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds `cloacina-server` waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s) and logs `Waiting for the database to accept connections` for each wait. After this time it exits with an error that holds the last connection error. `0` = one try, no wait. The HTTP listener opens after the database answers and the migrations ran, so `/health` and `/ready` do not answer during the wait. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. |
 
 ### `server stop` / `status` / `health`
 
@@ -337,7 +341,8 @@ cloacina-agent --server <URL> --api-key <KEY>
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
 | `--server <URL>` | `CLOACINA_SERVER` | (required) | Base URL of the server to register with (REST + WS ticket mint). |
-| `--api-key <KEY>` | `CLOACINA_API_KEY` | (required) | API key for REST + WS auth. Its tenant scope determines which tenants' work the agent may receive (REQ-008). |
+| `--api-key <KEY>` | `CLOACINA_API_KEY` | (required, or `--api-key-file`) | API key for REST + WS auth. Its tenant scope determines which tenants' work the agent may receive (REQ-008). The agent removes the variable from its environment at start. |
+| `--api-key-file <PATH>` | `CLOACINA_API_KEY_FILE` | | File that holds the API key, in place of `--api-key`. Giving both is an error. |
 | `--agent-id <ID>` | | (server-assigned) | Optional caller-chosen agent id. If omitted, the server assigns one. |
 | `--max-concurrency <N>` | `CLOACINA_AGENT_MAX_CONCURRENCY` | `4` | Max work packets the agent runs concurrently. The server's capacity-aware selection won't exceed this; a saturated agent refuses further packets. |
 | `--pool <NAME>` | `CLOACINA_AGENT_POOL` | (none) | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in. Registered as the capability `pool:<name>`. Not set: the server counts the agent in `default`. Work goes only to agents of the pool `default` for now. |

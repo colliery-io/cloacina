@@ -111,8 +111,7 @@ pub async fn execute_workflow(
                 "Failed to resolve tenant database for '{}': {}",
                 tenant_id, e
             );
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
     // CLOACI-T-0749: refuse to start a new execution for a paused workflow.
@@ -202,8 +201,7 @@ pub async fn execute_workflow(
             Ok(r) => r,
             Err(e) => {
                 warn!("Failed to acquire tenant runner for '{}': {}", tenant_id, e);
-                return ApiError::internal(format!("tenant runner unavailable: {}", e))
-                    .into_response();
+                return ApiError::internal_logged("tenant runner unavailable", &e).into_response();
             }
         }
     };
@@ -325,7 +323,7 @@ pub async fn list_executions(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -360,7 +358,7 @@ pub async fn list_executions(
                 "Failed to list executions for tenant '{}': {}",
                 tenant_id, e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("list executions failed", &e).into_response()
         }
     }
 }
@@ -403,7 +401,7 @@ pub async fn get_execution(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -463,7 +461,7 @@ pub async fn get_execution_events(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -503,7 +501,7 @@ pub async fn get_execution_events(
             })
             .into_response()
         }
-        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => ApiError::internal_logged("get execution events failed", &e).into_response(),
     }
 }
 
@@ -545,7 +543,7 @@ pub async fn get_execution_tasks(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -581,7 +579,7 @@ pub async fn get_execution_tasks(
             })
             .into_response()
         }
-        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => ApiError::internal_logged("get execution tasks failed", &e).into_response(),
     }
 }
 
@@ -599,7 +597,13 @@ pub(crate) fn validate_declared_params(
     for p in params {
         match provided.and_then(|m| m.get(&p.name)) {
             None => {
-                if p.required && p.default.is_none() {
+                if p.encrypted {
+                    // CLOACINA-T-1035: a declared secret with no reference.
+                    // Say which secret and show the reference to add.
+                    errors.push(cloacina::workflow_instance::missing_secret_ref_message(
+                        &p.name,
+                    ));
+                } else if p.required && p.default.is_none() {
                     errors.push(format!("missing required param '{}'", p.name));
                 }
             }
@@ -701,6 +705,23 @@ mod input_validation_tests {
         let errors = validate_declared_params(&params, Some(&obj(&[])));
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("order_id"));
+    }
+
+    /// CLOACINA-T-1035: a declared secret with no reference in the context.
+    /// The error names the secret and shows the form of the reference.
+    #[test]
+    fn unbound_declared_secret_names_the_secret_and_shows_the_reference() {
+        let params = vec![InputSlot::secret("report_key")];
+        for provided in [None, Some(obj(&[]))] {
+            let errors = validate_declared_params(&params, provided.as_ref());
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert!(errors[0].contains("secret 'report_key'"), "{errors:?}");
+            assert!(
+                errors[0].contains(r#"{"report_key": {"$secret": "<name of a stored secret>"}}"#),
+                "{errors:?}"
+            );
+            assert!(!errors[0].contains("missing required param"), "{errors:?}");
+        }
     }
 
     #[test]

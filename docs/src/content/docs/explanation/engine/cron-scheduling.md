@@ -316,12 +316,100 @@ When a scheduler starts after downtime and finds firings whose `next_execution_a
 | `CatchupPolicy` | Behavior |
 |---|---|
 | `Skip` | Roll `next_execution_at` forward to the next future firing; the missed firings are dropped. Default for newly-registered schedules — appropriate when a missed firing has no value (e.g., dashboard refresh, hourly aggregation whose inputs have already advanced). |
-| `RunAll` | Replay every missed firing in order, bounded by `cron_max_catchup_executions` on `DefaultRunnerConfig`. Appropriate when each firing is independently durable work (e.g., per-hour reports that must each emit). |
+| `RunAll` | Run every missed firing, oldest first, one at a time. Appropriate when each firing is independently durable work (e.g., per-hour table builds that must each run). |
 
-The cron recovery service (`crates/cloacina/src/cron_recovery.rs`) inspects `last_executed_at` against the cron expression and applies the policy on each recovery tick (cadence: `cron_recovery_interval`, default 5min). Set the policy at schedule-registration time via the DAL — the field is not currently exposed on `register_cron_workflow` and is set during direct row insert.
+#### How `RunAll` works through a backlog
+
+No missed firing is dropped, however long the backlog is:
+
+- One claim takes at most `cron_max_catchup_executions` firings (default 100). That number is a batch size, not a cap.
+- The claim moves `last_run_at` to the last firing it took and `next_run_at` to the firing after it. While that is in the past the schedule stays due, and the next pass of the scheduler goes on from there.
+- A `RunAll` schedule has one active run at a time, or as many as its `max_active_runs` (see [a limit on active runs](#a-limit-on-active-runs)). The scheduler does not wait for the run: when the schedule is at its limit it takes no firing and leaves the schedule due. When the run ends, the next firing is taken at once in the same process; another scheduler replica sees it within a second.
+- A run is active while its `schedule_executions` row is open and its workflow execution has not reached `Completed`, `Failed` or `Cancelled`. A failed run does not stop the backlog: the next firing runs.
+- The start of the backlog is `last_run_at`, or the creation time of a schedule that never ran. `RunAll` does not reach before the schedule was created.
+- Each catch-up run gets the interval of the firing it stands for (see [the interval of a run](#the-interval-of-a-run)).
+
+Two things to know while a backlog drains:
+
+- The schedule stays due, so `cloacina_schedule_lag_seconds` shows the age of the oldest firing not yet taken. It falls as the backlog drains. An alert on that gauge fires during a long catch-up.
+- With more than one scheduler replica, the claim is a transaction on the schedule row: it checks that the row is as the scheduler read it, counts the active runs, writes the `schedule_executions` rows and moves the schedule. Two replicas cannot take the same firing, and cannot both start a run past the limit.
+
+A handoff that is lost (the process stops between the claim and the start of the run) holds the slot of the schedule until the cron recovery service fires it again. Recovery measures the age of a lost handoff from the time of the claim, so a catch-up firing for an old interval is recovered like any other. A handoff that recovery gives up on (older than `cron_max_recovery_age` since the claim, or `cron_max_recovery_attempts` spent) is marked complete, so it frees the slot. With `cron_enable_recovery` off, nothing does this: a lost handoff then holds a `RunAll` schedule until its row is completed by hand.
+
+The scheduler applies the policy when it claims a due schedule. The policy is declared with the schedule, and the default is `skip`:
+
+| Where the schedule is declared | How to set the policy |
+|---|---|
+| Rust packaged trigger | `#[trigger(on = "wf", cron = "0 * * * *", catchup = "run_all")]` |
+| Python packaged trigger | `@cloaca.trigger(on="wf", cron="0 * * * *", catchup="run_all")` |
+| Named instance (HTTP) | `"catchup_policy": "run_all"` in the body of `POST /v1/tenants/{tenant}/workflows/{name}/instances` |
+| Named instance (CLI) | `cloacinactl instance create wf name --cron "0 * * * *" --catchup run_all` |
+| Embedded Rust | `runner.register_cron_workflow_with_options(wf, expr, tz, &CronScheduleOptions { catchup_policy: Some(CatchupPolicy::RunAll), max_active_runs: None })` |
+| Embedded Python | `runner.register_cron_workflow(wf, expr, tz, catchup_policy="run_all")` |
+
+A value that is not `skip` or `run_all` is an error at each of these places. A packaged trigger that declares no policy does not change the policy of a schedule that already exists, so a policy set on the row by an operator survives a re-load of the package.
+
+### A limit on active runs
+
+A cron schedule can declare `max_active_runs`: the most runs of that schedule that may be active at once. When the schedule is due and has that many active runs, the scheduler starts no new run and leaves the schedule due. It looks again when a run of the schedule ends, and each second.
+
+| Policy | `max_active_runs` not declared | `max_active_runs = N` |
+|---|---|---|
+| `skip` | No limit. A fire starts a run even while the run before it is active. | A fire that comes due at the limit waits. When a run ends the schedule fires once, for the due time it was held at, and the fire times missed in between are skipped. Runs of the schedule do not overlap with `N = 1`. |
+| `run_all` | One active run: the missed fire times run one after another, oldest first. | Up to `N` active runs: the backlog drains `N` at a time. Runs start oldest first; with `N` above 1 they can end in any order. |
+
+It is declared next to the catch-up policy:
+
+| Where the schedule is declared | How to set the limit |
+|---|---|
+| Rust packaged trigger | `#[trigger(on = "wf", cron = "0 * * * *", catchup = "run_all", max_active_runs = 4)]` |
+| Python packaged trigger | `@cloaca.trigger(on="wf", cron="0 * * * *", catchup="run_all", max_active_runs=4)` |
+| Named instance (HTTP) | `"max_active_runs": 4` in the body of `POST /v1/tenants/{tenant}/workflows/{name}/instances` |
+| Named instance (CLI) | `cloacinactl instance create wf name --cron "0 * * * *" --catchup run_all --max-active-runs 4` |
+| Embedded Rust | `CronScheduleOptions { catchup_policy: Some(CatchupPolicy::RunAll), max_active_runs: Some(4) }` |
+| Embedded Python | `runner.register_cron_workflow(wf, expr, tz, catchup_policy="run_all", max_active_runs=4)` |
+
+The value is 1 or more; `0` is an error. It is stored in `schedules.max_active_runs` (NULL when not declared). A packaged trigger that declares no limit does not change the limit of a schedule that already exists.
+
+The limit counts the runs that this schedule started. It does not count a manual run of the same workflow, a run started by another schedule or trigger of the workflow, or the runs of another named instance: each schedule row has its own count. It limits workflow runs, not tasks: `max_concurrent_tasks` still bounds how many tasks run at once.
+
+A long backlog is cheap to hold: 5,500 missed hourly fire times are two timestamps on the schedule row, and the scheduler starts `N` runs at a time, not 5,500 at once.
+
+`run_all` starts at the creation of the schedule, so it does not load the history from before that. A backfill over a chosen range of intervals is not built yet (CLOACINA-T-1020). Until then, one interval is loaded with a manual run that sets `interval_start` and `interval_end`.
 
 See [Configuration Reference](../../../reference/configuration/) for the related knobs:
 `cron_max_catchup_executions` (default 100), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).
+
+## The interval of a run
+
+Each cron run gets the interval that it covers in its context, next to the other scheduler keys:
+
+| Key | Value |
+|---|---|
+| `scheduled_time` | The fire time of this run. |
+| `interval_start` | The fire time of the expression before `scheduled_time`. |
+| `interval_end` | Equal to `scheduled_time`. |
+| `schedule_id`, `schedule_timezone`, `schedule_expression` | The schedule that fired. |
+
+The times are RFC 3339 strings in UTC. An hourly job that fires at `2026-01-01T05:00:00+00:00` gets `interval_start = 2026-01-01T04:00:00+00:00` and `interval_end = 2026-01-01T05:00:00+00:00`. A task that builds a table from landed files reads the two keys and takes the files of that hour.
+
+The interval follows the cron expression in the timezone of the schedule, so it is not always the same length. A daily job in `America/New_York` has one 23 hour interval and one 25 hour interval each year. The start of one interval is always the end of the interval before it.
+
+A catch-up run (`run_all`) and a run that the recovery service fires again get the interval of the fire time they stand for, not of the time they start.
+
+### The same keys on a manual run
+
+`interval_start` and `interval_end` are not reserved. A manual run sets them in its context like any other key:
+
+```bash
+curl -X POST "$SERVER/v1/tenants/acme/workflows/build_hourly_table/execute" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"context": {"interval_start": "2026-01-01T04:00:00+00:00", "interval_end": "2026-01-01T05:00:00+00:00"}}'
+```
+
+So a workflow reads its interval from the same keys in a scheduled run, a rerun of one interval and a history load. The server does not check the two values on a manual run.
+
+The other scheduler keys (`scheduled_time`, `schedule_id`, `schedule_timezone`, `schedule_expression`, `trigger_name`, `triggered_at`) stay reserved: a manual run that sends them has them dropped, with no error. On a cron run the scheduler writes all of its keys after the bound params of an instance, so a param named `interval_start` does not change the interval of a scheduled run.
 
 
 ## Cron Expression Parsing
@@ -498,7 +586,7 @@ Cron observability rides the same `cloacina_*` Prometheus metric namespace as th
 Operationally relevant metrics for cron:
 
 - **`cloacina_workflows_total{status, reason}`** — workflow executions, including those triggered by cron. Compare cron-driven volume to expected cadence to detect missed firings.
-- **`cloacina_active_workflows`** — SQL-derived gauge (CLOACI-I-0108) showing workflows in `Pending` or `Running` state right now. A persistently-high value alongside high cron cadence indicates the executor is falling behind.
+- **`cloacina_active_workflows{tenant}`** — SQL-derived gauge (CLOACI-I-0108) showing workflows in `Pending` or `Running` state right now. A persistently-high value alongside high cron cadence indicates the executor is falling behind.
 - **`cloacina_scheduler_claim_attempts_total{outcome=claimed|contended|empty}`** — diagnostic for multi-scheduler deployments. Sustained `contended` ≫ 0 means multiple schedulers are racing for the same rows (expected at low scale; tune `cron_poll_interval` down if it becomes load).
 - **`cloacina_scheduler_stale_claims_swept_total`** — non-zero rate indicates a scheduler crashed mid-firing and the sweep reclaimed its row. Investigate scheduler logs for the affected window.
 

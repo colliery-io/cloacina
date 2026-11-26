@@ -24,6 +24,7 @@ pub mod actuator;
 pub mod agent_registry;
 pub mod alerts;
 pub mod autoscaler;
+pub mod db_wait;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
@@ -245,7 +246,8 @@ pub struct AppState {
     /// CLOACI-T-0580: per-tenant `DefaultRunner` cache for tenant-scoped
     /// workflow execution. Each cached runner shares the same inventory
     /// `Runtime` via `Arc`; per-tenant runners differ only in their
-    /// underlying `Database` (schema scope) and lifecycle state.
+    /// underlying `Database` (schema scope) and lifecycle state. Every tenant
+    /// has one from server start until it is deleted (CLOACINA-T-1031).
     pub tenant_runners: Arc<crate::tenant_runner_cache::TenantRunnerCache>,
     /// CLOACI-T-0581: max wall-clock for the tenant-teardown runner-evict
     /// step. Past this, the runner is hard-dropped from the cache without
@@ -376,6 +378,9 @@ pub async fn run(
     cors: CorsConfig,
     // Retention of run history and acked outbox rows (CLOACINA-T-1023).
     retention: retention::RetentionConfig,
+    // CLOACINA-T-1035: how long to wait at start for the database to accept
+    // a connection. Zero means one try.
+    database_wait_timeout: std::time::Duration,
 ) -> Result<()> {
     // Validate CORS config before any heavy startup work.
     let cors_layer = cors.layer()?;
@@ -543,19 +548,29 @@ pub async fn run(
          for the in-process and the fleet executor. A fleet task includes \
          the hand-off to the agent and the wait for its report."
     );
-    metrics::describe_gauge!("cloacina_active_workflows", "Currently active workflows");
-    metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
+    metrics::describe_gauge!(
+        "cloacina_active_workflows",
+        "Workflow executions in Pending or Running state, by tenant. Read \
+         from the database on each scheduler tick."
+    );
+    metrics::describe_gauge!(
+        "cloacina_active_tasks",
+        "Task executions in Running state, by tenant. Read from the database \
+         on each scheduler tick."
+    );
     metrics::describe_gauge!(
         "cloacina_waiting_tasks",
-        "Tasks that wait to be dispatched, by tenant: status Ready, due \
-         (`retry_at` empty or in the past) and not claimed. Read from the \
-         database every 5 seconds. A task in a retry backoff, or put off \
-         because no agent had a free slot, is not counted until it is due again."
+        "Tasks that wait for capacity, by tenant: status Ready and past \
+         their `waiting_since`. Read from the database every 5 seconds. A \
+         task that is put off because no agent had a free slot is counted \
+         the whole time. A task in a retry backoff is not counted until the \
+         retry is due."
     );
     metrics::describe_gauge!(
         "cloacina_oldest_waiting_task_age_seconds",
-        "Seconds since the oldest waiting task became due, by tenant; 0 when \
-         no task waits. Read with `cloacina_waiting_tasks`."
+        "Seconds since the oldest waiting task began to wait \
+         (`waiting_since`), by tenant; 0 when no task waits. Read with \
+         `cloacina_waiting_tasks`."
     );
     metrics::describe_gauge!(
         "cloacina_schedule_lag_seconds",
@@ -797,6 +812,25 @@ pub async fn run(
     // fails closed with a clear error.
     let admin_database =
         cloacina::Database::new(&database_url, "cloacina", runner_config.db_pool_size());
+    // CLOACINA-T-1035: on a fresh install Postgres can come up after the
+    // server. Wait for a connection, with backoff, before the migrations.
+    // The HTTP listener binds later, so nothing answers `/ready` meanwhile.
+    db_wait::wait_until_connected(
+        database_wait_timeout,
+        db_wait::Backoff::default(),
+        || async {
+            admin_database
+                .get_postgres_connection()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        },
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("{e}");
+        anyhow::anyhow!(e)
+    })?;
     admin_database
         .run_migrations()
         .await
@@ -1191,10 +1225,8 @@ pub async fn run(
         )),
         metrics_handle,
         tenant_databases: tenant_database_cache.clone(),
-        // CLOACI-T-0580: per-tenant runner cache. Capacity is operator-
-        // tunable; 256 default. If the configured cap is zero we fall
-        // back to 1 (LruCache requires NonZeroUsize) so misconfiguration
-        // doesn't panic the server at boot.
+        // CLOACI-T-0580: the per-tenant runners. The size is a warning limit
+        // (CLOACINA-T-1031), 256 by default; zero is read as 1.
         tenant_runners: Arc::new(tenant_runner_cache),
         tenant_deletion_drain_timeout,
         // Clamp to >=1 so the advertised interval matches the sweeper's
@@ -1228,6 +1260,11 @@ pub async fn run(
     // Retention (CLOACINA-T-1023): removes finished runs and acked outbox rows
     // past their periods, per schema, on one replica per tick.
     crate::retention::spawn(state.clone(), retention, substrate_shutdown_rx.clone());
+
+    // Tenant runners (CLOACINA-T-1031): a runner for every tenant schema, at
+    // start and then on a pass, so a tenant's schedules fire with no call for
+    // that tenant. Each replica holds its own runners.
+    crate::tenant_runner_cache::spawn(state.clone(), substrate_shutdown_rx.clone());
 
     // Fleet executor registration (CLOACI-I-0114 / T-0633, T-0640). Only wired
     // up when the operator opts into the fleet via `--default-executor fleet`;
@@ -2720,6 +2757,9 @@ mod tests {
 
     /// Router tests of the audit record (CLOACINA-T-1024).
     mod audit_routes;
+
+    /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
+    mod tenant_runner_start;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
@@ -4889,6 +4929,45 @@ mod tests {
         assert_eq!(body["name"], name);
     }
 
+    /// CLOACINA-T-1035: a second create of one name answers 409 with a
+    /// message that names the tenant, and no SQL text.
+    #[tokio::test]
+    #[serial]
+    async fn test_create_tenant_twice_returns_409_without_sql_text() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        let name = format!(
+            "test_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let body_json = serde_json::json!({ "name": name, "password": "testpass123" });
+        let request = || {
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/v1/tenants")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&body_json).unwrap()))
+                .unwrap()
+        };
+
+        let (status, body) = send_request(build_router(state.clone()), request()).await;
+        assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
+
+        let (status, body) = send_request(build_router(state), request()).await;
+        assert_eq!(status, StatusCode::CONFLICT, "body: {:?}", body);
+        assert_eq!(body["code"], "tenant_exists");
+        let message = body["error"].as_str().unwrap_or_default();
+        assert_eq!(message, format!("tenant '{}' already exists", name));
+        for sql_word in ["role", "CREATE", "SQL", "Failed to"] {
+            assert!(
+                !message.contains(sql_word),
+                "no SQL text in the answer (body: {body})"
+            );
+        }
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_list_tenants() {
@@ -5632,15 +5711,12 @@ mod tests {
         let _ = send_request(build_router(state.clone()), req).await;
     }
 
-    /// CLOACI-T-0580: LRU eviction. With a cache cap of 2, cycling
-    /// through 3 tenant runners must evict the least-recently-used.
+    /// CLOACINA-T-1031: the size of the cache is a warning limit. With a
+    /// limit of 2, a third tenant gets its runner and no runner is stopped.
     /// Requires Postgres (creates real tenant schemas + runners).
-    ///
-    /// Uses a freshly-built `TenantRunnerCache` with cap=2 rather than
-    /// the default test cap of 8.
     #[tokio::test]
     #[serial]
-    async fn test_tenant_runner_cache_lru_evicts_oldest() {
+    async fn test_tenant_runner_cache_keeps_every_runner_above_the_limit() {
         let mut state = test_state().await;
         let token = create_test_api_key(&state).await;
 
@@ -5701,9 +5777,8 @@ mod tests {
             .get_or_create(&schema_b, db_b)
             .await
             .expect("B");
-        assert_eq!(state.tenant_runners.len().await, 2);
 
-        // Acquire C → evicts A (least recently used).
+        // Acquire C: above the limit, and A and B keep their runners.
         let db_c = state
             .tenant_databases
             .resolve(&schema_c, &state.database)
@@ -5716,9 +5791,10 @@ mod tests {
             .expect("C");
         assert_eq!(
             state.tenant_runners.len().await,
-            2,
-            "cache must stay bounded at cap=2"
+            3,
+            "no runner is stopped to stay under the limit"
         );
+        assert!(state.tenant_runners.contains(&schema_a).await);
 
         // Cleanup.
         for s in [&schema_a, &schema_b, &schema_c] {
@@ -6674,6 +6750,81 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert!(body["events"].as_array().is_some());
         assert!(body["events"].as_array().unwrap().is_empty());
+    }
+
+    // ── Instances ────────────────────────────────────────────────────
+
+    /// CLOACINA-T-1020: an instance is created with a catch-up policy and a
+    /// limit on active runs, both come back in the summary, and a wrong
+    /// value or an option with no cron is a 400.
+    #[tokio::test]
+    #[serial]
+    async fn test_create_instance_with_schedule_options() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let workflow = format!("t1020_wf_{}", uuid::Uuid::new_v4().simple());
+        let post = |body: serde_json::Value| {
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(format!("/v1/tenants/public/workflows/{workflow}/instances"))
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+
+        let (status, body) = send_request(
+            build_router(state.clone()),
+            post(serde_json::json!({
+                "instance_name": "history",
+                "cron": "0 * * * *",
+                "catchup_policy": "run_all",
+                "max_active_runs": 4,
+                "enabled": false,
+            })),
+        )
+        .await;
+        assert!(status.is_success(), "create failed: {status} {body}");
+        assert_eq!(body["catchup_policy"], "run_all");
+        assert_eq!(body["max_active_runs"], 4);
+
+        let (status, body) = send_request(
+            build_router(state.clone()),
+            post(serde_json::json!({
+                "instance_name": "plain",
+                "cron": "0 * * * *",
+                "enabled": false,
+            })),
+        )
+        .await;
+        assert!(status.is_success(), "create failed: {status} {body}");
+        assert_eq!(body["catchup_policy"], "skip");
+        assert!(body.get("max_active_runs").is_none());
+
+        for bad in [
+            serde_json::json!({"instance_name": "a", "cron": "0 * * * *", "catchup_policy": "all"}),
+            serde_json::json!({"instance_name": "b", "cron": "0 * * * *", "max_active_runs": 0}),
+            serde_json::json!({"instance_name": "c", "catchup_policy": "run_all"}),
+            serde_json::json!({"instance_name": "d", "max_active_runs": 2}),
+        ] {
+            let (status, body) = send_request(build_router(state.clone()), post(bad)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert_eq!(body["code"], "invalid_schedule_options", "{body}");
+        }
+
+        // Leave no schedule behind in the shared test database.
+        for instance in ["history", "plain"] {
+            let req = axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!(
+                    "/v1/tenants/public/workflows/{workflow}/instances/{instance}"
+                ))
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap();
+            let (status, body) = send_request(build_router(state.clone()), req).await;
+            assert!(status.is_success(), "delete failed: {status} {body}");
+        }
     }
 
     // ── Triggers ─────────────────────────────────────────────────────

@@ -1111,33 +1111,23 @@ The `Context<serde_json::Value>` is cloned for each task execution and stored wi
 
 ---
 
-### 24. Cron catchup storm after long downtime
+### 24. A cron schedule runs old fire times for a long time after downtime
 
 **Symptom:**
 
-After the runner restarts from extended downtime, hundreds or thousands of workflow executions are triggered simultaneously. The system becomes overloaded.
+After the runner restarts from extended downtime, one schedule runs again and again, each run for an older fire time, and its newest fire time does not run until the old ones are done. `cloacina_schedule_lag_seconds` is high and falls slowly.
 
 **Cause:**
 
-When a cron schedule row has `catchup_policy = "run_all"`, the scheduler calculates missed execution times during the downtime window and enqueues them, bounded by `cron_max_catchup_executions` (default 100, builder cap 1000). The per-schedule default policy is `"skip"` — a storm means a schedule was explicitly set to `run_all`.
+The schedule has `catchup_policy = "run_all"`. It runs each fire time it missed, oldest first, one run at a time, and no fire time is dropped. The default policy is `"skip"`, so a schedule does this only when it was declared with `run_all`.
 
 **Solution:**
 
-1. **Set the schedule's catchup policy back to `"skip"`** (the `catchup_policy` column on the schedule row) for schedules that do not need historical backfill.
+1. **If the old fire times have no value**, declare the schedule with `skip` (the trigger attribute `catchup`, or `catchup_policy` on an instance). To drop a backlog that is already there, set `last_run_at` of the schedule row to now.
 
-2. **Limit catchup executions:**
-   ```rust
-   let config = DefaultRunnerConfig::builder()
-       .cron_max_catchup_executions(5)  // At most 5 missed runs
-       .build()?;
-   ```
+2. **If they must run**, let the backlog drain. Each run gets the interval of its fire time in `interval_start` and `interval_end`.
 
-3. **Set maximum recovery age** to ignore ancient missed executions:
-   ```rust
-   .cron_max_recovery_age(Duration::from_secs(3600))  // Only catch up last hour
-   ```
-
-4. **For critical schedules that must catch up**, ensure `max_concurrent_tasks` is high enough to process the backlog without starving other work.
+3. `cron_max_catchup_executions` does not shorten the backlog. It is how many missed fire times the scheduler reads per pass.
 
 ---
 

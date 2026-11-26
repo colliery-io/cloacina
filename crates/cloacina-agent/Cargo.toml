@@ -60,4 +60,9 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
+[target.'cfg(unix)'.dependencies]
+# `getenv`/`strlen`, to overwrite the key in the start-time environment block
+# (CLOACINA-T-1033).
+libc = "0.2"
+
 [dev-dependencies]

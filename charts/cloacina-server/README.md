@@ -49,14 +49,14 @@ The chart fails fast if you don't configure exactly one of:
 | `postgresql.enabled` | `false` | Install Bitnami's Postgres in-cluster |
 | `apiKeySecretRef.name` | `""` | Secret for `CLOACINA_BOOTSTRAP_KEY` |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
-| `server.tenantRunnerCacheSize` | `256` | LRU cap on per-tenant runners |
+| `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant runners; none is stopped at the limit |
 | `service.type` | `ClusterIP` | Service type |
 | `ingress.enabled` | `false` | Provision an Ingress |
 | `serviceMonitor.enabled` | `false` | Emit a Prometheus operator `ServiceMonitor` |
-| `metrics.enabled` | `false` | Serve `/metrics` on its own port and Service; the API port answers 404 for it |
+| `metrics.enabled` | `true` | Serve `/metrics` on its own port and Service; the API port answers 404 for it |
 | `metrics.port` | `9090` | Port of the metrics listener |
-| `metrics.networkPolicy.enabled` | `false` | NetworkPolicy for the server pods: API port open, metrics port open only to `from` |
-| `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to reach the metrics port |
+| `metrics.networkPolicy.enabled` | `true` | NetworkPolicy for the server pods: API port open, metrics port open only to `from` |
+| `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to reach the metrics port; empty admits nobody |
 | `retention.runHistoryDays` | `0` | Days to keep a finished run; `0` keeps run history for ever (`CLOACINA_RUN_HISTORY_RETENTION_DAYS`) |
 | `retention.outboxAckedSeconds` | `3600` | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever (`CLOACINA_OUTBOX_ACKED_RETENTION_S`) |
 | `retention.intervalSeconds` | `300` | Seconds between passes of the retention job (`CLOACINA_RETENTION_INTERVAL_S`) |
@@ -92,31 +92,39 @@ without further changes.
 
 ## Observability
 
-Set `serviceMonitor.enabled=true` to register a `ServiceMonitor` for
-the Prometheus operator. The chart scrapes `:8080/metrics` every 30s.
+`/metrics` has no authentication, and its labels hold tenant names,
+workflow names and other names that tenants choose. By default the chart
+keeps it off the API port:
 
-By default `/metrics` is on the API port with no authentication: every
-client that can reach the API can read it, and the metric labels hold
-names that tenants choose. To separate it:
+- the server starts with `--metrics-bind 0.0.0.0:9090`; `:8080/metrics`
+  answers 404;
+- the ClusterIP Service `<fullname>-metrics` exposes port 9090;
+- a NetworkPolicy keeps the API port open to every source and opens the
+  metrics port only to the peers in `metrics.networkPolicy.from`. The
+  list is empty by default: nobody reaches the metrics port until you
+  name your Prometheus. It refuses every other ingress to the server
+  pods. It needs a CNI that enforces NetworkPolicy.
+
+To scrape:
 
 ```yaml
 metrics:
-  enabled: true          # /metrics moves to port 9090; :8080/metrics answers 404
   networkPolicy:
-    enabled: true        # needs a CNI that enforces NetworkPolicy
     from:
       - namespaceSelector:
           matchLabels:
             kubernetes.io/metadata.name: monitoring
 serviceMonitor:
-  enabled: true          # now scrapes the Service <fullname>-metrics
+  enabled: true          # scrapes the Service <fullname>-metrics every 30s
 ```
 
-With `metrics.enabled=true` the chart adds the container port `metrics`
-and a ClusterIP Service `<fullname>-metrics`. The NetworkPolicy keeps the
-API port open to every source, opens the metrics port only to the peers
-in `from` (nobody when the list is empty), and refuses every other
-ingress to the server pods.
+With `compiler.enabled=true` the compiler pods get the same:
+`--metrics-bind`, the Service `<fullname>-compiler-metrics`, a
+`ServiceMonitor` `<fullname>-compiler` and a NetworkPolicy.
+
+`metrics.enabled=false` puts `/metrics` back on the API port, where
+every client that can reach the API can read it, tenant agents included.
+No metrics Service and no NetworkPolicy is rendered then.
 
 ## Retention, time limits and alerts
 
@@ -173,6 +181,23 @@ helm upgrade cloacina oci://ghcr.io/colliery-io/charts/cloacina-server \
 The deployment uses a `RollingUpdate` strategy with `maxSurge=1` /
 `maxUnavailable=0`, so the old pod stays serving until the new one is
 ready.
+
+### Upgrade note: `/metrics` moves off the API port
+
+`metrics.enabled` and `metrics.networkPolicy.enabled` are now `true` by
+default (CLOACINA-T-1032). After an upgrade with default values:
+
+- `:8080/metrics` answers 404. Scrape `<fullname>-metrics:9090/metrics`.
+- With `serviceMonitor.enabled=true` the `ServiceMonitor` moves to the
+  metrics Service by itself. A scrape config written by hand must change
+  its target.
+- The NetworkPolicy admits nobody to port 9090 until
+  `metrics.networkPolicy.from` lists the Prometheus pods.
+- The NetworkPolicy also refuses ingress to the server pods on every
+  port other than 8080 and the metrics port.
+- The server image must have `--metrics-bind`: a release after 0.12.0.
+  With an older image, set `metrics.enabled=false`.
+- To keep the old behaviour, set `metrics.enabled=false`.
 
 ## Uninstall
 

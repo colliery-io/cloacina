@@ -100,8 +100,7 @@ pub async fn list_triggers(
                 "Failed to resolve tenant database for '{}': {}",
                 tenant_id, e
             );
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -133,7 +132,7 @@ pub async fn list_triggers(
         }
         Err(e) => {
             warn!("Failed to list triggers for tenant '{}': {}", tenant_id, e);
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("list triggers failed", &e).into_response()
         }
     }
 }
@@ -177,8 +176,7 @@ pub async fn get_trigger(
                 "Failed to resolve tenant database for '{}': {}",
                 tenant_id, e
             );
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -186,7 +184,7 @@ pub async fn get_trigger(
     // Find schedule by workflow name or trigger name
     let schedules = match dal.schedule().list(None, false, 100, 0).await {
         Ok(s) => s,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => return ApiError::internal_logged("get trigger failed", &e).into_response(),
     };
 
     let found = schedules
@@ -312,8 +310,7 @@ async fn set_trigger_paused(
                 "Failed to resolve tenant database for '{}': {}",
                 tenant_id, e
             );
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
@@ -321,7 +318,9 @@ async fn set_trigger_paused(
     // Resolve schedule by trigger name or workflow name (mirrors get_trigger).
     let schedules = match dal.schedule().list(None, false, 1000, 0).await {
         Ok(s) => s,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => {
+            return ApiError::internal_logged("set trigger paused failed", &e).into_response();
+        }
     };
     let found = schedules
         .into_iter()
@@ -376,7 +375,7 @@ async fn set_trigger_paused(
                 tenant_id,
                 e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("set trigger paused failed", &e).into_response()
         }
     }
 }
@@ -415,8 +414,7 @@ pub async fn fire_trigger(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
 
@@ -499,8 +497,7 @@ pub async fn fire_trigger(
         {
             Ok(r) => r,
             Err(e) => {
-                return ApiError::internal(format!("tenant runner unavailable: {}", e))
-                    .into_response();
+                return ApiError::internal_logged("tenant runner unavailable", &e).into_response();
             }
         }
     };
@@ -622,8 +619,7 @@ pub async fn get_trigger_interface(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e))
-                .into_response();
+            return ApiError::internal_logged("tenant database unavailable", &e).into_response();
         }
     };
 

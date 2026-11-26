@@ -46,8 +46,8 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `invalid_request` | `POST /v1/tenants/{tenant_id}/workflows`, `GET /v1/tenants/{tenant_id}/executions/{exec_id}`, `GET /v1/tenants/{tenant_id}/executions/{exec_id}/events` | Malformed body, empty multipart payload, or unparsable path parameter (e.g., non-UUID execution ID). |
 | `invalid_key_id` | `DELETE /v1/auth/keys/{key_id}` | Path parameter is not a valid UUID. |
 | `invalid_pagination` | `GET /v1/tenants/{tenant_id}/executions`, `GET /v1/tenants/{tenant_id}/triggers` | `?limit=` outside `[1, 1000]` or `?offset=` negative. The error message names the violated bound. |
-| `tenant_creation_failed` | `POST /v1/tenants` | `DatabaseAdmin::create_tenant` rejected the request (invalid name, schema already exists, permission denied at the Postgres level). |
-| `tenant_removal_failed` | `DELETE /v1/tenants/{schema_name}` | Step 4 (schema drop) of the 4-step teardown orchestration failed. Steps 1-3 may have committed; a retry resumes from the failure point (each step is idempotent). |
+| `tenant_creation_failed` | `POST /v1/tenants` | The name is not a valid tenant name. A name that exists answers `409 tenant_exists`; a database failure answers `500 internal_error`. |
+| `tenant_removal_failed` | `DELETE /v1/tenants/{schema_name}` | The name is not a valid tenant name. A failed schema drop answers `500 internal_error`; a retry resumes from the failure point (each step is idempotent). |
 | `execution_failed` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | Tenant runner refused the execution (workflow not registered for the tenant, validation error in submitted context, etc.). |
 | `upload_failed` | `POST /v1/tenants/{tenant_id}/workflows` | Package registration via the tenant's `WorkflowRegistry` failed (manifest invalid, duplicate version, etc.). |
 | `workflow_input_invalid` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | A declared workflow param is missing or its top-level type doesn't match the declared schema; the message names the offending field(s). (CLOACI-T-0757) |
@@ -89,13 +89,14 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 
 | Code | Routes | When it fires |
 |---|---|---|
+| `tenant_exists` | `POST /v1/tenants` | A tenant of this name exists. The message names the tenant. |
 | `workflow_paused` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | The workflow (or its schedule) is paused; resume it before executing. (CLOACI-T-0749) |
 
 ### 500 Internal Server Error
 
 | Code | Routes | When it fires |
 |---|---|---|
-| `internal_error` | All routes | Catch-all for failures the server cannot turn into a more specific code: tenant database resolve failure, registry I/O error, deserialization panic caught by the framework, etc. The `error` message field carries the underlying cause; the server log carries the full stack via `request_id`. |
+| `internal_error` | All routes | Catch-all for failures the server cannot turn into a more specific code: tenant database resolve failure, registry I/O error, deserialization panic caught by the framework, etc. The `error` message field holds a fixed text that names the operation, never the text of the underlying error. The server log holds the cause, under the `request_id` that the `x-request-id` response header gives. |
 
 ### 501 Not Implemented
 

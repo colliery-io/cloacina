@@ -10,14 +10,13 @@ This guide covers how recovery works in multi-tenant Cloacina deployments, how t
 :::note[Server-mode operators]
 The examples below use the embedded `DefaultRunner` API. If you run the
 **`cloacina-server`** service, you don't call these directly — the server creates a
-`DefaultRunner` per tenant lazily on first use and caches it (LRU, capped by
-`--tenant-runner-cache-size`). The same automatic recovery described here runs
+`DefaultRunner` for every tenant at start and keeps it until the tenant is deleted.
+The same automatic recovery described here runs
 **inside each tenant's runner**, so interrupted work is recovered the same way.
 
 To recover a wedged tenant in server mode:
-1. **Restart the server process.** Tenant runners are rebuilt lazily on the next
-   request, each re-running recovery on connect — there is no per-tenant "restart"
-   endpoint; eviction/recreation is automatic.
+1. **Restart the server process.** Tenant runners are rebuilt at start, each
+   re-running recovery on connect — there is no per-tenant "restart" endpoint.
 2. **For SQLite tenants**, restore the tenant's database file (see the SQLite
    section below) before the runner is recreated.
 3. **For PostgreSQL tenants**, the schema and its data persist across restarts; see

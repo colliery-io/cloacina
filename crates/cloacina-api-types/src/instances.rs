@@ -46,6 +46,18 @@ pub struct CreateInstanceRequest {
     /// Whether the schedule is enabled on creation. Defaults to `true`.
     #[serde(default)]
     pub enabled: Option<bool>,
+    /// What the schedule does with the fire times it missed while no
+    /// scheduler ran: `skip` (the default) fires once, `run_all` fires each
+    /// of them, oldest first. Needs `cron`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catchup_policy: Option<String>,
+    /// The most runs of this schedule that may be active at once, 1 or more.
+    /// At the limit the scheduler starts no new run and leaves the schedule
+    /// due. When omitted, a `run_all` schedule runs one fire at a time and a
+    /// `skip` schedule has no limit. Needs `cron`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(minimum = 1))]
+    pub max_active_runs: Option<u32>,
 }
 
 /// One row in the instance list, and the body of a single-instance GET.
@@ -60,6 +72,12 @@ pub struct WorkflowInstanceSummary {
     pub params: Option<serde_json::Value>,
     pub cron_expression: Option<String>,
     pub timezone: Option<String>,
+    /// `skip` or `run_all`. Absent in a response from an older server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catchup_policy: Option<String>,
+    /// The declared limit on active runs. Absent when none is declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_active_runs: Option<u32>,
     pub enabled: bool,
     /// Whether the schedule is paused (distinct from `enabled`).
     #[serde(default)]

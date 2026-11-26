@@ -70,6 +70,6 @@ pub async fn compiler_status(
             })
             .into_response()
         }
-        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => ApiError::internal_logged("compiler status failed", &e).into_response(),
     }
 }

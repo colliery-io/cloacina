@@ -74,9 +74,15 @@ struct Args {
     /// Server base URL (e.g. `http://localhost:8080` or `https://api.example.com`).
     #[arg(long, env = "CLOACINA_SERVER")]
     server: String,
-    /// API key used for both REST and the WS ticket mint.
-    #[arg(long, env = "CLOACINA_API_KEY")]
+    /// API key used for both REST and the WS ticket mint. Give it here, in
+    /// `CLOACINA_API_KEY`, or in a file with `--api-key-file`. The agent takes
+    /// the variable out of its environment at start (CLOACINA-T-1033).
+    #[arg(long, env = API_KEY_ENV, default_value = "", hide_default_value = true)]
     api_key: String,
+    /// File that holds the API key (surrounding whitespace is ignored). Use it
+    /// in place of `--api-key` / `CLOACINA_API_KEY`, not with them.
+    #[arg(long, env = "CLOACINA_API_KEY_FILE")]
+    api_key_file: Option<std::path::PathBuf>,
     /// Optional caller-chosen agent id; server assigns one if omitted.
     #[arg(long)]
     agent_id: Option<String>,
@@ -101,8 +107,83 @@ struct Args {
     cache_dir: Option<std::path::PathBuf>,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// The environment variable the agent's key may arrive in.
+const API_KEY_ENV: &str = "CLOACINA_API_KEY";
+
+/// Take the agent's key out of the process environment (CLOACINA-T-1033).
+///
+/// Task code runs inside the agent process, so anything left in the
+/// environment is readable by a task (`std::env`, Python's `os.environ`).
+/// On Unix the value is first overwritten where it lies, because
+/// `/proc/<pid>/environ` shows the start-time environment block and
+/// `remove_var` only drops the pointer to it.
+///
+/// # Safety
+///
+/// No other thread may read or write the environment while this runs. `main`
+/// calls it before the tokio runtime, the logger and the Python interpreter
+/// exist, so the process has one thread.
+unsafe fn remove_api_key_from_env() {
+    #[cfg(unix)]
+    {
+        let name = std::ffi::CString::new(API_KEY_ENV).expect("no NUL in the name");
+        // SAFETY: single-threaded (see above). `getenv` returns a pointer to
+        // the NUL-terminated value inside the environment block, which is
+        // writable memory of this process; the write stays inside the value.
+        unsafe {
+            let value = libc::getenv(name.as_ptr());
+            if !value.is_null() {
+                std::ptr::write_bytes(value, 0, libc::strlen(value));
+            }
+        }
+    }
+    // SAFETY: single-threaded (see above).
+    unsafe { std::env::remove_var(API_KEY_ENV) };
+}
+
+/// Settle where the key comes from: `--api-key` / `CLOACINA_API_KEY`, or the
+/// file named by `--api-key-file` / `CLOACINA_API_KEY_FILE`. The file is not
+/// deleted: a restart of the agent reads it again.
+fn resolve_api_key(args: &mut Args) -> Result<()> {
+    match (&args.api_key_file, args.api_key.is_empty()) {
+        (Some(_), false) => bail!(
+            "give the API key one way: --api-key-file / CLOACINA_API_KEY_FILE, or --api-key / \
+             CLOACINA_API_KEY"
+        ),
+        (Some(path), true) => {
+            let key = std::fs::read_to_string(path)
+                .with_context(|| format!("read the API key file {:?}", path))?;
+            let key = key.trim();
+            if key.is_empty() {
+                bail!("the API key file {:?} is empty", path);
+            }
+            args.api_key = key.to_string();
+        }
+        (None, false) => {}
+        (None, true) => bail!(
+            "no API key: set CLOACINA_API_KEY, or name a file with --api-key-file / \
+             CLOACINA_API_KEY_FILE"
+        ),
+    }
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    // Before anything else, while this is the only thread: read the key and
+    // take it out of the environment (CLOACINA-T-1033).
+    let mut args = Args::parse();
+    // SAFETY: no thread has been started yet.
+    unsafe { remove_api_key_from_env() };
+    resolve_api_key(&mut args)?;
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build the tokio runtime")?
+        .block_on(async_main(args))
+}
+
+async fn async_main(args: Args) -> Result<()> {
     // rustls has both ring and aws-lc-rs compiled in; without a process
     // default, a wss:// connect panics choosing one.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -113,7 +194,6 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let args = Args::parse();
     if let Err(e) = run(args).await {
         error!(error = ?e, "agent exited with error");
         std::process::exit(1);
@@ -2565,5 +2645,127 @@ mod tests {
     #[test]
     fn ws_url_for_rejects_unsupported_scheme() {
         assert!(ws_url_for("ftp://x", "y", "z").is_err());
+    }
+
+    // ── CLOACINA-T-1033: the agent's key leaves the environment ──────────
+
+    /// The tests below change the process environment; they take this lock so
+    /// that only one of them does at a time.
+    static KEY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn parse_args(extra: &[&str]) -> Args {
+        let mut argv = vec!["cloacina-agent", "--server", "http://server.invalid"];
+        argv.extend_from_slice(extra);
+        Args::try_parse_from(argv).expect("arguments parse")
+    }
+
+    #[test]
+    fn api_key_is_gone_from_the_environment_after_startup_handling() {
+        let _guard = KEY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: the lock keeps the other tests of this group away, and no
+        // other test of this crate reads or writes this variable.
+        unsafe { std::env::set_var(API_KEY_ENV, "clk_test_environment_form") };
+
+        // The same three steps as `main`.
+        let mut args = parse_args(&[]);
+        unsafe { remove_api_key_from_env() };
+        resolve_api_key(&mut args).expect("the key came from the environment");
+
+        assert_eq!(args.api_key, "clk_test_environment_form");
+        assert!(std::env::var_os(API_KEY_ENV).is_none());
+        assert!(
+            std::env::vars_os().all(|(_, v)| v != "clk_test_environment_form"),
+            "no variable holds the key"
+        );
+    }
+
+    #[test]
+    fn api_key_is_read_from_a_file_and_the_file_stays() {
+        let _guard = KEY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::remove_var(API_KEY_ENV) };
+        let dir = tempdir();
+        let path = dir.join("api-key");
+        std::fs::write(&path, "clk_test_file_form\n").unwrap();
+
+        let mut args = parse_args(&["--api-key-file", path.to_str().unwrap()]);
+        unsafe { remove_api_key_from_env() };
+        resolve_api_key(&mut args).expect("the key came from the file");
+
+        assert_eq!(args.api_key, "clk_test_file_form");
+        assert!(path.exists(), "a restart reads the file again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn api_key_must_come_from_exactly_one_place() {
+        let _guard = KEY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::remove_var(API_KEY_ENV) };
+        let dir = tempdir();
+        let path = dir.join("api-key");
+
+        // Neither.
+        let mut args = parse_args(&[]);
+        let err = resolve_api_key(&mut args).unwrap_err().to_string();
+        assert!(err.contains("no API key"), "{err}");
+
+        // Both.
+        std::fs::write(&path, "clk_test_file_form").unwrap();
+        let mut args = parse_args(&[
+            "--api-key",
+            "clk_test_flag_form",
+            "--api-key-file",
+            path.to_str().unwrap(),
+        ]);
+        let err = resolve_api_key(&mut args).unwrap_err().to_string();
+        assert!(err.contains("one way"), "{err}");
+
+        // An empty file.
+        std::fs::write(&path, "\n").unwrap();
+        let mut args = parse_args(&["--api-key-file", path.to_str().unwrap()]);
+        let err = resolve_api_key(&mut args).unwrap_err().to_string();
+        assert!(err.contains("is empty"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `/proc/self/environ` shows the environment the process started with,
+    /// so the check needs a process that started with the key: this test runs
+    /// itself again as a child with the key set, and the child does the
+    /// start-up handling and reads its own `/proc/self/environ`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn start_time_environment_no_longer_shows_the_key() {
+        const CHILD: &str = "CLOACINA_AGENT_TEST_ENVIRON_CHILD";
+        const VALUE: &str = "clk_test_start_time_environment";
+        if std::env::var_os(CHILD).is_none() {
+            let out = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "tests::start_time_environment_no_longer_shows_the_key",
+                    "--test-threads=1",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .env(API_KEY_ENV, VALUE)
+                .output()
+                .expect("run the child");
+            assert!(
+                out.status.success(),
+                "child failed: {}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            return;
+        }
+        let holds_key = |bytes: &[u8]| bytes.windows(VALUE.len()).any(|w| w == VALUE.as_bytes());
+        let before = std::fs::read("/proc/self/environ").unwrap();
+        assert!(
+            holds_key(&before),
+            "control: the child started with the key"
+        );
+        // SAFETY: the child runs this one test; nothing else touches the
+        // environment.
+        unsafe { remove_api_key_from_env() };
+        let after = std::fs::read("/proc/self/environ").unwrap();
+        assert!(!holds_key(&after), "the key is still in /proc/self/environ");
     }
 }

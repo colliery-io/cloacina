@@ -40,6 +40,11 @@ enum ServerVerb {
         #[arg(long, default_value = "127.0.0.1:8080")]
         bind: SocketAddr,
 
+        /// Address of a separate listener for `/metrics`. When set, `/metrics`
+        /// is served only there and `--bind` answers 404 for it.
+        #[arg(long, env = "CLOACINA_METRICS_BIND")]
+        metrics_bind: Option<SocketAddr>,
+
         #[arg(long, env = "DATABASE_URL")]
         database_url: Option<String>,
 
@@ -75,6 +80,7 @@ impl ServerCmd {
         match self.verb {
             ServerVerb::Start {
                 bind,
+                metrics_bind,
                 database_url,
                 bootstrap_key,
                 require_signatures,
@@ -84,6 +90,7 @@ impl ServerCmd {
                 start::run(
                     globals,
                     bind,
+                    metrics_bind,
                     database_url,
                     bootstrap_key,
                     require_signatures,

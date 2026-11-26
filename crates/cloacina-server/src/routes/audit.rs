@@ -357,7 +357,7 @@ async fn list_with(state: &AppState, filter: AuditEventFilter) -> axum::response
         }
         Err(e) => {
             warn!("Failed to list audit events: {}", e);
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("failed to list audit events", &e).into_response()
         }
     }
 }

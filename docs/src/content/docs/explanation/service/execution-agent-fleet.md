@@ -56,7 +56,9 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    stays `Ready`, keeps its attempt count, and is tried again after 2 s. The
    same holds when the chosen agent is full by the time the packet arrives and
    refuses it. Waiting for capacity never fails a task; watch
-   `cloacina_fleet_dispatch_deferred_total` to see it.
+   `cloacina_fleet_dispatch_deferred_total` to see it. The task is in
+   `cloacina_waiting_tasks` for as long as it waits, and
+   `cloacina_oldest_waiting_task_age_seconds` grows.
 3. **Resolve the artifact.** For the first task of an execution it looks up
    the active (built, non-superseded) version of the task's package in that
    tenant and records it as the execution's **version pin**. For each later
@@ -316,6 +318,15 @@ clear a PodSecurity **`restricted`** cluster, which would otherwise reject them:
   agent's writable paths — `$HOME` (where it unpacks each Python package's
   `workflow/`+`vendor/` tree and caches cdylibs) and `/tmp` — are backed by
   `emptyDir` volumes so the read-only root still works.
+- **No service account token.** The pod sets
+  `automountServiceAccountToken: false`. The agent never calls the Kubernetes
+  API, and task code runs in the agent process, where it could read a mounted
+  token. The standalone `cloacina-agent` chart does the same
+  (`automountServiceAccountToken`, default `false`).
+- **The agent's key leaves the environment.** The key arrives as
+  `CLOACINA_API_KEY` from the tenant namespace's Secret. The agent reads it at
+  start, overwrites the value in its start-time environment and removes the
+  variable. No volume holds the key.
 - **Resource requests/limits.** Each pod gets requests + limits configurable via
   the chart's `fleet.agentResources` (rendered as `CLOACINA_AGENT_*`). Defaults
   are tuned to the agent's real footprint — it embeds a CPython interpreter

@@ -122,6 +122,7 @@ pub struct UnifiedTaskExecution {
     pub sub_status: Option<String>,
     pub claimed_by: Option<UniversalUuid>,
     pub heartbeat_at: Option<UniversalTimestamp>,
+    pub waiting_since: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -496,6 +497,9 @@ pub struct UnifiedSchedule {
     /// human instance name; both None for anonymous schedules.
     pub params: Option<String>,
     pub instance_name: Option<String>,
+    /// CLOACINA-T-1020: the most active runs of a cron schedule; None = not
+    /// declared.
+    pub max_active_runs: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -519,6 +523,8 @@ pub struct NewUnifiedSchedule {
     // CLOACI-I-0116: named parameterized instance (None = anonymous).
     pub params: Option<String>,
     pub instance_name: Option<String>,
+    // CLOACINA-T-1020: limit on active runs (None = not declared).
+    pub max_active_runs: Option<i32>,
 }
 
 // ============================================================================
@@ -953,6 +959,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             sub_status: u.sub_status,
             claimed_by: u.claimed_by,
             heartbeat_at: u.heartbeat_at,
+            waiting_since: u.waiting_since,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }
@@ -1119,6 +1126,7 @@ impl From<UnifiedSchedule> for Schedule {
             paused_at: u.paused_at,
             params: u.params,
             instance_name: u.instance_name,
+            max_active_runs: u.max_active_runs,
         }
     }
 }

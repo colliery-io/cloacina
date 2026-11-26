@@ -1005,6 +1005,7 @@ mod tests {
             sub_status: None,
             claimed_by: None,
             heartbeat_at: None,
+            waiting_since: None,
             created_at: at(0),
             updated_at: at(90),
         }

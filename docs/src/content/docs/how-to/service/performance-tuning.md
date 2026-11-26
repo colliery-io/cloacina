@@ -258,22 +258,20 @@ let config = DefaultRunnerConfig::builder()
 
 ### Catchup execution limits
 
-The `cron_max_catchup_executions` (default: **100**) limits how many missed executions are launched after downtime. Without a limit, a schedule that runs every minute would launch 1,440 catchup executions after 24 hours of downtime.
+Catch-up applies to schedules with the `run_all` policy only; the default policy, `skip`, runs once after downtime. A `run_all` schedule runs each missed fire time, oldest first, one run at a time, so downtime does not start a storm: a schedule that runs every minute has 1,440 fire times to work through after 24 hours, and it runs them one after another.
+
+`cron_max_catchup_executions` (default: **100**) is how many missed fire times the scheduler takes from the cron expression in one pass. It is a batch size. It does not cap the catch-up and it does not drop fire times: the ones beyond it stay due.
 
 ```rust
 use std::time::Duration;
 use cloacina::runner::DefaultRunnerConfig;
 
-// Limit catchup to prevent recovery storms
 let config = DefaultRunnerConfig::builder()
-    .cron_max_catchup_executions(5)
-    .build();
-
-// Disable catchup entirely (only run future occurrences)
-let config = DefaultRunnerConfig::builder()
-    .cron_max_catchup_executions(0)
+    .cron_max_catchup_executions(20)
     .build();
 ```
+
+To not catch up at all, use the `skip` policy on the schedule.
 
 ### Cron recovery settings
 
@@ -425,12 +423,12 @@ Cloacina emits the following metrics via the `metrics` crate:
 |--------|------|--------|-------------------|
 | `cloacina_tasks_total` | Counter | `status`, `reason`, `workflow`, `tenant` | Task completion rates |
 | `cloacina_workflows_total` | Counter | `status`, `reason`, `workflow`, `tenant` | Workflow completion rates |
-| `cloacina_waiting_tasks` | Gauge | `tenant` | Tasks that are ready and due, and not yet dispatched |
+| `cloacina_waiting_tasks` | Gauge | `tenant` | Tasks that are ready and wait for capacity (an agent or an executor slot) |
 | `cloacina_oldest_waiting_task_age_seconds` | Gauge | `tenant` | How long the oldest of them has waited |
 | `cloacina_schedule_lag_seconds` | Gauge | `tenant` | How late the most overdue cron schedule is |
 
 Monitor these alongside system metrics:
-- **Queue depth**: `cloacina_waiting_tasks` for tasks in `Ready` state that are due; workflows in `Pending` (query the database)
+- **Queue depth**: `cloacina_waiting_tasks` for tasks in `Ready` state that wait for capacity; workflows in `Pending` (query the database)
 - **Execution latency**: Time from workflow submission to completion
 - **Pool utilization**: Connection pool wait times (available via deadpool metrics)
 - **Scheduler loop duration**: Time spent in each poll cycle (visible at `debug` log level)
@@ -533,7 +531,7 @@ let config = DefaultRunnerConfig::builder()
     .workflow_timeout(Some(Duration::from_secs(14400)))  // 4 hours total
     .db_pool_size(10)
     .cron_poll_interval(Duration::from_secs(60))
-    .cron_max_catchup_executions(1)     // only catch up one missed run
+    .cron_max_catchup_executions(1)     // read one missed fire time per pass
     .registry_reconcile_interval(Duration::from_secs(300))
     .enable_claiming(false)             // single node, no claiming overhead
     .build();
