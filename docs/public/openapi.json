@@ -5306,7 +5306,7 @@
               "boolean",
               "null"
             ],
-            "description": "The pod's `automountServiceAccountToken`. Absent: the field is left\nout and the cluster default applies. The agent does not call the\nKubernetes API, so `false` is the tighter setting."
+            "description": "The pod's `automountServiceAccountToken`. Absent means `false`: the\npod mounts no ServiceAccount token. The agent does not call the\nKubernetes API. Set `true` for a pool whose identity system needs it."
           },
           "cpu_limit": {
             "type": [
