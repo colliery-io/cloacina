@@ -85,6 +85,12 @@ impl<'a> ScheduleDAL<'a> {
     }
 
     /// Creates a new schedule record in the database.
+    ///
+    /// One anonymous cron schedule (no `instance_name`) can exist per
+    /// workflow name, cron expression and timezone: a second `create` with
+    /// the same three is a unique violation (index
+    /// `idx_schedules_cron_identity`, CLOACINA-T-1042). To register such a
+    /// schedule again, use [`upsert_cron`](Self::upsert_cron).
     pub async fn create(&self, new_schedule: NewSchedule) -> Result<Schedule, ValidationError> {
         let id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
@@ -661,6 +667,11 @@ impl<'a> ScheduleDAL<'a> {
     /// existing row gets each value that is declared and keeps the others, so
     /// a re-load of a package that declares no catch-up policy does not undo
     /// a policy that an operator set on the row.
+    ///
+    /// Two callers at the same moment (two server replicas that load one
+    /// package) get the same row: the insert is `ON CONFLICT DO NOTHING` on
+    /// the unique index `idx_schedules_cron_identity`, and the caller whose
+    /// insert wrote nothing reads the row of the other (CLOACINA-T-1042).
     pub async fn upsert_cron_declared(
         &self,
         mut new_schedule: NewSchedule,
@@ -684,109 +695,150 @@ impl<'a> ScheduleDAL<'a> {
                 })?;
         let workflow_name = new_schedule.workflow_name.clone();
         let timezone = new_schedule.timezone.clone();
+        let next_run_at = new_schedule.next_run_at;
+        let enabled = new_schedule
+            .enabled
+            .unwrap_or_else(|| UniversalBool::from(true));
 
-        let (wf, cron, tz) = (
-            workflow_name.clone(),
-            cron_expression.clone(),
-            timezone.clone(),
-        );
+        let existing = match self
+            .find_cron_by_identity(&workflow_name, &cron_expression, timezone.as_deref())
+            .await?
+        {
+            Some(existing) => existing,
+            None => {
+                let id = UniversalUuid::new_v4();
+                let now = UniversalTimestamp::now();
+                let new_unified = NewUnifiedSchedule {
+                    id,
+                    schedule_type: new_schedule.schedule_type,
+                    workflow_name: new_schedule.workflow_name,
+                    enabled,
+                    cron_expression: new_schedule.cron_expression,
+                    timezone: new_schedule.timezone,
+                    catchup_policy: new_schedule.catchup_policy,
+                    start_date: new_schedule.start_date,
+                    end_date: new_schedule.end_date,
+                    trigger_name: new_schedule.trigger_name,
+                    poll_interval_ms: new_schedule.poll_interval_ms,
+                    allow_concurrent: new_schedule.allow_concurrent,
+                    next_run_at: new_schedule.next_run_at,
+                    created_at: now,
+                    updated_at: now,
+                    params: new_schedule.params,
+                    instance_name: new_schedule.instance_name,
+                    max_active_runs: new_schedule.max_active_runs,
+                };
+                if self.insert_cron_if_absent(new_unified).await? {
+                    let result: UnifiedSchedule =
+                        crate::interact_on_backend!(self.dal, |conn| schedules::table
+                            .find(id)
+                            .first(conn))?;
+                    return Ok(result.into());
+                }
+                // Another caller inserted the row between the read and the
+                // insert. Go on with its row, as for a row that existed.
+                self.find_cron_by_identity(&workflow_name, &cron_expression, timezone.as_deref())
+                    .await?
+                    .ok_or_else(|| ValidationError::DatabaseQuery {
+                        message: format!(
+                            "cron schedule of workflow '{}' was removed while it was registered",
+                            workflow_name
+                        ),
+                    })?
+            }
+        };
+
+        let now = UniversalTimestamp::now();
+        let existing_id = existing.id;
+
+        // `next_run_at` and `last_run_at` of a row that exists are the
+        // state of the schedule: a registration does not move them
+        // (CLOACINA-T-1041). A load after a restart would else erase the
+        // fires that were missed. Only a row with no `next_run_at` gets
+        // the new one.
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(existing_id))
+                .set((
+                    schedules::enabled.eq(enabled),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })?;
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(existing_id))
+                .filter(schedules::next_run_at.is_null())
+                .set(schedules::next_run_at.eq(next_run_at))
+                .execute(conn)
+        })?;
+
+        if let Some(policy) = declared_catchup {
+            crate::interact_on_backend!(self.dal, |conn| {
+                diesel::update(schedules::table.find(existing_id))
+                    .set(schedules::catchup_policy.eq(Some(policy)))
+                    .execute(conn)
+            })?;
+        }
+        if let Some(limit) = declared_max_active_runs {
+            crate::interact_on_backend!(self.dal, |conn| {
+                diesel::update(schedules::table.find(existing_id))
+                    .set(schedules::max_active_runs.eq(Some(limit)))
+                    .execute(conn)
+            })?;
+        }
+
+        let result: UnifiedSchedule = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table.find(existing_id).first(conn)
+        })?;
+        Ok(result.into())
+    }
+
+    /// The anonymous cron schedule with this identity: workflow name, cron
+    /// expression and timezone (no timezone is UTC). A named instance and a
+    /// row of another schedule type are never it. With more than one row (a
+    /// schema that does not have the unique index yet), the oldest.
+    async fn find_cron_by_identity(
+        &self,
+        workflow_name: &str,
+        cron_expression: &str,
+        timezone: Option<&str>,
+    ) -> Result<Option<UnifiedSchedule>, ValidationError> {
+        let wf = workflow_name.to_string();
+        let cron = cron_expression.to_string();
+        let tz = timezone.unwrap_or("UTC").to_string();
         let existing: Option<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
             let mut q = schedules::table
                 .filter(schedules::schedule_type.eq("cron"))
+                .filter(schedules::instance_name.is_null())
                 .filter(schedules::workflow_name.eq(wf))
                 .filter(schedules::cron_expression.eq(cron))
                 .into_boxed();
-            q = match tz {
-                Some(t) => q.filter(schedules::timezone.eq(t)),
-                None => q.filter(schedules::timezone.is_null()),
+            q = if tz == "UTC" {
+                q.filter(schedules::timezone.is_null().or(schedules::timezone.eq(tz)))
+            } else {
+                q.filter(schedules::timezone.eq(tz))
             };
-            q.first(conn).optional()
+            q.order((schedules::created_at.asc(), schedules::id.asc()))
+                .first(conn)
+                .optional()
         })?;
+        Ok(existing)
+    }
 
-        if let Some(existing) = existing {
-            let now = UniversalTimestamp::now();
-            let existing_id = existing.id;
-            let next_run_at = new_schedule.next_run_at;
-            let enabled = new_schedule
-                .enabled
-                .unwrap_or_else(|| UniversalBool::from(true));
-
-            // `next_run_at` and `last_run_at` of a row that exists are the
-            // state of the schedule: a registration does not move them
-            // (CLOACINA-T-1041). A load after a restart would else erase the
-            // fires that were missed. Only a row with no `next_run_at` gets
-            // the new one.
-            crate::interact_on_backend!(self.dal, |conn| {
-                diesel::update(schedules::table.find(existing_id))
-                    .set((
-                        schedules::enabled.eq(enabled),
-                        schedules::updated_at.eq(now),
-                    ))
-                    .execute(conn)
-            })?;
-            crate::interact_on_backend!(self.dal, |conn| {
-                diesel::update(schedules::table.find(existing_id))
-                    .filter(schedules::next_run_at.is_null())
-                    .set(schedules::next_run_at.eq(next_run_at))
-                    .execute(conn)
-            })?;
-
-            if let Some(policy) = declared_catchup {
-                crate::interact_on_backend!(self.dal, |conn| {
-                    diesel::update(schedules::table.find(existing_id))
-                        .set(schedules::catchup_policy.eq(Some(policy)))
-                        .execute(conn)
-                })?;
-            }
-            if let Some(limit) = declared_max_active_runs {
-                crate::interact_on_backend!(self.dal, |conn| {
-                    diesel::update(schedules::table.find(existing_id))
-                        .set(schedules::max_active_runs.eq(Some(limit)))
-                        .execute(conn)
-                })?;
-            }
-
-            let result: UnifiedSchedule = crate::interact_on_backend!(self.dal, |conn| {
-                schedules::table.find(existing_id).first(conn)
-            })?;
-            Ok(result.into())
-        } else {
-            let id = UniversalUuid::new_v4();
-            let now = UniversalTimestamp::now();
-            let new_unified = NewUnifiedSchedule {
-                id,
-                schedule_type: new_schedule.schedule_type,
-                workflow_name: new_schedule.workflow_name,
-                enabled: new_schedule
-                    .enabled
-                    .unwrap_or_else(|| UniversalBool::from(true)),
-                cron_expression: new_schedule.cron_expression,
-                timezone: new_schedule.timezone,
-                catchup_policy: new_schedule.catchup_policy,
-                start_date: new_schedule.start_date,
-                end_date: new_schedule.end_date,
-                trigger_name: new_schedule.trigger_name,
-                poll_interval_ms: new_schedule.poll_interval_ms,
-                allow_concurrent: new_schedule.allow_concurrent,
-                next_run_at: new_schedule.next_run_at,
-                created_at: now,
-                updated_at: now,
-                params: new_schedule.params,
-                instance_name: new_schedule.instance_name,
-                max_active_runs: new_schedule.max_active_runs,
-            };
-            crate::interact_on_backend!(self.dal, |conn| {
-                diesel::insert_into(schedules::table)
-                    .values(&new_unified)
-                    .execute(conn)
-            })?;
-
-            let result: UnifiedSchedule =
-                crate::interact_on_backend!(self.dal, |conn| schedules::table
-                    .find(id)
-                    .first(conn))?;
-            Ok(result.into())
-        }
+    /// Inserts an anonymous cron schedule unless a row with its identity is
+    /// there (`ON CONFLICT DO NOTHING`, on both backends). Returns whether
+    /// the row was written. The unique index `idx_schedules_cron_identity`
+    /// (migration 060) is what makes a second insert a conflict.
+    async fn insert_cron_if_absent(
+        &self,
+        new_unified: NewUnifiedSchedule,
+    ) -> Result<bool, ValidationError> {
+        let inserted: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::insert_into(schedules::table)
+                .values(&new_unified)
+                .on_conflict_do_nothing()
+                .execute(conn)
+        })?;
+        Ok(inserted == 1)
     }
 
     /// Retrieves a schedule by its trigger name.
@@ -1037,6 +1089,279 @@ mod tests {
     /// CLOACINA-T-1020: a declared catch-up policy is written on insert and
     /// on re-registration; a re-registration that declares none keeps the
     /// value on the row.
+    /// CLOACINA-T-1042: the insert of the upsert cannot double. A second
+    /// insert of the same identity writes nothing.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn insert_cron_if_absent_writes_one_row_for_one_identity() {
+        let dal = unique_dal().await;
+        let row = || {
+            let now = UniversalTimestamp::now();
+            let new = NewSchedule::cron("wf", "0 * * * *", now);
+            NewUnifiedSchedule {
+                id: UniversalUuid::new_v4(),
+                schedule_type: new.schedule_type,
+                workflow_name: new.workflow_name,
+                enabled: UniversalBool::from(true),
+                cron_expression: new.cron_expression,
+                timezone: new.timezone,
+                catchup_policy: new.catchup_policy,
+                start_date: None,
+                end_date: None,
+                trigger_name: None,
+                poll_interval_ms: None,
+                allow_concurrent: None,
+                next_run_at: new.next_run_at,
+                created_at: now,
+                updated_at: now,
+                params: None,
+                instance_name: None,
+                max_active_runs: None,
+            }
+        };
+        assert!(dal.schedule().insert_cron_if_absent(row()).await.unwrap());
+        assert!(!dal.schedule().insert_cron_if_absent(row()).await.unwrap());
+        // No timezone is UTC: the same identity.
+        let mut no_timezone = row();
+        no_timezone.timezone = None;
+        assert!(
+            !dal.schedule()
+                .insert_cron_if_absent(no_timezone)
+                .await
+                .unwrap()
+        );
+        // Another timezone is another schedule.
+        let mut other_timezone = row();
+        other_timezone.timezone = Some("Europe/Paris".to_string());
+        assert!(
+            dal.schedule()
+                .insert_cron_if_absent(other_timezone)
+                .await
+                .unwrap()
+        );
+
+        let rows = dal.schedule().find_by_workflow("wf").await.unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    /// CLOACINA-T-1042: registrations of one schedule at the same moment (two
+    /// replicas that load one package) leave one row, and each caller gets
+    /// it.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_upsert_cron_leaves_one_row() {
+        // A database file: connections of a shared in-memory database do
+        // not wait for each other's table locks.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let url = format!("sqlite://{}", dir.path().join("schedules.db").display());
+        let db = Database::new(&url, "", 4);
+        db.run_migrations().await.expect("migrations");
+        let dal = DAL::new(db);
+        let next_run = UniversalTimestamp::now();
+        for round in 0..25 {
+            let workflow = format!("wf_{round}");
+            let mut tasks = Vec::new();
+            for _ in 0..4 {
+                let dal = dal.clone();
+                let workflow = workflow.clone();
+                tasks.push(tokio::spawn(async move {
+                    dal.schedule()
+                        .upsert_cron(NewSchedule::cron(&workflow, "0 * * * *", next_run))
+                        .await
+                        .expect("upsert")
+                        .id
+                }));
+            }
+            let mut ids = Vec::new();
+            for task in tasks {
+                ids.push(task.await.expect("task"));
+            }
+            let rows = dal.schedule().find_by_workflow(&workflow).await.unwrap();
+            assert_eq!(rows.len(), 1, "one row for {workflow}");
+            assert!(
+                ids.iter().all(|id| *id == rows[0].id),
+                "each caller gets the one row"
+            );
+        }
+    }
+
+    /// CLOACINA-T-1042: the unique index is for anonymous cron schedules.
+    /// Named instances of the same workflow and expression are free, and a
+    /// second plain `create` of the same identity is refused.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn cron_identity_index_leaves_instances_free() {
+        let dal = unique_dal().await;
+        let now = UniversalTimestamp::now();
+        let anonymous = dal
+            .schedule()
+            .upsert_cron(NewSchedule::cron("wf", "0 * * * *", now))
+            .await
+            .unwrap();
+        for name in ["prod", "staging"] {
+            let mut instance = NewSchedule::cron("wf", "0 * * * *", now);
+            instance.instance_name = Some(name.to_string());
+            dal.schedule().create(instance).await.unwrap();
+        }
+        // The upsert does not take an instance for the anonymous schedule.
+        let again = dal
+            .schedule()
+            .upsert_cron(NewSchedule::cron("wf", "0 * * * *", now))
+            .await
+            .unwrap();
+        assert_eq!(again.id, anonymous.id);
+        assert_eq!(
+            dal.schedule().find_by_workflow("wf").await.unwrap().len(),
+            3
+        );
+
+        assert!(
+            dal.schedule()
+                .create(NewSchedule::cron("wf", "0 * * * *", now))
+                .await
+                .is_err(),
+            "a second anonymous schedule of one identity is a unique violation"
+        );
+    }
+
+    /// CLOACINA-T-1042: migration 060 on a database that has doubles. The
+    /// row with the latest `last_run_at` stays, the schedule execution rows
+    /// of the others move to it (one row per fire time), and other schedules
+    /// are not touched. Run on SQLite; the PostgreSQL file has the same
+    /// statements.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn migration_060_merges_double_cron_schedules() {
+        use crate::models::schedule::NewScheduleExecution;
+        use diesel::connection::SimpleConnection;
+
+        const UP: &str = include_str!(
+            "../../../database/migrations/sqlite/060_unique_cron_schedule_identity/up.sql"
+        );
+        assert_eq!(
+            UP,
+            include_str!(
+                "../../../database/migrations/postgres/060_unique_cron_schedule_identity/up.sql"
+            ),
+            "both backends run the same statements"
+        );
+
+        let dal = unique_dal().await;
+        let run_sql = |sql: &'static str| {
+            let dal = dal.clone();
+            async move {
+                let conn = dal.database.get_sqlite_connection().await.expect("conn");
+                conn.interact(move |conn| conn.batch_execute(sql))
+                    .await
+                    .expect("interact")
+                    .expect("sql");
+            }
+        };
+        // The state before the migration: no index, so doubles can exist.
+        run_sql("DROP INDEX idx_schedules_cron_identity;").await;
+
+        let hour =
+            |n: i64| chrono::DateTime::<Utc>::from_timestamp(1_800_000_000 + n * 3600, 0).unwrap();
+        let new =
+            |workflow: &str| NewSchedule::cron(workflow, "0 * * * *", UniversalTimestamp(hour(9)));
+        let a = dal.schedule().create(new("wf")).await.unwrap();
+        let b = dal.schedule().create(new("wf")).await.unwrap();
+        let c = dal.schedule().create(new("wf")).await.unwrap();
+        let other = dal.schedule().create(new("other")).await.unwrap();
+        let mut instance = new("wf");
+        instance.instance_name = Some("prod".to_string());
+        let instance = dal.schedule().create(instance).await.unwrap();
+        // `b` ran last. `c` never ran.
+        dal.schedule()
+            .update_schedule_times(a.id, hour(1), hour(2))
+            .await
+            .unwrap();
+        dal.schedule()
+            .update_schedule_times(b.id, hour(3), hour(4))
+            .await
+            .unwrap();
+
+        // Fire times 1 and 2 on `a`, 2 and 3 on `b` (2 is the double fire),
+        // 4 on `c`, 2 on the instance and on the other schedule.
+        for (schedule, fire) in [
+            (a.id, 1),
+            (a.id, 2),
+            (b.id, 2),
+            (b.id, 3),
+            (c.id, 4),
+            (instance.id, 2),
+            (other.id, 2),
+        ] {
+            dal.schedule_execution()
+                .create(NewScheduleExecution {
+                    schedule_id: schedule,
+                    workflow_execution_id: None,
+                    scheduled_time: Some(UniversalTimestamp(hour(fire))),
+                    claimed_at: None,
+                    context_hash: None,
+                })
+                .await
+                .unwrap();
+        }
+        let b_row_for_fire_2 = dal
+            .schedule_execution()
+            .list_by_schedule(b.id, 100, 0)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.scheduled_time.map(|t| t.0) == Some(hour(2)))
+            .unwrap()
+            .id;
+
+        run_sql(UP).await;
+
+        let mut left: Vec<_> = dal
+            .schedule()
+            .find_by_workflow("wf")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        left.sort_by_key(|id| id.0);
+        let mut expected = vec![b.id, instance.id];
+        expected.sort_by_key(|id| id.0);
+        assert_eq!(
+            left, expected,
+            "the row that ran last stays; the instance stays"
+        );
+        let kept = dal.schedule().get_by_id(b.id).await.unwrap();
+        assert_eq!(kept.last_run_at.map(|t| t.0), Some(hour(3)));
+        assert_eq!(kept.next_run_at.map(|t| t.0), Some(hour(4)));
+
+        let rows = dal
+            .schedule_execution()
+            .list_by_schedule(b.id, 100, 0)
+            .await
+            .unwrap();
+        let mut fires: Vec<_> = rows
+            .iter()
+            .filter_map(|row| row.scheduled_time.map(|t| t.0))
+            .collect();
+        fires.sort();
+        assert_eq!(fires, vec![hour(1), hour(2), hour(3), hour(4)]);
+        assert!(
+            rows.iter().any(|row| row.id == b_row_for_fire_2),
+            "for the double fire, the row of the kept schedule stays"
+        );
+        for untouched in [instance.id, other.id] {
+            let rows = dal
+                .schedule_execution()
+                .list_by_schedule(untouched, 100, 0)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+        }
+
+        // The index is there again.
+        assert!(dal.schedule().create(new("wf")).await.is_err());
+    }
+
     /// CLOACINA-T-1041: a registration of a schedule that exists (a package
     /// load after a restart) keeps `next_run_at` and `last_run_at`, so the
     /// fires that were missed are still due.
@@ -1492,13 +1817,14 @@ mod tests {
     }
 
     /// A cron schedule whose row says: the last fire taken was `last_run`,
-    /// the next one is an hour later.
+    /// the next one is an hour later. Each call makes a schedule of its own
+    /// workflow: one workflow has one anonymous schedule per expression.
     #[cfg(feature = "sqlite")]
     async fn schedule_with_backlog(dal: &DAL, last_run: DateTime<Utc>) -> Schedule {
         let created = dal
             .schedule()
             .create(NewSchedule::cron(
-                "wf",
+                &format!("wf_{}", uuid::Uuid::new_v4()),
                 "0 * * * *",
                 UniversalTimestamp::from(last_run + chrono::Duration::hours(1)),
             ))

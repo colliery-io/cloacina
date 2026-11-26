@@ -222,6 +222,8 @@ For zero-downtime, run multiple replicas against one PostgreSQL database (see
 [Horizontal Scaling](../../../explanation/service/horizontal-scaling/)) and
 roll them one at a time behind the proxy.
 
+**Upgrade note, cron schedules:** migration 060 adds a unique index on cron schedules: one schedule per workflow, cron expression and timezone (named instances are not in it). Where a schema holds the same schedule more than once, the migration keeps the row with the latest `last_run_at`, moves the fire records (`schedule_executions`) of the other rows to it with one record per fire time, and deletes the other rows. Run history (`workflow_executions`) is not changed.
+
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database. If a migration changed the schema incompatibly, restore
 the pre-upgrade backup from step 1.

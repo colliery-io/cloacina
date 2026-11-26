@@ -74,6 +74,8 @@ let schedule_id = runner
 3. **Next Calculation** - Next execution time is calculated and stored
 4. **Activation** - Schedule becomes active for execution
 
+A workflow has one schedule per cron expression and timezone (a unique index holds this; named instances are apart). A second registration of the same workflow, expression and timezone returns the id of the schedule that exists and keeps its next and last run times; it updates the catch-up policy and the limit on active runs when the call declares them. The same holds for the schedule of a packaged trigger each time its package is loaded, on each server replica.
+
 ### 2. Schedule Evaluation
 
 ```rust

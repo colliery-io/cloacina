@@ -45,6 +45,10 @@ async fn test_cron_evaluator_basic() {
 async fn test_cron_schedule_creation() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    // A clean database: one workflow has one anonymous schedule per
+    // expression and timezone (CLOACINA-T-1042), so a row left by an
+    // earlier run would refuse this create.
+    fixture.reset_database().await;
     fixture.initialize().await;
     let dal = fixture.get_dal();
 
