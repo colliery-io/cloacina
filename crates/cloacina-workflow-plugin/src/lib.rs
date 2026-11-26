@@ -592,6 +592,7 @@ macro_rules! package {
                             allow_concurrent: cloacina_workflow::Trigger::allow_concurrent(
                                 &*trigger,
                             ),
+                            timezone: cloacina_workflow::Trigger::cron_timezone(&*trigger),
                         });
                     }
                     Ok(out)
@@ -1003,7 +1004,10 @@ pub trait CloacinaHost: Send + Sync {
 // version 6 → 7 (CLOACI-T-0897): `TaskMetadataEntry` gained `requires_handle`,
 // so the host learns a packaged task wants a `TaskHandle`. Positional bincode
 // again — the gate must reject a v6 plugin rather than mis-decode.
-#[fidius::plugin_interface(version = 7, buffer = PluginAllocated)]
+// version 7 → 8 (CLOACINA-T-1019): `TriggerPackageMetadata` gained `timezone`,
+// so a packaged cron schedule is registered in its trigger's timezone and not
+// always in UTC. Positional bincode again — the gate must reject a v7 plugin.
+#[fidius::plugin_interface(version = 8, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.
     /// Method index 0.

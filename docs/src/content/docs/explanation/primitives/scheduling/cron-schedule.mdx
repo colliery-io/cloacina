@@ -54,6 +54,8 @@ runner.delete_cron_schedule(schedule_id)
 - **Schedule dicts (Python):** `id`, `workflow_name`, `cron_expression`,
   `timezone`, `enabled`, `catchup_policy`, `next_run_at`, `last_run_at`,
   `created_at`, `updated_at`.
+- **Timezone of a packaged cron trigger:** the schedule is registered in the
+  trigger's `timezone` (UTC when the trigger names none).
 - **Parity:** Python packages can also declare cron triggers —
   `@cloaca.trigger(on="...", cron="...", timezone="...")` (added in
   CLOACI-T-0688; the reconciler routes cron-bearing triggers to the cron

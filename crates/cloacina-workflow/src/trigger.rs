@@ -117,6 +117,14 @@ pub trait Trigger: Send + Sync + fmt::Debug {
         None
     }
 
+    /// Returns the IANA timezone this trigger's cron expression is evaluated
+    /// in, if it has one (`#[trigger(cron = "...", timezone = "...")]`). The
+    /// reconciler registers the packaged cron schedule with it. Default `None`
+    /// means UTC (CLOACINA-T-1019).
+    fn cron_timezone(&self) -> Option<String> {
+        None
+    }
+
     /// The target workflow this trigger fires — the `#[trigger(on = "...")]`
     /// binding. For cron triggers the reconciler registers the schedule against
     /// this workflow (not the trigger's own `name`). Default empty for manual

@@ -173,7 +173,6 @@ fn test_scheduler_config() -> SchedulerConfig {
     SchedulerConfig {
         cron_poll_interval: Duration::from_secs(30),
         max_catchup_executions: 0,
-        max_acceptable_delay: Duration::from_secs(300),
         trigger_base_poll_interval: Duration::from_millis(50),
         trigger_poll_timeout: Duration::from_secs(5),
         reactor_poll_interval: Duration::from_millis(50),

@@ -104,7 +104,7 @@ Procedural macros for declarative authoring:
 
 #### `cloacina-workflow-plugin`
 
-The FFI vtable trait crate. Compiled `.cloacina` packages are cdylibs that expose a fixed eleven-method vtable (indices 0–10, `CloacinaPlugin` interface version 5) dispatched at runtime by `fidius`. The `cloacina_workflow_plugin::package!()` shell macro emits the whole implementation; the host (`cloacina`) loads packages via this trait without symbol-name knowledge of the user's code. See the [FFI Vtable Reference](../ffi-vtable/).
+The FFI vtable trait crate. Compiled `.cloacina` packages are cdylibs that expose a fixed eleven-method vtable (indices 0–10, `CloacinaPlugin` interface version 8) dispatched at runtime by `fidius`. The `cloacina_workflow_plugin::package!()` shell macro emits the whole implementation; the host (`cloacina`) loads packages via this trait without symbol-name knowledge of the user's code. See the [FFI Vtable Reference](../ffi-vtable/).
 
 #### `cloacina-build`
 

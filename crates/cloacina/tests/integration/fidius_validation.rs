@@ -264,9 +264,10 @@ fn test_plugin_info_populated() {
     //   5 — T-0895 `resolved_secrets` on TaskExecutionRequest
     //   6 — T-0897 `task_execution_id` on TaskExecutionRequest
     //   7 — T-0897 `requires_handle` on TaskMetadataEntry
+    //   8 — CLOACINA-T-1019 `timezone` on TriggerPackageMetadata
     assert_eq!(
-        plugin.info.interface_version, 7,
-        "Interface version should be 7 (CLOACI-T-0897 requires_handle on TaskMetadataEntry)"
+        plugin.info.interface_version, 8,
+        "Interface version should be 8 (CLOACINA-T-1019 timezone on TriggerPackageMetadata)"
     );
     assert_eq!(
         plugin.method_count, 11,

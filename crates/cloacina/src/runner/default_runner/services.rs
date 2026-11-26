@@ -114,7 +114,6 @@ impl DefaultRunner {
         let scheduler_config = SchedulerConfig {
             cron_poll_interval: self.config.cron_poll_interval(),
             max_catchup_executions: self.config.cron_max_catchup_executions(),
-            max_acceptable_delay: Duration::from_secs(300),
             trigger_base_poll_interval: self.config.trigger_base_poll_interval(),
             trigger_poll_timeout: self.config.trigger_poll_timeout(),
             // CLOACI-I-0100 / T-0599 — defaults match the unified

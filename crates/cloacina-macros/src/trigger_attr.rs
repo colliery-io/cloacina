@@ -351,6 +351,10 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
                 Some(#cron_expression.to_string())
             }
 
+            fn cron_timezone(&self) -> Option<String> {
+                Some(#timezone.to_string())
+            }
+
             fn workflow_name(&self) -> &str {
                 #workflow_name
             }
