@@ -98,10 +98,11 @@
 #[cfg(feature = "postgres")]
 pub mod admin;
 pub mod connection;
+pub mod migration_lock;
 pub mod schema;
 pub mod universal_types;
 
-use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+use diesel_migrations::{EmbeddedMigrations, embed_migrations};
 
 // Re-export connection types from the connection module
 pub use connection::{AnyConnection, AnyPool, BackendType, Database};
@@ -183,8 +184,15 @@ pub const MIGRATIONS: EmbeddedMigrations = SQLITE_MIGRATIONS;
     all(feature = "sqlite", not(feature = "postgres"))
 ))]
 pub fn run_migrations(conn: &mut DbConnection) -> Result<()> {
-    conn.run_pending_migrations(MIGRATIONS)
-        .expect("Failed to run migrations");
+    // PostgreSQL: under the migration lock (CLOACINA-T-1042).
+    #[cfg(feature = "postgres")]
+    migration_lock::run_pending_postgres_migrations_locked(conn).expect("Failed to run migrations");
+    #[cfg(not(feature = "postgres"))]
+    {
+        use diesel_migrations::MigrationHarness;
+        conn.run_pending_migrations(MIGRATIONS)
+            .expect("Failed to run migrations");
+    }
     Ok(())
 }
 
@@ -204,7 +212,9 @@ pub fn run_migrations(conn: &mut DbConnection) -> Result<()> {
 /// * `Err(_)` - If migration fails
 #[cfg(feature = "postgres")]
 pub fn run_migrations_postgres(conn: &mut diesel::pg::PgConnection) -> Result<()> {
-    conn.run_pending_migrations(POSTGRES_MIGRATIONS)
+    // Under the migration lock, so two processes that start together do not
+    // race (CLOACINA-T-1042). See [`migration_lock`].
+    migration_lock::run_pending_postgres_migrations_locked(conn)
         .expect("Failed to run PostgreSQL migrations");
     Ok(())
 }
@@ -225,6 +235,7 @@ pub fn run_migrations_postgres(conn: &mut diesel::pg::PgConnection) -> Result<()
 /// * `Err(_)` - If migration fails
 #[cfg(feature = "sqlite")]
 pub fn run_migrations_sqlite(conn: &mut diesel::sqlite::SqliteConnection) -> Result<()> {
+    use diesel_migrations::MigrationHarness;
     conn.run_pending_migrations(SQLITE_MIGRATIONS)
         .expect("Failed to run SQLite migrations");
     Ok(())

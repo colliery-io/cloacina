@@ -265,8 +265,10 @@ mod postgres_impl {
                                     message: format!("Failed to set search_path: {}", e),
                                 })?;
 
-                            use diesel_migrations::MigrationHarness;
-                            conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+                            // Under the migration lock (CLOACINA-T-1042).
+                            // This is inside the transaction of the tenant
+                            // creation: the lock is held until it ends.
+                            crate::database::migration_lock::run_pending_postgres_migrations_locked(conn)
                                 .map_err(|e| AdminError::SqlExecution {
                                     message: format!("Failed to run migrations: {}", e),
                                 })?;
