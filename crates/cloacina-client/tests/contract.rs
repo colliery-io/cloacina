@@ -244,6 +244,72 @@ async fn full_rest_surface_contract() {
     assert_eq!(deleted_secret.status, "deleted");
     assert_eq!(deleted_secret.name, secret_name);
 
+    // ---- agent pools (CLOACINA-T-1021) ----
+    let pool_name = "rs-contract".to_string();
+    // Every tenant has the pool `default`.
+    let pools_before = client.list_pools(None).await.expect("list_pools");
+    assert!(pools_before.items.iter().any(|p| p.pool == "default"));
+
+    let created_pool = client
+        .put_pool(
+            &pool_name,
+            &types::AgentPoolSettings {
+                memory_limit: Some("2Gi".to_string()),
+                max_concurrency: Some(1),
+                pod_labels: [("team".to_string(), "data".to_string())].into(),
+                max_agents: Some(0),
+                ..Default::default()
+            },
+            None,
+        )
+        .await
+        .expect("put_pool");
+    assert_eq!(created_pool.pool, pool_name);
+    assert_eq!(created_pool.settings.memory_limit.as_deref(), Some("2Gi"));
+    assert_eq!(created_pool.desired_agents, 0);
+
+    let fetched_pool = client.get_pool(&pool_name, None).await.expect("get_pool");
+    assert_eq!(fetched_pool.settings.max_concurrency, Some(1));
+
+    let pools = client.list_pools(None).await.expect("list_pools");
+    assert!(pools.items.iter().any(|p| p.pool == pool_name));
+    assert_eq!(pools.total, pools.items.len());
+
+    // PUT replaces the settings as a whole.
+    let replaced_pool = client
+        .put_pool(
+            &pool_name,
+            &types::AgentPoolSettings {
+                max_agents: Some(0),
+                ..Default::default()
+            },
+            None,
+        )
+        .await
+        .expect("put_pool replace");
+    assert_eq!(replaced_pool.settings.memory_limit, None);
+
+    // A malformed quantity is a 400 at the API.
+    let bad_pool = client
+        .put_pool(
+            &pool_name,
+            &types::AgentPoolSettings {
+                memory_limit: Some("2GB".to_string()),
+                max_agents: Some(0),
+                ..Default::default()
+            },
+            None,
+        )
+        .await;
+    assert!(matches!(bad_pool, Err(ClientError::InvalidRequest(_))));
+
+    client
+        .delete_pool(&pool_name, None)
+        .await
+        .expect("delete_pool");
+    let gone_pool = client.get_pool(&pool_name, None).await;
+    assert!(matches!(gone_pool, Err(ClientError::NotFound(_))));
+
     // ---- computation-graph health ----
     let accs = client.list_accumulators().await.expect("accumulators");
     assert_eq!(accs.total, accs.items.len());
