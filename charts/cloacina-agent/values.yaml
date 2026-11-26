@@ -61,6 +61,11 @@ extraEnv: []
 #   limits: {cpu: "1", memory: 512Mi}
 resources: {}
 
+# Service account token in the pod. Off: the agent never calls the Kubernetes
+# API, and task code runs in the agent process and could read a mounted token.
+# Turn it on only for an identity system that needs the token in the pod.
+automountServiceAccountToken: false
+
 # Pod-level security context. Agents run as a non-root user (uid 10001) baked
 # into the image.
 podSecurityContext:

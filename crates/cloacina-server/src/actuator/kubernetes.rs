@@ -505,6 +505,10 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
                     }
                 },
                 "spec": {
+                    // No service account token in the pod (CLOACINA-T-1033):
+                    // the agent never calls the Kubernetes API, and task code
+                    // runs in the agent process and could read a mounted token.
+                    "automountServiceAccountToken": false,
                     // Pod-level securityContext: non-root, the agent image's uid/gid
                     // (Dockerfile.agent), fsGroup so the emptyDirs are group-writable,
                     // and the RuntimeDefault seccomp profile — required for PodSecurity
@@ -960,6 +964,33 @@ mod tests {
         };
         let m = agent_deployment_manifest(&spec);
         let pod = &m["spec"]["template"]["spec"];
+
+        // No service account token is mounted (CLOACINA-T-1033).
+        assert_eq!(
+            pod["automountServiceAccountToken"],
+            serde_json::json!(false)
+        );
+
+        // The key reaches the agent as an environment variable from the
+        // Secret, and no volume holds it: the agent takes the variable out of
+        // its environment at start, and a mounted file would stay readable.
+        let key_env = pod["containers"][0]["env"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["name"] == "CLOACINA_API_KEY")
+            .expect("CLOACINA_API_KEY is set");
+        assert_eq!(
+            key_env["valueFrom"]["secretKeyRef"]["name"],
+            serde_json::json!(AGENT_SECRET_NAME)
+        );
+        assert!(
+            pod["volumes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|v| v.get("secret").is_none())
+        );
 
         // Pod securityContext (restricted admission).
         let psc = &pod["securityContext"];

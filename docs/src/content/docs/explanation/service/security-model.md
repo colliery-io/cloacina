@@ -256,6 +256,16 @@ What multi-tenant isolation **does not** guarantee:
 - **Privileged operator actions.** An `is_admin` key can do anything; key compromise = total compromise. Treat `is_admin` keys like AWS root credentials.
 - **Postgres-level row-level security.** Cloacina relies on schema-level isolation and the `SET search_path` enforcement above; it does not layer Postgres RLS policies on top. If your compliance posture requires defense-in-depth at the DB layer, layer RLS yourself.
 
+### What a task can reach on its agent
+
+A task runs inside the `cloacina-agent` process of its own tenant: a Rust task as a loaded library, a Python task in the embedded interpreter. It has the agent's user, files, network and memory.
+
+- **The Kubernetes API.** Agent pods mount no service account token (`automountServiceAccountToken: false`, in the actuator's Deployment and in the `cloacina-agent` chart), and the per-tenant `NetworkPolicy` allows egress only to DNS and the server.
+- **The agent's API key, by the ordinary routes.** The agent reads the key at start, overwrites the value in its start-time environment and removes `CLOACINA_API_KEY`. `std::env`, Python's `os.environ` and `/proc/self/environ` do not hold the key. The agent keeps no key in a file, and sets no default header on its HTTP client.
+- **The agent's API key, in memory.** The agent holds the key in its own memory for its calls to the server, and a task shares that memory. Native code in a task, or a task that reads `/proc/self/mem`, can find it. A key given with `--api-key` is in the argument list, and a key file (`--api-key-file`) is readable by the agent's user: both are readable by a task.
+- **What that key opens.** A managed agent's key is scoped to its tenant with the role `read`, and every agent of the tenant has the same key. It can read the tenant's workflows, versions, package source, instances, triggers, executions with their events and tasks, the fleet view and the limit. It can call the agent routes (register, heartbeat, result, and fetch of the tenant's artifacts, source and providers by digest), mint a WebSocket ticket, and reach the tenant's computation-graph health routes, which include a reactor fire and an accumulator inject. It cannot publish, execute, read or manage secrets, keys or accounts, or reach another tenant.
+- **Secrets.** A task receives the secrets it declares, unwrapped by the agent for that one execution. Tasks of one tenant that run on the same agent share its memory.
+
 For the operational mechanics — how to provision tenants, how to safely decommission them, how to rotate per-tenant credentials — see the [Multi-tenancy explanation](../multi-tenancy/) and the multi-tenant how-tos under `/service/how-to/`.
 
 ## `/metrics` and `/health` posture
