@@ -85,9 +85,11 @@ from ._generated.api.triggers import (
     resume_trigger,
 )
 from ._generated.api.workflows import (
+    activate_workflow_version,
     delete_workflow,
     get_workflow,
     get_workflow_source,
+    list_workflow_versions,
     list_workflows,
     pause_workflow,
     resume_workflow,
@@ -393,6 +395,32 @@ class Client(_Base):
     def delete_workflow(self, name: str, version: str, tenant: str | None = None):
         return _unwrap(
             delete_workflow.sync_detailed(
+                self.tenant_segment(tenant), name, version, client=self._gen
+            )
+        )
+
+    def list_workflow_versions(self, name: str, tenant: str | None = None):
+        """Every stored version of a package, newest upload first.
+
+        ``name`` is the package name. Raises a 404 ``CloacinaApiError`` when
+        the package has no version.
+        """
+        return _unwrap(
+            list_workflow_versions.sync_detailed(
+                self.tenant_segment(tenant), name, client=self._gen
+            )
+        )
+
+    def activate_workflow_version(
+        self, name: str, version: str, tenant: str | None = None
+    ):
+        """Make an earlier built version of a package the active one.
+
+        No rebuild. Raises a 404 ``CloacinaApiError`` for an unknown version
+        and a 409 for a version with no successful build.
+        """
+        return _unwrap(
+            activate_workflow_version.sync_detailed(
                 self.tenant_segment(tenant), name, version, client=self._gen
             )
         )

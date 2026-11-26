@@ -449,6 +449,44 @@ export class CloacinaClient {
     );
   }
 
+  /**
+   * Every stored version of a package, newest upload first
+   * (CLOACINA-T-1018). `name` is the package name. Rejects with a 404 when
+   * the package has no version.
+   */
+  async listWorkflowVersions(
+    name: string,
+    tenant?: string,
+  ): Promise<schemas["TenantListResponse_WorkflowVersionSummary"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/workflows/{name}/versions", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
+
+  /**
+   * Make an earlier built version of a package the active one, with no
+   * rebuild (CLOACINA-T-1018). Rejects with a 404 for an unknown version and
+   * a 409 for a version with no successful build.
+   */
+  async activateWorkflowVersion(
+    name: string,
+    version: string,
+    tenant?: string,
+  ): Promise<schemas["WorkflowVersionActivatedResponse"]> {
+    return unwrap(
+      await this.api.POST(
+        "/v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), name, version },
+          },
+        },
+      ),
+    );
+  }
+
   // ---- triggers ----
 
   async listTriggers(

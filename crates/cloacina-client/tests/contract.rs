@@ -142,6 +142,15 @@ async fn full_rest_surface_contract() {
         .expect("idempotent delete");
     assert_eq!(deleted.status, "deleted");
 
+    // CLOACINA-T-1018: a package with no version is a 404 on both routes.
+    let no_versions = client.list_workflow_versions("does-not-exist", None).await;
+    assert!(matches!(no_versions, Err(ClientError::NotFound(_))));
+
+    let no_version = client
+        .activate_workflow_version("does-not-exist", "0.0.0", None)
+        .await;
+    assert!(matches!(no_version, Err(ClientError::NotFound(_))));
+
     // ---- triggers ----
     let triggers = client
         .list_triggers(Some(10), Some(0), None)

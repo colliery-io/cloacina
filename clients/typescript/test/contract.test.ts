@@ -204,6 +204,27 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
     expect(deleted.package_name).toBe("does-not-exist");
   });
 
+  it("GET /v1/tenants/{t}/workflows/{name}/versions 404s for a package with no version", async () => {
+    // CLOACINA-T-1018.
+    const err = await client
+      .listWorkflowVersions("does-not-exist")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CloacinaApiError);
+    expect((err as CloacinaApiError).status).toBe(404);
+    expect((err as CloacinaApiError).code).toBe("workflow_not_found");
+  });
+
+  it("POST /v1/tenants/{t}/workflows/{name}/versions/{version}/activate 404s for an unknown version", async () => {
+    const err = await client
+      .activateWorkflowVersion("does-not-exist", "0.0.0")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CloacinaApiError);
+    expect((err as CloacinaApiError).status).toBe(404);
+    expect((err as CloacinaApiError).code).toBe("workflow_version_not_found");
+  });
+
   // ---- triggers ----
 
   it("GET /v1/tenants/{t}/triggers returns the paged envelope", async () => {
