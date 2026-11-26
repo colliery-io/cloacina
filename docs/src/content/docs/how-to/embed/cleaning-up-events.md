@@ -10,7 +10,7 @@ This guide covers using the `cloacinactl admin cleanup-events` command to manage
 :::note
 A `cloacina-server` deployment removes old run history by itself: finished
 runs and all their rows, events included, after
-`--run-history-retention-days` (default 90). See
+`--run-history-retention-days` (off by default: set a number of days to turn it on). See
 [Run history retention](../../service/production-deployment/#run-history-retention).
 This command is for the daemon and for embedded applications, which have no
 such job, and it removes event rows only.

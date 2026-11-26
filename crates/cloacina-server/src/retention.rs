@@ -103,10 +103,11 @@ impl RetentionConfig {
 }
 
 impl Default for RetentionConfig {
-    /// 90 days of run history, one hour of acked outbox rows, a pass every
-    /// five minutes: the defaults of the server flags.
+    /// Run history kept for ever (the deletes are off until an operator sets
+    /// a period), one hour of acked outbox rows, a pass every five minutes:
+    /// the defaults of the server flags.
     fn default() -> Self {
-        Self::from_flags(90, 3_600, 300)
+        Self::from_flags(0, 3_600, 300)
     }
 }
 
@@ -320,9 +321,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_are_90_days_one_hour_five_minutes() {
+    fn defaults_keep_run_history_and_clear_acked_outbox_rows() {
         let cfg = RetentionConfig::default();
-        assert_eq!(cfg.run_history, Some(Duration::from_secs(90 * 86_400)));
+        assert_eq!(cfg.run_history, None);
         assert_eq!(cfg.outbox_acked, Some(Duration::from_secs(3_600)));
         assert_eq!(cfg.interval, Duration::from_secs(300));
         assert!(cfg.enabled());

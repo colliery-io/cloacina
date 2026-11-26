@@ -202,7 +202,7 @@ docs may still mention the old name.
 Retention of run history in the database is set on the `cloacina-server`
 binary, by flag or environment variable (the wrapper passes the environment
 through): `--run-history-retention-days` /
-`CLOACINA_RUN_HISTORY_RETENTION_DAYS` (default `90`),
+`CLOACINA_RUN_HISTORY_RETENTION_DAYS` (default `0`, off),
 `--outbox-acked-retention-s` / `CLOACINA_OUTBOX_ACKED_RETENTION_S` (default
 `3600`) and `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S`
 (default `300`). See

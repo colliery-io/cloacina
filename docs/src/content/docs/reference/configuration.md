@@ -28,7 +28,7 @@ command-line flags (most also accept an environment variable). The
 | `--cors-allowed-origins` | `CLOACINA_CORS_ALLOWED_ORIGINS` | unset | Comma-separated origins (`*` allowed). Unset means **CORS is disabled** — browser clients on other origins are blocked. |
 | `--cors-allowed-methods` | `CLOACINA_CORS_ALLOWED_METHODS` | `GET,POST,DELETE,OPTIONS` | Applies only when CORS is enabled. |
 | `--cors-allowed-headers` | `CLOACINA_CORS_ALLOWED_HEADERS` | `authorization,content-type` | Applies only when CORS is enabled. |
-| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `90` | Days to keep a finished workflow run and its rows before the retention job deletes them (`0` = keep for ever). See [Run history retention](../../how-to/service/production-deployment/#run-history-retention). |
+| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | Days to keep a finished workflow run and its rows before the retention job deletes them (`0` = keep for ever). See [Run history retention](../../how-to/service/production-deployment/#run-history-retention). |
 | `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `3600` | Seconds to keep a `delivery_outbox` row after its ack (`0` = keep for ever). |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes of the retention job. |
 | `--reconcile-interval-s` | — | runtime default | Seconds between reconciler passes. |
