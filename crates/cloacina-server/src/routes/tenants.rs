@@ -121,6 +121,19 @@ pub async fn create_tenant(
                 }
             }
 
+            // CLOACINA-T-1031: start the tenant's runner now, so its reconciler
+            // and its schedulers run before any call for the tenant. Best
+            // effort: the runner pass makes it on a later tick.
+            if let Err(e) =
+                crate::tenant_runner_cache::ensure_runner(&state, &credentials.schema_name).await
+            {
+                warn!(
+                    tenant = %credentials.schema_name,
+                    error = %e,
+                    "tenant runner not started at create; the runner pass retries"
+                );
+            }
+
             // Note: password and connection_string intentionally excluded from
             // response to prevent credential leakage (SEC-08). The caller should
             // supply their own password via the request body, or retrieve it

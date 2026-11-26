@@ -205,6 +205,16 @@ pub async fn upload_workflow(
                 "Uploaded workflow package for tenant '{}': {}",
                 tenant_id, package_id
             );
+            // CLOACINA-T-1031: the tenant's runner loads the package and
+            // registers its schedules. Make sure it is live, so the publish
+            // needs no other call. Best effort: the runner pass retries.
+            if let Err(e) = crate::tenant_runner_cache::ensure_runner(&state, &tenant_id).await {
+                warn!(
+                    tenant = %tenant_id,
+                    error = %e,
+                    "tenant runner not started at upload; the runner pass retries"
+                );
+            }
             (
                 StatusCode::CREATED,
                 Json(WorkflowUploadedResponse {

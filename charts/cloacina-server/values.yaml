@@ -135,7 +135,7 @@ server:
   requireSignatures: false
   # Trusted org UUID for signature verification — required if requireSignatures.
   verificationOrgId: ""
-  # LRU cap on per-tenant DefaultRunner instances.
+  # Warning limit on per-tenant DefaultRunner instances; none is stopped at it.
   tenantRunnerCacheSize: 256
   # Drain timeout (seconds) for in-flight workflows during tenant deletion.
   tenantDeletionDrainTimeoutSeconds: 30

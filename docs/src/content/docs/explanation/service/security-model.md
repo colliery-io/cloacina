@@ -246,7 +246,7 @@ If the threat model includes nation-state actors targeting the compiler host, do
 CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier server releases. The current state is **strong by default**:
 
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, not a silent fall-through to `public`. This closes the cross-tenant data-leak risk that existed pre-I-0106.
-- **Per-tenant `DefaultRunner` instances** cached in `TenantRunnerCache` (default 256-entry LRU). Workflow execution lands in the tenant's schema, not in a shared global runner.
+- **Per-tenant `DefaultRunner` instances** held in `TenantRunnerCache`, one for every tenant from server start until the tenant is deleted. Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers` routes through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
 - **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
 
